@@ -17,11 +17,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use dereth_client_contract::overlay::{
+use dereth_primitives::{TextureData, TextureFormat, Viewport};
+use dereth_ui_overlay::{
     OverlayDepth, OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture,
     OverlayVertex, PreviewSpace,
 };
-use dereth_primitives::{TextureData, TextureFormat, Viewport};
 
 use crate::art::{Art, TexId};
 

@@ -1,0 +1,17 @@
+[package]
+name = "auberean-options"
+description = "The client's own preferences below any window: each preference's value, the bank that keeps one of each and tells who uses it, and what an options page asks of them, so every interface edits the same preferences."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# How the C library reads a number (a preference's text form).
+auberean-dat.workspace = true
+# A number written as the client writes one (`%f`).
+auberean-text.workspace = true
+
+[lints]
+workspace = true

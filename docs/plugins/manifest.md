@@ -10,6 +10,7 @@ id = "example.xpmeter"            # lowercase reverse-DNS; unique
 name = "XP Meter"                 # shown to the player
 version = "1.2.0"                 # SemVer 2
 api = "0.1"                       # the lowest API version it needs
+game = "dereth"                   # optional: the game it is for; dereth when absent
 entry = "main.lua"                # optional; main.lua when absent
 description = "..."               # optional
 authors = ["..."]                 # optional
@@ -46,6 +47,11 @@ domains = ["example.org"]         # the hosts its HTTPS requests may reach, and 
 - `version`: `MAJOR.MINOR.PATCH` with no leading zeros, optionally followed by `-pre` and `+build`.
 - `api`: `MAJOR.MINOR`. A host runs a plugin when the majors are equal and the host's minor is at
   least the plugin's.
+- `game`: the game the plugin is written for, `dereth` (Asheron's Call, played in Dereth) or
+  `auberean` (Asheron's Call 2, played in Auberean); `dereth` when absent. A host runs only its
+  own game's plugins: another game's is refused, and the player is told it is a plugin for that
+  game ("it is a plugin for Auberean, not Dereth"). The types of the interface are the same for
+  both; what a plugin reads, hears and asks of the game is its game's own.
 - `entry`: a relative `/`-separated path inside the package, with no empty, `.` or `..` part, and
   the file must exist. A `.lua` or `.luau` entry runs in the Lua engine; a `.wasm` entry is a
   compiled plugin ([wasm.md](wasm.md)). A host with no engine for the entry refuses the package

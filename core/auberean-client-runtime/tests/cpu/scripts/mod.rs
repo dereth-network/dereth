@@ -10,5 +10,6 @@ mod log_system;
 mod lookup;
 mod names;
 mod natives;
+mod notices;
 mod physics_object;
 mod repository;

@@ -10,10 +10,11 @@
 //!
 //! # How a VM is built
 //!
-//! [`LuauEngine::instantiate`] makes a VM with Luau's safe libraries, runs the bindings
-//! (`prelude.lua`) with three private functions (the host call, a compiler for the plugin's own
-//! modules and the traceback), installs the table the bindings return as globals, and seals the
-//! sandbox: from then on the globals are read-only and the plugin's own globals live in a table of
+//! [`LuauEngine::instantiate`] makes a VM with Luau's safe libraries, runs the bindings every game
+//! shares (`base.lua`) with three private functions (the host call, a compiler for the plugin's own
+//! modules and the traceback), runs the game's own layer of them over those (the engine's
+//! [`Bindings`]: Dereth's are [`DERETH`]), installs the table the bindings return as globals, and
+//! seals the sandbox: from then on the globals are read-only and the plugin's own globals live in a table of
 //! its own. The host call is the only way out of the VM. It is a function that exists only while
 //! the host is inside the VM ([`LuauInstance::load`], [`LuauInstance::deliver`]): outside, calling
 //! it fails.
@@ -59,10 +60,32 @@ use mlua::chunk::ChunkMode;
 use mlua::{Function, Lua, MultiValue, Table, VmState};
 use web_time::{Duration, Instant};
 
-/// The bindings, run once per VM.
-const PRELUDE: &str = include_str!("prelude.lua");
+/// The bindings every game shares, run once per VM before the game's layer.
+const BASE: &str = include_str!("base.lua");
 
-/// The host's libraries written in Lua over the plugin interface, each compiled the first time a
+/// A game's own bindings: the Lua layer that adds the game's namespaces to the API every game
+/// shares, and the host's libraries written in Lua for that game. An engine runs one game's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bindings {
+    /// The game's name, which names its layer in tracebacks (`bindings.<name>`).
+    pub name: &'static str,
+    /// The layer: a chunk run once per VM with the API table, which it adds to, and the shared
+    /// bindings' kit (the host call, `request`, `numbered`, the host's libraries by name and
+    /// `on_entry`).
+    pub layer: &'static str,
+    /// The host's libraries written in Lua, by the name a plugin's `require` gives: each compiled
+    /// the first time one is named.
+    pub libraries: &'static [(&'static str, &'static str)],
+}
+
+/// Dereth's bindings: its namespaces over the shared ones, and its libraries.
+pub const DERETH: Bindings = Bindings {
+    name: "dereth",
+    layer: include_str!("dereth.lua"),
+    libraries: LIBRARIES,
+};
+
+/// Dereth's libraries written in Lua over the plugin interface, each compiled the first time a
 /// plugin's `require` names it: UtilityBelt's script API (`dereth.ubscript`) and its parts.
 pub const LIBRARIES: &[(&str, &str)] = &[
     ("dereth.ubscript", include_str!("ubscript/base.lua")),
@@ -85,9 +108,31 @@ const HOST_KEY: &str = "dereth.host";
 /// Values nested deeper than this do not cross between a plugin and its host.
 const MAX_DEPTH: usize = 64;
 
-/// The Luau engine.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct LuauEngine;
+/// The Luau engine, running one game's bindings.
+#[derive(Debug, Clone, Copy)]
+pub struct LuauEngine {
+    bindings: Bindings,
+}
+
+impl LuauEngine {
+    /// An engine whose VMs run `bindings` over the shared ones.
+    #[must_use]
+    pub const fn new(bindings: Bindings) -> Self {
+        Self { bindings }
+    }
+
+    /// An engine running Dereth's bindings ([`DERETH`]).
+    #[must_use]
+    pub const fn dereth() -> Self {
+        Self::new(DERETH)
+    }
+
+    /// The bindings its VMs run.
+    #[must_use]
+    pub const fn bindings(&self) -> Bindings {
+        self.bindings
+    }
+}
 
 impl ScriptEngine for LuauEngine {
     fn name(&self) -> &'static str {
@@ -95,7 +140,7 @@ impl ScriptEngine for LuauEngine {
     }
 
     fn instantiate(&self, limits: Limits) -> Result<Box<dyn ScriptInstance>, ScriptError> {
-        LuauInstance::new(limits)
+        LuauInstance::new(self.bindings, limits)
             .map(|i| Box::new(i) as Box<dyn ScriptInstance>)
             .map_err(|e| {
                 ScriptError::new(
@@ -229,8 +274,9 @@ impl std::fmt::Debug for LuauInstance {
 }
 
 impl LuauInstance {
-    fn new(limits: Limits) -> mlua::Result<Self> {
+    fn new(bindings: Bindings, limits: Limits) -> mlua::Result<Self> {
         Self::with_clock(
+            bindings,
             limits,
             Rc::new(MachineClock {
                 start: Instant::now(),
@@ -238,12 +284,16 @@ impl LuauInstance {
         )
     }
 
-    /// A VM whose budget, and profile, read the time from `clock` rather than the machine's
-    /// monotonic clock.
+    /// A VM running `bindings` whose budget, and profile, read the time from `clock` rather than
+    /// the machine's monotonic clock.
     ///
     /// # Errors
     /// The VM could not be made.
-    pub fn with_clock(limits: Limits, clock: Rc<dyn VmClock>) -> mlua::Result<Self> {
+    pub fn with_clock(
+        bindings: Bindings,
+        limits: Limits,
+        clock: Rc<dyn VmClock>,
+    ) -> mlua::Result<Self> {
         #[cfg(target_arch = "wasm32")]
         wasm_rt::init();
         let lua = Lua::new();
@@ -306,15 +356,19 @@ impl LuauInstance {
             },
         )?;
         let libraries = lua.create_table()?;
-        for (name, source) in LIBRARIES {
+        for (name, source) in bindings.libraries {
             libraries.set(*name, *source)?;
         }
         let traceback: Function = lua.globals().get::<Table>("debug")?.get("traceback")?;
-        let (api, dispatch, new_entry): (Table, Function, Function) = lua
-            .load(PRELUDE)
+        let (api, dispatch, new_entry, kit): (Table, Function, Function, Table) = lua
+            .load(BASE)
             .set_name("=bindings")
             .set_mode(ChunkMode::Text)
             .call((hostcall, compile, traceback, libraries))?;
+        lua.load(bindings.layer)
+            .set_name(format!("=bindings.{}", bindings.name))
+            .set_mode(ChunkMode::Text)
+            .call::<()>((api.clone(), kit))?;
         let globals = lua.globals();
         let mut api_names = Vec::new();
         for pair in api.pairs::<String, mlua::Value>() {

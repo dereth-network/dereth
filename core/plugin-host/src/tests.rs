@@ -146,7 +146,7 @@ impl Harness {
         };
         let mut host = PluginHost::new(
             config,
-            Box::new(LuauEngine),
+            Box::new(LuauEngine::dereth()),
             Box::new(StaticSource { packages }),
             Box::new(storage.clone()),
         );
@@ -388,6 +388,22 @@ required = [\"overlay.world\"]
     );
     assert!(
         text.contains("test.newer was not loaded: it needs plugin API 0.9, and this host has 0.7"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_plugin_for_another_game_is_refused_and_one_naming_this_game_loads() {
+    let mut h = Harness::new(vec![
+        package("test.other", "", "game = \"auberean\"\n"),
+        package("test.named", "", "game = \"dereth\"\n"),
+    ]);
+    h.frame();
+    let ids: Vec<_> = h.host.plugins().into_iter().map(|p| p.id).collect();
+    assert_eq!(ids, ["test.named"]);
+    let text = h.printed_text().join("\n");
+    assert!(
+        text.contains("test.other was not loaded: it is a plugin for Auberean, not Dereth"),
         "{text}"
     );
 }
@@ -1628,7 +1644,7 @@ fn a_watching_host_reloads_a_plugin_whose_files_changed() {
     let mut h = Harness::new(Vec::new());
     h.host = PluginHost::new(
         config,
-        Box::new(LuauEngine),
+        Box::new(LuauEngine::dereth()),
         Box::new(source),
         Box::new(MemoryStorage::default()),
     );
@@ -1721,7 +1737,7 @@ fn every_operation_of_the_schema_is_one_the_host_answers_and_an_entry_picks_its_
     let config = HostConfig::new("dereth-test", vec![HostCapability::Core]);
     h.host = PluginHost::new(
         config,
-        Box::new(LuauEngine),
+        Box::new(LuauEngine::dereth()),
         Box::new(StaticSource {
             packages: vec![p, package("test.lua", "print('lua')", "")],
         }),
@@ -1786,7 +1802,7 @@ end
         );
         let mut host = PluginHost::new(
             config,
-            Box::new(LuauEngine),
+            Box::new(LuauEngine::dereth()),
             Box::new(StaticSource { packages: vec![p] }),
             Box::new(MemoryStorage::default()),
         );
@@ -1851,7 +1867,7 @@ fn a_package_in_the_clients_own_namespace_is_refused_and_reaches_none_of_the_hos
         &mut h.host,
         PluginHost::new(
             HostConfig::new("dereth-test", vec![HostCapability::Core]),
-            Box::new(LuauEngine),
+            Box::new(LuauEngine::dereth()),
             Box::new(StaticSource {
                 packages: Vec::new(),
             }),
@@ -1883,7 +1899,7 @@ fn asking_host(packages: Vec<Package>, files: super::MemoryFiles) -> PluginHost 
     );
     let mut host = PluginHost::new(
         config,
-        Box::new(LuauEngine),
+        Box::new(LuauEngine::dereth()),
         Box::new(StaticSource { packages }),
         Box::new(MemoryStorage::default()),
     )
@@ -2265,7 +2281,7 @@ fn stepped_host(packages: Vec<Package>) -> (PluginHost, Rc<Cell<u32>>) {
     };
     let mut host = PluginHost::new(
         config,
-        Box::new(LuauEngine),
+        Box::new(LuauEngine::dereth()),
         Box::new(StaticSource { packages }),
         Box::new(MemoryStorage::default()),
     )

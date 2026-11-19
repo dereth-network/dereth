@@ -120,9 +120,21 @@ pub static DIVERGENCES: &[Divergence] = &[
                client does not have.",
     },
     Divergence {
+        id: "CD2-horizon-key-maps",
+        says: "Horizon has key maps of its own, in files of their own: while it is shown its keys \
+               stand in for the player's key maps, so neither changes the other's. The original \
+               client has its one set of key maps.",
+    },
+    Divergence {
         id: "CD2-input-method-is-always-offered",
         says: "Wherever you can type, your system's input method is offered. The original client \
                offered it only with its preference on or a command line switch.",
+    },
+    Divergence {
+        id: "CD2-interface-choice",
+        says: "The options window's client page ends with a choice of interface: the game's own, or \
+               Horizon, this client's. It is kept in the preferences file, and the game switches \
+               as it is applied. The original client has its one interface.",
     },
     Divergence {
         id: "CD2-lists-iterations-it-need-not-hold",
@@ -187,10 +199,39 @@ pub static DIVERGENCES: &[Divergence] = &[
                refused. Scripts find it at once, except a move's answer asking for the item it moves, which finds it from the next upkeep.",
     },
     Divergence {
+        id: "CD2-options-scroll-by-line",
+        says: "The options window's lists scroll a line at a time: a wheel notch or an arrow \
+               press passes an open section's header, then one of its rows at a time, and a \
+               closed section in one step; a press on the bar's track moves the view's height \
+               less that line. The original stepped by the height of the topmost row, and each \
+               section is one row, so one step passed a whole open section.",
+    },
+    Divergence {
+        id: "CD2-orbit-camera",
+        says: "An interface can show the world through an orbit camera that circles the player, \
+               turned with the mouse while a button is held and zoomed with the wheel, with the \
+               player moving where the camera looks or, chosen in the preferences, as the game \
+               moves them. The original client has only its own chase camera.",
+    },
+    Divergence {
         id: "CD2-placed-boxes-hold-the-animation",
         says: "Seen through a doorway, a placed object that moves is left out only when the box \
                about its pose is out of sight. The original's box for such an object stands where \
                its mesh is stored, however far its animation takes it.",
+    },
+    Divergence {
+        id: "CD2-plugins",
+        says: "The client can run plugins: packages of Lua scripts that hear the game's events, \
+               add commands and windows, and ask the game for what the player could. The headless \
+               client runs them today. The original client had none.",
+    },
+    Divergence {
+        id: "CD2-portal-space-fades-out-after-the-world-s-first-frame",
+        says: "Leaving portal space, this client readies the world on the device while the tunnel \
+               and the white still hide it, a share a frame, and the white fades from the world \
+               over a full second counted from the frame after the world is first drawn again, so \
+               a slow first frame can't cut the fade short. The original counted from the frame \
+               the world came back in.",
     },
     Divergence {
         id: "CD2-qualities-dump-answers",

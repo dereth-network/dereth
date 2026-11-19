@@ -345,6 +345,102 @@ fn default_tells_the_client_the_values_it_puts_back() {
     );
 }
 
+/// Default, answered yes, leaves the interface chosen as it is: the other sections go back to
+/// their defaults and are told, the interface's row keeps its value and nothing changes it.
+///
+/// Behaviour: ui.options.default-leaves-the-interface-chosen-as-it-is
+#[test]
+fn default_leaves_the_interface_chosen_as_it_is() {
+    use auberean_ui_game::options::client::{self, section, Listing, Request as Asked};
+    use auberean_ui_game::options::helper::{Change, Control};
+    use auberean_ui_game::options::preference::{Choice, Description, Number};
+    const INTERFACE: u32 = 0x4100_7E03;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let tab = el(&ui, "ClientTab");
+    click(&mut ui, &mut p, &mut t, tab);
+    let mut bright = Number::new();
+    bright.set_range(-0.2, 1.0);
+    bright.set_default(0.0);
+    bright.set_value(-0.2);
+    bright.description = Description {
+        section: section::GRAPHICS,
+        key: 0x4000_004B,
+        table: client::PREFERENCE_STRINGS,
+        label: Token::of("ID_Graphics_ScreenBrightness").raw(),
+        help: 0,
+    };
+    let mut interface = Choice::new();
+    for (v, name) in [(0, "Retail"), (1, "Horizon")] {
+        interface.assign_choice(v, (0, Token::of(name).raw()));
+    }
+    interface.set_default(0);
+    interface.set_value(1);
+    interface.description = Description {
+        section: section::UI,
+        key: INTERFACE,
+        table: client::PREFERENCE_STRINGS,
+        label: Token::of("ID_UI_Interface").raw(),
+        help: 0,
+    };
+    let listing = Listing {
+        serial: 1,
+        sections: vec![
+            (section::GRAPHICS, vec![Change::Number(bright)]),
+            (section::UI, vec![Change::Choice(interface)]),
+        ],
+    };
+    let frame = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, notices: &[Notice]| {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(&listing),
+            ..View::default()
+        };
+        let mut out = Vec::new();
+        p.tick(ui, &view, notices, &mut out);
+        out
+    };
+    frame(&mut ui, &mut p, &mut t, &[]);
+    frame(&mut ui, &mut p, &mut t, &[]);
+    let default = button(&ui, "ClientPage", "DefaultButton");
+    let out = click(&mut ui, &mut p, &mut t, default);
+    let id = dialogs(&out).first().expect("Default asks first").0;
+    let out = frame(&mut ui, &mut p, &mut t, &[answer(id, true)]);
+    let changes: Vec<&Change> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Options(options::Request::Preferences(Asked::Change(c))) => Some(c),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        changes.iter().any(|c| matches!(c, Change::Number(n)
+            if n.description.key == 0x4000_004B && n.get().abs() < 0.001)),
+        "the brightness back to its default: {changes:?}"
+    );
+    assert!(
+        !changes.iter().any(|c| matches!(c, Change::Choice(n)
+            if n.description.key == INTERFACE)),
+        "the interface left alone: {changes:?}"
+    );
+    let c = window(&p).client.as_ref().expect("the client page");
+    let (rows, _) = c.rows();
+    let shown = rows
+        .all
+        .iter()
+        .find(|r| {
+            matches!(&r.control, Control::Choice { pref, .. }
+                if pref.description.key == INTERFACE)
+        })
+        .expect("the interface's row");
+    assert_eq!(shown.choice_now(&ui), 1, "the row keeps Horizon");
+}
+
 /// The client page, opened, asks the client to list its sections' preferences; a listing the
 /// client gives fills the section it names with a row for each preference (a choice and a
 /// yes-or-no one here), and the same listing is taken in once.
@@ -365,9 +461,12 @@ fn the_client_page_shows_the_preferences_the_client_lists() {
     assert!(ui.shown(el(&ui, "ClientPage")), "the tab shows its page");
     let asked = out.iter().any(|r| {
         matches!(r, Request::Options(options::Request::Preferences(client::Request::Attach(s)))
-            if s.contains(&section::GRAPHICS) && s.len() == 8)
+            if s.contains(&section::GRAPHICS) && s.len() == 9 && s.last() == Some(&section::UI))
     });
-    assert!(asked, "the page asks for its eight sections");
+    assert!(
+        asked,
+        "the page asks for its nine sections, the interface's last"
+    );
     let describe = |key: u32| Description {
         section: section::GRAPHICS,
         key,
@@ -724,6 +823,215 @@ fn closing_a_section_leaves_the_pages_scroll_widget_long() {
     frame(&mut ui, &mut p, &mut t);
     assert!(ui.is_visible(widget), "closed");
     assert_eq!(ui.screen_rect(widget).expect("placed").height(), whole);
+}
+
+/// The options window open on its client page, `rows` yes-or-no rows listed in each of
+/// `sections`, every section closed; its list and the list's bar.
+struct ClientPage {
+    ui: Ui,
+    p: GamePlay,
+    t: f64,
+    listing: auberean_ui_game::options::client::Listing,
+    list: Handle,
+    bar: Handle,
+}
+
+impl ClientPage {
+    fn open(sections: &[u32], rows: u32) -> Self {
+        use auberean_ui_game::options::client::{self, Listing};
+        use auberean_ui_game::options::preference::Description;
+        let mut ui = Ui::new(records(), 1024, 768);
+        let mut p = play(&mut ui);
+        let mut t = 0.0;
+        let b = el(&ui, "OptionButton");
+        click(&mut ui, &mut p, &mut t, b);
+        let listing = Listing {
+            serial: 1,
+            sections: sections
+                .iter()
+                .map(|s| {
+                    let rows = (0..rows)
+                        .map(|k| {
+                            client::flag(
+                                Description {
+                                    section: *s,
+                                    key: 0x4000_0100 + (s << 8) + k,
+                                    table: client::PREFERENCE_STRINGS,
+                                    label: Token::of("ID_Rendering_FullScreen").raw(),
+                                    help: 0,
+                                },
+                                false,
+                                true,
+                            )
+                        })
+                        .collect();
+                    (*s, rows)
+                })
+                .collect(),
+        };
+        Self::tick(&mut ui, &mut p, &mut t, &listing);
+        let tab = el(&ui, "ClientTab");
+        click(&mut ui, &mut p, &mut t, tab);
+        let list = el(&ui, "ClientList");
+        let bar = ui
+            .node(list)
+            .and_then(|n| n.id_attr(attr::VERTICAL_SCROLLBAR))
+            .and_then(|id| ui.element(Token(id)))
+            .expect("the list's bar");
+        Self {
+            ui,
+            p,
+            t,
+            listing,
+            list,
+            bar,
+        }
+    }
+
+    fn tick(
+        ui: &mut Ui,
+        p: &mut GamePlay,
+        t: &mut f64,
+        listing: &auberean_ui_game::options::client::Listing,
+    ) {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(listing),
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut Vec::new());
+    }
+
+    /// One frame with the listing.
+    fn frame(&mut self) {
+        Self::tick(&mut self.ui, &mut self.p, &mut self.t, &self.listing);
+    }
+
+    /// Frames enough for a smooth scroll to finish.
+    fn settle(&mut self) {
+        for _ in 0..10 {
+            self.frame();
+        }
+    }
+
+    /// A section's row element and its header.
+    fn section(&self, s: u32) -> (Handle, Handle) {
+        let c = window(&self.p).client.as_ref().expect("the client page");
+        let (rows, sections) = c.rows();
+        let r = sections
+            .iter()
+            .find(|(at, _)| *at == s)
+            .expect("the section")
+            .1;
+        let Control::Section { header, .. } = rows.all[r].control else {
+            panic!("a section");
+        };
+        (
+            rows.all[r].element.expect("its row"),
+            header.expect("its header"),
+        )
+    }
+
+    fn open_section(&mut self, s: u32) {
+        let (_, header) = self.section(s);
+        click(&mut self.ui, &mut self.p, &mut self.t, header);
+        self.frame();
+    }
+
+    fn y_view(&self) -> i32 {
+        self.ui
+            .node(self.list)
+            .and_then(|n| n.int_attr(Token::of("y_view")))
+            .expect("the list's view")
+    }
+
+    /// A wheel notch over the list, down or up, and the scroll finished.
+    fn notch(&mut self, down: bool) {
+        let r = self.ui.screen_rect(self.list).expect("placed");
+        self.ui.pointer_move((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+        let b = if down {
+            button_id::WHEEL_DOWN
+        } else {
+            button_id::WHEEL_UP
+        };
+        self.ui.pointer_button(b, true);
+        self.ui.pointer_button(b, false);
+        self.settle();
+    }
+
+    /// A press of the bar's down arrow, and the scroll finished.
+    fn down_arrow(&mut self) {
+        let arrow = self
+            .ui
+            .node(self.bar)
+            .and_then(|n| n.id_attr(Token::of("down_button")))
+            .and_then(|id| {
+                self.ui
+                    .child_recursive(self.ui.root_of(self.bar), Token(id))
+            })
+            .expect("the bar's down arrow");
+        click(&mut self.ui, &mut self.p, &mut self.t, arrow);
+        self.settle();
+    }
+
+    fn height(&self, h: Handle) -> i32 {
+        self.ui.screen_rect(h).expect("placed").height()
+    }
+}
+
+/// With a section open, a wheel notch or a press of the bar's arrow steps one line: past the
+/// section's header, then one of its rows at a time, and back up likewise; never the whole open
+/// section at once.
+///
+/// Behaviour: ui.options.a-step-goes-through-an-open-sections-rows-a-line-at-a-time
+#[test]
+fn a_step_goes_through_an_open_sections_rows_a_line_at_a_time() {
+    use auberean_ui_game::options::client::section;
+    let mut c = ClientPage::open(&[section::RENDERING], 12);
+    c.open_section(section::RENDERING);
+    let (row, header) = c.section(section::RENDERING);
+    let inner =
+        c.ui.child_recursive(row, auberean_ui_game::options::helper::name::TREE_LIST)
+            .expect("the section's list");
+    let first = c.ui.list_items(inner)[0];
+    let (head, line) = (c.height(header), c.height(first));
+    assert!(line > 0 && head > 0);
+    assert!(c.height(row) > head + 10 * line, "the section open");
+    assert_eq!(c.y_view(), 0);
+    c.notch(true);
+    assert_eq!(c.y_view(), head, "past the header");
+    c.notch(true);
+    assert_eq!(c.y_view(), head + line, "one row on");
+    c.down_arrow();
+    assert_eq!(c.y_view(), head + 2 * line, "the arrow, one row on");
+    c.notch(false);
+    assert_eq!(c.y_view(), head + line, "one row back");
+    c.notch(false);
+    c.notch(false);
+    assert_eq!(c.y_view(), 0, "back past the header to the top");
+}
+
+/// A closed section is one line: a notch at it passes the whole of it, to the next section's
+/// header, and goes on through that section's rows when it is open.
+///
+/// Behaviour: ui.options.a-closed-section-is-passed-in-one-step
+#[test]
+fn a_closed_section_is_passed_in_one_step() {
+    use auberean_ui_game::options::client::section;
+    let mut c = ClientPage::open(&[section::RENDERING, section::GRAPHICS], 12);
+    c.open_section(section::GRAPHICS);
+    let (closed, _) = c.section(section::RENDERING);
+    let (_, header) = c.section(section::GRAPHICS);
+    let (closed, head) = (c.height(closed), c.height(header));
+    c.notch(true);
+    assert_eq!(c.y_view(), closed, "the closed section passed");
+    c.notch(true);
+    assert_eq!(c.y_view(), closed + head, "the open one's header passed");
+    c.notch(false);
+    c.notch(false);
+    assert_eq!(c.y_view(), 0, "back over the closed section in one step");
 }
 
 /// "Other" on the assistance page is a kind of call like the rest, one that asks for a description,

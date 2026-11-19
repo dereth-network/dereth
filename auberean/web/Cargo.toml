@@ -16,6 +16,8 @@ crate-type = ["cdylib", "rlib"]
 auberean-shell.workspace = true
 # The game's own interface (the retail screens), and what opens its records.
 auberean-interface.workspace = true
+# Horizon, the client's own interface, offered beside the game's.
+auberean-horizon.workspace = true
 auberean-ui.workspace = true
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-scene.workspace = true

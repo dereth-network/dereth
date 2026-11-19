@@ -16,12 +16,12 @@ use auberean_interface::data::{open_data, ui_assets, Install};
 use auberean_present::Presenter;
 use auberean_scene::WorldData;
 use auberean_shell::input::{Event, Key};
-use auberean_shell::interface::{CursorImage, Interface};
+use auberean_shell::interface::CursorImage;
 use auberean_shell::Shell;
 use wasm_bindgen::prelude::*;
 
 use crate::host::{self, Browser, LocalClock, PageHost, OUTPUT_RATE, SETTINGS_FILE};
-use crate::{keys, size, store};
+use crate::{horizon, keys, size, store};
 
 #[wasm_bindgen]
 extern "C" {
@@ -92,6 +92,60 @@ pub fn start(filter: &str) {
         .without_time()
         .with_writer(ConsoleLine::default)
         .try_init();
+}
+
+/// The names of Horizon's files, which the module does not carry: the worker fetches each from
+/// beside the first game's module (`pkg/horizon/<name>`) and hands it over with [`horizon_file`],
+/// then calls [`horizon_loaded`].
+#[wasm_bindgen(js_name = horizonFiles)]
+#[must_use]
+pub fn horizon_files() -> Vec<String> {
+    horizon::FILES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// One of Horizon's files, `name`, as the worker fetched it.
+#[wasm_bindgen(js_name = horizonFile)]
+#[allow(clippy::needless_pass_by_value)]
+pub fn horizon_file(name: &str, bytes: Vec<u8>) {
+    HORIZON_FILES.with(|files| files.borrow_mut().insert(name, bytes));
+}
+
+/// The worker has handed over every one of Horizon's files: the client offers Horizon from now on.
+///
+/// # Errors
+/// What is wrong with the files (one missing, or a page sent in a file's place); Horizon is then
+/// refused, with that reason.
+#[wasm_bindgen(js_name = horizonLoaded)]
+pub fn horizon_loaded() -> Result<(), JsError> {
+    let files = HORIZON_FILES.with(|files| std::mem::take(&mut *files.borrow_mut()));
+    horizon::hand_over_art(Ok(files)).map_err(|why| JsError::new(&why))
+}
+
+/// The worker could not fetch Horizon's files, for `why`: the client refuses Horizon, and says why
+/// when it is chosen.
+#[wasm_bindgen(js_name = horizonFailed)]
+pub fn horizon_failed(why: &str) {
+    HORIZON_FILES.with(|files| *files.borrow_mut() = auberean_horizon::art::Pieces::new());
+    let _ = horizon::hand_over_art(Err(why.to_owned()));
+}
+
+/// Whether the client will start in Horizon: the preferences it kept name it. The worker waits for
+/// the art then.
+#[wasm_bindgen(js_name = horizonWanted)]
+#[must_use]
+pub fn horizon_wanted() -> bool {
+    store::install(&settings_load(), Some(settings_save));
+    let kept = store::read(SETTINGS_FILE).and_then(|b| String::from_utf8(b).ok());
+    horizon::wanted(kept.as_deref())
+}
+
+thread_local! {
+    /// Horizon's files the worker has handed over so far.
+    static HORIZON_FILES: RefCell<auberean_horizon::art::Pieces> =
+        RefCell::new(auberean_horizon::art::Pieces::new());
 }
 
 /// This build's version: Auberean's.
@@ -358,14 +412,18 @@ impl WebPlay {
             account,
             password,
         };
-        let interface: Box<dyn Interface> = Box::new(auberean_interface::Retail::new(
-            assets,
-            (1024, 768),
-            Some(login),
-        ));
+        let records: auberean_horizon::art::Records = assets.clone();
+        let start = auberean_horizon::Start {
+            login: Some(login.clone()),
+            version: version(),
+            ..auberean_horizon::Start::default()
+        };
+        let retail = auberean_interface::Retail::new(assets, (1024, 768), Some(login));
         let host = PageHost::new(PageClock, CLOCK, server);
         let host = if friends { host.with_friends() } else { host };
-        let mut shell = Shell::new(host, world, data, interface);
+        // Horizon over the art the page fetched: refused, saying why, until it is in.
+        let maker = horizon::interfaces(retail, Some(records), start, horizon::art);
+        let mut shell = Shell::with_interfaces(host, world, data, maker);
         // The page's world carries the friends service on the game's own connection.
         if friends {
             shell.friends = auberean_shell::FriendsService::AtTheLogin;
@@ -415,6 +473,7 @@ impl WebPlay {
         self.cursor.clone_from(&out.overlay.cursor);
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
         self.present.set_brightness(Some(brightness));
+        self.present.warm(out.warm, &mut load);
         self.present.present(
             out.world,
             out.portal.map(|f| (f, out.portal_alpha)),

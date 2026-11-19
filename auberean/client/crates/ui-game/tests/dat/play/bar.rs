@@ -105,6 +105,10 @@ struct Play {
     facts: Option<Facts>,
     /// What the play screen asked when the shortcuts were reloaded.
     reloaded: Vec<Request>,
+    /// The player's vitals, whether it is a hero and its focus, as its qualities give them.
+    vitals: Option<[u32; 4]>,
+    hero: bool,
+    focus: Option<[u32; 2]>,
 }
 
 impl Play {
@@ -122,6 +126,9 @@ impl Play {
             source: source(1),
             facts: None,
             reloaded: Vec::new(),
+            vitals: None,
+            hero: false,
+            focus: None,
         };
         me.reloaded = me.tick(&[notice(bar_notice::RELOAD_SHORTCUTS, vec![])]);
         me
@@ -134,6 +141,9 @@ impl Play {
         let view = View {
             shortcuts: Some(&self.source),
             inventory: self.facts.as_ref(),
+            vitals: self.vitals,
+            hero: self.hero,
+            focus: self.focus,
             ..View::default()
         };
         self.p.tick(&mut self.ui, &view, notices, &mut out);
@@ -301,8 +311,7 @@ fn keys_and_clicks_use_slots_and_sets_move_the_view() {
 }
 
 /// A slot dragged onto another empty one moves its shortcut there (its own slot emptied); one
-/// dragged off the bar is emptied; a skill the player no longer has trained is taken off the
-/// bar when the scripts say the skill changed.
+/// dragged off the bar is emptied.
 ///
 /// Behaviour: ui.shortcuts.dragging-moves-and-clears-shortcuts
 #[test]
@@ -333,14 +342,50 @@ fn dragging_moves_and_clears_shortcuts() {
         }),
         "dragged off the bar: {out:?}"
     );
+}
 
+/// The bar takes nothing off itself: a skill the player no longer has trained stays in its slot
+/// until the scripts no longer hold it there (the game takes it off), and then the slot shows
+/// empty, as does a slot the scripts emptied that the bar never touched.
+///
+/// Behaviour: ui.shortcuts.a-slot-the-scripts-changed-shows-what-they-hold
+#[test]
+fn a_slot_the_scripts_changed_shows_what_they_hold_and_the_bar_empties_none_itself() {
+    let mut s = Play::new();
+    s.tick(&[]);
+    let icon = |s: &Play, i| {
+        s.ui.node(s.part(i, "ShortcutIcon"))
+            .and_then(|n| n.picture.map(|p| p.id))
+    };
     s.source.version += 1;
     s.source.skills[2].trained = false;
     let out = s.tick(&[notice(bar_notice::UPDATE_SKILL, vec![SHOOT])]);
-    assert!(out.contains(&Request::PutInSlot {
-        slot: 9,
-        shortcut: Shortcut::default()
-    }));
+    assert!(
+        !out.iter().any(|r| matches!(r, Request::PutInSlot { .. })),
+        "{out:?}"
+    );
+    assert_eq!(s.bar().shortcuts()[9], skill(SHOOT));
+
+    s.source.version += 1;
+    for i in [9, 1] {
+        s.source.shortcuts[i] = Shortcut::default();
+        s.source.slots[i] = SlotInfo {
+            answer: 1,
+            tooltip: "Empty".into(),
+            icon: 0,
+        };
+    }
+    let out = s.tick(&[]);
+    assert!(
+        !out.iter().any(|r| matches!(r, Request::PutInSlot { .. })),
+        "{out:?}"
+    );
+    for i in [9, 1] {
+        assert_eq!(s.bar().shortcuts()[i], Shortcut::default(), "slot {i}");
+        assert_eq!(icon(&s, i), None, "slot {i}'s icon");
+        assert_eq!(s.ui.element_tooltip(s.slot(i)), Some("Empty"));
+    }
+    assert_eq!(icon(&s, 0), Some(ICON_A), "the others as they were");
 }
 
 /// A slot pressed keeps its icon, and dragged, the copy that follows the pointer shows the same
@@ -869,4 +914,102 @@ fn an_item_slot_shows_the_icon_its_look_makes() {
     assert_ne!(laid.bgra, bottom.bgra, "the top layer over the bottom one");
     assert_eq!(s.ui.element_tooltip(s.slot(5)), Some("Sword"));
     assert_eq!(s.text(s.part(5, "NumberDisplay")), "6");
+}
+
+/// The focus bar as shown: its meter's state, its numbers' text and whether they show, and the
+/// bar's tooltip.
+fn focus_bar(s: &Play) -> (Option<Token>, String, bool, Option<String>) {
+    let text = s.element("FocusText");
+    (
+        s.ui.node(s.element("FocusMeter")).map(|n| n.state),
+        s.text(text),
+        s.ui.node(text).is_some_and(|n| n.visible),
+        s.ui.element_tooltip(s.element("FocusField"))
+            .map(str::to_owned),
+    )
+}
+
+/// What a non-hero's focus bar shows: the ornament, filled full, without numbers or tooltip.
+fn not_a_heros(s: &Play, why: &str) {
+    let (state, text, shown, tip) = focus_bar(s);
+    assert_eq!(state, Some(Token::of("not_hero")), "{why}");
+    assert_eq!(text, "1 / 1", "{why}: filled full");
+    assert!(!shown, "{why}: no numbers");
+    assert_eq!(tip, None, "{why}: no tooltip");
+}
+
+/// What a hero's focus bar shows: its focus of its greatest, the numbers shown, its tooltip.
+fn a_heros(s: &Play, numbers: &str, why: &str) {
+    let (state, text, shown, tip) = focus_bar(s);
+    assert_eq!(state, Some(Token::of("hero")), "{why}");
+    assert_eq!(text, numbers, "{why}");
+    assert!(shown, "{why}: the numbers shown");
+    assert!(tip.is_some(), "{why}: its tooltip");
+}
+
+fn hero_status(hero: bool, focus: u64, max: u64) -> Notice {
+    let long = |v: u64| [(v >> 32) as u32, (v & 0xFFFF_FFFF) as u32];
+    let mut w = vec![u32::from(hero)];
+    w.extend(long(focus));
+    w.extend(long(max));
+    notice(status_notice::UPDATE_HERO_STATUS, w)
+}
+
+/// The scripts say whether the player is a hero: anyone else's focus bar is the ornament, filled
+/// full, without numbers or tooltip, deaf to the focus the scripts say and to clicks; once they say
+/// the player is a hero its focus shows of its greatest, with its tooltip, and follows the focus
+/// they say; said to be no hero again, it is the ornament again.
+///
+/// Behaviour: ui.statusbar.only-a-heros-focus-bar-shows-its-focus
+#[test]
+fn only_a_heros_focus_bar_shows_its_focus() {
+    let mut s = Play::new();
+    let long = |v: u64| [(v >> 32) as u32, (v & 0xFFFF_FFFF) as u32];
+    let focus = |cur: u64, max: u64| {
+        let mut w = vec![vital::FOCUS];
+        w.extend(long(cur));
+        w.extend(long(max));
+        notice(status_notice::UPDATE_VITAL, w)
+    };
+    s.tick(&[hero_status(false, 0, 100)]);
+    not_a_heros(&s, "no hero");
+    s.tick(&[focus(30, 100)]);
+    not_a_heros(&s, "the focus said to a non-hero");
+    let field = s.element("FocusField");
+    s.click(field, button_id::LEFT);
+    not_a_heros(&s, "a click on a non-hero's bar");
+
+    s.tick(&[hero_status(true, 50, 100)]);
+    a_heros(&s, "50 / 100", "made a hero");
+    s.tick(&[focus(60, 100)]);
+    a_heros(&s, "60 / 100", "a hero's focus said");
+
+    s.tick(&[hero_status(false, 60, 100)]);
+    not_a_heros(&s, "no hero again");
+}
+
+/// Until the player's scripts say a vital (a client without them), the status bar reads the
+/// player's qualities as the scripts would: anyone but a hero sees the focus bar's ornament; once
+/// the qualities make the player a hero its focus shows, of its greatest, with its tooltip.
+///
+/// Behaviour: ui.statusbar.without-the-scripts-the-qualities-say-whether-focus-shows
+#[test]
+fn without_the_scripts_the_qualities_say_whether_focus_shows() {
+    let mut s = Play::new();
+    s.vitals = Some([40, 100, 55, 80]);
+    s.tick(&[]);
+    not_a_heros(&s, "no hero");
+    assert_eq!(s.text(s.element("HealthText")), "40 / 100");
+
+    s.hero = true;
+    s.focus = Some([50, 100]);
+    s.tick(&[]);
+    a_heros(&s, "50 / 100", "a hero by its qualities");
+    s.focus = Some([45, 100]);
+    s.tick(&[]);
+    a_heros(&s, "45 / 100", "its focus changed");
+
+    s.hero = false;
+    s.tick(&[]);
+    not_a_heros(&s, "no hero again");
 }

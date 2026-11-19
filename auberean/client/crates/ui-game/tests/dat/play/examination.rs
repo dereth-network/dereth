@@ -358,6 +358,89 @@ fn the_tabbed_window_asks_for_the_tab_pressed() {
     );
 }
 
+/// The player's options turning the classic window back on: the window takes its classic look,
+/// hides its tab buttons and asks to examine with every tab; a profile's lines of every tab show
+/// on its one list, in the profile's order, with no heading between the tabs.
+///
+/// Behaviour: ui.examination.the-window-lays-out-a-profile-line-by-line
+#[test]
+fn the_classic_window_shows_every_tabs_lines_in_one_list_again_when_the_options_turn_it_on() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    key(&mut ui, &mut p, &mut t, tb::EXAMINATION_PANEL);
+    let options =
+        |native: u32, bits: u32| note(native, vec![], vec![Some(Record::OptionBits(bits))]);
+    tick(
+        &mut ui,
+        &mut p,
+        &mut t,
+        &[options(notice::RELOAD_OPTIONS, 0)],
+    );
+    let internal = el(&ui, "ExaminationInternal");
+    assert_eq!(ui.node(internal).expect("made").state, Token::of("tabbed"));
+    let changed = options(
+        auberean_ui_game::options::notice::OPTIONS_CHANGED,
+        auberean_ui_game::examination::CLASSIC_EXAMINATION,
+    );
+    let out = tick(&mut ui, &mut p, &mut t, &[changed]);
+    assert!(
+        out.contains(&Request::Examination { tabs: Some(0x3FF) }),
+        "{out:?}"
+    );
+    assert_eq!(ui.node(internal).expect("made").state, Token::of("classic"));
+    for tab in ["GeneralTab", "DetailsTab", "EffectsTab", "UsageTab"] {
+        assert!(!ui.shown(el(&ui, tab)), "{tab} hidden");
+    }
+    let request = ExamRequest {
+        kind: 0x4000_0002,
+        object: 7,
+        tabs: 0x3FF,
+        data_enum: 0,
+        data_id: 0,
+    };
+    let profile = Profile {
+        request,
+        tabs: 0x3FF,
+        lines: vec![
+            line(kind::STRING, 0x2, 0, Some("Iron Sword")),
+            line(kind::BREAK, 0x2, 0, None),
+            line(kind::STRING, 0x4, 0, Some("Armor Value")),
+            line(kind::BREAK, 0x4, 0, None),
+            line(kind::STRING, 0x10, 0, Some("Enchantment Effects:")),
+            line(kind::BREAK, 0x10, 0, None),
+            line(kind::STRING, 0x20, 0, Some("Requirements")),
+        ],
+    };
+    let shown = note(
+        notice::UPDATE_EXAMINATION_PROFILE,
+        vec![0],
+        vec![Some(Record::Profile(profile))],
+    );
+    tick(&mut ui, &mut p, &mut t, &[shown]);
+    let rows = ui.list_items(el(&ui, "ExaminationListBox"));
+    assert_eq!(rows.len(), 1, "one row");
+    let mut texts: Vec<(i32, String)> = ui
+        .node(rows[0])
+        .expect("row")
+        .children
+        .iter()
+        .filter_map(|c| Some((ui.node(*c)?.rect.y0, ui.text(*c)?)))
+        .filter(|(_, s)| !s.is_empty())
+        .collect();
+    texts.sort_by_key(|(y, _)| *y);
+    let texts: Vec<&str> = texts.iter().map(|(_, s)| s.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "Iron Sword",
+            "Armor Value",
+            "Enchantment Effects:",
+            "Requirements"
+        ]
+    );
+}
+
 fn quest(id: u32, st: u32, given: f64, name: &str) -> Quest {
     Quest {
         id,

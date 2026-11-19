@@ -1,6 +1,6 @@
 [package]
 name = "auberean-client-contract"
-description = "What a front end (a window, a headless driver, a test) asks the client to do: the action vocabulary."
+description = "What a front end (a window, a headless driver, a test) asks the client to do and hears back: the actions, the session and the events."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -369,6 +369,9 @@ pub struct Vitals {
     /// The scripts have said a vital (until then the player's qualities give health and vigor).
     heard: bool,
     from_qualities: Option<[u32; 4]>,
+    /// Whether the player is a hero, and its focus, as the qualities last gave them (until the
+    /// scripts say a vital).
+    hero_from_qualities: Option<(bool, Option<[u32; 2]>)>,
 }
 
 impl Vitals {
@@ -438,6 +441,7 @@ impl Vitals {
             hero: false,
             heard: false,
             from_qualities: None,
+            hero_from_qualities: None,
         }
     }
 
@@ -607,26 +611,28 @@ impl Child for Vitals {
     }
 
     /// Until the scripts say a vital (a client without them), health and vigor from the player's
-    /// qualities, the focus an ornament.
+    /// qualities, and the focus as the scripts would say it from them: a hero's focus of its
+    /// greatest, anyone else's the ornament.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
         if self.heard {
             return;
         }
         let Some(v) = view.vitals else { return };
-        if self.from_qualities == Some(v) {
-            return;
+        if self.from_qualities != Some(v) {
+            self.from_qualities = Some(v);
+            let [h, hm, g, gm] = v.map(u64::from);
+            if let Some(d) = self.health.as_mut() {
+                d.update(ui, h, hm);
+            }
+            if let Some(d) = self.vigor.as_mut() {
+                d.update(ui, g, gm);
+            }
         }
-        let first = self.from_qualities.is_none();
-        self.from_qualities = Some(v);
-        let [h, hm, g, gm] = v.map(u64::from);
-        if let Some(d) = self.health.as_mut() {
-            d.update(ui, h, hm);
-        }
-        if let Some(d) = self.vigor.as_mut() {
-            d.update(ui, g, gm);
-        }
-        if first {
-            self.update_hero_status(ui, false, 1, 1);
+        let hero = (view.hero, view.focus);
+        if self.hero_from_qualities != Some(hero) {
+            self.hero_from_qualities = Some(hero);
+            let [f, fm] = view.focus.unwrap_or([0, 100]).map(u64::from);
+            self.update_hero_status(ui, view.hero, f, fm);
         }
     }
 

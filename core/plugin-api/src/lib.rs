@@ -13,8 +13,9 @@
 //! and what a host offers, [`policy`] what a world allows, [`event`] what a plugin hears, [`ui`]
 //! the declared UI tree and [`layout`] how every host lays it out, [`value`] the plain values
 //! that cross between a plugin and its host (and the JSON a store keeps them in), [`engine`] the
-//! boundary a script engine implements, [`audit`] the answer to a server's plugin audit and
-//! [`version`] the API version rule.
+//! boundary a script engine implements, [`audit`] the answer to a server's plugin audit,
+//! [`version`] the API version rule and [`game`] the games a plugin is written for, with each
+//! one's capabilities, events and operations.
 
 #![forbid(unsafe_code)]
 
@@ -23,6 +24,7 @@ pub mod capability;
 pub mod draw;
 pub mod engine;
 pub mod event;
+pub mod game;
 pub mod layout;
 pub mod manifest;
 pub mod permission;
@@ -38,6 +40,7 @@ pub use engine::{
     VmClock,
 };
 pub use event::Event;
+pub use game::Game;
 pub use manifest::{Context, Manifest, ManifestError, PluginId};
 pub use permission::{AutoDomain, Permission};
 pub use policy::{DomainRule, WorldPolicy};

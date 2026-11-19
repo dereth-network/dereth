@@ -146,6 +146,7 @@ pub mod model;
 pub mod motion;
 pub mod parts;
 pub mod pathfind;
+pub mod plugins;
 pub mod protocol;
 pub mod script;
 pub mod server;
@@ -213,6 +214,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "pathfind",
         rows: pathfind::ROWS,
+    },
+    Subject {
+        name: "plugins",
+        rows: plugins::ROWS,
     },
     Subject {
         name: "protocol",

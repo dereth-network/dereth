@@ -8,40 +8,126 @@
 //!    the world's controls;
 //! 2. lets it see the game and ask for things ([`Interface::update`]): to connect to a server with an
 //!    account, to have the client act (enter the world as a character, make or delete one, log off,
-//!    call the server's scripts), to play or stop a sound, to disconnect or quit ([`Request`]);
+//!    call the server's scripts), to play or stop a sound, to write or read one of the player's
+//!    files, to disconnect or quit ([`Request`]);
 //! 3. lets it draw ([`Interface::draw`]): pictures of its own the window's size, one behind the
 //!    world and one in front of it (an interface whose screens hold the world in a viewport draws
-//!    its deeper layers behind and its nearer ones in front), and rectangles in window pixels, each
-//!    a solid color or a picture of the world's data, drawn in order over everything
+//!    its deeper layers behind and its nearer ones in front), textured triangle batches over
+//!    textures of its own (what a widget kit lowers its drawing to), and rectangles in window
+//!    pixels, each a solid color or a picture of the world's data, drawn in order over everything
 //!    ([`Overlay`]).
 //!
-//! The interface sees the game through [`Game`]: the phase of the session, the client (its model:
-//! the character list, the player, every object and its qualities), the world's records (pictures,
-//! strings, layouts), the window's size, the time, the scene's status. It never reaches the
-//! platform or the device: a host draws its overlay, and the shell carries out its requests.
+//! The interface sees the game through [`Game`]: the phase of the session, the game's view (the
+//! character list, the player, the objects around it and what the panels read of them, the
+//! panels' caches: [`View`]), what the client told since the last frame (its events, the answers
+//! to what the interface asked among them, the scripts' notices to the panels), the world's
+//! records (pictures, strings, layouts), the window's size, the time, the scene's status, the
+//! client's own preferences. It never holds the client, and never reaches the platform or the
+//! device: a host draws its overlay, and the shell carries out its requests. Before the view is
+//! refreshed each frame, the interface may ask for what the refresh is to answer
+//! ([`Interface::before_view`]).
+//!
+//! **Choosing an interface.** The client can show more than one interface ([`Choice`]): the
+//! retail one, and Horizon. The player chooses with the client's own preference `[UI] Interface`
+//! (the client page's last section), or an interface asks with [`Request::ChooseInterface`]. A host
+//! hands the shell an [`InterfaceMaker`], which builds each interface the first time it is chosen
+//! or refuses it, saying why; the shell keeps each one built. A refused choice leaves the interface
+//! shown as it is, and the player is told why ([`Game::told`]). A choice taken is followed at the
+//! start of the next frame: the interface shown is left ([`Interface::leave`]) and lets go of its
+//! textures ([`Interface::release_textures`]), the world's controls let go of what is held and mouse
+//! look ends, and the one chosen is entered ([`Interface::enter`]).
 
 use core::net::SocketAddr;
 
-use auberean_client_sdk::{Action, Client};
+use auberean_client_sdk::contract::event::GameEvent;
+pub use auberean_client_sdk::contract::view::View;
+use auberean_client_sdk::Action;
 use auberean_scene::{Status, WorldData};
 
 pub use auberean_scene::view::{ViewCamera, ViewFigure, ViewLight, ViewScene};
 
 use crate::input::Event;
 
-/// Where the session is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    /// No server: before connecting, or after the session ended.
-    Disconnected,
-    /// Connecting: the login sent, the character list not here yet.
-    Connecting,
-    /// The account's characters are listed: choosing, making or deleting one.
-    Characters,
-    /// Entering the world as a character: asked, the player not here yet.
-    Entering,
-    /// In the world.
-    World,
+pub use auberean_client_sdk::Phase;
+
+/// The overlay's batch and texture types, which name no game.
+pub use dereth_ui_overlay::{
+    GroundMarker, OverlayDepth, OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler,
+    OverlaySpace, OverlayTexture, OverlayVertex, PreviewSpace, Viewport,
+};
+
+/// The interfaces the client can show, as the `[UI] Interface` preference names them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Choice {
+    /// The game's own interface, as the September 2013 client shows it.
+    #[default]
+    Retail,
+    /// Horizon, this client's own.
+    Horizon,
+}
+
+impl Choice {
+    /// Every interface, in the order the options list them.
+    pub const ALL: [Self; 2] = [Self::Retail, Self::Horizon];
+
+    /// The preference's value.
+    #[must_use]
+    pub const fn value(self) -> i32 {
+        match self {
+            Self::Retail => 0,
+            Self::Horizon => 1,
+        }
+    }
+
+    /// The interface a preference value names; anything else is the retail one.
+    #[must_use]
+    pub const fn from_value(v: i32) -> Self {
+        match v {
+            1 => Self::Horizon,
+            _ => Self::Retail,
+        }
+    }
+
+    /// Its name, as the options list it and the preferences file holds it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Retail => "Retail",
+            Self::Horizon => "Horizon",
+        }
+    }
+}
+
+/// What a refused interface is said to be when it isn't written yet.
+pub const NOT_AVAILABLE_YET: &str = "The Horizon interface is not available yet";
+
+/// What builds the interfaces a host offers: each the first time it is chosen, or why it can't be
+/// shown, in words for the player.
+pub trait InterfaceMaker<'w> {
+    /// The interface `choice` names, built; or why it can't be shown.
+    ///
+    /// # Errors
+    ///
+    /// Why the interface can't be shown, when it can't.
+    fn make(&mut self, choice: Choice) -> Result<Box<dyn Interface + 'w>, String>;
+}
+
+impl<'w, F> InterfaceMaker<'w> for F
+where
+    F: FnMut(Choice) -> Result<Box<dyn Interface + 'w>, String>,
+{
+    fn make(&mut self, choice: Choice) -> Result<Box<dyn Interface + 'w>, String> {
+        self(choice)
+    }
+}
+
+/// An account to log in with, as the launcher hands the client one: the server's address, the
+/// account and its password (the ticket).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Login {
+    pub server: SocketAddr,
+    pub account: String,
+    pub password: String,
 }
 
 /// What an interface asks of the shell.
@@ -71,31 +157,62 @@ pub enum Request {
     ShowWorld(bool),
     /// A scene on the way through a door plays in place of portal space, or no longer does.
     PortalScenePlaying(bool),
+    /// As the session next leaves the world, portal space, if it is on, stays in sight this many
+    /// seconds before it goes (as a log-off ends in it).
+    PortalSpaceLingers(f64),
+    /// Before the world, the world seen from `camera` at the game clock `time` (seconds), drawn
+    /// from the install with no server behind the screens: asked each frame it is wanted, and let
+    /// go of in the first frame that does not ask. Never drawn in the world.
+    Vista {
+        camera: auberean_scene::explore::FreeCamera,
+        time: f64,
+    },
+    /// Lay these pictures on the ground under the world objects they name (by id), drawn with
+    /// the world this frame, each from one of [`Overlay::textures`]: asked each frame they are
+    /// wanted, and gone in the first frame that does not ask.
+    GroundMarks(Vec<GroundMarker<u64>>),
     /// Find the body under the pointer (window pixels) in the world as last drawn: the answer
     /// comes with the next frame's game ([`Game::world_pick`]).
     PickWorld { x: f32, y: f32 },
-    /// The graphics preferences the player applied: the world is drawn by them from now on, and
-    /// they are kept with the settings.
-    Graphics(auberean_draw::quality::Graphics),
-    /// What the player's effect preferences ask of the effects from now on.
-    FxChannels(auberean_draw::effects::Channels),
-    /// A movement action the interface asks for as a key would (the camera's arrows, its left
-    /// button in mouse look): pressed with an extent of 1, let go with 0.
-    Move { action: u32, extent: f32 },
+    /// What an options page asks of the client's own preferences: what is applied takes effect
+    /// (the world's drawing, the camera, the sound, how the game is shown, the interface), and
+    /// what is kept goes to the preferences file.
+    Preferences(auberean_options::page::Request),
+    /// Show this interface from the next frame, as the `[UI] Interface` preference does; refused
+    /// with a line saying why when it can't be shown.
+    ChooseInterface(Choice),
     /// The key maps the player applied on the key map screen, each a list of an input and its
     /// action (keys alone, with Shift, with Ctrl): written to their files and bound from now on.
     KeyMaps([Vec<(u32, u32)>; 3]),
     /// The player's three key maps bound from now on, their files left as they are.
     BindKeyMaps([Vec<(u32, u32)>; 3]),
-    /// Show the game on the screen this way from now on.
-    Presentation(crate::settings::Presentation),
-    /// Preferences to keep in the preferences file now: each one's section, key and value as the
-    /// file holds them.
-    KeepPreferences(Vec<(String, String, String)>),
+    /// The shown interface's own key maps as its bindings page applies them, each a list of an
+    /// input and its action (keys alone, with Shift, with Ctrl): written to its own files and
+    /// bound from now on, in place of the ones it had.
+    InterfaceKeyMaps([Vec<(u32, u32)>; 3]),
     /// Play or stop a sound.
     Sound(SoundOrder),
     /// Where the platform's input method writes now (none: off), asked when it changes.
     InputMethod(Option<crate::host::InputArea>),
+    /// Write one of the player's files (in the folder the host keeps the client's files in, by a
+    /// bare name), anew.
+    WritePlayerFile { name: String, bytes: Vec<u8> },
+    /// Read one of the player's files (as for writing): the answer comes with the next frame's
+    /// game ([`Game::files_read`]).
+    ReadPlayerFile { name: String },
+    /// The player pressed node `node` of a plugin's window (a button, a toggle): the plugin hears
+    /// it at the next frame.
+    PluginClick {
+        plugin: String,
+        window: String,
+        node: String,
+    },
+    /// The player opened (`open`) or closed one of a plugin's windows.
+    PluginWindow {
+        plugin: String,
+        window: String,
+        open: bool,
+    },
 }
 
 /// A sound the interface asks for.
@@ -133,17 +250,40 @@ pub enum CameraRequest {
     FirstPerson(bool),
     /// A step of the zoom: in, toward the player, or out.
     Zoom { inward: bool },
-    /// The camera's options the player applied: the camera takes them, and they are kept with the
-    /// settings.
-    Options(auberean_scene::camera::Options),
+    /// The camera and the movement the interface shows the world with: the orbit camera with
+    /// these settings, or with none the game's own camera. Asked again with other settings, the
+    /// orbit camera keeps its place and takes them. The game's own camera keeps its state while
+    /// the orbit camera is in use, and is back as it was when it ends; mouse look ends as the
+    /// orbit camera begins. Every interface starts with the game's own: switching interfaces
+    /// ends the orbit camera before the next one is entered, so one that wants it asks in its
+    /// first update.
+    ///
+    /// While the orbit camera is in use, the world's controls turn it with the mouse while a
+    /// button they hear is held (an interface that sees a press over the world and declines it,
+    /// returning `false` from [`Interface::event`], lets it turn the camera), zoom it with the
+    /// wheel and the zoom controls, and turn and tilt it with the camera's rotate and tilt
+    /// controls; the player's orbit preferences (movement, reversed directions), as applied, are
+    /// laid over the settings asked.
+    Scheme(Option<OrbitSettings>),
 }
+
+/// The orbit camera's settings, and how the movement controls move the player under it.
+pub use auberean_client_sdk::contract::orbit::{MovementMode, OrbitSettings};
 
 /// The game as an interface sees it.
 #[derive(Clone, Copy)]
 pub struct Game<'a> {
     pub phase: Phase,
-    /// The client, while there is a session.
-    pub client: Option<&'a Client>,
+    /// The game as the client last refreshed it (before this frame's update), while there is a
+    /// session.
+    pub view: Option<&'a View>,
+    /// The client's strings, while there is a session: string references written through its
+    /// data cache, and downloads of the string tables it lacks ([`Game::write_text`] writes a
+    /// view's).
+    pub strings: Option<&'a dyn auberean_client_sdk::text::CachedStrings>,
+    /// The looks of the figures the interface's viewports show, as the world's records make
+    /// them; as the client last had them before the frame's drawing.
+    pub looks: &'a Looks,
     pub world: &'a WorldData,
     /// The window's drawing area, in pixels.
     pub size: (u32, u32),
@@ -151,8 +291,6 @@ pub struct Game<'a> {
     pub now: f64,
     /// The world's status (the player's place, the bodies drawn).
     pub status: &'a Status,
-    /// The object the world's controls have selected (0 for none).
-    pub selected: u64,
     /// What the player heard since the last frame, oldest first.
     pub heard: &'a [Heard],
     /// The lines the player's scripts wrote for the chat windows since the last frame, oldest
@@ -164,8 +302,8 @@ pub struct Game<'a> {
     pub behaving: &'a [(usize, usize)],
     pub picked: &'a [(usize, Option<auberean_scene::view::ViewHit>)],
     /// The notices the player's scripts sent the interface's panels since the last frame, oldest
-    /// first.
-    pub notices: &'a [Notice],
+    /// first, as the game reads them.
+    pub notices: &'a [auberean_client_sdk::contract::notice::Notice],
     /// What the last world frame showed: its camera and the bodies drawn in it.
     pub seen: &'a auberean_scene::seen::Seen,
     /// The answer to the last frame's [`Request::PickWorld`]: the body under the pointer, or
@@ -184,23 +322,48 @@ pub struct Game<'a> {
     /// How the last session ended under the player, when the server ended it (the login failed,
     /// or the server is gone).
     pub ended: Option<auberean_client_sdk::runtime::SessionEnd>,
+    /// The interface shown.
+    pub interface: Choice,
+    /// The client's own preferences: how they are listed for an options page, what the tooltips
+    /// follow.
+    pub preferences: &'a crate::client_preferences::ClientPreferences,
+    /// The preferences the client changed itself since the last frame (full screen flipped, an
+    /// interface refused), for an options page to show.
+    pub preferences_changed: &'a [auberean_options::page::Change],
+    /// What the client tells the player since the last frame, as a line each (why an interface
+    /// chosen can't be shown).
+    pub told: &'a [String],
+    /// What the client told since the last frame, oldest first: among them the answers to what
+    /// the interface asked (a chat list's item, a line that named no command).
+    pub events: &'a [GameEvent],
+    /// The interface's actions the keys began (`true`) and ended since the last frame, in order,
+    /// as the key maps in force name them: the game's interface actions (a window's key, the chat
+    /// entry's, a screenshot's) and this client's own. They reached the world's controls, which
+    /// carry out the game's own selection, use and camera actions among them; the rest are the
+    /// interface's to carry out. An event the interface took names none.
+    pub keyed: &'a [(u32, bool)],
+    /// The answers to the last frame's [`Request::ReadPlayerFile`]s, in order: each file's name,
+    /// and what it holds (none when there is no such file).
+    pub files_read: &'a [(String, Option<Vec<u8>>)],
+    /// The host's pad as read this frame, for the interface to turn into the game's controls and
+    /// actions; none with no pad.
+    pub pad: Option<crate::pad::PadState>,
+    /// The lines the plugins printed since the last frame, oldest first, each `plugin: text` (the
+    /// plugin host's own without a name).
+    pub plugin_lines: &'a [String],
+    /// The plugins' windows and HUDs, open or not, as their host has them ([`crate::plugins`]).
+    pub plugin_windows: &'a [crate::plugins::PluginWindow],
 }
 
-/// A notice the player's scripts sent the interface's panels: the native that sent it, the object
-/// it is about, and the words of its other arguments, with a copy of the native object each word
-/// names (none for a plain value), and the whole examination request a word names (its packed
-/// copy leaves out what its kind does not pack).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Notice {
-    pub native: u32,
-    pub about: Option<u64>,
-    pub words: Vec<u32>,
-    pub objects: Vec<Option<auberean_client_sdk::script::native_object::NativeObject>>,
-    pub requests: Vec<Option<auberean_client_sdk::runtime::examination::Request>>,
-    /// For a profile, the packed profile of each of its effect lines' own lines, by line.
-    pub effect_lines: Vec<Vec<(usize, Vec<u8>)>>,
-    /// For a list of references, a copy of the native object each item names.
-    pub listed: Vec<Vec<Option<auberean_client_sdk::script::native_object::NativeObject>>>,
+/// The looks of the figures an interface's viewports show, as the world's records make them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Looks {
+    /// The player's id and its look as a figure of it stands (its own record's when its
+    /// description names one, else the description sent), while in the world.
+    pub player: Option<(u64, auberean_world::look::Desc)>,
+    /// The account's characters' looks as their descriptions make them, in the character list's
+    /// order, while the list is shown.
+    pub characters: Vec<auberean_world::look::Desc>,
 }
 
 /// A line the player's scripts wrote for the chat windows, as the game's text: what kind of text
@@ -226,6 +389,22 @@ pub struct Heard {
     pub from: Option<u64>,
     /// Its words.
     pub text: String,
+}
+
+impl Game<'_> {
+    /// A view's string reference written as the game writes it: a literal as it is, any other
+    /// through the client's strings; `None` while there is no session, or when it cannot be
+    /// written yet.
+    #[must_use]
+    pub fn write_text(&self, t: &auberean_client_sdk::contract::text::TextRef) -> Option<String> {
+        if let Some(l) = &t.literal {
+            return Some(String::from_utf16_lossy(l));
+        }
+        let info = auberean_client_sdk::runtime::text::from_view(t);
+        self.strings?
+            .write(&info)
+            .map(|u| String::from_utf16_lossy(&u))
+    }
 }
 
 impl std::fmt::Debug for Game<'_> {
@@ -262,7 +441,7 @@ pub struct Canvas {
 }
 
 /// What an interface draws this frame: its picture behind the world, the world, its picture in
-/// front, then the rectangles in order.
+/// front, its textured batches, then the rectangles in order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overlay {
     /// Drawn first, where the world does not cover it.
@@ -272,6 +451,18 @@ pub struct Overlay {
     pub middle: Option<std::sync::Arc<Canvas>>,
     /// Drawn over the world and the scenes, blended by its alpha.
     pub front: Option<std::sync::Arc<Canvas>>,
+    /// Textured, tinted triangle batches in clip space over the window, drawn in order over
+    /// `front` and under the rectangles. Each samples one of [`Overlay::textures`]; a batch whose
+    /// texture is not there draws nothing, and a preview space draws nothing itself (the
+    /// interface's viewports are [`Overlay::scenes`]) but marks where they stand among the
+    /// batches: those before the first preview space are drawn under the scenes (over `middle`),
+    /// so a window holding a figure is drawn under it. A batch hidden behind the world is drawn
+    /// over it.
+    pub items: Vec<OverlayItem>,
+    /// The textures the batches sample, by their keys, kept from frame to frame: what is here is
+    /// on the device, and what leaves is let go of there. The interface that uploaded them lets
+    /// them go ([`Overlay::release`]), on leaving as on anything else.
+    pub textures: OverlayTextures,
     pub quads: Vec<Quad>,
     /// The scenes shown in viewports, drawn over `behind` and `middle` (what is drawn there
     /// stays where the scene draws nothing) and under `front`.
@@ -313,7 +504,96 @@ pub struct CursorImage {
     pub hot_y: u32,
 }
 
+/// The overlay's textures, by key: each a picture of blue, green, red, alpha texels.
+#[derive(Clone, Default)]
+pub struct OverlayTextures(std::collections::BTreeMap<OverlayTexture, std::sync::Arc<TextureData>>);
+
+impl OverlayTextures {
+    /// The texture under `key`, when it is there.
+    #[must_use]
+    pub fn get(&self, key: &OverlayTexture) -> Option<&std::sync::Arc<TextureData>> {
+        self.0.get(key)
+    }
+
+    /// Each texture with its key, in key order.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (&OverlayTexture, &std::sync::Arc<TextureData>)> + '_ {
+        self.0.iter()
+    }
+
+    /// How many there are.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether there are none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for OverlayTextures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entries(self.0.iter().map(|(k, t)| (k, (t.width, t.height))))
+            .finish()
+    }
+}
+
+/// The same keys over the same pictures (the same upload, not equal texels).
+impl PartialEq for OverlayTextures {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.len() == other.0.len()
+            && self
+                .0
+                .iter()
+                .zip(&other.0)
+                .all(|((a, x), (b, y))| a == b && std::sync::Arc::ptr_eq(x, y))
+    }
+}
+
+pub use dereth_primitives::{TextureData, TextureFormat};
+
 impl Overlay {
+    /// Upload `data` under `key`: blue, green, red, alpha texels, the first level only. Under a key
+    /// of [`OverlaySpace::Image`] or [`OverlaySpace::Glyphs`] that is already there, the one there
+    /// stays (the same key is the same picture); under one of [`OverlaySpace::Local`] it is
+    /// replaced. Whether it was taken: a picture of another format, or with no texels for its
+    /// size, is not.
+    pub fn upload(&mut self, key: OverlayTexture, data: &TextureData) -> bool {
+        let texels = u64::from(data.width) * u64::from(data.height) * 4;
+        let whole = data
+            .levels
+            .first()
+            .is_some_and(|l| l.len() as u64 == texels && texels > 0);
+        if data.format != TextureFormat::Bgra8 || !whole {
+            return false;
+        }
+        if key.space != OverlaySpace::Local && self.textures.0.contains_key(&key) {
+            return true;
+        }
+        let first = TextureData {
+            width: data.width,
+            height: data.height,
+            format: data.format,
+            levels: data.levels[..1].to_vec(),
+        };
+        self.textures.0.insert(key, std::sync::Arc::new(first));
+        true
+    }
+
+    /// Let the texture under `key` go.
+    pub fn release(&mut self, key: OverlayTexture) -> OverlayReleased {
+        if self.textures.0.remove(&key).is_some() {
+            OverlayReleased::Freed
+        } else {
+            OverlayReleased::Absent
+        }
+    }
+
     /// A solid rectangle.
     pub fn fill(&mut self, rect: [f32; 4], color: [f32; 4]) {
         self.quads.push(Quad {
@@ -353,9 +633,22 @@ pub trait Interface {
     /// What to draw over the world this frame.
     fn draw(&mut self, _game: &Game<'_>, _overlay: &mut Overlay) {}
 
-    /// Before each frame's [`Interface::update`], once the client's messages took effect: the
-    /// client to ask what the interface's panels need of the player's scripts.
-    fn prepare(&mut self, _client: &mut Client) {}
+    /// Before each frame's view is refreshed, once the client's messages took effect: what the
+    /// refresh is to answer (the client's actions that ask), carried out at once.
+    fn before_view(&mut self, _requests: &mut Vec<Request>) {}
+
+    /// Shown from now on, at the start of a frame: it was chosen in place of another (or was
+    /// first shown, before any frame).
+    fn enter(&mut self, _game: &Game<'_>) {}
+
+    /// No longer shown, at the start of a frame, another chosen in its place: what it holds let
+    /// go of, anything it asks carried out at once. It is kept, to be entered again.
+    fn leave(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
+
+    /// Just after [`Interface::leave`]: let go of the textures it uploaded to the overlay, which
+    /// the interface shown next does not draw. Anything it uploads when it is entered again is
+    /// uploaded anew.
+    fn release_textures(&mut self, _overlay: &mut Overlay) {}
 
     /// Whether the interface wants the pointer shown and free (a screen to click on): mouse look
     /// is suspended while it does.
@@ -369,29 +662,12 @@ pub trait Interface {
         false
     }
 
-    /// The settings the client starts with (its preferences file read), and the world's records
-    /// that name the preferences: the interface's own preferences are read from them.
-    fn set_preferences(
-        &mut self,
-        _settings: &crate::Settings,
-        _records: &auberean_world::records::WorldRecords,
-    ) {
+    /// Whether the pointer, its buttons and the wheel reach it over the window while the window is
+    /// in the background, and the click that brings the window forward counts. The game's own
+    /// interface hears neither, as the game does not.
+    fn hears_the_pointer_in_background(&self) -> bool {
+        false
     }
-
-    /// The graphics preferences the client starts with (read from the settings, else the
-    /// highest quality's), as applied.
-    fn set_graphics(&mut self, _graphics: &auberean_draw::quality::Graphics) {}
-
-    /// The sizes the host's display can take and how the settings show the game: the rendering
-    /// preferences put in.
-    fn set_presentation(&mut self, _modes: &[(u32, u32)], _settings: &crate::Settings) {}
-
-    /// Full screen flipped, as the rendering preferences' own.
-    fn toggle_full_screen(&mut self, _requests: &mut Vec<Request>) {}
-
-    /// Whether the host can draw the world with the remaster, so the rendering preferences offer
-    /// it.
-    fn offer_remaster(&mut self, _offered: bool) {}
 
     /// The client's random numbers, the one generator everything in the program draws from.
     fn set_random(&mut self, _random: &auberean_primitives::random::Random) {}

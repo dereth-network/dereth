@@ -205,103 +205,35 @@ fn a_press_on_the_world_after_a_button_still_selects() {
     assert_eq!(selects(&out), vec![7]);
 }
 
-/// A selection key on its own panel.
-fn select(w: &World, k: u32) -> Vec<u64> {
+/// A selection key on its own panel: what it asked.
+fn select(w: &World, k: u32) -> Vec<Request> {
     let mut ui = Ui::new(records(), 1024, 768);
     let frame = ui.new_main_frame();
     let s = Selection::new(&mut ui, frame);
     let mut out = Vec::new();
     s.select(&ui, w, k, &mut out);
-    selects(&out)
+    out
 }
 
-/// The selection keys pick by kind among the objects in the radar's range, ordered by how far
-/// each stands (along the ground, and a fifth more for each meter up or down), then by id: the
-/// next after the selection, the previous before it, round again past the last; the nearest; a
-/// foe is one the player may attack that is no fellow's; an item is passed over by the creature
-/// keys; what a body holds is found by the item keys, at the body; the player's own key selects
-/// it, and again the last selection; the last attacker's key the last to attack the player; Escape
-/// selects nothing.
+/// Each selection key asks the game to select as it does (the next, previous and nearest of each
+/// kind, the player itself, the last selection, the last attacker), whose rules choose what;
+/// Escape selects nothing; before the player is here, no key asks anything.
 ///
-/// Behaviour: ui.selection.the-selection-keys-pick-by-kind-and-distance
+/// Behaviour: ui.selection.the-selection-keys-ask-the-game-to-select
 #[test]
-fn the_selection_keys_pick_by_kind_and_distance() {
-    let mut near = thing(10, kind::CREATURE, 0.0, 3.0);
-    near.attackable = true;
-    let mut mid = thing(11, kind::CREATURE, 4.0, 0.0);
-    // Four meters along the ground and a meter up: 5.2.
-    mid.from_player[2] = 1.0;
-    let far = thing(12, kind::CREATURE, 0.0, -6.0);
-    let item = thing(13, kind::ITEM[0], 0.0, 1.0);
-    let out_of_range = thing(14, kind::CREATURE, 80.0, 0.0);
-    let held = thing(15, kind::ITEM[0], 0.0, 0.5);
-    let mut w = world(vec![far, item, mid, near, out_of_range, held]);
-
-    assert_eq!(select(&w, key::NEAREST_CREATURE), vec![10]);
-    assert_eq!(
-        select(&w, key::NEXT_CREATURE),
-        vec![10],
-        "no selection: the nearest"
+fn the_selection_keys_ask_the_game_to_select() {
+    let w = world(vec![thing(10, kind::CREATURE, 0.0, 3.0)]);
+    let keys = (key::SELF..=key::LAST)
+        .chain([key::LAST_ATTACKER])
+        .chain(key::PREVIOUS_PET..=key::NEAREST_PET);
+    for k in keys {
+        assert_eq!(select(&w, k), vec![Request::SelectBy(k)], "{k:#x}");
+    }
+    assert_eq!(select(&w, key::ESCAPE), vec![Request::Select(0)]);
+    assert!(
+        select(&World::default(), key::NEXT_CREATURE).is_empty(),
+        "no player yet"
     );
-    w.selection = 10;
-    assert_eq!(select(&w, key::NEXT_CREATURE), vec![11]);
-    w.selection = 11;
-    assert_eq!(select(&w, key::NEXT_CREATURE), vec![12]);
-    w.selection = 12;
-    assert_eq!(
-        select(&w, key::NEXT_CREATURE),
-        vec![10],
-        "round again past the last"
-    );
-    assert_eq!(select(&w, key::PREVIOUS_CREATURE), vec![11]);
-    w.selection = 10;
-    assert_eq!(
-        select(&w, key::PREVIOUS_CREATURE),
-        vec![12],
-        "round again past the first"
-    );
-    assert_eq!(
-        select(&w, key::NEAREST_ITEM),
-        vec![15],
-        "what a body holds counts too, at the body"
-    );
-    assert_eq!(
-        select(&w, key::NEAREST_FOE),
-        vec![10],
-        "only the one it may attack"
-    );
-    w.things.iter_mut().for_each(|t| {
-        if t.id == 10 {
-            t.fellow = true;
-        }
-    });
-    assert!(select(&w, key::NEAREST_FOE).is_empty(), "not a fellow");
-    w.inside = true;
-    w.things.iter_mut().for_each(|t| {
-        if t.id == 12 {
-            t.from_player = [0.0, -60.0, 0.0];
-        }
-    });
-    w.selection = 11;
-    assert_eq!(
-        select(&w, key::NEXT_CREATURE),
-        vec![10],
-        "indoors the shorter range: the far one is out of it"
-    );
-
-    w.selection = 11;
-    w.last_selection = 12;
-    assert_eq!(select(&w, key::SELF), vec![ME]);
-    w.selection = ME;
-    assert_eq!(select(&w, key::SELF), vec![12], "again: the last selection");
-    assert_eq!(select(&w, key::LAST), vec![12]);
-    w.last_attacker = 11;
-    assert_eq!(
-        select(&w, key::LAST_ATTACKER),
-        vec![11],
-        "the last to attack the player"
-    );
-    assert_eq!(select(&w, key::ESCAPE), vec![0]);
 }
 
 /// The scripts' targeting notice shows the field's usage cursor over the world while an item
@@ -336,12 +268,12 @@ fn the_targeting_notice_shows_the_usage_cursor() {
     assert_eq!(ui.cursor(), Some(default), "put back");
 }
 
-/// The war button, with the player targeting automatically, selects the nearest foe before it asks
-/// the player's scripts to attack (they attack what is selected); without, it only asks to attack.
+/// The war button asks the game to attack, and asks for no selection itself, whether or not the
+/// player targets automatically: the game selects the nearest foe first when it does.
 ///
-/// Behaviour: ui.selection.attacking-with-auto-target-selects-the-nearest-foe-first
+/// Behaviour: ui.selection.the-war-button-asks-the-game-to-attack
 #[test]
-fn attacking_with_auto_target_selects_the_nearest_foe_first() {
+fn the_war_button_asks_the_game_to_attack() {
     let mut foe = thing(10, kind::CREATURE, 0.0, 3.0);
     foe.attackable = true;
     let other = thing(11, kind::CREATURE, 0.0, 2.0);
@@ -368,16 +300,12 @@ fn attacking_with_auto_target_selects_the_nearest_foe_first() {
         }
         let asked: Vec<&Request> = out
             .iter()
-            .filter(|r| matches!(r, Request::Select(_) | Request::Attack { .. }))
+            .filter(|r| matches!(r, Request::SelectBy(_) | Request::Attack { .. }))
             .collect();
-        if auto_target {
-            assert_eq!(
-                asked,
-                vec![&Request::Select(10), &Request::Attack { start: true }],
-                "the foe, then the attack"
-            );
-        } else {
-            assert_eq!(asked, vec![&Request::Attack { start: true }]);
-        }
+        assert_eq!(
+            asked,
+            vec![&Request::Attack { start: true }],
+            "targeting automatically: {auto_target}"
+        );
     }
 }

@@ -161,16 +161,31 @@ impl WorldRecords {
         }
     }
 
+    /// The client's reading of the cell file's records, when it gave one.
+    fn cell_reader(&self) -> Option<CellReader> {
+        match self.cells.read() {
+            Ok(r) => r.clone(),
+            Err(e) => e.into_inner().clone(),
+        }
+    }
+
     /// The bytes of cell-file record `id` of type `kind`: through the client's reader when it gave
     /// one, else from the file.
     fn cell_bytes(&self, id: u32, kind: RecordType) -> Option<Vec<u8>> {
-        let reader = match self.cells.read() {
-            Ok(r) => r.clone(),
-            Err(e) => e.into_inner().clone(),
-        };
-        match reader {
+        match self.cell_reader() {
             Some(r) => r(id, kind.0),
             None => self.cell.read(id).ok(),
+        }
+    }
+
+    /// A reading of the world's landblocks of its own, which another thread can keep: as
+    /// [`Self::landblock`] reads them now.
+    #[must_use]
+    pub fn landblock_reader(&self) -> LandblockReader {
+        LandblockReader {
+            cell: self.cell.clone(),
+            cells: self.cell_reader(),
+            ctx: self.ctx.clone(),
         }
     }
 
@@ -398,6 +413,34 @@ impl WorldRecords {
             m.insert(id.0, v.clone());
         }
         v
+    }
+}
+
+/// The world's landblocks read apart from its other records: through the client's reader when it
+/// gave one, else from the cell file.
+#[derive(Clone)]
+pub struct LandblockReader {
+    cell: DatFile,
+    cells: Option<CellReader>,
+    ctx: Context,
+}
+
+impl std::fmt::Debug for LandblockReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LandblockReader")
+    }
+}
+
+impl LandblockReader {
+    /// The landblock at block coordinates `(x, y)`.
+    #[must_use]
+    pub fn landblock(&self, x: i32, y: i32) -> Option<Landblock> {
+        let id = block_id(x, y)? | 0xFFFF;
+        let bytes = match &self.cells {
+            Some(r) => r(id, RecordType::LANDBLOCK.0),
+            None => self.cell.read(id).ok(),
+        }?;
+        decode::<Landblock>(id, &bytes, &self.ctx).ok()
     }
 }
 

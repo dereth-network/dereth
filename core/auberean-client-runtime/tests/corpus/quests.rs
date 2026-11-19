@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use auberean_client_contract::Action;
 use auberean_client_net::LocalTime;
+use auberean_client_runtime::said::native;
 use auberean_client_runtime::Client;
 use auberean_protocol::{ClientMessage, ServerMessage};
 use auberean_script::args::{self, Arg};
@@ -93,7 +94,8 @@ impl Sent {
 /// capture, the journal's list (a copy of the list the player's scripts keep, asked for through
 /// the interface) holds what the server sent: the session start's records, each update copied
 /// over its quest's record or added before the first record given earlier than it, removals
-/// taken out.
+/// taken out. The view's journal, refreshed as a front end refreshes it in each frame the scripts
+/// tell the journal something, holds the same quests.
 ///
 /// Behaviour: script.model.the-journal-holds-the-quests-the-server-sent
 #[test]
@@ -125,11 +127,20 @@ fn the_journal_holds_every_quest_the_server_gave_newest_given_first() {
         };
         compared += 1;
         quests += got.len();
-        if *want == got {
+        // The view's journal, refreshed as a front end refreshes it, holds the same quests.
+        c.refresh_view(&|_| Vec::new());
+        let shown: Option<Vec<(u32, u32)>> = c
+            .view()
+            .journal
+            .as_ref()
+            .map(|j| j.quests.iter().map(|q| (q.id, q.status)).collect());
+        let wanted: Vec<(u32, u32)> = want.iter().map(|q| (q.id, q.status)).collect();
+        if *want == got && shown.as_ref() == Some(&wanted) {
             same += 1;
         } else if differ.len() < 5 {
             let ids = |l: &[QuestInfo]| l.iter().map(|q| q.id).collect::<Vec<_>>();
-            differ.push((capture, ids(want), ids(&got)));
+            let in_view = shown.map(|l| l.iter().map(|(id, _)| *id).collect::<Vec<_>>());
+            differ.push((capture, ids(want), ids(&got), in_view));
         }
     };
     captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
@@ -147,6 +158,12 @@ fn the_journal_holds_every_quest_the_server_gave_newest_given_first() {
             frame = m.time;
             c.set_time(LocalTime(m.time));
             c.upkeep();
+            // A front end's frame where the scripts told the journal something: the view
+            // refreshed, the notices taken.
+            if c.notices.iter().any(|n| n.native == native::JOURNAL) {
+                c.refresh_view(&|_| Vec::new());
+                let _ = c.take_notices();
+            }
         }
         if !m.to_client {
             match ClientMessage::decode(&m.raw) {

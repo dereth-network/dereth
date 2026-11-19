@@ -8,6 +8,7 @@ use dereth_client_contract::chat::entry::{EntryAction, EntryUpdate};
 use dereth_client_contract::chat::interface::window::MAIN;
 use dereth_client_contract::chat::mainchat::ChatFocusView;
 use dereth_client_contract::UiRequest;
+use dereth_horizon::draw::Rect;
 use dereth_horizon::ui::game::GameState;
 use dereth_horizon::ui::input::vk;
 
@@ -364,4 +365,124 @@ fn a_line_with_a_link_copies_as_its_plain_text() {
         h.input.copied.take().as_deref(),
         Some("Cora says, \"https://example.com/x\"")
     );
+}
+
+/// The line open with the talk-focus menu opened from the destination's name on it.
+fn mode_menu(h: &mut Harness, state: &GameState) {
+    h.frame(state);
+    open_line(h);
+    h.frame(state);
+    let (_, label) = h.ui.hud.log.entry_drawn().expect("the line open");
+    h.move_to(label.x + label.w / 2.0, label.y + label.h / 2.0);
+    h.press();
+    h.frame(state);
+    h.release();
+    h.frame(state);
+    assert!(h.ui.hud.log.focus_menu_open(), "the menu opens");
+}
+
+/// A player with a long-named character selected, who may talk on All, Tell, Fellowship,
+/// Monarch, Allegiance and General.
+fn with_a_long_named_selection() -> GameState {
+    let mut state = in_world();
+    for f in [2, 5, 7] {
+        state.chat_focus.enabled[f] = true;
+        state.chat_focus.selectable[f] = true;
+    }
+    state.chat_focus.target = Some(dereth_client_contract::chat::mainchat::SpeakableTarget {
+        id: 7,
+        name: "Bartholomew Ironwhistle of the Northern Reaches".into(),
+        talkable: true,
+        ..Default::default()
+    });
+    state
+}
+
+#[test]
+fn the_mode_menu_names_each_mode_in_full_on_an_opaque_plate_its_rows_padded_apart() {
+    let state = with_a_long_named_selection();
+    let mut h = Harness::with_built_in_art();
+    mode_menu(&mut h, &state);
+    let log = &h.ui.hud.log;
+    let menu = log.menu_rect().expect("drawn");
+    assert!(
+        h.list
+            .quads
+            .iter()
+            .any(|q| q.tex.is_none() && q.dst == menu && q.colour >> 24 == 0xFF),
+        "an opaque ground under the plate"
+    );
+    for (focus, name) in [
+        (1, "Chat"),
+        (3, "Fellowship"),
+        (5, "Monarch"),
+        (7, "Allegiance"),
+    ] {
+        assert_eq!(log.focus_row_name(focus), Some(name), "whole");
+    }
+    let tell = log.focus_row_name(2).expect("listed");
+    assert!(
+        tell.starts_with("Tell to Barth") && tell.ends_with("...") && tell.len() < 40,
+        "{tell:?}: cut short"
+    );
+    // Every row inside the plate less its padding, none over another, and every letter in its
+    // row.
+    // Inside the thin frame by its padding.
+    let (pad, rim) = (dereth_ui_kit::chat::MODE_PAD, dereth_ui_kit::chat::MENU_RIM);
+    assert_eq!(rim, 2.0, "a thin frame");
+    let inside = Rect::new(
+        menu.x + rim + pad.0 / 2.0,
+        menu.y + rim + pad.1,
+        menu.w - 2.0 * rim - pad.0,
+        menu.h - 2.0 * (rim + pad.1),
+    );
+    let rows: Vec<Rect> = (0..14).filter_map(|f| log.focus_row(f)).collect();
+    assert!(rows.len() >= 6);
+    let top = rows
+        .iter()
+        .min_by(|a, b| a.y.total_cmp(&b.y))
+        .expect("a row");
+    assert!(
+        (top.x - inside.x).abs() < 0.01 && (top.y - inside.y).abs() < 0.01,
+        "{top:?} stands at the frame's inset and its padding, {inside:?}"
+    );
+    for (i, r) in rows.iter().enumerate() {
+        assert!(
+            r.x >= inside.x - 0.01
+                && r.y >= inside.y - 0.01
+                && r.right() <= inside.right() + 0.01
+                && r.bottom() <= inside.bottom() + 0.01,
+            "{r:?} inside {inside:?}"
+        );
+        for other in &rows[i + 1..] {
+            assert!(r.intersect(other).is_none(), "{r:?} over {other:?}");
+        }
+        for q in h.list.quads.iter().filter(|q| {
+            // The letters, not the plate's own white pieces.
+            q.tex.is_some()
+                && q.colour & 0x00FF_FFFF != 0x00FF_FFFF
+                && q.dst.y >= r.y
+                && q.dst.y < r.bottom()
+                && menu.contains(q.dst.x, q.dst.y)
+        }) {
+            assert!(
+                q.dst.right() <= menu.right() - pad.0 + 1.0,
+                "a letter at {:?} reaches the border",
+                q.dst
+            );
+        }
+    }
+}
+
+#[test]
+fn the_line_names_its_mode_as_the_menu_does_cut_short_the_same_way() {
+    let mut state = with_a_long_named_selection();
+    state.chat_focus.focus = 2;
+    let mut h = Harness::with_built_in_art();
+    mode_menu(&mut h, &state);
+    let log = &h.ui.hud.log;
+    assert_eq!(log.entry_label(), log.focus_row_name(2), "the same name");
+    state.chat_focus.focus = 7;
+    h.frame(&state);
+    assert_eq!(h.ui.hud.log.entry_label(), Some("Allegiance"));
 }

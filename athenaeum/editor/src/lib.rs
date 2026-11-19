@@ -15,7 +15,7 @@
 //! retail client's install a world that patches it plays from (`dereth-dat`), the world as the
 //! client draws it (`auberean-world`, `auberean-assets`, `auberean-dat`, `auberean-animation`,
 //! `auberean-physics`, `auberean-primitives`, `auberean-draw`, `auberean-gpu`), the game played in
-//! its view (`auberean-shell`, `auberean-scene`, `auberean-interface`, `auberean-present`, the
+//! its view (`auberean-shell`, `auberean-scene`, `auberean-interface`, `auberean-horizon`, `auberean-present`, the
 //! window system's keys in `auberean-client`, the sound device in `dereth-audio` and
 //! `dereth-audio-out`, kept with its world by `self_cell`), the free camera
 //! (`dereth-builder`), the shared math and collision (`dereth-primitives`, `dereth-physics`), the panels (`egui`), and the window

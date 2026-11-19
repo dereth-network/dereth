@@ -1,14 +1,15 @@
 //! The game's own interface in the shell: the retail screens and panels opened as the session
-//! moves, fed from the client's model, the player's input to them first, and what they ask for
+//! moves, fed from the game's view, the player's input to them first, and what they ask for
 //! carried out as the client's actions.
 //!
 //! **Depends on** the shell's interface seam (`auberean-shell`), the element framework
 //! (`auberean-ui`), the game's panels (`auberean-ui-game`), the client (`auberean-client-sdk`), the
 //! screens' scenes and their figures (`auberean-scene`), the world's records, looks and character
-//! generation's choices (`auberean-world`, `auberean-assets`, `auberean-primitives`), the graphics
-//! preferences and their quality presets (`auberean-draw`), the requests its sounds become
-//! (`auberean-audio`) and the shared float-to-integer conversion (`dereth-primitives`).
-//! **Used by** the desktop client, which hands a [`Retail`] to the shell.
+//! generation's choices (`auberean-world`, `auberean-assets`, `auberean-primitives`), the requests
+//! its sounds become (`auberean-audio`) and the shared float-to-integer conversion
+//! (`dereth-primitives`). **Used by** the hosts (the desktop client, the browser's, the world
+//! builder's play view), whose interface maker builds a [`Retail`] for the shell. The client's own
+//! preferences behind its options window's client page are the shell's, which it lists and edits.
 //!
 //! A [`Retail`] holds one element tree ([`Ui`]) and the game's flow between its screens
 //! ([`GameFlow`]): a screen asked for comes up at the next tick of the interface's clock. The
@@ -49,27 +50,29 @@ pub mod data;
 pub mod doll;
 pub mod hall;
 mod map;
+mod notices;
 mod options;
 pub mod places;
-pub mod preferences;
 mod pregame;
-mod records;
 mod sounds;
 pub mod strings;
 mod world;
 
 use std::any::Any;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
+use auberean_client_sdk::contract::control::{Control, ControlId};
+use auberean_client_sdk::contract::notice::{InterfaceNotice, PlayerNotice, Said};
+use auberean_client_sdk::contract::view as v;
 use auberean_client_sdk::contract::ToolbarShortcut;
-use auberean_client_sdk::model::Object;
+use auberean_client_sdk::runtime::text::from_view;
 use auberean_client_sdk::Action;
 use auberean_shell::dev::DevLogin;
 use auberean_shell::host::InputArea;
 use auberean_shell::input::{Button, Event, Key};
 use auberean_shell::interface::{
-    CameraRequest, Canvas, CursorImage, Game, Interface, Overlay, Phase, Request,
+    CameraRequest, Canvas, Choice, CursorImage, Game, Interface, InterfaceMaker, Overlay, Phase,
+    Request, NOT_AVAILABLE_YET,
 };
 use auberean_ui::draw::{self, Surface};
 use auberean_ui::framework::flow::{Factory, Screen as FlowScreen};
@@ -85,12 +88,12 @@ use auberean_ui_game::dialog::{self, Dialogs};
 use auberean_ui_game::flow::{mode, GameFlow};
 use auberean_ui_game::gameplay::{self, GamePlay, View};
 use auberean_ui_game::inventory;
+use auberean_ui_game::names;
 use auberean_ui_game::shortcuts::{self, Shortcuts};
 use auberean_ui_game::skill_tree;
 use auberean_ui_game::statusbar::{self, StatusBar};
 use auberean_ui_game::story_quests;
 use auberean_ui_game::toolbar::Toolbar;
-use auberean_ui_game::{names, selection};
 use dereth_primitives::num::to_i32;
 
 /// The interface's string table (the retail layouts' and the client's own messages').
@@ -114,12 +117,7 @@ const RETIRED_PICTURES: usize = 6;
 const MOUSE_LOOK_KEY: u32 = camera::action::INSTANT_MOUSE_LOOK;
 
 /// An account to log in with, as the launcher hands the client one.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Login {
-    pub server: SocketAddr,
-    pub account: String,
-    pub password: String,
-}
+pub use auberean_shell::interface::Login;
 
 /// The avatar chosen in the hall.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +138,9 @@ struct Shared {
     /// The window's size (the play screen's display).
     window: (u32, u32),
     vitals: Option<[u32; 4]>,
+    /// The player is a hero, and its focus and greatest focus.
+    hero: bool,
+    focus: Option<[u32; 2]>,
     place: Option<String>,
     lines: Vec<(u32, String)>,
     /// For each of `lines`, the string reference it was written from, when it came as one.
@@ -172,9 +173,6 @@ struct Shared {
     craft: Option<craft::Facts>,
     /// What the scripts last answered for the shop windows.
     shop: Option<auberean_ui_game::shop::Facts>,
-    /// A scene the story page asked to play again (its act and scene), made into the story's
-    /// notice from the scripts' acts at the next frame.
-    play_scene: Option<(u32, u32)>,
     /// The player's options as last read, for the options window.
     options: Option<auberean_ui_game::options::Values>,
     /// The client's own preferences as last listed, for the options window.
@@ -237,6 +235,8 @@ impl FlowScreen<Shared> for PlayScreen {
         }
         let view = View {
             vitals: data.vitals,
+            hero: data.hero,
+            focus: data.focus,
             place: data.place.as_deref(),
             lines: &data.lines,
             line_infos: &data.line_infos,
@@ -286,39 +286,8 @@ impl FlowScreen<Shared> for PlayScreen {
     }
 }
 
-/// An object's icon as its look makes it: the layers of its description's chain and its
-/// appearance, each a picture and the color it is tinted by.
-fn icon_layers(
-    model: &auberean_client_sdk::model::Model,
-    records: &auberean_world::records::WorldRecords,
-    id: u64,
-) -> Vec<(u32, u32)> {
-    let Some(o) = model.object(id) else {
-        return Vec::new();
-    };
-    let desc = auberean_scene::desc_of(records, &o.visual);
-    let own: Vec<auberean_assets::visual::IconLayer> = o
-        .visual
-        .icon
-        .iter()
-        .map(|l| auberean_assets::visual::IconLayer {
-            layer: l.0,
-            picture: auberean_primitives::DataId(l.1),
-            shift_color: auberean_assets::common::Color32(l.2),
-        })
-        .collect();
-    auberean_world::look::total_icon(records, desc.parent, &own, &desc.global)
-        .iter()
-        .map(|l| (l.picture.0, l.shift_color.0))
-        .collect()
-}
-
-/// The inventory as the panels read it, from the client's.
-fn facts(
-    inv: &auberean_client_sdk::runtime::inventory::Inventory,
-    model: &auberean_client_sdk::model::Model,
-    records: &auberean_world::records::WorldRecords,
-) -> inventory::Facts {
+/// The inventory as the panels read it, from the game's view.
+fn facts(inv: &v::Inventory) -> inventory::Facts {
     inventory::Facts {
         version: inv.version,
         player: inv.player,
@@ -356,7 +325,7 @@ fn facts(
                     inventory::ItemFacts {
                         quantity: i.quantity,
                         icon: i.icon,
-                        icon_layers: icon_layers(model, records, *id),
+                        icon_layers: i.icon_layers.clone(),
                         stackable: i.stackable,
                         stack_size: i.stack_size,
                         name: i.name.clone(),
@@ -366,7 +335,7 @@ fn facts(
                         worn: i.worn,
                         melts_at_once: i.melts_at_once,
                         offered_name: i.offered_name.clone(),
-                        data_id: model.object(*id).map_or(0, |o| o.weenie.entity_did),
+                        data_id: i.data_id,
                     },
                 )
             })
@@ -381,38 +350,34 @@ fn facts(
     }
 }
 
-/// The skill window's panels and skills as the panels read them, from the client's.
-fn skill_facts(s: &auberean_client_sdk::runtime::skills::Skills) -> skill_tree::Facts {
-    use auberean_client_sdk::runtime::text::from_script;
-    let (panel, nodes) = s.panel.as_ref().map_or((0, Vec::new()), |p| {
-        let nodes = p
-            .nodes
-            .iter()
-            .map(|n| skill_tree::Node {
-                skill: n.skill,
-                kind: n.kind,
-                name: from_script(&n.name),
-                description: from_script(&n.description),
-                icon: n.icon,
-                x: n.x,
-                y: n.y,
-                parents: n.parents.clone(),
-                dependencies: n.dependencies.clone(),
-                passive: n.passive,
-                untrainable: n.untrainable,
-                perk: n.perk,
-            })
-            .collect();
-        (p.id, nodes)
-    });
+/// The skill window's panels and skills as the panels read them, from the game's view.
+fn skill_facts(s: &v::Skills) -> skill_tree::Facts {
+    let nodes = s
+        .nodes
+        .iter()
+        .map(|n| skill_tree::Node {
+            skill: n.skill,
+            kind: n.kind,
+            name: from_view(&n.name),
+            description: from_view(&n.description),
+            icon: n.icon,
+            x: n.x,
+            y: n.y,
+            parents: n.parents.clone(),
+            dependencies: n.dependencies.clone(),
+            passive: n.passive,
+            untrainable: n.untrainable,
+            perk: n.perk,
+        })
+        .collect();
     skill_tree::Facts {
         version: s.version,
-        panel,
+        panel: s.panel,
         nodes,
         panels: s
             .panels
             .iter()
-            .map(|(k, (name, icon))| (*k, (from_script(name), *icon)))
+            .map(|(k, (name, icon))| (*k, (from_view(name), *icon)))
             .collect(),
         states: s
             .states
@@ -557,7 +522,7 @@ pub struct Retail {
     answers: u32,
     net: pregame::Net,
     /// The login's progress the connecting screen was last told.
-    login_told: Option<auberean_client_sdk::runtime::LoginProgress>,
+    login_told: Option<auberean_client_sdk::contract::session::LoginProgress>,
     /// The connecting screen was told the session's connection failure.
     failure_told: bool,
     /// How many of the session's data download events the connecting screen was told.
@@ -576,7 +541,8 @@ pub struct Retail {
     retired: Vec<Arc<Canvas>>,
     /// The layers elements are drawn into on their way to a picture.
     layers: draw::Layers,
-    /// What keys asked for, carried out at the next update.
+    /// What keys asked for, and the layout files named before the frame, carried out at the next
+    /// update.
     pending: Vec<Request>,
     /// The client's random numbers (creation's choices, the media's rolls), shared with the
     /// world.
@@ -626,8 +592,8 @@ pub struct Retail {
     held_looks: Vec<gameplay::Notice>,
     /// The player's options read for the options window.
     options: options::Reader,
-    /// The client's own preferences, for the options window's client page.
-    preferences: preferences::Preferences,
+    /// The tooltip preferences as last handed to the elements.
+    tooltips: Option<(f32, bool)>,
     /// The left button went to the world's controls as well (mouse look runs with it).
     left_to_world: bool,
     /// The pointer when the left button was last pressed or let go, when it was last let go
@@ -729,7 +695,7 @@ impl Retail {
             last_notices: Vec::new(),
             held_looks: Vec::new(),
             options: options::Reader::default(),
-            preferences: preferences::Preferences::default(),
+            tooltips: None,
             left_to_world: false,
             click_at: (0, 0),
             released_at: None,
@@ -742,17 +708,28 @@ impl Retail {
         }
     }
 
+    /// The interfaces this client offers, for the shell to build as they are chosen: this one;
+    /// Horizon is refused, as it is not available yet.
+    #[must_use]
+    pub fn maker<'w>(self) -> Box<dyn InterfaceMaker<'w> + 'w> {
+        let mut retail = Some(self);
+        Box::new(
+            move |choice: Choice| -> Result<Box<dyn Interface + 'w>, String> {
+                match choice {
+                    Choice::Retail => retail
+                        .take()
+                        .map(|r| Box::new(r) as Box<dyn Interface + 'w>)
+                        .ok_or_else(|| "The retail interface is shown already".to_owned()),
+                    Choice::Horizon => Err(NOT_AVAILABLE_YET.to_owned()),
+                }
+            },
+        )
+    }
+
     /// Let the developer's automatic login drive the session; the screens follow it.
     #[must_use]
     pub fn with_auto(mut self, auto: DevLogin) -> Self {
         self.auto = Some(auto);
-        self
-    }
-
-    /// The gore level and blood color the command line forces (0: the language's).
-    #[must_use]
-    pub fn with_forced_gore(mut self, gore: u32, blood: u32) -> Self {
-        self.preferences.force_tops(gore, blood);
         self
     }
 
@@ -922,13 +899,15 @@ impl Retail {
         d.lines.clear();
         d.line_infos.clear();
         d.notices.clear();
-        let player = game.client.and_then(|c| c.model.player_object());
-        d.vitals = player.and_then(vitals);
+        let player = game.view.and_then(|v| v.player.as_ref());
+        d.vitals = player.and_then(|p| p.vitals);
+        d.hero = player.is_some_and(|p| p.hero);
+        d.focus = player.and_then(|p| p.focus);
         // The radar's place line: inside a building or dungeon (a cell of a block's own cells), the
         // place strings' "Inside"; outdoors the map coordinates (not shown yet: they need the
         // strings' formatting of numbers).
         // D2-13199
-        if let Some(cell) = player.and_then(|o| o.place.map(|p| p.cell)) {
+        if let Some(cell) = player.and_then(|p| p.cell) {
             d.place = Some(if cell & 0xFFFF >= 0x100 {
                 self.ui
                     .assets()
@@ -947,8 +926,10 @@ impl Retail {
             d.lines.push((s.kind, s.text.clone()));
             d.line_infos.push(s.info.clone());
         }
-        let player_id = game.client.and_then(|c| c.model.player);
-        let options_said = game.notices.iter().position(|n| {
+        let player_id = game.view.and_then(|v| v.player_id);
+        // The scripts' notices as the panels hear them.
+        let said: Vec<gameplay::Notice> = game.notices.iter().map(notices::for_panels).collect();
+        let options_said = said.iter().position(|n| {
             (n.native == chat_panel::notice::RELOAD_CHAT_SETTINGS
                 || n.native == gameplay::notice::RELOAD_OPTIONS)
                 && (n.about.is_none() || n.about == player_id)
@@ -963,10 +944,9 @@ impl Retail {
         if d.chat_defaults.is_none() {
             d.chat_defaults = Some(chat::defaults());
         }
-        if let Some(c) = game.client {
-            let t = c.toolbar();
+        if let Some(t) = game.view.and_then(|v| v.toolbar.as_ref()) {
             if d.shortcuts.as_ref().map(|s| s.version) != Some(t.version) {
-                d.shortcuts = Some(shortcut_source(t, &c.model, &game.world.records));
+                d.shortcuts = Some(shortcut_source(t));
                 tracing::debug!(
                     version = t.version,
                     shortcuts = t.shortcuts.len(),
@@ -976,39 +956,27 @@ impl Retail {
                 );
             }
         }
-        if let Some(e) = game.client.map(auberean_client_sdk::Client::effects) {
+        if let Some(e) = game.view.and_then(|v| v.effects.as_ref()) {
             if d.effects.as_ref().map(|l| l.version) != Some(e.version) {
                 d.effects = Some(effect_list(e));
             }
         }
-        d.link = game
-            .client
-            .and_then(auberean_client_sdk::Client::heartbeat)
-            .map(|h| statusbar::Link {
-                beat: h.count,
-                latency: h.latency,
-                loss: h.loss,
-                bytes_in: h.bytes_in,
-                bytes_out: h.bytes_out,
-                span: h.span,
-                since_heard: h.since_heard,
-            });
+        d.link = game.view.and_then(|v| v.link).map(|h| statusbar::Link {
+            beat: h.count,
+            latency: h.latency,
+            loss: h.loss,
+            bytes_in: h.bytes_in,
+            bytes_out: h.bytes_out,
+            span: h.span,
+            since_heard: h.since_heard,
+        });
         // An object's radar look (and with it its name) changed: the gathered world reads them
         // again before the next frame, so the panels hear it then, with the world that has them.
         let held = std::mem::take(&mut self.held_looks);
-        let (looks, now): (Vec<_>, Vec<_>) = game
-            .notices
-            .iter()
-            .partition(|n| n.native == world::notice::CHANGE_RADAR_LOOK);
-        let heard: Vec<gameplay::Notice> = held
+        let (looks, now): (Vec<_>, Vec<_>) = said
             .into_iter()
-            .chain(now.into_iter().map(|n| gameplay::Notice {
-                native: n.native,
-                about: n.about,
-                words: n.words.clone(),
-                records: records::of_notice(n),
-            }))
-            .collect();
+            .partition(|n| n.native == world::notice::CHANGE_RADAR_LOOK);
+        let heard: Vec<gameplay::Notice> = held.into_iter().chain(now).collect();
         d.notices.extend(
             heard
                 .iter()
@@ -1016,29 +984,14 @@ impl Retail {
                 .cloned(),
         );
         for n in game.notices {
-            if n.native == gameplay::notice::UPDATE_MOUNT_STATE && n.about == player_id {
-                self.dolls
-                    .set_mounted(n.words.first().is_some_and(|w| *w != 0));
+            if let Said::Player(PlayerNotice::Mounted { mounted }) = n.said {
+                if n.about == player_id {
+                    self.dolls.set_mounted(mounted);
+                }
             }
         }
-        self.held_looks = looks
-            .into_iter()
-            .map(|n| gameplay::Notice {
-                native: n.native,
-                about: n.about,
-                words: n.words.clone(),
-                records: records::of_notice(n),
-            })
-            .collect();
-        d.everyone = heard
-            .into_iter()
-            .map(|mut n| {
-                if n.native == names::notice::UPDATE_SELECTION_INFO {
-                    n.words = world::selection_info(game.client, n.words.first().copied());
-                }
-                n
-            })
-            .collect();
+        self.held_looks = looks;
+        d.everyone = heard;
         self.last_notices = d
             .everyone
             .iter()
@@ -1048,13 +1001,14 @@ impl Retail {
             .collect();
         self.chat.heard(&d.notices);
         d.shift = self.mods.0;
-        if let Some(c) = game.client {
-            let inv = c.inventory();
-            if d.inventory
-                .as_ref()
-                .is_none_or(|f| f.version != inv.version || f.player != inv.player)
-            {
-                d.inventory = Some(facts(inv, &c.model, &game.world.records));
+        if let Some(view) = game.view {
+            if let Some(inv) = &view.inventory {
+                if d.inventory
+                    .as_ref()
+                    .is_none_or(|f| f.version != inv.version || f.player != inv.player)
+                {
+                    d.inventory = Some(facts(inv));
+                }
             }
             // The world under the pointer, for the inventory panels' search.
             if self.world_search {
@@ -1094,51 +1048,29 @@ impl Retail {
                     }
                 }
             }
-            if d.skills
-                .as_ref()
-                .is_none_or(|f| f.version != c.skills.version)
-            {
-                d.skills = Some(skill_facts(&c.skills));
+            if let Some(s) = &view.skills {
+                if d.skills.as_ref().is_none_or(|f| f.version != s.version) {
+                    d.skills = Some(skill_facts(s));
+                }
             }
-            let a = c.acts();
-            if a.version != 0 && d.acts.as_ref().is_none_or(|(v, _)| *v != a.version) {
-                d.acts = Some((a.version, a.acts.iter().map(story_act).collect()));
+            if let Some(a) = &view.acts {
+                if d.acts.as_ref().is_none_or(|(v, _)| *v != a.version) {
+                    d.acts = Some((a.version, a.acts.iter().map(story_act).collect()));
+                }
             }
-            let k = c.craft();
-            let now = c.game_time();
-            match d.craft.as_mut() {
-                Some(f) if f.version == k.version => f.now = now,
-                _ => d.craft = Some(craft_facts(k, now)),
+            let now = view.clock.game_time;
+            if let Some(k) = &view.craft {
+                match d.craft.as_mut() {
+                    Some(f) if f.version == k.version => f.now = now,
+                    _ => d.craft = Some(craft_facts(k, now)),
+                }
             }
-            let st = c.store();
-            if d.shop.as_ref().is_none_or(|f| f.version != st.version) {
-                d.shop = Some(auberean_ui_game::shop::Facts {
-                    version: st.version,
-                    max_purchase: st.max_purchase.clone(),
-                    consignment_charge: st.consignment_charge,
-                });
-            }
-            // The story page's scene played again: the client's own notice to the play screen,
-            // with the scene from the scripts' acts.
-            if let Some((act, scene)) = d.play_scene.take() {
-                let found = c
-                    .acts()
-                    .acts
-                    .iter()
-                    .filter(|a| a.id == act)
-                    .flat_map(|a| a.scenes.iter())
-                    .find(|s| s.id == scene && s.playable != 0)
-                    .cloned();
-                if let Some(s) = found {
-                    d.notices.push(gameplay::Notice {
-                        native: gameplay::notice::PLAY_SEQUENCE,
-                        about: player_id,
-                        records: vec![records::of(&Some(
-                            auberean_client_sdk::script::native_object::NativeObject::Scenes(vec![
-                                s,
-                            ]),
-                        ))],
-                        ..gameplay::Notice::default()
+            if let Some(st) = &view.store {
+                if d.shop.as_ref().is_none_or(|f| f.version != st.version) {
+                    d.shop = Some(auberean_ui_game::shop::Facts {
+                        version: st.version,
+                        max_purchase: st.max_purchase.clone(),
+                        consignment_charge: st.consignment_charge,
                     });
                 }
             }
@@ -1150,10 +1082,8 @@ impl Retail {
             d.shop = None;
         }
         let ui = &self.ui;
-        let write = |info: &auberean_client_sdk::protocol::text::StringInfo| {
-            ui.assets()
-                .write(&auberean_client_sdk::runtime::text::from_wire(info))
-                .unwrap_or_default()
+        let write = |info: &auberean_client_sdk::contract::text::TextRef| {
+            ui.assets().write(&from_view(info)).unwrap_or_default()
         };
         if let Some(p) = game.world_pick {
             tracing::debug!(picked = ?p, "the world under the pointer");
@@ -1162,9 +1092,9 @@ impl Retail {
             d.atlas = Some(std::sync::Arc::new(map::atlas(game.world)));
         }
         d.clock = game
-            .client
-            .and_then(|c| map::clock(game.world, c.world_time()));
-        d.game_time = game.client.map_or(0.0, |c| c.game_time());
+            .view
+            .and_then(|v| map::clock(game.world, v.clock.world_time));
+        d.game_time = game.view.map_or(0.0, |v| v.clock.game_time);
         match self.gather.world(game, &write, &**ui.assets()) {
             Some((w, gone)) => {
                 d.world = Some(w);
@@ -1177,10 +1107,64 @@ impl Retail {
         }
     }
 
+    /// Before the frame's update, from the game's view: the text elements' string downloads
+    /// through the client's data cache; the chat's options, the panels' kept places and layout
+    /// files, and the player's options for the options window, where they changed.
+    fn take_view(&mut self, game: &Game<'_>) {
+        let Some(view) = game.view else { return };
+        if let Some(strings) = game.strings {
+            self.text.connect(strings);
+        }
+        let notices = std::mem::take(&mut self.last_notices);
+        self.chat.take(view);
+        let play = self.play().map(GamePlay::frame);
+        self.places
+            .take(view, &mut self.ui, play, &mut self.pending);
+        let d = &mut self.flow.flow.data;
+        if d.in_world {
+            self.options.take(view, &notices, &mut d.options);
+        } else {
+            d.options = None;
+        }
+    }
+
     /// How many pixels at the screen's top and foot the panels there cover.
     #[must_use]
     pub fn preclude(&self) -> (i32, i32) {
         self.flow.flow.data.preclude
+    }
+
+    /// What the client answered of what the play screen asked: a line that named no command
+    /// (the client's error line that says so), the item of a list a chat window steps through, a
+    /// layout file read (the chat log left at its newest lines).
+    fn answers(&mut self, game: &Game<'_>) {
+        use auberean_client_sdk::contract::event::{ChatEvent, GameEvent};
+        for e in game.events {
+            match e {
+                GameEvent::Chat(ChatEvent::UnknownCommand { .. }) => {
+                    let line = self
+                        .ui
+                        .assets()
+                        .string(STRINGS, Token::of("ID_Chat_UnknownCommand").raw())
+                        .unwrap_or_default();
+                    self.errors.push(line);
+                }
+                GameEvent::Chat(ChatEvent::History { list, text }) => {
+                    let asked = self.chat.answered(*list);
+                    if let (Some((window, list)), Some(text), Some(c)) =
+                        (asked, text, chat_of(&mut self.flow))
+                    {
+                        c.history_item(&mut self.ui, window, list, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if self.places.read(&mut self.ui, game.files_read) {
+            if let Some(c) = chat_of(&mut self.flow) {
+                c.show_newest_lines(&mut self.ui);
+            }
+        }
     }
 
     /// What the play screen asked, carried out as the client's actions, the camera's settings and
@@ -1198,9 +1182,11 @@ impl Retail {
                 R::Camera(camera::Request::Zoom { inward }) => {
                     requests.push(Request::Camera(CameraRequest::Zoom { inward }));
                 }
-                // The camera's movement (its arrows, its left button in mouse look), as keys.
+                // The camera's movement (its arrows, its left button in mouse look): the controls
+                // pressed as themselves, as keys would press them.
                 R::Camera(camera::Request::Act { action, extent }) => {
-                    requests.push(Request::Move { action, extent });
+                    let control = Control::at(ControlId(action), extent);
+                    requests.push(Request::Act(Action::Control(control)));
                 }
                 R::DisplayInWorld(_) => {}
                 R::Attack { start } => requests.push(Request::Act(Action::Attack { start })),
@@ -1230,21 +1216,26 @@ impl Retail {
                 R::SetSelection(target) => {
                     requests.push(Request::Act(Action::SetSelection { target }));
                 }
+                R::SelectBy(key) => {
+                    let selects = auberean_client_sdk::contract::control::interface::action(key);
+                    requests.extend(selects.map(Request::Act));
+                }
                 // The play screen's display is the window's own size.
                 #[allow(clippy::cast_precision_loss)]
                 R::Pick { x, y } => requests.push(Request::PickWorld {
                     x: x as f32,
                     y: y as f32,
                 }),
-                R::CeaseAttack(id) => self.gather.asks.push(world::Ask::CeaseAttack(id)),
+                R::CeaseAttack(target) => {
+                    requests.push(Request::Act(Action::CeaseAttack { target }));
+                }
                 R::PrecludeFromBottom(n) => self.flow.flow.data.preclude.1 = n,
                 R::ShowCoordinates(on) => {
                     requests.push(Request::Act(Action::ShowRadarCoordinates { on }));
-                    self.gather.options_changed();
                     self.options.stale = true;
                 }
                 R::ShowNames(on) => {
-                    self.gather.asks.push(world::Ask::ShowNames(on));
+                    requests.push(Request::Act(Action::ShowObjectNames { on }));
                     self.options.quiet = true;
                 }
                 R::Options(r) => match options::action(&r) {
@@ -1261,19 +1252,7 @@ impl Retail {
                     }
                     None => match &r {
                         auberean_ui_game::options::Request::Preferences(p) => {
-                            self.preferences.handle(p);
-                            if let Some(g) = self.preferences.take_applied() {
-                                requests.push(Request::Graphics(g));
-                            }
-                            if let Some(o) = self.preferences.take_camera() {
-                                requests.push(Request::Camera(CameraRequest::Options(o)));
-                            }
-                            if let Some(p) = self.preferences.take_presentation() {
-                                requests.push(Request::Presentation(p));
-                            }
-                            if let Some(kept) = self.preferences.take_kept() {
-                                requests.push(Request::KeepPreferences(kept));
-                            }
+                            requests.push(Request::Preferences(p.clone()));
                         }
                         auberean_ui_game::options::Request::AssistanceSite => {
                             requests.push(Request::OpenAssistancePage);
@@ -1289,11 +1268,15 @@ impl Retail {
                 R::Quit => requests.push(Request::Quit),
                 R::CharacterSelection => self.go(mode::CHARACTER_SELECTION),
                 R::ErrorLine(text) => self.errors.push(text),
-                R::Chat(a) => self.chat.ask(a),
-                R::KnowCommands => self.chat.know_commands(),
+                R::Chat(a) => {
+                    if let Some(a) = self.chat.action(a) {
+                        requests.push(Request::Act(a));
+                    }
+                }
+                R::KnowCommands => requests.push(Request::Act(Action::KnowCommands)),
                 R::SaveLocations => {
                     if let Some(f) = self.play().map(GamePlay::frame) {
-                        self.places.save(&self.ui, f);
+                        requests.push(places::Places::save(&self.ui, f));
                     }
                 }
                 R::PutBackLocations { reloaded } => self.places.put_back(reloaded),
@@ -1452,7 +1435,9 @@ impl Retail {
                 R::StopScreenSound => requests.push(sounds::screens_silence()),
                 R::Sound(id) => requests.push(sounds::once(id)),
                 R::StorySound(s) => requests.extend(sounds::story(s)),
-                R::PlayScene { act, scene } => self.flow.flow.data.play_scene = Some((act, scene)),
+                R::PlayScene { act, scene } => {
+                    requests.push(Request::Act(Action::PlayStoryScene { act, scene }));
+                }
                 R::Examine(e) => {
                     requests.push(Request::Act(Action::Examine {
                         kind: e.kind,
@@ -1502,25 +1487,23 @@ impl Retail {
     /// The chat service's news from the client: its connection lost, the ticket taken again (or
     /// not) after it came back, the login's ticket refused (the session goes, the screens say why).
     fn chat_service(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
-        use auberean_client_sdk::runtime::friends::{notice, Refusal};
         for n in game.notices {
-            match n.native {
-                notice::CONNECTION_LOST => self.flow.chat_service_lost(&mut self.ui),
-                notice::AUTHENTICATED => {
-                    let taken = n.words.first() == Some(&1);
+            match n.said {
+                Said::Interface(InterfaceNotice::ChatServiceLost) => {
+                    self.flow.chat_service_lost(&mut self.ui);
+                }
+                Said::Interface(InterfaceNotice::ChatServiceTicket { taken }) => {
                     self.flow.chat_service_reauthenticated(&mut self.ui, taken);
                 }
                 _ => {}
             }
         }
-        let refusal = game
-            .client
-            .and_then(auberean_client_sdk::Client::friends_refusal);
+        let refusal = game.view.and_then(|v| v.chat_service_refused);
         match refusal {
             Some(r) if !self.refused => {
                 self.refused = true;
                 self.flow
-                    .chat_service_refused(&self.ui, r == Refusal::Banned);
+                    .chat_service_refused(&self.ui, r == v::ChatServiceRefusal::Banned);
                 // The session's end is the refusal's, not a connection that failed.
                 self.net = pregame::Net::Idle;
                 requests.push(Request::Disconnect);
@@ -1874,11 +1857,7 @@ const fn interface_key_of(key: Key) -> Option<u32> {
 
 /// The toolbar as the client last asked the scripts for it, as the shortcut bar takes it: each
 /// item's icon as its look makes it.
-fn shortcut_source(
-    t: &auberean_client_sdk::runtime::toolbar::Toolbar,
-    model: &auberean_client_sdk::model::Model,
-    records: &auberean_world::records::WorldRecords,
-) -> shortcuts::Source {
+fn shortcut_source(t: &v::Toolbar) -> shortcuts::Source {
     shortcuts::Source {
         version: t.version,
         shortcuts: t
@@ -1889,7 +1868,7 @@ fn shortcut_source(
                 item: s.item,
                 data_enum: s.data_enum,
                 data_id: s.data_id,
-                text: String::from_utf16_lossy(&s.text),
+                text: s.text.clone(),
             })
             .collect(),
         slots: t
@@ -1923,23 +1902,17 @@ fn shortcut_source(
                 item: i.item,
                 have: i.have,
                 here: i.here.clone(),
-                icon_layers: if i.here.is_some() {
-                    icon_layers(model, records, i.item)
-                } else {
-                    Vec::new()
-                },
+                icon_layers: i.icon_layers.clone(),
             })
             .collect(),
     }
 }
 
 /// The crafting page's facts as the page takes them, the game time now with them.
-fn craft_facts(k: &auberean_client_sdk::runtime::craft::Craft, now: f64) -> craft::Facts {
-    use auberean_client_sdk::runtime::craft as rc;
-    use auberean_client_sdk::runtime::text::from_script;
-    let skill = |s: &rc::CraftSkill| craft::CraftSkill {
+fn craft_facts(k: &v::Craft, now: f64) -> craft::Facts {
+    let skill = |s: &v::CraftSkill| craft::CraftSkill {
         did: s.did,
-        name: from_script(&s.name),
+        name: from_view(&s.name),
         level: s.level,
         raw_level: s.raw_level,
         cost_to_raise: s.cost_to_raise,
@@ -1963,7 +1936,7 @@ fn craft_facts(k: &auberean_client_sdk::runtime::craft::Craft, now: f64) -> craf
                     .iter()
                     .map(|r| craft::Recipe {
                         did: r.did,
-                        name: from_script(&r.name),
+                        name: from_view(&r.name),
                         icon: r.icon,
                         shown: r.shown,
                         craft_skill: r.craft_skill,
@@ -1977,7 +1950,7 @@ fn craft_facts(k: &auberean_client_sdk::runtime::craft::Craft, now: f64) -> craf
         categories: k
             .categories
             .iter()
-            .map(|(c, n)| (*c, from_script(n)))
+            .map(|(c, n)| (*c, from_view(n)))
             .collect(),
         now,
         opened: k.opened.as_ref().map(recipe_at),
@@ -1985,31 +1958,27 @@ fn craft_facts(k: &auberean_client_sdk::runtime::craft::Craft, now: f64) -> craf
 }
 
 /// A recipe at a spinner value as the ingredient panel takes it.
-fn recipe_at(
-    a: &auberean_client_sdk::runtime::craft::RecipeAt,
-) -> auberean_ui_game::ingredients::RecipeAt {
-    use auberean_client_sdk::runtime::text::from_script;
+fn recipe_at(a: &v::RecipeAt) -> auberean_ui_game::ingredients::RecipeAt {
     use auberean_ui_game::ingredients as ing;
-    let r = &a.recipe;
     ing::RecipeAt {
-        recipe: r.did,
+        recipe: a.recipe,
         spinner: a.spinner,
-        name: from_script(&r.name),
-        charges: r.charges,
-        min_spinner: r.min_spinner,
-        max_spinner: r.max_spinner,
-        last_spinner: r.last_spinner,
-        auto_populating: r.auto_populating,
-        max_ingredients: r.max_ingredients,
-        name_coloring: r.name_coloring,
-        name_color: r.name_color,
-        difficulty: r.difficulty,
-        dynamic_difficulty: r.dynamic_difficulty,
-        cutoff: r.difficulty_minus_cutoff,
-        cost: r.cost,
-        dynamic_cost: r.dynamic_cost,
-        craft_skill: r.craft_skill,
-        read_only_spinner: r.read_only_spinner,
+        name: from_view(&a.name),
+        charges: a.charges,
+        min_spinner: a.min_spinner,
+        max_spinner: a.max_spinner,
+        last_spinner: a.last_spinner,
+        auto_populating: a.auto_populating,
+        max_ingredients: a.max_ingredients,
+        name_coloring: a.name_coloring,
+        name_color: a.name_color,
+        difficulty: a.difficulty,
+        dynamic_difficulty: a.dynamic_difficulty,
+        cutoff: a.cutoff,
+        cost: a.cost,
+        dynamic_cost: a.dynamic_cost,
+        craft_skill: a.craft_skill,
+        read_only_spinner: a.read_only_spinner,
         skill_level: a.skill_level,
         mask: a.mask,
         ingredients: a
@@ -2017,11 +1986,11 @@ fn recipe_at(
             .iter()
             .map(|i| ing::Ingredient {
                 id: i.id,
-                description: from_script(&i.description),
+                description: from_view(&i.description),
             })
             .collect(),
-        spinner_cost: a.cost,
-        spinner_difficulty: a.difficulty,
+        spinner_cost: a.spinner_cost,
+        spinner_difficulty: a.spinner_difficulty,
         auto_populate: a.auto_populate.clone(),
         items: a.items.clone(),
         fits: a.fits.clone(),
@@ -2030,61 +1999,42 @@ fn recipe_at(
 
 /// An act of the story as the story page takes it: its name, and its scenes in their order.
 // D2-12307, D2-12316
-fn story_act(a: &auberean_client_sdk::script::story::ActInfo) -> story_quests::Act {
-    use auberean_client_sdk::runtime::text::from_script;
+fn story_act(a: &v::Act) -> story_quests::Act {
     story_quests::Act {
         id: a.id,
-        name: from_script(&a.name),
-        visible: a.visible != 0,
+        name: from_view(&a.name),
+        visible: a.visible,
         scenes: a
             .scenes
             .iter()
             .map(|s| story_quests::Scene {
                 id: s.id,
-                name: from_script(&s.name),
-                hidden: s.hidden != 0,
-                playable: s.playable != 0,
+                name: from_view(&s.name),
+                hidden: s.hidden,
+                playable: s.playable,
             })
             .collect(),
     }
 }
 
 /// The effects as the client last asked the scripts for them, as the effects panel takes them.
-fn effect_list(e: &auberean_client_sdk::runtime::effects::EffectList) -> statusbar::EffectList {
+fn effect_list(e: &v::Effects) -> statusbar::EffectList {
     statusbar::EffectList {
         version: e.version,
         now: e.now,
         nodes: e
-            .nodes
+            .effects
             .iter()
             .map(|n| statusbar::EffectNode {
-                eid: n.eid,
-                name: String::from_utf16_lossy(&n.name),
+                eid: n.id,
+                name: n.name.clone(),
                 icon: n.icon,
-                time_cast: f64::from_bits(n.time_cast),
-                duration: f64::from_bits(n.duration),
-                pulsed: n.pulsed(),
+                time_cast: n.time_cast,
+                duration: n.duration,
+                pulsed: n.pulsed,
             })
             .collect(),
     }
-}
-
-/// The player's health and vigor and their greatest, where the qualities have them.
-fn vitals(o: &Object) -> Option<[u32; 4]> {
-    let q = &o.qualities;
-    let v = |id: u32| {
-        q.ints
-            .get(&id)
-            .map(|v| u32::try_from(*v).unwrap_or(0))
-            .or_else(|| {
-                q.floats.get(&id).map(|f| {
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let n = f.max(0.0) as u32;
-                    n
-                })
-            })
-    };
-    Some([v(258)?, v(263)?, v(259)?, v(264)?])
 }
 
 impl Interface for Retail {
@@ -2189,9 +2139,6 @@ impl Interface for Retail {
                 // interface actions the player's key maps bind them to.
                 if playing && !self.typing() {
                     if let Some(a) = self.play_action(game.keys, *key, *down) {
-                        if *down && selection::key::wants_targets(a) {
-                            self.gather.want_targets = true;
-                        }
                         self.interface_key(a, *down);
                         return true;
                     }
@@ -2234,13 +2181,30 @@ impl Interface for Retail {
     }
 
     fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        self.take_view(game);
         if game.size.0 > 0 && game.size.1 > 0 {
             self.window = game.size;
-            self.preferences.follow_window(game.size);
         }
         self.follow_window();
-        self.ui
-            .use_game_time(game.client.map(auberean_client_sdk::Client::game_time));
+        // The client's own preferences: the client page's listing and what the client changed
+        // itself; the tooltips as applied; what the client tells the player, in the chat window.
+        let d = &mut self.flow.flow.data;
+        let listed = game.preferences.listing();
+        if d.preferences.as_ref().map(|l| l.serial) != listed.map(|l| l.serial) {
+            d.preferences = listed.cloned();
+        }
+        d.preferences_changed = game.preferences_changed.to_vec();
+        let tooltips = game.preferences.tooltips();
+        if self.tooltips != Some(tooltips) {
+            self.tooltips = Some(tooltips);
+            self.ui
+                .set_tooltip_preferences(Some(tooltips.0), Some(tooltips.1));
+        }
+        self.answers(game);
+        self.errors.extend(game.told.iter().cloned());
+        // What the plugins print is shown as the client's own lines are.
+        self.errors.extend(game.plugin_lines.iter().cloned());
+        self.ui.use_game_time(game.view.map(|v| v.clock.game_time));
         self.ui.use_time(game.now);
         // What the screens are given; then the flow's tick: a screen asked for comes up, and the
         // screen up has its tick.
@@ -2260,25 +2224,6 @@ impl Interface for Retail {
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);
         self.carry_out_pregame(requests);
-        // The effects' preferences changed or applied (and, first, as read).
-        if let Some(c) = self.preferences.take_channels() {
-            requests.push(Request::FxChannels(c));
-        }
-        // The tooltip preferences applied (and, first, their values as read).
-        let (delay, enable) = self.preferences.take_tooltips();
-        if delay.is_some() || enable.is_some() {
-            self.ui.set_tooltip_preferences(delay, enable);
-        }
-        // The sound preferences changed or applied (and, first, their values as read).
-        for (key, value, applied) in self.preferences.take_sound() {
-            requests.push(Request::Sound(
-                auberean_shell::interface::SoundOrder::Preference {
-                    key,
-                    value,
-                    applied,
-                },
-            ));
-        }
         // The sounds the elements' media asked for.
         // D2-11145
         for s in self.ui.take_sounds() {
@@ -2367,11 +2312,20 @@ impl Interface for Retail {
     fn draw(&mut self, game: &Game<'_>, overlay: &mut Overlay) {
         if game.phase != Phase::World {
             self.pregame_scenes(game, overlay);
-        } else if let Some(c) = game.client {
+        } else if let Some(player) = &game.looks.player {
             let pick = self.doll_pick.take();
-            let asked =
-                self.dolls
-                    .scenes(&self.ui, &game.world.records, c, pick, &mut overlay.scenes);
+            let race = game
+                .view
+                .and_then(|v| v.player.as_ref())
+                .and_then(|p| p.race);
+            let asked = self.dolls.scenes(
+                &self.ui,
+                &game.world.records,
+                player,
+                race,
+                pick,
+                &mut overlay.scenes,
+            );
             if pick.is_some() {
                 self.doll_scene = asked;
                 // No figure shown to search: the search finds nothing.
@@ -2389,44 +2343,11 @@ impl Interface for Retail {
         overlay.screen = (size != self.window).then_some(size);
     }
 
-    fn prepare(&mut self, client: &mut auberean_client_sdk::Client) {
-        // The text elements' string downloads go through this client's data cache.
-        self.text.connect(client.data_download().strings());
-        let notices = std::mem::take(&mut self.last_notices);
-        self.gather.prepare(client, &notices);
-        self.chat.prepare(client);
-        let play = self.play().map(GamePlay::frame);
-        if self.places.prepare(client, &mut self.ui, play) {
-            if let Some(c) = chat_of(&mut self.flow) {
-                c.show_newest_lines(&mut self.ui);
-            }
+    /// The panels to be put back where the player's interface keeps them ask for those places.
+    fn before_view(&mut self, requests: &mut Vec<Request>) {
+        if self.places.wants_saved() {
+            requests.push(Request::Act(Action::AskSavedPlaces));
         }
-        // A line naming no command: the client's error line that says so.
-        for _ in 0..self.chat.take_unknown() {
-            let line = self
-                .ui
-                .assets()
-                .string(STRINGS, Token::of("ID_Chat_UnknownCommand").raw())
-                .unwrap_or_default();
-            self.errors.push(line);
-        }
-        let answers = self.chat.take_answers();
-        if let Some(c) = chat_of(&mut self.flow) {
-            for (window, list, text) in answers {
-                c.history_item(&mut self.ui, window, list, &text);
-            }
-        }
-        let d = &mut self.flow.flow.data;
-        if d.in_world {
-            self.options.prepare(client, &notices, &mut d.options);
-        } else {
-            d.options = None;
-        }
-        let listed = self.preferences.listing();
-        if d.preferences.as_ref().map(|l| l.serial) != listed.map(|l| l.serial) {
-            d.preferences = listed.cloned();
-        }
-        d.preferences_changed = self.preferences.take_changed();
     }
 
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
@@ -2437,31 +2358,8 @@ impl Interface for Retail {
         self.typing()
     }
 
-    fn set_preferences(
-        &mut self,
-        settings: &auberean_shell::Settings,
-        records: &auberean_world::records::WorldRecords,
-    ) {
-        self.preferences.start(settings, records);
-    }
-
-    fn set_graphics(&mut self, graphics: &auberean_draw::quality::Graphics) {
-        self.preferences.set(graphics);
-    }
-
-    fn set_presentation(&mut self, modes: &[(u32, u32)], settings: &auberean_shell::Settings) {
-        self.preferences.set_presentation(modes, settings);
-    }
-
-    fn offer_remaster(&mut self, offered: bool) {
-        self.preferences.offer_remaster(offered);
-    }
-
-    fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
-        self.preferences.toggle_full_screen();
-        if let Some(p) = self.preferences.take_presentation() {
-            requests.push(Request::Presentation(p));
-        }
+    fn leave(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {
+        self.let_go();
     }
 
     fn set_random(&mut self, random: &auberean_world::chargen::Random) {

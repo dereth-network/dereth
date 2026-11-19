@@ -1,6 +1,6 @@
 [package]
 name = "auberean-scene"
-description = "The world a window shows, with no device and no platform: the player's body moved by the world's physics and reported through the client, the bodies of everything else the client knows, the chase camera under the player's control, and the frame drawn from them."
+description = "The world a window shows, with no device and no platform: the player's body as the world without a window moves it, the bodies of everything else the client knows, the chase camera under the player's control, and the frame drawn from them."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,6 +26,8 @@ auberean-draw.workspace = true
 auberean-client-sdk.workspace = true
 # The transcendental functions, the same bits on every host; positions and cells.
 dereth-primitives.workspace = true
+# The marks an interface lays on the ground, as the shared overlay names them.
+dereth-ui-overlay.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

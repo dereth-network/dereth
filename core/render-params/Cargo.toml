@@ -1,0 +1,19 @@
+[package]
+name = "dereth-render-params"
+description = "What a scene hands a renderer each frame and the renderer starts up with: the projection parameters, the fog and light blocks and the startup sampler filtering, naming no game and no graphics API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# `Viewport`, the rectangle the game view is drawn into, and `num::math`, the projection's
+# trigonometry. The primitives name no game's rules and are the base both games' cores are built on.
+dereth-primitives.workspace = true
+# `camera.rs`'s `ViewParams::view` is a `Mat4`: the same glam the rest of the tree uses, so the
+# matrix a scene hands over is the one the renderer builds.
+glam.workspace = true
+
+[lints]
+workspace = true

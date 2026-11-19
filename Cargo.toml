@@ -26,6 +26,10 @@ members = [
     "core/client-net",
     "core/client-model",
     "core/client-contract",
+    # The overlay any interface draws over the world, which both games' interfaces lower to.
+    "core/ui-overlay",
+    # What a scene hands a renderer, which both games' renderers share.
+    "core/render-params",
     "core/presentation",
     # The device-free half of rendering, which both games' clients draw with.
     "core/render-cpu",
@@ -57,6 +61,8 @@ members = [
     # The WebSocket endpoint both game servers run: its settings, and the listener each gives its
     # own ports.
     "core/server-websocket",
+    # A world map's picture drawn on the CPU from a world's land, which both games' maps draw with.
+    "core/map-picture",
     # core/auberean-*: the Asheron's Call 2 half of the engine (MIT), shared by its client
     # (auberean/), its server (yalain/) and its world builder (athenaeum/). Named `auberean-*` and
     # kept in folders of the same name beside the shared crates, several of which they build on
@@ -82,7 +88,10 @@ members = [
     "core/auberean-client-model",
     "core/auberean-client-contract",
     "core/auberean-client-runtime",
+    "core/auberean-client-sim",
     "core/auberean-client-sdk",
+    # Auberean's plugin host, on the plugin interface every game shares.
+    "core/auberean-plugin-host",
     # The friends stream: the protocol between an Asheron's Call 2 client and its world's friends
     # service, which the client, the server and the retail client's stand-in friends library speak.
     "core/auberean-friends",
@@ -120,6 +129,7 @@ members = [
     "dereth/client/crates/classic-gdi",
     "dereth/client/crates/classic-fonts",
     "dereth/client/crates/horizon",
+    "dereth/client/crates/horizon-art",
     "dereth/client/crates/plugin-ui",
     "dereth/client/crates/ui-kit",
     "dereth/headless",
@@ -203,7 +213,9 @@ members = [
     "auberean/client",
     "auberean/client/crates/ui",
     "auberean/client/crates/ui-game",
+    "auberean/client/crates/options",
     "auberean/client/crates/interface",
+    "auberean/client/crates/horizon",
     # The client in a browser's Web Worker: its browser half compiles only for WebAssembly.
     "auberean/web",
     "auberean/viewer",
@@ -271,6 +283,7 @@ dereth-gltf = { path = "core/gltf" }
 dereth-input = { path = "dereth/client/crates/input" }
 dereth-landscape = { path = "core/landscape" }
 dereth-launch = { path = "launcher/crates/launch" }
+dereth-map-picture = { path = "core/map-picture" }
 dereth-navigation = { path = "core/navigation" }
 dereth-pack = { path = "core/pack" }
 dereth-pcap = { path = "tools/pcap" }
@@ -303,7 +316,10 @@ dereth-transport = { path = "core/transport" }
 dereth-ui = { path = "dereth/client/crates/ui" }
 dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
 dereth-ui-kit = { path = "dereth/client/crates/ui-kit" }
+dereth-ui-overlay = { path = "core/ui-overlay" }
+dereth-render-params = { path = "core/render-params" }
 dereth-horizon = { path = "dereth/client/crates/horizon" }
+dereth-horizon-art = { path = "dereth/client/crates/horizon-art" }
 dereth-web = { path = "dereth/web" }
 dereth-web-store = { path = "dereth/web/store" }
 dereth-web-dev = { path = "tools/web-dev" }
@@ -340,6 +356,8 @@ auberean-client-model = { path = "core/auberean-client-model" }
 auberean-client-net = { path = "core/auberean-client-net" }
 auberean-client-runtime = { path = "core/auberean-client-runtime" }
 auberean-client-sdk = { path = "core/auberean-client-sdk" }
+auberean-plugin-host = { path = "core/auberean-plugin-host" }
+auberean-client-sim = { path = "core/auberean-client-sim" }
 auberean-dat = { path = "core/auberean-dat" }
 auberean-audio = { path = "auberean/client/crates/audio" }
 auberean-draw = { path = "auberean/client/crates/draw" }
@@ -352,7 +370,9 @@ auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }
 auberean-ui-game = { path = "auberean/client/crates/ui-game" }
+auberean-options = { path = "auberean/client/crates/options" }
 auberean-interface = { path = "auberean/client/crates/interface" }
+auberean-horizon = { path = "auberean/client/crates/horizon" }
 auberean-pack = { path = "core/auberean-pack" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }

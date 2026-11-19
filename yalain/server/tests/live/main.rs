@@ -14,6 +14,7 @@ mod referral;
 mod reload;
 mod relogin;
 mod rooms;
+mod schemes;
 mod session;
 mod status_ping;
 mod stopping;

@@ -6,9 +6,18 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- New players now start with the keys the game installed, like X to examine.
 - Windows: the taskbar now names the client Auberean.
 - Fixed buffs showing years left.
 - Web: WebGL now asks for the faster graphics card, and the status line names it.
+- New Horizon interface, chosen in Options.
+- The client and the headless client run plugins written for Auberean.
+- Headless: walking now keeps to the floor, stops at walls and creatures, and takes pushes.
+- Headless: new `--script` option plays a script of commands.
+- Fixed the world appearing at once after portal space instead of fading in from white.
+- Fixed the camera jumping for a frame while running in mouse look.
+- Fixed running off after a respawn when you died attacking.
+- The options window now scrolls a line at a time through open sections.
 
 ## 0.1.9 (2026-11-17)
 - New Remaster mode with modern light and shadows, a physical sky, rain, puddles and swaying grass, on the options window.

@@ -3,8 +3,9 @@
 //!
 //! **Depends on** the element framework (`auberean-ui`), where a cell lies on the land
 //! (`auberean-primitives`), the game's string references (`auberean-text`: the toolbar's
-//! tooltips, the dialogs' messages, a place's map coordinates), how the C library reads a number
-//! (`auberean-dat`: a preference's text form) and the original's float-to-integer conversion
+//! tooltips, the dialogs' messages, a place's map coordinates), the client's own preferences that
+//! the options window's client page lists (`auberean-options`), the pets' modes and names every
+//! front end shares (`auberean-client-contract`) and the original's float-to-integer conversion
 //! (`dereth-primitives`). **Used by** the client's interface, which
 //! opens the screens, feeds them what the model knows and turns what they ask into actions.
 //!

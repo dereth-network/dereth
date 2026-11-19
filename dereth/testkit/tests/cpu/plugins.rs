@@ -3032,11 +3032,17 @@ fn the_specs_event_table_is_the_list_the_host_delivers() {
 /// `DERETH_TEST_GOLDEN=1` rewrites the two files.
 #[test]
 fn the_wit_interface_and_the_luau_definitions_are_what_the_schema_generates() {
-    use dereth_plugin_api::schema;
+    use dereth_plugin_api::{schema, Game};
     let root = dereth_testkit::conformance::workspace_root();
     for (file, text) in [
-        ("docs/plugins/wit/dereth-plugin.wit", schema::wit()),
-        ("docs/plugins/dereth.d.luau", schema::luau_definitions()),
+        (
+            "docs/plugins/wit/dereth-plugin.wit",
+            schema::wit(Game::Dereth),
+        ),
+        (
+            "docs/plugins/dereth.d.luau",
+            schema::luau_definitions(Game::Dereth),
+        ),
     ] {
         let path = root.join(file);
         if dereth_testkit::golden::rewriting() {

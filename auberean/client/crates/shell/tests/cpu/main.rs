@@ -1,6 +1,7 @@
 //! Device-free tests of the shell that need no data: the command line, the key maps, the action
 //! interpreter, the preferences file and the settings.
 
+mod background_pointer;
 mod command_line;
 mod friends;
 mod input_manager;

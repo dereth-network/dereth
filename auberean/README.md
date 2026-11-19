@@ -93,12 +93,15 @@ You need your own Asheron's Call 2 install; nothing of the game ships here.
 cargo run --profile test-release -p auberean-viewer -- --install <install folder> --block 6FA9 --at 45.2,90.5,85.3 --heading 178 --out view.png
 cargo run --profile test-release -p yalain -- --dats <install folder>
 cargo run --profile test-release -p auberean-headless -- --dats <install folder> --account me --ticket t
+cargo run --profile test-release -p auberean-headless -- --dats <install folder> --account me --ticket t --script walk.txt
 cargo run --profile test-release -p auberean-client -- --dats <install folder> --dev-login me:t --dev-character Name
 ```
 
 The desktop client keeps its settings in the folder `AUBEREAN_SETTINGS_DIR` names, else in your
-application data's `Auberean`. It moves with the game's default keys: W, S and X, A and D, Z and C,
-Q to run on, Space to jump, the keypad for the camera, the middle button for mouse look.
+application data's `Auberean`. It starts with the keys the game's installer laid down: W and S, A
+and D to turn, Q and E to strafe, Num Lock to run on, Space to jump, X to examine, the keypad for the
+camera, the right button held or the middle button for mouse look. Its key map screen (Options, at
+character select) offers the game's five presets: Defaults, WoW, FK, EQ and DAoC.
 
 ## Testing
 

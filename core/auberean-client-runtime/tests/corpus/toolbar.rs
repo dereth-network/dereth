@@ -268,3 +268,175 @@ fn an_item_on_the_bar_is_named_and_shown_as_the_pack_shows_it() {
     assert!(shown.items >= 30, "{shown:?}");
     assert_eq!(shown.differ, 0, "{shown:?}");
 }
+
+/// What putting things that do not belong on the bar in an empty slot found.
+#[derive(Default, Debug)]
+struct Cleaned {
+    looks: u64,
+    /// Emotes and items the player does not have put on the bar, and how many were emptied.
+    put: u64,
+    emptied: u64,
+    /// Skills of other players' bars put on this one: emptied (the toolbar no longer holds them),
+    /// kept trained, and kept though not trained.
+    skills_emptied: u64,
+    skills_kept: u64,
+    kept_untrained: u64,
+    /// The player's own slots changed by the clean-up.
+    own_changed: u64,
+    problems: Vec<String>,
+}
+
+impl Cleaned {
+    /// On the bar's first empty slot, one after another: an emote, an item the player does not
+    /// have, and each skill another player's bar held that this one does not; each looked at
+    /// after the toolbar is next asked, the slot emptied by hand after a skill that stayed.
+    fn look(&mut self, c: &mut auberean_client_runtime::Client, capture: i64, others: &[u32]) {
+        c.refresh_toolbar();
+        let own = c.toolbar().shortcuts.clone();
+        let Some(slot) = own.iter().take(100).position(|s| s.kind == 0) else {
+            return;
+        };
+        let at = u32::try_from(slot).unwrap_or(0);
+        self.looks += 1;
+        let put = |c: &mut auberean_client_runtime::Client, shortcut: ToolbarShortcut| {
+            c.act(Action::SetToolbarSlot { slot: at, shortcut });
+            c.refresh_toolbar();
+        };
+        for (what, shortcut) in [
+            (
+                "an emote",
+                ToolbarShortcut {
+                    kind: kind::EMOTE,
+                    data_enum: 0x4000_0001,
+                    ..ToolbarShortcut::default()
+                },
+            ),
+            (
+                "an item the player does not have",
+                ToolbarShortcut {
+                    kind: kind::ITEM,
+                    item: 0x7FFF_0000_0000_0001,
+                    ..ToolbarShortcut::default()
+                },
+            ),
+        ] {
+            put(c, shortcut);
+            self.put += 1;
+            let held = c.shortcuts().and_then(|s| s.get(slot).map(|s| s.kind));
+            if c.toolbar().shortcuts[slot].kind == 0 && held == Some(0) {
+                self.emptied += 1;
+            } else {
+                self.problems
+                    .push(format!("capture {capture}: {what} stayed in slot {slot}"));
+            }
+        }
+        let mine: Vec<u32> = own
+            .iter()
+            .filter(|s| s.kind == kind::SKILL)
+            .map(|s| s.data_enum)
+            .collect();
+        for skill in others.iter().filter(|k| !mine.contains(k)) {
+            put(
+                c,
+                ToolbarShortcut {
+                    kind: kind::SKILL,
+                    data_enum: *skill,
+                    ..ToolbarShortcut::default()
+                },
+            );
+            let t = c.toolbar();
+            if t.shortcuts[slot].kind == 0 {
+                self.skills_emptied += 1;
+                continue;
+            }
+            if t.skills.iter().any(|k| k.skill == *skill && !k.trained) {
+                self.kept_untrained += 1;
+            } else {
+                self.skills_kept += 1;
+            }
+            put(c, ToolbarShortcut::default());
+        }
+        let now = &c.toolbar().shortcuts;
+        let changed = own
+            .iter()
+            .zip(now)
+            .enumerate()
+            .filter(|(i, (a, b))| *i != slot && a != b)
+            .count();
+        self.own_changed += u64::try_from(changed).unwrap_or(0);
+    }
+}
+
+/// At each recorded session's first options reload (the first sessions), the game takes off the
+/// bar, as the toolbar is next asked, what does not belong on it: an emote, an item the player
+/// does not have, a skill the player has not trained (each skill another player's bar held); a
+/// skill the player has trained stays, and the player's own slots are left as they are.
+///
+/// Behaviour: ui.shortcuts.the-game-takes-off-the-bar-what-does-not-belong
+#[test]
+fn the_game_takes_off_the_bar_what_does_not_belong_on_it() {
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut capture = -1;
+    let mut seen = 0usize;
+    let mut looked = false;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    let mut others: Vec<u32> = Vec::new();
+    let mut cleaned = Cleaned::default();
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            seen += 1;
+            looked = false;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if seen > CAPTURES || looked {
+            return;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        c.take_message(m.blob_id, msg);
+        let reloaded = c.notices.iter().any(|n| n.native == RELOAD_OPTIONS);
+        c.notices.clear();
+        if !reloaded {
+            return;
+        }
+        looked = true;
+        cleaned.look(&mut c, capture, &others);
+        for s in &c.toolbar().shortcuts {
+            if s.kind == kind::SKILL && !others.contains(&s.data_enum) {
+                others.push(s.data_enum);
+            }
+        }
+    })
+    .expect("the index reads");
+    eprintln!("{cleaned:?}");
+    assert!(cleaned.looks >= 20, "{cleaned:?}");
+    assert_eq!(cleaned.emptied, cleaned.put, "{:#?}", cleaned.problems);
+    assert!(
+        cleaned.skills_emptied >= 10 && cleaned.skills_kept >= 1,
+        "{cleaned:?}"
+    );
+    assert_eq!(cleaned.kept_untrained, 0, "{cleaned:?}");
+    assert_eq!(cleaned.own_changed, 0, "{cleaned:?}");
+}

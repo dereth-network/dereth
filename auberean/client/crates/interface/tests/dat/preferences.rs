@@ -1,7 +1,7 @@
 //! The client's preferences behind the options window's client page, read from a preferences file
 //! by the data's names.
 
-use auberean_interface::preferences::Preferences;
+use auberean_shell::client_preferences::ClientPreferences as Preferences;
 use auberean_shell::preferences::{EnumNames, KEY_NAMES};
 use auberean_shell::Settings;
 use auberean_ui_game::options::client::{section, Request};
@@ -15,8 +15,9 @@ const TEXTURE_DETAIL: u32 = 0x4000_004F;
 /// mouse, three for the avatar after the drawing's two), each read from the preferences file by
 /// the data's names, the rest at the defaults; the client page lists them by section. A distance tried and
 /// applied goes to the camera with the other options as the file had them, and keeping writes
-/// every preference by its names: the camera's, the graphics (a choice by its name in the data)
-/// and the key maps' files.
+/// every preference by its names: the camera's, the graphics (a choice by its name in the data),
+/// the key maps' files, the interface and the orbit camera's (this client's own, by their own
+/// names).
 ///
 /// Behaviour: ui.options.the-client-page-lists-the-cameras-preferences-and-keeps-them
 #[test]
@@ -133,7 +134,15 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert!(has("Sound", &features, "Hardware"), "{sound:?}");
     let misc: Vec<_> = kept.iter().filter(|w| w.0 == "Misc").collect();
     assert_eq!(misc.len(), 2, "{misc:?}");
-    assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3 + 2);
+    assert!(
+        has("UI", "Interface", "Retail"),
+        "this client's own, by name"
+    );
+    assert!(
+        has("Orbit", "Movement", "Camera"),
+        "the orbit camera's, this client's own"
+    );
+    assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3 + 2 + 1 + 3);
 }
 
 /// The command line's gore level and blood color stand over the language's: the effects start at

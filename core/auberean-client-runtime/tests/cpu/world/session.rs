@@ -1,8 +1,10 @@
-//! The session's end as the client keeps it, and the connection's measure it reports, against a
-//! server double on a virtual clock.
+//! The session's end as the client keeps it, and the connection's measure it reports (with how long
+//! since the server was heard), against a server double on a virtual clock.
 
 use std::net::{Ipv4Addr, SocketAddr};
 
+use auberean_client_contract::event::{GameEvent, SessionEvent};
+use auberean_client_contract::session::{LoginProgress, Phase};
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::{Client, ClientData, ClientSettings, SessionEnd};
 use auberean_protocol::login::{Empty, PlayerObject};
@@ -201,6 +203,57 @@ fn a_server_ending_the_connection_ends_the_session() {
     );
 }
 
+/// The session tells a login going out, that it is connecting, the server's answer acknowledged,
+/// and once the server ends the connection, that it is gone and how it ended: each once, in that
+/// order.
+///
+/// Behaviour: session.events.the-login-and-the-sessions-end-are-told-once
+#[test]
+fn the_login_and_the_sessions_end_are_told_once_each_in_order() {
+    let mut r = Run::new(script(
+        2.0,
+        Row::End {
+            t: 3.0,
+            conn: 0,
+            c2s: false,
+        },
+    ));
+    let mut told = Vec::new();
+    while r.now.0 < 11.0 {
+        r.step();
+        told.extend(r.client.take_events().into_iter().filter_map(|e| match e {
+            GameEvent::Session(SessionEvent::Heartbeat(_)) => None,
+            GameEvent::Session(s) => Some(s),
+            _ => None,
+        }));
+    }
+    let end = SessionEnd {
+        connect_failed: None,
+        login_failed: false,
+        server_died: true,
+    };
+    assert!(
+        matches!(
+            told.first(),
+            Some(SessionEvent::LoginProgress(LoginProgress::Asking {
+                attempt: 1,
+                ..
+            }))
+        ),
+        "{told:?}"
+    );
+    assert_eq!(
+        told[1..],
+        [
+            SessionEvent::Phase(Phase::Connecting),
+            SessionEvent::LoginProgress(LoginProgress::Waiting),
+            SessionEvent::Phase(Phase::Disconnected),
+            SessionEvent::Ended(end),
+        ]
+    );
+    assert_eq!(r.client.phase(), Phase::Disconnected);
+}
+
 /// A login server that falls silent ends the session 140 seconds after it was last heard, not
 /// before.
 ///
@@ -249,4 +302,31 @@ fn the_connections_measure_carries_the_rate_received_over_two_measures() {
     );
     assert_eq!(h.packets_in, link.snapshot.pkts_received);
     assert!(h.packets_in > 0, "packets came");
+}
+
+/// The view says how long it has been since the server was last heard, on the client's own clock:
+/// under the half second between its messages while it talks, and growing with the clock, second
+/// for second, once it falls silent.
+///
+/// Behaviour: script.model.the-view-says-how-long-since-the-server-was-heard
+#[test]
+fn the_view_says_how_long_since_the_server_was_heard_on_the_clients_clock() {
+    let mut r = Run::new(script(4.0, Row::Silent { t: 4.0, conn: 0 }));
+    let quiet = |r: &mut Run| {
+        r.client.refresh_view(&|_| Vec::new());
+        r.client.view().since_heard
+    };
+    assert_eq!(quiet(&mut r), None, "no connection yet");
+    r.until(3.0, |_| false);
+    let talking = quiet(&mut r).expect("connected");
+    assert!(talking < 0.5 + 1e-9, "{talking}");
+    r.until(8.0, |_| false);
+    let (q1, t1) = (quiet(&mut r).expect("connected"), r.now.0);
+    assert!(q1 > 3.0, "silent since about five seconds in: {q1}");
+    r.until(10.0, |_| false);
+    let (q2, t2) = (quiet(&mut r).expect("connected"), r.now.0);
+    assert!(
+        ((q2 - q1) - (t2 - t1)).abs() < 1e-9,
+        "{q1} at {t1}, {q2} at {t2}"
+    );
 }

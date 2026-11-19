@@ -97,6 +97,9 @@ pub struct PanelNotice {
     pub requests: Vec<Option<crate::examination::Request>>,
     pub effect_lines: Vec<Vec<(usize, Vec<u8>)>>,
     pub listed: Vec<Vec<Option<NativeObject>>>,
+    /// For a selection's information, the whole selection a word names (the host's copy while it
+    /// packs to the object's bytes, else what the bytes say).
+    pub selections: Vec<Option<crate::selection::Selection>>,
 }
 
 /// A line the scripts gave the chat windows: the object it is about, the kind of text (the chat
@@ -1923,6 +1926,7 @@ fn panel_notice(c: &mut Call<'_>) -> Result<Status, Stop> {
     let mut objects = Vec::new();
     let mut requests = Vec::new();
     let mut listed = Vec::new();
+    let mut selections = Vec::new();
     for k in 0..slots {
         let (v, t) = c.cx.slot(c.cx.frame_index(-2 - k)?)?;
         args.push(v);
@@ -1957,6 +1961,20 @@ fn panel_notice(c: &mut Call<'_>) -> Result<Status, Stop> {
                     .collect(),
                 _ => Vec::new(),
             };
+            let selection = match &object {
+                Some(NativeObject::Packed { ty, bytes })
+                    if *ty == auberean_script::native_object::native_type::SELECTION_INFO =>
+                {
+                    let whole = host(c)?.selections.get(&v).copied();
+                    Some(
+                        whole
+                            .filter(|w| w.pack() == *bytes)
+                            .unwrap_or_else(|| crate::selection::Selection::unpack(bytes)),
+                    )
+                }
+                _ => None,
+            };
+            selections.push(selection);
             listed.push(items);
             objects.push(object);
             requests.push(whole);
@@ -1977,6 +1995,7 @@ fn panel_notice(c: &mut Call<'_>) -> Result<Status, Stop> {
         objects,
         requests,
         listed,
+        selections,
     });
     c.write(-2 - slots, 1, tag::MIXED)?;
     Ok(Status::Success)

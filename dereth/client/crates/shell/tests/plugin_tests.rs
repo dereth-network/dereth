@@ -76,7 +76,7 @@ fn plugin_host(packages: Vec<Package>) -> PluginHost {
     );
     let mut host = PluginHost::new(
         config,
-        Box::new(dereth_plugin_lua::LuauEngine),
+        Box::new(dereth_plugin_lua::LuauEngine::dereth()),
         Box::new(dereth_plugin_host::StaticSource { packages }),
         Box::new(MemoryStorage::default()),
     );

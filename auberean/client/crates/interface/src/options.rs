@@ -1,13 +1,14 @@
 //! The options window's requests carried out, and the player's options read for it.
 //!
 //! The character page names each option by its label; the client sets it by the option's own
-//! setter ([`PlayerOption`]). The player's options are read again from the scripts whenever they
-//! may have changed: when they say so (the options read again, or the window's change), when the
+//! setter ([`PlayerOption`]). The player's options are taken again from the game's view (which
+//! reads them again from the scripts) whenever they may have changed: when they say so (the options read again, or the window's change), when the
 //! window or the radar set some, and at first; each reading counts, and the character page shows
 //! the options again at each.
 
+use auberean_client_sdk::contract::view::View;
 use auberean_client_sdk::contract::PlayerOption;
-use auberean_client_sdk::{Action, Client};
+use auberean_client_sdk::Action;
 use auberean_ui_game::gameplay;
 use auberean_ui_game::options::{self, character::label, Values};
 
@@ -75,14 +76,9 @@ pub struct Reader {
 }
 
 impl Reader {
-    /// Read them again when stale (or when a notice of the last frame says they changed), when
-    /// none were read yet, or keep them.
-    pub fn prepare(
-        &mut self,
-        client: &mut Client,
-        notices: &[gameplay::Notice],
-        now: &mut Option<Values>,
-    ) {
+    /// Take them again when stale (or when a notice of the last frame says they changed), when
+    /// none were taken yet, or keep them.
+    pub fn take(&mut self, view: &View, notices: &[gameplay::Notice], now: &mut Option<Values>) {
         let said = notices.iter().any(|n| {
             n.native == gameplay::notice::RELOAD_OPTIONS
                 || n.native == options::notice::OPTIONS_CHANGED
@@ -90,7 +86,7 @@ impl Reader {
         if !(self.stale || self.quiet || said || now.is_none()) {
             return;
         }
-        let Some(o) = client.options() else {
+        let Some(o) = &view.options else {
             return;
         };
         self.count_read(said || now.is_none());
@@ -98,7 +94,7 @@ impl Reader {
             bits: o.bits,
             radar_mask: o.radar_mask,
             shortcut_height: o.shortcut_height,
-            damage_range: f32::from_bits(o.damage_text_range),
+            damage_range: o.damage_range,
             read: self.read,
         });
     }

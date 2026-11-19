@@ -27,7 +27,7 @@ use dereth_client_runtime::config::Config;
 use dereth_client_shell::cursor::{CursorImages, PortableCursors};
 use dereth_client_shell::platform::host::{HorizonArt, Host};
 use dereth_client_shell::platform::window::WindowEvents;
-use dereth_horizon::pieces::Pieces;
+use dereth_horizon_art::Pieces;
 
 /// The browser page, as the client shell's host.
 #[derive(Debug, Clone, Copy, Default)]

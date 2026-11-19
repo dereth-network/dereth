@@ -20,6 +20,9 @@
 //!   takes the nearest whole number of rows and says so.
 //! - **Peace and war**: the buttons (and the attack key) ask the scripts to change the attack
 //!   state, and keep showing the state the player is in until the scripts say it changed.
+//! - **What no longer belongs on the bar** (an emote, a recipe that is gone, an item the player
+//!   no longer has, a skill it no longer has trained) the game itself takes off, whichever
+//!   interface is shown; a slot the scripts changed shows what they then hold.
 //!
 //! What the bar asks of the player's scripts (the shortcuts, each slot's tooltip and icon, a
 //! skill's training, readiness and use, whether the player has an item, the options) comes as a
@@ -235,8 +238,6 @@ pub struct Shortcuts {
     shortcuts: Vec<Shortcut>,
     /// The attack state as the player's scripts last said.
     attacking: bool,
-    /// The player targets automatically, as last seen.
-    pub auto_target: bool,
     /// Special attacks asked for: their number and skill.
     special: Vec<(u32, u32)>,
     time_left: Vec<TimeLeft>,
@@ -282,7 +283,6 @@ impl Shortcuts {
             list,
             shortcuts: Vec::new(),
             attacking: false,
-            auto_target: false,
             special: Vec::new(),
             time_left: Vec::new(),
             offset: 0,
@@ -399,8 +399,8 @@ impl Shortcuts {
         self.check_attack_buttons(ui);
     }
 
-    /// A button asks to start or stop attacking: to start, a player who targets automatically, with
-    /// nothing selected it could attack, selects the nearest foe first; the buttons go on showing the state the player is in until
+    /// A button asks to start or stop attacking (the game selects the nearest foe first for a
+    /// player who targets on its own); the buttons go on showing the state the player is in until
     /// the scripts say it changed.
     // D2-02492
     pub fn request_attack_state_change(
@@ -409,14 +409,6 @@ impl Shortcuts {
         start: bool,
         out: &mut Vec<Request>,
     ) {
-        if start && self.auto_target {
-            // D2-00170
-            out.push(Request::Notice(Notice {
-                native: crate::selection::notice::SELECT,
-                words: vec![crate::selection::key::NEAREST_FOE],
-                ..Notice::default()
-            }));
-        }
         out.push(Request::Attack { start });
         self.check_attack_buttons(ui);
     }
@@ -550,7 +542,7 @@ impl Shortcuts {
         } else {
             ui.list_add(l, e);
         }
-        self.check_shortcut(ui, index, info, out);
+        self.check_shortcut(ui, index, info);
     }
 
     /// Empty a slot: its skill's wait forgotten, an empty shortcut put there.
@@ -562,56 +554,26 @@ impl Shortcuts {
         self.set_shortcut(ui, index, &Shortcut::default(), tell, out);
     }
 
-    /// What a slot holds checked: a skill (trained, its wait), an item (the player's), a recipe
-    /// (one is named); an emote is taken off the bar.
+    /// What a slot holds checked: a skill (its wait), an item (waited for). (What no longer
+    /// belongs on the bar the game takes off.)
     // D2-02512
-    fn check_shortcut(&mut self, ui: &mut Ui, index: u32, info: &Shortcut, out: &mut Vec<Request>) {
+    fn check_shortcut(&mut self, ui: &mut Ui, index: u32, info: &Shortcut) {
         match info.kind {
             kind::SKILL => {
-                self.check_skill_slot(ui, index, info, out);
+                self.check_skill_slot(ui, index, info);
             }
             kind::ITEM => {
-                self.check_item_slot(ui, index, info, out);
-            }
-            kind::EMOTE => self.remove_shortcut(ui, index, true, out),
-            kind::RECIPE => {
-                self.check_recipe(ui, index, info, out);
+                self.check_item_slot(ui, index, info);
             }
             _ => {}
         }
     }
 
-    /// A recipe slot: emptied when it names no recipe.
-    // D2-02500
-    fn check_recipe(
-        &mut self,
-        ui: &mut Ui,
-        index: u32,
-        info: &Shortcut,
-        out: &mut Vec<Request>,
-    ) -> bool {
-        if info.kind == kind::EMOTE {
-            self.remove_shortcut(ui, index, true, out);
-        }
-        let ok = info.data_id != 0;
-        if !ok {
-            self.remove_shortcut(ui, index, true, out);
-        }
-        ok
-    }
-
-    /// An item slot: emptied when the player no longer has the item; a slot whose item is waited
-    /// for is shown plainly again.
+    /// An item slot: one whose item is waited for is shown plainly again, unless the player no
+    /// longer has the item (the game empties the slot).
     // D2-02504
-    fn check_item_slot(
-        &mut self,
-        ui: &mut Ui,
-        index: u32,
-        info: &Shortcut,
-        out: &mut Vec<Request>,
-    ) -> bool {
+    fn check_item_slot(&mut self, ui: &mut Ui, index: u32, info: &Shortcut) -> bool {
         if self.item(info.item).is_some_and(|i| !i.have) {
-            self.remove_shortcut(ui, index, true, out);
             return false;
         }
         let waited = self.waiting.iter().any(|(i, _)| *i == info.item);
@@ -632,23 +594,16 @@ impl Shortcuts {
             .position(|t| t.skill == skill && t.index == index)
     }
 
-    /// A skill slot: emptied when the player no longer has the skill trained; a skill waiting to
-    /// be ready (or one the player cannot use with what it carries) shows its wait on the slot's
-    /// shadow; one that is ready ends a wait shown.
+    /// A skill slot: a skill waiting to be ready (or one the player cannot use with what it
+    /// carries) shows its wait on the slot's shadow; one that is ready ends a wait shown. (One the
+    /// player no longer has trained the game takes off the bar.)
     // D2-02509
-    fn check_skill_slot(
-        &mut self,
-        ui: &mut Ui,
-        index: u32,
-        info: &Shortcut,
-        out: &mut Vec<Request>,
-    ) -> bool {
+    fn check_skill_slot(&mut self, ui: &mut Ui, index: u32, info: &Shortcut) -> bool {
         let skill = info.data_enum;
         let Some(said) = self.skill(skill) else {
             return true;
         };
         if !said.trained {
-            self.remove_shortcut(ui, index, true, out);
             return false;
         }
         let (mut waiting, mut total, mut left) = match said.waiting {
@@ -723,24 +678,24 @@ impl Shortcuts {
 
     /// Every item slot checked.
     // D2-02513
-    fn check_all_items(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
+    fn check_all_items(&mut self, ui: &mut Ui) {
         for i in 0..self.shortcuts.len() {
             let s = self.shortcuts[i].clone();
             if s.kind == kind::ITEM {
-                self.check_item_slot(ui, index_of(i), &s, out);
+                self.check_item_slot(ui, index_of(i), &s);
             }
         }
     }
 
     /// The slots holding an item checked; each, shown pending or plainly, waits for word of it.
     // D2-02514
-    fn check_item(&mut self, ui: &mut Ui, item: u64, pending: bool, out: &mut Vec<Request>) {
+    fn check_item(&mut self, ui: &mut Ui, item: u64, pending: bool) {
         for i in 0..self.shortcuts.len() {
             let s = self.shortcuts[i].clone();
             if s.kind != kind::ITEM || s.item != item {
                 continue;
             }
-            self.check_shortcut(ui, index_of(i), &s, out);
+            self.check_shortcut(ui, index_of(i), &s);
             if let Some(e) = self.list.and_then(|l| ui.list_item(l, i)) {
                 self.waiting.push((item, e));
                 ui.set_state(
@@ -757,22 +712,22 @@ impl Shortcuts {
 
     /// Every skill slot checked.
     // D2-02515
-    fn check_all_skills(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
+    fn check_all_skills(&mut self, ui: &mut Ui) {
         for i in 0..self.shortcuts.len() {
             let s = self.shortcuts[i].clone();
             if s.kind == kind::SKILL {
-                self.check_skill_slot(ui, index_of(i), &s, out);
+                self.check_skill_slot(ui, index_of(i), &s);
             }
         }
     }
 
     /// The slots holding a skill checked.
     // D2-02516
-    fn check_skill(&mut self, ui: &mut Ui, skill: u32, out: &mut Vec<Request>) {
+    fn check_skill(&mut self, ui: &mut Ui, skill: u32) {
         for i in 0..self.shortcuts.len() {
             let s = self.shortcuts[i].clone();
             if s.kind == kind::SKILL && s.data_enum == skill {
-                self.check_shortcut(ui, index_of(i), &s, out);
+                self.check_shortcut(ui, index_of(i), &s);
             }
         }
     }
@@ -818,7 +773,7 @@ impl Shortcuts {
 
     /// The list filled out to `10 x rows + 90` slots with empty ones, or cut down to it.
     // D2-02534
-    fn update_padding(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
+    fn update_padding(&mut self, ui: &mut Ui) {
         let Some(l) = self.list else { return };
         let rows = ui
             .node(l)
@@ -835,7 +790,7 @@ impl Shortcuts {
                 match self.make_element(ui, index_of(have), &empty) {
                     Some(e) => {
                         ui.list_add(l, e);
-                        self.check_shortcut(ui, index_of(have), &empty, out);
+                        self.check_shortcut(ui, index_of(have), &empty);
                     }
                     None => return,
                 }
@@ -849,7 +804,7 @@ impl Shortcuts {
     /// bar resized to them keeping its foot where it is, the list to the bar's inside, the slots
     /// filled out.
     // D2-02535
-    fn refresh_shortcut_height(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
+    fn refresh_shortcut_height(&mut self, ui: &mut Ui) {
         let (Some(l), Some(root)) = (self.list, self.root) else {
             return;
         };
@@ -872,7 +827,7 @@ impl Shortcuts {
             ui.move_to(root, r.x0, y);
             ui.set_attr(l, name::MAX_ROWS, Value::Int(rows));
             ui.resize_to(l, w, new_h - border);
-            self.update_padding(ui, out);
+            self.update_padding(ui);
         }
         self.moved = false;
     }
@@ -899,10 +854,10 @@ impl Shortcuts {
             let s = self.shortcuts[i].clone();
             if let Some(e) = self.make_element(ui, index_of(i), &s) {
                 ui.list_add(l, e);
-                self.check_shortcut(ui, index_of(i), &s, out);
+                self.check_shortcut(ui, index_of(i), &s);
             }
         }
-        self.update_padding(ui, out);
+        self.update_padding(ui);
         #[allow(clippy::cast_possible_wrap)]
         ui.list_scroll_to_row(l, (self.offset / 10) as i32, true);
         self.update_set_number(ui, out);
@@ -929,58 +884,47 @@ impl Shortcuts {
     // D2-02540
     fn reload_options(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         self.reload_shortcuts(ui, out);
-        self.refresh_shortcut_height(ui, out);
-    }
-
-    /// A recipe is gone: the slots holding it emptied.
-    // D2-02499
-    fn remove_recipe(&mut self, ui: &mut Ui, recipe: u32, out: &mut Vec<Request>) {
-        for i in 0..self.shortcuts.len() {
-            let s = &self.shortcuts[i];
-            if s.kind == kind::RECIPE && s.data_id == recipe {
-                self.remove_shortcut(ui, index_of(i), true, out);
-            }
-        }
+        self.refresh_shortcut_height(ui);
     }
 
     /// The inventory changed: every item slot (all of it) or the item's slots checked, then every
     /// skill slot.
     // D2-02517
-    fn update_inventory(&mut self, ui: &mut Ui, how: u32, item: u64, out: &mut Vec<Request>) {
+    fn update_inventory(&mut self, ui: &mut Ui, how: u32, item: u64) {
         if how == INVENTORY_ALL {
-            self.check_all_items(ui, out);
+            self.check_all_items(ui);
         } else {
-            self.check_item(ui, item, how == INVENTORY_PENDING, out);
+            self.check_item(ui, item, how == INVENTORY_PENDING);
         }
-        self.check_all_skills(ui, out);
+        self.check_all_skills(ui);
     }
 
     /// A container changed: every item slot, or the item's.
     // D2-02518
-    fn update_container(&mut self, ui: &mut Ui, how: u32, item: u64, out: &mut Vec<Request>) {
+    fn update_container(&mut self, ui: &mut Ui, how: u32, item: u64) {
         if how == INVENTORY_ALL {
-            self.check_all_items(ui, out);
+            self.check_all_items(ui);
         } else {
-            self.check_item(ui, item, how == INVENTORY_PENDING, out);
+            self.check_item(ui, item, how == INVENTORY_PENDING);
         }
     }
 
     /// A skill changed: its slots checked.
     // D2-02519
-    fn update_skill(&mut self, ui: &mut Ui, skill: u32, out: &mut Vec<Request>) {
-        self.check_skill(ui, skill, out);
+    fn update_skill(&mut self, ui: &mut Ui, skill: u32) {
+        self.check_skill(ui, skill);
     }
 
     /// The reset times changed: every skill slot checked.
     // D2-02520
-    fn update_reset_time(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
-        self.check_all_skills(ui, out);
+    fn update_reset_time(&mut self, ui: &mut Ui) {
+        self.check_all_skills(ui);
     }
 
     /// An item went away: its slots checked.
     // D2-02521
-    fn being_deleted(&mut self, ui: &mut Ui, item: u64, out: &mut Vec<Request>) {
-        self.check_item(ui, item, false, out);
+    fn being_deleted(&mut self, ui: &mut Ui, item: u64) {
+        self.check_item(ui, item, false);
     }
 
     /// An item came: the slots waiting for it take its look.
@@ -1083,14 +1027,13 @@ impl Shortcuts {
                 self.reload_options(ui, out);
             }
             notice::RELOAD_SHORTCUTS => self.reload_shortcuts(ui, out),
-            notice::REMOVE_RECIPE => self.remove_recipe(ui, w(0), out),
-            notice::UPDATE_SKILL => self.update_skill(ui, w(0), out),
-            notice::UPDATE_RESET_TIME => self.update_reset_time(ui, out),
+            notice::UPDATE_SKILL => self.update_skill(ui, w(0)),
+            notice::UPDATE_RESET_TIME => self.update_reset_time(ui),
             notice::UPDATE_INVENTORY => {
-                self.update_inventory(ui, w(0), long_at(&n.words, 1), out);
+                self.update_inventory(ui, w(0), long_at(&n.words, 1));
             }
             notice::UPDATE_CONTAINER => {
-                self.update_container(ui, w(2), long_at(&n.words, 3), out);
+                self.update_container(ui, w(2), long_at(&n.words, 3));
             }
             notice::REQUEST_SPECIAL_ATTACK => self.request_special_attack(ui, w(0), w(1)),
             notice::START_SPECIAL_ATTACK => self.start_special_attack(ui, w(0)),
@@ -1103,9 +1046,9 @@ impl Shortcuts {
     }
 
     /// The scripts' word for this frame: the first word sets the bar's height from the player's
-    /// options; the slots the bar put a shortcut in show what the scripts now say of them; items
-    /// that came take their look, items that went have their slots checked.
-    fn take_source(&mut self, ui: &mut Ui, s: &Source, out: &mut Vec<Request>) {
+    /// options; the slots the scripts changed show what they now hold; items that came take their
+    /// look, items that went have their slots checked.
+    fn take_source(&mut self, ui: &mut Ui, s: &Source) {
         if self.source.as_ref().is_some_and(|o| o.version == s.version) {
             return;
         }
@@ -1124,36 +1067,40 @@ impl Shortcuts {
         self.set_drag_out_check(ui, s.locked);
         if !self.started {
             self.started = true;
-            self.refresh_shortcut_height(ui, out);
+            self.refresh_shortcut_height(ui);
         }
         if let Some(old) = old {
-            self.show_answered(ui, &old, s, out);
+            self.show_answered(ui, &old, s);
         }
         for i in &s.items {
             let was = before.contains(&i.item);
             if i.here.is_some() && !was {
                 self.create_object(ui, i.item);
             } else if i.here.is_none() && was {
-                self.being_deleted(ui, i.item, out);
+                self.being_deleted(ui, i.item);
             }
         }
     }
 
     /// A slot is made with the tooltip and icon the scripts give for it once they hold its
     /// shortcut. The bar asks them after it puts a shortcut in a slot, and they answer with the
-    /// next word: each slot whose shortcut they took from the bar since their last word is made
+    /// next word: each slot whose shortcut they changed since their last word (the bar's own
+    /// change, or the game's, such as a slot it emptied) takes what they now hold and is made
     /// again with what they now say of it.
-    fn show_answered(&mut self, ui: &mut Ui, old: &Source, new: &Source, out: &mut Vec<Request>) {
+    fn show_answered(&mut self, ui: &mut Ui, old: &Source, new: &Source) {
         let Some(l) = self.list else { return };
         for i in 0..self.shortcuts.len().min(USABLE_SLOTS as usize) {
-            let now = new.shortcuts.get(i);
-            if now == old.shortcuts.get(i) || now != self.shortcuts.get(i) {
+            let Some(now) = new.shortcuts.get(i) else {
+                continue;
+            };
+            if Some(now) == old.shortcuts.get(i) {
                 continue;
             }
-            let info = self.shortcuts[i].clone();
+            let info = now.clone();
+            self.shortcuts[i] = info.clone();
             if let Some(e) = self.make_element(ui, index_of(i), &info) {
                 ui.list_set_item(l, e, i);
-                self.check_shortcut(ui, index_of(i), &info, out);
+                self.check_shortcut(ui, index_of(i), &info);
             }
         }
     }
@@ -1346,7 +1293,7 @@ impl Shortcuts {
             global::REFRESH_DONE => {
                 self.refreshing = false;
                 ui.set_attr(l, name::MAX_ROWS, Value::Int(0));
-                self.refresh_shortcut_height(ui, out);
+                self.refresh_shortcut_height(ui);
             }
             _ => {}
         }
@@ -1398,7 +1345,7 @@ impl Shortcuts {
         }
         ui.set_attr(l, name::MAX_ROWS, Value::Int(rows));
         ui.resize_to(l, w, new_h - border);
-        self.update_padding(ui, out);
+        self.update_padding(ui);
         Self::rows_changed(rows, out);
     }
 
@@ -1532,11 +1479,8 @@ impl Child for Shortcuts {
 
     /// This frame's word from the scripts, then the notices that waited for it.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
-        if let Some(w) = view.world {
-            self.auto_target = w.should_auto_target;
-        }
         if let Some(s) = view.shortcuts {
-            self.take_source(ui, s, out);
+            self.take_source(ui, s);
         }
         for n in std::mem::take(&mut self.noticed) {
             self.take_notice(ui, &n, out);

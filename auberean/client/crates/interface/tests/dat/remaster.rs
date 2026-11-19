@@ -4,7 +4,7 @@
 //! where the host can draw the remaster, read from and kept in the preferences file's
 //! `[Rendering] Remaster` line by this client's own name for it.
 
-use auberean_interface::preferences::Preferences;
+use auberean_shell::client_preferences::ClientPreferences as Preferences;
 use auberean_shell::preferences::{EnumNames, KEY_NAMES};
 use auberean_shell::Settings;
 use auberean_ui_game::options::client::{section, Request, PREFERENCE_STRINGS};

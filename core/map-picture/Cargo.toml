@@ -1,0 +1,22 @@
+[package]
+name = "dereth-map-picture"
+description = "A world map's picture drawn on the CPU from a world's land: the land lit by its relief, a window of the picture or the whole shrunk, the drawing shared among the machine's threads, and a build that runs off the frame."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Every test is a `#[cfg(test)]` module beside the code it tests.
+autotests = false
+
+[dependencies]
+# A build whose thread does not start says so.
+tracing.workspace = true
+
+# Where there are no threads a build takes a share of each frame, timed with a clock a browser can
+# read.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time.workspace = true
+
+[lints]
+workspace = true

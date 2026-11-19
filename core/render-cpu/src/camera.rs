@@ -10,14 +10,14 @@ use dereth_primitives::num::math;
 use dereth_primitives::Frame;
 use glam::{Mat4, Vec3};
 
-// The projection *parameters* -- the near/far planes, the FOV and
-// aspect constants and their two functions, the fog and light blocks, and `ViewParams` itself --
-// are `dereth_client_contract::camera`, for the same reason `Viewport` is `dereth_primitives::Viewport`:
-// `dereth_client_runtime::present::Scene` names `ViewParams` in a signature, and a crate
-// that must not depend on a renderer cannot name one. Everything is re-exported here, so
-// `dereth_render::camera::ViewParams` and every sibling resolve. What stays below is the arithmetic: the matrices, the viewport clamp and the
+// The projection *parameters* -- the near/far planes, the FOV and aspect constants and their two
+// functions, the fog and light blocks, and `ViewParams` itself -- are
+// `dereth_render_params::camera`, for the same reason `Viewport` is `dereth_primitives::Viewport`:
+// a scene names `ViewParams` in a signature, and a crate that must not depend on a renderer cannot
+// name one. Everything is re-exported here, so `dereth_render::camera::ViewParams` and every
+// sibling resolve. What stays below is the arithmetic: the matrices, the viewport clamp and the
 // game-viewport computation.
-pub use dereth_client_contract::camera::{
+pub use dereth_render_params::camera::{
     compute_aspect_for_viewport, fov_y_from_preference, set_vdst, view_distance_from_fov,
     AspectPreference, FogParams, Light, LightBlock, ViewParams, ASPECT_FACTOR, DEFAULT_FOV_DEGREES,
     DEG_TO_RAD, FOV_ASPECT_BIAS, ZFAR, ZFAR_SKY, ZNEAR,

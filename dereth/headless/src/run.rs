@@ -1178,7 +1178,7 @@ impl Run<'_> {
             }
             let mut host = PluginHost::new(
                 config,
-                Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
+                Box::new(dereth_client_sdk::plugin_lua::LuauEngine::dereth()),
                 Box::new(crate::plugins::DirSource {
                     roots: self.opts.plugins.clone(),
                 }),

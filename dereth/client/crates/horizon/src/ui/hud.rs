@@ -509,15 +509,7 @@ impl Hud {
 /// Thousands separators.
 #[must_use]
 pub fn grouped(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    dereth_ui_kit::hud::grouped(n)
 }
 
 /// A time left in the status row's style: seconds, then minutes, then hours.
@@ -1480,49 +1472,18 @@ impl Hud {
     // -----------------------------------------------------------------------------------------
 
     fn exp_bar(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState) {
-        let k = p.scale;
-        let (sw, _) = p.screen;
+        use dereth_ui_kit::hud::{experience_band, experience_band_rect, Experience};
         // Centred along the top of the screen, its figures above it, clear of the server line at
         // the top right.
-        let w = (620.0 * k).min(sw - 2.0 * 290.0 * k).max(200.0 * k);
-        let x = sw / 2.0 - w / 2.0;
-        let y = 20.0 * k;
-        let bar = Rect::new(x, y, w, 8.0 * k);
-        let fill = match (state.xp_this, state.xp_next) {
-            (Some(into), Some(span)) if span > 0 => {
-                #[allow(clippy::cast_precision_loss)]
-                let f = into as f32 / span as f32;
-                f
-            }
-            _ => 0.0,
+        let bar = experience_band_rect(p.screen, p.scale, 290.0);
+        let e = Experience {
+            level: Some(state.level),
+            into: state.xp_this,
+            span: state.xp_next,
+            total: state.total_xp,
+            to_spend: Some(("Unassigned", state.unassigned_xp)),
         };
-        // The gauge: the track, the fill inside its rounded ends, and the frame.
-        if !kit::own_gauge(p, bar, fill, 0xFFE8_B84A) {
-            p.fill(
-                Rect::new(x, y, w * fill.clamp(0.0, 1.0), bar.h),
-                0xFFE8_B84A,
-            );
-        }
-        let label = TextStyle::new(Family::Numerals, 12.0, 0xFFEE_E1C5).edge(0xFF00_0000);
-        let lv = format!("Lv{}", state.level);
-        p.text(&label, x, y - 18.0 * k, &lv);
-        let body = TextStyle::new(Family::Body, 12.0, 0xFFFF_FFFF).edge(0xFF00_0000);
-        let xp = match state.xp_next {
-            Some(span) if span > 0 => format!(
-                "EXP {}/{}",
-                grouped(state.xp_this.unwrap_or(0)),
-                grouped(span)
-            ),
-            _ => format!("EXP {}", grouped(state.total_xp)),
-        };
-        let lw = p.measure(&label, &lv);
-        p.text(&body, x + lw + 16.0 * k, y - 18.0 * k, &xp);
-        if state.unassigned_xp > 0 {
-            let un = format!("Unassigned {}", grouped(state.unassigned_xp));
-            let uw = p.measure(&body, &un);
-            p.text(&body.colour(0xFF9A_D0FF), x + w - uw, y - 18.0 * k, &un);
-        }
-        if ctx.over(&Rect::new(x, y - 20.0 * k, w, 30.0 * k)) {
+        if experience_band(p, ctx, bar, &e) {
             self.tip(
                 "Experience",
                 vec![
@@ -1967,55 +1928,22 @@ impl Hud {
         }
     }
 
-    fn server_info(&mut self, p: &mut Painter<'_>, _ctx: &mut Ctx<'_>, state: &GameState) {
+    fn server_info(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState) {
+        // The world, the player's own clock and the link: the last round trip, and a lamp for
+        // how lately the server was heard (green, then amber after two seconds, red after five or
+        // when it is not); over it the round trip, the loss and when it was last heard.
+        let link = dereth_ui_kit::hud::Link {
+            world: state.world.clone(),
+            local_time: state.local_time.clone(),
+            round_trip_ms: state.ping_ms,
+            packet_loss: state.packet_loss,
+            quiet: state.link_quiet,
+            lamp: state.in_world,
+        };
+        let sw = p.screen.0;
         let k = p.scale;
-        let (sw, _) = p.screen;
-        let style = TextStyle::new(Family::Body, 12.0, 0xFFFF_FFFF).edge(0xFF00_0000);
-        let mut parts = Vec::new();
-        if let Some(w) = &state.world {
-            parts.push(w.clone());
-        }
-        // The player's own clock.
-        if let Some(t) = &state.local_time {
-            parts.push(t.clone());
-        }
-        // The link: the last round trip and the loss, and a lamp for how lately the server was
-        // heard (green, then amber after two seconds, red after five or when it is not).
-        if let Some(ms) = state.ping_ms {
-            parts.push(format!("{ms:.0} ms"));
-        }
-        let text = parts.join("  |  ");
-        let w = p.measure(&style, &text);
-        let ty = 5.0 * k;
-        p.text(&style, sw - w - 30.0 * k, ty, &text);
-        if state.in_world {
-            let lamp = match state.link_quiet {
-                Some(s) if s < 2.0 => 0xFF6E_CB5C,
-                Some(s) if s < 5.0 => 0xFFE8_B84A,
-                _ => 0xFFE0_4040,
-            };
-            // The lamp centred on the line's letters, in a dark ring.
-            let d = 9.0 * k;
-            let mid = p
-                .letter_band(&style)
-                .map_or(p.line_height(&style) / 2.0, |(top, base)| {
-                    (top + base) / 2.0
-                });
-            let l = Rect::new(sw - 24.0 * k, ty + mid - d / 2.0, d, d);
-            p.fill(l, 0xFF14_100C);
-            p.fill(l.inset(1.5 * k), lamp);
-            let hover = Rect::new(sw - w - 30.0 * k, 8.0 * k, w + 30.0 * k, 20.0 * k);
-            if _ctx.input.hover(&hover) {
-                let mut lines = Vec::new();
-                if let Some(ms) = state.ping_ms {
-                    lines.push(format!("Round trip: {ms:.0} ms"));
-                }
-                lines.push(format!("Packet loss: {:.1}%", state.packet_loss * 100.0));
-                if let Some(s) = state.link_quiet {
-                    lines.push(format!("Last heard: {s:.1} s ago"));
-                }
-                self.tip("Connection", lines);
-            }
+        if let Some(lines) = dereth_ui_kit::hud::link_line(p, &*ctx.input, sw, 5.0 * k, &link) {
+            self.tip("Connection", lines);
         }
     }
 
@@ -2173,10 +2101,6 @@ impl Hud {
         ];
         // The seven buttons close together on one shared bar, with room above and below them,
         // the bar as far from the screen's right edge as from its foot. Each on a whole pixel.
-        let size = (34.0 * k).round();
-        let gap = (2.0 * k).round().max(1.0);
-        let (pad_x, pad_y) = ((6.0 * k).round(), (7.0 * k).round());
-        let margin = (14.0 * k).round();
         // A button with nothing the world's era offers is left off the bar.
         let shown: Vec<usize> = menus
             .iter()
@@ -2189,26 +2113,20 @@ impl Hud {
             })
             .map(|(i, _)| i)
             .collect();
-        #[allow(clippy::cast_precision_loss)]
-        let count = shown.len() as f32;
-        let bar_w = count * size + (count - 1.0).max(0.0) * gap + 2.0 * pad_x;
-        let bar = Rect::new(
-            sw - margin - bar_w,
-            sh - margin - size - 2.0 * pad_y,
-            bar_w,
-            size + 2.0 * pad_y,
+        let bar = dereth_ui_kit::hud::menu_plate(
+            (sw, sh),
+            k,
+            shown.len(),
+            dereth_ui_kit::hud::MENU_MARGIN,
         );
         let own_art = p.art.has_piece("window.tl");
         if own_art {
             // So the gold reads against any ground.
             kit::plain_ground(p, bar);
         }
-        let x0 = bar.x + pad_x;
-        let y = bar.y + pad_y;
         for (place, &i) in shown.iter().enumerate() {
             let (name, items) = &menus[i];
-            #[allow(clippy::cast_precision_loss)]
-            let r = Rect::new(x0 + place as f32 * (size + gap), y, size, size);
+            let r = dereth_ui_kit::hud::menu_button(bar, k, place);
             let over = ctx.over(&r);
             if own_art && (over || self.menu_open == Some(i)) {
                 p.fill(r, 0x30C8_9646);
@@ -2273,7 +2191,8 @@ impl Hud {
                     + 40.0 * k;
                 let pad = 12.0 * k;
                 let h = row_h * items.len() as f32 + 2.0 * pad;
-                let mx = (r.x - w / 2.0 + size / 2.0).min(sw - w - margin);
+                let margin = (dereth_ui_kit::hud::MENU_MARGIN * k).round();
+                let mx = (r.x - w / 2.0 + r.w / 2.0).min(sw - w - margin);
                 let menu = Rect::new(mx, bar.y - h - 6.0 * k, w, h);
                 kit::plain_ground(p, menu);
                 for (j, (label, action)) in items.iter().enumerate() {
@@ -2350,12 +2269,9 @@ impl Hud {
             let (tx, ty) = (x.round(), y.round());
             p.text(&style, tx, ty, &plate.name);
             if plate.selected {
-                if let Some(marker) = p.piece("target.marker") {
-                    let mh = 26.0 * k;
-                    let mw = mh * marker.w / marker.h.max(1.0);
-                    let bob = 2.0 * k * crate::ui::wave(ctx.time, 4.0);
+                if let Some(marker) = p.piece(dereth_ui_kit::selection::ARROW_PIECE) {
                     // Over the middle of the name as it is drawn.
-                    let r = Rect::new(tx + (w - mw) / 2.0, ty - mh - 6.0 * k - bob, mw, mh);
+                    let r = dereth_ui_kit::selection::arrow_rect(&marker, tx, ty, w, k, ctx.time);
                     p.sprite(&marker, r, WHITE);
                 }
             }
@@ -2478,17 +2394,9 @@ enum MenuAction {
     Quit,
 }
 
-/// What clicking a link in a chat line does.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LinkTarget {
-    /// Begins a tell to this name.
-    Name(String),
-    /// Asks to open this web address in the browser.
-    Web(String),
-}
-
-/// A link in a chat line: its first and last-plus-one character, and what clicking it does.
-pub type Link = (usize, usize, LinkTarget);
+/// What clicking a link in a chat line does, and a link in one: the log window's
+/// ([`dereth_ui_kit::chat`]).
+pub use dereth_ui_kit::chat::{Link, LinkTarget};
 
 /// A chat line's text with the game's text tags taken out, and its links in order: the names the
 /// tags marked, each beginning a tell, and the web addresses in it

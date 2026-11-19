@@ -251,6 +251,7 @@ impl<H: Host> Shell<'_, H> {
         self.costs[2] = self.host.now() - t;
         let mut overlay = std::mem::take(&mut self.overlay);
         overlay.quads.clear();
+        overlay.items.clear();
         overlay.scenes.clear();
         if let Some(x) = &self.explore {
             crate::dev::overlay(&mut overlay, &x.lines(now));
@@ -266,6 +267,7 @@ impl<H: Host> Shell<'_, H> {
             overlay: &self.overlay,
             views: Vec::new(),
             fade: Vec::new(),
+            warm: frames.warm,
             quit,
             screenshot: false,
         }

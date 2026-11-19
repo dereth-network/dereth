@@ -203,8 +203,8 @@ impl Drop for ConsoleLine {
 thread_local! {
     static STORE: RefCell<Option<Arc<RetailDatStore>>> = const { RefCell::new(None) };
     /// The Horizon interface's files the worker has handed over so far.
-    static HORIZON_FILES: RefCell<dereth_horizon::pieces::Pieces> =
-        RefCell::new(dereth_horizon::pieces::Pieces::new());
+    static HORIZON_FILES: RefCell<dereth_horizon_art::Pieces> =
+        RefCell::new(dereth_horizon_art::Pieces::new());
 }
 
 fn js_err(e: impl std::fmt::Display) -> JsError {
@@ -254,7 +254,7 @@ pub fn start(filter: &str) {
 #[wasm_bindgen(js_name = horizonFiles)]
 #[must_use]
 pub fn horizon_files() -> Vec<String> {
-    dereth_horizon::pieces::FILES
+    dereth_horizon_art::FILES
         .iter()
         .map(|name| (*name).to_owned())
         .collect()
@@ -283,7 +283,7 @@ pub fn horizon_loaded() -> Result<(), JsError> {
 /// interface, and says why when it is chosen.
 #[wasm_bindgen(js_name = horizonFailed)]
 pub fn horizon_failed(why: &str) {
-    HORIZON_FILES.with(|files| *files.borrow_mut() = dereth_horizon::pieces::Pieces::new());
+    HORIZON_FILES.with(|files| *files.borrow_mut() = dereth_horizon_art::Pieces::new());
     let _ = crate::host::hand_over_horizon_art(Err(why.to_owned()));
 }
 

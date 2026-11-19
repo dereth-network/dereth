@@ -50,6 +50,8 @@ auberean-gpu.workspace = true
 auberean-shell.workspace = true
 auberean-scene.workspace = true
 auberean-interface.workspace = true
+# Horizon, the client's own interface, offered beside the game's.
+auberean-horizon.workspace = true
 auberean-present.workspace = true
 auberean-client.workspace = true
 dereth-audio.workspace = true

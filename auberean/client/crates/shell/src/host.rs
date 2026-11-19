@@ -105,6 +105,11 @@ pub trait Host {
     fn world_players(&mut self, players: u32) {
         let _ = players;
     }
+    /// The pad as it is now, read once a frame; none with no pad connected, or on a host that
+    /// reads none (the browser's).
+    fn gamepad(&mut self) -> Option<crate::pad::PadState> {
+        None
+    }
 }
 
 /// The part of the window the input method writes over: its top left corner and its size, in
@@ -220,9 +225,14 @@ pub struct TestHost {
     /// The system's clipboard: what it holds, and each text put on it.
     pub clipboard: Option<String>,
     pub copied: Vec<String>,
+    /// The pad, as the test holds it; none with no pad.
+    pub pad: Option<crate::pad::PadState>,
 }
 
 impl Host for TestHost {
+    fn gamepad(&mut self) -> Option<crate::pad::PadState> {
+        self.pad
+    }
     fn set_presentation(&mut self, presentation: &crate::settings::Presentation) {
         self.presentations.push(*presentation);
     }

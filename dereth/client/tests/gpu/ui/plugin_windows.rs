@@ -107,7 +107,7 @@ fn host_of(main: &str) -> PluginHost {
     );
     let mut host = PluginHost::new(
         config,
-        Box::new(dereth_plugin_lua::LuauEngine),
+        Box::new(dereth_plugin_lua::LuauEngine::dereth()),
         Box::new(StaticSource {
             packages: vec![package],
         }),
@@ -614,7 +614,7 @@ end)
     }
     let mut host = PluginHost::new(
         config,
-        Box::new(dereth_plugin_lua::LuauEngine),
+        Box::new(dereth_plugin_lua::LuauEngine::dereth()),
         Box::new(StaticSource {
             packages: vec![package("test.pick", pick), package("test.cover", &cover)],
         }),
@@ -714,7 +714,7 @@ fn tank_host() -> PluginHost {
     );
     let mut host = PluginHost::new(
         config,
-        Box::new(dereth_plugin_lua::LuauEngine),
+        Box::new(dereth_plugin_lua::LuauEngine::dereth()),
         Box::new(StaticSource {
             packages: vec![Package {
                 origin: "tank".into(),

@@ -8,6 +8,11 @@ license.workspace = true
 publish.workspace = true
 autotests = false
 
+[features]
+# Tier switch only: no code is gated on it. It selects the `gpu` test binary, which needs a
+# hardware graphics device.
+retail-dats = []
+
 [dependencies]
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
@@ -20,3 +25,8 @@ wgpu = "30"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]

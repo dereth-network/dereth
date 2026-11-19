@@ -1,13 +1,14 @@
 //! The device-free half of rendering: image codecs, the CPU-side pipeline descriptions, the font
 //! atlas, the UI quad path and the camera.
 //!
-//! **Depends on** `dereth-primitives` and the contract (`dereth-client-contract`). **Used by** the
-//! device half (`dereth-render`), which re-exports all of it, Asheron's Call 2's drawing
-//! (`auberean-draw`, `auberean-ui`) and the art tool (`dereth-art`).
+//! **Depends on** `dereth-primitives` and the projection parameters (`dereth-render-params`), which
+//! name no game. **Used by** the device half (`dereth-render`), which re-exports all of it,
+//! Asheron's Call 2's drawing (`auberean-draw`, `auberean-ui`) and the art tool (`dereth-art`).
 //!
 //! **Must never** touch a graphics API or use `unsafe`: it takes the workspace's
-//! `forbid(unsafe_code)`, which is the point of the split, and it never reaches the client runtime
-//! (`cargo xtask seams`, `seam: client crates`). Its arithmetic goes through
+//! `forbid(unsafe_code)`, which is the point of the split. It never reaches the client runtime nor
+//! either game's contract (`cargo xtask seams`, `seam: client crates` and `seam: the drawing both
+//! games share names no game`). Its arithmetic goes through
 //! `dereth_primitives::num` wherever the original's float-to-int truncation is load-bearing.
 //!
 //! It holds the codecs (`jpeg`, `dxt`, `d3dx_bc`, `block_codec`, `mip`, `pixel_format`, `palette`,

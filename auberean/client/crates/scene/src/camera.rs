@@ -107,18 +107,8 @@ const DEGREES: f32 = 57.295_78;
 /// Radians in a degree, as the client writes it.
 const RADIANS: f32 = 0.017_453_292;
 
-/// A camera control the player holds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Held {
-    pub rotate_left: bool,
-    pub rotate_right: bool,
-    pub tilt_up: bool,
-    pub tilt_down: bool,
-    pub zoom_in: bool,
-    pub zoom_out: bool,
-    /// Shift: the faster rates.
-    pub fast: bool,
-}
+/// The camera controls the player holds, as the client's controls in force say.
+pub use auberean_client_sdk::contract::control::CameraHeld as Held;
 
 /// A camera control the player presses once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

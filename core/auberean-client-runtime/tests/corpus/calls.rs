@@ -5,9 +5,13 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use auberean_client_contract::event::{
+    ChatEvent, ChatLine, CraftEvent, EffectEvent, GameEvent, SocialEvent, TradeEvent,
+};
 use auberean_client_contract::Action;
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
+use auberean_client_runtime::events::function as f;
 use auberean_client_runtime::{
     link_scripts, link_scripts_noting, CallResult, CallTally, Client, ClientData, ClientSettings,
 };
@@ -1070,4 +1074,204 @@ fn a_collision_handed_to_recorded_objects_scripts_runs_to_its_end() {
     })
     .expect("the index reads");
     assert!(ran >= 100, "only {ran} collisions ran to their end");
+}
+
+// The event stream against the recorded sessions: every server's call told as an event comes out as
+// one, its values read off the call's own arguments, and every line the scripts wrote for the chat
+// windows comes out written as the chat windows write it.
+
+/// A call's values in the order of its function's parameters, its string references written out
+/// as the chat windows write them.
+#[derive(Debug)]
+enum CallValue {
+    Int(u32),
+    Long(u64),
+    Text(String),
+    Other,
+}
+
+fn call_values(c: &mut Client, bytes: &[u8]) -> Vec<CallValue> {
+    let program = std::sync::Arc::clone(&c.scripts.as_ref().expect("scripts").host.program);
+    let decoded = auberean_script::args::decode(bytes, &program.library).unwrap_or_default();
+    let mut out: Vec<CallValue> = decoded
+        .iter()
+        .map(|a| match a {
+            auberean_script::args::Arg::Int(v) => CallValue::Int(*v),
+            auberean_script::args::Arg::LongInt(v) => CallValue::Long(*v),
+            auberean_script::args::Arg::Object(g) => g
+                .entries
+                .iter()
+                .find_map(|e| match &e.body {
+                    auberean_script::graph::Body::Object(o) => match &o.native {
+                        Some(auberean_script::native_object::NativeObject::TextInfo(t)) => {
+                            Some(t.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .and_then(|t| c.write_text(&t))
+                .map_or(CallValue::Other, CallValue::Text),
+            _ => CallValue::Other,
+        })
+        .collect();
+    out.reverse();
+    out
+}
+
+/// The event a call should be told as, read off its values by the function's parameters.
+fn told_as(function: u32, object: Option<u64>, v: &[CallValue]) -> Option<GameEvent> {
+    use CallValue::{Int, Long, Text};
+    Some(match (function, v) {
+        (f::SAYING, [Text(text), ..]) => GameEvent::Chat(ChatEvent::Said {
+            speaker: object,
+            text: text.clone(),
+        }),
+        (f::TELL, [Long(teller), Text(name), Text(text), ..]) => GameEvent::Chat(ChatEvent::Told {
+            teller: *teller,
+            name: name.clone(),
+            text: text.clone(),
+        }),
+        (f::RECRUITMENT_OFFERED, [Long(leader), Text(leader_name), Text(fellowship), ..]) => {
+            GameEvent::Social(SocialEvent::RecruitmentOffered {
+                leader: *leader,
+                leader_name: leader_name.clone(),
+                fellowship: fellowship.clone(),
+            })
+        }
+        (f::OATH_OFFERED, [Long(vassal), Text(name), ..]) => {
+            GameEvent::Social(SocialEvent::OathOffered {
+                vassal: *vassal,
+                name: name.clone(),
+            })
+        }
+        (f::TRADE_REGISTERED, [Long(asker), Long(asked), Text(partner), ..]) => {
+            GameEvent::Trade(TradeEvent::Registered {
+                asker: *asker,
+                asked: *asked,
+                partner: partner.clone(),
+            })
+        }
+        (f::TRADE_OPENED, _) => GameEvent::Trade(TradeEvent::Opened),
+        (f::TRADE_ACCEPTED, [Long(by), ..]) => GameEvent::Trade(TradeEvent::Accepted { by: *by }),
+        (f::EFFECT_ADDED, [Int(effect), ..]) => {
+            GameEvent::Effect(EffectEvent::Added { effect: *effect })
+        }
+        (f::EFFECT_REMOVED, [Int(effect), ..]) => {
+            GameEvent::Effect(EffectEvent::Removed { effect: *effect })
+        }
+        (f::CRAFT_DONE, [Int(recipe), Int(error), Int(shown), ..]) => {
+            GameEvent::Craft(CraftEvent::Done {
+                recipe: *recipe,
+                error: *error,
+                shown: *shown != 0,
+            })
+        }
+        _ => return None,
+    })
+}
+
+/// Every recorded call of a kind told as an event (sayings, tells, offers of a place in a
+/// fellowship and of an oath, a trade's setting up, opening and acceptance, effects put on and
+/// taken off, a making's answer) comes out of the event stream as one event, in the order the calls
+/// took effect, holding the call's values by its function's parameters; and every line the
+/// player's scripts wrote for the chat windows comes out as a chat line, its words written as the
+/// chat windows write them.
+///
+/// Behaviour: script.events.the-servers-calls-and-the-chat-lines-are-told-as-events
+#[test]
+fn every_recorded_call_told_as_an_event_and_every_chat_line_comes_out_of_the_stream() {
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let watching = || {
+        let mut c = client(&data);
+        c.observe = f::ALL.to_vec();
+        c
+    };
+    let mut capture = -1;
+    let mut c = watching();
+    let mut frame = f64::NEG_INFINITY;
+    let mut told: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    let mut lines = 0usize;
+    let mut problems: Vec<String> = Vec::new();
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = watching();
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+        } else if let Ok(msg) = ServerMessage::decode(&m.raw) {
+            c.take_message(m.blob_id, msg);
+        }
+        let mut want: Vec<GameEvent> = Vec::new();
+        for (_, function, a, object) in std::mem::take(&mut c.observed) {
+            let bytes = a.map(|a| a.0).unwrap_or_default();
+            let v = call_values(&mut c, &bytes);
+            match told_as(function, object, &v) {
+                Some(e) => {
+                    *told.entry(function).or_default() += 1;
+                    want.push(e);
+                }
+                None => problems.push(format!(
+                    "capture {capture}: call {function:08X} reads as {v:?}"
+                )),
+            }
+        }
+        let mut written: Vec<GameEvent> = Vec::new();
+        for s in std::mem::take(&mut c.shown) {
+            let text = c.write_text(&s.text).expect("scripts");
+            written.push(GameEvent::Chat(ChatEvent::Line(ChatLine {
+                kind: s.kind,
+                about: s.about,
+                text,
+            })));
+        }
+        let (lines_out, calls_out): (Vec<GameEvent>, Vec<GameEvent>) = c
+            .take_events()
+            .into_iter()
+            .filter(|e| !matches!(e, GameEvent::Session(_)))
+            .partition(|e| matches!(e, GameEvent::Chat(ChatEvent::Line(_))));
+        lines += lines_out.len();
+        if calls_out != want {
+            problems.push(format!(
+                "capture {capture}: told {calls_out:?}, the calls {want:?}"
+            ));
+        }
+        if lines_out != written {
+            problems.push(format!(
+                "capture {capture}: lines {lines_out:?}, written {written:?}"
+            ));
+        }
+    })
+    .expect("the index reads");
+    let counts: Vec<String> = told.iter().map(|(f, n)| format!("{f:08X}: {n}")).collect();
+    eprintln!("calls told: {}; {lines} chat lines", counts.join(", "));
+    problems.truncate(40);
+    assert!(problems.is_empty(), "{problems:#?}");
+    let count = |function: u32| told.get(&function).copied().unwrap_or(0);
+    assert!(count(f::EFFECT_ADDED) >= 1000, "effects put on: {told:?}");
+    assert!(
+        count(f::EFFECT_REMOVED) >= 1000,
+        "effects taken off: {told:?}"
+    );
+    assert!(count(f::SAYING) >= 100, "sayings: {told:?}");
+    assert!(count(f::TELL) >= 100, "tells: {told:?}");
+    assert!(count(f::CRAFT_DONE) >= 100, "makings answered: {told:?}");
+    assert!(count(f::TRADE_ACCEPTED) >= 10, "trades accepted: {told:?}");
+    assert!(lines >= 10_000, "only {lines} chat lines");
 }

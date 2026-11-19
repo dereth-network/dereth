@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
+use auberean_client_sdk::contract::control::ControlId;
 use auberean_client_sdk::dat::locate::{install_dats, DatName};
 use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::net::LocalTime;
@@ -407,7 +408,7 @@ fn a_turn_begun_stops_an_attack_made_while_moving_on_its_own() {
     use auberean_client_sdk::runtime::interface::function::STOP_ATTACKING_IF_AUTO_MOVING;
     let (mut c, mut scene, _) = played("1e177f6bfede2082:3", 5.0);
     let mut t = c.local_time();
-    let mut frame = |c: &mut Client, scene: &mut Scene<'_>, started: Vec<u32>| {
+    let mut frame = |c: &mut Client, scene: &mut Scene<'_>, started: Vec<ControlId>| {
         t += FRAME;
         c.set_time(LocalTime(t));
         let intent = Intent {

@@ -10,7 +10,12 @@
 //!    declared behind the `host-nls` feature.
 //! 1. **`dereth-client-contract`** is the read-only view onto the game and the request channel
 //!    back out. Its direct production dependencies are exactly [`CONTRACT_DIRECT`], and nothing it
-//!    pulls in, transitively, is another `dereth-*` crate or a presentation or platform crate.
+//!    pulls in, transitively, is another `dereth-*` crate (but the primitives, the overlay every
+//!    interface draws, `dereth-ui-overlay`, and the projection parameters every renderer takes,
+//!    `dereth-render-params`) or a presentation or platform crate. The overlay, the widget kit,
+//!    Horizon's art, the projection parameters and the device-free half of rendering name no game,
+//!    since both games' clients draw with them: their production trees hold only the `dereth-*`
+//!    crates [`GAME_FREE_DRAWING`] gives each, and no crate of the second game's.
 //! 2. **`dereth-ui-screens`** is the modern UI. It reads the game through the contract only, so it
 //!    never names `dereth-client-model` or `dereth-client-runtime` -- not as a dependency of any
 //!    kind, and not as a path in its code.
@@ -22,7 +27,7 @@
 //!    ([`HEADLESS_DERE`]), and nothing under `dereth/client/` is anywhere in its tree.
 //! 5. **The client's own crates** (`dereth/client/crates/*`, and [`PRESENTATION_IN_CORE`], which
 //!    both games' clients draw with) are presentation; the rules that name the client's crates
-//!    name these too. Those that draw or lay out the game ([`PRESENTATION_ON_CONTRACT`]) depend
+//!    name these too. Those that draw or lay out this game ([`PRESENTATION_ON_CONTRACT`]) depend
 //!    directly on `dereth-client-contract`, and none of them has `dereth-client-runtime` anywhere
 //!    in any dependency table: rendering sees the game only through the contract.
 //! 6. **The SDK's input seam is actions.** `dereth-client-sdk` reaches no crate under
@@ -127,10 +132,20 @@ const PRIMITIVES_UNSAFE_DECL: &str =
 
 /// `dereth-client-contract`'s allowed direct production dependencies. Adding one is a decision about the
 /// seam, so it is made here, in review, and not by editing a manifest.
-pub const CONTRACT_DIRECT: &[&str] = &["dereth-primitives", "glam", "raw-window-handle"];
+pub const CONTRACT_DIRECT: &[&str] = &[
+    "dereth-primitives",
+    "dereth-render-params",
+    "dereth-ui-overlay",
+    "raw-window-handle",
+];
 
 /// The only `dereth-*` crates allowed anywhere in `dereth-client-contract`'s production tree.
-const CONTRACT_DERE: &[&str] = &["dereth-client-contract", "dereth-primitives"];
+const CONTRACT_DERE: &[&str] = &[
+    "dereth-client-contract",
+    "dereth-primitives",
+    "dereth-render-params",
+    "dereth-ui-overlay",
+];
 
 /// What `dereth-ui-screens` must never depend on, in any dependency table.
 const SCREENS_FORBIDDEN: &[&str] = &[
@@ -220,12 +235,7 @@ pub const DEVICE_NAMES_NOT: &[&str] = &[
 
 /// The client's own crates that draw or lay out the game, and so read it through the contract: each
 /// depends directly on `dereth-client-contract`.
-pub const PRESENTATION_ON_CONTRACT: &[&str] = &[
-    "dereth-render",
-    "dereth-render-cpu",
-    "dereth-ui",
-    "dereth-ui-screens",
-];
+pub const PRESENTATION_ON_CONTRACT: &[&str] = &["dereth-render", "dereth-ui", "dereth-ui-screens"];
 
 /// What no crate under `dereth/client/crates/` may have in any dependency table, at any depth,
 /// except the application's two halves ([`APPLICATION_HALVES`]), which sit on the runtime.
@@ -381,6 +391,59 @@ pub fn contract_violations(tree: &[TreeEntry]) -> Vec<String> {
             ));
         }
     }
+    dedup(out)
+}
+
+/// The crates both games' clients draw with, which name neither game: each, with the only
+/// `dereth-*` crates its production tree may hold. Adding one is a decision about the seam.
+pub const GAME_FREE_DRAWING: &[(&str, &[&str])] = &[
+    (
+        "dereth-ui-overlay",
+        &["dereth-ui-overlay", "dereth-primitives"],
+    ),
+    (
+        "dereth-ui-kit",
+        &["dereth-ui-kit", "dereth-ui-overlay", "dereth-primitives"],
+    ),
+    (
+        "dereth-horizon-art",
+        &[
+            "dereth-horizon-art",
+            "dereth-ui-kit",
+            "dereth-ui-overlay",
+            "dereth-primitives",
+        ],
+    ),
+    (
+        "dereth-render-params",
+        &["dereth-render-params", "dereth-primitives"],
+    ),
+    (
+        "dereth-render-cpu",
+        &[
+            "dereth-render-cpu",
+            "dereth-render-params",
+            "dereth-primitives",
+        ],
+    ),
+];
+
+/// A game-free drawing crate's rule over its production tree: no `dereth-*` crate but `allowed`,
+/// and no crate of the second game's.
+pub fn game_free_violations(krate: &str, allowed: &[&str], tree: &[TreeEntry]) -> Vec<String> {
+    let out = tree
+        .iter()
+        .filter(|e| {
+            (e.name.starts_with("dereth-") && !allowed.contains(&e.name.as_str()))
+                || e.name.starts_with("auberean-")
+        })
+        .map(|e| {
+            format!(
+                "{krate}'s tree contains `{}` (depth {}); it names no game",
+                e.name, e.depth
+            )
+        })
+        .collect();
     dedup(out)
 }
 
@@ -1460,6 +1523,15 @@ pub fn reports() -> Vec<Report> {
     )));
     let contract =
         cargo_tree(&ws, "dereth-client-contract", "normal").map(|t| contract_violations(&t));
+    let game_free = GAME_FREE_DRAWING
+        .iter()
+        .map(|(krate, allowed)| {
+            cargo_tree(&ws, krate, "normal").map(|t| game_free_violations(krate, allowed, &t))
+        })
+        .try_fold(Vec::new(), |mut all, v| {
+            all.extend(v?);
+            Ok::<_, String>(all)
+        });
     let screens_tree = cargo_tree(&ws, "dereth-ui-screens", "normal,build,dev")
         .map(|t| tree_violations("dereth-ui-screens", &t, SCREENS_FORBIDDEN));
     let screens_code = Ok(code_violations(
@@ -1653,6 +1725,18 @@ pub fn reports() -> Vec<Report> {
             format!(
                 "direct deps within {}; no other dereth-*",
                 CONTRACT_DIRECT.join(", ")
+            ),
+        ),
+        row(
+            "seam: the drawing both games share names no game",
+            game_free,
+            format!(
+                "{} hold no other dereth-* crate and no auberean-*",
+                GAME_FREE_DRAWING
+                    .iter()
+                    .map(|(k, _)| *k)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         ),
         row(
@@ -2223,8 +2307,12 @@ mod tests {
             (1, "dereth-primitives"),
             (2, "thiserror"),
             (2, "pxfm"),
-            (1, "glam"),
             (1, "raw-window-handle"),
+            (1, "dereth-ui-overlay"),
+            (2, "dereth-primitives"),
+            (1, "dereth-render-params"),
+            (2, "dereth-primitives"),
+            (2, "glam"),
         ]);
         assert!(contract_violations(&clean).is_empty());
 
@@ -2238,8 +2326,67 @@ mod tests {
         ]);
         assert_eq!(contract_violations(&deep).len(), 1);
 
-        let platform = tree(&[(0, "dereth-client-contract"), (1, "glam"), (2, "winit")]);
+        let platform = tree(&[
+            (0, "dereth-client-contract"),
+            (1, "raw-window-handle"),
+            (2, "winit"),
+        ]);
         assert_eq!(contract_violations(&platform).len(), 1);
+    }
+
+    #[test]
+    fn the_game_free_drawing_crates_allow_their_list_and_reject_either_game() {
+        let (kit, allowed) = GAME_FREE_DRAWING
+            .iter()
+            .find(|(k, _)| *k == "dereth-ui-kit")
+            .unwrap();
+        let clean = tree(&[
+            (0, "dereth-ui-kit"),
+            (1, "dereth-primitives"),
+            (1, "dereth-ui-overlay"),
+            (2, "dereth-primitives"),
+            (1, "png"),
+        ]);
+        assert!(game_free_violations(kit, allowed, &clean).is_empty());
+
+        let contract = tree(&[
+            (0, "dereth-ui-kit"),
+            (1, "dereth-client-contract"),
+            (2, "dereth-ui-overlay"),
+        ]);
+        assert_eq!(game_free_violations(kit, allowed, &contract).len(), 1);
+
+        let second = tree(&[(0, "dereth-ui-kit"), (1, "png"), (2, "auberean-primitives")]);
+        assert_eq!(game_free_violations(kit, allowed, &second).len(), 1);
+
+        let (overlay, allowed) = GAME_FREE_DRAWING
+            .iter()
+            .find(|(k, _)| *k == "dereth-ui-overlay")
+            .unwrap();
+        let kit_under = tree(&[(0, "dereth-ui-overlay"), (1, "dereth-ui-kit")]);
+        assert_eq!(game_free_violations(overlay, allowed, &kit_under).len(), 1);
+
+        // The renderer both games draw with takes its projection parameters from the crate that
+        // names no game, never from this game's contract.
+        let (cpu, allowed) = GAME_FREE_DRAWING
+            .iter()
+            .find(|(k, _)| *k == "dereth-render-cpu")
+            .unwrap();
+        let clean = tree(&[
+            (0, "dereth-render-cpu"),
+            (1, "dereth-primitives"),
+            (1, "dereth-render-params"),
+            (2, "dereth-primitives"),
+            (2, "glam"),
+            (1, "zune-jpeg"),
+        ]);
+        assert!(game_free_violations(cpu, allowed, &clean).is_empty());
+        let contract = tree(&[
+            (0, "dereth-render-cpu"),
+            (1, "dereth-client-contract"),
+            (2, "dereth-render-params"),
+        ]);
+        assert_eq!(game_free_violations(cpu, allowed, &contract).len(), 1);
     }
 
     #[test]

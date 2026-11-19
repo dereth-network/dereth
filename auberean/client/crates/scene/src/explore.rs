@@ -527,6 +527,14 @@ impl Scene<'_> {
         self.portal_frame = None;
         self.prepared = Some(true);
     }
+
+    /// Let go of the frame [`Scene::build_explore`] built: the next frame is built afresh, and no
+    /// world counts as drawn until it is.
+    pub fn forget_explore(&mut self) {
+        self.built = None;
+        self.prepared = None;
+        self.world_was_drawn = false;
+    }
 }
 
 #[cfg(test)]

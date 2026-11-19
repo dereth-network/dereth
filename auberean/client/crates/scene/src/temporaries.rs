@@ -470,7 +470,9 @@ impl Scene<'_> {
         }
         // In the world's table with a new mover's collision settings: no game object sets others.
         if let Some(t) = self.temporaries.get_mut(id) {
-            self.table.insert_body(&self.land, id, &mut t.body);
+            self.ground
+                .table
+                .insert_body(&self.ground.land, id, &mut t.body);
         }
         // Among the client's objects, with its timeout as its lifetime.
         client.queue.initialize_temporary_object(id, seconds, now);
@@ -487,7 +489,7 @@ impl Scene<'_> {
     pub(crate) fn destroy_temporary(&mut self, client: &mut Client, id: u64) {
         if let Some(t) = self.temporaries.remove(id) {
             if let Some(k) = t.body.key() {
-                self.table.remove(k);
+                self.ground.table.remove(k);
             }
             self.holder_lets_go(t.holder.map(|(h, _)| h), id);
             self.stories.remove(&id);
@@ -541,8 +543,8 @@ impl Scene<'_> {
     /// Object `id`'s body takes collision settings `c` (the parts they mark set).
     // D2-05925
     pub(crate) fn set_body_collision_state(&mut self, id: u64, c: &CollisionSettings) {
-        if let Some(k) = self.table.find(id) {
-            self.table.set_collision_state(k, c);
+        if let Some(k) = self.ground.table.find(id) {
+            self.ground.table.set_collision_state(k, c);
         }
     }
 
@@ -557,8 +559,13 @@ impl Scene<'_> {
         let Some(m) = self.temporaries.get_mut(id) else {
             return;
         };
-        m.body
-            .missile_initialize(&self.land, &mut self.table, &mut self.objects, p, t);
+        m.body.missile_initialize(
+            &self.ground.land,
+            &mut self.ground.table,
+            &mut self.objects,
+            p,
+            t,
+        );
     }
 
     /// Object `id` (one an effect made) hangs from object `holder` at holding location `location`
@@ -590,8 +597,8 @@ impl Scene<'_> {
             bone,
             offset,
             remove_rotation,
-            &self.land,
-            &mut self.table,
+            &self.ground.land,
+            &mut self.ground.table,
             &mut self.objects,
         );
         if taken {
@@ -628,8 +635,8 @@ impl Scene<'_> {
             &mut t.body,
             holder_body,
             how,
-            &self.land,
-            &mut self.table,
+            &self.ground.land,
+            &mut self.ground.table,
             &mut self.objects,
         );
         if taken {
@@ -667,8 +674,8 @@ impl Scene<'_> {
     ) {
         let now = client.local_time();
         for (id, holder) in self.temporaries.use_time(now) {
-            if let Some(k) = self.table.find(id) {
-                self.table.remove(k);
+            if let Some(k) = self.ground.table.find(id) {
+                self.ground.table.remove(k);
             }
             self.holder_lets_go(holder, id);
             self.stories.remove(&id);
@@ -739,8 +746,8 @@ impl Scene<'_> {
                 #[allow(clippy::cast_possible_truncation)]
                 let step = TICK as f32;
                 t.body.update_in(
-                    &self.land,
-                    &mut self.table,
+                    &self.ground.land,
+                    &mut self.ground.table,
                     &mut self.objects,
                     &NoGameObjects,
                     step,
@@ -820,7 +827,7 @@ impl Scene<'_> {
             n => {
                 let anims = &self.anims;
                 let figure = self.temporaries.figure_mut(id);
-                crate::notices::hand_on(id, n, figure, anims);
+                crate::notices::hand_on(n, figure, anims);
             }
         }
         None
@@ -844,8 +851,8 @@ impl Scene<'_> {
             &mut t.body,
             holder,
             true,
-            &self.land,
-            &mut self.table,
+            &self.ground.land,
+            &mut self.ground.table,
             &mut self.objects,
         );
         if stuck {

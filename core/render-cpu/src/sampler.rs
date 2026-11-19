@@ -6,8 +6,9 @@
 
 /// Startup selects overall graphics quality 3 before loading preferences (and not
 /// the options panel's Restore Defaults value 1). Defined in
-/// [`dereth_client_contract::sampler`], because `dereth_client_runtime::render_prefs` is its other reader.
-pub use dereth_client_contract::sampler::STARTUP_FILTERING;
+/// [`dereth_render_params::sampler`], because the first game's render preferences are its other
+/// reader.
+pub use dereth_render_params::sampler::STARTUP_FILTERING;
 /// Sharp-preview LOD bias used at scene begin and during the creature-preview pass; literal
 /// `0xBFB33333`.
 pub const SHARP_LOD_BIAS: f32 = -1.4;

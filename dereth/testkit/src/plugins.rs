@@ -1129,7 +1129,7 @@ impl PluginRun {
         Self {
             host: PluginHost::new(
                 config,
-                Box::new(dereth_plugin_lua::LuauEngine),
+                Box::new(dereth_plugin_lua::LuauEngine::dereth()),
                 Box::new(StaticSource::default()),
                 Box::new(MemoryStorage::default()),
             )

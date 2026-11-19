@@ -315,6 +315,7 @@ fn auberean_path_group(path: &str) -> Option<Group> {
     } else if under(&[
         "auberean/client/crates/ui/",
         "auberean/client/crates/ui-game/",
+        "auberean/client/crates/options/",
         "auberean/client/crates/interface/",
         "core/auberean-text/",
     ]) {

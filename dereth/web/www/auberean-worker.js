@@ -1,5 +1,5 @@
-// Auberean's worker, from a page's first play of it: loads the game's module, opens the player's data files, and
-// brings the client up drawing into the canvas the page handed it. The rest of a play is what every
+// Auberean's worker, from a page's first play of it: loads the game's module, fetches Horizon's art, opens the
+// player's data files, and brings the client up drawing into the canvas the page handed it. The rest of a play is what every
 // game's worker does (`game-loop.js`). A browser cannot open the friends service's stream, so the
 // player is without friends here.
 
@@ -17,6 +17,26 @@ const ready = init().then(async (exports) => {
   auberean.start(params.get('log') || 'info');
   log(`Auberean ${auberean.version()}`);
   await openSettings();
+});
+
+// Horizon's art, which the module does not carry: the same files the first game's Horizon draws, served beside
+// that game's module in pkg/horizon/ and fetched from when the worker starts. The client offers Horizon once they
+// are in (a choice of it before then is refused, saying so), and a failure leaves the game's own interface as it
+// is and says why.
+const art = ready.then(async () => {
+  try {
+    await Promise.all(auberean.horizonFiles().map(async (name) => {
+      const res = await fetch(new URL(`./pkg/horizon/${name}`, import.meta.url));
+      if (!res.ok) throw new Error(`pkg/horizon/${name}: HTTP ${res.status}`);
+      auberean.horizonFile(name, new Uint8Array(await res.arrayBuffer()));
+    }));
+    auberean.horizonLoaded();
+    log("Horizon's art is in");
+  } catch (e) {
+    const why = String(e?.message ?? e);
+    auberean.horizonFailed(why);
+    log(`Horizon's art did not load (${why}): Horizon is not offered`);
+  }
 });
 
 const memoryMiB = () => (wasm?.memory?.buffer?.byteLength ?? 0) / 1048576;
@@ -69,6 +89,8 @@ async function start(msg) {
     log(`opened in ${(performance.now() - t0).toFixed(0)} ms: ${readStats()}`);
     log(`WebAssembly memory with the data files open: ${memoryMiB().toFixed(0)} MiB`);
   }
+  // The art comes before a client that would start in Horizon.
+  if (auberean.horizonWanted()) await art;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   return auberean.WebPlay.create(msg.canvas, msg.pageArray, msg.account, msg.password, params.get('gpu') === 'webgl', ticketMayRide(msg.server));
 }

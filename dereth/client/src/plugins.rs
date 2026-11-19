@@ -684,7 +684,7 @@ impl DesktopPlugins {
             std::env::var_os("DERETH_PLUGIN_PROFILE").is_some_and(|v| !v.is_empty() && v != "0");
         let mut host = PluginHost::new(
             config,
-            Box::new(dereth_plugin_lua::LuauEngine),
+            Box::new(dereth_plugin_lua::LuauEngine::dereth()),
             Box::new(DirSource::new(self.extra_dirs.clone())),
             storage,
         )

@@ -315,6 +315,8 @@ struct DoubleHost {
     /// The system's clipboard: what it holds, and each text put on it.
     clipboard: Option<String>,
     copied: Vec<String>,
+    /// The player's folder, when the test gives one: the files the client writes and reads there.
+    local: Option<Folder>,
 }
 
 fn me() -> SocketAddr {
@@ -371,6 +373,13 @@ impl Host for DoubleHost {
         self.copied.push(text.to_owned());
         self.clipboard = Some(text.to_owned());
     }
+    fn local_system(
+        &self,
+    ) -> Option<Box<dyn auberean_client_sdk::script::local::LocalSystem + Send>> {
+        self.local
+            .clone()
+            .map(|f| Box::new(f) as Box<dyn auberean_client_sdk::script::local::LocalSystem + Send>)
+    }
 }
 
 /// The interface, shared with the test so it can look at the screens while the shell drives it.
@@ -398,8 +407,8 @@ impl Interface for Shared {
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
         self.0.borrow().wants_pointer(game)
     }
-    fn prepare(&mut self, client: &mut auberean_client_sdk::Client) {
-        self.0.borrow_mut().prepare(client);
+    fn before_view(&mut self, requests: &mut Vec<Request>) {
+        self.0.borrow_mut().before_view(requests);
     }
     fn set_clipboard(&mut self, text: Option<String>) {
         self.0.borrow_mut().set_clipboard(text);
@@ -507,6 +516,7 @@ fn shell_over(
         files: std::collections::HashMap::new(),
         clipboard: None,
         copied: Vec::new(),
+        local: None,
     };
     let mut s = Shell::new(
         host,
@@ -889,30 +899,25 @@ fn the_chat_entry_taking_the_keys_stops_a_key_held() {
         });
         step(s);
     };
+    let running = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.controls.is_down(movement::FORWARD))
+    };
     key(&mut s, Key::W, true);
-    assert!(
-        s.controls.action_down(movement::FORWARD),
-        "W held runs forward: {:?}",
-        s.controls.actions()
-    );
+    assert!(running(&s), "W held runs forward");
     press(&mut s, Key::Enter);
     assert!(
         retail.borrow().ui().focus().is_some(),
         "the entry has the keys"
     );
-    assert!(
-        !s.controls.action_down(movement::FORWARD),
-        "the run stopped"
-    );
+    assert!(!running(&s), "the run stopped");
     key(&mut s, Key::W, false);
     press(&mut s, Key::Enter);
     assert!(retail.borrow().ui().focus().is_none(), "the line ended");
-    assert!(!s.controls.action_down(movement::FORWARD), "still standing");
+    assert!(!running(&s), "still standing");
     key(&mut s, Key::W, true);
-    assert!(
-        s.controls.action_down(movement::FORWARD),
-        "W runs forward again"
-    );
+    assert!(running(&s), "W runs forward again");
 }
 
 /// Alt reaches the interface as Shift and Ctrl do, which is what keeps a chat window's keys from
@@ -1230,6 +1235,7 @@ fn shell_logging_in_to(
         files: std::collections::HashMap::new(),
         clipboard: None,
         copied: Vec::new(),
+        local: None,
     };
     let mut s = Shell::new(
         host,
@@ -1361,6 +1367,7 @@ fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
         files: std::collections::HashMap::new(),
         clipboard: None,
         copied: Vec::new(),
+        local: None,
     };
     let mut s = Shell::new(
         host,
@@ -1446,6 +1453,7 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
         files: std::collections::HashMap::new(),
         clipboard: None,
         copied: Vec::new(),
+        local: None,
     };
     let mut s = Shell::new(
         host,
@@ -1507,6 +1515,7 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         files: std::collections::HashMap::new(),
         clipboard: None,
         copied: Vec::new(),
+        local: None,
     };
     let mut s = Shell::new(
         host,
@@ -1588,8 +1597,8 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         retail.borrow().screen()
     );
     step(&mut s);
-    // Options: the key map, the client's maps (the Defaults the play screen binds) by action in
-    // the game's order; Back returns to the list.
+    // Options: the key map, the client's maps (the installed keys the play screen binds) by
+    // action in the game's order; Back returns to the list.
     let options = middle(&retail, "OptionsButton");
     click(&mut s, scaled(options));
     assert!(
@@ -1602,11 +1611,11 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         rows[..9],
         [
             "Examine panel.",
-            "E",
+            "X",
             "Ctrl - F5",
             "Inventory panel.",
-            "I",
-            "Ctrl - F6",
+            "C",
+            "B",
             "Map panel.",
             "M",
             "Ctrl - F4"
@@ -1631,6 +1640,89 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
     );
 }
 
+/// The key map screen at character select (Options) starts on the keys the game's installer laid
+/// down, X examining; each of its five presets (Defaults, WoW, FK, EQ, DAoC), pressed and agreed
+/// to, binds that preset's three maps from the data at once; Apply writes the one chosen last to
+/// the player's three files.
+///
+/// Behaviour: desktop.interface.each-key-map-preset-is-chosen-at-character-select
+#[test]
+fn each_key_map_preset_is_chosen_at_character_select() {
+    use auberean_shell::keys::KEY_MAPS;
+    let (mut s, retail) = shell_over(script(), &data().1, |r| r);
+    past_the_intro(&mut s, &retail);
+    assert!(
+        until(&mut s, 5.0, |_| retail.borrow().screen() == "select"),
+        "select: {}",
+        retail.borrow().screen()
+    );
+    let records = &data().0.records;
+    let pairs = |e: u32| -> Vec<(u32, u32)> {
+        records
+            .get::<auberean_assets::ui::KeyMap>(records.data_id_by_enum(e, KEY_MAPS))
+            .expect("a preset's map")
+            .bindings
+            .iter()
+            .map(|b| (b.input, b.action))
+            .collect()
+    };
+    let bound = |s: &Shell<'_, DoubleHost>| -> [Vec<(u32, u32)>; 3] {
+        s.keys
+            .player_maps()
+            .map(|m| m.iter().map(|b| (b.input, b.action)).collect())
+    };
+    assert_eq!(bound(&s)[0], pairs(0x4100_000D), "the installed keys");
+    click(&mut s, middle(&retail, "OptionsButton"));
+    assert!(
+        until(&mut s, 1.0, |_| retail.borrow().screen() == "keyboard"),
+        "Options shows the key map: {}",
+        retail.borrow().screen()
+    );
+    assert_eq!(
+        retail.borrow().key_map_rows()[..3],
+        ["Examine panel.", "X", "Ctrl - F5"]
+    );
+    for (button, maps) in [
+        ("restore_button", [0x4100_0001, 0x4100_0003, 0x4100_0002]),
+        ("restore_fk_button", [0x4100_000A, 0x4100_000C, 0x4100_000B]),
+        ("restore_eq_button", [0x4100_0004, 0x4100_0006, 0x4100_0005]),
+        (
+            "restore_daoc_button",
+            [0x4100_0007, 0x4100_0009, 0x4100_0008],
+        ),
+        (
+            "restore_wow_button",
+            [0x4100_000D, 0x4100_000F, 0x4100_000E],
+        ),
+    ] {
+        let before = bound(&s);
+        click(&mut s, middle(&retail, button));
+        assert!(
+            until(&mut s, 1.0, |_| retail
+                .borrow()
+                .ui()
+                .find(Token::of("YesButton"))
+                .is_some_and(|h| retail.borrow().ui().shown(h))),
+            "{button} asks first"
+        );
+        assert_eq!(bound(&s), before, "nothing bound while it asks");
+        click(&mut s, middle(&retail, "YesButton"));
+        step(&mut s);
+        assert_eq!(bound(&s), maps.map(pairs), "{button} binds its maps");
+    }
+    let examine = retail.borrow().key_map_rows();
+    assert_eq!(
+        examine[..3],
+        ["Examine panel.", "X", "Ctrl - F5"],
+        "the WoW keys"
+    );
+    click(&mut s, middle(&retail, "save_button"));
+    step(&mut s);
+    for file in ["Main.keymap", "Shift.keymap", "Control.keymap"] {
+        assert!(s.host.files.contains_key(file), "{file} written");
+    }
+}
+
 /// Press and let go a key, a frame after each.
 fn press(shell: &mut Shell<'_, DoubleHost>, key: Key) {
     for down in [true, false] {
@@ -1651,20 +1743,20 @@ fn shows(retail: &Rc<RefCell<Retail>>, name: &str) -> bool {
         .is_some_and(|h| r.ui().shown(h))
 }
 
-/// In the world the play screen runs on the frameworks: E shows the examination window; the
-/// skills button shows the skills window and its tooltip turns to "Hide"; F12 hides the toolbar and
-/// shows it again; the middle button turns mouse look on (the camera follows, the crosshair shows)
-/// and off; the up arrow still runs the body forward.
+/// In the world the play screen runs on the frameworks: X, the installed keys' examine, shows the
+/// examination window; the skills button shows the skills window and its tooltip turns to "Hide";
+/// F12 hides the toolbar and shows it again; the middle button turns mouse look on (the camera
+/// follows, the crosshair shows) and off; the up arrow still runs the body forward.
 ///
 /// Behaviour: desktop.interface.the-play-screen-runs-on-the-frameworks
 #[test]
 fn the_play_screen_runs_on_the_frameworks() {
     let (mut s, retail) = into_the_world();
     assert!(!shows(&retail, "ExaminationField"));
-    press(&mut s, Key::E);
+    press(&mut s, Key::X);
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "ExaminationField")),
-        "E shows the examination window"
+        "X shows the examination window"
     );
     let skills = middle(&retail, "SkillButton");
     click(&mut s, skills);
@@ -2153,6 +2245,66 @@ fn a_renamed_selection_is_named_anew() {
     );
 }
 
+/// The game's view, which the interface reads in place of the client: the player's vitals as the
+/// server gave them, the man around the player named as his scripts write him, and the selection
+/// as the player's scripts hold it, from the refresh after it was made.
+///
+/// Behaviour: session.view.the-view-says-what-the-server-and-the-scripts-told
+#[test]
+fn the_view_says_what_the_server_and_the_scripts_told() {
+    let mut script = with_a_man();
+    for e in &mut script.events {
+        if let Step::Msg { msg, .. } = e {
+            if msg.mtype == 0x10058 {
+                if let Ok(ServerMessage::CreateObject(mut man)) = ServerMessage::decode(&msg.raw) {
+                    if man.id == MAN {
+                        // A human's scripts, which give his name.
+                        man.weenie = player_weenie();
+                        set_string_info(
+                            &mut man.weenie,
+                            NAME_QUALITY,
+                            StringInfo::literal("Aldric"),
+                        );
+                        msg.raw = ServerMessage::CreateObject(man).encode();
+                    }
+                }
+            }
+        }
+    }
+    let (mut s, _retail) = into_the_world_running(script, data_with_scripts());
+    let view = |s: &Shell<'_, DoubleHost>| s.client.as_ref().map(|c| c.view().clone());
+    let man_named = |s: &Shell<'_, DoubleHost>| {
+        view(s).and_then(|v| v.world).is_some_and(|w| {
+            w.things
+                .iter()
+                .any(|t| t.id == MAN && t.name.as_deref() == Some("Aldric"))
+        })
+    };
+    assert!(
+        until(&mut s, 3.0, man_named),
+        "the man is named: {:?}",
+        view(&s).and_then(|v| v.world)
+    );
+    let v = view(&s).expect("a session");
+    let player = v.player.as_ref().expect("the player");
+    assert_eq!(player.id, PLAYER);
+    assert_eq!(player.vitals, Some([80, 100, 55, 120]), "the vitals sent");
+    let selected =
+        |s: &Shell<'_, DoubleHost>| view(s).and_then(|v| v.world).map(|w| w.selection.current);
+    assert_ne!(selected(&s), Some(MAN), "nothing selected yet");
+    s.client
+        .as_mut()
+        .expect("a session")
+        .act(Action::SetSelection { target: MAN });
+    assert_ne!(
+        selected(&s),
+        Some(MAN),
+        "the view says what the last refresh read"
+    );
+    step(&mut s);
+    assert_eq!(selected(&s), Some(MAN), "the scripts' selection, refreshed");
+}
+
 /// A bow the player holds in its left hand.
 const BOW: u64 = 0x8130_0000_0000_0B0B;
 /// The look a recorded 2017 player's bow was made from.
@@ -2274,6 +2426,180 @@ fn what_the_play_screen_asks_is_carried_out() {
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "ExaminationField")),
         "the examination panel opens"
+    );
+}
+
+/// What the play screen sets of the chat windows, the names over heads and the panels' places, and
+/// what it asks of the command line, reaches the client as its actions: an attack ceased, names
+/// shown, the commands made known, a line typed, each chat window setting and the chat options
+/// kept, a list stepped through, the panels' places kept (the play screen's kept panels, in the
+/// order it made them). The chat options read again stays the interface's own.
+///
+/// Behaviour: desktop.interface.the-play-screens-settings-reach-the-client-as-its-actions
+#[test]
+fn the_play_screens_settings_reach_the_client_as_its_actions() {
+    use auberean_client_sdk::contract::{ChatHistory, ChatWindowAction as W};
+    use auberean_ui_game::chat::{Ask, History};
+    use auberean_ui_game::gameplay::Request as R;
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let carried = |r: R| {
+        let mut out = Vec::new();
+        retail.borrow_mut().carry_out(vec![r], &mut out);
+        out
+    };
+    let window = Token::of("ChatWindow2");
+    for (r, a) in [
+        (R::CeaseAttack(7), Action::CeaseAttack { target: 7 }),
+        (R::ShowNames(true), Action::ShowObjectNames { on: true }),
+        (R::KnowCommands, Action::KnowCommands),
+        (
+            R::Chat(Ask::Text("Well met".into())),
+            Action::Say {
+                text: "Well met".into(),
+            },
+        ),
+        (
+            R::Chat(Ask::Opacity {
+                window,
+                opacity: 0.5,
+            }),
+            Action::ChatWindows(W::Opacity {
+                window: window.raw(),
+                opacity: 0.5,
+            }),
+        ),
+        (
+            R::Chat(Ask::Filter {
+                window: 2,
+                filter: 5,
+            }),
+            Action::ChatWindows(W::Filter {
+                window: 2,
+                filter: 5,
+            }),
+        ),
+        (
+            R::Chat(Ask::FontSize { kind: 3, size: 1 }),
+            Action::ChatWindows(W::FontSize { kind: 3, size: 1 }),
+        ),
+        (
+            R::Chat(Ask::FontColor { kind: 3, color: 9 }),
+            Action::ChatWindows(W::FontColor { kind: 3, color: 9 }),
+        ),
+        (
+            R::Chat(Ask::Popup { kind: 3, on: true }),
+            Action::ChatWindows(W::Popup { kind: 3, on: true }),
+        ),
+        (
+            R::Chat(Ask::Devote { window: 2, kind: 3 }),
+            Action::ChatWindows(W::Devote { window: 2, kind: 3 }),
+        ),
+        (R::Chat(Ask::KeepChatOptions), Action::ChatWindows(W::Keep)),
+        (
+            R::Chat(Ask::History {
+                list: History::Replies,
+                earlier: true,
+                window: 0,
+            }),
+            Action::AskHistory {
+                list: ChatHistory::Replies,
+                earlier: true,
+            },
+        ),
+    ] {
+        assert_eq!(carried(r), vec![Request::Act(a)]);
+    }
+    assert!(carried(R::Chat(Ask::ReloadChatSettings)).is_empty());
+    let kept = {
+        let r = retail.borrow();
+        let frame = r
+            .play()
+            .map(auberean_ui_game::gameplay::GamePlay::frame)
+            .expect("the play screen");
+        auberean_interface::places::locations(&r.ui().frame_kept_places(frame))
+    };
+    assert!(kept.len() >= 3, "the play screen's kept panels: {kept:?}");
+    assert_eq!(
+        carried(R::SaveLocations),
+        vec![Request::Act(Action::KeepUiLocations { places: kept })]
+    );
+}
+
+/// The up arrow in a chat line the player starts asks the client for the line typed before, and
+/// the client's answer, a frame later, fills the entry.
+///
+/// Behaviour: desktop.interface.the-chat-entry-steps-back-to-a-line-typed-through-the-client
+#[test]
+fn the_chat_entry_steps_back_to_a_line_typed_through_the_client() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    press(&mut s, Key::Enter);
+    s.event(&Event::Text("Well met".into()));
+    step(&mut s);
+    press(&mut s, Key::Enter);
+    assert_eq!(
+        s.client.as_ref().map(|c| c.shell.lines().to_vec()),
+        Some(vec!["Well met".to_owned()]),
+        "the line typed"
+    );
+    press(&mut s, Key::Enter);
+    assert_eq!(text_of(&retail, "ChatEntry").as_deref(), Some(""));
+    press(&mut s, Key::ArrowUp);
+    step(&mut s);
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("Well met"),
+        "the line before, given back"
+    );
+}
+
+/// A line typed that names a command the player's scripts don't know shows the client's own error
+/// line on the line of messages at the screen's top: type /help for a list of the commands.
+///
+/// Behaviour: desktop.interface.a-line-naming-no-command-shows-the-clients-error-line
+#[test]
+fn a_line_naming_no_command_shows_the_clients_error_line() {
+    use auberean_ui_game::chat::ChatUi;
+    use auberean_ui_game::toolbar::Toolbar;
+    let (mut s, retail) = into_the_world_running(script(), data_with_scripts());
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let line = retail
+        .borrow()
+        .ui()
+        .assets()
+        .string(
+            auberean_interface::STRINGS,
+            Token::of("ID_Chat_UnknownCommand").raw(),
+        )
+        .expect("the error line");
+    let shown = |r: &Rc<RefCell<Retail>>| {
+        let r = r.borrow();
+        r.play()
+            .and_then(|p| p.child::<Toolbar>())
+            .and_then(Toolbar::child::<ChatUi>)
+            .map(|c| c.messages(r.ui()))
+            .unwrap_or_default()
+    };
+    let line = line.trim().to_owned();
+    assert!(!shown(&retail).contains(&line), "not before");
+    press(&mut s, Key::Enter);
+    s.event(&Event::Text("/nosuchcommand".into()));
+    step(&mut s);
+    press(&mut s, Key::Enter);
+    assert!(
+        until(&mut s, 1.0, |_| shown(&retail).contains(&line)),
+        "the error line shows: {:?}",
+        shown(&retail)
     );
 }
 
@@ -2503,7 +2829,7 @@ fn every_panel_is_drawn_in_front_of_the_world() {
         until(&mut s, 1.0, |_| shows(&retail, "ChatWindow1")),
         "the chat window shows"
     );
-    press(&mut s, Key::I);
+    press(&mut s, Key::B);
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
         "I opens the inventory and its paper doll"
@@ -2633,7 +2959,7 @@ fn the_paper_doll_shows_the_player_seen_straight_on() {
         none.overlay.scenes.is_empty(),
         "no scene before the inventory opens"
     );
-    press(&mut s, Key::I);
+    press(&mut s, Key::B);
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
         "I opens the inventory"
@@ -2666,7 +2992,7 @@ fn the_paper_doll_shows_the_player_seen_straight_on() {
         .as_ref()
         .and_then(|c| c.model.object(PLAYER))
         .expect("the player");
-    let look = auberean_interface::doll::look_of(records, &player.visual);
+    let look = auberean_scene::standing_desc(records, &player.visual);
     let (lo, hi) = auberean_scene::view::figure_box(records, &look).expect("a figure");
     let height = hi.z - lo.z;
     assert!(
@@ -2705,7 +3031,7 @@ fn the_paper_doll_shows_the_player_seen_straight_on() {
 #[test]
 fn the_paper_doll_keeps_its_look_while_mounted() {
     let (mut s, retail) = into_the_world();
-    press(&mut s, Key::I);
+    press(&mut s, Key::B);
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
         "I opens the inventory"
@@ -2734,6 +3060,7 @@ fn the_paper_doll_keeps_its_look_while_mounted() {
                 requests: Vec::new(),
                 effect_lines: Vec::new(),
                 listed: Vec::new(),
+                selections: Vec::new(),
             });
     };
     let on_foot = shown(&mut s).expect("the figure");
@@ -2769,7 +3096,7 @@ fn the_paper_doll_keeps_its_look_while_mounted() {
 fn the_paper_doll_finds_the_part_under_the_pointer() {
     use auberean_ui_game::inventory::paper_doll::mesh_type_to_location;
     let (mut s, retail) = into_the_world();
-    press(&mut s, Key::I);
+    press(&mut s, Key::B);
     assert!(
         until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
         "I opens the inventory"
@@ -2863,10 +3190,10 @@ impl auberean_client_sdk::script::local::LocalSystem for Folder {
     }
 }
 
-/// The scripts' save notice writes the panels' places to the file it names and the load notice puts
-/// them back from it; a file that isn't there changes nothing. With no name the file is this
-/// character's, world's and screen's, the world's name being the login's whether or not the friends
-/// service runs.
+/// The scripts' save notice writes the panels' places to the file it names in the player's folder
+/// and the load notice puts them back from it; a file that isn't there changes nothing. With no
+/// name the file is this character's, world's and screen's, the world's name being the login's
+/// whether or not the friends service runs.
 ///
 /// Behaviour: desktop.interface.the-layout-commands-write-and-read-the-panels-places
 #[test]
@@ -2901,12 +3228,16 @@ fn the_layout_commands_write_and_read_the_panels_places() {
             requests: vec![None],
             effect_lines: Vec::new(),
             listed: Vec::new(),
+            selections: Vec::new(),
         };
         s.client
             .as_mut()
             .expect("in the world")
             .notices
             .push(notice);
+        // The panels hear it; the file is named and written, or asked for; what it holds is laid
+        // out.
+        step(s);
         step(s);
         step(s);
     };
@@ -2915,10 +3246,10 @@ fn the_layout_commands_write_and_read_the_panels_places() {
         let panel = r.ui().find(Token::of("ChatWindow1")).expect("the panel");
         r.ui().screen_origin(panel).expect("placed")
     };
+    s.host.local = Some(local);
     {
         let c = s.client.as_mut().expect("in the world");
         assert!(c.friends().is_none(), "this session has no friends service");
-        c.with_host(|h| h.set_local(Some(Box::new(local))));
         c.take_message(
             3 << 56,
             ServerMessage::WorldName(Text(StringInfo::literal("Coldeve"))),
@@ -2993,9 +3324,8 @@ fn a_layout_file_leaves_the_log_at_its_newest_lines() {
         }
         ui.recalculate_glyph_list(log);
     }
-    let local = folder.clone();
+    s.host.local = Some(folder.clone());
     let c = s.client.as_mut().expect("in the world");
-    c.with_host(|h| h.set_local(Some(Box::new(local))));
     c.notices.push(PanelNotice {
         native: auberean_ui_game::gameplay::notice::LOAD_UI,
         about: Some(PLAYER),
@@ -3008,6 +3338,7 @@ fn a_layout_file_leaves_the_log_at_its_newest_lines() {
         requests: vec![None],
         effect_lines: Vec::new(),
         listed: Vec::new(),
+        selections: Vec::new(),
     });
     let height = |r: &Rc<RefCell<Retail>>| {
         let r = r.borrow();
@@ -3096,7 +3427,10 @@ fn the_play_screens_kept_places_go_into_a_table_and_come_back() {
         "the play screen's kept panels: {}",
         kept.len()
     );
-    let table = UiLocations::read(&places::table(&kept).write()).expect("the table reads");
+    let asked = places::locations(&kept);
+    let table =
+        UiLocations::read(&auberean_client_sdk::runtime::interface::ui_locations(&asked).write())
+            .expect("the table reads");
     for ((layout, name), l) in &kept {
         let want = [
             l.x0.to_bits(),
@@ -3113,7 +3447,11 @@ fn the_play_screens_kept_places_go_into_a_table_and_come_back() {
     let at = ui.screen_origin(panel).expect("placed");
     ui.move_to(panel, at.0 + 37, at.1 + 21);
     assert_ne!(ui.screen_origin(panel), Some(at));
-    assert!(ui.frame_apply_locations(frame, &places::kept(&table)));
+    let read_back = auberean_client_sdk::runtime::view::places(
+        &auberean_client_sdk::runtime::interface::ui_locations(&asked).write(),
+    )
+    .expect("the table reads");
+    assert!(ui.frame_apply_locations(frame, &places::kept(&read_back)));
     // The corner the table keeps, in the display's pixels (clip space read back cuts toward
     // zero, so it may stand a pixel from where it was read).
     let (w, h) = ui.display();
@@ -3133,9 +3471,7 @@ fn the_tooltip_switch_as_read_reaches_the_screens() {
     let (mut s, retail) = into_the_world();
     assert!(retail.borrow().ui().tooltips_show());
     let settings = auberean_shell::Settings::read("[Misc]\r\nTooltipEnable=0\r\n");
-    retail
-        .borrow_mut()
-        .set_preferences(&settings, &data().0.records);
+    s.preferences.start(&settings, &data().0.records);
     step(&mut s);
     assert!(!retail.borrow().ui().tooltips_show());
 }
@@ -3197,6 +3533,7 @@ fn a_doors_scene_ends_when_the_player_has_arrived() {
         requests: vec![None],
         effect_lines: Vec::new(),
         listed: Vec::new(),
+        selections: Vec::new(),
     };
     let client = s.client.as_mut().expect("in the world");
     client.notices.push(portal_scene(1));
@@ -3506,4 +3843,213 @@ fn a_body_past_its_visible_distance_keeps_its_box() {
             "{look:#x}: {near:?} and {far:?}"
         );
     }
+}
+
+/// Three creatures around the player that may be selected, ahead, to the right a meter up, and
+/// behind.
+const CREATURES: [(u64, [f32; 3]); 3] = [
+    (0x2130_0000_0000_0010, [0.0, 3.0, 0.0]),
+    (0x2130_0000_0000_0011, [4.0, 0.0, 1.0]),
+    (0x2130_0000_0000_0012, [0.0, -6.0, 0.0]),
+];
+
+/// An account holding the player, whose world has the three creatures around it.
+fn with_creatures() -> Script {
+    use auberean_client_sdk::protocol::quality::VisualQuality;
+    use auberean_client_sdk::protocol::types::ObjectStamp;
+    let held = CharacterIdentity {
+        id: PLAYER,
+        name: WideString(NAME.encode_utf16().collect()),
+        seconds_greyed_out: 0,
+        visual: VisualDesc::default(),
+    };
+    let mut steps = Vec::new();
+    for ((id, at), n) in CREATURES.into_iter().zip((7u64..).step_by(2)) {
+        let mut weenie = WeenieDesc::default();
+        assert!(set_bool(&mut weenie, SELECTABLE, 1));
+        let creature = CreateObject {
+            id,
+            visual: VisualDesc {
+                bits: VisualDesc::DID,
+                did: HUMAN_MALE,
+                ..VisualDesc::default()
+            },
+            physics: PhysicsDesc {
+                bits: PhysicsDesc::POSITION,
+                instance_stamp: 1,
+                visual_ordering_stamp: 1,
+                position: Placement {
+                    cell: HALL_CELL,
+                    frame: Frame {
+                        origin: Vec3 {
+                            x: HALL_AT.x + at[0],
+                            y: HALL_AT.y + at[1],
+                            z: HALL_AT.z + at[2],
+                        },
+                        rotation: Quat {
+                            w: 1.0,
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                    },
+                },
+                ..PhysicsDesc::default()
+            },
+            weenie,
+        };
+        // A creature's kind bits, a quality of its own.
+        let kind = ServerMessage::UpdateIntVisual(VisualQuality {
+            object: ObjectStamp {
+                id,
+                instance_stamp: 1,
+                other_stamp: 2,
+            },
+            quality: 20,
+            value: 0x4F,
+        });
+        steps.push(s2c(
+            6.43,
+            1,
+            1,
+            WORLD | n,
+            &ServerMessage::CreateObject(creature),
+        ));
+        steps.push(s2c(6.44, 1, 1, WORLD | (n + 1), &kind));
+    }
+    script_listing(vec![held], steps)
+}
+
+/// The double as a driver's port: what the double sends in a frame is read in that frame.
+struct DoublePort {
+    double: ServerDouble,
+    inbox: VecDeque<(SocketAddr, Vec<u8>)>,
+    ticked: Option<f64>,
+}
+
+impl auberean_client_sdk::Port for DoublePort {
+    fn receive(&mut self, now: LocalTime) -> Option<(SocketAddr, Vec<u8>)> {
+        if self.ticked != Some(now.0) {
+            self.ticked = Some(now.0);
+            self.inbox
+                .extend(self.double.tick(now).into_iter().map(|d| (d.from, d.bytes)));
+        }
+        self.inbox.pop_front()
+    }
+
+    fn send(&mut self, to: SocketAddr, bytes: &[u8], now: LocalTime) {
+        self.double.datagram(to, me(), bytes, now);
+    }
+}
+
+/// Whether every creature is around the player with its kind told.
+fn creatures_told(c: &auberean_client_sdk::runtime::Client) -> bool {
+    CREATURES.iter().all(|(id, _)| {
+        c.model
+            .object(*id)
+            .is_some_and(|o| o.qualities.ints.contains_key(&20))
+    })
+}
+
+/// The next-creature key pressed through the retail interface selects, press by press, what the
+/// same selection asked through actions alone selects on the SDK's driver with no window, and what
+/// its control pressed through the contract selects there: the creature ahead, the one to the
+/// right (a meter up counts a fifth more), the one behind, and the one ahead again; each as the
+/// player's scripts then hold it.
+///
+/// Behaviour: desktop.interface.the-selection-keys-select-what-actions-alone-select
+#[test]
+fn the_selection_keys_select_what_actions_alone_select() {
+    use auberean_client_sdk::contract::control::{Control, ControlId};
+    use auberean_client_sdk::contract::SelectKind;
+    const PRESSES: usize = 4;
+    let lower = NAME.to_lowercase();
+    let (mut s, retail) = shell_over(with_creatures(), data_with_scripts(), |r| {
+        r.with_start_character(Some(&lower), None)
+    });
+    past_the_intro(&mut s, &retail);
+    let ready = until(&mut s, 10.0, |s| {
+        s.phase() == Phase::World && s.client.as_ref().is_some_and(|c| creatures_told(c))
+    });
+    assert!(ready, "in the world with the creatures: {:?}", s.phase());
+    assert!(until(&mut s, 1.0, |_| retail
+        .borrow()
+        .play()
+        .is_some_and(|p| !p.children().is_empty())));
+    let selected = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .and_then(|c| c.view().world.as_ref())
+            .map(|w| w.selection.current)
+    };
+    let mut by_keys = Vec::new();
+    for _ in 0..PRESSES {
+        press(&mut s, Key::BracketRight);
+        step(&mut s);
+        by_keys.push(selected(&s));
+    }
+
+    let by_actions = on_a_driver(PRESSES, |d| {
+        d.act(Action::SelectCycle {
+            kind: SelectKind::Creature,
+            previous: false,
+        });
+    });
+    let next_creature = ControlId(0x4100_001A);
+    let by_controls = on_a_driver(PRESSES, |d| {
+        d.act(Action::Control(Control::begin(next_creature)));
+        d.act(Action::Control(Control::end(next_creature)));
+    });
+    let [ahead, right, behind] = CREATURES.map(|(id, _)| Some(id));
+    assert_eq!(
+        by_keys,
+        [ahead, right, behind, ahead],
+        "through the interface"
+    );
+    assert_eq!(by_actions, by_keys, "through actions alone");
+    assert_eq!(by_controls, by_keys, "through its control pressed");
+}
+
+/// On the SDK's driver with no window, into the world with the creatures; then `presses` times,
+/// `ask` and a frame, and what the view then says is selected.
+fn on_a_driver(
+    presses: usize,
+    mut ask: impl FnMut(&mut auberean_client_sdk::Driver),
+) -> Vec<Option<u64>> {
+    let double = ServerDouble::new(with_creatures(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let settings = auberean_client_sdk::ClientSettings {
+        login_server: double.login_addr(),
+        account: b"tester".to_vec(),
+        ticket: b"t".to_vec(),
+        timestamp: 0,
+        session_key: [0; 64],
+        script_sends: true,
+    };
+    let mut port = DoublePort {
+        double,
+        inbox: VecDeque::new(),
+        ticked: None,
+    };
+    let mut d = auberean_client_sdk::Driver::connect(settings, data_with_scripts().clone());
+    let mut clock = auberean_client_sdk::FixedStep::new(1.0 / 60.0);
+    let mut asked = false;
+    for _ in 0..1200 {
+        d.frame(&mut clock, &mut port);
+        if !asked && d.model.characters.is_some() {
+            d.act(Action::PlayCharacter { character: PLAYER });
+            asked = true;
+        }
+        if d.phase() == Phase::World && creatures_told(&d) {
+            break;
+        }
+    }
+    assert!(creatures_told(&d), "the driver's client has the creatures");
+    let mut selected = Vec::new();
+    for _ in 0..presses {
+        ask(&mut d);
+        d.frame(&mut clock, &mut port);
+        d.refresh_view(&auberean_client_sdk::no_icons);
+        selected.push(d.view().world.as_ref().map(|w| w.selection.current));
+    }
+    selected
 }

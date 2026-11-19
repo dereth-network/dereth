@@ -1225,6 +1225,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.list.a-step-can-go-through-the-rows-own-lists-line-by-line",
+        says: "A list of rows of their own sizes can be told to step line by line through a list \
+               each row holds: past the part of the row above that list, then each of its rows, \
+               a row without one whole; a step back goes to the start of the line before, and \
+               from inside a line a step goes to that line's end or start. Untold, a step is the \
+               whole row at the view.",
+        since: THIS_CLIENT,
+        divergence: "CD2-options-scroll-by-line",
+        evidence: Evidence::Private("AC2-EVID-UI-LIST-STEP-THROUGH"),
+        station: "auberean-ui::cpu::lists::a_step_can_go_through_the_rows_own_lists_line_by_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.list.an-emptied-list-keeps-its-cell-and-a-row-past-the-end-is-refused",
         says: "A list emptied row by row keeps its cells' size and one cell of sheet, so the \
                view it stood at stays; inserting past its end, or before a row not its own, \
@@ -1313,6 +1326,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.map.markers-come-and-go-by-kind-for-every-front-end",
+        says: "The map's rules for markers, kept for every front end: a marker of the map's own \
+               labels' kind is never put, nor one within two and a half cells of another of its \
+               kind; a kind keeps its latest ten; a marker for the same object takes the old \
+               one's place; one is taken off by its object, a kind cleared at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP-MARKERS-RULES"),
+        station: "auberean-client-runtime::cpu::world::markers::the_map_keeps_the_markers_by_its_rules",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.map.the-regions-overviews-open-from-their-buttons",
         says: "A region's button on the world map opens its overview map in that region's state; \
                its close button takes it down.",
@@ -1320,6 +1344,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-MAP-OVERVIEWS"),
         station: "auberean-ui-game::dat::play::map::the_regions_overviews_open_from_their_buttons",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.map.the-view-carries-the-markers-the-scripts-put",
+        says: "While the player is in the world the client keeps the markers the scripts' notices \
+               put on the map for every front end, each notice heard once, with its words; a \
+               marker taken off goes, and every marker goes as the player leaves the world.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP-MARKERS-VIEW"),
+        station: "auberean-client-runtime::cpu::world::markers::the_view_carries_the_markers_while_the_player_is_in_the_world",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.map.the-world-map-fits-the-regions-picture-and-marks-the-player",
@@ -1585,6 +1619,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.notices.the-panels-hear-each-notice-with-the-words-the-scripts-sent",
+        says: "Our choice: the retail interface hands every notice the game reads to its panels under \
+               its own number, about its object, with as many words as the scripts sent, each \
+               where the scripts put it, and the record each word names at its place.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-NOTICES-PANELS"),
+        station: "auberean-interface::lib::notices::tests::the_panels_hear_each_notice_with_the_words_the_scripts_sent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.notices.the-play-screens-notices-reach-their-handlers-in-the-order-they-registered",
         says: "The play screen's panels register for their notices as the play screen makes them, \
                in that order, and the play screen registers for some of its own as it is made and \
@@ -1605,6 +1649,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-BANK"),
         station: "auberean-ui-game::cpu::preferences::a_blessed_preference_is_read_from_the_file_once_and_written_back",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.options.a-closed-section-is-passed-in-one-step",
+        says: "On an options page a closed section is one line: a wheel notch at it passes the \
+               whole of it, to the next section's header, and back over it in one step.",
+        since: THIS_CLIENT,
+        divergence: "CD2-options-scroll-by-line",
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-CLOSED-SECTION-STEP"),
+        station: "auberean-ui-game::dat::play::options::a_closed_section_is_passed_in_one_step",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.options.a-flip-of-full-screen-goes-through-its-preference",
@@ -1653,6 +1707,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.a-step-goes-through-an-open-sections-rows-a-line-at-a-time",
+        says: "On an options page with a section open, a wheel notch or a press of the bar's \
+               arrow steps one line: past the section's header, then one of its rows at a time, \
+               and back likewise, never the whole open section at once.",
+        since: THIS_CLIENT,
+        divergence: "CD2-options-scroll-by-line",
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-SCROLL-BY-LINE"),
+        station: "auberean-ui-game::dat::play::options::a_step_goes_through_an_open_sections_rows_a_line_at_a_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.apply-asks-first-then-sets-every-chat-option-and-the-filters-last",
         says: "The chat page's Apply asks first, then sets every chat option section by section \
                (the devoted channels, each kind's font size, color and popup flag), then each \
@@ -1688,6 +1753,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OPTIONS-SECTION-SCROLL-WIDGET"),
         station: "auberean-ui-game::dat::play::options::closing_a_section_leaves_the_pages_scroll_widget_long",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.default-leaves-the-interface-chosen-as-it-is",
+        says: "The client page's Default, answered yes, leaves the interface chosen as it is: the other \
+               sections go back to their defaults and are told, the interface's row keeps its value.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-UI-INTERFACE-DEFAULT-KEPT"),
+        station: "auberean-ui-game::dat::play::options::default_leaves_the_interface_chosen_as_it_is",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1917,6 +1992,47 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.pet.the-pets-and-the-mount-follow-the-notices",
+        says: "A pet comes after those already here, and one that comes again keeps its place with \
+               the name, icon and mode it comes with; a pet is named, takes a mode and goes. The \
+               player mounts and gets off. Leaving the world takes every pet away and puts the \
+               player on foot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PETS-FOLLOW"),
+        station: "auberean-client-runtime::cpu::world::pets::the_pets_and_the_mount_follow_what_the_notices_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.pet.the-view-carries-the-pets-and-the-mount",
+        says: "The view carries the player's pets as the scripts' notices told of them, each \
+               notice heard once however often the view is refreshed, and whether the player \
+               rides a mount on its player; logging off takes the pets away.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-PETS-VIEW"),
+        station: "auberean-client-runtime::cpu::world::pets::the_view_carries_the_pets_and_the_mount_the_notices_told_of",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.player.the-view-carries-the-level-experience-and-vitae",
+        says: "The view carries the player's level, its experience in all and to spend, its vitae \
+               and the experience to the vitae's next point, as the server last sent each of the \
+               player's qualities; none until it does, the vitae then counting as full.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-PROGRESS-VIEW"),
+        station: "auberean-client-runtime::cpu::world::progress::the_view_carries_the_players_level_experience_and_vitae_from_its_qualities",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.player.the-view-says-whether-the-player-is-a-hero-and-its-focus",
+        says: "The view says whether the player is a hero and its focus of its greatest (a \
+               hundred and what its qualities add), as the server last sent the player's \
+               qualities; no hero and no focus until it does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-HERO-VIEW"),
+        station: "auberean-client-runtime::cpu::world::progress::the_view_says_whether_the_player_is_a_hero_and_its_focus",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.pointer.a-press-taken-in-front-is-not-held-behind",
         says: "A press taken by an element in front stops there: the top-level elements behind it \
                never hear it nor hold the button, so the next press on one of them alone is its \
@@ -1950,6 +2066,51 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-TOOLTIP-POINTER"),
         station: "auberean-ui::cpu::text::the_pointer_passes_through_a_tooltip",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.questions.an-effect-s-question-and-a-message",
+        says: "An effect's question (whether it may go on) takes the place of the last one: yes \
+               lets the effect go on, no asks nothing of the game. A message of the scripts is read \
+               with its one answer, which asks nothing, and goes in front when the scripts say so. \
+               Logging off takes every question down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUESTIONS-EFFECT-MESSAGE"),
+        station: "auberean-client-runtime::cpu::world::questions::an_effects_question_and_a_message_are_answered_and_logging_off_takes_all_down",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.questions.death-and-an-offer-to-bring-the-player-back",
+        says: "The player's death asks one question in front of the others, whose answer brings the \
+               player back; someone's offer to bring the player back takes its place (with no name \
+               it is death's own question): yes brings the player back, no turns the offer down \
+               and asks death's question again; living again takes both down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUESTIONS-DEATH"),
+        station: "auberean-client-runtime::cpu::world::questions::death_asks_to_be_brought_back_and_an_offer_takes_its_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.questions.offers-of-a-place-an-oath-and-a-trade",
+        says: "A fellowship's place offered is asked while none is open: yes takes the place, no \
+               turns it down; the offer running out takes it down. An oath offered is taken or \
+               refused, and taken down when the oath was done. A trade the partner asks for is \
+               asked: yes opens it with the partner, no closes it; the trade closing takes it \
+               down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUESTIONS-OFFERS"),
+        station: "auberean-client-runtime::cpu::world::questions::offers_of_a_place_an_oath_and_a_trade_are_asked_and_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.questions.the-view-carries-the-open-questions",
+        says: "The client keeps the game's questions open for every front end: each notice that \
+               asks one is heard once, the question worded from the game's string tables as the \
+               game's own interface words it, and an answer through the contract does what it \
+               asks and takes the question down.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-QUESTIONS-VIEW"),
+        station: "auberean-client-runtime::cpu::world::questions::the_view_carries_the_questions_the_notices_ask_until_they_are_answered",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2130,20 +2291,29 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.selection.attacking-with-auto-target-selects-the-nearest-foe-first",
-        says: "The war button, with the player targeting automatically, selects the nearest foe \
-               before it asks the player's scripts to attack; without, it only asks to attack.",
+        says: "Starting an attack, a player whose scripts say it targets on its own now (its \
+               option on and nothing selected it could attack) has the nearest foe selected \
+               before the player's scripts are asked to attack; otherwise only the attack is asked.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CGAME4-AUTO-TARGET"),
-        station: "auberean-ui-game::dat::play::selection::attacking_with_auto_target_selects_the_nearest_foe_first",
+        station: "auberean-client-runtime::corpus::interface::attacking_with_auto_target_selects_the_nearest_foe_first",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "ui.selection.the-selection-keys-ask-the-game-to-select",
+        says: "Each selection key asks the game to select as it does (the next, previous and nearest of each kind, the player itself, the last selection, the last attacker); Escape selects nothing; before the player is here no key asks anything.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-KEYS-ASK"),
+        station: "auberean-ui-game::dat::play::selection::the_selection_keys_ask_the_game_to_select",
         tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.selection.the-selection-keys-pick-by-kind-and-distance",
-        says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; what a body holds is found by the item keys, at the body; the player's own key selects it and then the last selection; the last attacker's key selects the last to attack the player; Escape selects nothing.",
+        says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; a pet is the player's own; one that may not be selected is passed over; what a body holds is found by the item keys, at the body.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECTION-KEYS"),
-        station: "auberean-ui-game::dat::play::selection::the_selection_keys_pick_by_kind_and_distance",
-        tier: Tier::Dat,
+        station: "auberean-client-runtime::cpu::world::targeting::the_selection_keys_pick_by_kind_and_distance",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.selection.the-targeting-notice-shows-the-usage-cursor",
@@ -2151,6 +2321,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECTION-CURSOR"),
         station: "auberean-ui-game::dat::play::selection::the_targeting_notice_shows_the_usage_cursor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.selection.the-war-button-asks-the-game-to-attack",
+        says: "The war button asks the game to attack and asks for no selection itself, whether or \
+               not the player targets automatically: the game selects the foe.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-WAR-BUTTON-ASKS"),
+        station: "auberean-ui-game::dat::play::selection::the_war_button_asks_the_game_to_attack",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -2210,6 +2389,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.shortcuts.a-slot-the-scripts-changed-shows-what-they-hold",
+        says: "The retail bar takes nothing off itself: a skill the player no longer has trained stays in its slot until the player's scripts no longer hold it there, and a slot the scripts changed, the bar's own or not, then shows what they hold.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-SCRIPTS-CHANGED"),
+        station: "auberean-ui-game::dat::play::bar::a_slot_the_scripts_changed_shows_what_they_hold_and_the_bar_empties_none_itself",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.shortcuts.an-item-on-the-bar-is-named-and-shown-as-the-pack-shows-it",
         says: "At each recorded log-off, the first items of the player's pack put on an empty slot of the bar are named and shown on the bar as the pack shows them: the name for the item's quantity and the icon its scripts give.",
         since: RETAIL,
@@ -2227,7 +2414,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.shortcuts.dragging-moves-and-clears-shortcuts",
-        says: "A slot dragged onto another moves its shortcut there and empties its own; one dragged off the bar is emptied; a skill the player no longer has trained is taken off the bar when the scripts say the skill changed.",
+        says: "A slot dragged onto another moves its shortcut there and empties its own; one dragged off the bar is emptied.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-DRAG"),
         station: "auberean-ui-game::dat::play::bar::dragging_moves_and_clears_shortcuts",
@@ -2250,6 +2437,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-ATTACK-NOTICE"),
         station: "auberean-ui-game::dat::play::standing::the_attack_buttons_follow_the_scripts_notice",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.the-clean-up-empties-what-no-longer-belongs",
+        says: "The client's clean-up of the shortcut bar, run for every interface, empties a slot holding an emote, a recipe naming none, an item the player no longer has or a skill it no longer has trained, when it looks at the slot as the retail bar looks again: every slot when the shortcuts or the options came again; a skill's slots when it changed, every skill slot when the reset times did; an item's slots or every item slot when the inventory (with every skill slot) or a container changed; a slot the scripts changed; an item that went from around the player. A recipe the scripts said is gone is emptied whatever else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORTCUT-CLEAN-UP"),
+        station: "auberean-client-runtime::cpu::world::toolbar::the_clean_up_empties_what_no_longer_belongs_on_the_bar_when_it_looks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.shortcuts.the-game-takes-off-the-bar-what-does-not-belong",
+        says: "At each recorded session's first options reload, with the player's own scripts, the client takes off the bar as the toolbar is next asked an emote, an item the player does not have and every skill of another player's bar the player has not trained; a trained skill stays and the player's own slots are left as they are.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORTCUT-CLEAN-UP-SCRIPTS"),
+        station: "auberean-client-runtime::corpus::toolbar::the_game_takes_off_the_bar_what_does_not_belong_on_it",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "ui.shortcuts.the-slots-show-the-scripts-icons-and-numbers",
@@ -2342,6 +2545,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.social.friends-the-allegiance-and-the-conflict-are-kept",
+        says: "The client keeps the chat service's friends as the friends page does: the list \
+               told replaces them (a friend with no name left out), a listed friend's state is \
+               kept and one going online or offline goes last, a friend taken off leaves, and the \
+               player's own state is kept; each allegiance profile told replaces the last; the \
+               conflict the place allows is kept as told about the player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-KEPT-FRIENDS"),
+        station: "auberean-client-runtime::cpu::world::social::friends_the_allegiance_and_the_conflict_are_kept_as_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.social.the-allegiance-page-shows-a-member-its-patron-and-vassals",
         says: "The allegiance page asks for the player's profile as its tab opens; a profile shows \
                the allegiance's name, size and monarch, the member with its patron, each vassal \
@@ -2351,6 +2566,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-ALLEGIANCE"),
         station: "auberean-ui-game::dat::play::social::the_allegiance_page_shows_a_member_its_patron_and_vassals",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.the-fellowship-is-kept-as-its-notices-tell-it",
+        says: "The client keeps the player's fellowship as the fellows' rows do: described whole \
+               it is kept; a fellow described keeps its place and one new to it goes last; a \
+               fellow gone leaves; each fellow's health, vigor, their greatest, level and cell, \
+               and the leader, are kept as told; the fellowship gone, nothing is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-KEPT-FELLOWSHIP"),
+        station: "auberean-client-runtime::cpu::world::social::the_fellowship_is_kept_as_its_notices_tell_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.social.the-fellowship-page-asks-for-a-new-fellowship",
@@ -2374,11 +2600,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.social.the-view-carries-the-players-social-life",
+        says: "The view carries what the scripts told of the player's fellowship, allegiance, \
+               friends and the conflict the place allows, and the player's kingdom from its \
+               description, for every front end; leaving the world lets all of it go.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-VIEW"),
+        station: "auberean-client-runtime::cpu::world::social::the_view_carries_the_players_social_life_until_it_leaves_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.statusbar.a-missed-pulse-runs-the-bar-out-over-the-time-left",
         says: "A pulsed effect that misses its pulse runs its bar out over what is left of its time at that moment.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PULSE-MISSED-CLOCK"),
         station: "auberean-ui-game::dat::play::bar::a_missed_pulse_runs_the_bar_out_over_the_time_left",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.statusbar.only-a-heros-focus-bar-shows-its-focus",
+        says: "Anyone but a hero sees the focus bar's ornament, filled full, without numbers or \
+               tooltip, whatever focus the scripts say and however it is clicked; once the scripts \
+               say the player is a hero its focus shows of its greatest, with its tooltip, and \
+               follows the focus they say; said to be no hero again, it is the ornament again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-FOCUS-HERO"),
+        station: "auberean-ui-game::dat::play::bar::only_a_heros_focus_bar_shows_its_focus",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -2409,6 +2656,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-STATUSBAR"),
         station: "auberean-ui-game::dat::play::bar::vitals_indicators_and_effects_follow_the_scripts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.statusbar.without-the-scripts-the-qualities-say-whether-focus-shows",
+        says: "Until the player's scripts say a vital, the status bar reads the player's qualities \
+               as the scripts would: anyone but a hero sees the focus bar's ornament; a hero by its \
+               qualities sees its focus of its greatest, with its tooltip.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-FOCUS-STAND-IN"),
+        station: "auberean-ui-game::dat::play::bar::without_the_scripts_the_qualities_say_whether_focus_shows",
         tier: Tier::Dat,
     },
     behaviour! {

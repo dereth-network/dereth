@@ -22,15 +22,18 @@ dereth-primitives.workspace = true
 # than the original's. `CrtRand` is `dereth_primitives::num::rng`, pure arithmetic, so it is
 # allowed here, and the rule the gate checks -- no `dereth-ui`, no `dereth-ui-screens`, no
 # `dereth-render`, no `winit`, no `windows` -- is unchanged.
-# `camera.rs`'s `ViewParams::view` is a `Mat4`. The same glam the rest of the tree uses,
-# so the matrix that crosses this seam is the one `dereth-render` builds.
-glam.workspace = true
 # `window.rs`'s `WindowHandles` is the raw display/window handle pair a device is
 # created from. `raw-window-handle` is a crate of type definitions and depends on nothing; the
 # pair is plain data, and `dereth_client_runtime::platform::window::WindowHost` returns it, which is
 # what `dereth-client`'s window trait needed to leave that crate. `dereth-render` re-exports the
 # type at `device::WindowHandles` and still owns every use of it.
 raw-window-handle.workspace = true
+# `overlay.rs` re-exports the overlay every interface lowers its drawing to, which names no game,
+# so that both games' interfaces and the widget kit share its types without this contract.
+dereth-ui-overlay.workspace = true
+# `camera.rs` and `sampler.rs` re-export the projection parameters and the startup filtering, which
+# name no game, so that the renderer both games draw with shares them without this contract.
+dereth-render-params.workspace = true
 
 [lints]
 workspace = true

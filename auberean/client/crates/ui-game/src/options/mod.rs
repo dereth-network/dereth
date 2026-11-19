@@ -18,12 +18,12 @@
 //! preferences behind the client page, [`bank`].
 
 pub mod assistance;
-pub mod bank;
 pub mod character;
 pub mod chat;
 pub mod client;
 pub mod helper;
-pub mod preference;
+
+pub use auberean_options::{bank, preference};
 
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};

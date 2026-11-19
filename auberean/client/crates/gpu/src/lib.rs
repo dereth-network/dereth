@@ -194,6 +194,8 @@ pub struct Renderer {
     work: std::cell::Cell<Work>,
     /// The sun's shadow map as last drawn.
     shadow_kept: Option<ShadowKept>,
+    /// The group no shadow map is read through (the white picture), made once.
+    no_shadow: Option<wgpu::BindGroup>,
     /// The sky objects' lens flares by their place in the day's list: each one's fade and
     /// whether its object was seen when last looked for; the look under way (the markers drawn at
     /// the objects, whose answers come back a frame or so later); the flares' and the markers'
@@ -687,6 +689,7 @@ impl Renderer {
             meshes: cache::MeshCache::default(),
             work: std::cell::Cell::default(),
             shadow_kept: None,
+            no_shadow: None,
             flares: HashMap::new(),
             flare_scan: None,
             flare_kept: None,
@@ -775,6 +778,138 @@ impl Renderer {
             });
         }
         (texture, view)
+    }
+
+    /// A frame's color picture, its multisampled color when edges are smoothed, and its depth.
+    #[allow(clippy::type_complexity)]
+    fn frame_targets(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> (
+        (wgpu::Texture, wgpu::TextureView),
+        Option<wgpu::TextureView>,
+        wgpu::TextureView,
+    ) {
+        let color = self.target(
+            "color",
+            (width, height, 1),
+            COLOR_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+        );
+        let multi = (self.samples > 1).then(|| {
+            self.target(
+                "multisampled color",
+                (width, height, self.samples),
+                COLOR_FORMAT,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            )
+            .1
+        });
+        let (_, depth) = self.target(
+            "depth",
+            (width, height, self.samples),
+            DEPTH_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        (color, multi, depth)
+    }
+
+    /// One of the square pictures the water's passes are drawn into (the reflection's, the
+    /// ripples'), [`REFLECTION_SIZE`] a side: its color, its multisampled color when edges are
+    /// smoothed, and its depth, by their labels.
+    fn square_targets(
+        &mut self,
+        [color, multi, depth]: [&'static str; 3],
+    ) -> (
+        wgpu::TextureView,
+        Option<wgpu::TextureView>,
+        wgpu::TextureView,
+    ) {
+        let square = REFLECTION_SIZE;
+        let (_, view) = self.target(
+            color,
+            (square, square, 1),
+            COLOR_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        );
+        let multi = (self.samples > 1).then(|| {
+            self.target(
+                multi,
+                (square, square, self.samples),
+                COLOR_FORMAT,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            )
+            .1
+        });
+        let (_, depth) = self.target(
+            depth,
+            (square, square, self.samples),
+            DEPTH_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        (view, multi, depth)
+    }
+
+    /// Ready on the device, ahead of the frame that draws them, what a share of the readying
+    /// names ([`auberean_draw::warm::Share`]): its pictures, loaded with `load`; its draws' lists
+    /// in buffers of their own, their texture sets and their programs; its shadow casters' lists
+    /// and texture sets; the land's lists; and the pictures a frame `size` is drawn into, which
+    /// are kept for the frames to come. What it made is counted in [`Self::take_work`].
+    pub fn warm(
+        &mut self,
+        share: &auberean_draw::warm::Share,
+        size: (u32, u32),
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) {
+        use auberean_draw::warm::texture_set;
+        if share.is_empty() {
+            return;
+        }
+        for &id in &share.pictures {
+            self.texture(id, load);
+        }
+        for b in &share.draws {
+            self.meshes.ready(&self.device, &b.vertices, &b.indices);
+            self.texture_group(texture_set(&b.layer), load);
+            self.build_pipelines([&b.layer]);
+        }
+        for b in &share.casters {
+            self.meshes.ready(&self.device, &b.vertices, &b.indices);
+            self.texture_group([texture_set(&b.layer)[0], (0, false), (0, false)], load);
+        }
+        for t in &share.land {
+            self.meshes
+                .ready_land(&self.device, &t.vertices, &t.indices);
+        }
+        if let Some(targets) = share.targets {
+            let _ = self.frame_targets(size.0, size.1);
+            if targets.reflection {
+                let _ = self.square_targets(SQUARE_REFLECTION);
+                let _ = self.bump_picture();
+            }
+            if targets.ripples {
+                let _ = self.square_targets(SQUARE_RIPPLES);
+            }
+            if targets.shadow {
+                let _ = self.spots_target();
+                let _ = self.no_shadow_group();
+                if self.shadow_kept.is_none() {
+                    self.shadow_kept = Some(ShadowKept {
+                        view: self.shadow_map_picture(),
+                        signature: Vec::new(),
+                        lists: Vec::new(),
+                    });
+                }
+            }
+        }
+        let lists = self.meshes.take_counts();
+        self.note_work(|w| {
+            w.buffers += lists.buffers;
+            w.buffer_bytes += lists.buffer_bytes;
+        });
     }
 
     /// A picture [`Self::draw`] left is done with: the frames it was part of have been shown, and
@@ -1357,6 +1492,28 @@ impl Renderer {
     /// by one less the shadow strength. A map whose casters and sun are as they were when it was
     /// last drawn holds this frame's picture already, and is not drawn again.
     // D2-10929, D2-10609, D2-10610
+    /// A picture for the shadow map to be drawn into.
+    fn shadow_map_picture(&self) -> wgpu::TextureView {
+        self.note_work(|w| w.textures += 1);
+        self.device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d {
+                    width: SHADOW_MAP_SIZE,
+                    height: SHADOW_MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: COLOR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
     fn render_shadow_map(
         &mut self,
         shadow: &ShadowMap,
@@ -1367,26 +1524,7 @@ impl Renderer {
         self.build_shadow_pipelines();
         let view = match &self.shadow_kept {
             Some(k) => k.view.clone(),
-            None => {
-                self.note_work(|w| w.textures += 1);
-                self.device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some("shadow map"),
-                        size: wgpu::Extent3d {
-                            width: SHADOW_MAP_SIZE,
-                            height: SHADOW_MAP_SIZE,
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: COLOR_FORMAT,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                            | wgpu::TextureUsages::TEXTURE_BINDING,
-                        view_formats: &[],
-                    })
-                    .create_view(&wgpu::TextureViewDescriptor::default())
-            }
+            None => self.shadow_map_picture(),
         };
         let mut map_u = *frame_u;
         map_u.view_proj = mat(&shadow.view_projection());
@@ -1495,10 +1633,10 @@ impl Renderer {
                 &PointLights::NONE,
             )),
         );
+        let white_shadow = self.no_shadow_group();
         let Some((caster, lift)) = self.shadow_pipelines.as_ref() else {
             return view;
         };
-        let white_shadow = self.shadow_group(&self.white);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow map"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1798,6 +1936,20 @@ impl Renderer {
     /// pixel program: the normal map, the diffuse map and the detail map).
     /// The picture of the sun's share at each of `spots`, a texel each, made through the shadow
     /// map's group `map`: the group the bodies read it through.
+    fn spots_target(&mut self) -> wgpu::TextureView {
+        self.target(
+            "the bodies' spots",
+            (
+                u32::try_from(BODY_SPOTS.0).unwrap_or(1),
+                u32::try_from(BODY_SPOTS.1).unwrap_or(1),
+                1,
+            ),
+            COLOR_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        )
+        .1
+    }
+
     fn draw_body_spots(
         &mut self,
         spots: &HashMap<[u32; 3], usize>,
@@ -1843,16 +1995,7 @@ impl Renderer {
                 },
             ));
         }
-        let (_, view) = self.target(
-            "the bodies' spots",
-            (
-                u32::try_from(BODY_SPOTS.0).unwrap_or(1),
-                u32::try_from(BODY_SPOTS.1).unwrap_or(1),
-                1,
-            ),
-            COLOR_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        );
+        let view = self.spots_target();
         let count = spots.len().min(BODY_SPOTS.0 * BODY_SPOTS.1);
         let mut at = vec![[0.0f32; 3]; count];
         for (bits, &k) in spots {
@@ -1906,6 +2049,17 @@ impl Renderer {
             (&self.white, &self.wrap),
             (&self.white, &self.wrap),
         ])
+    }
+
+    /// The group the white picture is read through in the shadow map's place: by the shadow map's
+    /// own passes, and by a frame with no shadow map. Made the first time it is asked for.
+    fn no_shadow_group(&mut self) -> wgpu::BindGroup {
+        if let Some(g) = &self.no_shadow {
+            return g.clone();
+        }
+        let g = self.shadow_group(&self.white);
+        self.no_shadow = Some(g.clone());
+        g
     }
 
     /// The group the shadow map `view` is read through.
@@ -1992,9 +2146,12 @@ impl Renderer {
         frame: &Frame,
         width: u32,
         height: u32,
-        load: &mut dyn FnMut(u32) -> Option<Image>,
+        world_load: &mut dyn FnMut(u32) -> Option<Image>,
         target: Target,
     ) -> wgpu::Texture {
+        // The frame's own pictures first, then the world's.
+        let mut own = |id: u32| frame.own_picture(id).or_else(|| world_load(id));
+        let load: &mut dyn FnMut(u32) -> Option<Image> = &mut own;
         let mut lap = Lap::start();
         self.take_textures(frame.textures);
         let cam = &frame.camera;
@@ -2106,7 +2263,7 @@ impl Renderer {
             .map(|s| Arc::new(self.render_shadow_map(s, &out_u, &mut encoder, load)));
         let shadow_group = match &shadow_view {
             Some(view) => self.shadow_group(view),
-            None => self.shadow_group(&self.white),
+            None => self.no_shadow_group(),
         };
         let ms = lap.lap();
         self.note_work(|w| w.ms.shadow += ms);
@@ -2115,29 +2272,7 @@ impl Renderer {
         let cloud_view = frame.clouds.map(|c| self.texture(c.picture, load));
 
         // The frame is drawn multisampled and resolved into the picture read back.
-        let (color, color_view) = self.target(
-            "color",
-            (width, height, 1),
-            COLOR_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-        );
-        let multi_view = (self.samples > 1).then(|| {
-            self.target(
-                "multisampled color",
-                (width, height, self.samples),
-                COLOR_FORMAT,
-                wgpu::TextureUsages::RENDER_ATTACHMENT,
-            )
-            .1
-        });
-        let (_, depth_view) = self.target(
-            "depth",
-            (width, height, self.samples),
-            DEPTH_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        );
+        let ((color, color_view), multi_view, depth_view) = self.frame_targets(width, height);
 
         // Prepare every draw: buffers, uniforms, textures, pipelines.
         struct Draw {
@@ -2278,12 +2413,7 @@ impl Renderer {
                 key.posed = b.posed.is_some();
                 this.mesh_pipeline(key);
                 let bound = bound_stages(&b.layer);
-                let textures = bound.map(|s| {
-                    (
-                        s.map_or(0, |s| s.texture),
-                        s.is_some_and(|s| s.clamp_u || s.clamp_v),
-                    )
-                });
+                let textures = auberean_draw::warm::texture_set(&b.layer);
                 let mut uniforms = draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 uniforms.params[1] = faded.alpha_ref.unwrap_or(-1.0);
                 if let (Some(at), Some(_)) = (b.ground, &shadow_view) {
@@ -2938,28 +3068,8 @@ impl Renderer {
             // The reflection is drawn into a picture of its own, 512 texels square whatever the
             // screen's size, with a depth of its own the same size, cleared as the frame is; the
             // camera keeps the screen's shape, so the picture lies over the screen as it stands.
-            let square = REFLECTION_SIZE;
-            let (_, refl_view) = self.target(
-                "reflection",
-                (square, square, 1),
-                COLOR_FORMAT,
-                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            );
-            let refl_multi_view = (self.samples > 1).then(|| {
-                self.target(
-                    "multisampled reflection",
-                    (square, square, self.samples),
-                    COLOR_FORMAT,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT,
-                )
-                .1
-            });
-            let (_, refl_depth_view) = self.target(
-                "reflection depth",
-                (square, square, self.samples),
-                DEPTH_FORMAT,
-                wgpu::TextureUsages::RENDER_ATTACHMENT,
-            );
+            let (refl_view, refl_multi_view, refl_depth_view) =
+                self.square_targets(SQUARE_REFLECTION);
             {
                 let mut pass = begin_pass(
                     &mut encoder,
@@ -3074,27 +3184,7 @@ impl Renderer {
             // reflection reads its push from that picture where it lies on the screen.
             // D2-10598, D2-10587
             let ripple_view = if r.ripples {
-                let (_, view) = self.target(
-                    "ripples",
-                    (square, square, 1),
-                    COLOR_FORMAT,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                );
-                let multi = (self.samples > 1).then(|| {
-                    self.target(
-                        "multisampled ripples",
-                        (square, square, self.samples),
-                        COLOR_FORMAT,
-                        wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    )
-                    .1
-                });
-                let (_, depth) = self.target(
-                    "ripples depth",
-                    (square, square, self.samples),
-                    DEPTH_FORMAT,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT,
-                );
+                let (view, multi, depth) = self.square_targets(SQUARE_RIPPLES);
                 let key = PassKey {
                     src: d3d::BLEND_ONE,
                     dst: d3d::BLEND_ZERO,
@@ -3380,6 +3470,9 @@ impl Renderer {
 /// The side of the square picture the water's reflection is drawn into, in texels.
 // D2-10544, D2-10546
 const REFLECTION_SIZE: u32 = 512;
+/// The labels of the reflection's pictures and the ripples'.
+const SQUARE_REFLECTION: [&str; 3] = ["reflection", "multisampled reflection", "reflection depth"];
+const SQUARE_RIPPLES: [&str; 3] = ["ripples", "multisampled ripples", "ripples depth"];
 
 /// How far the ripples push the reflection's coordinates: the bump stage's matrix, this much times
 /// the identity.

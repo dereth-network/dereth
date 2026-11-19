@@ -280,3 +280,42 @@ fn a_script_with_no_manifest_cannot_be_listed() {
     };
     assert!(Entry::for_zip(&p.to_zip(), "x.zip", "", "").is_err());
 }
+
+#[test]
+fn an_entry_names_its_game_and_runs_only_in_that_games_hosts() {
+    use dereth_plugin_api::{ApiVersion, Game};
+    let dereths = entry();
+    assert_eq!(dereths.game, Game::Dereth);
+    let mut only_dereths = Catalog::default();
+    only_dereths.put(dereths.clone());
+    assert!(
+        !only_dereths.to_json().contains("\"game\""),
+        "Dereth's is not written"
+    );
+    let theirs = package("org.example.fx", "0.1.0", "0.7", "game = \"auberean\"\n").to_zip();
+    let e = Entry::for_zip(&theirs, "fx.zip", "", "").expect("an entry");
+    assert_eq!(e.game, Game::Auberean);
+    assert!(e.runs_in(Game::Auberean, ApiVersion::CURRENT));
+    assert!(!e.runs_in(Game::Dereth, ApiVersion::CURRENT));
+    assert!(dereths.runs_in(Game::Dereth, ApiVersion::CURRENT));
+    let mut c = Catalog::default();
+    c.put(e.clone());
+    let text = c.to_json();
+    assert!(text.contains("\"game\": \"auberean\""), "{text}");
+    assert_eq!(Catalog::parse(text.as_bytes()).expect("reads").catalog, c);
+    // The game is checked against the package like the other fields.
+    let mut wrong = e.clone();
+    wrong.game = Game::Dereth;
+    assert!(matches!(
+        wrong.check(&theirs),
+        Err(Mismatch::Says { field: "game", .. })
+    ));
+    let bad = text.replace("\"auberean\"", "\"ac2\"");
+    let read = Catalog::parse(bad.as_bytes()).expect("reads");
+    assert!(read.catalog.plugins.is_empty());
+    assert!(
+        read.skipped[0].contains("\"ac2\" is not a game"),
+        "{:?}",
+        read.skipped
+    );
+}

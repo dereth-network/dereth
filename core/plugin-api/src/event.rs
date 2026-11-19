@@ -3,6 +3,7 @@
 //! Events are delivered in the order the client applied the messages behind them, at one fixed
 //! point of the frame, so a replayed recording delivers the same events in the same order.
 
+use crate::game::Game;
 use crate::value::Value;
 
 /// One event.
@@ -22,7 +23,8 @@ impl Event {
     }
 }
 
-/// The events of API 0.6, with the fields each one's argument carries.
+/// The events of API 0.7, with the fields each one's argument carries: Dereth's, of which each
+/// game has its part ([`Game::events`]).
 ///
 /// The spec's event table (`docs/plugins/events.md`) is this list; a test holds the two together.
 pub const EVENTS: &[(&str, &str)] = &[
@@ -157,10 +159,11 @@ pub const MESSAGES_VERSION: u32 = 1;
 /// the master opcode table, `messages.any` for every one. Which names exist is the host's to say.
 pub const MESSAGES_PREFIX: &str = "messages.";
 
-/// Whether `name` is an event of the current API: one of [`EVENTS`], or a message stream event.
+/// Whether `name` is an event of the current API for `game`: one of its events, or a message
+/// stream event.
 #[must_use]
-pub fn is_known(name: &str) -> bool {
-    EVENTS.iter().any(|(n, _)| *n == name)
+pub fn is_known(game: Game, name: &str) -> bool {
+    game.events().any(|(n, _)| *n == name)
         || name
             .strip_prefix(MESSAGES_PREFIX)
             .is_some_and(|rest| !rest.is_empty())

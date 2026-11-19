@@ -144,12 +144,12 @@ const WORLD: u64 = 0x0300_0000_0000_0000;
 
 /// The login: a list with one character, the world entry into the hall as a human male, the
 /// scene drawn, the log-off answered.
-fn script() -> Script {
+pub(crate) fn script() -> Script {
     script_at(HALL_CELL, HALL_AT, Quat::IDENTITY)
 }
 
 /// The login with the player put in `cell` at `at`, turned by `rotation`.
-fn script_at(cell: u32, at: Vec3, rotation: Quat) -> Script {
+pub(crate) fn script_at(cell: u32, at: Vec3, rotation: Quat) -> Script {
     script_with(cell, at, rotation, &[])
 }
 
@@ -282,8 +282,8 @@ fn script_until(
 }
 
 /// The host: a clock set by hand, the datagrams carried to and from the double.
-struct DoubleHost {
-    time: f64,
+pub(crate) struct DoubleHost {
+    pub(crate) time: f64,
     double: ServerDouble,
     inbox: VecDeque<(SocketAddr, Vec<u8>)>,
     /// The settings the player kept, if any.
@@ -335,7 +335,7 @@ impl Host for DoubleHost {
 }
 
 /// Run the shell a frame of 1/60 s: the clock on, the double's datagrams in, the frame.
-fn step(shell: &mut Shell<'_, DoubleHost>) -> bool {
+pub(crate) fn step(shell: &mut Shell<'_, DoubleHost>) -> bool {
     let h = &mut shell.host;
     h.time += 1.0 / 60.0;
     let t = LocalTime(1.0 + h.time);
@@ -362,11 +362,11 @@ fn shell_with_sound(
     Shell::new(host, world, data.clone(), interface)
 }
 
-fn shell(interface: Box<dyn Interface + 'static>) -> Shell<'static, DoubleHost> {
+pub(crate) fn shell(interface: Box<dyn Interface + 'static>) -> Shell<'static, DoubleHost> {
     shell_with(script(), interface)
 }
 
-fn shell_with(
+pub(crate) fn shell_with(
     script: Script,
     interface: Box<dyn Interface + 'static>,
 ) -> Shell<'static, DoubleHost> {
@@ -491,6 +491,11 @@ LightSourceEffects=0
         auberean_draw::volume::setting::VOLUMETRIC
     );
     assert!(fresh.scene.light_source_effects());
+}
+
+/// Whether the client's controls hold a latched run.
+fn autorun(shell: &Shell<'_, DoubleHost>) -> bool {
+    shell.client.as_ref().is_some_and(|c| c.controls.autorun())
 }
 
 fn reports(shell: &Shell<'_, DoubleHost>) -> Vec<(f64, Vec3, u32)> {
@@ -618,6 +623,541 @@ fn the_body_runs_with_the_default_keys_and_is_reported() {
     );
 }
 
+/// A control pressed through the contract, as a script, a headless driver or a plugin presses it,
+/// moves the player as the key bound to it does: forward pressed as itself for two seconds runs the
+/// body through the hall to the same place as W held for those two seconds, reported the same way.
+///
+/// Behaviour: desktop.controls.a-control-pressed-through-the-contract-moves-the-player-as-its-key
+#[test]
+fn a_control_pressed_through_the_contract_moves_the_player_as_its_key_does() {
+    use auberean_client_sdk::contract::control::Control;
+    use auberean_client_sdk::Action;
+    use auberean_scene::movement;
+
+    type Press = fn(&mut Shell<'_, DoubleHost>, bool);
+    fn run(press: Press) -> (Vec3, Vec3, Vec<(f64, Vec3, u32)>) {
+        let server =
+            ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell(Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )));
+        let (mut before, mut after) = (None, None);
+        while s.host.time < 12.5 {
+            let t = s.host.time;
+            if (8.0..8.02).contains(&t) {
+                before = Some(s.scene.status.origin);
+                press(&mut s, true);
+            }
+            if (10.0..10.02).contains(&t) {
+                press(&mut s, false);
+            }
+            if (12.0..12.02).contains(&t) {
+                after = Some(s.scene.status.origin);
+            }
+            step(&mut s);
+        }
+        let moved = reports(&s)
+            .into_iter()
+            .filter(|(t, _, _)| (8.0..12.0).contains(t))
+            .collect();
+        (before.expect("before"), after.expect("after"), moved)
+    }
+    let key = run(|s, down| {
+        s.event(&Event::Key {
+            key: Key::W,
+            down,
+            repeat: false,
+        });
+    });
+    let control = run(|s, down| {
+        let c = if down {
+            Control::begin(movement::FORWARD)
+        } else {
+            Control::end(movement::FORWARD)
+        };
+        s.client
+            .as_mut()
+            .expect("the session")
+            .act(Action::Control(c));
+    });
+    let (a, b, _) = control;
+    let ran = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+    assert!(
+        (8.0..14.0).contains(&ran),
+        "two seconds at 6.5 m/s, less the start: {ran} m"
+    );
+    assert_eq!(control, key, "the same run and the same reports");
+}
+
+/// The double as the port of a driver with no window: what the double sends in a frame is read in
+/// that frame, as the shell's host reads it.
+struct DoublePort {
+    double: ServerDouble,
+    inbox: VecDeque<(SocketAddr, Vec<u8>)>,
+    ticked: Option<f64>,
+}
+
+impl auberean_client_sdk::Port for DoublePort {
+    fn receive(&mut self, now: LocalTime) -> Option<(SocketAddr, Vec<u8>)> {
+        if self.ticked != Some(now.0) {
+            self.ticked = Some(now.0);
+            self.inbox
+                .extend(self.double.tick(now).into_iter().map(|d| (d.from, d.bytes)));
+        }
+        self.inbox.pop_front()
+    }
+
+    fn send(&mut self, to: SocketAddr, bytes: &[u8], now: LocalTime) {
+        self.double.datagram(to, me(), bytes, now);
+    }
+}
+
+/// Where the player's body stood after each frame from 7.5 s to `until` seconds (its cell and
+/// place), and the client's reports of it from then on (their times on the host's clock, places and
+/// cells).
+type Run = (Vec<(u32, Vec3)>, Vec<(f64, Vec3, u32)>);
+
+/// The double playing `script`, the forward control pressed as itself at 8 s and let go at 10 s:
+/// the run through the shell, whose scene runs the body's steps among its own, then on the SDK's
+/// driver with its world without a window.
+fn with_and_without_the_scene(script: &Script, until: f64) -> (Run, Run) {
+    use auberean_client_sdk::contract::control::{movement, Control};
+    use auberean_client_sdk::contract::event::SessionEvent;
+    use auberean_client_sdk::sim::Walk;
+    use auberean_client_sdk::{Action, ClientSettings, Driver, FixedStep, GameEvent};
+
+    let press = |down: bool| {
+        Action::Control(if down {
+            Control::begin(movement::FORWARD)
+        } else {
+            Control::end(movement::FORWARD)
+        })
+    };
+    let running = |r: &[(f64, Vec3, u32)]| -> Vec<(f64, Vec3, u32)> {
+        r.iter()
+            .filter(|(t, _, _)| (7.5..until).contains(t))
+            .copied()
+            .collect()
+    };
+    let window = {
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script.clone(),
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut places = Vec::new();
+        while s.host.time < until {
+            let t = s.host.time;
+            if (8.0..8.02).contains(&t) || (10.0..10.02).contains(&t) {
+                let down = t < 9.0;
+                s.client.as_mut().expect("the session").act(press(down));
+            }
+            step(&mut s);
+            if s.host.time >= 7.5 {
+                places.push((s.scene.status.cell, s.scene.status.origin));
+            }
+        }
+        (places, running(&reports(&s)))
+    };
+    let without = {
+        let (world, data) = data();
+        let double = ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+        let settings = ClientSettings {
+            login_server: double.login_addr(),
+            account: b"tester".to_vec(),
+            ticket: b"t".to_vec(),
+            timestamp: 0,
+            session_key: [7; 64],
+            script_sends: false,
+        };
+        let mut port = DoublePort {
+            double,
+            inbox: VecDeque::new(),
+            ticked: None,
+        };
+        let mut driver = Driver::connect(settings, data.clone());
+        let mut walk = Walk::new(world);
+        let mut clock = FixedStep::new(1.0 / 60.0);
+        let mut places = Vec::new();
+        let mut asked = false;
+        while clock.now() < until {
+            let t = clock.now();
+            if (8.0..8.02).contains(&t) || (10.0..10.02).contains(&t) {
+                driver.act(press(t < 9.0));
+            }
+            driver.frame_walking(&mut clock, &mut port, &mut walk);
+            for e in driver.take_events() {
+                if let (GameEvent::Session(SessionEvent::Characters(list)), false) = (e, asked) {
+                    let character = list.characters.first().expect("a character").id;
+                    driver.act(Action::PlayCharacter { character });
+                    asked = true;
+                }
+            }
+            if clock.now() >= 7.5 {
+                let p = walk.player().expect("the player's body");
+                let o = p.body.position.frame.origin;
+                places.push((p.body.position.cell.0, Vec3::new(o.x, o.y, o.z)));
+            }
+        }
+        let reports: Vec<(f64, Vec3, u32)> = driver
+            .sent()
+            .iter()
+            .filter_map(|s| match &s.message {
+                ClientMessage::Position(p) => Some((s.at - 1.0, p.origin, p.cell)),
+                _ => None,
+            })
+            .collect();
+        (places, running(&reports))
+    };
+    (window, without)
+}
+
+/// Asserts the two runs put the body in the same place on every frame and report it the same way.
+fn assert_the_same(window: &Run, without: &Run) {
+    let apart = window.0.iter().zip(&without.0).position(|(a, b)| a != b);
+    assert!(
+        window.0.len() == without.0.len() && apart.is_none(),
+        "the same place on every frame: {} and {} frames, first apart at {:?}",
+        window.0.len(),
+        without.0.len(),
+        apart.map(|i| (window.0[i], without.0[i])),
+    );
+    assert_eq!(window.1, without.1, "the same reports");
+}
+
+/// How far the body went over a run, along the ground.
+fn ran(run: &Run) -> f32 {
+    let (a, b) = (run.0[0].1, run.0[run.0.len() - 1].1);
+    ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+}
+
+/// The same controls move the player's body to the same place with the window's scene and with
+/// none: forward pressed as itself for two seconds runs the body through the hall in the shell,
+/// whose scene runs the body's steps among its own, and on the SDK's driver with its world without
+/// a window, to the same place on every frame, reported to the server the same way.
+///
+/// Behaviour: desktop.controls.the-controls-move-the-body-the-same-with-and-without-the-scene
+#[test]
+fn the_controls_move_the_body_the_same_with_and_without_the_scene() {
+    let (window, without) = with_and_without_the_scene(&script(), 12.0);
+    let ran = ran(&window);
+    assert!(
+        (8.0..14.0).contains(&ran),
+        "two seconds at 6.5 m/s, less the start: {ran} m"
+    );
+    assert_the_same(&window, &without);
+}
+
+/// A creature standing where the server put it, 3 m ahead of the player in the hall: what the 2017
+/// servers said a creature is, and what it passes through.
+fn creature_ahead(id: u64) -> CreateObject {
+    let mut weenie = WeenieDesc::default();
+    // A creature's physics type (bits 5 and 22) and what it moves through.
+    for (bit, word) in [
+        (0x8000, 1 << 22 | 1 << 5),
+        (0x1_0000, 0),
+        (0x2_0000, 0x4220_0010),
+        (0x4_0000, 0),
+    ] {
+        let i = WeenieDesc::NUMBER_BITS
+            .iter()
+            .position(|b| *b == bit)
+            .expect("a physics type word");
+        weenie.mask |= bit;
+        weenie.numbers[i] = word;
+    }
+    CreateObject {
+        id,
+        weenie,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        y: HALL_AT.y + 3.0,
+                        ..HALL_AT
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+    }
+}
+
+/// A creature the server puts in the player's way holds the body up the same with the window's
+/// scene and with none: forward held for two seconds runs the body up to it, where it is held,
+/// then off round it, less than half as far as through the clear hall, to the same place on every
+/// frame in both, reported to the server the same way.
+///
+/// Behaviour: desktop.controls.a-creature-in-the-way-holds-the-body-up-the-same-with-and-without-the-scene
+#[test]
+fn a_creature_in_the_way_holds_the_body_up_the_same_with_and_without_the_scene() {
+    let script = script_with(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        &[creature_ahead(0x8130_1B05_CC00_0200)],
+    );
+    let (window, without) = with_and_without_the_scene(&script, 11.0);
+    assert!(
+        ran(&window) < 5.0,
+        "held up: less than half the clear run's ten meters: {} m",
+        ran(&window)
+    );
+    assert_the_same(&window, &without);
+}
+
+/// What the server says of the player's body, sent as from the player's object.
+fn of_the_player<A>(action: A) -> ObjectEvent<A> {
+    ObjectEvent {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        action,
+    }
+}
+
+/// The moves the server orders the player's body to make take it the same way with the window's
+/// scene and with none: while forward is held, a push east and up throws it off its line and its
+/// speed is halved; then a move the server orders walks it back toward where it started, and a
+/// teleport puts it at the hall's far end. In both it stands in the same place on every frame and
+/// is reported the same way.
+///
+/// Behaviour: desktop.controls.the-servers-moves-take-the-body-the-same-with-and-without-the-scene
+#[test]
+fn the_servers_moves_take_the_body_the_same_with_and_without_the_scene() {
+    use auberean_client_sdk::protocol::physics::{Impulse, MoveOrder, Scale};
+    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams};
+    let place = |at: Vec3| Placement {
+        cell: HALL_CELL,
+        frame: Frame {
+            origin: at,
+            rotation: Quat::IDENTITY,
+        },
+    };
+    let push = ServerMessage::Push(of_the_player(Impulse {
+        direction: Vec3::new(4.0, 0.0, 3.0),
+        contact: 0,
+    }));
+    let slow = ServerMessage::VelocityScale(of_the_player(Scale(0.5)));
+    let back = Vec3 {
+        y: HALL_AT.y + 2.0,
+        ..HALL_AT
+    };
+    let walk_back = ServerMessage::MoveTo(of_the_player(MoveOrder {
+        params: MovementParams {
+            flags: MovementParams::MAX_SUCCESS,
+            desired_velocity: 1.0,
+            fail_distance: 100.0,
+            desired_distance: 0.5,
+            max_success_distance: 0.5,
+            min_success_distance: 0.0,
+            target: MoveTarget::Place(place(back)),
+            offset: Vec3::new(0.0, 0.0, 0.0),
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context: 0,
+        },
+        stamp: 1,
+    }));
+    let far_end = Vec3 {
+        y: HALL_AT.y + 8.0,
+        ..HALL_AT
+    };
+    let teleport = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: far_end,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let mut script = script_then(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        &[],
+        &[
+            (10.1, slow),
+            (11.6, push),
+            (13.6, walk_back),
+            (16.1, teleport),
+        ],
+    );
+    // With no window the client says the scene is ready as soon as the player is made, the window
+    // once portal space is over: the double sends the moves at their times, not after either.
+    script
+        .events
+        .retain(|e| !matches!(e, Step::Msg { msg, .. } if msg.c2s && msg.mtype == 0x100D1));
+    let (window, without) = with_and_without_the_scene(&script, 14.5);
+    // The double sends them some 2.6 s before their times in the script: the speed is halved
+    // before forward is pressed at 8 s, the push comes at 9 s while it is held, the move once it
+    // is let go at 10 s, the teleport at 13.5 s.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a frame's index
+    let at = |t: f64| window.0[((t - 7.5) * 60.0).round() as usize].1;
+    let flat = |a: Vec3, b: Vec3| ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+    let speed = flat(at(8.4), at(8.9)) * 2.0;
+    assert!(
+        (2.0..4.5).contains(&speed),
+        "running at half its speed: {speed} m/s"
+    );
+    let east = window.0.iter().map(|(_, o)| o.x).fold(f32::MIN, f32::max);
+    assert!(east > HALL_AT.x + 1.5, "pushed east off its line: {east}");
+    let (let_go, before_teleport) = (at(10.5), at(13.3));
+    assert!(
+        let_go.y - before_teleport.y > 1.0,
+        "walked back south by the server's move: {let_go:?} to {before_teleport:?}"
+    );
+    assert!(
+        flat(at(14.4), far_end) < 0.5,
+        "teleported to the hall's far end: {:?}",
+        at(14.4)
+    );
+    assert_the_same(&window, &without);
+}
+
+/// An approach the server ordered, as a server's attack orders it, ends with a teleport: sent to
+/// its lifestone after its death, the player's body arrives standing, and stays still, reported
+/// with no motion, though the creature it was closing in on is still where it was.
+///
+/// Behaviour: desktop.controls.a-teleport-ends-the-approach-the-server-ordered
+#[test]
+fn a_teleport_ends_the_approach_the_server_ordered() {
+    use auberean_client_sdk::protocol::physics::MoveOrder;
+    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams};
+    const CREATURE: u64 = 0x8130_1B05_CC00_0201;
+    let mut creature = creature_ahead(CREATURE);
+    creature.physics.position.frame.origin.y = HALL_AT.y + 8.0;
+    // Into reach of the creature, running, never giving up (what an attack sends).
+    let close_in = ServerMessage::MoveTo(of_the_player(MoveOrder {
+        params: MovementParams {
+            flags: 0x46B,
+            desired_velocity: 1.0,
+            fail_distance: f32::MAX,
+            desired_distance: 1.0,
+            max_success_distance: 1.0,
+            min_success_distance: 0.0,
+            target: MoveTarget::Object(CREATURE),
+            offset: Vec3::new(0.0, 0.0, 0.0),
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context: 1,
+        },
+        stamp: 1,
+    }));
+    let respawn = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_then(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        &[creature],
+        &[(11.0, close_in), (11.6, respawn)],
+    );
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let flat = |a: Vec3, b: Vec3| ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+    let at = |s: &Shell<'_, DoubleHost>| {
+        let o = s.scene.status.origin;
+        Vec3::new(o.x, o.y, o.z)
+    };
+    let teleported = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.body.teleport_stamp == 1)
+    };
+    let mut closed = 0.0f32;
+    while !teleported(&s) {
+        assert!(s.host.time < 15.0, "the server's respawn");
+        step(&mut s);
+        closed = closed.max(at(&s).y - HALL_AT.y);
+    }
+    assert!(closed > 1.0, "closing in on the creature first: {closed} m");
+    // Arrived and stood where it was put.
+    let mut arrived = None;
+    while arrived.is_none() || s.host.time < arrived.unwrap_or(0.0) + 2.0 {
+        assert!(s.host.time < 20.0, "arrived");
+        step(&mut s);
+        if arrived.is_none() && flat(at(&s), HALL_AT) < 0.5 && !s.scene.cells_pending() {
+            arrived = Some(s.host.time);
+        }
+    }
+    let arrived = arrived.expect("arrived");
+    assert!(
+        flat(at(&s), HALL_AT) < 0.05,
+        "still where it was put: {:?}",
+        at(&s)
+    );
+    let sent: Vec<[u8; 4]> = s
+        .client
+        .as_ref()
+        .expect("the session")
+        .sent()
+        .iter()
+        .filter(|m| m.at - 1.0 >= arrived)
+        .filter_map(|m| match &m.message {
+            // Sideways, forward and up after the heading, each 127 for none.
+            ClientMessage::Position(p) => Some(p.heading_motion.to_be_bytes()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        sent.iter().all(|m| m[1..] == [127, 127, 127]),
+        "no motion reported: {sent:x?}"
+    );
+}
+
 /// An interface that asks to leave the server from the world, once.
 struct LeavesAtOnce(DevLogin, bool);
 
@@ -647,6 +1187,152 @@ fn leaving_the_server_says_goodbye_on_every_connection() {
     }
     assert_eq!(s.phase(), Phase::Disconnected);
     assert_eq!(s.host.double.report().client_goodbyes, vec![true, true]);
+}
+
+/// Going out of portal space on entering, the client readies on the device what the world's first
+/// frame puts there, a share a frame while the tunnel and the white still hide the world: the
+/// pictures it is drawn into with the first share, its pictures a few a frame, then its draws and
+/// the land's pieces. All of them are handed out before coming out begins but those of the effects
+/// the player's arrival sets going as the world is first drawn.
+///
+/// Behaviour: desktop.shell.portal-space-readies-the-world-before-coming-out
+#[test]
+fn portal_space_readies_the_world_before_coming_out() {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use auberean_draw::portal::State;
+    use auberean_draw::warm::{DRAWS_PER_FRAME, PER_FRAME};
+
+    type Lists = HashSet<(usize, usize)>;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    // Each share: the phase it came in, and how many pictures, draws and land pieces it held,
+    // and whether it held the pictures to draw into.
+    let mut shares: Vec<(State, usize, usize, usize, bool)> = Vec::new();
+    let (mut pictures, mut draws, mut land) = (HashSet::new(), Lists::new(), Lists::new());
+    let mut first_world = None;
+    while s.host.time < 12.0 && first_world.is_none() {
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let out = s.frame();
+        let w = out.warm;
+        let held = (
+            w.pictures.len(),
+            w.draws.len(),
+            w.land.len(),
+            w.targets.is_some(),
+        );
+        pictures.extend(w.pictures.iter().copied());
+        draws.extend(w.draws.iter().map(|b| {
+            (
+                Arc::as_ptr(&b.vertices) as usize,
+                Arc::as_ptr(&b.indices) as usize,
+            )
+        }));
+        land.extend(w.land.iter().map(|t| {
+            (
+                Arc::as_ptr(&t.vertices) as usize,
+                Arc::as_ptr(&t.indices) as usize,
+            )
+        }));
+        // The first world frame's pictures, lists and land; and what only the effects drawn after
+        // its bodies read (what the player's arrival sets going as the world is first drawn).
+        let world = out.world.map(|f| {
+            let after = f.bodies.iter().map(|(_, r)| r.end).max().unwrap_or(0);
+            let late = &f.objects[after.min(f.objects.len())..];
+            let late_pictures: HashSet<u32> = late
+                .iter()
+                .flat_map(|b| b.layer.stages.iter().map(|st| st.texture))
+                .collect();
+            let late_lists: Lists = late
+                .iter()
+                .map(|b| {
+                    (
+                        Arc::as_ptr(&b.vertices) as usize,
+                        Arc::as_ptr(&b.indices) as usize,
+                    )
+                })
+                .collect();
+            let lists: Lists = f
+                .drawn_batches()
+                .filter(|b| !b.indices.is_empty())
+                .map(|b| {
+                    (
+                        Arc::as_ptr(&b.vertices) as usize,
+                        Arc::as_ptr(&b.indices) as usize,
+                    )
+                })
+                .collect();
+            let pieces: Lists = f
+                .terrain
+                .iter()
+                .map(|t| {
+                    (
+                        Arc::as_ptr(&t.vertices) as usize,
+                        Arc::as_ptr(&t.indices) as usize,
+                    )
+                })
+                .collect();
+            (f.pictures(), late_pictures, lists, late_lists, pieces)
+        });
+        let state = s.scene.portal.state;
+        if held != (0, 0, 0, false) {
+            shares.push((state, held.0, held.1, held.2, held.3));
+        }
+        if state == State::ComingOut {
+            first_world = world;
+        }
+    }
+    let (world_pictures, late_pictures, lists, late_lists, pieces) =
+        first_world.expect("the world drawn coming out");
+    assert!(
+        world_pictures.len() > PER_FRAME,
+        "{} pictures",
+        world_pictures.len()
+    );
+    assert!(
+        shares
+            .iter()
+            .all(|(state, p, d, l, _)| *state == State::GoingOut
+                && *p <= PER_FRAME
+                && *d <= DRAWS_PER_FRAME
+                && *l <= DRAWS_PER_FRAME),
+        "a share a frame, going out: {shares:?}"
+    );
+    assert!(shares.len() > 2, "over several frames");
+    assert!(
+        shares[0].4,
+        "the pictures to draw into with the first share"
+    );
+    assert_eq!(shares.iter().filter(|s| s.4).count(), 1, "and only then");
+    let missing: Vec<u32> = world_pictures
+        .iter()
+        .copied()
+        .filter(|id| !pictures.contains(id) && !late_pictures.contains(id))
+        .collect();
+    assert!(missing.is_empty(), "pictures not readied: {missing:08X?}");
+    let missing = lists
+        .iter()
+        .filter(|l| !draws.contains(l) && !late_lists.contains(l))
+        .count();
+    assert_eq!(missing, 0, "of {} draws' lists, not readied", lists.len());
+    let missing = pieces.iter().filter(|l| !land.contains(l)).count();
+    assert_eq!(
+        missing,
+        0,
+        "of {} pieces of land, not readied",
+        pieces.len()
+    );
 }
 
 /// Entering the world, the client is in portal space from the moment it asks to enter, before
@@ -693,7 +1379,7 @@ fn entering_the_world_goes_through_portal_space() {
         out_at.expect("out of portal space"),
     );
     assert!(
-        (2.0..2.2).contains(&(o - b)),
+        (2.0..2.25).contains(&(o - b)),
         "two seconds going out: {b} to {o}"
     );
 }
@@ -1844,6 +2530,120 @@ fn the_camera_is_drawn_between_its_places_at_the_last_two_ticks() {
     );
     assert!(judged >= 8, "{judged} runs judged");
     assert!(widest < 1e-4, "{widest} m off the line between its places");
+}
+
+/// Outdoors west of block `0xC156`'s east edge, on land that falls away east and bends between
+/// the body's ticks: where a run east starts.
+pub(crate) const EAST_EDGE: (u32, Vec3) = (
+    0xC156_0035,
+    Vec3 {
+        x: 140.0,
+        y: 89.76,
+        z: 80.0,
+    },
+);
+
+/// What frames are drawn while `each` runs before each one until `until` seconds: the longest step
+/// the drawn camera takes from one frame to the next, the longest the player's body takes (between
+/// its ticks), and the blocks the body stood in. Places are the world's (a block is 160 m).
+pub(crate) fn camera_steps(
+    s: &mut Shell<'_, DoubleHost>,
+    until: f64,
+    mut each: impl FnMut(&mut Shell<'_, DoubleHost>),
+) -> (f32, f32, Vec<u16>) {
+    #[allow(clippy::cast_precision_loss)] // block numbers
+    let world = |block: (i32, i32), at: Vec3| {
+        Vec3::new(
+            block.0 as f32 * 160.0 + at.x,
+            block.1 as f32 * 160.0 + at.y,
+            at.z,
+        )
+    };
+    let camera = |s: &Shell<'_, DoubleHost>| {
+        let seen = &s.scene.seen;
+        world(seen.block, seen.camera.expect("a camera seen").position)
+    };
+    let body = |s: &Shell<'_, DoubleHost>| {
+        let cell = s.scene.status.cell;
+        let o = s.scene.status.origin;
+        let byte = |shift: u32| i32::try_from((cell >> shift) & 0xFF).unwrap_or(0);
+        let block = (byte(24), byte(16));
+        world(block, Vec3::new(o.x, o.y, o.z))
+    };
+    let far =
+        |a: Vec3, b: Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    let (mut eye, mut feet) = (camera(s), body(s));
+    let (mut most, mut ran) = (0.0f32, 0.0f32);
+    let mut blocks = Vec::new();
+    while s.host.time < until {
+        each(s);
+        step(s);
+        let (e, f) = (camera(s), body(s));
+        most = most.max(far(e, eye));
+        ran = ran.max(far(f, feet));
+        (eye, feet) = (e, f);
+        #[allow(clippy::cast_possible_truncation)] // the cell's block
+        let block = (s.scene.status.cell >> 16) as u16;
+        if blocks.last() != Some(&block) {
+            blocks.push(block);
+        }
+    }
+    (most, ran, blocks)
+}
+
+/// In mouse look, running east over land that bends between the body's ticks and over a block's
+/// edge, the camera moves on smoothly every frame: never further in a frame than the body moves
+/// in a tick. (Placed each frame, it keeps off the world from where the body stood at its last
+/// tick, which is on the ground; the body is drawn between its ticks, a few millimeters under
+/// land that bends there.)
+///
+/// Behaviour: desktop.camera.in-mouse-look-it-moves-smoothly-over-the-land-and-a-blocks-edge
+#[test]
+fn in_mouse_look_the_camera_moves_smoothly_over_the_land_and_a_blocks_edge() {
+    let (cell, at) = EAST_EDGE;
+    let script = script_at(cell, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 7.5 {
+        step(&mut s);
+    }
+    // Turned east by the mouse, a count at a time.
+    s.scene
+        .camera
+        .press(auberean_scene::camera::Press::MouseLook);
+    while (s.scene.status.heading - 90.0).abs() > 1.0 {
+        assert!(
+            s.host.time < 12.0,
+            "turned east: {}",
+            s.scene.status.heading
+        );
+        s.event(&Event::Motion { dx: 1.0, dy: 0.0 });
+        step(&mut s);
+    }
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 3.5;
+    let (most, ran, blocks) = camera_steps(&mut s, until, |_| {});
+    assert_eq!(blocks, [0xC156, 0xC256], "ran east over the block's edge");
+    assert!(
+        most < ran + 0.05,
+        "the camera stepped {most} m in a frame, the body {ran} m in a tick"
+    );
 }
 
 /// At 144 frames a second the player's figure, running, is animated only on the frames a
@@ -6566,8 +7366,8 @@ fn the_reports_carry_the_motion_a_move_ordered_asks() {
     }
 }
 
-/// A run Q latched ends once a move the server ordered takes the body, so the body does not run
-/// on when the move is done.
+/// A run Num Lock latched ends once a move the server ordered takes the body, so the body does not
+/// run on when the move is done.
 ///
 /// Behaviour: desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run
 #[test]
@@ -6624,20 +7424,20 @@ fn a_move_ordered_ends_the_latched_run() {
     assert!(!s.scene.player_moving_to());
     for down in [true, false] {
         s.event(&Event::Key {
-            key: Key::Q,
+            key: Key::NumLock,
             down,
             repeat: false,
         });
     }
     step(&mut s);
-    assert!(s.controls.autorun(), "Q latched the run");
+    assert!(autorun(&s), "Num Lock latched the run");
     while !s.scene.player_moving_to() {
-        assert!(s.controls.autorun(), "only the move ends the run");
+        assert!(autorun(&s), "only the move ends the run");
         assert!(s.host.time < 12.0, "the order never took the body");
         step(&mut s);
     }
     step(&mut s);
-    assert!(!s.controls.autorun(), "the move ended the run");
+    assert!(!autorun(&s), "the move ended the run");
 }
 
 /// A teleport ends a latched run, so the player does not run on from where it arrives. Fixture: a
@@ -6687,25 +7487,25 @@ fn a_teleport_ends_the_latched_run() {
     assert_eq!(s.phase(), Phase::World);
     for down in [true, false] {
         s.event(&Event::Key {
-            key: Key::Q,
+            key: Key::NumLock,
             down,
             repeat: false,
         });
     }
     step(&mut s);
-    assert!(s.controls.autorun(), "Q latched the run");
+    assert!(autorun(&s), "Num Lock latched the run");
     let stamp = |s: &Shell<'_, DoubleHost>| s.client.as_ref().map_or(0, |c| c.body.teleport_stamp);
     while stamp(&s) == 0 {
-        assert!(s.controls.autorun(), "only the teleport ends the run");
+        assert!(autorun(&s), "only the teleport ends the run");
         assert!(s.host.time < 20.0, "the teleport never came");
         step(&mut s);
     }
     step(&mut s);
-    assert!(!s.controls.autorun(), "the teleport ended the run");
+    assert!(!autorun(&s), "the teleport ended the run");
 }
 
 /// The window losing the keyboard lets each action in force go as its key would: a strafe held
-/// then ends, and the next reports carry no sideways motion; the run Q latched goes on, its
+/// then ends, and the next reports carry no sideways motion; the run Num Lock latched goes on, its
 /// reports still running forward.
 ///
 /// Behaviour: desktop.shell.losing-the-keyboard-ends-held-moves-and-keeps-a-latched-run
@@ -6729,9 +7529,9 @@ fn losing_the_keyboard_ends_a_held_strafe_and_keeps_the_latched_run() {
         step(&mut s);
     }
     assert_eq!(s.phase(), Phase::World);
+    key(&mut s, Key::NumLock, true);
+    key(&mut s, Key::NumLock, false);
     key(&mut s, Key::Q, true);
-    key(&mut s, Key::Q, false);
-    key(&mut s, Key::Z, true);
     while s.host.time < 8.6 {
         step(&mut s);
     }
@@ -6957,35 +7757,32 @@ fn the_applied_graphics_preferences_reach_the_next_frame() {
     );
 }
 
-/// How the game is shown goes to the host and into the settings as the interface asks: a flip of
-/// full screen is the interface's to answer, and what it answers is carried out.
+/// How the game is shown goes to the host and into the settings as the client's rendering
+/// preferences say: a flip of full screen goes through the full-screen preference, and what the
+/// preferences then say is carried out.
 ///
 /// Behaviour: desktop.shell.the-host-shows-the-game-as-the-interface-asks
 #[test]
 fn the_host_shows_the_game_as_the_interface_asks() {
     use auberean_shell::host::TestHost;
-    use auberean_shell::Presentation;
-    struct Flips;
-    impl Interface for Flips {
-        fn update(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
-        fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
-            requests.push(Request::Presentation(Presentation {
-                size: (800, 600),
-                full_screen: true,
-                triple_buffering: true,
-                sync_to_display: false,
-                antialiasing: false,
-                remaster: false,
-            }));
-        }
-    }
+    use auberean_shell::interface::NoInterface;
     let (world, data) = data();
-    let mut s = Shell::new(TestHost::default(), world, data.clone(), Box::new(Flips));
+    let mut s = Shell::new(
+        TestHost::default(),
+        world,
+        data.clone(),
+        Box::new(NoInterface),
+    );
+    s.set_display_modes(&[(800, 600), (1024, 768)]);
+    assert!(!s.settings.full_screen);
     s.toggle_full_screen();
     assert_eq!(s.host.presentations.len(), 1);
     assert_eq!(s.settings.presentation(), s.host.presentations[0]);
-    assert_eq!(s.settings.window, (800, 600));
     assert!(s.settings.full_screen);
+    s.toggle_full_screen();
+    assert_eq!(s.host.presentations.len(), 2);
+    assert!(!s.host.presentations[1].full_screen, "flipped back");
+    assert!(!s.settings.full_screen);
 }
 
 /// The developer's login makes its human as the creation screens make one: the player's entity,

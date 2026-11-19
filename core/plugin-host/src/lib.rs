@@ -112,8 +112,8 @@ use dereth_client_contract::panels::map::MapClick;
 use dereth_client_runtime::frame_hook::{FrameHook, HookFrame, PluginQueryAnswer};
 use dereth_plugin_api::audit::{self, AuditEntry};
 use dereth_plugin_api::{
-    ApiVersion, AutoDomain, Context, Event, HostCapability, Limits, ScriptEngine, ScriptError,
-    ScriptErrorKind, ScriptInstance, Value, WorldPolicy,
+    ApiVersion, AutoDomain, Context, Event, Game, HostCapability, Limits, ScriptEngine,
+    ScriptError, ScriptErrorKind, ScriptInstance, Value, WorldPolicy,
 };
 
 use crate::calls::{Call, Shared};
@@ -2992,6 +2992,9 @@ impl PluginHost {
             Err(e) => return self.refuse(&origin, &e.to_string()),
         };
         let what = m.id.to_string();
+        if let Some(why) = Game::Dereth.refuses(m.game) {
+            return self.refuse(&what, &why);
+        }
         if !ApiVersion::CURRENT.runs(m.api) {
             return self.refuse(
                 &what,

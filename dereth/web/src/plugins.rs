@@ -138,7 +138,7 @@ pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
     }
     let mut host = PluginHost::new(
         HostConfig::new("dereth-web", caps),
-        Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
+        Box::new(dereth_client_sdk::plugin_lua::LuauEngine::dereth()),
         Box::new(StaticSource::default()),
         Box::new(FileStorage),
     )
@@ -190,7 +190,7 @@ pub fn engine_check() -> Vec<String> {
         }
     }
 
-    let engine = dereth_client_sdk::plugin_lua::LuauEngine;
+    let engine = dereth_client_sdk::plugin_lua::LuauEngine::dereth();
     let limits = Limits {
         memory_bytes: 4 << 20,
         call_budget_ms: 20.0,

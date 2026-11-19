@@ -48,6 +48,9 @@ pub struct ListBoxState {
     /// A list of rows of their own sizes: each column's width and each row's height.
     pub widths: Vec<i32>,
     pub heights: Vec<i32>,
+    /// The child of each row whose own rows a line step goes through, one at a time (this
+    /// client's own: [`Ui::list_step_through`]).
+    pub step_through: Option<Token>,
 }
 
 /// The flags a list keeps from its attributes and its own doings.
@@ -438,6 +441,16 @@ impl Ui {
     #[must_use]
     pub fn list_top_row(&self, list: Handle) -> i32 {
         self.listbox_top_row(list)
+    }
+
+    /// Have a list of rows of their own sizes step line by line: a row holding a list named
+    /// `inner` with rows in it is stepped through as the part above that list, each of its rows,
+    /// and what is left below them, where a step is otherwise a whole row
+    /// (`CD2-options-scroll-by-line`).
+    pub fn list_step_through(&mut self, list: Handle, inner: Token) {
+        if let Some(l) = self.lb_mut(list) {
+            l.step_through = Some(inner);
+        }
     }
 
     /// Scroll a list a page down (`on`) or up, as its own page keys do (a panel's page buttons).

@@ -13,8 +13,8 @@
 //! (the data store), `dereth-dat`, `dereth-primitives`, `dereth-ui-screens` and `dereth-input`;
 //! `dereth-web-store` for the client's own files and a world's overlay in browser storage;
 //! `dereth-transport` for the WebSocket frame; `dereth-classic-dat` and `dereth-classic-fonts`
-//! for the classic interface's text, drawn from the fonts the client carries; and `dereth-horizon`
-//! for the Horizon interface's art, which the page fetches from beside the module. The WebAssembly build adds `wasm-bindgen`,
+//! for the classic interface's text, drawn from the fonts the client carries; and
+//! `dereth-horizon-art` for the Horizon interface's art, which the page fetches from beside the module. The WebAssembly build adds `wasm-bindgen`,
 //! `js-sys`, `web-sys` and a `tracing-subscriber` that writes to the browser console. **Used by**
 //! the worker under `www/`, which loads it as a WebAssembly module when a world of Asheron's Call
 //! is played.

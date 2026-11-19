@@ -1,0 +1,15 @@
+[package]
+name = "dereth-horizon-art"
+description = "The Horizon interface's art, which names no game: its pieces' manifest, their atlases at three scales and its fonts, built into a desktop client and fetched by a browser's page."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The kit reads a skin's pieces through its own file list; the art is one such skin.
+dereth-ui-kit.workspace = true
+
+[lints]
+workspace = true

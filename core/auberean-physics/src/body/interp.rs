@@ -36,6 +36,13 @@ impl Body {
         self.with_interp(|mi, b| mi.interrupt_move_to(b, now));
     }
 
+    /// The body's motion as it leaves the world: the move under way ends, the turn stops, the
+    /// positions sent for it are no longer followed, and the tether lets go.
+    pub fn motion_leaves_world(&mut self) {
+        let now = self.clock;
+        self.with_interp(|mi, b| mi.handle_leave_world(b, now));
+    }
+
     /// How much of its speed the body may use where it is (1 unconstrained).
     // D2-05911, D2-06438
     #[must_use]

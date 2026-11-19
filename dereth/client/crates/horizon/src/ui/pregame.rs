@@ -329,15 +329,7 @@ impl Pregame {
         // With the interface's own art: Dereth's mark (its icon and name), then the world.
         if let Some(mark) = p.piece("brand.mark") {
             // The mark centred in the top shade; the world at its far left, on the count's line.
-            let (sw, _) = p.screen;
-            let band = 180.0 * k;
-            let mh = 96.0 * k;
-            let mw = mh * mark.w / mark.h.max(1.0);
-            p.sprite(
-                &mark,
-                Rect::new(sw / 2.0 - mw / 2.0, (band - mh) / 2.0, mw, mh),
-                WHITE,
-            );
+            kit::brand_mark(p, &mark, 180.0 * k);
             self.world_line(p, ctx, state, 40.0 * k, COUNT_LINE * k, true);
             return;
         }

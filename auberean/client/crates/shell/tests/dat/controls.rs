@@ -1,11 +1,16 @@
 //! The world's controls over the data's key maps and action map: with no key map file, the
-//! "Defaults" maps, turned into the player's intent.
+//! "Defaults" maps, the device's keys and buttons turned into the game's controls, carried as the
+//! client carries them and turned into the player's intent.
 
 use std::sync::OnceLock;
 
+use auberean_client_sdk::contract::control::{Control, ControlId, ControlSource};
+use auberean_client_sdk::contract::SelectKind;
+use auberean_client_sdk::runtime::controls::Controls as Carried;
+use auberean_client_sdk::Action;
 use auberean_scene::camera::Press;
-use auberean_scene::movement;
-use auberean_shell::controls::{Command, Controls, INTERFACE};
+use auberean_scene::{movement, Intent};
+use auberean_shell::controls::Controls;
 use auberean_shell::host::{HostFiles, TestHost};
 use auberean_shell::input::{Button, Event, Key};
 use auberean_shell::keys::{KeyFiles, KeyRecords, Keys};
@@ -15,29 +20,98 @@ const WALK: f32 = 0.339;
 /// The base map's interface action for the Up arrow.
 const UP_KEY: u32 = 0x4000_0015;
 /// An action the interface class holds: the same arrow key.
-const HELD_INTERFACE: u32 = UP_KEY;
+const HELD_INTERFACE: ControlId = ControlId(UP_KEY);
 
-/// The keys a player with no key map file starts with.
+/// The keys of the Defaults preset, as a player who chose it on the key map screen has them.
 fn keys() -> &'static Keys {
     static KEYS: OnceLock<Keys> = OnceLock::new();
     KEYS.get_or_init(|| {
         let records = KeyRecords::read(&crate::session::data().0.records);
-        Keys::start(
+        let mut keys = Keys::start(
             records,
             KeyFiles::default(),
             &mut HostFiles(&mut TestHost::default()),
-        )
+        );
+        let pairs = |i: usize| -> Vec<(u32, u32)> {
+            keys.records.defaults[i]
+                .bindings
+                .iter()
+                .map(|b| (b.input, b.action))
+                .collect()
+        };
+        let [n, s, c] = [pairs(0), pairs(1), pairs(2)];
+        keys.bind([&n, &s, &c]);
+        keys
     })
 }
 
+/// The device's side of the controls and the client's side that carries them, as the shell joins
+/// them.
+pub struct Rig {
+    pub device: Controls,
+    pub carried: Carried,
+}
+
+impl Rig {
+    /// Over these keys' action map.
+    pub fn over(keys: &Keys) -> Self {
+        Self {
+            device: Controls::default(),
+            carried: Carried::over(keys.records.action_map.clone()),
+        }
+    }
+
+    /// The controls the device asked for, carried.
+    pub fn carry(&mut self) {
+        for a in self.device.take_actions() {
+            match a {
+                Action::Control(c) => self.carried.control(c),
+                Action::ReleaseControls { typing } => self.carried.release(typing),
+                other => panic!("not a control: {other:?}"),
+            }
+        }
+    }
+
+    pub fn event(&mut self, e: &Event, keys: &Keys) {
+        self.device.event(e, keys);
+        self.carry();
+    }
+
+    pub fn set_text_mode(&mut self, keys: &Keys, on: bool) {
+        self.device.set_text_mode(keys, on);
+        self.carry();
+    }
+
+    pub fn mouse_look_switched(&mut self) {
+        self.device.mouse_look_switched();
+        self.carry();
+    }
+
+    /// A control pressed (`value` nonzero) or let go as an input of a device would.
+    pub fn handle(&mut self, action: u32, value: f32, device: u32, input: u32) {
+        self.carried
+            .control(Control::at(ControlId(action), value).from(ControlSource { device, input }));
+    }
+
+    /// A control pressed or let go as itself, as the interface's camera asks for it.
+    pub fn ask(&mut self, id: ControlId, value: f32) {
+        self.carried.control(Control::at(id, value));
+    }
+
+    pub fn intent(&mut self) -> Intent {
+        let frame = self.carried.frame();
+        self.device.intent(frame)
+    }
+}
+
 /// Controls whose mouse look steers the player, as the camera's option does by default.
-fn controls() -> Controls {
-    let mut c = Controls::default();
-    c.steers = true;
+fn controls() -> Rig {
+    let mut c = Rig::over(keys());
+    c.carried.steers = true;
     c
 }
 
-fn down(c: &mut Controls, key: Key) {
+fn down(c: &mut Rig, key: Key) {
     c.event(
         &Event::Key {
             key,
@@ -48,7 +122,7 @@ fn down(c: &mut Controls, key: Key) {
     );
 }
 
-fn up(c: &mut Controls, key: Key) {
+fn up(c: &mut Rig, key: Key) {
     c.event(
         &Event::Key {
             key,
@@ -59,7 +133,7 @@ fn up(c: &mut Controls, key: Key) {
     );
 }
 
-fn event(c: &mut Controls, e: &Event) {
+fn event(c: &mut Rig, e: &Event) {
     c.event(e, keys());
 }
 
@@ -72,12 +146,12 @@ fn event(c: &mut Controls, e: &Event) {
 fn the_default_keys_move_the_body() {
     let mut c = controls();
     down(&mut c, Key::W);
-    assert_eq!(c.intent(keys()).forward, 1.0);
+    assert_eq!(c.intent().forward, 1.0);
     down(&mut c, Key::ShiftLeft);
-    assert_eq!(c.intent(keys()).forward, WALK);
+    assert_eq!(c.intent().forward, WALK);
     up(&mut c, Key::W);
     down(&mut c, Key::X);
-    assert_eq!(c.intent(keys()).forward, -1.0, "backing ignores Shift");
+    assert_eq!(c.intent().forward, -1.0, "backing ignores Shift");
     up(&mut c, Key::X);
     up(&mut c, Key::ShiftLeft);
     assert_eq!(
@@ -86,34 +160,22 @@ fn the_default_keys_move_the_body() {
         "the base map's interface action"
     );
     down(&mut c, Key::ArrowUp);
-    assert_eq!(c.intent(keys()).forward, 0.0, "not the world's controls'");
+    assert_eq!(c.intent().forward, 0.0, "not the world's controls'");
     up(&mut c, Key::ArrowUp);
-    c.action_handler(keys(), movement::FORWARD, 1.0, INTERFACE, movement::FORWARD);
-    assert_eq!(c.intent(keys()).forward, 1.0);
-    c.action_handler(keys(), movement::FORWARD, 0.0, INTERFACE, movement::FORWARD);
+    c.ask(movement::FORWARD, 1.0);
+    assert_eq!(c.intent().forward, 1.0);
+    c.ask(movement::FORWARD, 0.0);
     down(&mut c, Key::A);
-    let i = c.intent(keys());
+    let i = c.intent();
     assert_eq!((i.turn, i.sideways), (1.0, 0.0), "A turns left");
     up(&mut c, Key::A);
-    c.action_handler(
-        keys(),
-        movement::TURN_RIGHT,
-        1.0,
-        INTERFACE,
-        movement::TURN_RIGHT,
-    );
-    assert_eq!(c.intent(keys()).turn, -1.0);
-    c.action_handler(
-        keys(),
-        movement::TURN_RIGHT,
-        0.0,
-        INTERFACE,
-        movement::TURN_RIGHT,
-    );
+    c.ask(movement::TURN_RIGHT, 1.0);
+    assert_eq!(c.intent().turn, -1.0);
+    c.ask(movement::TURN_RIGHT, 0.0);
     down(&mut c, Key::Z);
-    assert_eq!(c.intent(keys()).sideways, -1.0);
+    assert_eq!(c.intent().sideways, -1.0);
     down(&mut c, Key::C);
-    assert_eq!(c.intent(keys()).sideways, 0.0, "both cancel");
+    assert_eq!(c.intent().sideways, 0.0, "both cancel");
 }
 
 /// Q or Num Lock latches running; forward or backward turns it off, strafing and turning do not.
@@ -125,26 +187,22 @@ fn autorun_latches_and_a_jump_is_one_press() {
     let mut c = controls();
     down(&mut c, Key::Q);
     up(&mut c, Key::Q);
-    assert_eq!(c.intent(keys()).forward, 1.0, "running on its own");
+    assert_eq!(c.intent().forward, 1.0, "running on its own");
     down(&mut c, Key::Z);
     down(&mut c, Key::D);
-    assert_eq!(
-        c.intent(keys()).forward,
-        1.0,
-        "strafing and turning keep it"
-    );
+    assert_eq!(c.intent().forward, 1.0, "strafing and turning keep it");
     up(&mut c, Key::Z);
     up(&mut c, Key::D);
     down(&mut c, Key::S);
     up(&mut c, Key::S);
-    assert_eq!(c.intent(keys()).forward, 0.0, "backing stops it");
+    assert_eq!(c.intent().forward, 0.0, "backing stops it");
     down(&mut c, Key::NumLock);
     up(&mut c, Key::NumLock);
     down(&mut c, Key::W);
     up(&mut c, Key::W);
-    assert_eq!(c.intent(keys()).forward, 0.0, "forward stops it");
+    assert_eq!(c.intent().forward, 0.0, "forward stops it");
     down(&mut c, Key::Space);
-    assert!(c.intent(keys()).jump);
+    assert!(c.intent().jump);
     event(
         &mut c,
         &Event::Key {
@@ -153,10 +211,10 @@ fn autorun_latches_and_a_jump_is_one_press() {
             repeat: true,
         },
     );
-    assert!(!c.intent(keys()).jump, "held, it does not jump again");
+    assert!(!c.intent().jump, "held, it does not jump again");
     up(&mut c, Key::Space);
     down(&mut c, Key::J);
-    assert!(c.intent(keys()).jump);
+    assert!(c.intent().jump);
 }
 
 /// Each movement key pressed begins its action of the key map once, held or not: forward,
@@ -181,7 +239,7 @@ fn a_movement_key_begins_its_action_once() {
         down(&mut c, k);
     }
     assert_eq!(
-        c.intent(keys()).started,
+        c.intent().started,
         vec![
             movement::FORWARD,
             movement::BACKWARD,
@@ -202,7 +260,7 @@ fn a_movement_key_begins_its_action_once() {
         },
     );
     assert!(
-        c.intent(keys()).started.is_empty(),
+        c.intent().started.is_empty(),
         "held, it begins nothing more"
     );
     for k in [Key::W, Key::S, Key::Z, Key::C, Key::A, Key::D] {
@@ -215,12 +273,12 @@ fn a_movement_key_begins_its_action_once() {
             down: true,
         },
     );
-    c.intent(keys());
+    c.intent();
     down(&mut c, Key::D);
     // The interface's camera runs on the left button in mouse look.
-    c.action_handler(keys(), movement::FORWARD, 1.0, INTERFACE, movement::FORWARD);
+    c.ask(movement::FORWARD, 1.0);
     assert_eq!(
-        c.intent(keys()).started,
+        c.intent().started,
         vec![movement::TURN_RIGHT, movement::FORWARD],
         "D begins its turn (strafing in mouse look) and the camera's run begins forward"
     );
@@ -237,7 +295,7 @@ fn the_keypad_and_mouse_drive_the_camera() {
     for k in [Key::Numpad4, Key::Numpad8, Key::NumpadAdd, Key::ShiftRight] {
         down(&mut c, k);
     }
-    let h = c.intent(keys()).held;
+    let h = c.intent().held;
     assert!(h.rotate_left && h.tilt_up && h.zoom_in && h.fast);
     assert!(!h.rotate_right && !h.tilt_down && !h.zoom_out);
     up(&mut c, Key::ShiftRight);
@@ -254,10 +312,10 @@ fn the_keypad_and_mouse_drive_the_camera() {
     for (k, p) in views {
         down(&mut c, k);
         up(&mut c, k);
-        assert_eq!(c.intent(keys()).presses, vec![p], "{k:?}");
+        assert_eq!(c.intent().presses, vec![p], "{k:?}");
     }
     event(&mut c, &Event::Wheel { notches: 1.0 });
-    assert_eq!(c.intent(keys()).presses, vec![Press::Wheel(1)]);
+    assert_eq!(c.intent().presses, vec![Press::Wheel(1)]);
     event(
         &mut c,
         &Event::Button {
@@ -265,19 +323,19 @@ fn the_keypad_and_mouse_drive_the_camera() {
             down: true,
         },
     );
-    assert_eq!(c.intent(keys()).presses, vec![Press::MouseLook]);
-    assert!(c.mouse_look);
+    assert_eq!(c.intent().presses, vec![Press::MouseLook]);
+    assert!(c.carried.mouse_look);
     down(&mut c, Key::A);
-    c.action_handler(keys(), movement::FORWARD, 1.0, INTERFACE, movement::FORWARD);
+    c.ask(movement::FORWARD, 1.0);
     event(&mut c, &Event::Motion { dx: 3.0, dy: -2.0 });
-    let i = c.intent(keys());
+    let i = c.intent();
     assert_eq!((i.turn, i.sideways, i.forward), (0.0, -1.0, 1.0));
     assert_eq!(i.mouse, (3.0, -2.0));
-    assert_eq!(c.intent(keys()).mouse, (0.0, 0.0), "motion is taken once");
+    assert_eq!(c.intent().mouse, (0.0, 0.0), "motion is taken once");
 }
 
-/// The selection keys select the next object and Escape clears it; F uses what is selected. A
-/// window that loses the keyboard lets every key go.
+/// The selection keys ask for their selections (the next creature, the next item), Escape selects
+/// nothing and F uses what is selected. A window that loses the keyboard lets every key go.
 ///
 /// Behaviour: desktop.controls.select-use-and-letting-go-on-focus-loss
 #[test]
@@ -287,18 +345,22 @@ fn select_use_and_letting_go_on_focus_loss() {
         down(&mut c, k);
         up(&mut c, k);
     }
+    let next = |kind| Action::SelectCycle {
+        kind,
+        previous: false,
+    };
     assert_eq!(
-        c.take_commands(),
+        c.carried.take_asked(),
         vec![
-            Command::SelectNext,
-            Command::SelectNext,
-            Command::SelectNone,
-            Command::Use
+            next(SelectKind::Creature),
+            next(SelectKind::Item),
+            Action::Select { target: 0 },
+            Action::UseSelected
         ]
     );
     down(&mut c, Key::W);
     event(&mut c, &Event::Focus(false));
-    assert_eq!(c.intent(keys()).forward, 0.0);
+    assert_eq!(c.intent().forward, 0.0);
 }
 
 /// Mouse look switching lets the actions in force go while a text entry has the keys, and leaves
@@ -309,14 +371,20 @@ fn select_use_and_letting_go_on_focus_loss() {
 fn mouse_look_switching_while_a_text_entry_has_the_keys_lets_actions_go() {
     const FORWARD: u32 = 0x4000_0020;
     let mut c = controls();
-    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
-    c.mouse_look_switched(keys());
-    assert!(c.action_down(FORWARD), "no text entry: it stays");
+    c.handle(FORWARD, 1.0, 2, 0x8200_040C);
+    c.mouse_look_switched();
+    assert!(
+        c.carried.is_down(ControlId(FORWARD)),
+        "no text entry: it stays"
+    );
     c.set_text_mode(keys(), true);
-    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
-    assert!(c.action_down(FORWARD), "begun with the entry up");
-    c.mouse_look_switched(keys());
-    assert!(!c.action_down(FORWARD), "let go");
+    c.handle(FORWARD, 1.0, 2, 0x8200_040C);
+    assert!(
+        c.carried.is_down(ControlId(FORWARD)),
+        "begun with the entry up"
+    );
+    c.mouse_look_switched();
+    assert!(!c.carried.is_down(ControlId(FORWARD)), "let go");
 }
 
 /// A text entry taking the keys lets a held key's action go, as the key's release would, and leaves
@@ -330,28 +398,32 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
     let mut c = controls();
     down(&mut c, Key::W);
     down(&mut c, Key::Z);
-    assert_eq!(c.intent(keys()).sideways, -1.0, "strafing");
+    assert_eq!(c.intent().sideways, -1.0, "strafing");
     c.set_text_mode(keys(), true);
-    let i = c.intent(keys());
+    let i = c.intent();
     assert_eq!((i.forward, i.sideways), (0.0, 0.0), "held keys let go");
-    assert!(c.actions().is_empty(), "{:?}", c.actions());
+    assert!(
+        c.carried.in_force().is_empty(),
+        "{:?}",
+        c.carried.in_force()
+    );
     up(&mut c, Key::W);
     up(&mut c, Key::Z);
     c.set_text_mode(keys(), false);
     assert_eq!(
-        c.intent(keys()).forward,
+        c.intent().forward,
         0.0,
         "giving the keys back starts nothing"
     );
     down(&mut c, Key::W);
-    assert_eq!(c.intent(keys()).forward, 1.0, "the next press runs");
+    assert_eq!(c.intent().forward, 1.0, "the next press runs");
     up(&mut c, Key::W);
 
     down(&mut c, Key::Q);
     up(&mut c, Key::Q);
     down(&mut c, Key::Space);
     c.set_text_mode(keys(), true);
-    let i = c.intent(keys());
+    let i = c.intent();
     assert_eq!(i.forward, 1.0, "a latched run stays");
     assert!(i.jump, "a single press stays for its frame");
     c.set_text_mode(keys(), false);
@@ -359,13 +431,16 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
     down(&mut c, Key::W);
     up(&mut c, Key::W);
 
-    c.action_handler(keys(), HELD_INTERFACE, 1.0, INTERFACE, HELD_INTERFACE);
-    assert!(c.action_down(HELD_INTERFACE), "in force");
+    c.ask(HELD_INTERFACE, 1.0);
+    assert!(c.carried.is_down(HELD_INTERFACE), "in force");
     c.set_text_mode(keys(), true);
-    assert!(c.action_down(HELD_INTERFACE), "the interface class's stays");
+    assert!(
+        c.carried.is_down(HELD_INTERFACE),
+        "the interface class's stays"
+    );
     event(&mut c, &Event::Focus(false));
     assert!(
-        !c.action_down(HELD_INTERFACE),
+        !c.carried.is_down(HELD_INTERFACE),
         "the window's keyboard gone takes it"
     );
     c.set_text_mode(keys(), false);
@@ -378,11 +453,11 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
             down: true,
         },
     );
-    let held: Vec<u32> = c.actions().iter().map(|a| a.action).collect();
+    let held: Vec<ControlId> = c.carried.in_force().iter().map(|a| a.id).collect();
     assert!(!held.is_empty(), "the left button holds an action");
     c.set_text_mode(keys(), true);
     for a in &held {
-        assert!(c.action_down(*a), "{a:#x} stays");
+        assert!(c.carried.is_down(*a), "{a:?} stays");
     }
     event(
         &mut c,
@@ -391,7 +466,7 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
             down: false,
         },
     );
-    assert!(c.actions().is_empty(), "its release ends it");
+    assert!(c.carried.in_force().is_empty(), "its release ends it");
 }
 
 /// An action of the behavior class has the player play its behavior as it begins: the data's one
@@ -402,13 +477,13 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
 #[test]
 fn a_behavior_action_plays_and_stops_its_behavior() {
     use auberean_assets::ui::ActionEntry;
-    use auberean_shell::controls::{class, toggle};
+    use auberean_client_sdk::contract::control::{class, toggle};
     const ACTION: u32 = 0x8000_0001;
     const BEHAVIOR: u32 = 0x4100_0007;
     let mut c = controls();
-    c.action_handler(keys(), ACTION, 1.0, 1, 7);
-    assert_eq!(c.intent(keys()).behaviors, [(BEHAVIOR, true)]);
-    assert!(c.intent(keys()).behaviors.is_empty(), "once");
+    c.handle(ACTION, 1.0, 1, 7);
+    assert_eq!(c.intent().behaviors, [(BEHAVIOR, true)]);
+    assert!(c.intent().behaviors.is_empty(), "once");
 
     const HELD: u32 = 0x8000_0002;
     let mut records = keys().records.clone();
@@ -425,11 +500,11 @@ fn a_behavior_action_plays_and_stops_its_behavior() {
         KeyFiles::default(),
         &mut HostFiles(&mut TestHost::default()),
     );
-    let mut c = controls();
-    c.action_handler(&held, HELD, 1.0, 1, 7);
-    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, true)]);
-    c.action_handler(&held, HELD, 0.0, 1, 7);
-    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, false)]);
+    let mut c = Rig::over(&held);
+    c.handle(HELD, 1.0, 1, 7);
+    assert_eq!(c.intent().behaviors, [(BEHAVIOR, true)]);
+    c.handle(HELD, 0.0, 1, 7);
+    assert_eq!(c.intent().behaviors, [(BEHAVIOR, false)]);
 }
 
 /// The action map's rows for modifier bit 8 give movement values no other row gives, yet no modifier
@@ -468,7 +543,7 @@ fn no_modifier_key_reaches_the_rows_for_bit_eight() {
     for key in [Key::ShiftLeft, Key::ControlLeft, Key::AltLeft] {
         down(&mut c, key);
     }
-    let held = c.modifier_bitfield(keys());
+    let held = c.carried.modifiers();
     assert_eq!(held & 8, 0, "held: {held:#x}");
     assert_ne!(held, 0, "the keys took");
     for (action, value) in hidden {

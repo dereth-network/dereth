@@ -426,6 +426,15 @@ impl Views {
                 if same {
                     continue;
                 }
+                // Turned alone: the figure turns where it stands, its animation going on.
+                if let Some(x) = kept
+                    .figures
+                    .get_mut(k)
+                    .filter(|x| x.figure.heading != f.heading && same_but_heading(&x.figure, f))
+                {
+                    x.figure.heading = f.heading;
+                    continue;
+                }
                 // Another mode alone: the figure goes over to it by its table's graph.
                 if let Some(x) = kept
                     .figures
@@ -554,6 +563,11 @@ impl Views {
         self.behaving = behaving;
         out
     }
+}
+
+/// Whether two figures differ in nothing but the way they face.
+fn same_but_heading(a: &ViewFigure, b: &ViewFigure) -> bool {
+    a.look == b.look && a.origin == b.origin && a.mode == b.mode && a.still == b.still
 }
 
 /// Whether two figures differ in nothing but the mode they stand in.

@@ -24,6 +24,8 @@ pollster = { workspace = true, optional = true }
 auberean-shell.workspace = true
 # The game's own interface (the retail screens) and the records it draws from.
 auberean-interface.workspace = true
+# Horizon, the client's own interface, offered beside the game's.
+auberean-horizon.workspace = true
 auberean-ui.workspace = true
 auberean-scene.workspace = true
 auberean-draw.workspace = true
@@ -33,7 +35,9 @@ auberean-present.workspace = true
 auberean-world.workspace = true
 auberean-assets.workspace = true
 auberean-dat = { workspace = true, features = ["fs"] }
-auberean-client-sdk = { workspace = true, features = ["fs"] }
+# The client, the data files on disk, and the plugins' engines (Luau, and the compiled plugins'
+# interpreter).
+auberean-client-sdk = { workspace = true, features = ["fs", "lua", "wasm-interpreter"] }
 # The transcendental functions, the same bits on every host.
 dereth-primitives.workspace = true
 # The sound device, and the output seam the game's sound plays through.
@@ -55,6 +59,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Passing a world's count of players on to the Dereth Network's list of worlds.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde_json.workspace = true
+
+# The pads, through the system's XInput.
+[target.'cfg(windows)'.dependencies]
+gilrs = { workspace = true, features = ["xinput"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }

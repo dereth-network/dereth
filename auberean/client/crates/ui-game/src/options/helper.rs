@@ -97,13 +97,7 @@ pub struct Heard {
     pub change: Option<Change>,
 }
 
-/// A preference the player set on a row, before it is applied.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Change {
-    Flag(preference::Flag),
-    Number(preference::Number),
-    Choice(preference::Choice),
-}
+pub use auberean_options::page::Change;
 
 /// The float the client stores, read from an element's attribute.
 fn float_attr(ui: &Ui, h: Option<Handle>, a: Token) -> f32 {
@@ -124,12 +118,18 @@ pub mod own {
     use auberean_ui::Token;
     pub const REMASTER: Token = Token::of("ID_Rendering_Remaster");
     pub const REMASTER_HELP: Token = Token::of("ID_Rendering_Remaster_Help");
-    const WORDS: [(Token, &str); 2] = [
+    pub const UI_SECTION: Token = Token::of("ID_UI_UISection");
+    pub const INTERFACE: Token = Token::of("ID_UI_Interface");
+    pub const INTERFACE_HELP: Token = Token::of("ID_UI_Interface_Help");
+    const WORDS: [(Token, &str); 5] = [
         (REMASTER, "Remaster"),
         (
             REMASTER_HELP,
             "Modern light and shadows, a physical sky, rain, puddles and swaying grass.",
         ),
+        (UI_SECTION, "Interface"),
+        (INTERFACE, "Interface"),
+        (INTERFACE_HELP, "Which interface the game is shown in."),
     ];
 
     /// The words of one of them, by its token.
@@ -901,6 +901,13 @@ impl Row {
         }
         ui.drop_frame(self.frame);
     }
+}
+
+/// A page's list stepped line by line: a wheel notch or an arrow goes through an open section's
+/// rows one at a time, and past a closed section in one step, where the original steps a whole
+/// section at once (`CD2-options-scroll-by-line`).
+pub fn step_by_line(ui: &mut Ui, list: Handle) {
+    ui.list_step_through(list, name::TREE_LIST);
 }
 
 /// A page's rows, by place: the sections hold their rows' places.

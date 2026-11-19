@@ -152,6 +152,106 @@ fn arrow_buttons_scroll_a_row_and_ghost_at_the_ends() {
     assert_eq!(y_view(&u, list), 60, "a ghosted arrow does nothing");
 }
 
+/// A list of rows of their own sizes told to step through its rows' own lists steps line by line:
+/// past the part of a row above its list, then each of that list's rows, then a plain row whole;
+/// back to the start of the line before; from inside a line, to that line's end or start. Before
+/// it is told, a step is the whole row at the view.
+///
+/// Behaviour: ui.list.a-step-can-go-through-the-rows-own-lists-line-by-line
+#[test]
+fn a_step_can_go_through_the_rows_own_lists_line_by_line() {
+    let list = element(
+        "List",
+        "listboxmsize",
+        [10, 10, 109, 49],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("up_button", id("Up")), ("down_button", id("Down"))],
+            vec![],
+            vec![],
+        )],
+    );
+    let w = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![
+                list,
+                hot_button("Up", [120, 10, 139, 29]),
+                hot_button("Down", [120, 30, 139, 49]),
+            ],
+        )],
+    );
+    // A row 50 tall: 10 above its own list, whose rows are 15 and 25 tall.
+    let inner = element(
+        "Inner",
+        "listbox",
+        [0, 10, 99, 49],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let group = element(
+        "Group",
+        "field",
+        [0, 0, 99, 49],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![inner])],
+    );
+    let short = element("Short", "text", [0, 0, 99, 14], 0, vec![]);
+    let tall = element("Tall", "text", [0, 0, 99, 24], 0, vec![]);
+    let mut u = ui(vec![w, group, short, tall, row()], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let list = u.child(w, Token::of("List")).unwrap();
+    let group = u.create(l, Token::of("Group")).unwrap();
+    let inner = u.child(group, Token::of("Inner")).unwrap();
+    for r in ["Short", "Tall"] {
+        let r = u.create(l, Token::of(r)).unwrap();
+        u.list_add(inner, r);
+    }
+    u.list_add(list, group);
+    for _ in 0..2 {
+        let r = u.create(l, Token::of("Row")).unwrap();
+        u.list_add(list, r);
+    }
+    let (down, up) = ((130, 40), (130, 20));
+    click(&mut u, down.0, down.1);
+    assert_eq!(y_view(&u, list), 50, "not told: the whole row");
+    click(&mut u, up.0, up.1);
+    assert_eq!(y_view(&u, list), 0);
+    u.list_step_through(list, Token::of("Inner"));
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        click(&mut u, down.0, down.1);
+        seen.push(y_view(&u, list));
+    }
+    assert_eq!(
+        seen,
+        [10, 25, 50, 50],
+        "above, short, tall; the last full view"
+    );
+    seen.clear();
+    for _ in 0..3 {
+        click(&mut u, up.0, up.1);
+        seen.push(y_view(&u, list));
+    }
+    assert_eq!(seen, [25, 10, 0]);
+    u.set_attr(list, Token::of("y_view"), Value::Int(30));
+    click(&mut u, down.0, down.1);
+    assert_eq!(y_view(&u, list), 50, "from inside a line, to its end");
+    u.set_attr(list, Token::of("y_view"), Value::Int(30));
+    click(&mut u, up.0, up.1);
+    assert_eq!(y_view(&u, list), 25, "from inside a line, to its start");
+}
+
 /// A list's vertical scroll bar, its widget placed by the bar alone (as the layouts' widgets are).
 fn bar() -> Element {
     let mut widget = element("widget", "field", [0, 0, 14, 9], 0, vec![]);

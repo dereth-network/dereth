@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::capability::HostCapability;
+use crate::game::Game;
 use crate::permission::Permission;
 use crate::value::Value;
 use crate::version::ApiVersion;
@@ -222,6 +223,9 @@ pub struct Manifest {
     pub version: PluginVersion,
     /// The lowest API version the plugin needs.
     pub api: ApiVersion,
+    /// The game it is written for (`game`); Dereth when the manifest names none. A host runs only
+    /// its own game's plugins.
+    pub game: Game,
     /// The Lua file loaded first, a path inside the package.
     pub entry: String,
     pub description: String,
@@ -278,6 +282,8 @@ pub enum ManifestError {
     BadApi(String),
     UnknownPermission(String),
     UnknownCapability(String),
+    /// A `game` that is not `dereth` or `auberean`.
+    UnknownGame(String),
     /// A context that is not `world`, `pregame` or `chargen`, or an empty list of them.
     BadContext(String),
     /// The entry file is not a relative path inside the package.
@@ -303,6 +309,11 @@ impl fmt::Display for ManifestError {
             Self::BadApi(s) => write!(f, "{s:?} is not an API version (MAJOR.MINOR)"),
             Self::UnknownPermission(s) => write!(f, "unknown permission {s:?}"),
             Self::UnknownCapability(s) => write!(f, "unknown host capability {s:?}"),
+            Self::UnknownGame(s) => write!(
+                f,
+                "unknown game {s:?} (one of {})",
+                Game::ALL.map(|g| format!("{:?}", g.name())).join(", ")
+            ),
             Self::BadContext(s) => write!(
                 f,
                 "contexts: {s} (each one of \"world\", \"pregame\", \"chargen\"; at least one)"
@@ -319,6 +330,7 @@ const TOP_KEYS: &[&str] = &[
     "name",
     "version",
     "api",
+    "game",
     "entry",
     "description",
     "authors",
@@ -451,6 +463,10 @@ impl Manifest {
             PluginVersion::parse(&version_text).ok_or(ManifestError::BadVersion(version_text))?;
         let api_text = string(doc, "api", true)?.unwrap_or_default();
         let api = ApiVersion::parse(&api_text).ok_or(ManifestError::BadApi(api_text))?;
+        let game = match string(doc, "game", false)? {
+            None => Game::default(),
+            Some(g) => Game::parse(&g).ok_or(ManifestError::UnknownGame(g))?,
+        };
         let ubscript = match doc.get("ubscript") {
             Value::Nil => false,
             Value::Bool(b) => *b,
@@ -545,6 +561,7 @@ impl Manifest {
             name,
             version,
             api,
+            game,
             entry,
             contexts,
             replaces,
@@ -600,6 +617,7 @@ impl Manifest {
                 rest: String::new(),
             },
             api: ApiVersion::CURRENT,
+            game: Game::Dereth,
             entry: SCRIPT_ENTRY.to_owned(),
             description: String::new(),
             authors: Vec::new(),
@@ -869,6 +887,28 @@ mod tests {
             Manifest::for_script_folder("123").id.as_str(),
             "ubscript.script"
         );
+    }
+
+    #[test]
+    fn a_manifest_names_its_game_dereth_when_it_names_none() {
+        use crate::game::Game;
+        assert_eq!(
+            Manifest::from_value(&minimal()).expect("valid").game,
+            Game::Dereth
+        );
+        for (name, game) in [("dereth", Game::Dereth), ("auberean", Game::Auberean)] {
+            let m = Manifest::from_value(&minimal().with("game", name)).expect("valid");
+            assert_eq!(m.game, game, "{name}");
+        }
+        assert_eq!(
+            Manifest::from_value(&minimal().with("game", "ac2")),
+            Err(ManifestError::UnknownGame("ac2".into()))
+        );
+        assert_eq!(
+            ManifestError::UnknownGame("ac2".into()).to_string(),
+            "unknown game \"ac2\" (one of \"dereth\", \"auberean\")"
+        );
+        assert!(Manifest::from_value(&minimal().with("game", true)).is_err());
     }
 
     #[test]

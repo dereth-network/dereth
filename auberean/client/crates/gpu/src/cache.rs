@@ -176,6 +176,18 @@ struct Now {
     draw: u64,
 }
 
+/// The land's vertices as the device reads them.
+fn land_vertices(l: &[TerrainVertex]) -> Vec<TerrainGpuVertex> {
+    l.iter()
+        .map(|v| TerrainGpuVertex {
+            position: v.position,
+            color: v.color,
+            uv: v.uv,
+            mask_uv: v.mask_uv,
+        })
+        .collect()
+}
+
 /// A buffer of its own holding `bytes`. A device that has been lost makes no buffer to write them
 /// into, and the frame goes on without them until the device is made again.
 fn buffer_holding(device: &wgpu::Device, bytes: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -245,6 +257,41 @@ impl<T> Lists<T> {
                 slice
             }
         }
+    }
+
+    /// Put `list` in buffers of its own ahead of the frame that draws it, unless it has them.
+    fn ready<B: Pod>(
+        &mut self,
+        (device, usage): (&wgpu::Device, wgpu::BufferUsages),
+        frame: u64,
+        counts: &mut Counts,
+        list: &Arc<Vec<T>>,
+        gpu: impl Fn(&[T]) -> Vec<B>,
+    ) {
+        let key = Arc::as_ptr(list) as usize;
+        if let Some(e) = self.entries.get_mut(&key) {
+            if matches!(e.place, Place::Own(_)) {
+                e.used = frame;
+                return;
+            }
+        }
+        let data = gpu(list);
+        let bytes: &[u8] = bytemuck::cast_slice(&data);
+        counts.buffers += 1;
+        counts.buffer_bytes += bytes.len() as u64;
+        let slice = Slice {
+            buffer: buffer_holding(device, bytes, usage),
+            offset: 0,
+            size: bytes.len() as u64,
+        };
+        self.entries.insert(
+            key,
+            Entry {
+                _list: Arc::clone(list),
+                place: Place::Own(slice),
+                used: frame,
+            },
+        );
     }
 
     /// Where `list` is on the device when it lasts a few frames: written once into the kept arena,
@@ -384,6 +431,55 @@ impl MeshCache {
         )
     }
 
+    /// Put a draw's lists in buffers of their own ahead of the frame that draws them, as a list
+    /// drawn in two frames running has them.
+    pub(crate) fn ready(
+        &mut self,
+        device: &wgpu::Device,
+        vertices: &Arc<Vec<MeshVertex>>,
+        indices: &Arc<Vec<u16>>,
+    ) {
+        let frame = self.frame;
+        self.vertices.ready(
+            (device, wgpu::BufferUsages::VERTEX),
+            frame,
+            &mut self.counts,
+            vertices,
+            |l| l.iter().map(MeshGpuVertex::of).collect(),
+        );
+        self.indices.ready(
+            (device, wgpu::BufferUsages::INDEX),
+            frame,
+            &mut self.counts,
+            indices,
+            <[u16]>::to_vec,
+        );
+    }
+
+    /// Put a piece of the land's lists in buffers of their own ahead of the frame that draws it.
+    pub(crate) fn ready_land(
+        &mut self,
+        device: &wgpu::Device,
+        vertices: &Arc<Vec<TerrainVertex>>,
+        indices: &Arc<Vec<u32>>,
+    ) {
+        let frame = self.frame;
+        self.land.ready(
+            (device, wgpu::BufferUsages::VERTEX),
+            frame,
+            &mut self.counts,
+            vertices,
+            land_vertices,
+        );
+        self.land_indices.ready(
+            (device, wgpu::BufferUsages::INDEX),
+            frame,
+            &mut self.counts,
+            indices,
+            <[u32]>::to_vec,
+        );
+    }
+
     /// The buffer of a moved body's places and facings.
     pub(crate) fn posed_buffer(
         &mut self,
@@ -417,16 +513,7 @@ impl MeshCache {
                 now,
                 &mut self.counts,
                 vertices,
-                |l| {
-                    l.iter()
-                        .map(|v| TerrainGpuVertex {
-                            position: v.position,
-                            color: v.color,
-                            uv: v.uv,
-                            mask_uv: v.mask_uv,
-                        })
-                        .collect()
-                },
+                land_vertices,
             ),
             self.land_indices.slice(
                 (device, &mut self.passing_indices, wgpu::BufferUsages::INDEX),

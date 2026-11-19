@@ -382,7 +382,7 @@ impl RetailHost {
         };
         let mut host = PluginHost::new(
             config,
-            Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
+            Box::new(dereth_client_sdk::plugin_lua::LuauEngine::dereth()),
             source,
             storage,
         )

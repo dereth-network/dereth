@@ -9,6 +9,11 @@
 //!   nor is that press's release.
 //! - While the pointer is held nothing hears where it is, and taking hold of it puts it at the
 //!   middle of the display.
+//! - An interface of this client's own may ask to hear the pointer over a window in the
+//!   background, as most programs do ([`InputManager::hear_the_pointer_in_background`]): the
+//!   pointer, its buttons and the wheel are heard while the window is not the active one, and the
+//!   click that brings it forward counts. The keys and the held pointer's motion still wait for
+//!   the window to be active.
 
 use crate::input::{Button, Event};
 
@@ -23,6 +28,8 @@ pub struct InputManager {
     taking_up_devices: bool,
     /// The buttons whose press was not heard, and so neither is their release.
     unheard: Vec<Button>,
+    /// The pointer and its buttons are heard while the window is not the active one.
+    pointer_in_background: bool,
 }
 
 impl Default for InputManager {
@@ -34,6 +41,7 @@ impl Default for InputManager {
             missed: None,
             taking_up_devices: false,
             unheard: Vec::new(),
+            pointer_in_background: false,
         }
     }
 }
@@ -50,12 +58,14 @@ impl InputManager {
                 self.active = on;
                 true
             }
-            Event::Pointer { x, y } if !self.active => {
+            Event::Pointer { x, y } if !self.active && !self.pointer_in_background => {
                 self.missed = Some((x, y));
                 false
             }
             Event::Pointer { .. } => !self.pointer_held,
-            Event::Button { button, down: true } if self.active && self.taking_up_devices => {
+            Event::Button { button, down: true }
+                if self.active && self.taking_up_devices && !self.pointer_in_background =>
+            {
                 self.unheard.push(button);
                 false
             }
@@ -66,12 +76,22 @@ impl InputManager {
                 self.unheard.retain(|b| *b != button);
                 false
             }
+            Event::Button { .. } | Event::Wheel { .. } if self.pointer_in_background => true,
             Event::Key { .. }
             | Event::Button { .. }
             | Event::Wheel { .. }
             | Event::Motion { .. } => self.active,
             Event::Text(_) | Event::Composing(_) | Event::Resized { .. } | Event::Close => true,
         }
+    }
+
+    /// Hear the pointer, its buttons and the wheel over a window in the background, and the click
+    /// that brings it forward (`on`), or keep them for the active window.
+    pub fn hear_the_pointer_in_background(&mut self, on: bool) {
+        if on && !self.pointer_in_background {
+            self.missed = None;
+        }
+        self.pointer_in_background = on;
     }
 
     /// A frame begins: a window that came active has the devices from here on.

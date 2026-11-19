@@ -1,25 +1,51 @@
 [package]
 name = "auberean-client-sdk"
-description = "One dependency for whatever builds on the client: the runtime, the contract's actions and the core they use."
+description = "One dependency for whatever builds on the client: the contract (its actions, the session and the events), the driver that runs the client's frames, and finding an install."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 auberean-client-contract.workspace = true
 auberean-client-runtime.workspace = true
+auberean-client-sim.workspace = true
 auberean-client-net.workspace = true
 auberean-client-model.workspace = true
 auberean-protocol.workspace = true
 auberean-dat.workspace = true
 auberean-script.workspace = true
 auberean-text.workspace = true
+auberean-world.workspace = true
+auberean-assets.workspace = true
+# The plugin host (`plugins`), the plugin interface (`plugin_api`), the compiled plugins' engine
+# (`plugin_wasm`) and, with the `lua` feature, the Luau engine (`plugin_lua`).
+auberean-plugin-host.workspace = true
+dereth-plugin-api.workspace = true
+dereth-plugin-wasm.workspace = true
+dereth-plugin-lua = { workspace = true, optional = true }
 
 [features]
-# The data files on disk, for native front ends.
+# The data files on disk, for native front ends: finding an install and opening it; and plugins
+# kept in folders (`plugin_folders`).
 fs = ["auberean-dat/fs"]
+# A native host's network and clock: a UDP port and the system's steady clock for the driver.
+net = []
+# The Luau plugin engine (`plugin_lua`) and Auberean's bindings for it (`plugins::bindings::engine`).
+# Off by default: it compiles the Luau VM from C++ source, and a browser build needs a C++ compiler
+# for that target set up first.
+lua = ["dep:dereth-plugin-lua", "auberean-plugin-host/lua"]
+# The interpreter compiled plugins run in (`plugin_wasm::WasmEngine::interpreted`).
+wasm-interpreter = ["dereth-plugin-wasm/interpreter"]
+
+[dev-dependencies]
+auberean-testkit = { workspace = true, features = ["double"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

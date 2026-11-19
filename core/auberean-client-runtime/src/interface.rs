@@ -19,12 +19,19 @@
 //!   session's start gives it, each quest update changes it), newest given first.
 //! - **The toolbar**: the player's shortcuts, slot by slot, copies of the ones in the player's
 //!   options.
+//! - **The chat windows**: their opacities, filters, fonts, popups and devoted channels set in
+//!   the player's options and sent to keep; the commands made known to the command line; the
+//!   names told and the names that told the player, stepped through.
+//! - **Names over heads** shown or hidden, and an attack on an object stopped.
+//! - **The panels' places**: a table of them kept with the player's options ([`ui_locations`]),
+//!   then sent to keep with the windows' opacities.
 //!
 //! **Looking at the selection.** With the option on, the player looks at each new selection and
 //! the client tells the server what it looks at; with it off, the client tells the server once
 //! that it looks at nothing, if it looked at something.
 
 use auberean_client_contract::PlayerOption;
+use auberean_script::ui_locations::UiLocations;
 
 /// The interface's functions, by id: each is found in the player's package.
 pub mod function {
@@ -249,3 +256,22 @@ pub const fn radar_bit(option: PlayerOption) -> Option<u32> {
 
 /// The tabs the examination panel asks for.
 pub const EXAMINATION_TABS: u32 = 0x3FF;
+
+/// The panels' kept places as a table of saved places, each added in the order given (the order
+/// the panels were made): under its layout and its element, its corners and whether it shows.
+#[must_use]
+pub fn ui_locations(places: &[auberean_client_contract::UiLocation]) -> UiLocations {
+    let mut t = UiLocations::new();
+    for p in places {
+        let [x0, y0, x1, y1] = p.corners;
+        let place = [
+            x0.to_bits(),
+            y0.to_bits(),
+            x1.to_bits(),
+            y1.to_bits(),
+            u32::from(p.visible),
+        ];
+        t.add_location(p.layout, p.element, place);
+    }
+    t
+}

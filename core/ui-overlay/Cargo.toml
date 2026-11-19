@@ -1,0 +1,16 @@
+[package]
+name = "dereth-ui-overlay"
+description = "The overlay an interface draws over the world: the textures it uploads and the textured triangle batches and preview spaces a presentation draws in order, naming no game and no graphics API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# `Viewport`, the back-buffer rectangle a preview space is drawn into. The primitives name no game's
+# rules and are the base both games' cores are built on.
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true

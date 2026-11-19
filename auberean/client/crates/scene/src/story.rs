@@ -38,6 +38,7 @@ use auberean_physics::story::{
 use auberean_physics::target::NO_OBJECT;
 
 use crate::Scene;
+use auberean_client_sdk::sim::events;
 
 /// What the stories did on the scene's bodies, counted: the stories told on a body here and on
 /// none, the attackers' behaviors their figures took and refused, the hooks run, the hits whose
@@ -434,29 +435,6 @@ impl StoryHost<Act> for Stage<'_, '_> {
 /// What the server asks of a body itself: a push (away from an object, or as given), an effect
 /// script, the end of a layer or of behaviors, what the ground does to its motion.
 // D2-05844, D2-06117, D2-05841, D2-05842, D2-05843, D2-05857
-fn recv_on_body(b: &mut auberean_physics::body::Body, m: &ServerMessage) {
-    match m {
-        ServerMessage::Push(e) => {
-            b.add_impulse(crate::pv(e.action.direction));
-        }
-        ServerMessage::DoFxScript(e) => {
-            b.receive_do_fx_script(e.action.0);
-        }
-        ServerMessage::EndLayer(e) => b.receive_stop_layer(e.action.0),
-        ServerMessage::StopAllBehaviors(_) => b.receive_stop_all_server_behaviors(),
-        ServerMessage::StopMoveCancelsBehaviors(_) => {
-            b.receive_stop_move_to_cancels_behaviors();
-        }
-        ServerMessage::HoverHeight(e) => b.set_hover_height(e.action.0),
-        ServerMessage::GlobalModifier(e) => b.set_global_modifier(e.action.0),
-        ServerMessage::TerrainChange(e) => {
-            b.add_terrain_modifier(e.action.terrain, e.action.modifier);
-        }
-        ServerMessage::ClearTerrainChanges(_) => b.clear_terrain_modifiers(),
-        _ => {}
-    }
-}
-
 impl Scene<'_> {
     /// Runs `f` on body `body`'s story player (made when it has none) with the world as the story
     /// sees it.
@@ -604,21 +582,6 @@ impl Scene<'_> {
                 ServerMessage::DoFx(e) => self.do_fx(id, e.action.fx, e.action.scalar),
                 ServerMessage::StopFx(e) => self.stop_fx(id, e.action.0),
                 ServerMessage::MoveTo(e) => self.recv_move_to(id, &e.action),
-                ServerMessage::VelocityScale(e) => {
-                    if let Some(b) = self.body_mut(id) {
-                        b.set_velocity_scale(e.action.0);
-                    }
-                }
-                ServerMessage::AccelerationScale(e) => {
-                    if let Some(b) = self.body_mut(id) {
-                        b.set_acceleration_scale(e.action.0);
-                    }
-                }
-                ServerMessage::JumpScale(e) => {
-                    if let Some(b) = self.body_mut(id) {
-                        b.set_jump_scale(e.action.0);
-                    }
-                }
                 ServerMessage::LookAt(e) => {
                     self.look_at(id, e.action.0);
                 }
@@ -650,23 +613,13 @@ impl Scene<'_> {
                 ServerMessage::DoTargetedFx(e) => {
                     self.do_targeted_fx(id, e.action.fx, e.action.scalar, e.action.target);
                 }
-                // D2-05905
-                ServerMessage::MotionInterpChange(e) => {
-                    let record = self
-                        .world
-                        .records
-                        .get::<auberean_assets::animation::MotionDesc>(e.action.0);
-                    if let (Some(md), Some(b)) = (record, self.body_mut(id)) {
-                        b.minterp
-                            .set_description(e.action.0, std::sync::Arc::new(md));
-                        b.set_movement_active(true);
-                    }
-                }
                 ServerMessage::InitializeMissile(e) => self.recv_initialize_missile(id, &e.action),
                 ServerMessage::PushToward(e) => self.recv_push_toward(id, &e.action),
+                // What a body takes by itself: its scales, its motion description, a push.
                 m => {
+                    let records = &self.world.records;
                     if let Some(b) = self.body_mut(id) {
-                        recv_on_body(b, &m);
+                        events::play_on_body(records, b, &m);
                     }
                 }
             }
@@ -687,17 +640,7 @@ impl Scene<'_> {
             return;
         };
         if let Some(b) = self.body_mut(id) {
-            auberean_physics::motion::Owner::set_velocity(b, crate::pv(c.velocity));
-            b.set_misc_active(true);
-            b.set_omega_velocity(crate::pv(c.omega));
-            if c.bits & Pd::VELOCITY_SCALE != 0 {
-                b.set_velocity_scale(c.velocity_scale);
-            }
-            if c.bits & Pd::JUMP_SCALE != 0 {
-                b.set_jump_scale(c.jump_scale);
-            }
-            b.acceleration_field_velocity = crate::pv(c.external_acceleration);
-            b.update_times = c.stamps;
+            auberean_client_sdk::sim::others::describe_body(b, &c);
         }
         if c.look_at != 0 {
             self.look_at(id, c.look_at);
@@ -772,7 +715,7 @@ impl Scene<'_> {
             self.do_fx(id, fx.fx, fx.scalar);
         }
         if c.bits & (Pd::TARGET | Pd::TARGET_POSITION) != 0 {
-            let target_position = crate::position_of_placement(&c.target_position);
+            let target_position = events::position_of_placement(&c.target_position);
             let target = (c.bits & Pd::TARGET != 0).then(|| {
                 (
                     c.target,
@@ -780,7 +723,7 @@ impl Scene<'_> {
                     crate::pv(c.target_offset),
                 )
             });
-            let (land, table) = (&self.land, &mut self.table);
+            let (land, table) = (&self.ground.land, &mut self.ground.table);
             let body = if self.player.as_ref().is_some_and(|p| p.id == id) {
                 self.player.as_mut().map(|p| &mut p.body)
             } else {
@@ -840,9 +783,7 @@ impl Scene<'_> {
     }
 
     /// The server pushes object `object` away from another: measured from where that object stands
-    /// now; what the body kept of that object for a move stays as it was. None when that object is
-    /// not here.
-    // D2-05844
+    /// now ([`events::push_toward`]). None when that object is not here.
     fn recv_push_toward(
         &mut self,
         object: u64,
@@ -851,25 +792,8 @@ impl Scene<'_> {
         let Some(at) = self.body(a.target).map(|t| t.position) else {
             return;
         };
-        let Some(b) = self.body_mut(object) else {
-            return;
-        };
-        let kept = b.targets.insert(
-            a.target,
-            auberean_physics::motion::moveto::TargetBody {
-                position: at,
-                radius: 0.0,
-                height: 0.0,
-            },
-        );
-        b.add_targeted_impulse(a.target, a.magnitude, a.falloff != 0, a.vertical);
-        match kept {
-            Some(k) => {
-                b.targets.insert(a.target, k);
-            }
-            None => {
-                b.targets.remove(&a.target);
-            }
+        if let Some(b) = self.body_mut(object) {
+            events::push_toward(b, at, a);
         }
     }
 
@@ -886,21 +810,8 @@ impl Scene<'_> {
         } else {
             self.others.body_mut(object)
         };
-        let Some(b) = body else {
-            return;
-        };
-        let target = auberean_physics::target::Aim {
-            object: m.target,
-            position: crate::position_of_placement(&m.target_offset),
-            offset: crate::pv(m.target_velocity),
-            valid: m.initialized != 0,
-        };
-        b.receive_initialize_missile(
-            &self.land,
-            &mut self.table,
-            &mut auberean_physics::body::missile::NoObjects,
-            crate::pv(m.velocity),
-            &target,
-        );
+        if let Some(b) = body {
+            events::initialize_missile(b, &self.ground.land, &mut self.ground.table, m);
+        }
     }
 }

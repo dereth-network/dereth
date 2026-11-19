@@ -1,6 +1,6 @@
 [package]
 name = "auberean-interface"
-description = "The game's own interface in the shell: the retail screens and panels opened as the session moves, fed from the client's model, the player's input to them first, and what they ask for carried out as the client's actions."
+description = "The game's own interface in the shell: the retail screens and panels opened as the session moves, fed from the game's view, the player's input to them first, and what they ask for carried out as the client's actions."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,13 +18,12 @@ retail-dats = []
 auberean-assets.workspace = true
 auberean-scene.workspace = true
 auberean-world.workspace = true
-# The graphics preferences and the overall graphics quality.
-auberean-draw.workspace = true
 auberean-primitives.workspace = true
 auberean-shell.workspace = true
 auberean-ui.workspace = true
 auberean-ui-game.workspace = true
-# The client: its model (the character list, the player and its qualities) and its actions.
+# The client: its view (the character list, the player, the objects around it, the panels'
+# caches) and its actions.
 # The `fs` feature names an install's data files.
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 # Float-to-integer conversion, the same on every host.
@@ -34,6 +33,8 @@ auberean-audio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The effects' channels and the detail a screenshot is drawn at.
+auberean-draw.workspace = true
 auberean-testkit = { workspace = true, features = ["double"] }
 auberean-dat = { workspace = true, features = ["test-support", "fs"] }
 

@@ -8,9 +8,14 @@
 //! pad's focus ([`nav`], [`pad`]) as they draw; the list becomes the overlay's batches
 //! ([`draw::Overlay`]) through the interface's own texture sink, every quad on whole pixels and a
 //! picture drawn at another size than its own drawn from a copy made at that size ([`resample`]).
+//! A few HUD pieces any game's interface draws the same way are here too ([`hud`]): the link line
+//! and its lamp, the experience band, a radar's rings, the log window's look and the menu bar's
+//! plate; the selection's marker, a ring on the ground and an arrow over it ([`selection`]); and the
+//! log window itself ([`chat`]), its tabs, menus and input line, over what each game says of its
+//! chat.
 //!
-//! **Depends on** `dereth-primitives` and `dereth-client-contract` (the overlay's types). **Used
-//! by** the Horizon interface (`dereth-horizon`), which skins it with its own art, and the plugin
+//! **Depends on** `dereth-primitives` and `dereth-ui-overlay` (the overlay's types, which name no
+//! game). **Used by** the Horizon interface (`dereth-horizon`), which skins it with its own art, and the plugin
 //! windows (`dereth-plugin-ui`), drawn in the skin of the interface they are drawn under.
 //!
 //! **Must never** reach the runtime, the scene or the platform (`cargo xtask seams`, `seam: client
@@ -18,10 +23,12 @@
 //! [`art::ArtSource`], each implemented by the interface that has them.
 
 pub mod art;
+pub mod chat;
 pub mod colours;
 pub mod draw;
 pub mod edit;
 pub mod font;
+pub mod hud;
 pub mod input;
 pub mod nav;
 pub mod pad;
@@ -29,6 +36,7 @@ pub mod paint;
 pub mod palette;
 pub mod pieces;
 pub mod resample;
+pub mod selection;
 pub mod widgets;
 
 /// A time or a small fraction of one, narrowed for drawing arithmetic.

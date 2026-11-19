@@ -11,7 +11,7 @@
 //! **Depends on** the shared crates: `dereth-primitives`, `dereth-client-contract`,
 //! `dereth-client-runtime`, `dereth-client-model`, `dereth-dat`, `dereth-assets`, `dereth-chargen`,
 //! `dereth-rules`, `dereth-animation`, `dereth-presentation`, `dereth-client-net`, `dereth-input`, `dereth-plugin-api`
-//! (the plugins' declared windows) and `dereth-navigation` (the places a world was learned to have); the client's `dereth-ui-kit` (the widget kit it is drawn with),
+//! (the plugins' declared windows) and `dereth-navigation` (the places a world was learned to have); the client's `dereth-ui-kit` (the widget kit it is drawn with), `dereth-horizon-art` (its art),
 //! `dereth-plugin-ui` (the plugins' windows, drawn with the same kit), `dereth-scene` (the game's
 //! icons), `dereth-ui` (the game's text) and `dereth-ui-screens` (the game's words and rules that
 //! the retail screens keep free of their widgets). **Used by** the client shell (`dereth-client-shell`), which shows it when the

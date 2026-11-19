@@ -11,7 +11,7 @@ use dereth_plugin_api::{
     CallError, Event, HostCalls, Limits, ScriptErrorKind, ScriptInstance, Value, VmClock,
 };
 
-use super::LuauInstance;
+use super::{Bindings, LuauEngine, LuauInstance, DERETH};
 
 /// A ticking clock's step: each interrupt of a VM is ten microseconds of its work.
 const TICK: Duration = Duration::from_micros(10);
@@ -131,7 +131,7 @@ fn vm_of(host: &Recorder, call_budget_ms: f64) -> Box<dyn ScriptInstance> {
         call_budget_ms,
         profile: false,
     };
-    Box::new(LuauInstance::with_clock(limits, host.clock.clone()).expect("vm"))
+    Box::new(LuauInstance::with_clock(DERETH, limits, host.clock.clone()).expect("vm"))
 }
 
 /// A VM on a clock of its own that stands still: no entry runs out of its budget.
@@ -464,6 +464,7 @@ fn unload_hands_the_plugins_state_to_the_next_loads_reload_hook() {
 fn a_profile_counts_entries_host_calls_and_the_lines_that_ran() {
     let mut host = Recorder::ticking();
     let mut vm = LuauInstance::with_clock(
+        DERETH,
         Limits {
             profile: true,
             call_budget_ms: 1000.0,
@@ -584,4 +585,93 @@ fn a_script_is_compiled_without_running_and_a_syntax_error_names_its_line() {
     );
     let e = super::compile_check("lib/util", b"local x = 1\nif x then\n").unwrap_err();
     assert!(e.contains("lib/util:3"), "{e}");
+}
+
+/// A game's bindings of its own: one namespace and one library over the shared bindings, and a
+/// count of the entries it was told of.
+const OTHER_GAME: Bindings = Bindings {
+    name: "other",
+    layer: "local api, kit = ...\n\
+            local entries = 0\n\
+            kit.on_entry(function() entries = entries + 1 end)\n\
+            api.other = { entries = function() return entries end }\n\
+            kit.builtin['other.lib'] = function() return { answer = 42 } end\n",
+    libraries: &[("other.lua", "return { word = 'lua' }")],
+};
+
+/// A VM running `bindings` as `engine` makes one, reading `host`'s clock.
+fn vm_with(engine: LuauEngine, host: &Recorder) -> Box<dyn ScriptInstance> {
+    Box::new(
+        LuauInstance::with_clock(engine.bindings(), Limits::default(), host.clock.clone())
+            .expect("vm"),
+    )
+}
+
+/// Behaviour: none (the engine's structure: which bindings a VM runs is its engine's to say;
+/// Dereth's own are pinned by the conformance suite).
+#[test]
+fn a_vm_runs_its_games_layer_over_the_shared_bindings_and_not_another_games() {
+    let mut host = Recorder::default();
+    let mut vm = vm_with(LuauEngine::new(OTHER_GAME), &host);
+    vm.load(
+        &mut host,
+        "main.lua",
+        "print(type(task.after), type(store.global), type(ui.window), type(services.offer))\n\
+         print(type(game), type(nav), type(act), type(retail_ui))\n\
+         print(other.entries(), require('other.lib').answer, require('other.lua').word)\n\
+         print(pcall(require, 'dereth.ubscript'))",
+    )
+    .expect("load");
+    assert_eq!(host.console[0], "function\ttable\tfunction\tfunction");
+    assert_eq!(
+        host.console[1], "nil\tnil\tnil\tnil",
+        "none of Dereth's namespaces"
+    );
+    assert_eq!(
+        host.console[2], "1\t42\tlua",
+        "its hook ran as the entry began"
+    );
+    assert!(host.console[3].starts_with("false"), "{}", host.console[3]);
+    let mut dereth = vm_with(LuauEngine::dereth(), &host);
+    dereth
+        .load(
+            &mut host,
+            "main.lua",
+            "print(type(game), type(nav), type(other))",
+        )
+        .expect("load");
+    assert_eq!(host.console[4], "table\ttable\tnil");
+    // The engine makes its VMs with its own bindings. A budget of a minute an entry only guards
+    // against a hang: the machine's clock decides nothing here.
+    use dereth_plugin_api::ScriptEngine;
+    let limits = Limits {
+        call_budget_ms: 60_000.0,
+        ..Limits::default()
+    };
+    let mut made = LuauEngine::new(OTHER_GAME).instantiate(limits).expect("vm");
+    made.load(&mut host, "main.lua", "print(type(other), type(game))")
+        .expect("load");
+    assert_eq!(host.console[5], "table\tnil");
+}
+
+/// Behaviour: none (the shared bindings against the interface's shared part: each operation every
+/// game offers that is a Lua function one to one is one, with no game's layer over them).
+#[test]
+fn the_shared_bindings_alone_have_every_shared_operations_lua_function() {
+    use dereth_plugin_api::Game;
+    const NOTHING: Bindings = Bindings {
+        name: "none",
+        layer: "",
+        libraries: &[],
+    };
+    let mut main: String = Game::Auberean
+        .ops()
+        .filter_map(|o| o.lua)
+        .map(|l| format!("assert(type({l}) == \"function\", \"{l}\")\n"))
+        .collect();
+    main.push_str("print(\"all there\")\n");
+    let mut host = Recorder::default();
+    let mut vm = vm_with(LuauEngine::new(NOTHING), &host);
+    vm.load(&mut host, "main.lua", &main).expect("all there");
+    assert_eq!(host.console, ["all there"]);
 }

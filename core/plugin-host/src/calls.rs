@@ -9,7 +9,7 @@ use dereth_client_runtime::frame_hook::{HookFrame, NavKey};
 use dereth_client_runtime::travel::{HandBacks, TravelAllow, TravelTarget};
 use dereth_plugin_api::event;
 use dereth_plugin_api::{
-    ApiVersion, AutoDomain, CallError, HostCalls, HostCapability, Permission, UiNode, Value,
+    ApiVersion, AutoDomain, CallError, Game, HostCalls, HostCapability, Permission, UiNode, Value,
 };
 use dereth_primitives::{ObjectId, Position};
 
@@ -1203,7 +1203,7 @@ impl HostCalls for Call<'_, '_> {
                              names it, or by its type (messages.0x02CD), or messages.any"
                         )));
                     }
-                } else if !event::is_known(name) {
+                } else if !event::is_known(Game::Dereth, name) {
                     return Err(bad(format!(
                         "there is no event {name:?} in this version of the API"
                     )));

@@ -1,7 +1,10 @@
 //! How the device takes textures as the graphics preferences say: a texture drawn from the level
 //! its detail starts at (the textures loaded again when the detail changes), its levels blended by
-//! trilinear filtering, and a slanted texture drawn from larger levels with anisotropic filtering.
-//! Fixture: a made-up picture list of eight levels, each one gray, lighter the larger the level.
+//! trilinear filtering, and a slanted texture drawn from larger levels with anisotropic filtering;
+//! and a town readied ahead of its first frame, as portal space readies it, that frame putting
+//! nothing new on the device.
+//! Fixture: a made-up picture list of eight levels, each one gray, lighter the larger the level;
+//! the first instrument station, a town by day.
 
 use std::sync::Arc;
 
@@ -264,4 +267,86 @@ fn anisotropic_filtering_draws_a_slanted_texture_from_larger_levels() {
     let far = 100..140;
     let (off, on) = (mean(false, far.clone()), mean(true, far));
     assert!(on > off + 30.0, "far: {on} with, {off} without");
+}
+
+/// A town's first frame, readied beforehand a share a frame as portal space readies it (its
+/// pictures, its draws' lists, texture sets and programs, its shadow casters', the land's lists and
+/// the pictures it is drawn into), loads none of its pictures again (only what isn't among them,
+/// such as the lens flares'), finds every list on the device, makes no picture to draw into, and
+/// makes no more bind groups than the frame after it, which makes each frame's own. The device's
+/// own account of the cold frame, the readying, the readied frame and the one after is printed for
+/// the record: how long each step took, and what was put on the device.
+///
+/// Behaviour: draw.warm.a-town-s-readied-first-frame-puts-nothing-new-on-the-device
+#[test]
+fn a_town_s_readied_first_frame_puts_nothing_new_on_the_device() {
+    use auberean_draw::warm::{Warmup, PER_FRAME};
+    use std::cell::Cell;
+
+    use crate::instruments::baseline::{frame, STATIONS};
+
+    let station = &STATIONS[0];
+    let frame = frame(station);
+    let records = &install().records;
+    let pictures = frame.pictures();
+    assert!(pictures.len() > PER_FRAME, "{} pictures", pictures.len());
+    let loaded = Cell::new(Vec::new());
+    let mut load = |id: u32| {
+        let mut l = loaded.take();
+        l.push(id);
+        loaded.set(l);
+        auberean_draw::picture::load(records, id)
+    };
+    let (w, h) = (1280, 960);
+    {
+        let mut r = renderer();
+        let _ = r.take_work();
+        r.render(&frame, w, h, &mut load).expect("drawn cold");
+        eprintln!("{} cold: {:?}", station.name, r.take_work());
+    }
+    let cold = loaded.take().len();
+    let mut r = renderer();
+    let mut warm = Warmup::default();
+    warm.plan_frame(&frame);
+    let mut shares = 0;
+    let _ = r.take_work();
+    while !warm.is_empty() {
+        r.warm(&warm.take(), (w, h), &mut load);
+        // A frame of portal space goes by between shares.
+        r.end_frame();
+        shares += 1;
+    }
+    eprintln!(
+        "{} readying, {shares} shares: {:?}",
+        station.name,
+        r.take_work()
+    );
+    let _ = loaded.take();
+    r.render(&frame, w, h, &mut load).expect("drawn readied");
+    let readied = r.take_work();
+    eprintln!("{} readied: {readied:?}", station.name);
+    let late: Vec<u32> = loaded
+        .take()
+        .into_iter()
+        .filter(|id| pictures.contains(id))
+        .collect();
+    r.render(&frame, w, h, &mut load).expect("drawn again");
+    let after = r.take_work();
+    eprintln!("{} the frame after: {after:?}", station.name);
+    eprintln!(
+        "{}: {} pictures, {cold} loaded cold",
+        station.name,
+        pictures.len()
+    );
+    assert!(late.is_empty(), "loaded again: {late:08X?}");
+    assert_eq!(readied.mesh_misses, 0, "every list on the device");
+    assert_eq!(readied.textures, 0, "no picture made to draw into");
+    // The readied frame draws the shadow map and the frame after keeps it; drawing it makes no
+    // group of its own, so the two frames make the same groups, each frame's own.
+    assert!(
+        readied.bind_groups <= after.bind_groups,
+        "bind groups: {} readied, {} the frame after",
+        readied.bind_groups,
+        after.bind_groups
+    );
 }

@@ -18,9 +18,9 @@
 //! table refused once is not asked for again. A download dropped while it waits lets its batches
 //! go ([`StringDownloads::release`]).
 //!
-//! The text elements live in the interface and hold a [`StringDownloads`] (clones share it); the
-//! data cache's own asking happens here, each time the cache is given time ([`ask`]) and as its
-//! askers are told ([`told`]).
+//! The text elements live in the interface and hold a [`StringDownloads`] (clones share it) as the
+//! [`auberean_text::CachedStrings`] it is; the data cache's own asking happens here, each time the
+//! cache is given time ([`ask`]) and as its askers are told ([`told`]).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -208,6 +208,40 @@ impl StringDownloads {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+impl auberean_text::CachedStrings for StringDownloads {
+    fn reads(&self) -> bool {
+        Self::reads(self)
+    }
+
+    fn write(&self, info: &StringInfo) -> Option<Vec<u16>> {
+        Self::write(self, info)
+    }
+
+    fn write_valid(&self, info: &StringInfo) -> Option<Vec<u16>> {
+        Self::write_valid(self, info)
+    }
+
+    fn write_rendered(&self, info: &StringInfo) -> Option<Vec<u16>> {
+        Self::write_rendered(self, info)
+    }
+
+    fn start(&self, info: &StringInfo) -> Option<u32> {
+        Self::start(self, info)
+    }
+
+    fn waiting(&self, download: u32) -> bool {
+        Self::waiting(self, download)
+    }
+
+    fn release(&self, download: u32) {
+        Self::release(self, download);
+    }
+
+    fn share(&self) -> Arc<dyn auberean_text::CachedStrings> {
+        Arc::new(self.clone())
     }
 }
 

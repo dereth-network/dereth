@@ -1,9 +1,12 @@
 //! Putting a frame on a surface a host made, a window's or a browser canvas's.
 //!
 //! The world is drawn by the world's device into a picture; the interface's picture behind it, the world, the interface's elements deeper than its viewports,
-//! the scenes of its viewports (each drawn into a clear picture of its viewport's size, its alpha
-//! how much of it the scene covers, and laid over what is behind by that alpha), the interface's
-//! picture in front and the overlay's rectangles composed into the window's picture, which is
+//! the interface's textured batches that stand under its viewports (those before its first preview
+//! space), the scenes of its viewports (each drawn into a clear picture of its viewport's size, its
+//! alpha how much of it the scene covers, and laid over what is behind by that alpha), the
+//! interface's picture in front, its other textured batches and the overlay's rectangles composed
+//! into the window's
+//! picture, which is
 //! copied to the surface. The world's and portal space's pictures are laid as they stand, their
 //! alpha the frame's own. The composed picture can be saved (a screenshot of exactly the window's
 //! drawing). The composing alone ([`Composer`]) needs no surface: a host that draws the game into
@@ -21,6 +24,7 @@
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 
 mod canvas;
+mod items;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -29,7 +33,9 @@ use std::sync::Arc;
 use auberean_draw::picture::Image;
 use auberean_draw::scene::Frame;
 use auberean_gpu::{PictureFormat, Renderer};
-use auberean_shell::interface::{Canvas, Overlay};
+use auberean_shell::interface::{
+    Canvas, Overlay, OverlayMaterial, OverlaySampler, OverlayTexture, OverlayTextures, TextureData,
+};
 use auberean_shell::ViewFrame;
 use bytemuck::{Pod, Zeroable};
 
@@ -94,6 +100,11 @@ fn fs_ramp(i: VOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_quad(i: VOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, i.uv) * i.color;
+}
+
+@fragment
+fn fs_text(i: VOut) -> @location(0) vec4<f32> {
+    return vec4(i.color.rgb, i.color.a * textureSample(tex, samp, i.uv).a);
 }
 
 @fragment
@@ -176,6 +187,15 @@ pub struct Composer {
     overlay_vertices: Option<wgpu::Buffer>,
     /// What draws the world's picture in place of the retail device, when something does.
     painter: Option<Box<dyn WorldPainter>>,
+    /// The interface's textured batches that are text: the vertex's color, the texture's alpha.
+    text: wgpu::RenderPipeline,
+    /// The interface's textured batches that invert what is beneath them.
+    invert: wgpu::RenderPipeline,
+    /// The textures the interface's batches sample, on the device, with the picture each was
+    /// uploaded from.
+    item_textures: HashMap<OverlayTexture, (Arc<TextureData>, wgpu::TextureView)>,
+    /// The device's samplers for the batches' samplings, made as first asked for.
+    item_samplers: HashMap<OverlaySampler, wgpu::Sampler>,
 }
 
 impl std::fmt::Debug for Composer {
@@ -366,7 +386,22 @@ impl Composer {
         let blend = Some(wgpu::BlendState::ALPHA_BLENDING);
         let world = pipeline(("vs_full", "fs_opaque"), None, &[]);
         let quads = pipeline(("vs_quad", "fs_quad"), blend, &[Some(quad_layout.clone())]);
-        let laid = pipeline(("vs_quad", "fs_laid"), blend, &[Some(quad_layout)]);
+        let laid = pipeline(("vs_quad", "fs_laid"), blend, &[Some(quad_layout.clone())]);
+        let text = pipeline(("vs_quad", "fs_text"), blend, &[Some(quad_layout.clone())]);
+        // The texture times the color, times one less what is beneath: white inverts it.
+        let invert_blend = Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::OneMinusDst,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        });
+        let invert = pipeline(("vs_quad", "fs_quad"), invert_blend, &[Some(quad_layout)]);
         let canvas = pipeline(("vs_full", "fs_quad"), blend, &[]);
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -397,7 +432,46 @@ impl Composer {
             composed: None,
             overlay_vertices: None,
             painter: None,
+            text,
+            invert,
+            item_textures: HashMap::new(),
+            item_samplers: HashMap::new(),
         }
+    }
+
+    /// The interface's textures on the device as the overlay holds them: each one new or
+    /// uploaded again sent up, each one gone let go of.
+    fn sync_item_textures(&mut self, renderer: &Renderer, textures: &OverlayTextures) {
+        self.item_textures.retain(|k, _| textures.get(k).is_some());
+        for (key, picture) in textures.iter() {
+            let held = self
+                .item_textures
+                .get(key)
+                .is_some_and(|(p, _)| Arc::ptr_eq(p, picture));
+            if held {
+                continue;
+            }
+            let Some(texels) = picture.levels.first() else {
+                continue;
+            };
+            let view = upload(
+                renderer.device(),
+                renderer.queue(),
+                picture.width,
+                picture.height,
+                texels,
+                renderer.pictures(),
+            );
+            self.item_textures.insert(*key, (Arc::clone(picture), view));
+        }
+    }
+
+    /// The device's sampler for `sampling`.
+    fn item_sampler(&mut self, device: &wgpu::Device, sampling: OverlaySampler) -> wgpu::Sampler {
+        self.item_samplers
+            .entry(sampling)
+            .or_insert_with(|| device.create_sampler(&items::sampler_descriptor(sampling)))
+            .clone()
     }
 
     fn bind(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> wgpu::BindGroup {
@@ -755,6 +829,23 @@ impl Composer {
         if let Some(c) = veil {
             full(&mut verts, c);
         }
+        // The interface's textured batches, each run bound to its texture where that is on the
+        // device.
+        self.sync_item_textures(renderer, &overlay.textures);
+        let (items_under, items_over) = items::split_at_scenes(&overlay.items);
+        let under_runs = items::lower(items_under, &mut verts);
+        let item_runs = items::lower(items_over, &mut verts);
+        let mut groups_of = |runs: &[items::ItemRun]| -> Vec<Option<wgpu::BindGroup>> {
+            runs.iter()
+                .map(|r| {
+                    let view = self.item_textures.get(&r.texture).map(|(_, v)| v.clone())?;
+                    let sampler = self.item_sampler(renderer.device(), r.sampler);
+                    Some(self.bind_with(renderer.device(), &view, &sampler))
+                })
+                .collect()
+        };
+        let under_groups = groups_of(&under_runs);
+        let item_groups = groups_of(&item_runs);
         let portal_group = portal_view
             .as_ref()
             .map(|(v, _)| self.bind(renderer.device(), v));
@@ -823,6 +914,20 @@ impl Composer {
                     }
                 }
             };
+            let draw_runs = |pass: &mut wgpu::RenderPass<'_>,
+                             runs: &[items::ItemRun],
+                             groups: &[Option<wgpu::BindGroup>]| {
+                for (run, g) in runs.iter().zip(groups) {
+                    let Some(g) = g else { continue };
+                    pass.set_pipeline(match run.material {
+                        OverlayMaterial::Image => &self.quads,
+                        OverlayMaterial::Text => &self.text,
+                        OverlayMaterial::Invert => &self.invert,
+                    });
+                    pass.set_bind_group(0, g, &[]);
+                    pass.draw(run.start..run.start + run.count, 0..1);
+                }
+            };
             draw_views(&mut pass, true);
             if let Some(g) = &behind_group {
                 set_area(&mut pass, screen);
@@ -859,6 +964,12 @@ impl Composer {
                 pass.draw(0..3, 0..1);
                 set_area(&mut pass, whole);
             }
+            // The interface's batches that stand under its viewports (a window holding a
+            // figure), then the viewports' scenes.
+            if let Some(b) = &buffer {
+                pass.set_vertex_buffer(0, b.slice(..));
+                draw_runs(&mut pass, &under_runs, &under_groups);
+            }
             draw_views(&mut pass, false);
             if let Some(g) = &front_group {
                 set_area(&mut pass, screen);
@@ -866,6 +977,11 @@ impl Composer {
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..3, 0..1);
                 set_area(&mut pass, whole);
+            }
+            // The textured batches over the picture in front, under the rectangles.
+            if let Some(b) = &buffer {
+                pass.set_vertex_buffer(0, b.slice(..));
+                draw_runs(&mut pass, &item_runs, &item_groups);
             }
             if let Some(b) = &buffer {
                 pass.set_pipeline(&self.quads);
@@ -1018,6 +1134,16 @@ impl Presenter {
     /// the window whatever its shape.
     pub fn keep_shape(&mut self, keep: bool) {
         self.keep_shape = keep;
+    }
+
+    /// Ready on the device what a share of the world's readying names, for frames of the size
+    /// drawn ([`Renderer::warm`]).
+    pub fn warm(
+        &mut self,
+        share: &auberean_draw::warm::Share,
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) {
+        self.renderer.warm(share, self.drawn, load);
     }
 
     /// The screen's brightness, which shows only in a full screen and not in a screenshot: `None`

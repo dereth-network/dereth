@@ -23,10 +23,10 @@ use auberean_client_sdk::runtime::world::{self, PhysicsObjOrder, WorldScene};
 use auberean_client_sdk::runtime::Body as ClientBody;
 use auberean_client_sdk::Client;
 
-use crate::{others, Scene, FIRST_INTERIOR};
+use crate::{others, Scene};
 
 /// The interface's function the player's scripts preload what they keep about the player with.
-pub const PRELOAD_SINGLETONS: u32 = (0x7F << 16) | 0x5C;
+pub use auberean_client_sdk::sim::walk::PRELOAD_SINGLETONS;
 
 /// The notice an object is told the mode its body went into with (the mode its one word).
 pub const MODE_NOTICE: u32 = 0x0001_040F;
@@ -36,22 +36,6 @@ pub const MODE_NOTICE: u32 = 0x0001_040F;
 pub(crate) struct Creating {
     pub object: Object,
     pub player: Option<ClientBody>,
-}
-
-/// The landblock a cell is in.
-fn block_of(cell: u32) -> (u8, u8) {
-    (
-        u8::try_from(cell >> 24).unwrap_or(0),
-        u8::try_from((cell >> 16) & 0xFF).unwrap_or(0),
-    )
-}
-
-/// Whether block `b` is within the near window about block `about`.
-fn about(b: (u8, u8), about: Option<(u8, u8)>) -> bool {
-    about.is_some_and(|a| {
-        let r = u8::try_from(others::NEAR_RADIUS).unwrap_or(1);
-        b.0.abs_diff(a.0) <= r && b.1.abs_diff(a.1) <= r
-    })
 }
 
 impl WorldScene for Scene<'_> {
@@ -66,8 +50,8 @@ impl WorldScene for Scene<'_> {
         let looks = others::Looks {
             records: &self.world.records,
             anims: &self.anims,
-            world: &mut self.table,
-            trees: &mut self.trees,
+            world: &mut self.ground.table,
+            trees: &mut self.ground.trees,
         };
         self.others.make_physics_obj(order, &c.object, looks)
     }
@@ -95,14 +79,21 @@ impl WorldScene for Scene<'_> {
     }
 
     fn leave_visibility(&mut self, id: u64) {
-        if self.others.leave_visibility(id, false, &mut self.table) {
+        if self
+            .others
+            .leave_visibility(id, false, &mut self.ground.table)
+        {
             return;
         }
         // An object the client made leaves the world for good: it goes as one asked to be
         // destroyed does.
         if let Some(t) = self.temporaries.get_mut(id).filter(|t| t.body.in_world) {
-            t.body
-                .leave_world(&self.land, &mut self.table, &mut self.objects, None);
+            t.body.leave_world(
+                &self.ground.land,
+                &mut self.ground.table,
+                &mut self.objects,
+                None,
+            );
             self.left.push(id);
         }
     }
@@ -229,35 +220,19 @@ impl Scene<'_> {
     // D2-03638, D2-03871
     pub(crate) fn release_objects(&mut self, client: &mut Client) {
         self.report_player_cell(client);
-        let mut cells: Vec<u32> = Vec::new();
-        for (x, y) in self.near.take_released() {
-            let base = u32::from(x) << 24 | u32::from(y) << 16;
-            cells.extend((1..=64).map(|i| base | i));
-            self.others.set_block_on_free_list((x, y), true);
+        let player = self.player.as_ref().map(|p| p.body.position.cell.0);
+        let go = self.ground.cells_let_go(player, &self.reported);
+        for block in go.released {
+            self.others.set_block_on_free_list(block, true);
         }
-        for block in self.near.take_handed_out() {
+        for block in go.handed_out {
             self.others.set_block_on_free_list(block, false);
         }
-        let now = self
-            .player
-            .as_ref()
-            .map(|p| block_of(p.body.position.cell.0));
-        if now != self.interiors_about {
-            let was = std::mem::replace(&mut self.interiors_about, now);
-            let mut inside: Vec<u32> = self
-                .reported
-                .values()
-                .copied()
-                .filter(|c| c & 0xFFFF >= FIRST_INTERIOR)
-                .filter(|c| about(block_of(*c), was) && !about(block_of(*c), now))
-                .collect();
-            inside.sort_unstable();
-            inside.dedup();
-            cells.extend(inside);
-        }
+        let cells = go.cells;
         for cell in cells {
             world::release_obj_cell(&client.queue, &client.model, cell, self);
-            self.table
+            self.ground
+                .table
                 .release_cell_watchers(dereth_primitives::CellId(cell));
         }
     }
@@ -285,6 +260,6 @@ impl Scene<'_> {
             record = format_args!("{record:#010x}"),
             "the world takes up a region"
         );
-        self.near.notify_change_region();
+        self.ground.near.notify_change_region();
     }
 }

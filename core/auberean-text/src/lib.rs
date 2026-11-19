@@ -21,7 +21,9 @@
 //! ```
 //!
 //! [`StringInfo::get_string`] answers the UTF-16 units. A reference read from a message or a script
-//! converts field for field (the client runtime has the conversions).
+//! converts field for field (the client runtime has the conversions). The client's strings, written
+//! through its data cache with downloads of the tables it lacks, reach its interfaces as a
+//! [`CachedStrings`].
 //!
 //! **Depends on** `auberean-assets` (the string table and string state records), `auberean-dat`
 //! (the data files) and `auberean-primitives` (where a cell lies on the land, for a place's
@@ -32,6 +34,7 @@
 //! **Must never** reach a file, the network or a clock: it reads records only through a [`Source`],
 //! so it builds for the browser.
 
+pub mod cached;
 pub mod crt;
 pub mod info;
 pub mod language;
@@ -42,6 +45,7 @@ pub mod place;
 pub mod source;
 pub mod wide;
 
+pub use cached::CachedStrings;
 pub use info::{Code, Entry, Source, StringInfo, Table, Value, Variable};
 pub use language::{GoreOverrides, Language};
 pub use source::DatSource;

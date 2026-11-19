@@ -14,9 +14,16 @@
 //!    ([`super::browser`]) holds it, and names no crate of this core as an exception.
 //! 4. **One place finds the data.** No source of the four folders outside [`LOCATORS`] spells a
 //!    data file's name or a test-data variable ([`DATA_NAMES`]).
-//! 5. **The action seam.** The contract, the runtime, the SDK and the headless client name no key,
-//!    mouse button or window message ([`DEVICE_NAMES`]): a front end turns its device into actions.
-//! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
+//! 5. **The action seam.** The contract, the runtime, the world without a window, the SDK and the
+//!    headless client name no key, mouse button or window message, nor the client shell's input
+//!    ([`DEVICE_NAMES`]): a front end turns its device into actions, its keys and buttons into the
+//!    contract's controls.
+//! 6. **Four parts.** The client's crates use the second game's core, their own, of the first
+//!    game's core only [`CLIENT_MAY_USE_CORE`] (never its contract, runtime or model: the client
+//!    reads the game through its own), and [`CLIENT_MAY_USE`]; nothing of [`CLIENT_TREE_NOT`] is
+//!    anywhere in the production tree of a crate of the client's or the world builder's
+//!    ([`client_tree_violations`]), so a crate they may use cannot bring the first game's contract
+//!    in under them; the
 //!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
 //!    the world builder's the core, its own and
 //!    [`ATHENAEUM_MAY_USE`] (the client's presentation, which it plays the game in its view with,
@@ -35,6 +42,23 @@
 //!    host ([`HALVES_FORBIDDEN`]; what the shared crates under them reach is held by their own
 //!    seams), and their code names none ([`HALVES_NAMES_NOT`]): the platform arrives through the
 //!    shell's host.
+//! 8. **Headless on the SDK alone.** The SDK reaches nothing of the client's crates
+//!    (`auberean/client/`); the headless client depends, of this workspace's crates, on the SDK
+//!    alone, and reaches nothing of the client's crates either ([`headless_violations`]): what a
+//!    program without a window may drive the game with is the SDK's. Its code names none of the
+//!    SDK's re-exports the window's front end still reads past the contract with
+//!    ([`SDK_INTERNALS`], [`headless_names_violations`]).
+//! 9. **A front end never holds the client.** The interfaces the shell shows ([`FRONT_ENDS`]) read
+//!    the game through the shell's `Game` (the contract's view, the events, the notices) and change
+//!    it with actions: their code names none of [`FRONT_END_NAMES_NOT`] (the client, its scripts'
+//!    host, the runtime's, the scripts' and the model's crates), nor the SDK's re-exports of the
+//!    model, the session or the messages ([`FRONT_END_SDK_INTERNALS`]). The front ends in
+//!    [`RUNTIME_FREE_FRONT_ENDS`] name not even the SDK's runtime: the client's strings reach them
+//!    as the text crate's trait, through the shell's `Game`.
+//! 10. **The plugin host reaches no client.** Auberean's plugin host ([`PLUGIN_HOST`]) reaches
+//!     nothing of the client's crates (`auberean/client/`) in its production tree
+//!     ([`plugin_host_violations`]): plugins drive the game as a front end does, through the
+//!     contract and the frame's hook. It is on the action seam (rule 5).
 //!
 //! The scans are textual, with comments blanked: the crates' docs may talk about the other side of
 //! a seam, their code may not reach across it.
@@ -59,6 +83,12 @@ pub const SHARED: &[&str] = &[
     "dereth-client-net",
     "dereth-protocol",
     "dereth-pack",
+    // The plugin interface every game shares: its types, its packages, the compiled plugins'
+    // engine and the Luau engine (reached only behind a feature, so the browser row holds).
+    "dereth-plugin-api",
+    "dereth-plugin-package",
+    "dereth-plugin-wasm",
+    "dereth-plugin-lua",
 ];
 
 /// What core code must not name.
@@ -92,6 +122,26 @@ pub const IO_FILES: &[(&str, &str, &str)] = &[
         "core/auberean-dat/src/lib.rs",
         "#[cfg(feature = \"test-support\")]\npub mod testing;",
     ),
+    (
+        "core/auberean-client-sdk/src/install.rs",
+        "core/auberean-client-sdk/src/lib.rs",
+        "#[cfg(feature = \"fs\")]\npub mod install;",
+    ),
+    (
+        "core/auberean-client-sdk/src/plugin_folders.rs",
+        "core/auberean-client-sdk/src/lib.rs",
+        "#[cfg(feature = \"fs\")]\npub mod plugin_folders;",
+    ),
+    (
+        "core/auberean-client-sdk/src/udp.rs",
+        "core/auberean-client-sdk/src/lib.rs",
+        "#[cfg(feature = \"net\")]\npub mod udp;",
+    ),
+    (
+        "core/auberean-client-sdk/src/host_clock.rs",
+        "core/auberean-client-sdk/src/lib.rs",
+        "#[cfg(feature = \"net\")]\npub mod host_clock;",
+    ),
 ];
 
 /// The files that may name the data files and the test-data variables.
@@ -116,11 +166,16 @@ pub const DATA_NAMES: &[&str] = &[
 pub const ACTION_SEAM: &[&str] = &[
     "auberean-client-contract",
     "auberean-client-runtime",
+    "auberean-client-sim",
     "auberean-client-sdk",
     "auberean-headless",
+    "auberean-plugin-host",
 ];
 
-/// Device-input names the action seam's crates must not use.
+/// Device-input names the action seam's crates must not use: the window systems', the first
+/// game's input layer's, and the client shell's own (its events, keys and buttons and their input
+/// words), so nothing on the seam reaches back into the shell's input: a control comes as a
+/// contract action.
 pub const DEVICE_NAMES: &[&str] = &[
     "KeyCode",
     "VirtualKey",
@@ -130,12 +185,24 @@ pub const DEVICE_NAMES: &[&str] = &[
     "KeyMap",
     "InputMap",
     "dereth_input",
+    "auberean_shell",
+    "input::Event",
+    "input::Key",
+    "input::Button",
+    "Event::Key",
+    "Event::Button",
+    "Event::Wheel",
+    "Button::Left",
+    "Button::Right",
+    "Button::Middle",
+    "input_word",
 ];
 
 /// The first game's client crates the second's client may use: the sound device, the operating
 /// system's error box and its clipboard, the remaster's backend layer and the passes both games'
-/// remasters share (which name nothing of either game), and what a browser's canvas asks of the
-/// graphics device. (The picture codecs, `dereth-render-cpu`, are a core crate.)
+/// remasters share (which name nothing of either game), what a browser's canvas asks of the
+/// graphics device, and the widget kit and Horizon's art, which name no game and which the second
+/// game's Horizon is drawn with. Adding one is a decision made here, in review.
 pub const CLIENT_MAY_USE: &[&str] = &[
     "dereth-audio-out",
     "dereth-canvas-gpu",
@@ -143,7 +210,40 @@ pub const CLIENT_MAY_USE: &[&str] = &[
     "dereth-clipboard",
     "dereth-gfx",
     "dereth-gfx-passes",
+    "dereth-ui-kit",
+    "dereth-horizon-art",
 ];
+
+/// The first game's core crates the second's client may name: the primitives, the sound, the
+/// landscape and the physics both games' worlds are built on, the picture codecs, the wire's
+/// framing, the overlay every interface draws, and the world map's drawing both games' maps share,
+/// which name no game. Never the first game's contract, runtime, model or SDK. Adding one is a
+/// decision made here, in review.
+pub const CLIENT_MAY_USE_CORE: &[&str] = &[
+    "dereth-primitives",
+    "dereth-audio",
+    "dereth-landscape",
+    "dereth-physics",
+    "dereth-render-cpu",
+    "dereth-transport",
+    "dereth-ui-overlay",
+    "dereth-map-picture",
+];
+
+/// The first game's game crates that no crate of the client's or the world builder's holds
+/// anywhere in its production tree, with every feature and for every target: its contract and
+/// what is built on it. The first game's crates the client may use ([`CLIENT_MAY_USE`],
+/// [`CLIENT_MAY_USE_CORE`]) name no game, and this is what holds them to it.
+pub const CLIENT_TREE_NOT: &[&str] = &[
+    "dereth-client-contract",
+    "dereth-client-model",
+    "dereth-client-runtime",
+    "dereth-client-sdk",
+];
+
+/// The parts whose crates [`CLIENT_TREE_NOT`] holds: the client and the world builder, which
+/// plays the game in the client's presentation.
+const CLIENT_TREE_PARTS: &[&str] = &["auberean/", "athenaeum/"];
 
 /// The crates outside the four parts and the core the server may use: the Dereth Network's
 /// protocol and a world's end of its link, which name no game (the network is self-contained), so
@@ -164,6 +264,7 @@ pub const ATHENAEUM_MAY_USE: &[&str] = &[
     "auberean-shell",
     "auberean-scene",
     "auberean-interface",
+    "auberean-horizon",
     "auberean-present",
     "auberean-client",
     "dereth-audio-out",
@@ -227,6 +328,45 @@ pub const EXECUTABLES: &[&str] = &[
 /// library for the retail client, when it is built, and the client's module in a browser.
 pub const OUTERMOST: &[&str] = &["auberean-friends-dll", "auberean-web"];
 
+/// The headless client, which depends on the SDK alone.
+pub const HEADLESS: &str = "auberean-headless";
+/// The SDK, which reaches nothing of the client's crates.
+pub const SDK: &str = "auberean-client-sdk";
+
+/// Auberean's plugin host, which reaches nothing of the client's crates.
+pub const PLUGIN_HOST: &str = "auberean-plugin-host";
+
+/// The SDK's re-exports a program without a window names none of: what the window's front end
+/// still reads past the contract until the game's views are part of it.
+pub const SDK_INTERNALS: &[&str] = &["runtime", "model", "net", "protocol", "script", "text"];
+
+/// The front ends: the interfaces the shell shows. Rule 9.
+pub const FRONT_ENDS: &[&str] = &["auberean-interface", "auberean-horizon"];
+
+/// What a front end's code never names: the client and what holds it, and the crates behind it.
+pub const FRONT_END_NAMES_NOT: &[&str] = &[
+    "Client",
+    "ClientHost",
+    "Scripts",
+    "with_host",
+    "auberean_client_runtime",
+    "auberean_script",
+    "auberean_client_model",
+];
+
+/// The SDK's re-exports a front end never names: the model, the session and the messages (what
+/// it reads of them comes in the view).
+pub const FRONT_END_SDK_INTERNALS: &[&str] = &["model", "net", "protocol"];
+
+/// The front ends that name not even the SDK's runtime. (The retail interface still loads the
+/// install's data and links its scripts through it, and writes a few of the runtime's lines.)
+pub const RUNTIME_FREE_FRONT_ENDS: &[&str] = &["auberean-horizon"];
+
+/// Whether a crate's folder is the client's or one of its crates'.
+fn client_dir(dir: &str) -> bool {
+    dir == "auberean/client" || dir.starts_with("auberean/client/")
+}
+
 /// The test kits: test support, which only tests may name.
 const TEST_KITS: &[&str] = &["auberean-testkit", "yalain-testkit"];
 
@@ -269,7 +409,8 @@ pub fn part_violations(packages: &[WorkspacePackage]) -> Vec<String> {
                                 || theirs == Some("auberean/")))
                 }
                 Some("auberean/") => {
-                    in_core
+                    theirs == Some("core/auberean-")
+                        || (in_core && CLIENT_MAY_USE_CORE.contains(&d.name.as_str()))
                         || theirs == Some("auberean/")
                         || CLIENT_MAY_USE.contains(&d.name.as_str())
                         || (p.name == "auberean-testkit" && d.name == "yalain-net")
@@ -292,6 +433,12 @@ pub fn part_violations(packages: &[WorkspacePackage]) -> Vec<String> {
             };
             if !allowed {
                 out.push(match ours {
+                    Some("auberean/") if in_core => format!(
+                        "{} depends on `{}`{test}: the client names of the first game's core only {}",
+                        p.name,
+                        d.name,
+                        CLIENT_MAY_USE_CORE.join(", ")
+                    ),
                     None => format!(
                         "{} depends on `{}`{test}: nothing outside Asheron's Call 2's folders may",
                         p.name, d.name
@@ -381,6 +528,38 @@ pub fn core_dependency_violations(core: &[String], trees: &[(String, Vec<String>
     out
 }
 
+/// Rule 6 over what holds the first game's game crates: `dependents` gives each of
+/// [`CLIENT_TREE_NOT`] with every crate whose production tree holds it (its inverted tree). A
+/// crate of the client's or the world builder's among them is a violation.
+#[must_use]
+pub fn client_tree_violations(
+    packages: &[WorkspacePackage],
+    dependents: &[(String, Vec<String>)],
+) -> Vec<String> {
+    let dir_of = |name: &str| {
+        packages
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.dir.as_str())
+    };
+    let mut out = Vec::new();
+    for (refused, holders) in dependents {
+        for h in holders {
+            if h != refused
+                && dir_of(h)
+                    .and_then(part_of)
+                    .is_some_and(|part| CLIENT_TREE_PARTS.contains(&part))
+            {
+                out.push(format!(
+                    "{h} holds `{refused}` in its tree: the client reads the game through its own \
+                     contract, and what it uses of the first game's names no game"
+                ));
+            }
+        }
+    }
+    super::dedup(out)
+}
+
 fn sources(ws: &Path, dir: &str, sub: &[&str]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for s in sub {
@@ -457,6 +636,158 @@ pub fn device_violations(files: &[(String, String)]) -> Vec<String> {
         for name in DEVICE_NAMES {
             if code.contains(name) {
                 out.push(format!("{path} names {name}"));
+            }
+        }
+    }
+    out
+}
+
+/// Rule 8: the headless client's own dependencies (from `packages`), and what it and the SDK reach
+/// (`trees`: crate, every name in its production tree).
+#[must_use]
+pub fn headless_violations(
+    packages: &[WorkspacePackage],
+    trees: &[(String, Vec<String>)],
+) -> Vec<String> {
+    let dir_of = |name: &str| {
+        packages
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.dir.as_str())
+    };
+    let mut out = Vec::new();
+    for p in packages.iter().filter(|p| p.name == HEADLESS) {
+        for d in p.deps.iter().filter(|d| !d.dev) {
+            if d.name != SDK && dir_of(&d.name).is_some() {
+                out.push(format!(
+                    "{HEADLESS} depends on `{}`: of this workspace's crates it uses {SDK} alone",
+                    d.name
+                ));
+            }
+        }
+    }
+    for (krate, reached) in trees {
+        for d in reached {
+            if dir_of(d).is_some_and(client_dir) {
+                out.push(format!(
+                    "{krate} reaches `{d}`: nothing of the client's crates is under it"
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Rule 10: what the plugin host's production tree reaches (`tree`: every name in it) of the
+/// client's crates.
+#[must_use]
+pub fn plugin_host_violations(packages: &[WorkspacePackage], tree: &[String]) -> Vec<String> {
+    let dir_of = |name: &str| {
+        packages
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.dir.as_str())
+    };
+    tree.iter()
+        .filter(|d| dir_of(d).is_some_and(client_dir))
+        .map(|d| {
+            format!("{PLUGIN_HOST} reaches `{d}`: plugins reach the game through the contract")
+        })
+        .collect()
+}
+
+/// Rule 8 over the headless client's sources (`files`: path, text): none names one of
+/// [`SDK_INTERNALS`] through the SDK, by path or in a group of names.
+#[must_use]
+pub fn headless_names_violations(files: &[(String, String)]) -> Vec<String> {
+    sdk_names_violations(files, SDK_INTERNALS)
+}
+
+/// Rule 9 over the front ends' sources (`files`: path, text): none names one of
+/// [`FRONT_END_NAMES_NOT`], nor one of [`FRONT_END_SDK_INTERNALS`] through the SDK.
+#[must_use]
+pub fn front_end_violations(files: &[(String, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (path, text) in files {
+        let code = blank_comments(text);
+        for (i, line) in code.lines().enumerate() {
+            for name in FRONT_END_NAMES_NOT {
+                if super::names_ident(line, name) {
+                    out.push(format!("{path}:{}: names `{name}`", i + 1));
+                }
+            }
+        }
+    }
+    out.extend(sdk_names_violations(files, FRONT_END_SDK_INTERNALS));
+    out
+}
+
+/// Rule 9 over the sources of the front ends in [`RUNTIME_FREE_FRONT_ENDS`] (`files`: path,
+/// text): none names the SDK's runtime, by path or in a group of names.
+#[must_use]
+pub fn runtime_free_violations(files: &[(String, String)]) -> Vec<String> {
+    sdk_names_violations(files, &["runtime"])
+}
+
+/// The sources in `files` that name one of `internals` through the SDK, by path or in a group of
+/// names.
+fn sdk_names_violations(files: &[(String, String)], internals: &[&str]) -> Vec<String> {
+    const SDK_PATH: &str = "auberean_client_sdk::";
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = Vec::new();
+    for (path, text) in files {
+        let code = blank_comments(text);
+        let mut named = Vec::new();
+        for (at, _) in code.match_indices(SDK_PATH) {
+            let rest = &code[at + SDK_PATH.len()..];
+            if let Some(group) = rest.strip_prefix('{') {
+                // The first name of each item in the group, to its closing brace.
+                let mut depth = 1usize;
+                let end = group
+                    .char_indices()
+                    .find(|&(_, c)| {
+                        match c {
+                            '{' => depth += 1,
+                            '}' => depth -= 1,
+                            _ => {}
+                        }
+                        depth == 0
+                    })
+                    .map_or(group.len(), |(i, _)| i);
+                let mut depth = 0usize;
+                let mut item_start = true;
+                let mut word = String::new();
+                for c in group[..end].chars() {
+                    if ident(c) {
+                        word.push(c);
+                        continue;
+                    }
+                    if item_start && depth == 0 && !word.is_empty() {
+                        named.push(std::mem::take(&mut word));
+                        item_start = false;
+                    }
+                    word.clear();
+                    match c {
+                        '{' => depth += 1,
+                        '}' => depth = depth.saturating_sub(1),
+                        ',' if depth == 0 => item_start = true,
+                        _ => {}
+                    }
+                }
+                if item_start && !word.is_empty() {
+                    named.push(word);
+                }
+            } else {
+                named.push(rest.chars().take_while(|c| ident(*c)).collect());
+            }
+        }
+        for name in named {
+            if internals.contains(&name.as_str())
+                && !out.iter().any(|l: &String| {
+                    l.starts_with(path.as_str()) && l.ends_with(&format!("`{SDK_PATH}{name}`"))
+                })
+            {
+                out.push(format!("{path} names `{SDK_PATH}{name}`"));
             }
         }
     }
@@ -600,6 +931,81 @@ pub fn reports(ws: &Path) -> Vec<Report> {
             .collect::<Result<Vec<_>, _>>()
             .map(|trees| halves_violations(&trees, &halves_src))
     };
+    let headless = packages.as_ref().map_err(Clone::clone).and_then(|ps| {
+        let src: Vec<(String, String)> = ps
+            .iter()
+            .filter(|p| p.name == HEADLESS)
+            .flat_map(|p| sources(ws, &p.dir, &["src"]))
+            .collect();
+        if src.is_empty() {
+            return Err(format!("no sources found for {HEADLESS}"));
+        }
+        [HEADLESS, SDK]
+            .iter()
+            .map(|k| {
+                super::cargo_tree(ws, k, "normal")
+                    .map(|t| ((*k).to_owned(), t.into_iter().map(|e| e.name).collect()))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|trees| {
+                let mut v = headless_violations(ps, &trees);
+                v.extend(headless_names_violations(&src));
+                v
+            })
+    });
+    let client_tree = packages.as_ref().map_err(Clone::clone).and_then(|ps| {
+        CLIENT_TREE_NOT
+            .iter()
+            .map(|k| {
+                super::cargo_tree_args(
+                    ws,
+                    &[
+                        "--workspace",
+                        "--all-features",
+                        "--target",
+                        "all",
+                        "-e",
+                        "normal",
+                        "-i",
+                        k,
+                    ],
+                )
+                .map(|t| ((*k).to_owned(), t.into_iter().map(|e| e.name).collect()))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|dependents| client_tree_violations(ps, &dependents))
+    });
+    let plugin_host = packages.as_ref().map_err(Clone::clone).and_then(|ps| {
+        super::cargo_tree(ws, PLUGIN_HOST, "normal").map(|t| {
+            let names: Vec<String> = t.into_iter().map(|e| e.name).collect();
+            plugin_host_violations(ps, &names)
+        })
+    });
+    let front_src: Vec<(String, String)> = packages
+        .as_ref()
+        .map(|ps| {
+            ps.iter()
+                .filter(|p| FRONT_ENDS.contains(&p.name.as_str()))
+                .flat_map(|p| sources(ws, &p.dir, &["src"]))
+                .collect()
+        })
+        .unwrap_or_default();
+    let runtime_free_src: Vec<(String, String)> = packages
+        .as_ref()
+        .map(|ps| {
+            ps.iter()
+                .filter(|p| RUNTIME_FREE_FRONT_ENDS.contains(&p.name.as_str()))
+                .flat_map(|p| sources(ws, &p.dir, &["src"]))
+                .collect()
+        })
+        .unwrap_or_default();
+    let front_end = if front_src.is_empty() || runtime_free_src.is_empty() {
+        Err(format!("no sources found for {}", FRONT_ENDS.join(", ")))
+    } else {
+        let mut v = front_end_violations(&front_src);
+        v.extend(runtime_free_violations(&runtime_free_src));
+        Ok(v)
+    };
     vec![
         row(
             "seam: Auberean core deps",
@@ -633,6 +1039,39 @@ pub fn reports(ws: &Path) -> Vec<Report> {
             ),
         ),
         row(
+            "seam: Auberean headless and SDK",
+            headless,
+            format!(
+                "{HEADLESS} uses {SDK} alone of this workspace's crates and names none of its {}; \
+                 neither reaches the client's crates",
+                SDK_INTERNALS.join(", ")
+            ),
+        ),
+        row(
+            "seam: Auberean plugin host",
+            plugin_host,
+            format!("{PLUGIN_HOST} reaches nothing of the client's crates"),
+        ),
+        row(
+            "seam: Auberean front end -> view",
+            front_end,
+            format!(
+                "{} name none of {}, nor the SDK's {}; {} not even its runtime",
+                FRONT_ENDS.join(", "),
+                FRONT_END_NAMES_NOT.join(", "),
+                FRONT_END_SDK_INTERNALS.join(", "),
+                RUNTIME_FREE_FRONT_ENDS.join(", ")
+            ),
+        ),
+        row(
+            "seam: Auberean client tree",
+            client_tree,
+            format!(
+                "nothing of the client's or the world builder's holds {}",
+                CLIENT_TREE_NOT.join(", ")
+            ),
+        ),
+        row(
             "seam: Asheron's Call 2 parts",
             parts,
             "the client, the server and the world builder use the core, their own and their \
@@ -648,6 +1087,72 @@ pub fn reports(ws: &Path) -> Vec<Report> {
 mod tests {
     use super::super::ManifestDep;
     use super::*;
+
+    #[test]
+    fn a_front_end_naming_the_client_or_the_model_is_caught() {
+        let files = vec![
+            (
+                "a.rs".to_owned(),
+                "// the Client is the shell's\nstruct ChatClient;\nuse auberean_client_sdk::contract::view::View;\nuse auberean_client_sdk::runtime::text::from_view;".to_owned(),
+            ),
+            (
+                "b.rs".to_owned(),
+                "fn f(c: &mut Client) {}\nuse auberean_client_sdk::{model::Object, Action};\nuse auberean_client_sdk::protocol::types::VisualDesc;".to_owned(),
+            ),
+        ];
+        let v = front_end_violations(&files);
+        assert_eq!(v.len(), 3, "{v:?}");
+        assert!(v[0].starts_with("b.rs:1: names `Client`"), "{v:?}");
+        assert!(
+            v.iter()
+                .any(|l| l.ends_with("`auberean_client_sdk::model`")),
+            "{v:?}"
+        );
+        assert!(
+            v.iter()
+                .any(|l| l.ends_with("`auberean_client_sdk::protocol`")),
+            "{v:?}"
+        );
+        assert!(front_end_violations(&files[..1]).is_empty());
+    }
+
+    #[test]
+    fn a_runtime_free_front_end_naming_the_sdks_runtime_is_caught() {
+        let files = vec![
+            (
+                "a.rs".to_owned(),
+                "// auberean_client_sdk::runtime writes it
+use auberean_client_sdk::text::CachedStrings;
+use auberean_client_sdk::contract::text::TextRef;"
+                    .to_owned(),
+            ),
+            (
+                "b.rs".to_owned(),
+                "let info = auberean_client_sdk::runtime::text::from_view(t);".to_owned(),
+            ),
+            (
+                "c.rs".to_owned(),
+                "use auberean_client_sdk::{contract::Action, runtime::strings::StringDownloads};"
+                    .to_owned(),
+            ),
+        ];
+        let v = runtime_free_violations(&files);
+        assert_eq!(
+            v,
+            [
+                "b.rs names `auberean_client_sdk::runtime`",
+                "c.rs names `auberean_client_sdk::runtime`"
+            ],
+            "{v:?}"
+        );
+        assert!(
+            front_end_violations(&files).is_empty(),
+            "the other front ends may"
+        );
+        assert!(RUNTIME_FREE_FRONT_ENDS
+            .iter()
+            .all(|f| FRONT_ENDS.contains(f)));
+    }
 
     #[test]
     fn an_application_half_reaching_the_window_system_is_caught() {
@@ -873,6 +1378,108 @@ mod tests {
         assert!(plant(3, ("tracing-subscriber", false))[0].contains("log subscriber"));
     }
 
+    /// **The client draws with the first game's game-free crates and no more of it**: the widget
+    /// kit, Horizon's art and the overlay are allowed, with the core it already names; the first
+    /// game's contract, its Horizon or any other of its client crates are found, naming the crate.
+    #[test]
+    fn the_client_uses_the_first_game_s_kit_art_and_overlay_and_nothing_else_of_its_game() {
+        let mut w = base();
+        w.extend([
+            pkg("dereth-ui-overlay", "core/ui-overlay", &[], false),
+            pkg("dereth-client-contract", "core/client-contract", &[], false),
+            pkg("dereth-client-runtime", "core/client-runtime", &[], false),
+            pkg("dereth-ui-kit", "dereth/client/crates/ui-kit", &[], false),
+            pkg(
+                "dereth-horizon-art",
+                "dereth/client/crates/horizon-art",
+                &[],
+                false,
+            ),
+            pkg("dereth-horizon", "dereth/client/crates/horizon", &[], false),
+            pkg(
+                "dereth-ui-screens",
+                "dereth/client/crates/ui-screens",
+                &[],
+                false,
+            ),
+        ]);
+        let shell = w.iter().position(|p| p.name == "auberean-shell").unwrap();
+        let plant = |dep: &str| {
+            let mut w = w.clone();
+            w[shell].deps.push(ManifestDep {
+                name: dep.to_owned(),
+                dev: false,
+            });
+            part_violations(&w)
+        };
+        for allowed in [
+            "dereth-ui-overlay",
+            "dereth-ui-kit",
+            "dereth-horizon-art",
+            "dereth-render-cpu",
+        ] {
+            assert!(plant(allowed).is_empty(), "{allowed}: {:?}", plant(allowed));
+        }
+        for refused in [
+            "dereth-client-contract",
+            "dereth-client-runtime",
+            "dereth-dat",
+        ] {
+            let found = plant(refused);
+            assert!(
+                found.len() == 1
+                    && found[0].contains(&format!("auberean-shell depends on `{refused}`"))
+                    && found[0].contains("first game's core only"),
+                "{refused}: {found:?}"
+            );
+        }
+        for refused in ["dereth-horizon", "dereth-ui-screens", "dereth-client"] {
+            let found = plant(refused);
+            assert!(
+                found.len() == 1
+                    && found[0].contains(&format!("auberean-shell depends on `{refused}`")),
+                "{refused}: {found:?}"
+            );
+        }
+    }
+
+    /// **No crate of the client's or the world builder's holds the first game's contract**, even
+    /// through a crate it may use; the first game's own crates and the server's test kit may.
+    #[test]
+    fn the_client_holds_the_first_game_s_contract_nowhere_in_its_tree() {
+        let mut w = base();
+        w.extend([
+            pkg("dereth-client-contract", "core/client-contract", &[], false),
+            pkg("dereth-render", "dereth/client/crates/render", &[], false),
+            pkg("yalain-testkit", "yalain/testkit", &[], false),
+            pkg("athenaeum-editor", "athenaeum/editor", &[], false),
+        ]);
+        let holders = |names: &[&str]| {
+            vec![(
+                "dereth-client-contract".to_owned(),
+                std::iter::once("dereth-client-contract")
+                    .chain(names.iter().copied())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
+            )]
+        };
+        assert!(
+            client_tree_violations(&w, &holders(&["dereth-render", "yalain-testkit"])).is_empty()
+        );
+        let found = client_tree_violations(
+            &w,
+            &holders(&[
+                "dereth-render-cpu",
+                "auberean-draw",
+                "athenaeum-editor",
+                "dereth-render",
+            ]),
+        );
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found[0].starts_with("athenaeum-editor holds `dereth-client-contract`"));
+        assert!(found[1].starts_with("auberean-draw holds `dereth-client-contract`"));
+    }
+
     /// **The launcher's knowledge may use the friends stream's codec**, and nothing else of the
     /// second game's; no other crate of the first game's may use even that.
     #[test]
@@ -927,6 +1534,105 @@ mod tests {
             )
             .len(),
             1
+        );
+    }
+
+    /// **Headless runs on the SDK alone**: another of the workspace's crates beside the SDK, or a
+    /// client crate anywhere under headless or the SDK, is caught; a crate from outside the
+    /// workspace and a test's dependency are not.
+    #[test]
+    fn headless_uses_the_sdk_alone_and_neither_reaches_the_clients_crates() {
+        let packages = vec![
+            pkg(
+                HEADLESS,
+                "auberean/headless",
+                &[(SDK, false), ("serde", false), ("auberean-testkit", true)],
+                false,
+            ),
+            pkg(SDK, "core/auberean-client-sdk", &[], false),
+            pkg("auberean-testkit", "auberean/testkit", &[], false),
+            pkg("auberean-shell", "auberean/client/crates/shell", &[], false),
+            pkg("auberean-client", "auberean/client", &[], false),
+        ];
+        let tree =
+            |k: &str, d: &[&str]| (k.to_owned(), d.iter().map(|s| (*s).to_owned()).collect());
+        let clean = [tree(HEADLESS, &[SDK, "serde"]), tree(SDK, &["serde"])];
+        assert!(headless_violations(&packages, &clean).is_empty());
+        let mut reaching = packages.clone();
+        reaching[0].deps.push(ManifestDep {
+            name: "auberean-testkit".to_owned(),
+            dev: false,
+        });
+        let v = headless_violations(&reaching, &clean);
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(v[0].contains("`auberean-testkit`"));
+        let v = headless_violations(
+            &packages,
+            &[
+                tree(HEADLESS, &[SDK, "auberean-client"]),
+                tree(SDK, &["auberean-shell"]),
+            ],
+        );
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(v[0].starts_with(HEADLESS) && v[1].starts_with(SDK));
+    }
+
+    /// **The plugin host reaches no client crate**: a client crate anywhere in its tree is caught;
+    /// the contract, the runtime and the shared plugin crates are not.
+    #[test]
+    fn the_plugin_host_reaches_none_of_the_clients_crates() {
+        let packages = vec![
+            pkg(PLUGIN_HOST, "core/auberean-plugin-host", &[], false),
+            pkg(
+                "auberean-client-runtime",
+                "core/auberean-client-runtime",
+                &[],
+                false,
+            ),
+            pkg("dereth-plugin-api", "core/plugin-api", &[], false),
+            pkg("auberean-shell", "auberean/client/crates/shell", &[], false),
+            pkg("auberean-client", "auberean/client", &[], false),
+        ];
+        let names = |d: &[&str]| d.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(plugin_host_violations(
+            &packages,
+            &names(&["auberean-client-runtime", "dereth-plugin-api", "serde"])
+        )
+        .is_empty());
+        let v = plugin_host_violations(
+            &packages,
+            &names(&[
+                "auberean-client-runtime",
+                "auberean-shell",
+                "auberean-client",
+            ]),
+        );
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(v[0].contains("`auberean-shell`") && v[1].contains("`auberean-client`"));
+        assert!(ACTION_SEAM.contains(&PLUGIN_HOST));
+    }
+
+    /// **Headless names none of the SDK's internals**: a path or a group naming one is caught, once
+    /// a file and name; the contract, the driver, a longer name that starts like one, and a
+    /// comment are not.
+    #[test]
+    fn headless_names_none_of_the_sdks_internals() {
+        let f = |text: &str| vec![("auberean/headless/src/main.rs".to_owned(), text.to_owned())];
+        let clean = f("use auberean_client_sdk::contract::event::GameEvent;\n\
+             use auberean_client_sdk::{install, Driver, udp::UdpPort};\n\
+             use auberean_client_sdk::networking::X;\n\
+             // auberean_client_sdk::runtime is the front end's\n\
+             fn f() {}");
+        assert!(headless_names_violations(&clean).is_empty());
+        let v = headless_names_violations(&f("use auberean_client_sdk::net::LocalTime;\n\
+             use auberean_client_sdk::{contract::{Action, Motion}, runtime::data, Client};\n\
+             let x = auberean_client_sdk::net::LocalTime(1.0);"));
+        assert_eq!(
+            v,
+            [
+                "auberean/headless/src/main.rs names `auberean_client_sdk::net`",
+                "auberean/headless/src/main.rs names `auberean_client_sdk::runtime`",
+            ]
         );
     }
 
@@ -997,5 +1703,22 @@ mod tests {
             "/// not a KeyCode"
         ))
         .is_empty());
+    }
+
+    /// **The action seam** refuses the client shell's own input: its events, keys and buttons and
+    /// their input words, named from a crate on the seam; a control from the contract passes.
+    #[test]
+    fn the_action_seam_refuses_the_shells_input() {
+        let f = |t: &str| vec![("auberean/headless/src/main.rs".to_owned(), t.to_owned())];
+        for code in [
+            "use auberean_shell::input::Event;",
+            "match e { Event::Key { key, .. } => {} }",
+            "let b = Button::Left;",
+            "let w = key.input_word();",
+        ] {
+            assert!(!device_violations(&f(code)).is_empty(), "{code}");
+        }
+        let control = "client.act(Action::Control(Control::begin(movement::FORWARD)));";
+        assert!(device_violations(&f(control)).is_empty());
     }
 }

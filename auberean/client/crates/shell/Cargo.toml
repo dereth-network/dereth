@@ -22,10 +22,14 @@ auberean-world.workspace = true
 auberean-draw.workspace = true
 auberean-physics.workspace = true
 auberean-scene.workspace = true
+# The client's own preferences: their values, their bank, what an options page asks.
+auberean-options.workspace = true
 # The client: its session, model, body and actions; the script calls the world's controls make.
 auberean-client-sdk.workspace = true
-# Float-to-integer conversion, the same on every host.
+# Float-to-integer conversion, the same on every host; the overlay's texture pictures.
 dereth-primitives.workspace = true
+# The overlay's textured batches, which name no game: what a widget kit lowers its drawing to.
+dereth-ui-overlay.workspace = true
 # The game's sound manager, and the sound device's seam a host plays it through.
 auberean-audio.workspace = true
 dereth-audio.workspace = true

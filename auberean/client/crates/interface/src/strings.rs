@@ -1,4 +1,4 @@
-//! The interface's records with the client's string downloads: the install's records as the host
+//! The interface's records with the client's strings: the install's records as the host
 //! gave them, and, once a client is here, string references written through its data cache (so a
 //! string table the server sent is read as the files' own are; one the cache cannot write is
 //! written from the host's records), and the text elements' string downloads started and followed
@@ -7,15 +7,14 @@
 use std::sync::{Arc, Mutex};
 
 use auberean_assets::ui::{Font, UiLayout};
-use auberean_client_sdk::runtime::strings::StringDownloads;
-use auberean_client_sdk::text::StringInfo;
+use auberean_client_sdk::text::{CachedStrings, StringInfo};
 use auberean_ui::source::Image;
 use auberean_ui::Assets;
 
-/// The host's records, and the client's string downloads once one is here.
+/// The host's records, and the client's strings once one is here.
 pub struct TextAssets {
     inner: Arc<dyn Assets + Send + Sync>,
-    strings: Mutex<Option<StringDownloads>>,
+    strings: Mutex<Option<Arc<dyn CachedStrings>>>,
 }
 
 impl std::fmt::Debug for TextAssets {
@@ -36,20 +35,16 @@ impl TextAssets {
         }
     }
 
-    /// The client's string downloads, from now on.
-    pub fn connect(&self, strings: &StringDownloads) {
+    /// The client's strings, from now on.
+    pub fn connect(&self, strings: &dyn CachedStrings) {
         if let Ok(mut s) = self.strings.lock() {
-            *s = Some(strings.clone());
+            *s = Some(strings.share());
         }
     }
 
-    /// The client's string downloads, when its data cache has files to read.
-    fn strings(&self) -> Option<StringDownloads> {
-        self.strings
-            .lock()
-            .ok()?
-            .clone()
-            .filter(StringDownloads::reads)
+    /// The client's strings, when its data cache has files to read.
+    fn strings(&self) -> Option<Arc<dyn CachedStrings>> {
+        self.strings.lock().ok()?.clone().filter(|s| s.reads())
     }
 }
 

@@ -1,23 +1,24 @@
-//! The world a window shows, with no device and no platform: the player's body moved by the
-//! world's physics and reported through the client, the bodies of everything else the client
-//! knows, the chase camera under the player's control, and the frame drawn from them.
+//! The world a window shows, with no device and no platform: the player's body as the world
+//! without a window moves it, the bodies of everything else the client knows, the chase camera
+//! under the player's control, and the frame drawn from them.
 //!
-//! **Depends on** the client (`auberean-client-sdk`: its model, its body and its actions), the world
-//! (`auberean-world`, `auberean-assets`, `auberean-dat`), bodies (`auberean-physics`,
-//! `auberean-animation`), drawing (`auberean-draw`), `auberean-primitives` and `dereth-primitives`.
-//! **Used by** the shell (`auberean-shell`), which feeds it the player's intent each frame and hands
-//! its frame to the host to draw.
+//! **Depends on** the client (`auberean-client-sdk`: its model, its body and its actions, and the
+//! world without a window, `sim`, where the player's body moves), the world (`auberean-world`,
+//! `auberean-assets`, `auberean-dat`), bodies (`auberean-physics`, `auberean-animation`), drawing
+//! (`auberean-draw`), `auberean-primitives` and `dereth-primitives`, and the marks an interface
+//! lays on the ground as the shared overlay names them (`dereth-ui-overlay`). **Used by** the shell
+//! (`auberean-shell`), which feeds it the player's intent each frame and hands its frame to the
+//! host to draw.
 //!
 //! Each frame ([`Scene::update`]):
 //!
-//! - **The player.** When the client has the player's object and a place for it, the scene makes
-//!   its body: the figure its visual description puts together, the collision spheres and step
-//!   heights of its setup, its motion values. Whenever the server puts the player somewhere (its
-//!   creation, a teleport, a forced position) the body goes there. The player's intent steers it;
-//!   physics moves it in ticks of a tenth of a second against the ground, the solid objects and the
-//!   interior cells around it, and between ticks it is drawn between where it was and where it is;
-//!   the client is told where it is and what is asked of it, and reports it to the server by its own
-//!   rule.
+//! - **The player.** The player's body is the world's without a window
+//!   ([`auberean_client_sdk::sim::player`]), which the scene runs among its own steps and draws:
+//!   made when the client has the player's object and a place for it, put wherever the server puts
+//!   the player, steered by the player's intent, moved by physics in ticks of a tenth of a second
+//!   against the ground, the solid objects and the interior cells around it
+//!   ([`auberean_client_sdk::sim::ground`]), and reported through the client; between ticks it is
+//!   drawn between where it was and where it is.
 //! - **Everything else.** Every object in the world with a place and a visual description is drawn
 //!   as its figure, with a physics body of its own steered along the path of the positions the
 //!   server sends for it, a tick at a time ([`others`]), and animated by how it moved.
@@ -39,18 +40,15 @@
 
 pub mod camera;
 mod camera_object;
-pub mod cells;
 pub mod explore;
-mod figures;
 mod followed;
 mod fx;
 pub mod gaze;
 mod held;
-mod near;
-mod notices;
+pub mod marks;
+use auberean_client_sdk::sim::notices;
 pub mod objects;
 pub mod others;
-pub mod profile;
 pub mod seen;
 pub mod story;
 mod targeted;
@@ -58,66 +56,42 @@ mod temporaries;
 pub mod view;
 mod weather;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
-use auberean_animation::body::{Body as Figure, AIR, EARTH};
-use auberean_animation::turns::Ground;
+use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
-use auberean_assets::animation::{MotionDesc, MotionParams};
+use auberean_client_sdk::contract::control::ControlId;
 use auberean_client_sdk::model::Object;
-use auberean_client_sdk::{Action, Client, Motion};
+use auberean_client_sdk::sim::orbit::{self, OrbitCamera, OrbitInput, OrbitSettings};
+use auberean_client_sdk::sim::player::Steer;
+use auberean_client_sdk::sim::Ground as WorldGround;
+use auberean_client_sdk::Client;
 use auberean_draw::body::BodyDrawer;
 use auberean_draw::effects::PlacedEffects;
 use auberean_draw::portal::{Look as PortalLook, Passage};
 use auberean_draw::scene::{Frame, SceneBuilder, Spot};
 use auberean_draw::systems::ParticleSystems;
 use auberean_physics::body::missile::{ObjectTable, Objects};
-use auberean_physics::body::placing::error as place_error;
-use auberean_physics::body::{
-    setup_spheres, Animate, AnimationClock, Body, BodyConfig, Notice, Ticker, JUMP_BEHAVIOR, TICK,
-};
+use auberean_physics::body::{Animate, AnimationClock, Body, Notice, Ticker, TICK};
 use auberean_physics::land::{Land, CELL_LENGTH};
-use auberean_physics::mesh::Trees;
-use auberean_physics::motion::MotionInput;
-use auberean_physics::world::{NoGameObjects, World};
+use auberean_physics::world::World;
 use auberean_primitives::random::Random;
 use auberean_primitives::{DataId, Quat, Vec3};
 use auberean_world::math::Mat4;
-use auberean_world::records::{RegionSet, WorldRecords};
-use dereth_primitives::{CellId, Frame as PFrame, LandblockId, Position};
+use auberean_world::records::WorldRecords;
+use dereth_primitives::{CellId, LandblockId, Position};
 
+pub use auberean_client_sdk::sim::player::{body_config, figure_motion, reading_of, PLAYER_MOTION};
+pub use auberean_client_sdk::sim::{
+    cells, is_interior, profile, WorldData, BLOCK_LENGTH, FIRST_INTERIOR,
+};
 pub use camera::CameraControl;
-pub use figures::{desc_of, is_visible, look_of, visual_of};
+pub use figures::{desc_of, icon_layers, is_visible, look_of, standing_desc, visual_of};
 
-/// The motion description bodies of the player's kind move by, when the object names none.
-pub const PLAYER_MOTION: u32 = 0x3200_0000;
-/// A block's side, meters.
-pub const BLOCK_LENGTH: f32 = 160.0;
-/// The lowest cell index of an interior cell; land cells are 1 to 64.
-pub const FIRST_INTERIOR: u32 = 0x100;
-
-/// The world's records and its region, read once.
-pub struct WorldData {
-    pub records: WorldRecords,
-    pub region: RegionSet,
-}
-
-impl std::fmt::Debug for WorldData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorldData").finish_non_exhaustive()
-    }
-}
-
-impl WorldData {
-    /// The world of `records`.
-    ///
-    /// # Errors
-    /// The region does not read.
-    pub fn new(records: WorldRecords) -> Result<Self, String> {
-        let region = records.region().map_err(|e| format!("{e:?}"))?;
-        Ok(Self { records, region })
-    }
-}
+use auberean_client_sdk::sim::figures;
+use auberean_client_sdk::sim::player::{
+    body_takes_look, dv, is_player_or_creature, pv, take_triggers,
+};
 
 /// What the player asks of the body and the camera this frame.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -136,69 +110,27 @@ pub struct Intent {
     pub presses: Vec<camera::Press>,
     /// Mouse motion this frame, in counts (x right, y toward the player).
     pub mouse: (f32, f32),
-    /// The movement actions begun this frame, by the client's action numbers ([`movement`]).
-    pub started: Vec<u32>,
+    /// The movement controls begun this frame ([`movement`]).
+    pub started: Vec<ControlId>,
     /// The behaviors the player's keys began (`true`) or ended (`false`) this frame.
     pub behaviors: Vec<(u32, bool)>,
+    /// The mouse buttons the world's controls hear held: left, right. The orbit camera turns
+    /// with the mouse while one is.
+    pub buttons: (bool, bool),
+    /// The orbit camera's look-at-front control held.
+    pub front_view: bool,
 }
 
-/// The client's movement actions: the keys of its action map that move the player.
-pub mod movement {
-    pub const FORWARD: u32 = 0x4000_0020;
-    pub const BACKWARD: u32 = 0x4000_0021;
-    pub const STRAFE_LEFT: u32 = 0x4000_0022;
-    pub const STRAFE_RIGHT: u32 = 0x4000_0023;
-    pub const TURN_LEFT: u32 = 0x4000_0024;
-    pub const TURN_RIGHT: u32 = 0x4000_0025;
-    pub const JUMP: u32 = 0x4000_0026;
-    pub const RUN_LOCK: u32 = 0x4000_0027;
-}
+/// The client's movement controls: the actions of its action map that move the player.
+pub use auberean_client_sdk::contract::control::movement;
 
-/// The player's body: physics, figure, and what the scene last took from the client.
-// D2-09633, D2-09634, D2-09647
-struct Player {
-    id: u64,
-    /// The description it was last sent, and its own descriptions (none when its look is a stored
-    /// record's).
-    visual: auberean_client_sdk::protocol::types::VisualDesc,
-    /// The object's count of descriptions sent, at the last one taken.
-    visual_updates: u32,
-    dress: Option<auberean_animation::look::ObjectLook>,
-    body: Body,
-    figure: Figure,
-    placements: u32,
-    /// How many times the server's throws of it have been taken.
-    thrown: u32,
-    /// How many times the server's forcing of its place has been taken.
-    forced: u32,
-    height: f32,
-    /// Its setup's radius.
-    radius: f32,
-    scale: Vec3,
-    /// Just put somewhere by the server: stood on the ground once the ground there is loaded.
-    settle: bool,
-    /// Made, or teleported, and not yet in the world.
-    arriving: bool,
-    /// The last teleport of the server's it has taken.
-    teleport_stamp: u16,
-    /// Arriving at a place with no room for it: out of the world, and trying again each frame.
-    no_room: bool,
-    /// The behaviors its figure was last told the body shows.
-    shown: BTreeSet<u32>,
-    /// The effects it plays.
-    effects: Option<fx::BodyFx>,
-    /// The motion its interpreter was asked at its last tick (sideways, forward, up): what its
-    /// reports carry while a move the server ordered steers it.
-    ticked: dereth_primitives::Vec3,
-    /// The physics record its physics object was made from, as the client named it.
-    record: u32,
-    /// A behavior that locks the player's actions is playing: what its keys ask of the body waits.
-    actions_locked: bool,
-}
+/// The player's body (its physics, its figure, what it last took from the client) and the effects
+/// it plays.
+type Player = auberean_client_sdk::sim::Player<Option<fx::BodyFx>>;
 
 /// What a frame draws: the world, and portal space laid over it (`portal_alpha` of the way, the
 /// rest the world showing through), then a veil over both.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Frames<'a> {
     pub world: Option<&'a Frame>,
     pub portal: Option<&'a Frame>,
@@ -209,6 +141,8 @@ pub struct Frames<'a> {
     /// moment (between 0 and 1): those the near window took up within the last second. The
     /// bodies standing on their land are drawn so already (their tints' alpha).
     pub fade: Vec<((u8, u8), f32)>,
+    /// Pictures to ready on the device this frame, ahead of the frame that draws them.
+    pub warm: &'a auberean_draw::warm::Share,
 }
 
 /// How far the landscape is drawn, as its two preferences say, and its shores, as theirs says.
@@ -326,6 +260,8 @@ pub struct Scene<'w> {
     /// The decals laid on the ground, and the layers of each decal material.
     decals: auberean_draw::decal::DecalManager,
     decal_layers: HashMap<u32, Vec<auberean_draw::material::DrawLayer>>,
+    /// The marks the interface asked laid on the ground under world objects this frame.
+    ground_marks: marks::GroundMarks,
     /// The light source effects preference: the lights effects place, and their pools on the land.
     light_effects: bool,
     /// The frames drawn, each its stamp: a streak whose object was not drawn in a frame is not
@@ -334,28 +270,18 @@ pub struct Scene<'w> {
     streak_layers: HashMap<u32, Vec<auberean_draw::material::DrawLayer>>,
     /// The lights the objects' effects carried in the last frame drawn, as they stood.
     carried: Vec<auberean_world::inside::Light>,
-    land: Land,
-    trees: Trees,
-    /// The blocks whose interior cells were loaded.
-    blocks: HashSet<(u8, u8)>,
-    /// The landblocks kept about the player.
-    near: near::NearBlocks,
-    /// The cells about the player, asked for through the data cache.
-    cells: cells::CellAsks,
+    /// The world's physics about the player: the land, the interior cells and the cells asked for
+    /// about it, and the world every body moves against (the player's, everyone else's, the objects
+    /// with a shape and the scenery, and the cells' collision lists).
+    ground: WorldGround,
     /// Where each body looks, by object.
     looks: BTreeMap<u64, gaze::Looking>,
-    /// The session's data cache the world's records read the cell file through (none before a
-    /// session with data files).
-    cache: Option<auberean_client_sdk::runtime::cache::DataCache>,
     pub camera: CameraControl,
     player: Option<Player>,
     /// When physics ticks, for every body.
     ticker: Ticker,
     /// When the bodies' figures animate: once at least a thirtieth of a second has passed.
     anim_clock: AnimationClock,
-    /// The world every body moves against: the player's, everyone else's, the objects with a
-    /// shape and the scenery, and the cells' collision lists.
-    table: World,
     others: others::Others,
     built: Option<Built>,
     /// The world is shown (it is hidden while the story plays).
@@ -385,6 +311,11 @@ pub struct Scene<'w> {
     pub portal: Passage,
     portal_look: PortalLook,
     portal_frame: Option<Frame>,
+    /// The pictures the world's first frame out of portal space draws, readied while portal space
+    /// still hides it; whether they were planned this time through; this frame's share.
+    warmup: auberean_draw::warm::Warmup,
+    warm_planned: bool,
+    warm_now: auberean_draw::warm::Share,
     /// The frames are built for this frame ([`Scene::build_frames`]): whether the world's was.
     prepared: Option<bool>,
     /// In a world session (entering it or in it) since the last frame.
@@ -397,6 +328,10 @@ pub struct Scene<'w> {
     player_teleported: bool,
     /// A scene on the way through a door plays: no portal space while it does.
     pub portal_scene_playing: bool,
+    /// How long portal space, when it is on as the session leaves the world, stays in sight
+    /// after, seconds (the interface asks; 0: it goes at once); and, while it does, until when.
+    pub portal_linger: f64,
+    portal_lingers_until: Option<f64>,
     /// The player's body was placed with its cells loaded, last frame.
     ready_to_enter: bool,
     /// How many times the player's body has come to be placed with its cells loaded.
@@ -416,6 +351,9 @@ pub struct Scene<'w> {
     /// Where the camera stood when last placed and where it stands now (none until it is first
     /// placed for a player), which a frame draws it between.
     pub camera_stands: Option<camera::Stands>,
+    /// The orbit camera, while the interface shows the world with it: the game's own camera
+    /// ([`Self::camera`]) keeps its state meanwhile, unmoved.
+    pub orbit: Option<OrbitCamera>,
     /// What the bodies hold.
     held: held::HeldObjects,
     /// The kinds of mesh the player's own body leaves out when drawn with the camera at its eyes.
@@ -448,8 +386,6 @@ pub struct Scene<'w> {
     creating: Option<objects::Creating>,
     /// The cell the client was last told each body stands in (0 for none), by object.
     reported: BTreeMap<u64, u32>,
-    /// The block the interior cells loaded are about (the player's), when there is a player.
-    interiors_about: Option<(u8, u8)>,
     /// The objects the client made that left the world since the last frame's booking.
     left: Vec<u64>,
     /// The time of the frame being updated (the shell's running time, seconds).
@@ -545,94 +481,6 @@ fn faded_figure(
     figure.is_some_and(|f| !figures::is_visible(f))
 }
 
-fn dv(v: dereth_primitives::Vec3) -> Vec3 {
-    Vec3::new(v.x, v.y, v.z)
-}
-
-/// What a body's figure is told of it for an animation step of `dt` seconds: how fast the body
-/// moved over its last tick, in its own frame (x to its right, y ahead, z up), with its
-/// acceleration's share of the step; its rate of turn; and its size (its look's times its own).
-/// Not the velocity the body asks for: a body held against a wall or at a ledge stands while it
-/// still asks to run, and a step up or down shows in its vertical speed for the tick it took.
-pub fn figure_motion(body: &mut Body, dt: f32) -> (Vec3, f32, Vec3) {
-    body.update_animation(dt);
-    (
-        dv(body.anim_velocity),
-        body.turn_rate,
-        dv(body.total_scale(None)),
-    )
-}
-
-/// Where a body stands, as its figure's slope lean reads it: in touch or not, sliding or not,
-/// and the plane it stands on turned into its own frame.
-pub(crate) fn ground_of(body: &Body) -> Ground {
-    let normal = body.contact_plane.map_or(Vec3::ZERO, |(plane, _)| {
-        dv(auberean_physics::geom::global_to_local(
-            &body.position.frame,
-            plane.normal,
-        ))
-    });
-    Ground {
-        contact: body.contact,
-        sliding: body.is_sliding_down(),
-        normal,
-        placed: true,
-    }
-}
-
-fn pv(v: Vec3) -> dereth_primitives::Vec3 {
-    dereth_primitives::Vec3::new(v.x, v.y, v.z)
-}
-
-/// The place a placement on the wire names.
-fn position_of_placement(p: &auberean_client_sdk::protocol::types::Placement) -> Position {
-    let q = p.frame.rotation;
-    Position::new(
-        CellId(p.cell),
-        PFrame::new(
-            pv(p.frame.origin),
-            dereth_primitives::Quat {
-                w: q.w,
-                x: q.x,
-                y: q.y,
-                z: q.z,
-            },
-        ),
-    )
-}
-
-/// A move the server orders, as the body takes it: each part the order carries (by its flags),
-/// the rest as a move made afresh has them.
-fn movement_parameters(
-    w: &auberean_client_sdk::protocol::types::MovementParams,
-) -> auberean_physics::motion::params::MovementParameters {
-    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams as Wire};
-    let mut p = auberean_physics::motion::params::MovementParameters {
-        flags: w.flags,
-        ..Default::default()
-    };
-    if w.flags & (Wire::MAX_SUCCESS | Wire::MIN_SUCCESS) != 0 {
-        p.desired_velocity = w.desired_velocity;
-        p.fail_distance = w.fail_distance;
-        p.desired_distance = w.desired_distance;
-    }
-    if w.flags & Wire::MAX_SUCCESS != 0 {
-        p.max_success_distance = w.max_success_distance;
-    }
-    if w.flags & Wire::MIN_SUCCESS != 0 {
-        p.min_success_distance = w.min_success_distance;
-    }
-    match &w.target {
-        MoveTarget::Object(id) => p.target_object = *id,
-        MoveTarget::Place(at) => p.target_position = position_of_placement(at),
-    }
-    p.offset = pv(w.offset);
-    p.offset_id = w.offset_id;
-    p.waypoints = w.waypoints.iter().map(position_of_placement).collect();
-    p.context = w.context;
-    p
-}
-
 fn dq(q: dereth_primitives::Quat) -> Quat {
     Quat {
         w: q.w,
@@ -652,133 +500,7 @@ pub fn block_of(cell: u32) -> LandblockId {
 /// What a behavior asked of a body whose animation is frozen ends with.
 const BEHAVIOR_FROZEN: u32 = 0x5D;
 
-/// Whether a cell id names an interior cell.
-#[must_use]
-pub fn is_interior(cell: u32) -> bool {
-    cell & 0xFFFF >= FIRST_INTERIOR
-}
-
-pub(crate) fn motion_values(md: &MotionDesc, element: u32, mode: u32) -> Option<MotionParams> {
-    let (_, set) = md
-        .set_of
-        .iter()
-        .find(|(k, _)| k.element == element && k.mode == mode)?;
-    md.sets.get(*set as usize).map(|s| s.default)
-}
-
-/// What a body of `look` put together as `figure` is for physics: the collision spheres and step
-/// heights of its setup, its scale, and its motion description's values on the ground and in the
-/// air in the figure's mode, the defaults when it lists none for that mode (a building's mode is
-/// its own); and its setup's height.
-#[must_use]
-pub fn body_config(
-    records: &WorldRecords,
-    look: &auberean_animation::look::Look,
-    figure: &Figure,
-    _physics: &auberean_client_sdk::protocol::types::PhysicsDesc,
-) -> Option<(BodyConfig, f32)> {
-    let setup = figure.parts.first()?.setup.clone();
-    let motion = if look.motion_desc.is_none() {
-        PLAYER_MOTION
-    } else {
-        look.motion_desc.0
-    };
-    let md: Option<MotionDesc> = records.get(motion);
-    let values = |element| {
-        md.as_ref()
-            .and_then(|md| motion_values(md, element, figure.mode))
-    };
-    let ground = values(EARTH).unwrap_or_else(auberean_physics::motion::values::default_values);
-    let air = values(AIR).unwrap_or(ground);
-    Some((
-        BodyConfig {
-            spheres: setup_spheres(&setup),
-            step_up: setup.step_up_height,
-            step_down: setup.step_down_height,
-            scale: look.scale.z.max(0.01),
-            ground,
-            air,
-        },
-        setup.height,
-    ))
-}
-
-/// `body` takes the part group `look` puts together (each mesh read once through `trees`) and ends
-/// its making with it, the scale its look gives it and the scale its look gives what it holds; and
-/// the whole of the motion description its look names, every element's and mode's values: water's,
-/// the sea floor's and each kind of ground's as well as the earth's and the air's.
-// D2-06230, D2-06411, D2-06354, D2-06355, D2-06367, D2-06370, D2-06177, D2-05837, D2-06553, D2-06554
-// D2-06555
-pub(crate) fn give_parts(
-    body: &mut Body,
-    records: &WorldRecords,
-    trees: &mut Trees,
-    look: &auberean_animation::look::Look,
-) {
-    let motion = if look.motion_desc.is_none() {
-        PLAYER_MOTION
-    } else {
-        look.motion_desc.0
-    };
-    if let Some(md) = records.get::<MotionDesc>(motion) {
-        body.minterp
-            .set_description(motion, std::sync::Arc::new(md));
-    }
-    let mut parts = auberean_physics::parts::PartGroup::default();
-    if parts.init_look(
-        &auberean_physics::parts::CachedParts::new(records, trees),
-        look,
-    ) {
-        body.set_parts(parts);
-        body.init_object_end();
-    }
-    body.look_scale = pv(look.scale);
-    body.child_scale = look.child_scale;
-}
-
-/// What a body keeps when its object's look becomes `look` (none: it has no look to draw): its
-/// figure brought up to date with it, keeping what it plays (made when it has none), and its
-/// effects made again from it with the effects that were playing asked again.
-// D2-06002, D2-06551, D2-06532, D2-06550
-pub(crate) fn takes_look(
-    anims: &CachedRecords<'_>,
-    figure: &mut Option<Figure>,
-    effects: &mut Option<fx::BodyFx>,
-    look: Option<&auberean_animation::look::Look>,
-    id: u64,
-) {
-    let Some(look) = look else {
-        *figure = None;
-        *effects = None;
-        return;
-    };
-    let kept = figure
-        .as_mut()
-        .is_some_and(|f| f.compare_and_modify(anims, look));
-    if !kept {
-        *figure = Figure::from_look(anims, look);
-    }
-    *effects = fx::BodyFx::again(effects.take(), look, id);
-}
-
-/// `body` brought up to date with its object's changed look: its part group compared with the
-/// look's groups and changed where they differ (each mesh read once through `trees`), the scale
-/// its look gives it and what it holds, and the end of its making again.
-// D2-06551
-pub(crate) fn body_takes_look(
-    body: &mut Body,
-    records: &WorldRecords,
-    trees: &mut Trees,
-    look: &auberean_animation::look::Look,
-) {
-    body.update_parts_to_look(
-        &auberean_physics::parts::CachedParts::new(records, trees),
-        look,
-    );
-    body.look_scale = pv(look.scale);
-    body.child_scale = look.child_scale;
-    body.init_object_end();
-}
+pub(crate) use auberean_client_sdk::sim::others::takes_look;
 
 /// The game's names of the kinds of mesh, and the names of the ones the player's own body leaves
 /// out when it is drawn with the camera at its eyes: its head, its beard, its crest and its totem.
@@ -804,16 +526,6 @@ fn first_person_hidden(records: &WorldRecords) -> Vec<u32> {
         .iter()
         .filter_map(|name| maps.iter().find_map(|m| m.enum_of(name)))
         .collect()
-}
-
-/// Whether object `id`'s game object is a player or a creature, what a missile that goes off on a
-/// miss goes off on. An object the client knows nothing of is neither, and neither is any without
-/// the client's scripts, whose records say what an object is.
-fn is_player_or_creature(client: &mut Client, id: u64) -> bool {
-    use auberean_client_sdk::runtime::repository::{is_creature, is_player};
-    client
-        .with_host(|h| is_player(h, id) || is_creature(h, id))
-        .unwrap_or(false)
 }
 
 /// The objects the camera reads this frame: the player (drawn `alpha` of the way through its
@@ -940,11 +652,23 @@ fn place_camera(
     };
     let traced = !camera.no_ray_trace();
     let placed = if traced {
+        // Placed each frame, the lines start where the body stood at its last tick.
+        let reach = camera.target_offset(&subject);
+        let (origin, target_offset) = match each_frame {
+            Some(_) => {
+                let o = pos.frame.origin;
+                sight_start(
+                    p,
+                    dereth_primitives::Vec3::new(o.x + reach.x, o.y + reach.y, o.z + reach.z),
+                )
+            }
+            None => (pos.frame.origin, reach),
+        };
         let lines = auberean_physics::camera::Lines {
             land: w.land,
             cell: pos.cell,
-            origin: pos.frame.origin,
-            target_offset: camera.target_offset(&subject),
+            origin,
+            target_offset,
             wanted: viewer.origin,
             env_only: camera.check_env_only(),
         };
@@ -976,57 +700,58 @@ fn place_camera(
     }
 }
 
-/// What body `b` with figure `f` says of itself when the scripts ask: the element it is in and the
-/// motion it was last asked for; its speed, acceleration and jump scales; its radius and height
-/// (its setup's, by its look's and its own height scale); its mode, which is the mode its figure
-/// was last asked to go to whether the scripts ask for the mode or the mode it is going to (0
-/// with no figure); and the motion the server last sent for it, while it follows the positions
-/// the server sends.
-// D2-05894, D2-05895, D2-06391
-#[must_use]
-// D2-05903
-pub fn reading_of(b: &Body, f: Option<&Figure>) -> auberean_client_sdk::runtime::body::BodyReading {
-    let m = b.minterp.asked;
-    let mode = f.map_or(0, |f| f.modes.desired_mode);
-    auberean_client_sdk::runtime::body::BodyReading {
-        element: b.element(),
-        last_motion: [m.x, m.y, m.z],
-        velocity_scale: b.velocity_scale(),
-        acceleration_scale: b.acceleration_scale(),
-        jump_scale: b.jump_scale(),
-        radius: b.radius(),
-        height: b.height(),
-        mode,
-        desired_mode: mode,
-        remote_motion: b.has_remote_do_motion_values().then(|| {
-            let v = b.remote_do_motion_values();
-            [v.x, v.y, v.z]
-        }),
-        place: (b.position.cell.0 != 0).then(|| {
-            let f = b.position.frame;
-            let (o, q) = (f.origin, f.rotation);
-            (b.position.cell.0, [o.x, o.y, o.z], [q.w, q.x, q.y, q.z])
-        }),
-    }
+/// Where the camera's lines of sight start for player `p`, and how far the first runs from there to
+/// reach `look` (in the frame of the player's landblock): from where its body stands at its last
+/// tick, which is on the ground. Between ticks the body is drawn along the straight line between
+/// its last two places, which passes under land that bends between them; a line started there
+/// would stop at the ground at once, and the camera with it.
+fn sight_start(
+    p: &Player,
+    look: dereth_primitives::Vec3,
+) -> (dereth_primitives::Vec3, dereth_primitives::Vec3) {
+    let start = p.body.position.frame.origin;
+    let reach = dereth_primitives::Vec3::new(look.x - start.x, look.y - start.y, look.z - start.z);
+    (start, reach)
 }
 
-/// The behaviors the body's motion interpreter started or stopped over the frame's ticks, played
-/// or stopped on its figure, as the client hands its physics object's behaviors to its animation.
-pub(crate) fn forward_behaviors(
-    body: &Body,
-    shown: &mut BTreeSet<u32>,
-    figure: &mut Figure,
-    anims: &CachedRecords<'_>,
+/// The orbit camera placed for player `p` where the frame draws its body (`alpha` of the way
+/// through its tick): looking at the point above its feet, standing where the camera asks, and
+/// kept off the world by the same lines of sight as the game's own camera, in the cell the last
+/// ended in. Placed each frame, it is drawn there and nowhere between.
+fn place_orbit(
+    o: &OrbitCamera,
+    stands: &mut Option<camera::Stands>,
+    p: &Player,
+    w: &mut CameraWorld<'_, '_>,
+    alpha: f32,
 ) {
-    let started: Vec<u32> = body.behaviors.difference(shown).copied().collect();
-    let stopped: Vec<u32> = shown.difference(&body.behaviors).copied().collect();
-    for b in started {
-        figure.do_autonomous_behavior(anims, b);
-    }
-    for b in stopped {
-        figure.stop_behavior(anims, b);
-    }
-    shown.clone_from(&body.behaviors);
+    let pos = p.body.drawn(alpha).0;
+    let up = orbit::pivot_height(p.height * p.scale.z);
+    let feet = pos.frame.origin;
+    let pivot = dereth_primitives::Vec3::new(feet.x, feet.y, feet.z + up);
+    let (wanted, look) = o.eye(pivot);
+    let viewer = camera::Viewer {
+        origin: wanted,
+        look,
+        rotation: None,
+    };
+    let (start, target_offset) = sight_start(p, pivot);
+    let lines = auberean_physics::camera::Lines {
+        land: w.land,
+        cell: pos.cell,
+        origin: start,
+        target_offset,
+        wanted,
+        env_only: false,
+    };
+    let placed = auberean_physics::camera::sight_lines(w.table, &lines).map(|seen| {
+        let eye = match w.object.as_deref_mut() {
+            Some(c) if !is_interior(seen.eye.cell.0) => c.stand(w.land, w.table, seen.eye),
+            _ => seen.eye,
+        };
+        viewer.stand_at(eye.cell, eye.frame.origin)
+    });
+    camera::take_place(stands, placed, viewer.stand_at(pos.cell, wanted), true);
 }
 
 /// A behavior's parameters as a script sent them, as the animation takes them.
@@ -1130,52 +855,6 @@ pub(crate) fn figure_in<'a>(
     }
 }
 
-/// What a figure's animations set off this frame, played as the client plays a body's trigger
-/// update after its animation: the effects played once and those starting are asked of the body
-/// (or stopped, for a stopping trigger) among the figure's events; the kinds of its hooks, in
-/// order, and its impulses are handed back; the effects stopping are stopped; then the update is
-/// cleaned up, what started counting as running from then on.
-pub(crate) fn take_triggers(
-    figure: &mut Figure,
-) -> (Vec<u32>, Vec<auberean_assets::animation::Impulse>) {
-    use auberean_animation::host::Event;
-    let fx = |t: &auberean_animation::triggers::Trigger| {
-        if t.stop {
-            Event::StopFx { fx: t.effect }
-        } else {
-            Event::DoFx {
-                fx: t.effect,
-                intensity: t.intensity,
-            }
-        }
-    };
-    let t = &mut figure.triggers;
-    let mut events: Vec<Event> = t.once.iter().map(|(_, tr)| fx(tr)).collect();
-    t.once.clear();
-    events.extend(
-        t.starting
-            .iter()
-            .filter(|(_, tr)| tr.play)
-            .map(|(_, tr)| fx(tr)),
-    );
-    let hooks = std::mem::take(&mut t.hooks)
-        .into_iter()
-        .map(|h| h.kind)
-        .collect();
-    let impulses = std::mem::take(&mut t.impulses);
-    events.extend(t.stopping.iter().map(|(k, _)| Event::StopFx { fx: k }));
-    t.clean_up();
-    figure.events.extend(events);
-    (hooks, impulses)
-}
-
-/// The speed scale the server gave an object's body, if any.
-pub(crate) fn velocity_scale(p: &auberean_client_sdk::protocol::types::PhysicsDesc) -> Option<f32> {
-    (p.bits & auberean_client_sdk::protocol::types::PhysicsDesc::VELOCITY_SCALE != 0
-        && p.velocity_scale > 0.0)
-        .then_some(p.velocity_scale)
-}
-
 impl<'w> Scene<'w> {
     /// The scene of `world`, drawn by the graphics preferences `graphics` from its first frame, as
     /// the client reads them when it starts (see [`Self::init_preferences`]).
@@ -1197,39 +876,17 @@ impl<'w> Scene<'w> {
             object_shadows: auberean_draw::volume::setting::VOLUMETRIC,
             decals: auberean_draw::decal::DecalManager::default(),
             decal_layers: HashMap::new(),
+            ground_marks: marks::GroundMarks::default(),
             light_effects: true,
             frames: 0,
             streak_layers: HashMap::new(),
             carried: Vec::new(),
-            land: Land::new(),
-            trees: Trees::default(),
-            blocks: HashSet::new(),
-            near: near::NearBlocks::default(),
-            cells: cells::CellAsks::default(),
+            ground: WorldGround::new(world),
             looks: BTreeMap::new(),
-            cache: None,
             camera: CameraControl::default(),
             player: None,
             ticker: Ticker::new(0.0),
             anim_clock: AnimationClock::new(0.0),
-            table: {
-                // The physics types' bits come from the install's property list.
-                let mut t = World::new();
-                if let Some(list) = world
-                    .records
-                    .get::<auberean_assets::property::PropertyList>(0x3400_0000)
-                {
-                    t.set_property_list(list);
-                }
-                // The physics materials what bodies touch may name.
-                // D2-06766
-                for id in world.records.portal_ids(0x3700_0000, 0x37FF_FFFF) {
-                    if let Some(m) = world.records.get(id) {
-                        t.add_material(id, m);
-                    }
-                }
-                t
-            },
             others: others::Others::default(),
             seen: seen::Seen::default(),
             drawn: Vec::new(),
@@ -1247,12 +904,17 @@ impl<'w> Scene<'w> {
             portal: Passage::new(Random::new()),
             portal_look: Passage::new(Random::new()).think(0.0),
             portal_frame: None,
+            warmup: auberean_draw::warm::Warmup::default(),
+            warm_planned: false,
+            warm_now: auberean_draw::warm::Share::default(),
             prepared: None,
             in_session: false,
             entering: false,
             player_teleported: false,
             teleport_stamp: None,
             portal_scene_playing: false,
+            portal_linger: 0.0,
+            portal_lingers_until: None,
             ready_to_enter: false,
             arrivals: 0,
             placed_effects: PlacedEffects::default(),
@@ -1261,6 +923,7 @@ impl<'w> Scene<'w> {
             objects: ObjectTable::default(),
             shake_drawn: false,
             camera_stands: None,
+            orbit: None,
             held: held::HeldObjects::default(),
             first_person_hidden: first_person_hidden(&world.records),
             stand_ins: [false; 2],
@@ -1275,7 +938,6 @@ impl<'w> Scene<'w> {
             states: BTreeMap::new(),
             creating: None,
             reported: BTreeMap::new(),
-            interiors_about: None,
             left: Vec::new(),
             clock: 0.0,
             told_modes: Vec::new(),
@@ -1296,12 +958,24 @@ impl<'w> Scene<'w> {
     /// then wanted until the server has the player in the world (it took the player out of it for
     /// a trip, or has not said who the player is yet) and the client has the player's body placed
     /// with the world around it loaded, which a place with no room for the body never lets it be;
-    /// a teleport of the player wants it again, unless a door's scene plays in its place.
+    /// a teleport of the player wants it again, unless a door's scene plays in its place. As the
+    /// session leaves the world portal space goes at once, unless the interface asked it to linger
+    /// ([`Scene::portal_linger`]) and it is on: then it stays in sight that long (asked again for
+    /// the next leaving).
     // D2-01910, D2-01944, D2-01909, D2-10657, D2-10665, D2-10643, D2-10644, D2-11001, D2-11002, D2-04056, D2-04057
     fn follow_portal_space(&mut self, client: &Client, now: f64) {
         let in_session = self.entering || client.model.player.is_some();
         if !in_session {
             if self.in_session {
+                let linger = std::mem::take(&mut self.portal_linger);
+                if linger > 0.0 && self.portal.on() {
+                    self.portal_lingers_until = Some(now + linger);
+                } else {
+                    self.portal.want(false, true, now);
+                }
+            }
+            if self.portal_lingers_until.is_some_and(|t| now >= t) {
+                self.portal_lingers_until = None;
                 self.portal.want(false, true, now);
             }
             self.in_session = false;
@@ -1310,6 +984,7 @@ impl<'w> Scene<'w> {
             self.ready_to_enter = false;
         } else {
             if !self.in_session {
+                self.portal_lingers_until = None;
                 self.portal.want(true, true, now);
             }
             self.in_session = true;
@@ -1326,7 +1001,7 @@ impl<'w> Scene<'w> {
                 false,
                 now,
             );
-            let ready = client_ready && !self.cells.blocking;
+            let ready = client_ready && !self.ground.cells.blocking;
             if ready && !self.ready_to_enter {
                 self.arrivals = self.arrivals.wrapping_add(1);
             }
@@ -1372,7 +1047,37 @@ impl<'w> Scene<'w> {
         self.portal_frame = self
             .portal
             .frame(&self.world.records, &mut self.builder, &look, now);
+        self.warm(now, world);
         self.prepared = Some(world_drawn);
+    }
+
+    /// Portal space going out, the world is worked out once as it will first be drawn and what it
+    /// will put on the device queued (its pictures, draws, shadow casters, land and the pictures it
+    /// is drawn into), to be readied a share a frame while the tunnel and the white still hide it:
+    /// the frame that shows the world then finds them there. What the frame showed is left as it
+    /// was. Out of portal space the queue is let go.
+    fn warm(&mut self, now: f64, world: bool) {
+        use auberean_draw::portal::{State, WORLD_FOV_OUT};
+        self.warm_now = auberean_draw::warm::Share::default();
+        match self.portal.state {
+            State::Off => {
+                self.warm_planned = false;
+                self.warmup.clear();
+                return;
+            }
+            State::GoingOut if !self.warm_planned && world && self.world_shown => {
+                let seen = self.seen.clone();
+                if self.build_world(now, WORLD_FOV_OUT) {
+                    self.warm_planned = true;
+                    if let Some(b) = &self.built {
+                        self.warmup.plan_frame(&b.frame);
+                    }
+                }
+                self.seen = seen;
+            }
+            _ => {}
+        }
+        self.warm_now = self.warmup.take();
     }
 
     /// A frame without the world: what the server asks of the player's effects still happens as
@@ -1382,11 +1087,11 @@ impl<'w> Scene<'w> {
         let Some(pl) = self.player.as_mut() else {
             return;
         };
-        let Some(fx) = pl.effects.as_mut() else {
+        let Some(fx) = pl.front.as_mut() else {
             return;
         };
         let at = pl.body.position;
-        let water = self.land.water_plane(at.cell).map(|p| -p.d);
+        let water = self.ground.land.water_plane(at.cell).map(|p| -p.d);
         fx.play_undrawn(
             &self.systems,
             &self.world.records,
@@ -1433,10 +1138,11 @@ impl<'w> Scene<'w> {
                 (flash[3] != 0.0).then_some(flash)
             }),
             fade: if world_drawn {
-                self.near.fade(now)
+                self.ground.near.fade(now)
             } else {
                 Vec::new()
             },
+            warm: &self.warm_now,
         }
     }
 
@@ -1463,7 +1169,7 @@ impl<'w> Scene<'w> {
         use auberean_draw::quality::key;
         let l = Landscape::of(graphics);
         self.builder.set_far_radius(l.far_radius);
-        self.cells.set_far_radius(l.far_radius);
+        self.ground.cells.set_far_radius(l.far_radius);
         self.builder
             .set_frills(l.frill_radius != 0, l.frill_radius, l.frill_reach);
         self.builder.shore_effects = l.shore_effects;
@@ -1526,7 +1232,7 @@ impl<'w> Scene<'w> {
     /// The world's land, as physics has loaded it.
     #[must_use]
     pub fn land(&self) -> &Land {
-        &self.land
+        &self.ground.land
     }
 
     /// The effects the player's body is playing, with their strengths.
@@ -1534,7 +1240,7 @@ impl<'w> Scene<'w> {
     pub fn player_effects(&self) -> Vec<(u32, f32)> {
         self.player
             .as_ref()
-            .and_then(|p| p.effects.as_ref())
+            .and_then(|p| p.front.as_ref())
             .map_or_else(Vec::new, fx::BodyFx::current_fx)
     }
 
@@ -1593,68 +1299,25 @@ impl<'w> Scene<'w> {
         object: u64,
         order: &auberean_client_sdk::protocol::physics::MoveOrder,
     ) {
-        let Some(p) = self.player.as_mut().filter(|p| p.id == object) else {
-            return;
-        };
-        let start = p.body.notices.len();
-        let _ = p
-            .body
-            .receive_move_to(&movement_parameters(&order.params), order.stamp);
-        // The behaviors a move cancels stop as it is taken, before what the server asks after it.
-        let mut i = start;
-        while i < p.body.notices.len() {
-            if matches!(
-                p.body.notices[i],
-                Notice::Animate(Animate::StopMoveToCancels)
-            ) {
-                p.body.notices.remove(i);
-                p.figure.stop_move_to_cancels(&self.anims);
-            } else {
-                i += 1;
-            }
+        if let Some(p) = self.player.as_mut().filter(|p| p.id == object) {
+            p.receive_move_to(&self.anims, order);
         }
     }
 
     /// Where the object the player's body moves or turns to stands, kept on the body for its move:
     /// another body in the world (its place, radius and height); none when it has no such body.
     fn keep_move_target(&mut self) {
-        let Some(p) = self.player.as_mut() else {
-            return;
-        };
-        let target = p
-            .body
-            .minterp
-            .move_to
-            .as_ref()
-            .filter(|m| m.moving_to && m.params.to_object())
-            .map(|m| m.params.target_object);
-        p.body.targets.clear();
-        let Some(id) = target else {
-            return;
-        };
-        let Some(b) = self
-            .others
-            .body(id)
-            .or_else(|| self.held.body(id))
-            .filter(|b| b.in_world)
-        else {
-            return;
-        };
-        p.body.targets.insert(
-            id,
-            auberean_physics::motion::moveto::TargetBody {
-                position: b.position,
-                radius: b.radius(),
-                height: b.height(),
-            },
-        );
+        let (others, held) = (&self.others, &self.held);
+        if let Some(p) = self.player.as_mut() {
+            p.keep_move_target(|id| others.body(id).or_else(|| held.body(id)));
+        }
     }
 
     /// The sounds the bodies' effects played or stopped since last taken, each with the object
     /// that makes it, in the order the bodies had their turns.
     pub fn take_sounds(&mut self) -> Vec<(u64, auberean_draw::effects::FxSound)> {
         let mut out = Vec::new();
-        if let Some(fx) = self.player.as_mut().and_then(|p| p.effects.as_mut()) {
+        if let Some(fx) = self.player.as_mut().and_then(|p| p.front.as_mut()) {
             out.extend(fx.sounds.drain(..).map(|s| (fx.id, s)));
         }
         self.others.take_sounds(&mut out);
@@ -1679,7 +1342,7 @@ impl<'w> Scene<'w> {
     fn ask_body_fx(&mut self) {
         for (id, effect, play) in std::mem::take(&mut self.body_fx) {
             let fx = match self.player.as_mut() {
-                Some(p) if p.id == id => p.effects.as_mut(),
+                Some(p) if p.id == id => p.front.as_mut(),
                 _ => {
                     if self.others.ask_fx(id, effect, play) {
                         continue;
@@ -1711,12 +1374,12 @@ impl<'w> Scene<'w> {
     /// The world's table of what the bodies meet.
     #[must_use]
     pub fn table(&self) -> &World {
-        &self.table
+        &self.ground.table
     }
 
     /// The world's table of what stands where, to change.
     pub fn table_mut(&mut self) -> &mut World {
-        &mut self.table
+        &mut self.ground.table
     }
 
     /// The physics body of object `id`: the player's, another's, a held object's or one the client
@@ -1790,7 +1453,7 @@ impl<'w> Scene<'w> {
     /// as the scene's clock reads; `None` for a block it does not hold.
     #[must_use]
     pub fn block_taken_up(&self, block: (u8, u8)) -> Option<f64> {
-        self.near.stamp(block)
+        self.ground.near.stamp(block)
     }
 
     /// Whether the world's frame is built and kept for the next frame (made again when the moment
@@ -1821,7 +1484,7 @@ impl<'w> Scene<'w> {
     #[must_use]
     pub fn system_scales(&self, id: u64) -> Vec<(Vec<Vec3>, Vec3)> {
         let (fx, whole) = match &self.player {
-            Some(p) if p.id == id => (p.effects.as_ref(), Some(p.body.total_scale(None))),
+            Some(p) if p.id == id => (p.front.as_ref(), Some(p.body.total_scale(None))),
             _ => (
                 self.others.effects_of(id),
                 self.others.body(id).map(|b| b.total_scale(None)),
@@ -1876,7 +1539,7 @@ impl<'w> Scene<'w> {
         let p = self.player.as_ref()?;
         Some((
             p.body.minterp.terrain_type(),
-            p.effects.as_ref()?.fx.terrain(),
+            p.front.as_ref()?.fx.terrain(),
         ))
     }
 
@@ -2066,7 +1729,7 @@ impl<'w> Scene<'w> {
     /// made once they are in).
     #[must_use]
     pub fn cells_pending(&self) -> bool {
-        self.cells.pending
+        self.ground.cells.pending
     }
 
     /// Where each body looks (its gaze, what it was asked to look at, the direction the server
@@ -2108,164 +1771,14 @@ impl<'w> Scene<'w> {
             .collect()
     }
 
-    /// Whether the client's data cache holds a cell file: the cells about the player are asked
-    /// of it then; a client given none reads the world's own file as it is.
-    fn cache_has_cells(client: &Client) -> bool {
-        let cache = client.data_download().cache();
-        !cache.is_empty()
-            && cache.stores().by_slot[auberean_client_sdk::dat::disk::Slot::Cell as usize].is_some()
-    }
-
-    /// The client's data cache for this session: the world's records read the cell file through
-    /// it from now on (a record the server sent is read as the file's own), and the cells' asks
-    /// are grown by its rings. A client whose cache holds no cell file leaves the world's file read
-    /// as it is.
-    fn attach_data_cache(&mut self, client: &mut Client) {
-        if !Self::cache_has_cells(client) {
-            if self.cache.take().is_some() {
-                self.world.records.read_cells_through(None);
-            }
-            return;
-        }
-        let d = client.data_download_mut();
-        let cache = d.cache().clone();
-        if self.cache.as_ref().is_some_and(|c| c.is(&cache)) {
-            return;
-        }
-        let through = cache.clone();
-        self.world
-            .records
-            .read_cells_through(Some(std::sync::Arc::new(move |id, kind| {
-                through
-                    .stores()
-                    .load_data(auberean_client_sdk::dat::QualifiedId { id, kind })
-            })));
-        d.requests.set_hook(
-            cells::CELLS,
-            Some(Box::new(cells::CellRings::new(
-                std::sync::Arc::new(self.world.region.clone()),
-                self.cells.far.clone(),
-            ))),
-        );
-        self.cells.forget();
-        self.cache = Some(cache);
-    }
-
-    /// What the data cache told the cells' asks: an ask in, or one to let go.
-    fn hear_cells(&mut self, client: &mut Client) {
-        use auberean_client_sdk::runtime::download::DataDownload;
-        let d: &mut DataDownload = client.data_download_mut();
-        let mut done = Vec::new();
-        d.told.retain(|e| match e {
-            auberean_assets::requests::Event::BatchDone { to, batch, .. }
-                if *to == cells::CELLS =>
-            {
-                done.push(*batch);
-                false
-            }
-            auberean_assets::requests::Event::Finished { to, .. } => *to != cells::CELLS,
-            _ => true,
-        });
-        for b in done {
-            self.cells.on_batch_done(d, b);
-        }
-    }
-
-    /// The interior cells of the landblocks about `block` (its own and those beside it), each
-    /// block's once its info is in; when `again`, a block some of whose cells were missing when
-    /// it was loaded is loaded again (they may have come since).
-    fn load_interiors(&mut self, block: LandblockId, again: bool) {
-        let records = &self.world.records;
-        for dx in -1i32..=1 {
-            for dy in -1i32..=1 {
-                let (Ok(x), Ok(y)) = (
-                    u8::try_from(i32::from(block.x()) + dx),
-                    u8::try_from(i32::from(block.y()) + dy),
-                ) else {
-                    continue;
-                };
-                let (bx, by) = (i32::from(x), i32::from(y));
-                let Some(info) = records.landblock_info(bx, by) else {
-                    continue;
-                };
-                let complete = || {
-                    (0..info.cell_count).all(|k| {
-                        let low = u32::from(x) << 24 | u32::from(y) << 16 | (FIRST_INTERIOR + k);
-                        self.land.cell(CellId(low)).is_some()
-                    })
-                };
-                if self.blocks.insert((x, y)) || (again && !complete()) {
-                    auberean_physics::interior::add_block_cells(
-                        &self.land,
-                        records,
-                        &mut self.trees,
-                        x,
-                        y,
-                    );
-                }
-            }
-        }
-    }
-
-    /// The cells about the player follow the cell its body stands in: a new landblock outdoors,
-    /// or a new interior cell, is asked of the data cache (with what it needs, a ring of
-    /// landblocks at a time); once the ask is in, the interior cells about the player are loaded
-    /// and the near window of landblocks follows the cell (inside, the land cell under it when its
-    /// cell sees the outdoors). `placed`: the server just put the player there, and the world
-    /// stands still until its cells are in. None without a player.
-    // D2-10803, D2-10766
+    /// The cells about the player follow the cell its body stands in ([`WorldGround::follow`]);
+    /// `placed`: the server just put the player there, and the world stands still until its cells
+    /// are in. The objects standing in the cells let go of then leave the world, and the ambient
+    /// sound hears where the player now stands.
     fn follow_player_cell(&mut self, client: &mut Client, placed: bool) {
-        let cell = self.player.as_ref().map_or(0, |p| p.body.position.cell.0);
-        let visible = if Self::cache_has_cells(client) {
-            self.cells.update(client.data_download_mut(), cell, placed)
-        } else if cell == 0 {
-            cells::Visible::Released
-        } else {
-            cells::Visible::Finish
-        };
-        match visible {
-            cells::Visible::Released => {
-                self.near.release_cells(&self.land);
-                self.release_objects(client);
-                self.seen.hearing = self.hearing();
-                return;
-            }
-            cells::Visible::Waiting => {
-                self.release_objects(client);
-                self.seen.hearing = self.hearing();
-                return;
-            }
-            cells::Visible::Finish => {}
-        }
-        let fresh = self.cells.take_fresh();
-        if let Some(p) = &self.player {
-            let block = p.body.position.cell.landblock();
-            self.load_interiors(block, fresh);
-        }
-        let (cell, outside) = match &self.player {
-            Some(p) => {
-                let pos = p.body.position;
-                let inside = pos.cell.0 & 0xFFFF >= 0x100;
-                let outside = inside
-                    .then(|| self.land.cell(pos.cell))
-                    .flatten()
-                    .filter(|g| g.seen_outside)
-                    .map(|_| auberean_physics::geom::position::outside_cell(&pos).0)
-                    .filter(|c| *c != 0);
-                (pos.cell.0, outside)
-            }
-            None => (0, None),
-        };
-        let world = self.world;
-        let mut m = near::Makers {
-            land: &self.land,
-            records: &world.records,
-            region: &world.region,
-            trees: &mut self.trees,
-            interiors: &mut self.blocks,
-            now: self.clock,
-        };
-        self.near.update_visible_cells(&mut m, cell, outside);
+        let at = self.player.as_ref().map(|p| p.body.position);
+        self.ground
+            .follow(client, self.world, at, placed, self.clock);
         self.release_objects(client);
         self.seen.hearing = self.hearing();
     }
@@ -2278,7 +1791,7 @@ impl<'w> Scene<'w> {
         let at = p.body.position;
         let cell = at.cell.0;
         let home = (cell >> 24, (cell >> 16) & 0xFF);
-        let blocks: Vec<(u8, u8)> = self.near.blocks().collect();
+        let blocks: Vec<(u8, u8)> = self.ground.near.blocks().collect();
         let records = &self.world.records;
         // The interior cells the window's landblocks see from outside.
         let from_outside = || {
@@ -2297,7 +1810,7 @@ impl<'w> Scene<'w> {
         };
         let mut visible: Vec<u32> = Vec::new();
         let inside = cell & 0xFFFF >= FIRST_INTERIOR;
-        let mine = inside.then(|| self.land.cell(at.cell)).flatten();
+        let mine = inside.then(|| self.ground.land.cell(at.cell)).flatten();
         if inside {
             if let Some(c) = &mine {
                 visible.push(cell);
@@ -2316,14 +1829,14 @@ impl<'w> Scene<'w> {
                 continue;
             }
             seen_cells.push(id);
-            let Some(c) = self.land.cell(CellId(id)) else {
+            let Some(c) = self.ground.land.cell(CellId(id)) else {
                 continue;
             };
             let o = c.frame.origin;
             #[allow(clippy::cast_precision_loss)] // a block or two
             let shift = |a: u32, b: u32| (i64::from(a) - i64::from(b)) as f32 * BLOCK_LENGTH;
             cells.push((
-                self.land.cell_ambient_kind(CellId(id)),
+                self.ground.land.cell_ambient_kind(CellId(id)),
                 Vec3::new(
                     o.x + shift(id >> 24, home.0),
                     o.y + shift((id >> 16) & 0xFF, home.1),
@@ -2336,7 +1849,7 @@ impl<'w> Scene<'w> {
         Some(seen::SeenHearing {
             cell,
             place: dv(at.frame.origin),
-            blocking: self.cells.blocking,
+            blocking: self.ground.cells.blocking,
             cells,
             outside,
             blocks,
@@ -2359,11 +1872,30 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// The camera the world is shown with from now on: the orbit camera with `settings`, or with
+    /// none the game's own. The orbit camera already in use keeps its place and takes the
+    /// settings; begun or ended, the camera is placed afresh on the next frame, and the game's own
+    /// camera is as it was before the orbit camera began.
+    pub fn set_scheme(&mut self, settings: Option<OrbitSettings>) {
+        match (settings, &mut self.orbit) {
+            (Some(s), Some(o)) => o.apply_settings(s),
+            (Some(s), None) => {
+                self.orbit = Some(OrbitCamera::new(s));
+                self.camera_stands = None;
+            }
+            (None, Some(_)) => {
+                self.orbit = None;
+                self.camera_stands = None;
+            }
+            (None, None) => {}
+        }
+    }
+
     /// The world without a player: the camera forgets where it stood and whom it followed.
     // D2-10660, D2-10765, D2-10807, D2-09648, D2-03437
     fn reset_world_state(&mut self, client: &mut Client) {
         self.weather.indoors();
-        self.cells.release(client.data_download_mut());
+        self.ground.cells.release(client.data_download_mut());
         self.camera.reset_camera();
         self.camera_stands = None;
         // The world's lighting is worked out afresh in the next world entered.
@@ -2373,9 +1905,9 @@ impl<'w> Scene<'w> {
         self.camera_object = None;
         // The land let go of, and the objects standing in it with it; the world entered next
         // starts with fresh free blocks.
-        self.near.reset_world_state(&self.land);
+        self.ground.near.reset_world_state(&self.ground.land);
         self.release_objects(client);
-        self.near.notify_change_region();
+        self.ground.near.notify_change_region();
         self.stand_ins = [false; 2];
         Self::drop_camera_stand_ins(client);
         self.seen.hearing = None;
@@ -2388,107 +1920,53 @@ impl<'w> Scene<'w> {
         self.stand_ins = followed::STAND_IN_LOCATIONS.map(|l| figure.has_holding_location(l));
     }
 
-    /// The player's object made where the client placed its body (`b`): its body, its figure, and
-    /// the camera set to follow it; its entry in the world's table takes the properties of the
-    /// physics record `record` the client named.
-    // D2-10663, D2-10661, D2-09648, D2-03437
+    /// The player's object made where the client placed its body (`b`): its body and figure
+    /// ([`auberean_client_sdk::sim::Player::make`]), the effects its look plays, and the camera set
+    /// to follow it; its entry in the world's table takes the properties of the physics record
+    /// `record` the client named.
+    // D2-09648, D2-03437
     fn make_player(
         &mut self,
         o: &Object,
         record: u32,
         b: &auberean_client_sdk::runtime::Body,
     ) -> Option<Player> {
-        let mut dress = None;
-        let look = figures::look_after(&self.world.records, &self.anims, &o.visual, &mut dress)?;
-        let mut figure = Figure::from_look(&self.anims, &look)?;
-        // What its behaviors ask only of the player (the action lock, the camera) is asked.
-        figure.is_player = true;
-        let scale = look.scale;
-        let (config, height) = body_config(&self.world.records, &look, &figure, &o.physics)?;
-        let start = Position::new(
-            CellId(b.cell),
-            PFrame::new(pv(b.origin), dereth_primitives::Quat::IDENTITY),
-        );
-        let mut body = Body::new(config, start, b.heading);
-        give_parts(&mut body, &self.world.records, &mut self.trees, &look);
-        body.set_mode(figure.mode);
-        profile::init_physics(&self.world.records, o, &mut body);
-        let p = &o.physics;
-        if let Some(k) = velocity_scale(p) {
-            body.minterp.velocity_scale = k;
-        }
-        if p.bits & auberean_client_sdk::protocol::types::PhysicsDesc::JUMP_SCALE != 0
-            && p.jump_scale > 0.0
-        {
-            body.jump_scale = p.jump_scale;
-        }
-        // The player's body in the world's table, under its own handle.
-        if let Some(k) = self.table.find(o.id) {
-            self.table.remove(k);
-        }
-        let key = self.table.insert_body(&self.land, o.id, &mut body);
-        self.table
-            .set_ethereality(key, others::ethereality(&o.weenie));
-        others::apply_description(&self.world.records, &mut self.table, key, record);
+        let p = Player::make(
+            self.world,
+            &self.anims,
+            &mut self.ground,
+            o,
+            record,
+            b,
+            |look| fx::BodyFx::of(look, o.id),
+        )?;
         tracing::info!(
             id = format_args!("{:#x}", o.id),
             visual = format_args!("{:#x}", o.visual.parent),
             cell = format_args!("{:#010x}", b.cell),
             "the player's body"
         );
-        let radius = figure.parts.first().map_or(0.0, |p| p.setup.radius);
-        let effects = fx::BodyFx::of(&look, o.id);
         // The camera follows the new player: its look-at point at three quarters of its height,
         // the camera behind it.
         self.camera
-            .set_player(&camera::NoObjects, o.id, height * scale.z);
-        self.setup_camera_stand_ins(&figure);
-        // D2-03437, D2-09648
-        Some(Player {
-            id: o.id,
-            visual: o.visual.clone(),
-            visual_updates: o.visual_updates,
-            dress,
-            body,
-            figure,
-            placements: b.placements(),
-            thrown: b.thrown().0,
-            forced: b.forced_moves(),
-            height,
-            radius,
-            scale,
-            settle: true,
-            arriving: true,
-            teleport_stamp: b.teleport_stamp,
-            no_room: false,
-            shown: BTreeSet::new(),
-            effects,
-            ticked: dereth_primitives::Vec3::ZERO,
-            record,
-            actions_locked: false,
-        })
+            .set_player(&camera::NoObjects, o.id, p.height * p.scale.z);
+        self.setup_camera_stand_ins(&p.figure);
+        Some(p)
     }
 
-    /// The player's object was sent a new description: its own descriptions take it (the
-    /// appearance its effects lay kept over it), and its figure (keeping what it plays), effects
-    /// and body's parts are brought up to date with the total; its body stays where it is.
+    /// The player's object was sent a new description: its body and figure take it
+    /// ([`auberean_client_sdk::sim::Player::take_visual`]), and its effects are made again from the
+    /// total look with those that were playing asked again.
     // D2-08142
     fn player_takes_visual(&mut self, o: &Object) {
         let Some(p) = self.player.as_mut() else {
             return;
         };
-        p.visual = o.visual.clone();
-        p.visual_updates = o.visual_updates;
         let records = &self.world.records;
-        let Some(look) = figures::look_after(records, &self.anims, &o.visual, &mut p.dress) else {
+        let Some(look) = p.take_visual(records, &self.anims, &mut self.ground.trees, o) else {
             return;
         };
-        if !p.figure.compare_and_modify(&self.anims, &look) {
-            return;
-        }
-        p.effects = fx::BodyFx::again(p.effects.take(), &look, p.id);
-        p.scale = look.scale;
-        body_takes_look(&mut p.body, records, &mut self.trees, &look);
+        p.front = fx::BodyFx::again(p.front.take(), &look, p.id);
     }
 
     /// One frame at `now` seconds, `dt` after the last, in the client's order: the player's intent
@@ -2499,8 +1977,8 @@ impl<'w> Scene<'w> {
     // D2-10668, D2-05768
     pub fn update(&mut self, client: &mut Client, intent: &Intent, now: f64, dt: f32) {
         self.clock = now;
-        self.attach_data_cache(client);
-        self.hear_cells(client);
+        self.ground.attach_data_cache(client, self.world);
+        self.ground.hear_cells(client);
         if let Some(record) = client.world.take_region_change() {
             self.take_up_region(record);
         }
@@ -2508,11 +1986,14 @@ impl<'w> Scene<'w> {
         let mut asked_of: Vec<(u64, auberean_animation::host::Event)> = Vec::new();
         // What each figure finished this frame and the hooks it fired, for its body's story.
         let mut heard: Vec<(u64, Vec<auberean_animation::host::Completion>, Vec<u32>)> = Vec::new();
-        for p in &intent.presses {
-            self.camera.press_facing(*p, facing);
+        // The orbit camera, in use, takes the camera's inputs in the game's own camera's place.
+        if self.orbit.is_none() {
+            for p in &intent.presses {
+                self.camera.press_facing(*p, facing);
+            }
+            self.camera.hold(intent.held);
+            self.camera.mouse(intent.mouse.0, intent.mouse.1);
         }
-        self.camera.hold(intent.held);
-        self.camera.mouse(intent.mouse.0, intent.mouse.1);
 
         // The player.
         let wanted = client
@@ -2522,8 +2003,12 @@ impl<'w> Scene<'w> {
             .cloned();
         match (&wanted, &self.player) {
             (None, _) => {
-                if let Some(k) = self.player.as_ref().and_then(|p| self.table.find(p.id)) {
-                    self.table.remove(k);
+                if let Some(k) = self
+                    .player
+                    .as_ref()
+                    .and_then(|p| self.ground.table.find(p.id))
+                {
+                    self.ground.table.remove(k);
                 }
                 if self.player.take().is_some() {
                     self.reset_world_state(client);
@@ -2550,35 +2035,15 @@ impl<'w> Scene<'w> {
         if self.player.is_some() {
             self.light_tick(client, now);
         }
+        // The server's word on the player's place.
         if let Some(p) = &mut self.player {
-            if client.body.forced_moves() != p.forced {
-                p.forced = client.body.forced_moves();
+            let (forced, placed) = p.take_server_place(&client.body);
+            if forced {
                 self.camera.player_forced_elsewhere();
             }
-            if client.body.placements() != p.placements {
-                p.placements = client.body.placements();
-                let b = &client.body;
-                p.body.place(
-                    Position::new(
-                        CellId(b.cell),
-                        PFrame::new(
-                            pv(b.origin),
-                            auberean_physics::body::heading_rotation(b.heading),
-                        ),
-                    ),
-                    b.heading,
-                );
-                p.body.velocity = dereth_primitives::Vec3::ZERO;
-                p.body.contact = true;
-                p.body.on_walkable = true;
-                p.body.contact_plane = None;
-                p.settle = true;
-                if b.teleport_stamp != p.teleport_stamp {
-                    p.teleport_stamp = b.teleport_stamp;
-                    p.arriving = true;
-                }
+            if placed {
                 tracing::info!(
-                    cell = format_args!("{:#010x}", b.cell),
+                    cell = format_args!("{:#010x}", client.body.cell),
                     "the server placed the player"
                 );
             }
@@ -2586,48 +2051,21 @@ impl<'w> Scene<'w> {
         if let Some(placed) = self.player.as_ref().map(|p| p.settle) {
             self.follow_player_cell(client, placed);
         }
-        // A place under the ground outdoors is lifted onto it, as a placement is; then the body
-        // stands where there is room for it nearest that place, as the client puts a body the
-        // server placed (beside the start hall's fir it rises 0.69 m and steps 0.45 m aside):
-        // once the cells it was put in are in. A body arriving where there is no room stays out
-        // of the world, and tries again next frame.
-        // D2-10657, D2-06059
-        let cells_in = !self.cells.pending;
+        // Stood where there is room for it once the cells it was put in are in; the camera is
+        // placed afresh there, not drawn from where it stood.
+        let cells_in = !self.ground.cells.pending;
         if let Some(p) = &mut self.player {
-            if cells_in && std::mem::take(&mut p.settle) {
-                if !is_interior(p.body.position.cell.0) {
-                    let at = p.body.position.frame.origin;
-                    if let Some((z, _)) = self.land.ground(p.body.position.cell.landblock(), at) {
-                        if z > at.z {
-                            let mut lifted = p.body.position;
-                            lifted.frame.origin.z = z;
-                            p.body.place(lifted, p.body.heading);
-                        }
-                    }
-                }
-                let at = p.body.position;
-                let r = p
-                    .body
-                    .set_position_simple(&self.land, &mut self.table, at, true);
-                p.no_room = p.arriving
-                    && matches!(r, place_error::NO_VALID_POSITION | place_error::COLLIDED);
-                p.settle = p.no_room;
-                if !p.no_room {
-                    p.arriving = false;
-                    p.body.set_placement_position(at);
-                    // The camera is placed afresh there, not drawn from where it stood.
-                    self.camera_stands = None;
+            if p.settle(&mut self.ground, cells_in) {
+                self.camera_stands = None;
+                if let Some(o) = &mut self.orbit {
+                    o.place_anew();
                 }
             }
         }
         client.body.out_of_world = self.player.as_ref().is_none_or(|p| p.arriving);
         // A throw of the server's comes after the place it came with.
-        if let Some(p) = self.player.as_mut().filter(|p| !p.settle) {
-            let (count, velocity) = client.body.thrown();
-            if count != p.thrown {
-                p.thrown = count;
-                auberean_physics::motion::Owner::apply_impulse(&mut p.body, pv(velocity));
-            }
+        if let Some(p) = &mut self.player {
+            p.take_throw(&client.body);
         }
         // The camera's options for the player's head; its selections turn it (as the option to
         // look at them says).
@@ -2652,7 +2090,7 @@ impl<'w> Scene<'w> {
         // (none this frame unless a thirtieth of a second has passed since the last).
         // While the cells the server put the player in are asked for, the world stands still.
         // D2-10801
-        let still = self.cells.blocking;
+        let still = self.ground.cells.blocking;
         let (due, step) = (self.ticker.ticks(now), self.anim_clock.step(now));
         let ticks = if still { 0 } else { due };
         let anim = step.filter(|_| !still);
@@ -2667,180 +2105,96 @@ impl<'w> Scene<'w> {
         }
         self.others
             .note_objects(&mut self.objects, |id| is_player_or_creature(client, id));
-        self.start_movement_actions(client, &intent.started);
+        auberean_client_sdk::sim::player::start_movement_actions(
+            self.player.as_mut(),
+            client,
+            &intent.started,
+        );
         self.keep_move_target();
         self.key_behaviors(&intent.behaviors);
         if let Some(p) = &mut self.player {
-            let frozen = client.body.frozen;
-            let locked = p.actions_locked;
-            let input = if frozen || locked {
-                MotionInput::default()
-            } else {
-                MotionInput {
-                    sideways: intent.sideways,
-                    forward: intent.forward,
-                    turn: intent.turn,
-                }
+            // The player's controls steer the body; in mouse look the camera's heading turns it.
+            let mut steer = Steer {
+                forward: intent.forward,
+                sideways: intent.sideways,
+                turn: intent.turn,
+                jump: intent.jump,
+                heading: self.camera.steering_heading(p.body.is_moving_to()),
+                camera_steers: self.camera.steers(),
             };
-            // Mouse look steering sets the heading from the camera's direction and leaves no turn
-            // to the keys.
-            // D2-09649
-            if !frozen && !locked {
-                if let Some(heading) = self.camera.steering_heading(p.body.is_moving_to()) {
-                    let by = (heading - p.body.heading + 540.0).rem_euclid(360.0) - 180.0;
-                    if by != 0.0 {
-                        p.body.turn_at_once(by);
-                    }
-                }
+            // Under the orbit camera, the body is steered through it: camera- or
+            // character-based.
+            if let Some(o) = &mut self.orbit {
+                let input = OrbitInput {
+                    mouse: intent.mouse,
+                    buttons: intent.buttons,
+                    zoom: intent
+                        .presses
+                        .iter()
+                        .map(|p| match p {
+                            camera::Press::Wheel(n) => *n,
+                            _ => 0,
+                        })
+                        .sum(),
+                    front_view: intent.front_view,
+                };
+                o.step(intent.held, &input, &steer, p.body.heading, dt);
+                steer = o.steer(steer, &input, p.body.is_moving_to());
             }
-            if !locked {
-                p.body.steer(if self.camera.steers() {
-                    MotionInput { turn: 0.0, ..input }
-                } else {
-                    input
-                });
-            }
-            // The jump asked: standing, or moving slowly, the figure plays the jump's lead-in,
-            // whose animation sets the jump off; one it cannot play, or moving faster, jumps at
-            // once.
-            let jumps = p.body.jumps;
-            if intent.jump
-                && !frozen
-                && !locked
-                && p.body.jump_logic()
-                && p.body.behaviors.contains(&JUMP_BEHAVIOR)
-            {
-                if p.figure.do_autonomous_behavior(&self.anims, JUMP_BEHAVIOR) {
-                    p.shown.insert(JUMP_BEHAVIOR);
-                } else {
-                    p.body.behaviors.remove(&JUMP_BEHAVIOR);
-                    p.body.jump();
-                }
-            }
-            if p.body.jumps != jumps {
-                let v = p.body.velocity;
-                client.act(Action::Jump {
-                    velocity: Vec3::new(v.x, v.y, v.z),
-                });
-            }
+            let input = p.steer(client, &self.anims, &steer);
             #[allow(clippy::cast_possible_truncation)]
             let tick = TICK as f32;
-            self.table.set_now(client.game_time());
-            self.table.file_those_waiting(&self.land);
-            // Each tick the body moves while its movement runs, then its other updates run while
-            // woken: its detections checked, what its collisions began and ended reported.
-            for _ in 0..if p.no_room { 0 } else { ticks } {
-                p.body.update_in(
-                    &self.land,
-                    &mut self.table,
-                    &mut self.objects,
-                    &NoGameObjects,
-                    tick,
-                );
-                p.ticked = p.body.minterp.asked;
-                // The player's physics updated: the camera is placed for where it now stands
-                // (each frame instead in mouse look).
-                if !self.camera.mouse_look {
-                    let mut w = CameraWorld {
-                        land: &self.land,
-                        table: &mut self.table,
-                        object: self.camera_object.as_mut(),
-                        others: &self.others,
-                        anims: &self.anims,
-                        stand_ins: self.stand_ins,
-                    };
-                    place_camera(
-                        &mut self.camera,
-                        &mut self.camera_stands,
-                        p,
-                        &mut w,
-                        tick,
-                        None,
-                    );
-                }
-            }
-            // The player's collisions go to its scripts.
-            if let Some(k) = p.body.key() {
-                for report in self.table.take_reports(k) {
-                    use auberean_physics::pack::Pack;
-                    let mut w = auberean_physics::pack::Writer::new();
-                    report.pack(&mut w);
-                    let r = client.handle_collision(p.id, w.finish());
-                    tracing::debug!(?report, ?r, "the player's collisions to its scripts");
-                }
-            }
-            let active = input.forward != 0.0 || input.sideways != 0.0 || input.turn != 0.0;
-            client.body.driven = true;
-            // The reports carry the motion the interpreter was asked (a diagonal cut to length
-            // 1), the move the server ordered's while it steers the body.
-            let asked = if p.body.is_moving_to() {
-                p.ticked
-            } else {
-                p.body.minterp.asked
-            };
-            client.act(Action::Move(Motion {
-                forward: asked.y,
-                sideways: asked.x,
-                heading: p.body.heading,
-                active,
-            }));
-            let pos = p.body.position;
-            client
-                .body
-                .follow(pos.cell.0, dv(pos.frame.origin), p.body.heading);
-            client.body.turning_to(
-                p.body
-                    .minterp
-                    .turning_to
-                    .then(|| p.body.minterp.turn_to.degrees()),
+            // After each tick the camera is placed for where the body now stands (each frame
+            // instead in mouse look).
+            let (camera, camera_stands) = (&mut self.camera, &mut self.camera_stands);
+            let orbiting = self.orbit.is_some();
+            let (camera_object, others, anims, stand_ins) = (
+                &mut self.camera_object,
+                &self.others,
+                &self.anims,
+                self.stand_ins,
             );
-            if let Some(step) = anim.filter(|_| !p.body.is_animation_frozen()) {
-                let (moved, turn, size) = figure_motion(&mut p.body, step);
-                p.figure.set_motion(moved, turn, size);
-                forward_behaviors(&p.body, &mut p.shown, &mut p.figure, &self.anims);
-                p.figure.ground = ground_of(&p.body);
-                let camera = gaze::Camera {
-                    offset: self.camera.interp_viewer_offset(),
-                    mouse_look: self.camera.mouse_look,
-                };
-                stop_looking = gaze_step(
-                    &mut self.looks,
+            p.tick(
+                &mut self.ground,
+                &mut self.objects,
+                client.game_time(),
+                ticks,
+                |p, ground| {
+                    if !camera.mouse_look && !orbiting {
+                        let mut w = CameraWorld {
+                            land: &ground.land,
+                            table: &mut ground.table,
+                            object: camera_object.as_mut(),
+                            others,
+                            anims,
+                            stand_ins,
+                        };
+                        place_camera(camera, camera_stands, p, &mut w, tick, None);
+                    }
+                },
+            );
+            p.report(client, &mut self.ground, &input);
+            let gaze_camera = gaze::Camera {
+                offset: self.camera.interp_viewer_offset(),
+                mouse_look: self.camera.mouse_look,
+            };
+            let (looks, id) = (&mut self.looks, p.id);
+            let animated = p.animate(client, &self.anims, anim, |body, figure, step| {
+                gaze_step(
+                    looks,
                     &targets,
-                    Some(&camera),
-                    p.id,
+                    Some(&gaze_camera),
+                    id,
                     true,
-                    &p.body,
-                    &mut p.figure,
+                    body,
+                    figure,
                     step,
-                );
-                p.figure.advance(&self.anims, step);
-                p.body.figure_stands_in(p.figure.modes.element());
-            }
-            // What the figure finished and the hooks it fired go to its story; what it finished
-            // goes nowhere else (the client's scripts make no waiting calls).
-            let (hooks, impulses) = take_triggers(&mut p.figure);
-            heard.push((p.id, p.figure.take_completions(), hooks));
-            asked_of.extend(p.figure.take_events().into_iter().map(|e| (p.id, e)));
-            // The jump the lead-in's animation set off; the lead-in over, the body no longer
-            // shows it.
-            let jumps = p.body.jumps;
-            for i in impulses {
-                if i.jump {
-                    p.body.jump();
-                }
-            }
-            if p.body.behaviors.contains(&JUMP_BEHAVIOR)
-                && !p.figure.is_doing_behavior(JUMP_BEHAVIOR)
-            {
-                p.body.behaviors.remove(&JUMP_BEHAVIOR);
-                p.shown.remove(&JUMP_BEHAVIOR);
-            }
-            if p.body.jumps != jumps {
-                let v = p.body.velocity;
-                client.act(Action::Jump {
-                    velocity: Vec3::new(v.x, v.y, v.z),
-                });
-            }
+                )
+            });
+            stop_looking = animated.stop_looking;
+            heard.push((p.id, animated.completions, animated.hooks));
+            asked_of.extend(animated.events.into_iter().map(|e| (p.id, e)));
+            let pos = p.body.position;
             let v = p.body.velocity;
             self.status.cell = pos.cell.0;
             self.status.origin = dv(pos.frame.origin);
@@ -2851,24 +2205,30 @@ impl<'w> Scene<'w> {
             self.status.contact = p.body.contact;
             // In mouse look the camera is placed each frame for where the frame draws the body,
             // and first of all once there is a player to place it for; then a frame of its effects.
-            if !still && (self.camera.mouse_look || self.camera_stands.is_none()) {
+            // The orbit camera is placed each frame as mouse look is.
+            if !still
+                && (self.camera.mouse_look || self.orbit.is_some() || self.camera_stands.is_none())
+            {
                 let mut w = CameraWorld {
-                    land: &self.land,
-                    table: &mut self.table,
+                    land: &self.ground.land,
+                    table: &mut self.ground.table,
                     object: self.camera_object.as_mut(),
                     others: &self.others,
                     anims: &self.anims,
                     stand_ins: self.stand_ins,
                 };
                 let alpha = self.ticker.alpha(now);
-                place_camera(
-                    &mut self.camera,
-                    &mut self.camera_stands,
-                    p,
-                    &mut w,
-                    dt,
-                    Some(alpha),
-                );
+                match &self.orbit {
+                    Some(o) => place_orbit(o, &mut self.camera_stands, p, &mut w, alpha),
+                    None => place_camera(
+                        &mut self.camera,
+                        &mut self.camera_stands,
+                        p,
+                        &mut w,
+                        dt,
+                        Some(alpha),
+                    ),
+                }
             }
             self.camera.use_time(dt);
             self.fov = self.camera.fov;
@@ -2879,7 +2239,7 @@ impl<'w> Scene<'w> {
         }
         // While the world waits for its cells the client's objects wait too (their upkeep does
         // not run).
-        client.world.blocking_for_cells = self.cells.blocking;
+        client.world.blocking_for_cells = self.ground.cells.blocking;
 
         self.follow_portal_space(client, now);
         // The server hears the scene is ready once a frame of the world has been drawn with portal
@@ -2899,9 +2259,9 @@ impl<'w> Scene<'w> {
             &self.world.records,
             &self.anims,
             &mut client.model,
-            &self.land,
-            &mut self.table,
-            &mut self.trees,
+            &self.ground.land,
+            &mut self.ground.table,
+            &mut self.ground.trees,
             player,
             &mut self.objects,
             ticks,
@@ -3014,20 +2374,7 @@ impl<'w> Scene<'w> {
         let materials = &mut scripts.host.materials;
         readings.clear();
         let mut note = |id: u64, b: &Body, f: Option<&Figure>| {
-            readings.insert(id, reading_of(b, f));
-            // Read again only when the body changes cell, which is when it changes.
-            if let (Some(cell), Some(properties)) = (b.material_cell(), b.current_properties()) {
-                if materials.get(&id).is_none_or(|m| m.cell != cell.0) {
-                    let properties = properties.clone();
-                    materials.insert(
-                        id,
-                        auberean_client_sdk::runtime::body::BodyMaterial {
-                            cell: cell.0,
-                            properties,
-                        },
-                    );
-                }
-            }
+            auberean_client_sdk::sim::player::note_reading(readings, materials, id, b, f);
         };
         if let Some(p) = &self.player {
             note(p.id, &p.body, Some(&p.figure));
@@ -3072,17 +2419,7 @@ impl<'w> Scene<'w> {
                 }
                 continue;
             }
-            let object = match r {
-                R::VelocityScale { object, .. }
-                | R::AccelerationScale { object, .. }
-                | R::Cloaked { object, .. }
-                | R::ReportCollisions { object, .. }
-                | R::IgnoreCollisions { object, .. }
-                | R::LookAt { object, .. }
-                | R::Impulse { object, .. }
-                | R::TargetedImpulse { object, .. }
-                | R::EndLayer { object, .. } => object,
-            };
+            let object = auberean_client_sdk::sim::player::request_object(&r);
             // Where the object pushed away from stands, when it has a place here.
             let from = match r {
                 R::TargetedImpulse { target, .. } if target != object => self.place_of(target),
@@ -3092,51 +2429,7 @@ impl<'w> Scene<'w> {
                 tracing::debug!(?r, "a request for a body the scene does not have");
                 continue;
             };
-            match r {
-                R::VelocityScale { scale, .. } => b.set_velocity_scale(scale),
-                R::AccelerationScale { scale, .. } => b.set_acceleration_scale(scale),
-                R::Cloaked { on, .. } => b.set_cloaked(on),
-                R::ReportCollisions { on, .. } => b.set_report_collisions(on),
-                R::IgnoreCollisions { on, .. } => b.set_ignore_collisions(on),
-                R::Impulse { vector, local, .. } => {
-                    let v = dereth_primitives::Vec3::new(vector[0], vector[1], vector[2]);
-                    if local {
-                        b.add_impulse_local(v);
-                    } else {
-                        b.add_impulse(v);
-                    }
-                }
-                R::TargetedImpulse {
-                    target,
-                    speed,
-                    flags,
-                    extra,
-                    ..
-                } => {
-                    let Some(at) = from else { continue };
-                    // The body measures the push from where the object stands now; what it kept
-                    // of that object for a move stays as it was.
-                    let kept = b.targets.insert(
-                        target,
-                        auberean_physics::motion::moveto::TargetBody {
-                            position: at,
-                            radius: 0.0,
-                            height: 0.0,
-                        },
-                    );
-                    b.add_targeted_impulse(target, speed, flags != 0, extra);
-                    match kept {
-                        Some(k) => {
-                            b.targets.insert(target, k);
-                        }
-                        None => {
-                            b.targets.remove(&target);
-                        }
-                    }
-                }
-                R::EndLayer { layer, .. } => b.stop_layer(layer),
-                R::LookAt { .. } => {}
-            }
+            auberean_client_sdk::sim::player::carry_out_request(b, &r, from);
         }
     }
 
@@ -3146,7 +2439,7 @@ impl<'w> Scene<'w> {
     // D2-06197, D2-06198
     fn start_streak(&mut self, object: u64, location: u32, on: bool) {
         let own = match &mut self.player {
-            Some(p) if p.id == object => p.effects.as_mut(),
+            Some(p) if p.id == object => p.front.as_mut(),
             _ => self
                 .others
                 .effects_mut(object)
@@ -3169,7 +2462,10 @@ impl<'w> Scene<'w> {
         if let Some(b) = self.body(id) {
             return b.in_world.then_some(b.position);
         }
-        self.table.find(id).and_then(|k| self.table.position(k))
+        self.ground
+            .table
+            .find(id)
+            .and_then(|k| self.ground.table.position(k))
     }
 
     /// The scripts asked every camera effect stopped since last asked.
@@ -3210,7 +2506,7 @@ impl<'w> Scene<'w> {
             if !self.has_body(*id) {
                 continue;
             }
-            let key = self.table.find(*id);
+            let key = self.ground.table.find(*id);
             let last = self.states.get(id).filter(|(k, _)| *k == key);
             if last.is_some_and(|(_, s)| s == state) {
                 continue;
@@ -3218,7 +2514,7 @@ impl<'w> Scene<'w> {
             let before = last.map(|(_, s)| s.clone()).unwrap_or_default();
             if let Some(k) = key {
                 if last.is_none() || before.collision != state.collision {
-                    self.table.set_collision_state(k, &state.collision);
+                    self.ground.table.set_collision_state(k, &state.collision);
                 }
             }
             if let Some(b) = self.body_mut(*id) {
@@ -3247,7 +2543,7 @@ impl<'w> Scene<'w> {
                     b.set_scale(s);
                     let whole = b.total_scale(None);
                     if let Some(k) = key {
-                        self.table.set_scale(k, whole);
+                        self.ground.table.set_scale(k, whole);
                     }
                 }
             }
@@ -3278,11 +2574,7 @@ impl<'w> Scene<'w> {
     /// contained or gone), rather than once an object has a place: the player's body, every other
     /// body, and an object with no body while its place's cell is loaded.
     fn tell_lives(&mut self, client: &mut Client) {
-        client.bodies_place = true;
-        let ids: Vec<u64> = client.model.objects().map(|o| o.id).collect();
-        for id in ids {
-            client.set_in_world(id, self.stands(id));
-        }
+        auberean_client_sdk::sim::others::tell_lives(client, |id| self.stands(id));
     }
 
     /// Whether object `id` stands in the world here: the player's body or another's in the
@@ -3295,54 +2587,19 @@ impl<'w> Scene<'w> {
         }
     }
 
-    /// The movement actions the player began this frame: each interrupts the move the player's
-    /// body is making on its own (walking up to what it attacks or uses), and a turn also stops
-    /// an attack the scripts started while it moved so.
-    // D2-09645, D2-09646
-    fn start_movement_actions(&mut self, client: &mut Client, started: &[u32]) {
-        for action in started {
-            if let Some(p) = &mut self.player {
-                p.body.interrupt_move_to();
-            }
-            if matches!(*action, movement::TURN_LEFT | movement::TURN_RIGHT) {
-                client.stop_attacking_if_auto_moving();
-            }
-        }
-    }
-
     /// The object table's book of the bodies that left the world or entered it again: one that
     /// left (not the player) is to be destroyed after a while, with what it holds, unless it
     /// enters the world again first, which calls that off (it is already out of its lost cell).
     // D2-05636, D2-05635
     fn book_world_changes(&mut self, client: &mut Client) {
         let player = self.player.as_ref().map(|p| p.id);
-        let now = client.local_time();
         let mut changes = self.others.take_world_changes();
         changes.extend(
             std::mem::take(&mut self.left)
                 .into_iter()
                 .map(|id| (id, false)),
         );
-        for (id, entered) in changes {
-            if !entered && Some(id) == player {
-                continue;
-            }
-            let mut ids = vec![id];
-            ids.extend(
-                client
-                    .model
-                    .objects()
-                    .filter(|o| o.parent.is_some_and(|(p, _)| p == id))
-                    .map(|o| o.id),
-            );
-            for i in ids {
-                if entered {
-                    client.queue.remove_object_to_be_destroyed(i);
-                } else {
-                    client.queue.add_object_to_be_destroyed(i, now);
-                }
-            }
-        }
+        auberean_client_sdk::sim::others::book_world_changes(client, player, changes);
     }
 
     /// Whether the player's body is making a move on its own (walking up to what it attacks or
@@ -3497,7 +2754,8 @@ impl<'w> Scene<'w> {
                 // D2-06094, D2-09644
                 Event::LockInput => {
                     if let Some(p) = self.player.as_mut().filter(|p| p.id == id) {
-                        p.body.steer(MotionInput::default());
+                        p.body
+                            .steer(auberean_physics::motion::MotionInput::default());
                         p.actions_locked = true;
                     }
                 }
@@ -3615,7 +2873,7 @@ impl<'w> Scene<'w> {
     /// the game objects, which are the server's here, and is only noted.
     fn route_notices(&mut self, now: f64) {
         // What the cells' watchers were told of objects entering and leaving them.
-        for (watcher, info) in self.table.take_detection_updates() {
+        for (watcher, info) in self.ground.table.take_detection_updates() {
             let body = match self.player.as_mut() {
                 Some(p) if p.id == watcher => Some(&mut p.body),
                 _ => match self.others.body_mut(watcher) {
@@ -3687,7 +2945,7 @@ impl<'w> Scene<'w> {
                         None => self.held.figure_mut(from),
                     },
                 };
-                notices::hand_on(from, n, figure, &self.anims);
+                notices::hand_on(n, figure, &self.anims);
             }
         }
     }
@@ -3749,8 +3007,8 @@ impl<'w> Scene<'w> {
                 &mut h.body,
                 holder_body,
                 how,
-                &self.land,
-                &mut self.table,
+                &self.ground.land,
+                &mut self.ground.table,
                 &mut self.objects,
             )
             .then_some((holder, location));
@@ -3825,6 +3083,18 @@ impl<'w> Scene<'w> {
         )
     }
 
+    /// The marks to lay on the ground under world objects from this frame on, in place of those
+    /// asked before (none: none), each drawn from its texture's picture as `picture` finds it.
+    pub fn set_ground_marks(
+        &mut self,
+        marks: Vec<dereth_ui_overlay::GroundMarker<u64>>,
+        picture: &dyn Fn(
+            &dereth_ui_overlay::OverlayTexture,
+        ) -> Option<std::sync::Arc<dereth_primitives::TextureData>>,
+    ) {
+        self.ground_marks.set(marks, picture);
+    }
+
     /// Draw at full detail, or not: while a screenshot is taken nothing degrades or goes with its
     /// distance. The frame in hand was chosen under the other setting, so it is made again.
     // D2-10548, D2-10549
@@ -3865,11 +3135,11 @@ impl<'w> Scene<'w> {
         // and from a cell not there yet nothing is drawn.
         // D2-11042
         let there = if is_interior(cell) {
-            self.land.cell(pos.cell).is_some()
+            self.ground.land.cell(pos.cell).is_some()
         } else {
-            self.land.block(block.x(), block.y()).is_some()
+            self.ground.land.block(block.x(), block.y()).is_some()
         };
-        if self.cells.blocking && !there {
+        if self.ground.cells.blocking && !there {
             return false;
         }
         let Some(stands) = self.camera_stands else {
@@ -3879,7 +3149,7 @@ impl<'w> Scene<'w> {
         // the room beyond. Seen from the room it came from, with that doorway behind the camera,
         // no room would be drawn.
         // D2-11042
-        let at = auberean_physics::camera::drawn_from(&self.land, &stands.slerp(alpha));
+        let at = auberean_physics::camera::drawn_from(&self.ground.land, &stands.slerp(alpha));
         let view = at.cell.0;
         // Back in the body's landblock's frame.
         let eye = {
@@ -3952,7 +3222,7 @@ impl<'w> Scene<'w> {
         // order, the light and fog where it stands, the water it reflects about), goes under water
         // or comes up, or the light ticks.
         // D2-10933, D2-10921
-        let in_water = !is_interior(view) && camera_in_water(&self.land, &at).is_some();
+        let in_water = !is_interior(view) && camera_in_water(&self.ground.land, &at).is_some();
         self.builder.camera_in_water = in_water;
         let key = (block, viewer_cell, lightings, in_water);
         let stale = self.built.as_ref().is_none_or(|b| b.key != key);
@@ -3991,7 +3261,7 @@ impl<'w> Scene<'w> {
                         &self.world.records,
                         &self.anims,
                         &mut self.drawer,
-                        &self.table,
+                        &self.ground.table,
                         (bx, by),
                         self.ticker.alpha(now),
                     );
@@ -4034,10 +3304,12 @@ impl<'w> Scene<'w> {
             );
         }
         // The player's own body and what it holds are drawn unless the camera has settled at its
-        // eyes and the avatar option hides it; drawn there, it leaves out its head.
-        let draws_player =
-            self.camera.draws_the_player(p.figure.modes.desired_mode) && !p.body.is_no_draw();
-        let at_the_eyes = self.camera.first_person_is_ready();
+        // eyes and the avatar option hides it; drawn there, it leaves out its head. The orbit
+        // camera is never at the eyes, whatever the game's own camera was left at.
+        let orbiting = self.orbit.is_some();
+        let draws_player = (orbiting || self.camera.draws_the_player(p.figure.modes.desired_mode))
+            && !p.body.is_no_draw();
+        let at_the_eyes = !orbiting && self.camera.first_person_is_ready();
         // The objects the client made, where they stand this frame.
         let made = self.temporaries_placed(self.ticker.alpha(now), draws_player);
         let night = self.is_night();
@@ -4047,7 +3319,11 @@ impl<'w> Scene<'w> {
         built.frame.objects.truncate(built.world_objects);
         // How opaque the world's objects are from here, as their blocks fade in.
         // D2-03691
-        auberean_draw::scene::fade_objects(&mut built.frame.objects, dv(eye), &self.near.fade(now));
+        auberean_draw::scene::fade_objects(
+            &mut built.frame.objects,
+            dv(eye),
+            &self.ground.near.fade(now),
+        );
         // D2-05768
         self.placed_bodies.pose(
             &self.world.records,
@@ -4080,7 +3356,7 @@ impl<'w> Scene<'w> {
                 built.frame.outside = Some(light);
             } else {
                 // Under water, the fog is the water's at the camera's depth.
-                built.frame.light = match camera_in_water(&self.land, &at) {
+                built.frame.light = match camera_in_water(&self.ground.land, &at) {
                     Some(depth) => water_light(self.world, at.cell, &light, depth),
                     None => light,
                 };
@@ -4129,7 +3405,7 @@ impl<'w> Scene<'w> {
             player_bones = weather::BodyBones::outdoors(pos.cell.0, || weather::BodyBones {
                 bones: weather::bones_of(&p.figure, &poses),
                 place,
-                water: water_height(&self.land, pos.cell),
+                water: water_height(&self.ground.land, pos.cell),
             });
         }
         let first_other = noted.len();
@@ -4137,14 +3413,14 @@ impl<'w> Scene<'w> {
             &self.world.records,
             &self.anims,
             &mut self.drawer,
-            &self.table,
+            &self.ground.table,
             (bx, by),
             self.ticker.alpha(now),
             &mut built.frame.objects,
             &mut noted,
         );
         // A body standing on the land of a block whose objects fade in is drawn at their opacity.
-        let fade = self.near.fade(now);
+        let fade = self.ground.near.fade(now);
         if !fade.is_empty() {
             for (id, range, _, _) in &noted[first_other..] {
                 let Some(cell) = self.others.body(*id).map(|b| b.position.cell.0) else {
@@ -4254,7 +3530,7 @@ impl<'w> Scene<'w> {
                     continue;
                 }
                 let touching: Vec<u32> = key
-                    .and_then(|k| self.table.cells_of(k))
+                    .and_then(|k| self.ground.table.cells_of(k))
                     .map(|c| c.iter().map(|c| c.0).collect())
                     .unwrap_or_default();
                 let Some(batches) = built.frame.objects.get_mut(range.clone()) else {
@@ -4319,7 +3595,7 @@ impl<'w> Scene<'w> {
             .into_iter()
             .map(|l| (l, (bx, by)))
             .collect();
-        if let Some(fx) = p.effects.as_ref() {
+        if let Some(fx) = p.front.as_ref() {
             let me = figures::global(pos.cell.0, dv(origin));
             let opacity = p.figure.sliders.opacity();
             placed_lights.extend(fx.lights(me, body_heading, pos.cell.0, now, opacity));
@@ -4441,7 +3717,8 @@ impl<'w> Scene<'w> {
                     continue;
                 }
                 let takes = body.and_then(Body::key).is_none_or(|k| {
-                    self.table
+                    self.ground
+                        .table
                         .graphics_state(k, auberean_physics::world::graphics::TAKES_LAND_SHADOW)
                 });
                 if !takes {
@@ -4491,7 +3768,7 @@ impl<'w> Scene<'w> {
         }
         let casting = Casting {
             records: &self.world.records,
-            table: &self.table,
+            table: &self.ground.table,
             temporaries: &self.temporaries,
             setting: self.object_shadows,
             model_detail: self.builder.model_detail,
@@ -4558,7 +3835,7 @@ impl<'w> Scene<'w> {
         {
             let mut asked = Vec::new();
             if let Some(p) = self.player.as_mut() {
-                if let Some(fx) = p.effects.as_mut() {
+                if let Some(fx) = p.front.as_mut() {
                     let place = p.body.position;
                     asked.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
                 }
@@ -4588,6 +3865,38 @@ impl<'w> Scene<'w> {
             &mut self.decals,
             &mut self.decal_layers,
         );
+        // The marks the interface asked laid on the ground under the objects drawn, over the
+        // decals.
+        {
+            let player = self.player.as_ref();
+            let (others, held, temporaries) = (&self.others, &self.held, &self.temporaries);
+            let body_of = |id: u64| {
+                player
+                    .filter(|p| p.id == id)
+                    .map(|p| &p.body)
+                    .or_else(|| others.body(id))
+                    .or_else(|| held.body(id))
+                    .or_else(|| temporaries.get(id).map(|t| &t.body))
+            };
+            let frame_block = (bx, by);
+            let builder = &self.builder;
+            let ground = |at: auberean_primitives::Vec3| builder.ground_square(frame_block, at);
+            let laid = ground_marks(
+                &self.world.records,
+                &self.ground_marks,
+                &noted,
+                &body_of,
+                &DecalGround {
+                    square: &ground,
+                    side: builder.square_side(),
+                    inside: is_interior(view),
+                    block: frame_block,
+                    block_len: self.world.region.land.grid().block_length(),
+                },
+            );
+            built.frame.decals.extend(laid);
+            built.frame.pictures = self.ground_marks.pictures();
+        }
         // Every draw's material as it stands at this moment of the client's run.
         built.frame.move_materials(now, &self.anims.dice);
         // What the frame shows, for the interface.
@@ -4683,8 +3992,8 @@ impl<'w> Scene<'w> {
             &self.systems,
             &self.world.records,
             &self.anims,
-            &mut self.trees,
-            &self.land,
+            &mut self.ground.trees,
+            &self.ground.land,
             &mut self.drawer,
             (bx, by),
             self.ticker.alpha(now),
@@ -4697,10 +4006,10 @@ impl<'w> Scene<'w> {
         let global = |at: &Position| figures::global(at.cell.0, dv(at.frame.origin));
         let heading_of = |at: &Position| auberean_physics::geom::frame_heading(&at.frame).degrees();
         let who = |player: bool| auberean_draw::effects::FxWho { player, night };
-        let land = &self.land;
+        let land = &self.ground.land;
         let water = |at: &Position| land.water_plane(at.cell).map(|p| -p.d);
         if let Some(pl) = self.player.as_mut() {
-            if let Some(fx) = pl.effects.as_mut() {
+            if let Some(fx) = pl.front.as_mut() {
                 // Its repulsors take the speed its physics moves it at.
                 fx.fx.set_velocity(dv(pl.body.velocity));
                 // Its systems are queued as its body is drawn.
@@ -4721,7 +4030,12 @@ impl<'w> Scene<'w> {
                 );
                 if let Some(look) = changed {
                     pl.scale = look.scale;
-                    body_takes_look(&mut pl.body, &self.world.records, &mut self.trees, &look);
+                    body_takes_look(
+                        &mut pl.body,
+                        &self.world.records,
+                        &mut self.ground.trees,
+                        &look,
+                    );
                 }
             }
         }
@@ -4731,7 +4045,7 @@ impl<'w> Scene<'w> {
                 &self.systems,
                 &self.world.records,
                 &self.anims,
-                &mut self.trees,
+                &mut self.ground.trees,
                 (global(at), heading_of(at), dv(*scale)),
                 light,
                 now,
@@ -4759,7 +4073,12 @@ impl<'w> Scene<'w> {
                     );
                     if let Some(look) = changed {
                         t.scale = look.scale;
-                        body_takes_look(&mut t.body, &self.world.records, &mut self.trees, &look);
+                        body_takes_look(
+                            &mut t.body,
+                            &self.world.records,
+                            &mut self.ground.trees,
+                            &look,
+                        );
                     }
                 }
             }
@@ -4770,7 +4089,7 @@ impl<'w> Scene<'w> {
         // after the particle systems (none while the streaks preference is off).
         let mut asks: Vec<(u64, bool, u32)> = Vec::new();
         if let Some(pl) = self.player.as_mut() {
-            if let Some(fx) = pl.effects.as_mut() {
+            if let Some(fx) = pl.front.as_mut() {
                 for (on, location) in fx.fx.take_streak_asks() {
                     fx.fx.turn_streaks(on);
                     asks.push((pl.id, on, location));
@@ -4811,7 +4130,7 @@ impl<'w> Scene<'w> {
             };
             if let Some(pl) = self.player.as_mut() {
                 let scale = pl.body.total_scale(None);
-                if let Some(fx) = pl.effects.as_mut() {
+                if let Some(fx) = pl.front.as_mut() {
                     held::object_streaks(
                         &mut fx.fx,
                         draws_player.then_some((&pos, scale)),
@@ -4879,13 +4198,13 @@ impl<'w> Scene<'w> {
                 &self.world.records,
                 &mut self.builder,
                 &self.systems,
-                &self.land,
+                &self.ground.land,
                 moment,
                 &weather::Viewer {
                     home: (bx, by),
                     eye: dv(eye),
                     right,
-                    water: exterior_water(&self.land, block, &at),
+                    water: exterior_water(&self.ground.land, block, &at),
                     now,
                 },
                 player_bones.as_ref(),
@@ -4928,7 +4247,8 @@ impl<'w> Scene<'w> {
         #[allow(clippy::cast_precision_loss)]
         let size = (size.0 as f32, size.1 as f32);
         let player = self.player.as_ref().map(|p| p.id);
-        let eyes = self.camera.first_person_is_ready();
+        let orbiting = self.orbit.is_some();
+        let eyes = !orbiting && self.camera.first_person_is_ready();
         let holders = self.held.holders();
         let held_by_player = |id: u64| {
             let mut at = id;
@@ -4953,7 +4273,7 @@ impl<'w> Scene<'w> {
                 if self.temporaries.get(id).is_some() {
                     seen::Selectable::No
                 } else if Some(id) == player {
-                    if self.camera.first_person() {
+                    if !orbiting && self.camera.first_person() {
                         seen::Selectable::No
                     } else {
                         seen::Selectable::Player
@@ -5243,6 +4563,57 @@ fn disc_shadows<'b>(
         };
         decals.create(cell.0, &desc, now, triangles, true);
     }
+}
+
+/// The marks `marks` laid on the ground under the drawn bodies they name (`noted`: each body's
+/// id, its draws, where it stands in the frame and its heading): inside on its cell's ground about
+/// it, outdoors on the land; each as wide as its scale times the radius its body is selected
+/// within (half a meter at least), turned as it says, in its picture and its tint. None for a body
+/// not drawn or in no cell.
+fn ground_marks<'b>(
+    records: &auberean_world::records::WorldRecords,
+    marks: &marks::GroundMarks,
+    noted: &[(u64, std::ops::Range<usize>, auberean_primitives::Vec3, f32)],
+    body_of: &dyn Fn(u64) -> Option<&'b Body>,
+    ground: &DecalGround<'_>,
+) -> Vec<auberean_draw::scene::ObjectBatch> {
+    use auberean_draw::decal::{dungeon_decal, landscape_decal, mark_batch, mark_desc};
+    let mut out = Vec::new();
+    for (m, picture) in marks.marks() {
+        let Some((_, _, at, _)) = noted.iter().find(|n| n.0 == m.object) else {
+            continue;
+        };
+        let Some(body) = body_of(m.object).filter(|b| b.position.cell.0 != 0) else {
+            continue;
+        };
+        let radius = body.selection_sphere().map_or(0.0, |s| s.radius) * m.scale;
+        let desc = mark_desc(radius, m.turn);
+        let cell = body.position.cell;
+        let triangles = if is_interior(cell.0) {
+            let home = cell.landblock();
+            let home = (i32::from(home.x()), i32::from(home.y()));
+            #[allow(clippy::cast_possible_truncation)]
+            let low = (cell.0 & 0xFFFF) as u16;
+            #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
+            let (dx, dy) = (
+                (home.0 - ground.block.0) as f32 * ground.block_len,
+                (home.1 - ground.block.1) as f32 * ground.block_len,
+            );
+            let mut t = dungeon_decal(records, home, low, dv(body.position.frame.origin), &desc);
+            for v in t.iter_mut().flatten() {
+                v.position = auberean_primitives::Vec3::new(
+                    v.position.x + dx,
+                    v.position.y + dy,
+                    v.position.z,
+                );
+            }
+            t
+        } else {
+            landscape_decal(*at, &desc, ground.side, ground.square)
+        };
+        out.extend(mark_batch(&triangles, m.uv, m.tint, picture));
+    }
+    out
 }
 
 /// The decals effects asked for, each laid off its object's place: inside on its cell's ground

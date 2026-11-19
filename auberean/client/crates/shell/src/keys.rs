@@ -4,12 +4,22 @@
 //! The key maps are a stack, the last pushed in front. At startup the client pushes the base map
 //! the game keeps for itself, then the player's maps for keys alone, with Shift and with Ctrl,
 //! each read from the file the preferences name (`[KeyMap]`: `Main.keymap`, `Shift.keymap`,
-//! `Control.keymap`) or, when that file does not load, the data's Defaults map. The plain map is
-//! read with the version update that binds R to reply; a file it updates is written again.
+//! `Control.keymap`). A file that is there but does not read leaves the data's Defaults map in
+//! its place. A file that is not there leaves the map the game's installer lays down in that
+//! file's place ([`KeyRecords::installed`]): the WoW preset's keys alone, the Defaults' Shift
+//! map (the installer lays down no Shift file), and the WoW preset's Ctrl map less its developer
+//! keys and Ctrl+F6. So a player starts with the keys a fresh install of the game started with,
+//! X examining. The plain map is read with the version update that binds R to reply; a file it
+//! updates is written again.
 //!
 //! An input is looked up from the front: the first map that binds it, and whose modifier is held
 //! (a Shift map's while Shift is held, a plain map's always), names its action. The key map
 //! screen's Apply writes the three files and pushes them again ([`Keys::apply`]).
+//!
+//! While an interface with key maps of its own is shown ([`crate::interface_keys`]), its maps are
+//! looked up first and stand in for the player's: under them only the base map is
+//! ([`KeyStack::set_interface`]). The player's maps are kept as they are, and are back when an
+//! interface without maps of its own is shown.
 //!
 //! What an action does is the action map's: how it toggles (held, latched, a single press), and by
 //! the modifiers held its class (movement, a behavior, the camera, a modifier, the interface), its
@@ -18,6 +28,7 @@
 use auberean_assets::keymap::{ReadKeyMap, VersionUpdate, NORMAL_UPDATES};
 use auberean_assets::strings::EnumMap;
 use auberean_assets::ui::{ActionBindings, ActionValues, KeyMap};
+use auberean_client_sdk::contract::control::class;
 use auberean_dat::tree;
 use auberean_world::records::WorldRecords;
 
@@ -27,6 +38,21 @@ pub const BASE_MAP: u32 = 0x4000_0001;
 pub const DEFAULT_NORMAL: u32 = 0x4100_0001;
 pub const DEFAULT_CONTROL: u32 = 0x4100_0002;
 pub const DEFAULT_SHIFT: u32 = 0x4100_0003;
+/// The WoW preset's maps for keys alone and with Ctrl, which the game's installer lays down.
+pub const WOW_NORMAL: u32 = 0x4100_000D;
+pub const WOW_CONTROL: u32 = 0x4100_000E;
+/// The actions the installer's Ctrl map leaves out of the WoW preset's, by name: the developer
+/// keys (the key map screen lists only actions with a name, so a map saved from it has none of
+/// them) and the inventory's Ctrl+F6.
+pub const INSTALLED_CONTROL_LEAVES_OUT: [&str; 7] = [
+    "VISUALIZE_SOUND_KEY",
+    "PRINT_ACTIVE_SOUND_KEY",
+    "GROOVE_LEVEL_UP_KEY",
+    "GROOVE_LEVEL_DOWN_KEY",
+    "BENCHMARKING_KEY",
+    "DEBUG_HUD_KEY",
+    "INVENTORY_PANEL_KEY",
+];
 /// The input actions enumeration (its enum map's value in the enum maps' mapping).
 pub const INPUT_ACTIONS: u32 = 0x4000_001D;
 const ENUM_MAPS: u32 = 0x4000_0001;
@@ -72,10 +98,12 @@ pub struct Layer {
     pub meta: u32,
 }
 
-/// The stack of key maps, the front last.
+/// The stack of key maps, the front last, and the shown interface's own maps in front of it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyStack {
     layers: Vec<Layer>,
+    /// The shown interface's own maps, the front last; empty for an interface with none.
+    interface: Vec<Layer>,
 }
 
 impl KeyStack {
@@ -100,6 +128,18 @@ impl KeyStack {
         &self.layers
     }
 
+    /// The shown interface's own maps from now on, the front last: looked up before the stack,
+    /// with only its base map under them; none puts the player's maps back.
+    pub fn set_interface(&mut self, layers: Vec<Layer>) {
+        self.interface = layers;
+    }
+
+    /// The shown interface's own maps, the front last.
+    #[must_use]
+    pub fn interface(&self) -> &[Layer] {
+        &self.interface
+    }
+
     /// The action an input names with these modifier bits held: from the front, the first map
     /// that binds the input and whose own modifier bits are all held.
     // D2-04943
@@ -108,10 +148,11 @@ impl KeyStack {
         self.find(input, held).map(|(_, a)| a)
     }
 
-    /// As [`Self::action`], with the place of the map that names it (0 the base map).
+    /// As [`Self::action`], with the place of the map that names it (0 the base map; the shown
+    /// interface's own maps after the stack's).
     #[must_use]
     pub fn find(&self, input: u32, held: u32) -> Option<(usize, u32)> {
-        self.layers.iter().enumerate().rev().find_map(|(i, l)| {
+        let binds = |(i, l): (usize, &Layer)| {
             if held & l.meta != l.meta {
                 return None;
             }
@@ -120,17 +161,32 @@ impl KeyStack {
                 .iter()
                 .find(|b| b.input == input)
                 .map(|b| (i, b.action))
-        })
+        };
+        if self.interface.is_empty() {
+            return self.layers.iter().enumerate().rev().find_map(binds);
+        }
+        let n = self.layers.len();
+        self.interface
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, l)| (n + i, l))
+            .chain(self.layers.iter().enumerate().take(1))
+            .find_map(binds)
     }
 }
 
-/// The data the keys need: the base map and the Defaults maps the files fall back to, the input
-/// actions' names and the action map.
+/// The data the keys need: the base map, the Defaults maps and the installer's maps the files fall
+/// back to, the input actions' names and the action map.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyRecords {
     pub base: KeyMap,
     /// The Defaults maps: keys alone, with Shift, with Ctrl.
     pub defaults: [KeyMap; 3],
+    /// The maps the game's installer lays down in the player's three files, standing in for a
+    /// file that is not there: keys alone, with Shift, with Ctrl. Each is the Defaults map where
+    /// the data has no WoW preset.
+    pub installed: [KeyMap; 3],
     /// The input actions' enum map and its base maps, the map itself first.
     pub actions: Vec<EnumMap>,
     pub action_map: ActionBindings,
@@ -157,18 +213,46 @@ impl KeyRecords {
                 break;
             }
         }
-        Self {
+        let mut keys = Self {
             base: map(BASE_MAP),
             defaults: [
                 map(DEFAULT_NORMAL),
                 map(DEFAULT_SHIFT),
                 map(DEFAULT_CONTROL),
             ],
+            installed: Default::default(),
             actions,
             action_map: records
                 .get::<ActionBindings>(ACTION_MAP)
                 .unwrap_or_default(),
-        }
+        };
+        keys.installed = keys.installed_maps(map(WOW_NORMAL), map(WOW_CONTROL));
+        keys
+    }
+
+    /// The installer's three maps from the WoW preset's maps for keys alone and with Ctrl: the
+    /// plain one as it is, the Defaults' Shift map, and the Ctrl one less the actions the
+    /// installer's file leaves out. The Defaults' map in place of a WoW map the data lacks.
+    #[must_use]
+    pub fn installed_maps(&self, normal: KeyMap, control: KeyMap) -> [KeyMap; 3] {
+        let left_out: Vec<u32> = INSTALLED_CONTROL_LEAVES_OUT
+            .iter()
+            .filter_map(|n| self.action_of(n))
+            .collect();
+        let mut control = control;
+        control.bindings.retain(|b| !left_out.contains(&b.action));
+        let or_default = |m: KeyMap, i: usize| {
+            if m.bindings.is_empty() {
+                self.defaults[i].clone()
+            } else {
+                m
+            }
+        };
+        [
+            or_default(normal, 0),
+            self.defaults[1].clone(),
+            or_default(control, 2),
+        ]
     }
 
     /// The action a name names in the input actions enumeration (letter case ignored; the map
@@ -188,18 +272,10 @@ impl KeyRecords {
     }
 
     /// What an action does with these modifier bits held: the entry for exactly them, else
-    /// without the bit 8, else with none.
-    // D2-03449
+    /// without the bit 8, else with none, as the client's controls read it.
     #[must_use]
     pub fn values(&self, action: u32, modifiers: u32) -> Option<ActionValues> {
-        let m = &self.action_map;
-        m.action_values(action, modifiers)
-            .or_else(|| {
-                (modifiers & 8 != 0)
-                    .then(|| m.action_values(action, modifiers & !8))
-                    .flatten()
-            })
-            .or_else(|| m.action_values(action, 0))
+        auberean_client_sdk::runtime::controls::values(&self.action_map, action, modifiers)
     }
 }
 
@@ -239,27 +315,34 @@ pub struct Keys {
 
 impl Keys {
     /// A key map read from its file: parsed, read with `updates`, and when an update added a
-    /// binding, written back. None when the file is missing or does not read.
+    /// binding, written back. None when the file is missing; `Some(None)` when it does not read.
     // D2-04965
     fn read_file(
         &self,
         store: &mut dyn KeyFileStore,
         name: &str,
         updates: &[VersionUpdate],
-    ) -> Option<KeyMap> {
+    ) -> Option<Option<KeyMap>> {
         let bytes = store.load(name)?;
-        let mut root = tree::parse_bytes(name.as_bytes(), &bytes)?;
+        let Some(mut root) = tree::parse_bytes(name.as_bytes(), &bytes) else {
+            return Some(None);
+        };
         let action_of = |n: &str| self.records.action_of(n);
-        let ReadKeyMap { map, updated, .. } = KeyMap::from_tree(&mut root, &action_of, updates)?;
+        let Some(ReadKeyMap { map, updated, .. }) =
+            KeyMap::from_tree(&mut root, &action_of, updates)
+        else {
+            return Some(None);
+        };
         if updated {
             let mut t = map.to_tree();
             store.save(name, &tree::to_file_bytes(&mut t));
         }
-        Some(map)
+        Some(Some(map))
     }
 
     /// The keys at startup: the base map, then the plain, Shift and Ctrl maps from their files,
-    /// each the data's Defaults map when its file does not load.
+    /// each the installer's map when its file is not there and the data's Defaults map when it
+    /// does not read.
     // D2-01694, D2-04942
     #[must_use]
     pub fn start(records: KeyRecords, files: KeyFiles, store: &mut dyn KeyFileStore) -> Self {
@@ -273,8 +356,9 @@ impl Keys {
         keys
     }
 
-    /// The three player's maps pushed from their files (the plain one with `updates`), each the
-    /// Defaults map when its file does not load (`fall_back`).
+    /// The three player's maps pushed from their files (the plain one with `updates`); with
+    /// `fall_back`, the installer's map for a file that is not there and the Defaults map for one
+    /// that does not read.
     fn push_files(
         &mut self,
         store: &mut dyn KeyFileStore,
@@ -290,9 +374,12 @@ impl Keys {
         for (i, name) in names.iter().enumerate() {
             let u = if i == 0 { updates } else { &[] };
             match self.read_file(store, name, u) {
-                Some(m) => self.stack.push(m, metas[i]),
-                None if fall_back => self.stack.push(self.records.defaults[i].clone(), metas[i]),
-                None => {}
+                Some(Some(m)) => self.stack.push(m, metas[i]),
+                None if fall_back => self.stack.push(self.records.installed[i].clone(), metas[i]),
+                Some(None) if fall_back => {
+                    self.stack.push(self.records.defaults[i].clone(), metas[i]);
+                }
+                _ => {}
             }
         }
     }
@@ -361,7 +448,7 @@ impl Keys {
     pub fn interface_action(&self, input: u32, held: u32) -> Option<u32> {
         let (layer, action) = self.stack.find(input, held)?;
         let v = self.records.values(action, 0)?;
-        (layer > 0 && v.class == crate::controls::class::INTERFACE).then_some(v.value)
+        (layer > 0 && v.class == class::INTERFACE).then_some(v.value)
     }
 
     /// The player's three maps as the stack holds them now (the front three over the base), keys

@@ -41,11 +41,13 @@ fn portal_space_comes_in_and_goes_out_a_second_a_phase() {
     assert_eq!(l.over, Some([1.0, 1.0, 1.0, 0.5]));
     p.think(13.01);
     assert_eq!(p.state, State::ComingOut);
-    let l = p.think(13.51);
+    // Its second counts from the frame after its first.
+    p.think(13.02);
+    let l = p.think(13.52);
     assert!(l.draw_world && !l.draw_tunnel);
     assert!(close(l.world_fov, 1.0 + 1.4 * 0.25), "{l:?}");
     assert!(close(l.over.map_or(0.0, |c| c[3]), 0.5), "{l:?}");
-    p.think(14.02);
+    p.think(14.03);
     assert_eq!(p.state, State::Off);
     // At once: straight in, the tunnel all there.
     let mut q = Passage::new(Random::new());
@@ -53,6 +55,44 @@ fn portal_space_comes_in_and_goes_out_a_second_a_phase() {
     let l = q.think(3.0);
     assert_eq!(q.state, State::In);
     assert!(close(l.visibility, 1.0) && !l.draw_world);
+}
+
+/// The frame that begins coming out draws the world again, and may take long: the white's fade
+/// counts from the frame after it, so a first frame of most of a second leaves the white whole and
+/// the fade its full second; a frame as long as a phase doesn't end it either.
+///
+/// Behaviour: draw.portal.coming-out-counts-from-the-frame-after-the-world-s-first
+#[test]
+fn coming_out_counts_from_the_frame_after_the_world_s_first() {
+    let white = |l: &auberean_draw::portal::Look| l.over.map_or(0.0, |c| c[3]);
+    for long in [0.8, 1.5] {
+        let mut p = Passage::new(Random::new());
+        p.want(true, true, 0.0);
+        p.think(0.0);
+        p.want(false, false, 1.0);
+        let mut now = 1.0;
+        while p.state != State::ComingOut {
+            now += 1.0 / 60.0;
+            p.think(now);
+        }
+        let began = now;
+        now += long;
+        let l = p.think(now);
+        assert_eq!(p.state, State::ComingOut, "after a first frame of {long} s");
+        assert!(close(white(&l), 1.0), "the white whole: {l:?}");
+        let from = now;
+        let mut last = 1.0;
+        while p.state == State::ComingOut {
+            now += 1.0 / 60.0;
+            let l = p.think(now);
+            assert!(white(&l) <= last, "the white only fades");
+            last = white(&l);
+        }
+        assert!(
+            now - from > 1.0 && now - from < 1.0 + 2.0 / 60.0,
+            "a second's fade, from {began}"
+        );
+    }
 }
 
 /// The tunnel is 150 rings 3 m apart, each with a radius of `10 + 6 sin(0.01 d)` at its distance `d`

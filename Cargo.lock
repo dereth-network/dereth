@@ -253,6 +253,7 @@ dependencies = [
  "auberean-dat",
  "auberean-draw",
  "auberean-gpu",
+ "auberean-horizon",
  "auberean-interface",
  "auberean-physics",
  "auberean-present",
@@ -351,6 +352,7 @@ dependencies = [
  "auberean-dat",
  "auberean-draw",
  "auberean-gpu",
+ "auberean-horizon",
  "auberean-interface",
  "auberean-present",
  "auberean-remaster",
@@ -365,6 +367,7 @@ dependencies = [
  "dereth-console",
  "dereth-primitives",
  "embed-resource",
+ "gilrs",
  "open",
  "png",
  "pollster",
@@ -430,14 +433,39 @@ dependencies = [
 name = "auberean-client-sdk"
 version = "0.0.0"
 dependencies = [
+ "auberean-assets",
  "auberean-client-contract",
  "auberean-client-model",
  "auberean-client-net",
  "auberean-client-runtime",
+ "auberean-client-sim",
  "auberean-dat",
+ "auberean-plugin-host",
  "auberean-protocol",
  "auberean-script",
+ "auberean-testkit",
  "auberean-text",
+ "auberean-world",
+ "dereth-plugin-api",
+ "dereth-plugin-lua",
+ "dereth-plugin-wasm",
+]
+
+[[package]]
+name = "auberean-client-sim"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-client-contract",
+ "auberean-client-model",
+ "auberean-client-runtime",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-world",
+ "dereth-primitives",
 ]
 
 [[package]]
@@ -522,7 +550,36 @@ version = "0.1.9"
 dependencies = [
  "auberean-client-sdk",
  "auberean-dat",
+ "auberean-primitives",
  "auberean-testkit",
+]
+
+[[package]]
+name = "auberean-horizon"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-audio",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-interface",
+ "auberean-options",
+ "auberean-present",
+ "auberean-primitives",
+ "auberean-scene",
+ "auberean-shell",
+ "auberean-testkit",
+ "auberean-ui",
+ "auberean-world",
+ "dereth-horizon-art",
+ "dereth-map-picture",
+ "dereth-primitives",
+ "dereth-ui-kit",
+ "png",
+ "tracing",
+ "wgpu",
 ]
 
 [[package]]
@@ -546,6 +603,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-options"
+version = "0.0.0"
+dependencies = [
+ "auberean-dat",
+ "auberean-text",
+]
+
+[[package]]
 name = "auberean-pack"
 version = "0.0.0"
 dependencies = [
@@ -566,6 +631,20 @@ dependencies = [
  "dereth-physics",
  "dereth-primitives",
  "dereth-terrain",
+]
+
+[[package]]
+name = "auberean-plugin-host"
+version = "0.0.0"
+dependencies = [
+ "auberean-client-contract",
+ "auberean-client-net",
+ "auberean-client-runtime",
+ "auberean-protocol",
+ "auberean-testkit",
+ "dereth-plugin-api",
+ "dereth-plugin-lua",
+ "dereth-plugin-package",
 ]
 
 [[package]]
@@ -637,6 +716,7 @@ dependencies = [
  "auberean-world",
  "dereth-physics",
  "dereth-primitives",
+ "dereth-ui-overlay",
  "tracing",
 ]
 
@@ -662,6 +742,7 @@ dependencies = [
  "auberean-client-sdk",
  "auberean-dat",
  "auberean-draw",
+ "auberean-options",
  "auberean-physics",
  "auberean-primitives",
  "auberean-scene",
@@ -669,6 +750,7 @@ dependencies = [
  "auberean-world",
  "dereth-audio",
  "dereth-primitives",
+ "dereth-ui-overlay",
  "tracing",
 ]
 
@@ -710,7 +792,9 @@ name = "auberean-ui-game"
 version = "0.0.0"
 dependencies = [
  "auberean-assets",
+ "auberean-client-contract",
  "auberean-dat",
+ "auberean-options",
  "auberean-primitives",
  "auberean-testkit",
  "auberean-text",
@@ -742,6 +826,7 @@ dependencies = [
  "auberean-client-sdk",
  "auberean-draw",
  "auberean-gpu",
+ "auberean-horizon",
  "auberean-interface",
  "auberean-present",
  "auberean-scene",
@@ -1641,7 +1726,8 @@ name = "dereth-client-contract"
 version = "0.0.0"
 dependencies = [
  "dereth-primitives",
- "glam",
+ "dereth-render-params",
+ "dereth-ui-overlay",
  "raw-window-handle",
 ]
 
@@ -1906,6 +1992,7 @@ dependencies = [
  "dereth-client-net",
  "dereth-client-runtime",
  "dereth-dat",
+ "dereth-horizon-art",
  "dereth-input",
  "dereth-navigation",
  "dereth-plugin-api",
@@ -1920,10 +2007,16 @@ dependencies = [
  "dereth-ui-screens",
  "dereth-world-data",
  "png",
- "serde",
  "serde_json",
  "tracing",
  "web-time",
+]
+
+[[package]]
+name = "dereth-horizon-art"
+version = "0.0.0"
+dependencies = [
+ "dereth-ui-kit",
 ]
 
 [[package]]
@@ -1971,6 +2064,14 @@ dependencies = [
  "sha2",
  "toml",
  "zip",
+]
+
+[[package]]
+name = "dereth-map-picture"
+version = "0.0.0"
+dependencies = [
+ "tracing",
+ "web-time",
 ]
 
 [[package]]
@@ -2262,11 +2363,19 @@ dependencies = [
 name = "dereth-render-cpu"
 version = "0.0.0"
 dependencies = [
- "dereth-client-contract",
  "dereth-primitives",
+ "dereth-render-params",
  "glam",
  "thiserror 2.0.20",
  "zune-jpeg",
+]
+
+[[package]]
+name = "dereth-render-params"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "glam",
 ]
 
 [[package]]
@@ -2289,6 +2398,7 @@ dependencies = [
  "dereth-client-contract",
  "dereth-client-runtime",
  "dereth-dat",
+ "dereth-map-picture",
  "dereth-navigation",
  "dereth-physics",
  "dereth-primitives",
@@ -2411,12 +2521,19 @@ dependencies = [
 name = "dereth-ui-kit"
 version = "0.0.0"
 dependencies = [
- "dereth-client-contract",
  "dereth-primitives",
+ "dereth-ui-overlay",
  "png",
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "dereth-ui-overlay"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
 ]
 
 [[package]]
@@ -2447,7 +2564,7 @@ dependencies = [
  "dereth-client-sdk",
  "dereth-client-shell",
  "dereth-dat",
- "dereth-horizon",
+ "dereth-horizon-art",
  "dereth-input",
  "dereth-navigation",
  "dereth-primitives",

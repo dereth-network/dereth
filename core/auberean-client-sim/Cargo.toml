@@ -1,0 +1,30 @@
+[package]
+name = "auberean-client-sim"
+description = "The world without a window: the land, the interior cells and the solid objects about the player as physics finds them, the player's body moved through them by its controls and reported through the client, and the bodies of everything else the client knows."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-dat.workspace = true
+auberean-assets.workspace = true
+auberean-world.workspace = true
+auberean-physics.workspace = true
+auberean-animation.workspace = true
+auberean-protocol.workspace = true
+auberean-client-contract.workspace = true
+auberean-client-model.workspace = true
+auberean-client-runtime.workspace = true
+# Positions, cells and frames, as physics takes them.
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

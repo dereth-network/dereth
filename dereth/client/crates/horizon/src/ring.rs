@@ -1,40 +1,16 @@
 //! The selection ring: the picture laid on the ground under the selected object, and the ground
 //! marker the interface asks the world to draw each frame.
 
-use dereth_client_contract::overlay::{GroundMarker, OverlaySpace, OverlayTexture};
-use dereth_primitives::{ObjectId, TextureData, TextureFormat};
+use dereth_client_contract::overlay::GroundMarker;
+use dereth_primitives::ObjectId;
+use dereth_ui_kit::selection;
 
-use crate::art::Art;
+pub use dereth_ui_kit::selection::{
+    drawn, inner_picture, picture, RING_INNER_PIECE, RING_INNER_TEXTURE, RING_INNER_TURN_SECONDS,
+    RING_PIECE, RING_SCALE, RING_TEXTURE, RING_TURN_SECONDS,
+};
+
 use crate::ui::game::Relation;
-
-/// The ring's texture, among the interface's own.
-pub const RING_TEXTURE: OverlayTexture = OverlayTexture {
-    space: OverlaySpace::Local,
-    key: 0x5249_4E47,
-};
-
-/// The art piece the ring is drawn from, when the art has one.
-pub const RING_PIECE: &str = "ground.ring";
-
-/// The ring's inner layer among the interface's textures, and the art piece it is drawn from.
-/// It lies under the outer ring and turns the other way, so the two move against each other.
-pub const RING_INNER_TEXTURE: OverlayTexture = OverlayTexture {
-    space: OverlaySpace::Local,
-    key: 0x5249_4E49,
-};
-pub const RING_INNER_PIECE: &str = "ground.ring-inner";
-
-/// How long the inner layer takes to turn once, the other way, in seconds.
-pub const RING_INNER_TURN_SECONDS: f64 = 12.0;
-
-/// How wide the ring is, as a multiple of the radius its object is selected within.
-pub const RING_SCALE: f32 = 1.25;
-
-/// How long the ring takes to turn once, in seconds.
-pub const RING_TURN_SECONDS: f64 = 8.0;
-
-/// The side of the drawn ring, in pixels, when the art has none.
-const DRAWN_SIZE: u32 = 128;
 
 /// Whether a selection of `relation` is ringed: a player, a person or a creature. A thing (an
 /// item, a door, something wielded) is marked by its name and the chevron alone.
@@ -61,18 +37,7 @@ pub fn tint(relation: Relation) -> u32 {
 /// nothing selected.
 #[must_use]
 pub fn marker(target: Option<(ObjectId, Relation)>, time: f64) -> Option<GroundMarker> {
-    let (object, relation) = target?;
-    let turns = (time / RING_TURN_SECONDS).fract();
-    #[allow(clippy::cast_possible_truncation)]
-    let turn = (turns * std::f64::consts::TAU) as f32;
-    Some(GroundMarker {
-        object,
-        texture: RING_TEXTURE,
-        uv: [0.0, 0.0, 1.0, 1.0],
-        tint: tint(relation),
-        scale: RING_SCALE,
-        turn,
-    })
+    selection::marker(target.map(|(o, r)| (o, tint(r))), time)
 }
 
 /// The ground markers for the selection `target` at `time` seconds: the inner layer first, when
@@ -80,66 +45,7 @@ pub fn marker(target: Option<(ObjectId, Relation)>, time: f64) -> Option<GroundM
 /// nothing selected.
 #[must_use]
 pub fn markers(target: Option<(ObjectId, Relation)>, time: f64, inner: bool) -> Vec<GroundMarker> {
-    let Some(outer) = marker(target, time) else {
-        return Vec::new();
-    };
-    let mut out = Vec::with_capacity(2);
-    if inner {
-        let turns = (time / RING_INNER_TURN_SECONDS).fract();
-        #[allow(clippy::cast_possible_truncation)]
-        let turn = -(turns * std::f64::consts::TAU) as f32;
-        out.push(GroundMarker {
-            texture: RING_INNER_TEXTURE,
-            turn,
-            ..outer
-        });
-    }
-    out.push(outer);
-    out
-}
-
-/// The inner layer's picture, when the art has one.
-#[must_use]
-pub fn inner_picture(art: &Art) -> Option<TextureData> {
-    art.piece_picture(RING_INNER_PIECE)
-}
-
-/// The ring's picture: the art's piece when it has one, a white ring the tint colours, drawn
-/// here, when it does not.
-#[must_use]
-pub fn picture(art: &Art) -> TextureData {
-    art.piece_picture(RING_PIECE).unwrap_or_else(drawn)
-}
-
-/// A white ring on nothing, soft at both edges, with a fainter ring inside it.
-#[must_use]
-pub fn drawn() -> TextureData {
-    let n = DRAWN_SIZE;
-    #[allow(clippy::cast_precision_loss)]
-    let half = n as f32 / 2.0;
-    let band =
-        |r: f32, centre: f32, width: f32| (1.0 - ((r - centre).abs() / width)).clamp(0.0, 1.0);
-    let mut bgra = Vec::with_capacity((n * n * 4) as usize);
-    for y in 0..n {
-        for x in 0..n {
-            #[allow(clippy::cast_precision_loss)]
-            let (dx, dy) = (
-                (x as f32 + 0.5 - half) / half,
-                (y as f32 + 0.5 - half) / half,
-            );
-            let r = (dx * dx + dy * dy).sqrt();
-            let a = band(r, 0.88, 0.07).max(band(r, 0.72, 0.03) * 0.45);
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let a = (a * 255.0).round() as u8;
-            bgra.extend_from_slice(&[255, 255, 255, a]);
-        }
-    }
-    TextureData {
-        width: n,
-        height: n,
-        format: TextureFormat::Bgra8,
-        levels: vec![bgra],
-    }
+    selection::markers(target.map(|(o, r)| (o, tint(r))), time, inner)
 }
 
 #[cfg(test)]

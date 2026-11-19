@@ -1,12 +1,31 @@
-//! What a front end (a window, a headless driver, a test) asks the client to do: the action
-//! vocabulary.
+//! What a front end (a window, a headless driver, a test) asks the client to do and hears back: the
+//! actions, the session and the events.
 //!
-//! **Depends on** `auberean-primitives` only. **Used by** the runtime, which carries the actions out,
-//! and every front end.
+//! The actions are the vocabulary below, the controls a key or a script presses among them
+//! ([`control`]); where the session stands is [`session`], the stream of what happened [`event`],
+//! the game as a front end reads it [`view`] (its string references in [`text`]), what the
+//! player's scripts tell the panels [`notice`], the game's questions to the player [`question`],
+//! the orbit camera an interface may choose in place of the game's own [`orbit`], and the modes
+//! of the player's pets [`pet`].
+//!
+//! **Depends on** `auberean-primitives` only. **Used by** the runtime, which carries the actions out
+//! and tells the session and the events, and every front end.
 //!
 //! **Must never** name a device's input: an [`Action`] is a player's intent; a key or a click
-//! becomes an action in the front end's input layer, and the runtime knows nothing of keys
-//! (`cargo xtask seams`).
+//! becomes an action (a [`control::Control`] pressed or let go) in the front end's input layer, and
+//! the runtime knows nothing of keys
+//! (`cargo xtask seams`). Nor does it hold the server's or the scripts' own types: what it carries
+//! is plain data, text written out.
+
+pub mod control;
+pub mod event;
+pub mod notice;
+pub mod orbit;
+pub mod pet;
+pub mod question;
+pub mod session;
+pub mod text;
+pub mod view;
 
 use auberean_primitives::Vec3;
 
@@ -36,6 +55,21 @@ pub enum Action {
     /// Select an object (or nothing, 0) from a panel: the player's scripts take the selection,
     /// and the player's head stays as it is.
     SetSelection { target: u64 },
+    /// Select the next object of a kind around the player, or with `previous` the one before, as
+    /// the selection keys do: among the objects that may be selected within the radar's range
+    /// (indoors the shorter), ordered by how far each stands (along the ground, and a fifth more
+    /// for each meter up or down), then by id, round again past either end. With nothing of the
+    /// kind selected in range, the nearest (with `previous`, the farthest). Nothing is selected in
+    /// its place when none is there.
+    SelectCycle { kind: SelectKind, previous: bool },
+    /// Select the nearest object of a kind around the player, as its selection key does.
+    SelectNearest { kind: SelectKind },
+    /// Select the player itself; when it is already selected, the selection before.
+    SelectSelf,
+    /// Select the selection before this one.
+    SelectLast,
+    /// Select the last to attack the player.
+    SelectLastAttacker,
     /// Ask the scripts what an item is called for a number of it; the inventory then says.
     NameAmount { item: u64, quantity: u32 },
     /// Use what is selected: a double click on it, or the use key.
@@ -76,7 +110,9 @@ pub enum Action {
     MeltAll { container: u64 },
     /// A container closed (or opened) for the player.
     SetOpen { container: u64, open: bool },
-    /// Start attacking what is selected, or stop.
+    /// Start attacking what is selected, or stop. To start, a player whose scripts say it
+    /// targets on its own now (its option on, nothing selected it could attack) has the nearest
+    /// foe selected first, as [`Action::SelectNearest`] selects it.
     Attack { start: bool },
     /// Open the examination panel, asking for these tabs, or close it (`tabs` none).
     Examination { tabs: Option<u32> },
@@ -120,12 +156,49 @@ pub enum Action {
         data_id: u32,
         selection: u64,
     },
-    /// Say something aloud: a line typed into the chat box.
+    /// A line typed into the chat box, carried out by the player's command line: said aloud, or
+    /// the command it names carried out (the commands made known first when nothing has made
+    /// them known). A line that names a command no one knows is told as
+    /// [`event::ChatEvent::UnknownCommand`].
     Say { text: String },
+    /// Make the player's commands known to the command line, as the play screen does when it
+    /// comes up.
+    KnowCommands,
+    /// Step through one of the lists the chat entry goes back and forth through: the item before
+    /// the one last given (`earlier`), or after it. The answer comes as one
+    /// [`event::ChatEvent::History`] for each ask, in order.
+    AskHistory { list: ChatHistory, earlier: bool },
+    /// Set something of the chat windows, as the chat panel and the chat options page do.
+    ChatWindows(ChatWindowAction),
+    /// Stop attacking an object, as the selection does when it moves off the object attacked.
+    CeaseAttack { target: u64 },
+    /// Show or hide the names over heads, kept with the player's options.
+    ShowObjectNames { on: bool },
+    /// Keep the panels' places with the player's options, in the order given (the order the
+    /// panels were made), then send them, with the windows' opacities, to the server to keep.
+    KeepUiLocations { places: Vec<UiLocation> },
+    /// Ask which of the objects around the player are fellows and which the player may attack,
+    /// as a selection key does: answered in the view's next refresh ([`view::Thing::fellow`]).
+    AskTargets,
+    /// Ask for the panels' places the player's interface keeps (as the display set up again
+    /// does): answered in the view's next refresh ([`view::View::saved_places`]).
+    AskSavedPlaces,
+    /// Play a scene of the story's acts again, as the story page does: the scene's sequence
+    /// told to the play screen as the scripts would tell it, when the act holds it and it may
+    /// be played.
+    PlayStoryScene { act: u32, scene: u32 },
     /// Turn the head toward a direction.
     TurnHead { x: f32, y: f32 },
     /// Ask the server for a data record the client lacks.
     RequestData { kind: u32, id: u32 },
+    /// Press or let go of a control, as a key bound to it would: the client carries the
+    /// controls in force and sums them into each frame's movement and camera.
+    Control(control::Control),
+    /// Let go of every control in force, each as its release would: as when the window loses the
+    /// keyboard. With `typing` (a text entry took the keys), the modifier and interface classes'
+    /// stay. A held control ends; a latched run and a single press for this frame stay, as a
+    /// release leaves them.
+    ReleaseControls { typing: bool },
     /// Ask the player's body to move: the asked motion and facing.
     Move(Motion),
     /// Jump, with this velocity.
@@ -152,6 +225,87 @@ pub enum Action {
     Emote { string: u32, table: u32 },
     /// Start a tell to someone by name, as pressing a fellow's row twice does.
     AssistedTell { name: String },
+    /// Answer one of the game's open questions ([`question::Question`]), yes or no (a question with
+    /// one answer takes either): the runtime does what the answer asks, as the game's own
+    /// interface does, and the question goes. A question no longer open is let be.
+    AnswerQuestion { question: u32, yes: bool },
+}
+
+/// The kinds of object the selection keys select among ([`Action::SelectCycle`],
+/// [`Action::SelectNearest`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectKind {
+    /// Creatures that are not players.
+    Creature,
+    Item,
+    Player,
+    /// Players and creatures the player may attack, other than its fellows and the pets of the
+    /// player or of a fellow.
+    Foe,
+    /// The player's fellows.
+    Fellow,
+    /// The player's own pets.
+    Pet,
+}
+
+/// The lists the chat entry steps through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatHistory {
+    /// The lines the player typed.
+    Commands,
+    /// The names the player sent tells to.
+    Retells,
+    /// The names that sent the player tells.
+    Replies,
+}
+
+/// What the chat panel and the chat options page set of the chat windows, kept with the
+/// player's options. Windows are numbered from 1; a kind is a kind of text (each window shows
+/// some kinds).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ChatWindowAction {
+    /// A window's opacity, 0 to 1 (the window named by its element name's token), then the
+    /// windows' places and opacities sent to the server to keep.
+    Opacity {
+        window: u32,
+        opacity: f32,
+    },
+    /// The kinds of text a window shows, as a mask.
+    Filter {
+        window: u32,
+        filter: u32,
+    },
+    /// A kind of text's font size, its color, and whether it pops the chat up.
+    FontSize {
+        kind: u32,
+        size: u32,
+    },
+    FontColor {
+        kind: u32,
+        color: u32,
+    },
+    Popup {
+        kind: u32,
+        on: bool,
+    },
+    /// The kind of text (a channel) a window is given over to.
+    Devote {
+        window: u32,
+        kind: u32,
+    },
+    /// The chat options sent to the server to keep.
+    Keep,
+}
+
+/// Where a panel is kept: the layout it is made from and its element's name there (each a
+/// string's token), its upper left and lower right corners (left, top, right, bottom, in clip
+/// space: -1 to 1 across the display, the vertical turned over), and whether it shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct UiLocation {
+    pub layout: u32,
+    pub element: u32,
+    pub corners: [f32; 4],
+    pub visible: bool,
 }
 
 /// What the social window asks of the player's fellowship and allegiance.
@@ -227,8 +381,26 @@ pub enum PlayerOption {
     ShortcutHeight,
 }
 
+/// The kinds of shortcut a toolbar slot holds ([`ToolbarShortcut::kind`], the view's
+/// [`view::Shortcut::kind`]); 0 is an empty slot.
+pub mod shortcut_kind {
+    /// An attack or another skill, by its enumerated value.
+    pub const SKILL: u32 = 0x4000_0001;
+    /// An item, by its instance id.
+    pub const ITEM: u32 = 0x4000_0002;
+    /// A line of text.
+    pub const TEXT: u32 = 0x4000_0003;
+    /// An emote, by its enumerated value.
+    pub const EMOTE: u32 = 0x4000_0004;
+    /// A recipe, by its data id.
+    pub const RECIPE: u32 = 0x4000_0006;
+}
+
+/// The toolbar slots the scripts keep: ten sets of ten.
+pub const TOOLBAR_SLOTS: u32 = 100;
+
 /// What a toolbar slot holds: its kind (a skill, an item, a line of text, an emote, a recipe; 0
-/// for nothing) and the one datum its kind uses.
+/// for nothing, [`shortcut_kind`]) and the one datum its kind uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ToolbarShortcut {
     pub kind: u32,

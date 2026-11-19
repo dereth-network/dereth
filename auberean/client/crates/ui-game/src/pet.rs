@@ -27,6 +27,9 @@ use auberean_ui::token::{attr, msg, state};
 use auberean_ui::types::{button_id, text::text_msg};
 use auberean_ui::{Handle, Mail, Token, Ui};
 
+use auberean_client_contract::pet::mode;
+pub use auberean_client_contract::pet::{next_mode, previous_mode, shown_name};
+
 use crate::gameplay::{Child, GamePlay, Notice, Record, Request, View, PLAY_LAYOUT_ENUM};
 use crate::inventory::NO_OBJECT;
 
@@ -88,15 +91,15 @@ const REFRESH: f64 = 5.0;
 
 /// The modes in their order, each with its look.
 pub const MODES: [(u32, &str); 9] = [
-    (0x20, "Aggressive"),
-    (0x1000, "Opportunistic"),
-    (0x2000, "Courageous"),
-    (0x4000_0001, "Protective"),
-    (0x4000_0003, "Assisting"),
-    (0x4000_0004, "Defensive"),
-    (0x4000_0002, "Supporting"),
-    (0x4000_0006, "Cooperative"),
-    (0x4000_0005, "Idle"),
+    (mode::AGGRESSIVE, "Aggressive"),
+    (mode::OPPORTUNISTIC, "Opportunistic"),
+    (mode::COURAGEOUS, "Courageous"),
+    (mode::PROTECTIVE, "Protective"),
+    (mode::ASSISTING, "Assisting"),
+    (mode::DEFENSIVE, "Defensive"),
+    (mode::SUPPORTING, "Supporting"),
+    (mode::COOPERATIVE, "Cooperative"),
+    (mode::IDLE, "Idle"),
 ];
 
 /// What the pet panel asks of the player's scripts.
@@ -117,42 +120,6 @@ pub enum PetRequest {
         pet: u64,
         name: String,
     },
-}
-
-/// The mode after one (the first after the last, or after one not in the table).
-// D2-02368
-#[must_use]
-pub fn next_mode(mode: u32) -> u32 {
-    match MODES.iter().position(|(m, _)| *m == mode) {
-        Some(i) => MODES[(i + 1) % MODES.len()].0,
-        None => MODES[0].0,
-    }
-}
-
-/// The mode before one (the last before the first, or before one not in the table).
-// D2-02369
-#[must_use]
-pub fn previous_mode(mode: u32) -> u32 {
-    match MODES.iter().position(|(m, _)| *m == mode) {
-        Some(0) | None => MODES[MODES.len() - 1].0,
-        Some(i) => MODES[i - 1].0,
-    }
-}
-
-/// A pet's name without the part in parentheses (from an opening one after the first letter to
-/// the closing one after it, every place that part occurs).
-#[must_use]
-pub fn shown_name(name: &str) -> String {
-    let units: Vec<u16> = name.encode_utf16().collect();
-    let open = units.iter().position(|c| *c == u16::from(b'('));
-    let close = units.iter().position(|c| *c == u16::from(b')'));
-    match (open, close) {
-        (Some(o), Some(c)) if o > 0 && c > o => {
-            let part = String::from_utf16_lossy(&units[o..=c]);
-            name.replace(&part, "")
-        }
-        _ => name.to_owned(),
-    }
 }
 
 /// A pet as the panel keeps it.

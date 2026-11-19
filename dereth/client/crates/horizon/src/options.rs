@@ -151,7 +151,7 @@ pub fn parse_point(value: &str) -> Option<(f32, f32)> {
 
 /// How opaque a log window's ground is until the player sets it, active or not: the docked
 /// window's first ground.
-pub const DEFAULT_CHAT_OPACITY: f32 = 144.0 / 255.0;
+pub const DEFAULT_CHAT_OPACITY: f32 = dereth_ui_kit::hud::LOG_OPACITY;
 
 /// How opaque the log window's ground is, while it is active (the pointer over it, or its line
 /// being typed) and while it is not: the docked window's, and each tab's when popped out.

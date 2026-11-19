@@ -12,6 +12,11 @@
 //!
 //! Started at once (entering the world) it goes straight in. While in, the world is not drawn.
 //!
+//! Coming out counts its second from the frame after its first. That first frame draws the world
+//! again, and the pictures the world wants are loaded as it is first drawn, so it can take most of
+//! a second, which would otherwise cut the white's fade short. The original counts from the first
+//! frame.
+//!
 //! **The tunnel** is 150 rings 3 m apart, each turned a little from the one before by smooth noise
 //! (a new tunnel each time) with a radius of `10 + 6 sin(0.01 d)` at its distance `d` along the
 //! tube; the camera rushes along it at 120 m/s, and the rings it passes are made again at the far
@@ -48,6 +53,8 @@ pub const SPEED: f32 = 120.0;
 pub const PHASE: f64 = 1.0;
 /// The tunnel camera's own vertical field of view, degrees.
 pub const FOV: f32 = 65.0;
+/// The world's field of view as coming out begins, times its own: the widest it is drawn at.
+pub const WORLD_FOV_OUT: f32 = 1.0 + 1.4;
 /// The inner tube's material, the outer's, and the nebula's mesh.
 pub const INNER: u32 = 0x3100_0350;
 pub const OUTER: u32 = 0x3100_0351;
@@ -145,6 +152,8 @@ pub struct Passage {
     pub state: State,
     want: bool,
     since: f64,
+    /// Coming out began on the last frame: its second counts from this one.
+    fresh: bool,
     last: f64,
     /// The camera's distance along the tube, and the ring it last passed.
     at: f32,
@@ -215,6 +224,7 @@ impl Passage {
             state: State::Off,
             want: false,
             since: 0.0,
+            fresh: false,
             last: 0.0,
             at: 0.0,
             passed: 0,
@@ -266,6 +276,7 @@ impl Passage {
             } else if !want {
                 self.state = State::Off;
                 self.since = now;
+                self.fresh = false;
                 self.sounds.push(PassageSound::Stop);
             }
         }
@@ -281,6 +292,7 @@ impl Passage {
         self.sounds.push(PassageSound::Start);
         self.state = state;
         self.since = now;
+        self.fresh = false;
         self.last = now;
         self.passed = 0;
         self.random = self.dice.roll_float(0.0, 10_000.0);
@@ -326,6 +338,10 @@ impl Passage {
     pub fn think(&mut self, now: f64) -> Look {
         let dt = (now - self.last).max(0.0);
         self.last = now;
+        // However long the world's first frame took, coming out starts over from here.
+        if std::mem::take(&mut self.fresh) && self.state == State::ComingOut {
+            self.since = now;
+        }
         if self.state == State::Off && self.want {
             self.start(State::ComingIn, now);
         }
@@ -344,6 +360,7 @@ impl Passage {
             if let Some(s) = next {
                 self.state = s;
                 self.since = now;
+                self.fresh = s == State::ComingOut;
             }
         }
         #[allow(clippy::cast_possible_truncation)]

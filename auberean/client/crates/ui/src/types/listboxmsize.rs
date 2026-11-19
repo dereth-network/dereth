@@ -147,6 +147,11 @@ impl Ui {
         if sizes.is_empty() {
             return;
         }
+        if vertical {
+            if let Some(lines) = self.msize_lines(h) {
+                return self.msize_scroll_by_lines(h, s, &lines);
+            }
+        }
         let Some(i) = index_at(view, &sizes) else {
             return;
         };
@@ -159,6 +164,82 @@ impl Ui {
             Scroll::VLineInc | Scroll::HLineInc => (size, true, last),
         };
         self.listbox_new_goal(h, view, delta, on, limit, goal);
+    }
+
+    /// The lines a list told to step through its rows' own lists steps by, top to bottom: a row
+    /// holding such a list with rows in it is the part above that list, each of its rows and what
+    /// is left below them; any other row is one line. `None` for a list not told, or of more than
+    /// one column.
+    fn msize_lines(&self, h: Handle) -> Option<Vec<i32>> {
+        let n = self.node(h)?;
+        let inner = n.lists.list.step_through?;
+        if n.lists.list.widths.len() != 1 {
+            return None;
+        }
+        let mut lines = Vec::new();
+        for (item, height) in self.list_items(h).into_iter().zip(&n.lists.list.heights) {
+            let list = self
+                .child_recursive(item, inner)
+                .filter(|l| !self.list_items(*l).is_empty());
+            let (Some(list), Some(top), Some(at)) = (
+                list,
+                self.screen_rect(item),
+                list.and_then(|l| self.screen_rect(l)),
+            ) else {
+                lines.push(*height);
+                continue;
+            };
+            let above = at.y0 - top.y0;
+            lines.push(above);
+            let mut used = above;
+            for r in self.list_items(list) {
+                let rh = self.node(r).map_or(0, |n| n.rect.height());
+                lines.push(rh);
+                used += rh;
+            }
+            lines.push(*height - used);
+        }
+        lines.retain(|l| *l > 0);
+        Some(lines)
+    }
+
+    /// A vertical scroll by line or page through `lines`, as a goal: a line on goes to the end of
+    /// the line the view (or the goal under way) is in, a line back to the start of the line
+    /// before it; a page is the view's height less the line the view is in (or that line, when
+    /// taller than the view). Never before the sheet's start or past its last full view.
+    fn msize_scroll_by_lines(&mut self, h: Handle, s: Scroll, lines: &[i32]) {
+        let Some(n) = self.node(h) else { return };
+        let l = &n.lists.list;
+        let mut from = l.y_view;
+        if l.bits & bits::ANIMATING != 0 {
+            from = self.int_or(h, name::GOAL_Y_VIEW, from);
+        }
+        let len = n.rect.height();
+        let last = (l.paper_h - len).max(0);
+        // Each line's start and end on the sheet.
+        let spans: Vec<(i32, i32)> = lines
+            .iter()
+            .scan(0, |at, l| {
+                let start = *at;
+                *at += l;
+                Some((start, *at))
+            })
+            .collect();
+        let holding = spans.iter().find(|(_, end)| *end > from).copied();
+        let line = holding.map_or(0, |(start, end)| end - start);
+        let page = if line < len { len - line } else { line };
+        let goal = match s {
+            Scroll::VLineInc => holding.map_or(from, |(_, end)| end),
+            Scroll::VLineDec => spans
+                .iter()
+                .rev()
+                .find(|(start, _)| *start < from)
+                .map_or(0, |(start, _)| *start),
+            Scroll::VPageInc => from + page,
+            Scroll::VPageDec => from - page,
+            _ => return,
+        };
+        self.set_attr(h, name::GOAL_Y_VIEW, Value::Int(goal.clamp(0, last)));
     }
 
     /// The row under the point `(x, y)` on the screen, by the column and row whose sizes hold it.

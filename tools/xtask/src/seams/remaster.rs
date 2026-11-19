@@ -80,6 +80,8 @@ pub const REMASTER_TREE_DERE: &[&str] = &[
     "dereth-render-cpu",
     "dereth-primitives",
     "dereth-client-contract",
+    "dereth-render-params",
+    "dereth-ui-overlay",
 ];
 
 /// The remaster's only dependent, and the layer's.

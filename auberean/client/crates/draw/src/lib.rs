@@ -24,6 +24,7 @@
 //! - [`shore`]: the strips along the shores of the detailed blocks' water.
 //! - [`streak`]: the trails a moving object's part leaves while they are on.
 //! - [`volume`]: the dynamic objects' volumes of shadow.
+//! - [`warm`]: the world's pictures readied while portal space still hides it.
 //! - [`workers`]: work a frame can share among threads, where there are threads.
 //! - [`particles`], [`effects`], [`systems`]: particle systems run as the client runs them, the
 //!   effects that set them going, and the systems kept together, shared and drawn once a frame.
@@ -50,4 +51,5 @@ pub mod shore;
 pub mod streak;
 pub mod systems;
 pub mod volume;
+pub mod warm;
 pub mod workers;

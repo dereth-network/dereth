@@ -4,12 +4,12 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use auberean_client_contract::{Action, PlayerOption, SocialAction};
+use auberean_client_contract::{Action, ChatWindowAction, PlayerOption, SocialAction, UiLocation};
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::examination::Request as Examination;
 use auberean_client_runtime::host::{argument_slots, is_panel_notice};
-use auberean_client_runtime::interface::function;
 use auberean_client_runtime::interface::OPTION_SETTERS;
+use auberean_client_runtime::interface::{function, ui_locations};
 use auberean_client_runtime::notices::{reading, Hearers, NOTICES};
 use auberean_client_runtime::{CallResult, Client, ClientData, ClientSettings, InterfaceArg};
 use auberean_protocol::{ClientMessage, ServerMessage};
@@ -20,6 +20,7 @@ use auberean_script::options::kind;
 use auberean_testkit::captures::{self, carrier, ScriptCall};
 
 use crate::calls::{data, PLAY_CHARACTER};
+use crate::chat::{called_since, in_the_world};
 
 /// The player's report of its own position.
 const MY_POSITION: u32 = 0x1008E;
@@ -73,6 +74,8 @@ enum Request {
     Close,
     /// Stop attacking.
     StopAttack,
+    /// Stop attacking the object the send names, as the selection does when it moves off it.
+    CeaseAttack,
     /// Set the chat options the send carries, each entry as the chat options' window sets it,
     /// then send them.
     ChatOptions,
@@ -128,7 +131,7 @@ const MADE: &[(u32, Request)] = &[
     (SET_SHORTCUT, Request::PutInSlot),
     (UPLOAD_UI_SETTINGS, Request::UiSettings),
     (UPLOAD_GAME_OPTIONS, Request::GameOptions),
-    (0x8204_0020, Request::Interface(0x00B4_00CF)),
+    (0x8204_0020, Request::CeaseAttack),
     (0x8214_000C, Request::Interface(0x00B4_002E)),
     (0x8214_0002, Request::Interface(0x00B4_002B)),
     (0x8214_0007, Request::Interface(0x00B4_002C)),
@@ -727,30 +730,42 @@ impl<'a> Replay<'a> {
             }
             Request::ChatOptions => {
                 // Last first: the popup flags, the devoted windows, the font colors, the font
-                // sizes, the filters; each set by its own setter (the key, then the value), the
-                // window's kinds and windows in their order (a key new to the profile goes to the
-                // head of its chain, so the order shows in what is sent).
-                const SETTERS: [u32; 5] = [
-                    0x00B4_0119,
-                    0x00B4_0117,
-                    0x00B4_0116,
-                    0x00B4_0115,
-                    0x00B4_0083,
+                // sizes, the filters; each set as the chat options page sets it (a window's or a
+                // kind's, by its key, to the value), the window's kinds and windows in their order
+                // (a key new to the profile goes to the head of its chain, so the order shows in
+                // what is sent).
+                type Set = fn(u32, u32) -> ChatWindowAction;
+                const SETTERS: [Set; 5] = [
+                    |kind, on| ChatWindowAction::Popup { kind, on: on != 0 },
+                    |window, kind| ChatWindowAction::Devote { window, kind },
+                    |kind, color| ChatWindowAction::FontColor { kind, color },
+                    |kind, size| ChatWindowAction::FontSize { kind, size },
+                    |window, filter| ChatWindowAction::Filter { window, filter },
                 ];
                 if values.len() != SETTERS.len() {
                     return;
                 }
-                for (v, f) in values.iter().zip(SETTERS).rev() {
+                for (v, set) in values.iter().zip(SETTERS).rev() {
                     let Arg::Object(g) = v else {
                         return;
                     };
                     let mut entries = word_table(g);
                     entries.sort_unstable();
                     for (k, x) in entries {
-                        c.interface(f, &[InterfaceArg::Word(x), InterfaceArg::Word(k)]);
+                        c.act(Action::ChatWindows(set(k, x)));
                     }
                 }
-                c.interface(0x00B4_011C, &[]).map(|(r, _)| r)
+                let asked = c.asked.len();
+                c.act(Action::ChatWindows(ChatWindowAction::Keep));
+                c.asked.get(asked).map(|(_, r)| r.clone())
+            }
+            Request::CeaseAttack => {
+                let [Arg::LongInt(target)] = values[..] else {
+                    return;
+                };
+                let asked = c.asked.len();
+                c.act(Action::CeaseAttack { target });
+                c.asked.get(asked).map(|(_, r)| r.clone())
             }
             Request::Move => {
                 let Some(Arg::Object(g)) = values.first() else {
@@ -1163,10 +1178,11 @@ fn selection_of(call: &[u8], lib: &auberean_script::library::Library) -> Option<
 /// trade window's requests (open, close, accept with what the trade holds, decline, take back),
 /// the pets' (attack, return, rename), the story's scenes done, a shop's (leave, pages, enter
 /// from a catalog, leave a catalog, a purchase and its question answered), a container's (melt
-/// everything, take everything, close), stopping an attack, raising a craft skill, the chat
-/// options (set as their window sets them, then sent), items moved and worn, and the lines typed
-/// (following, saying, emotes, tells; the away emote from the friends window's status menu) are
-/// made again too.
+/// everything, take everything, close), stopping an attack, an attack on an object ceased (as the
+/// selection moving off it ceases it), raising a craft skill, the chat options (set as their window
+/// sets them, then sent, each through the client's actions), items moved and worn, and the lines
+/// typed (following, saying, emotes, tells; the away emote from the friends window's status menu)
+/// are made again too.
 ///
 /// Behaviour: script.model.selecting-sends-what-the-recorded-client-sent
 #[test]
@@ -1318,12 +1334,13 @@ fn selecting_what_the_recorded_player_selected_sends_what_the_recorded_client_se
         (0x9B5E_0029, 11),
         (0x9B5E_0022, 7),
         (0x8212_003A, 12),
-        // A container melted into money, emptied into the pack, closed; an attack stopped; a
-        // craft skill raised; the chat options sent; a purchase.
+        // A container melted into money, emptied into the pack, closed; an attack stopped, and an
+        // attack on an object ceased; a craft skill raised; the chat options sent; a purchase.
         (0x820E_0065, 3_380),
         (0x820E_0068, 155),
         (0x820E_000C, 2_250),
         (0x8204_0010, 1_130),
+        (0x8204_0020, 9_350),
         (0x8206_0022, 85),
         (0x8212_0032, 18),
         (0x9B5E_0031, 20),
@@ -1539,7 +1556,8 @@ fn command_word(c: &mut Client, (table, string): (u32, u32)) -> Option<String> {
 /// At every recorded mount (the server's private flag 2002 set with the player in the world),
 /// the player's scripts refuse an attack, an emote from the emote menu, a typed prefab emote and a
 /// typed custom emote with the client's own lines ("You cannot attack while you are on your
-/// mount.", "You cannot perform emotes while you are on your mount."), and send nothing: no server
+/// mount.", "You cannot perform emotes while you are on your mount."), and send nothing (but the
+/// selection of the nearest foe a player who targets on its own makes before attacking): no server
 /// recorded those lines. The recorded clients started no attack and sent no emote while riding
 /// (their only calls of the kind then were two skill uses).
 ///
@@ -1647,9 +1665,14 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
             c.process_text(&format!("/{word} waves from the saddle"));
         }
         heard(&mut c, "custom emote");
+        // A rider who targets on its own has the nearest foe selected before the attack is
+        // refused, as on foot; nothing else goes.
         t.sends += c.sent()[before..]
             .iter()
-            .filter(|s| matches!(s.message, ClientMessage::ServerCall(_)))
+            .filter(|s| {
+                matches!(&s.message, ClientMessage::ServerCall(call)
+                    if call.function.0 != SET_SELECTION)
+            })
             .count() as u64;
     })
     .expect("the index reads");
@@ -1671,6 +1694,152 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
         assert_eq!(t.recorded_riding.get(&f), None, "{t:?}");
         assert!(t.recorded_on_foot.get(&f).is_some_and(|n| *n > 0), "{t:?}");
     }
+}
+
+/// What an attack started at a recorded moment sent: the selections sent before its start, and
+/// whether it was started.
+#[derive(Debug, Default)]
+struct AutoTargets {
+    /// The probes where the scripts said the player targets on its own, and where not.
+    on: u64,
+    off: u64,
+    /// Of those on, the probes that selected an object first (and it is what the scripts hold
+    /// selected after); and that found none to select.
+    selected_first: u64,
+    none_near: u64,
+    /// Probes that sent something else: a selection with the option off, a selection after the
+    /// start, a selection of something the scripts did not hold, no start.
+    wrong: Vec<String>,
+}
+
+/// Starting an attack, a player whose scripts say it targets on its own now (its option on and
+/// nothing selected it could attack) has the nearest foe selected first: at the first recorded
+/// start of an attack in each session (foes about, the replayed player where the recorded one
+/// reported itself, nothing selected), the option set on in every other session and off in the
+/// rest, the attack sends a selection and then the attack's start when the scripts say the player
+/// targets on its own and a foe is in range, and the one selected is what the scripts then hold
+/// selected; otherwise it sends only the attack's start.
+///
+/// Behaviour: ui.selection.attacking-with-auto-target-selects-the-nearest-foe-first
+#[test]
+fn attacking_with_auto_target_selects_the_nearest_foe_first() {
+    let data = data().expect("the September 2013 install opens");
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.extend([PLAY_CHARACTER, MY_POSITION, carrier::TO_SERVER]);
+    let mut capture = -1;
+    let mut sessions = 0u64;
+    let mut c = client(&data);
+    let mut probed = false;
+    let mut frame = f64::NEG_INFINITY;
+    let mut t = AutoTargets::default();
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            sessions += 1;
+            c = client(&data);
+            probed = false;
+            frame = f64::NEG_INFINITY;
+        }
+        if probed {
+            return;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if m.to_client {
+            if let Ok(msg) = ServerMessage::decode(&m.raw) {
+                c.take_message(m.blob_id, msg);
+            }
+            return;
+        }
+        match m.message_type {
+            MY_POSITION => {
+                if let Ok(ClientMessage::Position(p)) = ClientMessage::decode(&m.raw) {
+                    let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
+                    c.body.follow(p.cell, p.origin, heading);
+                }
+                return;
+            }
+            PLAY_CHARACTER => {
+                if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                    c.act(Action::PlayCharacter {
+                        character: p.character,
+                    });
+                }
+                return;
+            }
+            _ => {}
+        }
+        let starts = m.script_call().is_some_and(|s| s.function == START_ATTACK);
+        if !starts || c.model.player_object().is_none() {
+            return;
+        }
+        probed = true;
+        let on = sessions.is_multiple_of(2);
+        c.act(Action::SetOptions {
+            changes: vec![(PlayerOption::AutoTarget, u32::from(on))],
+            tell: false,
+        });
+        if c.selection() != 0 {
+            c.act(Action::SetSelection { target: 0 });
+        }
+        let auto = c.should_auto_target().is_some_and(|v| v != 0);
+        let from = c.sent().len();
+        c.act(Action::Attack { start: true });
+        let calls: Vec<(u32, Option<u64>)> = c.sent()[from..]
+            .iter()
+            .filter_map(|s| match &s.message {
+                ClientMessage::ServerCall(call) => Some((
+                    call.function.0,
+                    (call.function.0 == SET_SELECTION)
+                        .then(|| selection_of(&call.args.0, lib))
+                        .flatten(),
+                )),
+                _ => None,
+            })
+            .collect();
+        let selected: Vec<u64> = calls
+            .iter()
+            .filter(|(f, _)| *f == SET_SELECTION)
+            .map(|(_, s)| s.unwrap_or(0))
+            .collect();
+        let start_at = calls.iter().position(|(f, _)| *f == START_ATTACK);
+        let first_selection = calls.iter().position(|(f, _)| *f == SET_SELECTION);
+        if auto {
+            t.on += 1;
+        } else {
+            t.off += 1;
+        }
+        let held = c.selection();
+        let wrong = match (auto, selected.as_slice()) {
+            _ if start_at.is_none() => Some("no start"),
+            (false, []) => None,
+            (false, _) => Some("a selection with the option off"),
+            (true, []) => {
+                t.none_near += 1;
+                None
+            }
+            (true, [one]) if *one != 0 && *one == held && first_selection < start_at => {
+                t.selected_first += 1;
+                None
+            }
+            (true, _) => Some("a selection after the start, or not held"),
+        };
+        if let Some(w) = wrong {
+            t.wrong.push(format!("{w}: {calls:x?}, held {held:#x}"));
+        }
+    })
+    .expect("the index reads");
+    eprintln!("{t:?}");
+    assert!(t.wrong.is_empty(), "{t:?}");
+    assert!(t.selected_first >= 10, "{t:?}");
+    assert!(t.off >= 10, "{t:?}");
 }
 
 /// The client's report of where the player is.
@@ -1749,4 +1918,191 @@ fn recorded_reports_carry_the_stamp_of_the_last_move_ordered() {
     #[allow(clippy::cast_precision_loss)]
     let share = agree as f64 / after as f64;
     assert!(share >= 0.99, "{agree} of {after} agree");
+}
+
+/// The server function an attack ceased on an object is sent to.
+const STOP_ATTACKING_SENT: u32 = 0x8204_0020;
+
+/// Names over heads shown or hidden are kept in the player's options as the names' own option
+/// answers; an attack on an object ceased goes to the server naming it; the commands made known
+/// are taken by the player's scripts; the panels' places kept are what the player's options then
+/// hold, and the windows' places and opacities go to the server.
+///
+/// Behaviour: script.model.the-names-attack-commands-and-places-actions-reach-the-players-scripts
+#[test]
+fn the_names_attack_commands_and_places_actions_reach_the_players_scripts() {
+    let (mut c, _) = in_the_world();
+    let shown = |c: &mut Client| {
+        c.interface(function::GET_SHOW_OBJECT_NAMES, &[])
+            .map(|(_, v)| v != 0)
+    };
+    for on in [true, false, true] {
+        c.act(Action::ShowObjectNames { on });
+        assert_eq!(shown(&mut c), Some(on));
+    }
+    let target = c
+        .model
+        .objects()
+        .map(|o| o.id)
+        .find(|id| Some(*id) != c.model.player)
+        .expect("something besides the player");
+    let before = c.sent().len();
+    c.act(Action::CeaseAttack { target });
+    assert_eq!(called_since(&c, before), [STOP_ATTACKING_SENT]);
+    let asked = c.asked.len();
+    c.act(Action::KnowCommands);
+    assert_eq!(
+        c.asked.get(asked),
+        Some(&(function::REGISTER_COMMANDS, CallResult::Completed))
+    );
+    let places = vec![
+        UiLocation {
+            layout: 0x1000_0001,
+            element: 0x2000_0002,
+            corners: [-0.5, 0.5, 0.25, -0.25],
+            visible: true,
+        },
+        UiLocation {
+            layout: 0x1000_0001,
+            element: 0x2000_0003,
+            corners: [-1.0, 1.0, -0.75, 0.75],
+            visible: false,
+        },
+    ];
+    let before = c.sent().len();
+    c.act(Action::KeepUiLocations {
+        places: places.clone(),
+    });
+    assert_eq!(
+        c.ui_save_locations(),
+        Some(ui_locations(&places).write()),
+        "the table kept"
+    );
+    assert_eq!(called_since(&c, before), [UPLOAD_UI_SETTINGS]);
+}
+
+/// The notices the recorded sessions' scripts sent the panels, read as the contract carries them.
+mod notices {
+    use std::collections::BTreeMap;
+
+    use auberean_client_contract::notice::{
+        AllegianceNotice, ExaminationNotice, FellowshipNotice, InterfaceNotice, QuestNotice, Said,
+        StoreNotice, WorldNotice,
+    };
+    use auberean_client_contract::Action;
+    use auberean_client_net::LocalTime;
+    use auberean_client_runtime::host::PanelNotice;
+    use auberean_client_runtime::said::read;
+    use auberean_protocol::{ClientMessage, ServerMessage};
+    use auberean_testkit::captures;
+
+    use crate::calls::{client, data, PLAY_CHARACTER};
+
+    /// The notices the client binds that no panel reads, kept as the scripts sent them.
+    const UNREAD: [u32; 4] = [
+        0x0084 << 16 | 0x0004,
+        0x0087 << 16 | 0x0001,
+        0x0088 << 16 | 0x0004,
+        0x008C << 16 | 0x0001,
+    ];
+
+    /// Whether a notice read names no record where one of its words named a record the panels read:
+    /// a profile, a request, the scenes, a quest, a shop, a fellowship, a fellow, an allegiance, a
+    /// hit's damage.
+    fn lost_a_record(sent: &PanelNotice, said: &Said) -> bool {
+        let named =
+            sent.objects.iter().any(Option::is_some) || sent.requests.iter().any(Option::is_some);
+        let none = match said {
+            Said::Examination(ExaminationNotice::Profile(p)) => p.is_none(),
+            Said::Examination(ExaminationNotice::RequestChanged(r)) => r.is_none(),
+            Said::Quest(QuestNotice::Scenes(s))
+            | Said::Interface(InterfaceNotice::PortalScene { scenes: s, .. }) => s.is_none(),
+            Said::Store(
+                StoreNotice::Shown(s)
+                | StoreNotice::Changed(s)
+                | StoreNotice::Consignments(s)
+                | StoreNotice::ConsignmentsChanged(s),
+            ) => s.is_none(),
+            Said::Fellowship(FellowshipNotice::Changed(f)) => f.is_none(),
+            Said::Fellowship(FellowshipNotice::Fellow { record, .. }) => record.is_none(),
+            Said::Allegiance(AllegianceNotice::Changed(a)) => a.is_none(),
+            Said::World(WorldNotice::Damage(d)) => d.is_none(),
+            _ => false,
+        };
+        named && none
+    }
+
+    /// Every notice the recorded sessions' scripts sent the panels (2013 and 2017; 1,018,206 of 81
+    /// kinds) comes named, but for those no panel reads, which come as sent; a notice whose word named a record the panels
+    /// read (a profile, the scenes, a shop, a fellowship, an allegiance, a hit's damage) comes with
+    /// it.
+    ///
+    /// Behaviour: script.notices.every-recorded-notice-comes-named-with-its-records
+    #[test]
+    fn every_recorded_notice_comes_named_with_its_records() {
+        let data = data().expect("the September 2013 install opens");
+        let index = auberean_testkit::data::require_capture_index();
+        let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+            .filter(|t| ServerMessage::is_known_type(*t))
+            .collect();
+        types.push(PLAY_CHARACTER);
+        let mut capture = -1;
+        let mut c = client(&data);
+        let mut frame = f64::NEG_INFINITY;
+        let mut by_native: BTreeMap<u32, usize> = BTreeMap::new();
+        let (mut sent, mut kept) = (0usize, 0usize);
+        let mut problems: Vec<String> = Vec::new();
+        captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+            if m.capture != capture {
+                capture = m.capture;
+                c = client(&data);
+                frame = f64::NEG_INFINITY;
+            }
+            if m.time > frame {
+                frame = m.time;
+                c.set_time(LocalTime(m.time));
+                c.upkeep();
+            }
+            if !m.to_client {
+                if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                    c.act(Action::PlayCharacter {
+                        character: p.character,
+                    });
+                }
+                return;
+            }
+            let Ok(msg) = ServerMessage::decode(&m.raw) else {
+                return;
+            };
+            c.take_message(m.blob_id, msg);
+            c.observed.clear();
+            for n in std::mem::take(&mut c.notices) {
+                let said = read(&n).said;
+                sent += 1;
+                *by_native.entry(n.native).or_default() += 1;
+                match &said {
+                    Said::Unread { .. } if UNREAD.contains(&n.native) => kept += 1,
+                    Said::Unread { .. } => {
+                        problems.push(format!("capture {capture}: {:#010x} unread", n.native));
+                    }
+                    s if lost_a_record(&n, s) => {
+                        problems.push(format!(
+                            "capture {capture}: {:#010x} lost its record",
+                            n.native
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .expect("the index reads");
+        eprintln!(
+            "{sent} notices of {} kinds ({kept} unread by any panel)",
+            by_native.len()
+        );
+        problems.truncate(40);
+        assert!(sent >= 1_000_000, "only {sent} notices");
+        assert!(by_native.len() >= 80, "only {} kinds", by_native.len());
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
 }

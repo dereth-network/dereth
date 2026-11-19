@@ -10,13 +10,17 @@
 //! any window of the picture or the whole shrunk to [`OVERVIEW`]. [`MapBuild`] does the reading,
 //! the preparing and the overview off the frame: on a thread of its own, or where there are no
 //! threads a slice of each frame. It reads the landblocks' buildings too, for the places the map
-//! names ([`places`]).
+//! names ([`places`]). The drawing both games' maps share (the light, the shrink, the build off
+//! the frame) is [`dereth_map_picture`]'s.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Region;
 use dereth_dat::RetailDatStore;
+use dereth_map_picture::build::OffFrame;
+pub use dereth_map_picture::Pixels;
+use dereth_map_picture::{mix, smoothstep, spans, Rows};
 
 pub mod places;
 pub use places::{Building, Place, PlaceKind};
@@ -90,20 +94,6 @@ const ROAD: [u8; 3] = [186, 181, 167];
 #[must_use]
 pub const fn sea_colour() -> [u8; 3] {
     SEA
-}
-
-/// Pixels of the picture, four bytes to a pixel in blue, green, red, alpha order.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Pixels {
-    pub width: u32,
-    pub height: u32,
-    pub bgra: Vec<u8>,
-}
-
-impl std::fmt::Debug for Pixels {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Pixels({}x{})", self.width, self.height)
-    }
 }
 
 /// The world's landcell vertices as the landblocks give them: the height, the terrain and whether
@@ -339,81 +329,17 @@ impl MapGrid {
         dropped
     }
 
-    /// Each vertex's distance from the nearest land, in landcells: two chamfer passes.
+    /// Each vertex's distance from the nearest land, in landcells: two chamfer passes. Past the
+    /// band every distance draws alike.
     fn shore_distance(&self, water: &[bool]) -> Vec<f32> {
-        let mut d: Vec<f32> = (0..VERTS * VERTS)
-            .map(|i| if self.wet(water, i) { f32::MAX } else { 0.0 })
-            .collect();
-        let diagonal = std::f32::consts::SQRT_2;
-        let at = |x: usize, y: usize| y * VERTS + x;
-        for y in 0..VERTS {
-            for x in 0..VERTS {
-                let mut best = d[at(x, y)];
-                if x > 0 {
-                    best = best.min(d[at(x - 1, y)] + 1.0);
-                }
-                if y > 0 {
-                    best = best.min(d[at(x, y - 1)] + 1.0);
-                    if x > 0 {
-                        best = best.min(d[at(x - 1, y - 1)] + diagonal);
-                    }
-                    if x < LAST {
-                        best = best.min(d[at(x + 1, y - 1)] + diagonal);
-                    }
-                }
-                d[at(x, y)] = best;
-            }
-        }
-        for y in (0..VERTS).rev() {
-            for x in (0..VERTS).rev() {
-                let mut best = d[at(x, y)];
-                if x < LAST {
-                    best = best.min(d[at(x + 1, y)] + 1.0);
-                }
-                if y < LAST {
-                    best = best.min(d[at(x, y + 1)] + 1.0);
-                    if x < LAST {
-                        best = best.min(d[at(x + 1, y + 1)] + diagonal);
-                    }
-                    if x > 0 {
-                        best = best.min(d[at(x - 1, y + 1)] + diagonal);
-                    }
-                }
-                d[at(x, y)] = best;
-            }
-        }
-        // Past the band every distance draws alike.
-        for v in &mut d {
-            *v = v.min(FAR_FROM_SHORE);
-        }
-        d
+        dereth_map_picture::distance_from((VERTS, VERTS), FAR_FROM_SHORE, |i| !self.wet(water, i))
     }
 
     /// Each vertex's light, lit from the north-west: 1 on the flat, more on a slope facing the
     /// light and less on one facing away.
     fn shading(&self) -> Vec<f32> {
         let h = |x: usize, y: usize| self.heights[usize::from(self.height[y * VERTS + x])];
-        let light = {
-            let (x, y, z) = (-0.5f32, 0.5f32, std::f32::consts::FRAC_1_SQRT_2);
-            let n = (x * x + y * y + z * z).sqrt();
-            (x / n, y / n, z / n)
-        };
-        let mut out = vec![1.0; VERTS * VERTS];
-        for (y, row) in out.chunks_mut(VERTS).enumerate() {
-            for (x, lit) in row.iter_mut().enumerate() {
-                let (xl, xr) = (x.saturating_sub(1), (x + 1).min(LAST));
-                let (yd, yu) = (y.saturating_sub(1), (y + 1).min(LAST));
-                #[allow(clippy::cast_precision_loss)] // LINT-OK: one or two landcells.
-                let dzdx = (h(xr, y) - h(xl, y)) / ((xr - xl) as f32 * CELL_M);
-                #[allow(clippy::cast_precision_loss)] // LINT-OK: one or two landcells.
-                let dzdy = (h(x, yu) - h(x, yd)) / ((yu - yd) as f32 * CELL_M);
-                let (nx, ny, nz) = (-RELIEF * dzdx, -RELIEF * dzdy, 1.0f32);
-                let len = (nx * nx + ny * ny + nz * nz).sqrt();
-                let facing = (nx * light.0 + ny * light.1 + nz * light.2) / len / light.2;
-                *lit = (0.3 + 0.7 * facing).clamp(0.45, 1.45);
-            }
-        }
-        out
+        dereth_map_picture::relief_light((VERTS, VERTS), CELL_M, RELIEF, h)
     }
 
     /// The placeholder land left out, and the shore and the shading worked out: everything the
@@ -487,65 +413,6 @@ fn colour(c: [u8; 3]) -> [f32; 3] {
     c.map(f32::from)
 }
 
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-    ]
-}
-
-/// For each of `to` pixels shrunk from `from`, the source pixels it covers and by how much.
-fn spans(from: usize, to: usize) -> Vec<Vec<(usize, f64)>> {
-    #[allow(clippy::cast_precision_loss)] // LINT-OK: sides of a few thousand pixels.
-    let scale = from as f64 / to as f64;
-    (0..to)
-        .map(|o| {
-            #[allow(clippy::cast_precision_loss)] // LINT-OK: as above.
-            let (a, b) = (o as f64 * scale, (o + 1) as f64 * scale);
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            // LINT-OK: within 0..=from.
-            let (first, last) = (a.floor() as usize, (b.ceil() as usize).min(from));
-            #[allow(clippy::cast_precision_loss)] // LINT-OK: as above.
-            (first..last)
-                .map(|s| (s, (b.min((s + 1) as f64) - a.max(s as f64)) / scale))
-                .collect()
-        })
-        .collect()
-}
-
-/// Fill `out`, rows of `row_len` bytes, by `rows(first_row, band)` over bands of `band` rows,
-/// shared among the machine's threads (on the calling thread alone where it has none to share).
-fn in_bands(out: &mut [u8], row_len: usize, band: usize, rows: &(dyn Fn(usize, &mut [u8]) + Sync)) {
-    #[cfg(target_arch = "wasm32")]
-    let threads = 1;
-    #[cfg(not(target_arch = "wasm32"))]
-    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    let len = row_len * band;
-    let bands = out.len().div_ceil(len.max(1));
-    if threads <= 1 || bands <= 1 {
-        for (b, chunk) in out.chunks_mut(len.max(1)).enumerate() {
-            rows(b * band, chunk);
-        }
-        return;
-    }
-    let queue = Mutex::new(out.chunks_mut(len).enumerate());
-    std::thread::scope(|scope| {
-        for _ in 0..threads.min(bands) {
-            scope.spawn(|| loop {
-                let next = queue.lock().unwrap_or_else(PoisonError::into_inner).next();
-                let Some((b, chunk)) = next else { break };
-                rows(b * band, chunk);
-            });
-        }
-    });
-}
-
 impl WorldMap {
     fn new(grid: MapGrid, water: Vec<bool>, distance: Vec<f32>, shade: Vec<f32>) -> Self {
         let land = grid
@@ -586,6 +453,12 @@ impl WorldMap {
             .get(usize::from(self.kind[i]))
             .copied()
             .unwrap_or(true)
+    }
+}
+
+impl Rows for WorldMap {
+    fn size(&self) -> (usize, usize) {
+        (SIDE, SIDE)
     }
 
     /// Picture row `j`, columns from `i0`, into `out` at four bytes a pixel.
@@ -656,22 +529,13 @@ impl WorldMap {
             *px = [byte(rgb[2]), byte(rgb[1]), byte(rgb[0]), 255];
         }
     }
+}
 
+impl WorldMap {
     /// The `w`×`h` window of the picture at pixel `(x0, y0)`.
     #[must_use]
-    pub fn window(&self, (x0, y0): (usize, usize), (w, h): (usize, usize)) -> Pixels {
-        let (w, h) = (w.min(SIDE - x0.min(SIDE)), h.min(SIDE - y0.min(SIDE)));
-        let mut bgra = vec![0u8; w * h * 4];
-        in_bands(&mut bgra, w * 4, 64, &|row, band| {
-            for (r, out) in band.chunks_mut(w * 4).enumerate() {
-                self.draw_row(y0 + row + r, x0, out);
-            }
-        });
-        Pixels {
-            width: u32::try_from(w).unwrap_or(0),
-            height: u32::try_from(h).unwrap_or(0),
-            bgra,
-        }
+    pub fn window(&self, at: (usize, usize), size: (usize, usize)) -> Pixels {
+        dereth_map_picture::window(self, at, size)
     }
 
     /// Tile `(col, row)`: the picture's [`TILE`]-pixel square there, short at the east and south.
@@ -683,48 +547,13 @@ impl WorldMap {
     /// Rows `rows` of the whole picture shrunk to [`OVERVIEW`], each drawn from the picture's own
     /// rows it covers, into `out`.
     fn overview_rows(&self, spans: &[Vec<(usize, f64)>], first: usize, out: &mut [u8]) {
-        let mut src = vec![0u8; SIDE * 4];
-        let mut acc = vec![0.0f64; OVERVIEW * 3];
-        for (o, row) in out.chunks_mut(OVERVIEW * 4).enumerate() {
-            acc.fill(0.0);
-            for &(s, cover) in &spans[first + o] {
-                self.draw_row(s, 0, &mut src);
-                for (x, span) in spans.iter().enumerate() {
-                    for c in 0..3 {
-                        let mut sum = 0.0f64;
-                        for &(si, part) in span {
-                            sum += f64::from(src[si * 4 + 2 - c]) * part;
-                        }
-                        #[allow(clippy::cast_possible_truncation)]
-                        // LINT-OK: kept to a single's precision, as the two-pass shrink keeps it.
-                        let single = sum as f32;
-                        acc[x * 3 + c] += f64::from(single) * cover;
-                    }
-                }
-            }
-            for (px, a) in row
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut()
-                .zip(acc.as_chunks::<3>().0)
-            {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                // LINT-OK: a colour channel, clamped to its range.
-                let byte = |c: f64| c.round().clamp(0.0, 255.0) as u8;
-                *px = [byte(a[2]), byte(a[1]), byte(a[0]), 255];
-            }
-        }
+        dereth_map_picture::shrink_rows(self, spans, spans, first, out);
     }
 
     /// The whole picture shrunk to [`OVERVIEW`] a side.
     #[must_use]
     pub fn overview(&self) -> Pixels {
-        let spans = spans(SIDE, OVERVIEW);
-        let mut bgra = vec![0u8; OVERVIEW * OVERVIEW * 4];
-        in_bands(&mut bgra, OVERVIEW * 4, 16, &|row, band| {
-            self.overview_rows(&spans, row, band);
-        });
-        overview_pixels(bgra)
+        dereth_map_picture::shrink(self, (OVERVIEW, OVERVIEW))
     }
 }
 
@@ -770,7 +599,9 @@ enum Stage {
     Done,
 }
 
-impl Steps {
+impl dereth_map_picture::build::Steps for Steps {
+    type Done = Built;
+
     /// One step: a column of landblocks read, a stage of the preparing, or a band of the overview.
     /// `Some` once the build is done.
     fn step(&mut self) -> Option<Result<Built, String>> {
@@ -851,22 +682,13 @@ impl Steps {
 }
 
 /// A world map read, prepared and drawn off the frame.
-pub struct MapBuild {
-    #[cfg(not(target_arch = "wasm32"))]
-    done: std::sync::mpsc::Receiver<Result<Built, String>>,
-    #[cfg(target_arch = "wasm32")]
-    steps: Steps,
-}
+pub struct MapBuild(OffFrame<Steps>);
 
 impl std::fmt::Debug for MapBuild {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MapBuild")
     }
 }
-
-/// The share of a frame a build in the frame's own thread takes.
-#[cfg(target_arch = "wasm32")]
-const FRAME_SHARE: std::time::Duration = std::time::Duration::from_millis(6);
 
 impl MapBuild {
     /// Build the map from `store`'s landblocks, with its overview when `overview` is set.
@@ -877,69 +699,21 @@ impl MapBuild {
             overview,
             stage: Stage::Start,
         };
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let (tx, done) = std::sync::mpsc::channel();
-            let spawned = std::thread::Builder::new()
-                .name("world map".to_owned())
-                .spawn(move || {
-                    let _ = tx.send(steps.run());
-                });
-            if let Err(e) = spawned {
-                tracing::warn!("the world map's thread did not start: {e}");
-            }
-            Self { done }
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            Self { steps }
-        }
+        Self(OffFrame::start("world map", steps))
     }
 
     /// The map, once it is built. Where there are no threads this is where a share of the frame's
     /// time builds it.
     pub fn poll(&mut self) -> Option<Result<Built, String>> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            match self.done.try_recv() {
-                Ok(done) => Some(done),
-                Err(std::sync::mpsc::TryRecvError::Empty) => None,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    Some(Err("the world map's thread stopped".to_owned()))
-                }
-            }
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let until = web_time::Instant::now() + FRAME_SHARE;
-            loop {
-                if let Some(done) = self.steps.step() {
-                    return Some(done);
-                }
-                if web_time::Instant::now() >= until {
-                    return None;
-                }
-            }
-        }
+        self.0.poll()
     }
 
     /// The map, waited for.
+    ///
+    /// # Errors
+    /// The data holds no world, or the build's thread stopped.
     pub fn wait(self) -> Result<Built, String> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.done
-                .recv()
-                .unwrap_or_else(|_| Err("the world map's thread stopped".to_owned()))
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut steps = self.steps;
-            loop {
-                if let Some(done) = steps.step() {
-                    return done;
-                }
-            }
-        }
+        self.0.wait()
     }
 }
 

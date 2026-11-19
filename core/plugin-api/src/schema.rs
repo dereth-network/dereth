@@ -10,6 +10,8 @@
 
 use std::fmt::Write as _;
 
+use crate::game::Game;
+
 /// A parameter's or a result's type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ty {
@@ -68,13 +70,15 @@ const OPT_STR: Ty = Ty::Opt(&Ty::Str);
 const OPT_INT: Ty = Ty::Opt(&Ty::Int);
 const ID: Param = p("object", Ty::Int);
 
-/// The WIT package the interface is published as; its version is the API version.
+/// The WIT package Dereth's interface is published as ([`Game::wit_package`] names each game's);
+/// its version is the API version.
 pub const WIT_PACKAGE: &str = "dereth:plugin";
 
 /// The API version of the schema, as the WIT package's version.
 pub const WIT_VERSION: &str = "0.7.0";
 
-/// Every host operation, in the order the WIT interface lists them.
+/// Every host operation, in the order the WIT interface lists them: Dereth's interface, of which
+/// each game has its part ([`Game::ops`]).
 #[rustfmt::skip]
 pub const OPS: &[Op] = &[
     Op { name: "console.print", lua: None, params: &[p("text", Ty::Str)], result: None,
@@ -346,25 +350,27 @@ fn luau_ty(t: Ty) -> String {
     }
 }
 
-/// The WIT description of the compiled-plugin interface: the package, the `host` interface (one
-/// function per operation, each answering `result<T, string>`, the error being what a Lua plugin
-/// would see raised) and the world `plugin` a plugin's component targets.
+/// The WIT description of `game`'s compiled-plugin interface: the package, the `host` interface
+/// (one function per operation, each answering `result<T, string>`, the error being what a Lua
+/// plugin would see raised) and the world `plugin` a plugin's component targets.
 #[must_use]
-pub fn wit() -> String {
+pub fn wit(game: Game) -> String {
     let mut s = String::new();
     let _ = writeln!(
         s,
-        "// The Dereth plugin interface for compiled plugins (WebAssembly components).\n\
+        "// The {title} plugin interface for compiled plugins (WebAssembly components).\n\
          // Generated from the plugin API's schema; the Lua definitions come from the same schema.\n\
          // Do not edit: regenerate it (`docs/plugins/wasm.md` says how).\n\n\
-         package {WIT_PACKAGE}@{WIT_VERSION};\n\n\
+         package {package}@{WIT_VERSION};\n\n\
          /// The host: every operation a plugin reaches. An operation that fails (a missing\n\
          /// permission, wrong arguments) answers `err` with the reason.\n\
          interface host {{\n    \
          /// Any value, as JSON text: a table, an array, a string, a number, a boolean or null.\n    \
-         type value = string;"
+         type value = string;",
+        title = game.title(),
+        package = game.wit_package(),
     );
-    for op in OPS {
+    for op in game.ops() {
         let params: Vec<String> = op
             .params
             .iter()
@@ -397,21 +403,22 @@ pub fn wit() -> String {
     s
 }
 
-/// The Luau type definitions (for a Luau language server) of the Lua functions that are host
-/// operations one to one, grouped by namespace. The rest of the Lua API (events, promises,
+/// The Luau type definitions (for a Luau language server) of `game`'s Lua functions that are
+/// host operations one to one, grouped by namespace. The rest of the Lua API (events, promises,
 /// handles, the libraries) is Lua itself and described in `docs/plugins/api.md`.
 #[must_use]
-pub fn luau_definitions() -> String {
+pub fn luau_definitions(game: Game) -> String {
     let mut by_ns: std::collections::BTreeMap<&str, Vec<(&str, &Op)>> = Default::default();
-    for op in OPS {
+    for op in game.ops() {
         if let Some((ns, name)) = op.lua.and_then(|l| l.split_once('.')) {
             by_ns.entry(ns).or_default().push((name, op));
         }
     }
-    let mut s = String::from(
-        "-- Luau definitions of the Dereth plugin API's functions that are host operations one to\n\
+    let mut s = format!(
+        "-- Luau definitions of the {} plugin API's functions that are host operations one to\n\
          -- one. Generated from the plugin API's schema, the same schema as the WIT interface.\n\
          -- Do not edit: regenerate it (`docs/plugins/wasm.md` says how).\n",
+        game.title()
     );
     for (ns, fns) in by_ns {
         let _ = writeln!(s, "\ndeclare {ns}: {{");
@@ -436,7 +443,8 @@ pub fn luau_definitions() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{by_wit_name, wit, OPS};
+    use super::{by_wit_name, luau_definitions, wit, OPS};
+    use crate::game::Game;
 
     #[test]
     fn every_operation_has_a_distinct_wit_name_and_few_enough_flat_parameters() {
@@ -452,12 +460,26 @@ mod tests {
                 op.name
             );
         }
-        assert!(wit().contains(
+        assert!(wit(Game::Dereth).contains(
             "chat-print: func(text: string, style: option<string>) -> result<_, string>;"
         ));
         assert!(
-            wit().contains("magic-known: func(%from: option<s64>, count: option<s64>)"),
+            wit(Game::Dereth).contains("magic-known: func(%from: option<s64>, count: option<s64>)"),
             "a parameter named as one of WIT's words is written with a %"
         );
+    }
+
+    #[test]
+    fn each_games_interface_is_generated_under_its_own_package_with_its_own_operations() {
+        let dereth = wit(Game::Dereth);
+        assert!(dereth.starts_with("// The Dereth plugin interface"));
+        assert!(dereth.contains("package dereth:plugin@0.7.0;"));
+        let auberean = wit(Game::Auberean);
+        assert!(auberean.starts_with("// The Auberean plugin interface"));
+        assert!(auberean.contains("package auberean:plugin@0.7.0;"));
+        assert!(auberean.contains("task-timer: func(") && !auberean.contains("magic-known: func("));
+        let defs = luau_definitions(Game::Auberean);
+        assert!(defs.contains("declare task:") && !defs.contains("declare magic:"));
+        assert!(luau_definitions(Game::Dereth).contains("declare magic:"));
     }
 }

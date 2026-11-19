@@ -6,13 +6,13 @@
 //! (fields are added without a new format), an entry that does not read is set aside with the
 //! reason and the others are kept, and a list of a newer `format` is refused whole. A zip is
 //! taken only when it is the file the entry names (its size and SHA-256) and its manifest says
-//! what the entry says (the id, version, API version, permissions and web domains):
+//! what the entry says (the id, version, API version, game, permissions and web domains):
 //! [`Entry::check`].
 
 use std::fmt::{self, Write as _};
 
 use dereth_plugin_api::manifest::{net_domain, PluginVersion};
-use dereth_plugin_api::{ApiVersion, Manifest, PluginId, Value};
+use dereth_plugin_api::{ApiVersion, Game, Manifest, PluginId, Value};
 use sha2::{Digest, Sha256};
 
 use crate::{source, Package};
@@ -52,6 +52,8 @@ pub struct Entry {
     pub version: PluginVersion,
     /// The lowest API version the release needs.
     pub api: ApiVersion,
+    /// The game it is written for (`game`), as its manifest says; Dereth when the list names none.
+    pub game: Game,
     pub description: String,
     pub authors: Vec<String>,
     pub homepage: String,
@@ -205,6 +207,7 @@ impl Entry {
             name: m.name.clone(),
             version: m.version.clone(),
             api: m.api,
+            game: m.game,
             description: m.description.clone(),
             authors: m.authors.clone(),
             homepage: m.homepage.clone(),
@@ -255,6 +258,7 @@ impl Entry {
         says("id", self.id.to_string(), m.id.to_string())?;
         says("version", self.version.to_string(), m.version.to_string())?;
         says("API version", self.api.to_string(), m.api.to_string())?;
+        says("game", self.game.to_string(), m.game.to_string())?;
         says(
             "permissions",
             names(&self.permissions),
@@ -274,6 +278,13 @@ impl Entry {
         host.runs(self.api)
     }
 
+    /// Whether a host of `game` implementing `host` runs this release: it is written for that game,
+    /// and the host runs its API version.
+    #[must_use]
+    pub fn runs_in(&self, game: Game, host: ApiVersion) -> bool {
+        self.game == game && self.runs_on(host)
+    }
+
     fn write_lines(&self, out: &mut String) {
         let mut fields: Vec<(&str, String)> = vec![
             ("id", json_str(self.id.as_str())),
@@ -281,6 +292,9 @@ impl Entry {
             ("version", json_str(&self.version.to_string())),
             ("api", json_str(&self.api.to_string())),
         ];
+        if self.game != Game::Dereth {
+            fields.push(("game", json_str(self.game.name())));
+        }
         if !self.description.is_empty() {
             fields.push(("description", json_str(&self.description)));
         }
@@ -366,6 +380,10 @@ fn entry(e: &Value) -> Result<Entry, String> {
     let api_text = required(e, "api")?;
     let api = ApiVersion::parse(&api_text)
         .ok_or_else(|| format!("{api_text:?} is not an API version (MAJOR.MINOR)"))?;
+    let game = match text(e, "game")? {
+        None => Game::Dereth,
+        Some(g) => Game::parse(&g).ok_or_else(|| format!("{g:?} is not a game"))?,
+    };
     let sha = required(e, "sha256")?.to_ascii_lowercase();
     if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("sha256 is not 64 hexadecimal digits".into());
@@ -395,6 +413,7 @@ fn entry(e: &Value) -> Result<Entry, String> {
         id,
         version,
         api,
+        game,
         description: text(e, "description")?.unwrap_or_default(),
         authors: text_list(e, "authors")?,
         homepage: text(e, "homepage")?.unwrap_or_default(),

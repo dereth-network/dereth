@@ -33,21 +33,36 @@
 //!   This client has no frame to draw, so the scene counts as drawn in the frame those conditions
 //!   hold.
 //!
+//! What happened comes out as the contract's events, in order ([`events`], [`Client::take_events`]):
+//! the session's phases ([`Client::phase`]), the login's progress, the character list, a refused
+//! entry, the session's end, the chat lines, and the server's calls a front end reads as events.
+//! At each frame's end the step a host installed runs ([`frame_hook`]): it is handed the events since
+//! it last ran and answers with actions.
+//!
+//! The controls a key, an interface, a script or a plugin presses ([`Action::Control`]) are carried
+//! as the game's action map says each toggles ([`controls`]); whatever moves the player's body takes
+//! each frame's movement and camera from them ([`Client::take_control_frame`]); the interface's
+//! controls among them use and select, by the selection keys' rules ([`targeting`]).
+//!
 //! **Must never** do I/O or read a clock: datagrams, files and times come from the host.
 
 pub mod acts;
 pub mod body;
 pub mod cache;
+pub mod calls;
 mod clock;
 pub mod combat;
+pub mod controls;
 pub mod craft;
 pub mod creation;
 pub mod data;
 pub mod description;
 pub mod download;
 pub mod effects;
+pub mod events;
 pub mod examination;
 pub mod files;
+pub mod frame_hook;
 pub mod friends;
 pub mod game_time;
 pub mod host;
@@ -59,19 +74,25 @@ pub mod log_system;
 pub mod looks;
 pub mod motion;
 pub mod notices;
+pub mod pets;
 pub mod physics_object;
 pub mod players;
 pub mod quality_dump;
+pub mod questions;
 pub mod repository;
 pub mod rooms;
+pub mod said;
 pub mod selection;
 pub mod shell;
 pub mod skills;
 pub mod social;
+pub mod social_view;
 pub mod store;
 pub mod strings;
+pub mod targeting;
 pub mod text;
 pub mod toolbar;
+pub mod view;
 pub mod world;
 
 use dereth_primitives::num::math;
@@ -80,7 +101,10 @@ use std::sync::Arc;
 
 use core::net::SocketAddr;
 
-use auberean_client_contract::{Action, CraftAction, NewCharacter, PlayerOption, SkillAction};
+use auberean_client_contract::event::ChatEvent;
+use auberean_client_contract::{
+    Action, ChatHistory, ChatWindowAction, CraftAction, NewCharacter, PlayerOption, SkillAction,
+};
 use auberean_client_model::{Effect, EventQueue, Item, Model};
 use auberean_client_net::logon::Logon;
 use auberean_client_net::{Event, Incoming, LocalTime, Session, Settings};
@@ -281,10 +305,12 @@ pub struct Client {
     pub bodies_place: bool,
     /// The toolbar as the shortcut bar shows it, asked of the scripts again when it may have
     /// changed (the scripts said so, objects came or went, the player changed a slot or the set);
-    /// the objects created and forgotten when it was last asked.
+    /// the objects created and forgotten when it was last asked; what the bar's clean-up looks at
+    /// when it is next asked ([`toolbar::Checks`]).
     toolbar: toolbar::Toolbar,
     toolbar_stale: bool,
     toolbar_seen: (u32, u32),
+    toolbar_checks: toolbar::Checks,
     /// The effects on the player as the effects panel lists them, asked of the scripts again
     /// when they said an effect changed, a session started or the player arrived (the player it
     /// was last asked for).
@@ -316,6 +342,15 @@ pub struct Client {
     /// How the session ended under the player, as far as it has.
     session_end: SessionEnd,
     login_progress: Option<LoginProgress>,
+    /// What happened, for the host to take ([`Self::take_events`]).
+    events: events::Events,
+    /// The player asked to enter the world, and is not there yet nor refused.
+    entering: bool,
+    /// The host closed every connection.
+    closed: bool,
+    /// The phase the events last told, and whether they told the session's end.
+    phase_told: Option<Phase>,
+    end_told: bool,
     /// The game clock.
     clock: clock::Clock,
     /// The world's clock over the region's calendar, from the first region on.
@@ -407,53 +442,23 @@ pub struct Client {
     /// The login was given its secret directly: a friends service that cannot be reached does not
     /// end it.
     login_secret_given: bool,
+    /// The step run at each frame's end, when a host installed one ([`frame_hook`]).
+    hook: Option<Box<dyn frame_hook::FrameHook>>,
+    /// The notices the hook has yet to be handed ([`frame_hook`]).
+    hook_notices: frame_hook::HookNotices,
+    /// The game as a front end reads it, and what keeping it current needs ([`view`]).
+    views: view::Views,
+    /// The controls in force, as the action map says each toggles.
+    pub controls: controls::Controls,
+    /// The selection kept without the player's scripts, and the objects around the player the
+    /// last frame saw ([`targeting`]).
+    targeting: targeting::Targeting,
 }
 
 pub use motion::Body;
 
-/// The connection as the client measures it every two seconds or more: the average round trip
-/// (seconds), the share of packets lost, the bytes received and sent over the last span (seconds),
-/// and the seconds since the server was last heard; the packets received over the last span, and
-/// the bytes received a second over the last two measures; `count` numbers the measures.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Heartbeat {
-    pub count: u64,
-    pub latency: f64,
-    pub loss: f64,
-    pub bytes_in: u32,
-    pub bytes_out: u32,
-    pub span: f32,
-    pub since_heard: f32,
-    pub packets_in: u16,
-    pub rate_in: f64,
-}
-
-/// How the login stands, for the connecting screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoginProgress {
-    /// A login went out: the attempt, of the most the client makes before it gives up.
-    Asking { attempt: u32, of: u32 },
-    /// The login server answered and was acknowledged: the client waits for its first packet.
-    Waiting,
-}
-
-/// How the session ended under the player, as far as it has: the login failed (`login_failed`),
-/// or the login server let its connection go, with an error (`None` inside: one this client has no
-/// name for); and whether the server is gone (the client has logged off).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SessionEnd {
-    pub connect_failed: Option<Option<auberean_client_net::NetErrorCode>>,
-    pub login_failed: bool,
-    pub server_died: bool,
-}
-
-impl SessionEnd {
-    /// Whether the session can go no further: the login failed, or the server is gone.
-    #[must_use]
-    pub const fn over(&self) -> bool {
-        self.server_died || self.login_failed
-    }
-}
+pub use auberean_client_contract::event::GameEvent;
+pub use auberean_client_contract::session::{Heartbeat, LoginProgress, Phase, SessionEnd};
 
 impl Client {
     #[must_use]
@@ -494,6 +499,7 @@ impl Client {
             toolbar: toolbar::Toolbar::default(),
             toolbar_stale: false,
             toolbar_seen: (0, 0),
+            toolbar_checks: toolbar::Checks::default(),
             effects: effects::EffectList::default(),
             effects_stale: false,
             effects_player: None,
@@ -512,6 +518,11 @@ impl Client {
             ended: false,
             session_end: SessionEnd::default(),
             login_progress: None,
+            events: events::Events::default(),
+            entering: false,
+            closed: false,
+            phase_told: None,
+            end_told: false,
             clock: clock::Clock::default(),
             game_clock: None,
             now: 0.0,
@@ -552,6 +563,11 @@ impl Client {
             friends: None,
             rooms: Some(rooms::RoomChat::default()),
             login_secret_given,
+            hook: None,
+            hook_notices: frame_hook::HookNotices::default(),
+            views: view::Views::default(),
+            controls: controls::Controls::default(),
+            targeting: targeting::Targeting::default(),
         }
     }
 
@@ -626,6 +642,76 @@ impl Client {
     pub fn disconnect(&mut self) {
         self.session.log_off();
         self.download.reset_cache();
+        self.closed = true;
+        self.entering = false;
+        self.tell_session();
+    }
+
+    /// Where the session is: gone (the host closed it, or it can go no further), connecting, at
+    /// the character list, entering the world (asked, or the player made but its body not yet
+    /// placed), or in the world.
+    #[must_use]
+    pub fn phase(&self) -> Phase {
+        if self.closed || self.session_end.over() {
+            Phase::Disconnected
+        } else if self.model.player_object().is_some() && self.body.placed() {
+            Phase::World
+        } else if self.entering || self.model.player.is_some() {
+            Phase::Entering
+        } else if self.model.characters.is_some() {
+            Phase::Characters
+        } else {
+            Phase::Connecting
+        }
+    }
+
+    /// What happened since the host last asked, oldest first ([`events`]).
+    pub fn take_events(&mut self) -> Vec<GameEvent> {
+        self.events.take()
+    }
+
+    /// This frame's movement and camera from the controls in force, and what they asked since
+    /// the last frame ([`controls::Controls::frame`]): taken once a frame by whatever moves the
+    /// player's body.
+    pub fn take_control_frame(&mut self) -> auberean_client_contract::control::ControlFrame {
+        self.controls.frame()
+    }
+
+    /// The controls read the game's action map the first time they are pressed: from the data,
+    /// none for a client without data.
+    fn read_action_map(&mut self) {
+        if self.controls.has_map() {
+            return;
+        }
+        let cache = self.download.cache();
+        let map = if cache.is_empty() {
+            None
+        } else {
+            cache
+                .database()
+                .get::<auberean_assets::ui::ActionBindings>(controls::ACTION_MAP)
+                .map(|o| (*o.arc()).clone())
+        };
+        self.controls.set_map(map.unwrap_or_default());
+    }
+
+    /// The session's phase told when it changed, and its end once it can go no further.
+    fn tell_session(&mut self) {
+        use auberean_client_contract::event::SessionEvent;
+        let phase = self.phase();
+        if phase == Phase::World {
+            self.entering = false;
+        }
+        if self.phase_told != Some(phase) {
+            self.phase_told = Some(phase);
+            self.events
+                .push(GameEvent::Session(SessionEvent::Phase(phase)));
+        }
+        if self.session_end.over() && !self.end_told {
+            self.end_told = true;
+            self.events
+                .push(GameEvent::Session(SessionEvent::Ended(self.session_end)));
+        }
     }
 
     /// The entry's session ends, once an entry: the character logged off (none before the
@@ -642,10 +728,23 @@ impl Client {
 
     /// The player asks for something.
     pub fn act(&mut self, action: Action) {
+        // Movement and looking change nothing the view asks of the scripts.
+        if !matches!(
+            action,
+            Action::Move(_)
+                | Action::Jump { .. }
+                | Action::TurnHead { .. }
+                | Action::LookAt { .. }
+                | Action::RequestData { .. }
+                | Action::AskHistory { .. }
+        ) {
+            self.views.acted(&action);
+        }
         match action {
             Action::PlayCharacter { character } => {
                 // D2-05342
                 self.ended = false;
+                self.entering = true;
                 self.queue.start_entering();
                 self.session.enter_world();
                 let account = NarrowString(self.account.clone());
@@ -691,6 +790,18 @@ impl Client {
             Action::RequestData { kind, id } => {
                 self.send(ClientMessage::DataRequest(DataRequest { kind, id }))
             }
+            Action::Control(c) => {
+                self.read_action_map();
+                self.controls.control(c);
+                // Using and selecting, in the world.
+                let asked = self.controls.take_asked();
+                if self.phase() == Phase::World {
+                    for a in asked {
+                        self.act(a);
+                    }
+                }
+            }
+            Action::ReleaseControls { typing } => self.controls.release(typing),
             Action::Move(m) => self.body.ask(m),
             Action::Jump { velocity } => self.body.jump(velocity),
             Action::SetToolbarSlot { slot, shortcut } => {
@@ -730,12 +841,19 @@ impl Client {
             Action::Select { target } => {
                 // D2-01984, D2-00419, D2-01254
                 self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
+                self.select_unscripted(target);
                 self.look_at_selection(target);
             }
             // D2-00419, D2-01254
             Action::SetSelection { target } => {
                 self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
+                self.select_unscripted(target);
             }
+            Action::SelectCycle { .. }
+            | Action::SelectNearest { .. }
+            | Action::SelectSelf
+            | Action::SelectLast
+            | Action::SelectLastAttacker => self.select_by(&action),
             // D2-00417
             Action::NameAmount { item, quantity } => {
                 let name = self.with_scripts(|s| s.name_for(item, quantity));
@@ -743,7 +861,10 @@ impl Client {
                 self.inventory.version += 1;
             }
             // D2-00423, D2-01285
-            Action::UseSelected => self.ask(function::USE_SELECTION, &[]),
+            Action::UseSelected => {
+                self.ask(function::USE_SELECTION, &[]);
+                self.use_unscripted();
+            }
             // D2-00424, D2-01286
             Action::UseToolbarSlot { slot } => {
                 self.ask(function::USE_SHORTCUT, &[InterfaceArg::Word(slot)]);
@@ -835,6 +956,14 @@ impl Client {
                 }
             }
             Action::Attack { start } => {
+                // To start, a player whose scripts say it targets on its own now (nothing
+                // selected it could attack) has the nearest foe selected first.
+                // D2-02492, D2-00170
+                if start && self.should_auto_target().is_some_and(|v| v != 0) {
+                    self.select_by(&Action::SelectNearest {
+                        kind: auberean_client_contract::SelectKind::Foe,
+                    });
+                }
                 // D2-02492, D2-00426, D2-01203
                 let start = InterfaceArg::Word(u32::from(start));
                 self.ask(function::REQUEST_ATTACK_STATE_CHANGE, &[start]);
@@ -848,6 +977,11 @@ impl Client {
             // D2-02713, D2-00591, D2-01078
             Action::CancelQuest { quest } => {
                 self.ask(function::CANCEL_QUEST, &[InterfaceArg::Word(quest)]);
+            }
+            Action::AnswerQuestion { question, yes } => {
+                if let Some(a) = self.views.questions.answer(question, yes) {
+                    self.act(a);
+                }
             }
             Action::Resurrect => self.request_resurrect(),
             Action::DeclineResurrection => self.clear_resurrection_request(),
@@ -925,8 +1059,98 @@ impl Client {
                 {
                     self.know_commands();
                 }
-                self.process_text(&text);
+                if self.process_text(&text) == shell::ShellStatus::UnknownCommand {
+                    self.events
+                        .push(GameEvent::Chat(ChatEvent::UnknownCommand { text }));
+                }
             }
+            Action::KnowCommands => self.know_commands(),
+            Action::AskHistory { list, earlier } => {
+                let text = self.history(list, earlier);
+                self.events
+                    .push(GameEvent::Chat(ChatEvent::History { list, text }));
+            }
+            Action::ChatWindows(a) => self.chat_window(a),
+            // D2-00425, D2-01275
+            Action::CeaseAttack { target } => {
+                self.ask(function::STOP_ATTACKING, &[InterfaceArg::Long(target)]);
+            }
+            // D2-00567, D2-01262
+            Action::ShowObjectNames { on } => {
+                let on = InterfaceArg::Word(u32::from(on));
+                self.ask(function::SET_SHOW_OBJECT_NAMES, &[on]);
+            }
+            Action::KeepUiLocations { places } => {
+                self.set_ui_save_locations(interface::ui_locations(&places).write());
+                self.upload_ui_settings();
+            }
+            // Answered in the view's next refresh.
+            Action::AskTargets | Action::AskSavedPlaces => {}
+            Action::PlayStoryScene { act, scene } => self.play_story_scene(act, scene),
+        }
+    }
+
+    /// The item before (`earlier`) or after the one last given from one of the lists the chat
+    /// entry steps through: the lines typed are the client's own; the names told and the names
+    /// that told the player, the scripts'.
+    fn history(&mut self, list: ChatHistory, earlier: bool) -> Option<String> {
+        let f = match (list, earlier) {
+            (ChatHistory::Commands, true) => return self.previous_command(),
+            (ChatHistory::Commands, false) => return self.next_command(),
+            // D2-00587
+            (ChatHistory::Retells, true) => function::INQ_PREV_RETELL_HISTORY_ITEM,
+            // D2-00586
+            (ChatHistory::Retells, false) => function::INQ_NEXT_RETELL_HISTORY_ITEM,
+            // D2-00589
+            (ChatHistory::Replies, true) => function::INQ_PREV_REPLY_HISTORY_ITEM,
+            // D2-00588
+            (ChatHistory::Replies, false) => function::INQ_NEXT_REPLY_HISTORY_ITEM,
+        };
+        self.history_item(f)
+    }
+
+    /// What the chat panel and the chat options page set of the chat windows, through the
+    /// player's interface.
+    fn chat_window(&mut self, a: ChatWindowAction) {
+        use ChatWindowAction as C;
+        let word = InterfaceArg::Word;
+        match a {
+            // D2-00575, D2-01269, D2-00596, D2-01284
+            C::Opacity { window, opacity } => {
+                self.ask(
+                    function::SET_WINDOW_OPACITY,
+                    &[word(opacity.to_bits()), word(window)],
+                );
+                self.upload_ui_settings();
+            }
+            // D2-00571, D2-01248
+            C::Filter { window, filter } => {
+                self.ask(
+                    function::SET_CHAT_WINDOW_FILTER,
+                    &[word(filter), word(window)],
+                );
+            }
+            // D2-00572, D2-01246
+            C::FontSize { kind, size } => {
+                self.ask(function::SET_CHAT_FONT_SIZE, &[word(size), word(kind)]);
+            }
+            // D2-00573, D2-01245
+            C::FontColor { kind, color } => {
+                self.ask(function::SET_CHAT_FONT_COLOR, &[word(color), word(kind)]);
+            }
+            // D2-00576, D2-01247
+            C::Popup { kind, on } => {
+                self.ask(
+                    function::SET_CHAT_POPUP_FLAG,
+                    &[word(u32::from(on)), word(kind)],
+                );
+            }
+            // D2-00574, D2-01084
+            C::Devote { window, kind } => {
+                self.ask(function::DEVOTE_CHAT_WINDOW, &[word(kind), word(window)]);
+            }
+            // D2-00595, D2-01282
+            C::Keep => self.ask(function::UPLOAD_CHAT_OPTIONS, &[]),
         }
     }
 
@@ -1053,6 +1277,7 @@ impl Client {
                     requests: Vec::new(),
                     effect_lines: Vec::new(),
                     listed: Vec::new(),
+                    selections: Vec::new(),
                 });
             });
         }
@@ -1233,8 +1458,67 @@ impl Client {
         }
     }
 
-    /// One frame at `now`.
+    /// One frame at `now`, the selection's rules ([`targeting`]), then the installed hook's step
+    /// ([`frame_hook`]).
     pub fn frame(&mut self, now: LocalTime) {
+        self.run_frame(now);
+        self.follow_selection();
+        self.follow_selectability();
+        self.run_frame_hook();
+    }
+
+    /// Install the frame's hook ([`frame_hook`]), replacing any installed before; answers the one it
+    /// replaced. It is handed the events from now on.
+    pub fn install_frame_hook(
+        &mut self,
+        hook: Box<dyn frame_hook::FrameHook>,
+    ) -> Option<Box<dyn frame_hook::FrameHook>> {
+        self.events.copy_for_hook(true);
+        self.hook_notices = frame_hook::HookNotices::from(self.notices.len());
+        self.hook.replace(hook)
+    }
+
+    /// Take the installed hook out; the frames run without one from then on.
+    pub fn remove_frame_hook(&mut self) -> Option<Box<dyn frame_hook::FrameHook>> {
+        self.events.copy_for_hook(false);
+        self.hook_notices = frame_hook::HookNotices::default();
+        self.hook.take()
+    }
+
+    /// The installed hook.
+    #[must_use]
+    pub fn frame_hook(&self) -> Option<&dyn frame_hook::FrameHook> {
+        self.hook.as_deref()
+    }
+
+    /// The installed hook, mutably.
+    pub fn frame_hook_mut(&mut self) -> Option<&mut (dyn frame_hook::FrameHook + 'static)> {
+        self.hook.as_deref_mut()
+    }
+
+    /// The installed hook's step: the events and the notices since it last ran, the frame's clocks
+    /// and phase; then what it asked for, carried out.
+    fn run_frame_hook(&mut self) {
+        let Some(mut hook) = self.hook.take() else {
+            return;
+        };
+        let events = self.events.take_for_hook();
+        let notices = self.hook_notices.take(&self.notices);
+        let mut frame =
+            frame_hook::HookFrame::new(&events, self.now, self.game_time(), self.phase())
+                .with_notices(&notices)
+                .with_view(self.view());
+        hook.step(&mut frame);
+        let actions = frame.take_actions();
+        self.hook = Some(hook);
+        for a in actions {
+            self.act(a);
+        }
+    }
+
+    /// The frame itself: the session, the messages taking effect, the panels' caches, the body,
+    /// the scene's report, the session's phase told.
+    fn run_frame(&mut self, now: LocalTime) {
         let dt = (now.0 - self.now).max(0.0);
         self.now = now.0;
         self.clock.update(now.0);
@@ -1245,6 +1529,7 @@ impl Client {
         // D2-01660
         self.friends_frame();
         if self.friends_hold_login() {
+            self.tell_session();
             return;
         }
         self.session.tick(now);
@@ -1267,6 +1552,7 @@ impl Client {
         self.move_body(dt);
         self.report_scene();
         self.refresh_inventory();
+        self.tell_session();
     }
 
     /// The inventory as the panels show it: the player's pack in its segments and what it wears,
@@ -1593,6 +1879,9 @@ impl Client {
         self.scene_wanted = false;
         self.portal_space = false;
         self.looking_at = 0;
+        self.views.questions.clear();
+        self.views.social.clear();
+        self.views.pets.clear();
     }
 
     /// The region the player's creation names becomes the world's: its number looked up in the
@@ -1611,6 +1900,15 @@ impl Client {
         };
         let was = self.world.region();
         self.world.set_region(region, load);
+        // The world's size, which the map coordinates are measured by.
+        if region != 0 && !cache.is_empty() {
+            let db = cache.database();
+            let record = db.data_id_by_enum(region, world::REGION_MAPPING);
+            if let Some(r) = db.get::<auberean_assets::region::Region>(record) {
+                let cells = |blocks: u32| i32::try_from(blocks * 8).unwrap_or(0);
+                self.views.land = Some((cells(r.blocks_wide), cells(r.blocks_long)));
+            }
+        }
         if region != 0 && self.world.region() != was {
             let had = self.game_clock.take();
             self.game_clock = Some(game_time::region_clock(cache, region, had));
@@ -1690,10 +1988,10 @@ impl Client {
                 Incoming::Undecodable { bytes, .. } => self.take_unread(r.blob_id, &bytes),
             },
             Event::LoginAttempt { attempt, of } => {
-                self.login_progress = Some(LoginProgress::Asking { attempt, of });
+                self.login_moved(LoginProgress::Asking { attempt, of });
             }
             Event::ConnectAcknowledged { login: true, .. } => {
-                self.login_progress = Some(LoginProgress::Waiting);
+                self.login_moved(LoginProgress::Waiting);
             }
             Event::LoginFailed(error) => {
                 self.session_end.login_failed = true;
@@ -1712,8 +2010,40 @@ impl Client {
     /// world server's goodbye with an error is told to watchers that do nothing with it.
     fn connect_failed(&mut self, error: Option<auberean_client_net::NetErrorCode>) {
         if self.session_end.connect_failed.is_none() {
-            self.session_end.connect_failed = Some(error);
+            self.session_end.connect_failed =
+                Some(error.map(|e| auberean_client_contract::session::NetError(e.id_string())));
         }
+    }
+
+    /// What a message's effect tells: the character list as it came, an entry refused (which ends
+    /// the entering).
+    fn tell_effect(&mut self, fx: &Effect) {
+        use auberean_client_contract::event::SessionEvent;
+        match fx {
+            Effect::Characters => {
+                if let Some(list) = &self.model.characters {
+                    let list = events::characters(list);
+                    self.events
+                        .push(GameEvent::Session(SessionEvent::Characters(list)));
+                }
+            }
+            Effect::Refused(reason) => {
+                self.entering = false;
+                self.events
+                    .push(GameEvent::Session(SessionEvent::EntryRefused {
+                        reason: *reason,
+                    }));
+            }
+            _ => {}
+        }
+    }
+
+    /// The login moved on: kept for the connecting screen, and told.
+    fn login_moved(&mut self, p: LoginProgress) {
+        use auberean_client_contract::event::SessionEvent;
+        self.login_progress = Some(p);
+        self.events
+            .push(GameEvent::Session(SessionEvent::LoginProgress(p)));
     }
 
     /// The server is gone: the client has logged off, and whoever listens for it is told (the
@@ -1924,6 +2254,7 @@ impl Client {
                 out.into_iter().for_each(|m| self.send(m));
                 continue;
             }
+            self.tell_effect(&fx);
             match fx {
                 // The download's, taken above.
                 Effect::DataQuery
@@ -2035,6 +2366,13 @@ impl Client {
             self.observed
                 .push((self.now, function, args.cloned(), object));
         }
+        if let Some(s) = self.scripts.as_mut() {
+            let bytes = args.map_or(&[][..], |a| a.0.as_slice());
+            let lib = &s.host.program.library;
+            if let Some(e) = events::of_call(function, object, bytes, lib, &mut s.host.text) {
+                self.events.push(e);
+            }
+        }
         match function {
             // The play screen's panels are made anew when a session starts, the effects panel
             // asking for the effects then.
@@ -2131,6 +2469,9 @@ impl Client {
         self.toolbar_stale |= noticed
             .clone()
             .any(|n| toolbar::NOTICED.contains(&n.native));
+        for n in noticed.clone() {
+            self.toolbar_checks.hear(n.native, &n.words);
+        }
         self.effects_stale |= noticed.clone().any(|n| n.native == effects::UPDATE_EFFECT);
         self.acts_stale |= noticed
             .clone()
@@ -2160,14 +2501,21 @@ impl Client {
             self.waiting.push((self.now + seconds, w));
         }
         let sent = self.notices.len();
-        self.shown.extend(
-            std::mem::take(&mut scripts.host.shown)
-                .into_iter()
-                .map(|mut s| {
-                    s.notices_before += sent;
-                    s
-                }),
-        );
+        let shown = std::mem::take(&mut scripts.host.shown);
+        for s in &shown {
+            let line = auberean_client_contract::event::ChatLine {
+                kind: s.kind,
+                about: s.about,
+                text: events::write(&s.text, &mut scripts.host.text),
+            };
+            self.events.push(GameEvent::Chat(
+                auberean_client_contract::event::ChatEvent::Line(line),
+            ));
+        }
+        self.shown.extend(shown.into_iter().map(|mut s| {
+            s.notices_before += sent;
+            s
+        }));
         let noticed = std::mem::take(&mut scripts.host.panel_notices);
         self.store_stale |= self.store.noticed(&noticed);
         Self::inventory_noticed(
@@ -2354,6 +2702,11 @@ impl Client {
             packets_in: s.pkts_received,
             rate_in: self.session.average_bytes_per_second_received(),
         });
+        if let Some(h) = self.heartbeat {
+            self.events.push(GameEvent::Session(
+                auberean_client_contract::event::SessionEvent::Heartbeat(h),
+            ));
+        }
     }
 
     /// The toolbar as the shortcut bar shows it; [`toolbar::Toolbar::version`] counts its
@@ -2365,7 +2718,9 @@ impl Client {
 
     /// The toolbar asked of the scripts again, when they said something the bar hears changed,
     /// the player changed a slot or the set, or (while a slot holds an item) objects came or went
-    /// since it last was.
+    /// since it last was; then the bar's clean-up ([`toolbar::Checks`]): the slots whose shortcuts
+    /// no longer belong on the bar emptied in the scripts, and the toolbar asked again when any
+    /// was.
     pub fn refresh_toolbar(&mut self) {
         let seen = (self.model.stats.created, self.model.stats.forgotten);
         let churn = seen != self.toolbar_seen && !self.toolbar.items.is_empty();
@@ -2375,18 +2730,41 @@ impl Client {
         }
         if self.model.player_object().is_none() {
             self.toolbar_stale = false;
+            self.toolbar_checks = toolbar::Checks::default();
             return;
         }
-        let Some(asked) = self.with_scripts(Scripts::toolbar) else {
+        let Some(before) = self.ask_toolbar() else {
             return;
         };
-        self.toolbar_stale = false;
-        let Some(mut t) = asked else { return };
-        t.version = self.toolbar.version;
-        if t != self.toolbar {
-            t.version += 1;
-            self.toolbar = t;
+        let checks = std::mem::take(&mut self.toolbar_checks);
+        let emptied = match &before {
+            Some(b) => checks.emptied((b.version != 0).then_some(b), &self.toolbar),
+            None => checks.emptied(Some(&self.toolbar), &self.toolbar),
+        };
+        if emptied.is_empty() {
+            return;
         }
+        for slot in emptied {
+            self.act(Action::SetToolbarSlot {
+                slot,
+                shortcut: auberean_client_contract::ToolbarShortcut::default(),
+            });
+        }
+        self.ask_toolbar();
+    }
+
+    /// The toolbar asked of the scripts: `None` when it could not be; otherwise the toolbar as it
+    /// was, when the answer changed it.
+    fn ask_toolbar(&mut self) -> Option<Option<toolbar::Toolbar>> {
+        let asked = self.with_scripts(Scripts::toolbar)?;
+        self.toolbar_stale = false;
+        let mut t = asked?;
+        t.version = self.toolbar.version;
+        if t == self.toolbar {
+            return Some(None);
+        }
+        t.version += 1;
+        Some(Some(std::mem::replace(&mut self.toolbar, t)))
     }
 
     /// The effects on the player as the effects panel lists them; [`effects::EffectList::version`]

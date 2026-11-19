@@ -5,8 +5,8 @@
 //! built from: `dereth-render` (the device), `dereth-world-render` (what the world draws and in what
 //! order), `dereth-terrain`, `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`, `dereth-protocol`, `dereth-world-data` and `dereth-navigation` (the places the
-//! world map draws), the target projection from the contract
-//! (`dereth-client-contract`), character creation's model (`dereth-chargen`), and, behind its
+//! world map draws), the world map's drawing both games share (`dereth-map-picture`), the target
+//! projection from the contract (`dereth-client-contract`), character creation's model (`dereth-chargen`), and, behind its
 //! `remaster` feature, the remaster (`dereth-remaster`). **Used by** the client shell
 //! (`dereth-client-shell`), the desktop client (`dereth-client`) and the browser client
 //! (`dereth-web`).

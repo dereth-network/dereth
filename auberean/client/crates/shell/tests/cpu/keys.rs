@@ -1,9 +1,14 @@
-//! The key maps and the action interpreter over a small key map and action map of their own.
+//! The key maps and the controls they press, carried as the client carries them, over a small key
+//! map and action map of their own.
 
 use auberean_assets::strings::EnumMap;
 use auberean_assets::ui::{ActionBindings, ActionEntry, KeyMap};
+use auberean_client_sdk::contract::control::{class, toggle, ControlId};
+use auberean_client_sdk::runtime::controls::Controls as Carried;
+use auberean_client_sdk::Action;
 use auberean_dat::tree;
-use auberean_shell::controls::{class, toggle, Controls};
+use auberean_scene::Intent;
+use auberean_shell::controls::Controls;
 use auberean_shell::host::{HostFiles, TestHost};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::keys::{
@@ -60,7 +65,7 @@ fn records() -> KeyRecords {
         (REPLY, "REPLY_KEY"),
         (WAVE, "Wave_KEY"),
     ];
-    KeyRecords {
+    let mut r = KeyRecords {
         base: map(
             "DefaultMap",
             &[
@@ -85,6 +90,7 @@ fn records() -> KeyRecords {
             map("Defaults Shift", &[(Key::A, STRAFE_LEFT)]),
             map("Defaults Control", &[(Key::I, BACKWARD)]),
         ],
+        installed: Default::default(),
         actions: vec![EnumMap {
             id: 0x2300_002B,
             base: 0,
@@ -119,15 +125,37 @@ fn records() -> KeyRecords {
             ],
             ..ActionBindings::default()
         },
-    }
+    };
+    r.installed = r.defaults.clone();
+    r
 }
 
 fn start(host: &mut TestHost) -> Keys {
     Keys::start(records(), KeyFiles::default(), &mut HostFiles(host))
 }
 
-fn key(c: &mut Controls, keys: &Keys, key: Key, down: bool) {
-    c.event(
+/// The device's side of the controls and the client's side that carries them.
+struct Rig {
+    device: Controls,
+    carried: Carried,
+}
+
+impl Rig {
+    fn over(keys: &Keys) -> Self {
+        Self {
+            device: Controls::default(),
+            carried: Carried::over(keys.records.action_map.clone()),
+        }
+    }
+
+    fn intent(&mut self) -> Intent {
+        let frame = self.carried.frame();
+        self.device.intent(frame)
+    }
+}
+
+fn key(c: &mut Rig, keys: &Keys, key: Key, down: bool) {
+    c.device.event(
         &Event::Key {
             key,
             down,
@@ -135,6 +163,13 @@ fn key(c: &mut Controls, keys: &Keys, key: Key, down: bool) {
         },
         keys,
     );
+    for a in c.device.take_actions() {
+        match a {
+            Action::Control(control) => c.carried.control(control),
+            Action::ReleaseControls { typing } => c.carried.release(typing),
+            other => panic!("not a control: {other:?}"),
+        }
+    }
 }
 
 /// The key maps are a stack: an input is looked up from the front, in the first map that binds it
@@ -176,20 +211,20 @@ fn the_front_map_that_binds_an_input_with_its_modifiers_held_names_its_action() 
 #[test]
 fn a_key_let_go_ends_the_action_its_press_began() {
     let keys = start(&mut TestHost::default());
-    let mut c = Controls::default();
+    let mut c = Rig::over(&keys);
     key(&mut c, &keys, Key::ShiftLeft, true);
     key(&mut c, &keys, Key::A, true);
     key(&mut c, &keys, Key::ShiftLeft, false);
-    let i = c.intent(&keys);
+    let i = c.intent();
     assert_eq!((i.sideways, i.turn), (-1.0, 0.0));
     key(&mut c, &keys, Key::A, false);
-    let i = c.intent(&keys);
+    let i = c.intent();
     assert_eq!((i.sideways, i.turn), (0.0, 0.0));
     key(&mut c, &keys, Key::A, true);
-    assert_eq!(c.intent(&keys).turn, 1.0);
+    assert_eq!(c.intent().turn, 1.0);
     // A release with no press (the press went elsewhere) ends nothing.
     key(&mut c, &keys, Key::W, false);
-    assert_eq!(c.intent(&keys).turn, 1.0);
+    assert_eq!(c.intent().turn, 1.0);
 }
 
 /// Each action toggles as the action map says: a held one is in force while its key is down, a
@@ -200,26 +235,26 @@ fn a_key_let_go_ends_the_action_its_press_began() {
 #[test]
 fn held_latched_and_single_press_actions_toggle_as_the_action_map_says() {
     let keys = start(&mut TestHost::default());
-    let mut c = Controls::default();
+    let mut c = Rig::over(&keys);
     key(&mut c, &keys, Key::Q, true);
     key(&mut c, &keys, Key::Q, false);
-    assert!(c.autorun());
-    assert_eq!(c.intent(&keys).forward, 1.0);
+    assert!(c.carried.autorun());
+    assert_eq!(c.intent().forward, 1.0);
     key(&mut c, &keys, Key::Q, true);
-    assert!(!c.autorun(), "a second press lets go");
+    assert!(!c.carried.autorun(), "a second press lets go");
     key(&mut c, &keys, Key::Q, false);
     key(&mut c, &keys, Key::Q, true);
     key(&mut c, &keys, Key::S, true);
-    assert!(!c.autorun(), "backward ends it");
-    assert_eq!(c.intent(&keys).forward, -1.0);
+    assert!(!c.carried.autorun(), "backward ends it");
+    assert_eq!(c.intent().forward, -1.0);
     key(&mut c, &keys, Key::S, false);
     key(&mut c, &keys, Key::Space, true);
-    assert!(c.intent(&keys).jump);
-    assert!(!c.intent(&keys).jump, "a single press, once");
+    assert!(c.intent().jump);
+    assert!(!c.intent().jump, "a single press, once");
     key(&mut c, &keys, Key::I, true);
-    assert!(c.action_down(INVENTORY));
+    assert!(c.carried.is_down(ControlId(INVENTORY)));
     key(&mut c, &keys, Key::I, false);
-    assert!(c.actions().is_empty());
+    assert!(c.carried.in_force().is_empty());
 }
 
 /// An action of the behavior class asks the player to play its value when it begins and to stop it
@@ -229,13 +264,13 @@ fn held_latched_and_single_press_actions_toggle_as_the_action_map_says() {
 #[test]
 fn a_behavior_action_asks_the_player_to_play_it_and_to_stop_it() {
     let keys = start(&mut TestHost::default());
-    let mut c = Controls::default();
+    let mut c = Rig::over(&keys);
     key(&mut c, &keys, Key::O, true);
-    assert_eq!(c.intent(&keys).behaviors, [(WAVE_BEHAVIOR, true)]);
-    assert!(c.intent(&keys).behaviors.is_empty(), "once");
+    assert_eq!(c.intent().behaviors, [(WAVE_BEHAVIOR, true)]);
+    assert!(c.intent().behaviors.is_empty(), "once");
     key(&mut c, &keys, Key::O, false);
-    assert_eq!(c.intent(&keys).behaviors, [(WAVE_BEHAVIOR, false)]);
-    assert!(c.intent(&keys).behaviors.is_empty(), "once");
+    assert_eq!(c.intent().behaviors, [(WAVE_BEHAVIOR, false)]);
+    assert!(c.intent().behaviors.is_empty(), "once");
 }
 
 /// The modifier actions in force choose an action's values: Shift's entry for forward walks,
@@ -246,31 +281,34 @@ fn a_behavior_action_asks_the_player_to_play_it_and_to_stop_it() {
 #[test]
 fn the_modifiers_held_choose_an_actions_values() {
     let keys = start(&mut TestHost::default());
-    let mut c = Controls::default();
+    let mut c = Rig::over(&keys);
     key(&mut c, &keys, Key::ShiftRight, true);
     key(&mut c, &keys, Key::W, true);
-    assert_eq!(c.modifier_bitfield(&keys), 1);
-    assert_eq!(c.intent(&keys).forward, 0.339);
+    assert_eq!(c.carried.modifiers(), 1);
+    assert_eq!(c.intent().forward, 0.339);
     key(&mut c, &keys, Key::ShiftRight, false);
-    assert_eq!(c.intent(&keys).forward, 1.0);
+    assert_eq!(c.intent().forward, 1.0);
     key(&mut c, &keys, Key::W, false);
     key(&mut c, &keys, Key::ControlLeft, true);
     key(&mut c, &keys, Key::A, true);
-    assert_eq!(c.modifier_bitfield(&keys), 2);
-    assert_eq!(c.intent(&keys).turn, 1.0, "no Ctrl entry: the plain one");
+    assert_eq!(c.carried.modifiers(), 2);
+    assert_eq!(c.intent().turn, 1.0, "no Ctrl entry: the plain one");
     let r = &keys.records;
     assert_eq!(r.values(BACKWARD, 8).map(|v| v.value), Some(0x4000_0009));
     assert_eq!(r.values(BACKWARD, 9).map(|v| v.value), Some(0x4000_0001));
 }
 
 /// At startup the player's maps come from their files: the plain map's file, read with the update
-/// that binds R to reply when it is older and R is free, is written again with it; a file that is
-/// missing or does not read leaves the data's Defaults map in its place.
+/// that binds R to reply when it is older and R is free, is written again with it; a file that
+/// does not read leaves the data's Defaults map in its place, and a file that is not there the
+/// installer's.
 ///
 /// Behaviour: desktop.keys.maps-come-from-their-files-else-the-defaults
 #[test]
 fn the_key_maps_come_from_their_files_else_the_defaults() {
     let mut host = TestHost::default();
+    let mut records = records();
+    records.installed[1] = map("Installed Shift", &[(Key::A, JUMP)]);
     host.files.insert(
         "Main.keymap".into(),
         b"\"\" [ old ]\r\n\"\" [ 0 0 0 0 0 0 0 0 0 0 0 ]\r\n\"\" [ Forward_KEY DIKEYBOARD_UP ]\r\n"
@@ -278,7 +316,7 @@ fn the_key_maps_come_from_their_files_else_the_defaults() {
     );
     host.files
         .insert("Control.keymap".into(), b"not a key map".to_vec());
-    let keys = start(&mut host);
+    let keys = Keys::start(records, KeyFiles::default(), &mut HostFiles(&mut host));
     let l = keys.stack.layers();
     assert_eq!(l[1].map.name, "old");
     assert_eq!(
@@ -294,7 +332,8 @@ fn the_key_maps_come_from_their_files_else_the_defaults() {
     );
     assert_eq!(
         (l[2].map.name.as_str(), l[2].meta),
-        ("Defaults Shift", META_SHIFT)
+        ("Installed Shift", META_SHIFT),
+        "no Shift file: the installer's map"
     );
     assert_eq!(
         (l[3].map.name.as_str(), l[3].meta),
@@ -372,4 +411,127 @@ fn a_preset_binds_and_writes_nothing() {
     assert_eq!(keys.stack.action(w, META_SHIFT), Some(FORWARD));
     assert_eq!(keys.stack.layers().len(), 4, "in place of the three");
     assert_eq!(host.files, files, "nothing written");
+}
+
+/// An interface's own maps, while it is shown, are looked up before the stack and stand in for the
+/// player's: their bindings answer (A turns, Q strafes, Shift with Tab picks the previous
+/// creature), a key only the player's maps bind answers nothing, a key neither binds falls to the
+/// base map (Shift), and the interface's plain map answers with a modifier its own maps leave
+/// alone. With none, the player's maps answer again as they did.
+///
+/// Behaviour: desktop.keys.an-interfaces-own-maps-stand-in-for-the-players
+#[test]
+fn an_interfaces_own_maps_stand_in_for_the_players_over_the_base_map() {
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::layers;
+    let mut host = TestHost::default();
+    let mut keys = start(&mut host);
+    let word = |k: Key| k.input_word();
+    let before = [Key::A, Key::Q, Key::O].map(|k| keys.stack.action(word(k), 0));
+    assert_eq!(before, [Some(TURN_LEFT), Some(RUN_LOCK), Some(WAVE)]);
+    let own = layers(Choice::Horizon, &keys.records, &HostFiles(&mut host));
+    assert_eq!(own.len(), 3);
+    keys.stack.set_interface(own);
+    let s = &keys.stack;
+    assert_eq!(s.action(word(Key::A), 0), Some(TURN_LEFT));
+    assert_eq!(s.action(word(Key::Q), 0), Some(STRAFE_LEFT));
+    assert_eq!(
+        s.action(word(Key::A), META_SHIFT),
+        Some(TURN_LEFT),
+        "no Shift map of the player's"
+    );
+    assert_eq!(s.action(word(Key::Tab), META_SHIFT), Some(0x4100_0019));
+    assert_eq!(s.action(word(Key::Tab), 0), Some(0x4100_001A));
+    assert_eq!(s.action(word(Key::Space), META_CTRL), Some(JUMP));
+    assert_eq!(s.action(word(Key::Z), 0), None);
+    assert_eq!(
+        s.find(word(Key::ShiftLeft), 0),
+        Some((0, SHIFT_KEY)),
+        "the base map"
+    );
+    keys.stack.set_interface(Vec::new());
+    assert_eq!(
+        [Key::A, Key::Q, Key::O].map(|k| keys.stack.action(word(k), 0)),
+        before
+    );
+    assert!(layers(Choice::Retail, &keys.records, &HostFiles(&mut host)).is_empty());
+}
+
+/// An interface's own maps as its bindings page applies them are written to its own files, which
+/// are its layers from then on (Z runs forward, W with Shift backs away, W alone is no longer
+/// Horizon's); the player's own files are left as they were, and the retail interface, which has
+/// no maps of its own, writes none.
+///
+/// Behaviour: desktop.keys.an-interfaces-own-maps-are-written-to-its-files
+#[test]
+fn an_interfaces_own_maps_are_written_to_its_files_and_read_back_as_its_layers() {
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::{layers, write, HORIZON_FILES};
+    let mut host = TestHost::default();
+    let mut keys = start(&mut host);
+    let theirs = host.files.clone();
+    let (w, z) = (Key::W.input_word(), Key::Z.input_word());
+    let maps: [&[(u32, u32)]; 3] = [&[(z, FORWARD)], &[(w, BACKWARD)], &[]];
+    assert!(write(
+        Choice::Horizon,
+        maps,
+        &keys.records,
+        &mut HostFiles(&mut host)
+    ));
+    for f in HORIZON_FILES {
+        assert!(host.files.contains_key(f), "{f} written");
+    }
+    let mut left = host.files.clone();
+    left.retain(|name, _| !HORIZON_FILES.contains(&name.as_str()));
+    assert_eq!(left, theirs, "the player's files left alone");
+    let own = layers(Choice::Horizon, &keys.records, &HostFiles(&mut host));
+    keys.stack.set_interface(own);
+    assert_eq!(keys.stack.action(z, 0), Some(FORWARD));
+    assert_eq!(keys.stack.action(w, META_SHIFT), Some(BACKWARD));
+    assert_eq!(keys.stack.action(w, 0), None);
+    assert!(!write(
+        Choice::Retail,
+        maps,
+        &keys.records,
+        &mut HostFiles(&mut host)
+    ));
+}
+
+/// A key bound to one of this client's own actions (Horizon's V, looking at the front) is held by
+/// the world's controls while it is down and never sent to the client as a control; letting it go,
+/// or the window losing the keyboard, ends it. The mouse buttons the controls hear are held
+/// likewise for the orbit camera.
+///
+/// Behaviour: desktop.keys.own-actions-are-held-by-the-world-controls
+#[test]
+fn an_own_action_is_held_by_the_world_controls_and_never_sent() {
+    use auberean_shell::input::Button;
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::layers;
+    let mut host = TestHost::default();
+    let mut keys = start(&mut host);
+    let own = layers(Choice::Horizon, &keys.records, &HostFiles(&mut host));
+    keys.stack.set_interface(own);
+    let mut c = Rig::over(&keys);
+    key(&mut c, &keys, Key::V, true);
+    assert!(c.device.take_actions().is_empty(), "nothing sent");
+    assert!(c.intent().front_view, "held");
+    key(&mut c, &keys, Key::V, false);
+    assert!(!c.intent().front_view, "let go");
+    key(&mut c, &keys, Key::V, true);
+    c.device.event(
+        &Event::Button {
+            button: Button::Right,
+            down: true,
+        },
+        &keys,
+    );
+    let i = c.intent();
+    assert!(i.front_view && i.buttons == (false, true));
+    c.device.event(&Event::Focus(false), &keys);
+    let i = c.intent();
+    assert!(
+        !i.front_view && i.buttons == (false, false),
+        "the window lost the keyboard"
+    );
 }

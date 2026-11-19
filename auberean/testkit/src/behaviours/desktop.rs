@@ -583,6 +583,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.in-mouse-look-it-moves-smoothly-over-the-land-and-a-blocks-edge",
+        says: "In mouse look, running over land that bends between the body's ticks and over a \
+               block's edge, the camera moves on smoothly every frame, never further in a frame \
+               than the body moves in a tick: its lines of sight start where the body stood at its \
+               last tick, on the ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-MOUSE-LOOK-SMOOTH"),
+        station: "auberean-shell::dat::session::in_mouse_look_the_camera_moves_smoothly_over_the_land_and_a_blocks_edge",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.it-stands-behind-and-its-lines-start-at-the-shoulder",
         says: "At rest the camera stands 4.5 m behind the player along its 0.25 radian direction, \
                times the height scale, raised by the player's height; the lines keeping it off the \
@@ -866,6 +877,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.a-control-pressed-through-the-contract-moves-the-player-as-its-key",
+        says: "Our choice: a control pressed through the contract, as a script, a headless driver \
+               or a plugin presses it, moves the player as the key bound to it does: forward \
+               pressed as itself for two seconds runs the body to the same place as W held for \
+               those seconds, reported the same way.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CONTROLS-CONTRACT"),
+        station: "auberean-shell::dat::session::a_control_pressed_through_the_contract_moves_the_player_as_its_key_does",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.a-creature-in-the-way-holds-the-body-up-the-same-with-and-without-the-scene",
+        says: "Our choice: a creature the server puts in the player's way holds the player's \
+               body up, and turns it off round the creature, the same with the window's scene and \
+               with none: the scene runs the other bodies' steps of the world without a window \
+               among its own, so the body stands in the same place on every frame and is reported \
+               the same way.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-OTHERS-SAME-AS-SCENE"),
+        station: "auberean-shell::dat::session::a_creature_in_the_way_holds_the_body_up_the_same_with_and_without_the_scene",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run",
         says: "A latched run ends once the player's body is making a move on its own, walking up \
                to what it uses or a move the server ordered, so it does not run on when the move \
@@ -883,6 +917,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVEMENT-KEYS"),
         station: "auberean-shell::dat::controls::a_movement_key_begins_its_action_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.a-teleport-ends-the-approach-the-server-ordered",
+        says: "A teleport takes the player's body out of the world for the trip: a move the server \
+               ordered it to make (closing in on what it attacks) ends, and it arrives standing and \
+               stays still, reported with no motion, as after a respawn at its lifestone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TELEPORT-ENDS-MOVE"),
+        station: "auberean-shell::dat::session::a_teleport_ends_the_approach_the_server_ordered",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -922,8 +966,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.controls.select-use-and-letting-go-on-focus-loss",
-        says: "The selection keys select, Escape clears the selection and F uses what is selected; \
-               a window that loses the keyboard lets every key go.",
+        says: "The selection keys ask for their selections, Escape selects nothing and F uses \
+               what is selected; a window that loses the keyboard lets every key go.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-SELECT"),
         station: "auberean-shell::dat::controls::select_use_and_letting_go_on_focus_loss",
@@ -937,6 +981,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-TEXT-MODE"),
         station: "auberean-shell::dat::controls::a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_press",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.the-controls-move-the-body-the-same-with-and-without-the-scene",
+        says: "Our choice: the same controls move the player's body to the same place with the \
+               window's scene and with none: forward pressed for two seconds runs it through the \
+               hall in the shell and on the SDK's driver with its world without a window to the \
+               same place on every frame, reported to the server the same way.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-SAME-AS-SCENE"),
+        station: "auberean-shell::dat::session::the_controls_move_the_body_the_same_with_and_without_the_scene",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -959,6 +1014,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.the-servers-moves-take-the-body-the-same-with-and-without-the-scene",
+        says: "Our choice: the moves the server orders the player's body to make (its speed \
+               halved, a push, a walk to a place, a teleport) take it the same way with the \
+               window's scene and with none: both play the server's events for bodies through the \
+               world without a window's steps, so the body stands in the same place on every frame \
+               and is reported the same way.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-SERVER-MOVES-SAME-AS-SCENE"),
+        station: "auberean-shell::dat::session::the_servers_moves_take_the_body_the_same_with_and_without_the_scene",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.dev-login.makes-its-character-as-the-creation-screens-do",
         says: "The developer's login makes the human it plays as the creation screens make one: \
                the player's entity, the race's start area, class and implement, and every \
@@ -967,6 +1034,384 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DEV-LOGIN-CREATES-AS-SCREENS"),
         station: "auberean-shell::dat::session::the_developers_login_makes_its_human_as_the_creation_screens_do",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.a-line-typed-goes-to-the-command-line-and-its-answer-is-logged",
+        says: "A line typed in Horizon's chat entry goes to the player's command line as the \
+               game's own chat sends it: the command line's answer shows in Horizon's log (a line \
+               naming no command is answered with the game's line asking for /help, in the \
+               error's color), and nothing is sent to the server for it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-LINE"),
+        station: "auberean-horizon::dat::interfaces::a_line_typed_in_horizon_goes_to_the_command_line_and_its_answer_is_logged",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.a-switch-carries-the-chat-lines-written-before",
+        says: "The chat lines written while one interface is shown reach the other's log when it \
+               is chosen: Horizon chosen for the first time starts from the lines written before \
+               it, and chosen again it has those written while the game's own interface was \
+               shown, each once.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-CARRIED"),
+        station: "auberean-horizon::dat::interfaces::a_switch_of_interface_carries_the_chat_lines_written_before",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.before-the-world-its-own-screens-log-in-and-enter",
+        says: "With Horizon chosen, the screens before the world are Horizon's own: it logs in \
+               itself with the account the client was started with, its connecting screen up \
+               until the character list comes; started with a character to play, it enters the \
+               world as that character, and Horizon shows its HUD there.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-BEFORE-WORLD"),
+        station: "auberean-horizon::dat::pregame::horizon_logs_in_itself_and_enters_the_world_as_the_character_it_was_started_with",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.character-select-lists-the-characters-and-enters-the-one-chosen",
+        says: "Horizon's character select lists the account's characters, the selected one \
+               standing in a scene of its own; nothing is entered by itself, and Enter asks \
+               whether to enter the world as the selected character before it does, once.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHARACTER-SELECT"),
+        station: "auberean-horizon::dat::pregame::horizon_s_character_select_lists_the_characters_and_enters_the_one_chosen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.character-select-shows-a-different-view-each-time-unless-one-is-chosen",
+        says: "Horizon's character select, unless its settings name one view, shows one picked \
+               with the client's random numbers each time it comes up, never the one shown the \
+               time before, and keeps it until the player leaves for the world; the view picked \
+               is kept in Horizon's own file, so the next run's is another.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-VISTAS-RANDOM"),
+        station: "auberean-horizon::cpu::before::vista::random_picks_another_view_each_time_character_select_comes_up_from_a_fixed_seed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.horizon.character-select-stands-over-a-view-of-cragstone-and-names-the-world",
+        says: "Horizon's character select stands over a view of Cragstone drawn from the install \
+               with no server, the camera turning slowly as its path says, and names the world \
+               the login named; once the player asks to enter the world the view is let go of \
+               and nothing of the world is drawn until the player is in it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SELECT-VISTA"),
+        station: "auberean-horizon::dat::pregame::horizon_s_character_select_stands_over_cragstone_and_names_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.character-select-stands-over-the-view-chosen",
+        says: "Horizon's settings choose the view behind character select, Random or one of \
+               Cragstone, the Drudge Citadel, Arramora, Linvak Tukal, Aun Tanua and Ikeras, kept \
+               in its own file; the one chosen is drawn from the install with no server, its \
+               camera turning slowly as its path says.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-VISTA-DRUDGE-CITADEL"),
+        station: "auberean-horizon::dat::views::character_select_stands_over_the_drudge_citadel_once_it_is_chosen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.creation-s-height-shows-in-the-figure",
+        says: "Horizon's creation scales the whole figure by the height chosen, in a viewport \
+               framed the same for every height, so a taller character stands taller in it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-HEIGHT-SCALE"),
+        station: "auberean-horizon::dat::figures::creation_s_height_scales_the_whole_figure_in_a_frame_that_stays_the_same",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.entering-shows-portal-space-and-its-fade-as-the-game-s-own-interface",
+        says: "Entering the world with Horizon shown, portal space shows from the frame after it is \
+               first drawn with nothing of Horizon's over it, and goes out to white and comes out into \
+               the world on the same timeline as under the game's own interface.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-ENTRY-PORTAL-SPACE"),
+        station: "auberean-horizon::dat::entry_fade::entering_under_horizon_shows_portal_space_and_its_fade_as_the_game_s_own_interface",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.its-scale-and-hud-layout-are-kept-in-the-player-s-files",
+        says: "Horizon keeps its own settings and each character's HUD layout in the player's \
+               files: the interface scale chosen in its settings, and the layout saved in its \
+               HUD layout editor, are written there (`auberean-horizon.txt`, \
+               `auberean-horizon-hud-<world>-<name>.txt`), and read back when Horizon is next \
+               shown and the character is next in the world.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-KEPT-FILES"),
+        station: "auberean-horizon::dat::extras::horizons_scale_and_hud_layout_are_kept_in_the_players_files_and_read_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.log-out-asks-first-in-the-game-s-words",
+        says: "Horizon's Log Out (its key, the menu bar's and the settings') asks first in the \
+               game's own words, \"Are you sure you want to log out?\", with Yes and No, as the \
+               game's own Leave World does; nothing leaves the world until Yes.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-LOG-OUT-ASKS"),
+        station: "auberean-horizon::dat::extras::horizons_log_out_key_asks_first_in_the_games_words_and_yes_asks_to_leave",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.logging-out-shows-the-wait-then-portal-space-then-character-select",
+        says: "Logging out under Horizon puts the HUD away and says it is logging out over the \
+               world for as long as the server holds the character; portal space then shows, \
+               nothing over it, and stays in sight two seconds after the session leaves the \
+               world before character select.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-LOGOUT-TIMELINE"),
+        station: "auberean-horizon::dat::leaving::logging_out_shows_the_wait_then_portal_space_long_enough_to_see_then_character_select",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.switching-keeps-the-session-and-each-interface-s-log",
+        says: "In the world the game's own interface can be left for Horizon and Horizon for it \
+               again in one session: the player stays in the world and nothing logs in again; \
+               Horizon draws its HUD as textured batches and lets go of its textures when it is \
+               left; a choice made in Horizon's settings is kept in the preferences file; and \
+               Horizon's log still holds what it showed when it is chosen again.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SWITCH"),
+        station: "auberean-horizon::dat::interfaces::switching_to_horizon_and_back_keeps_the_session_and_its_log",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.t-starts-a-reply-in-the-chat-entry",
+        says: "Our choice: T, Horizon's reply key, opens its chat entry with the game's reply \
+               command in it, as the game's own reply key starts its entry.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-REPLY-KEY"),
+        station: "auberean-horizon::dat::interfaces::t_starts_a_reply_to_the_last_tell_in_horizons_chat_entry",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-figures-before-the-world-play-their-idle",
+        says: "Horizon's figures on character select and in creation stand playing their idle, \
+               as the game's own screens' do, and go on playing it while creation's is turned.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-FIGURE-IDLE"),
+        station: "auberean-horizon::dat::figures::the_figures_on_character_select_and_in_creation_play_their_idle",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-host-s-pad-plays-the-game-through-the-game-s-controls",
+        says: "In the world under Horizon the host's pad, read by the shell once a frame, plays \
+               the game: a first press switches gamepad mode on and does nothing else, the left \
+               stick pushed ahead holds the forward control in the client as a key would, and a \
+               key pressed switches gamepad mode off and lets go of what the pad held.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-PAD"),
+        station: "auberean-horizon::dat::extras::the_hosts_pad_plays_the_game_in_gamepad_mode_and_a_key_switches_it_off",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-inventory-shows-the-player-s-figure-over-its-window",
+        says: "In the world Horizon's inventory window opens on Horizon's inventory key (I) and \
+               shows the player's figure as it looks, in a scene of its own over the window: the \
+               window's batches drawn before the figure's place among them stand under the \
+               scene, and the rest over it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-INVENTORY-FIGURE"),
+        station: "auberean-horizon::dat::things::horizons_inventory_shows_the_players_figure_over_its_window",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-key-bindings-page-writes-horizon-s-key-files",
+        says: "Horizon's key bindings page, in its settings, binds a key pressed for an action to \
+               it; Apply writes Horizon's own key files and binds them from then on, leaving the \
+               player's own key map files alone.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-KEY-BINDINGS"),
+        station: "auberean-horizon::dat::interfaces::horizons_key_bindings_page_writes_its_key_files_and_binds_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-map-draws-the-world-from-its-landblocks",
+        says: "Horizon's map draws its own picture of the world, not the game's map pictures: \
+               every landblock read off the frame, a pixel to each square of the land, the land in \
+               the far landscape's colors as the ground picks them and lit by its slope, the sea \
+               where no landblock lies or the ground is under water, and a picture of the whole \
+               2048 pixels a side.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MAP-PICTURE"),
+        station: "auberean-horizon::dat::map::the_map_draws_the_world_from_its_landblocks_in_the_far_landscapes_colors",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-map-frames-the-land",
+        says: "Horizon's map, fully zoomed out, frames the land rather than the whole world: the \
+               bounds of all its land, the placeholder land left out, in the middle with a margin \
+               of a twenty-fifth of their longer side about them, past the world's edge where the \
+               land comes near it, the sea drawn beyond. It opens there, Fit and the wheel zoom \
+               out no further, and a pan stops at the frame's edge.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MAP-FRAMED"),
+        station: "auberean-horizon::dat::map::the_map_frames_the_continents_and_their_islands",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-map-leaves-out-the-placeholder-islands",
+        says: "Horizon's map leaves out, as sea, the placeholder land: each stretch of land that \
+               copies another, its landblocks laid out as the other's are and its heights the \
+               other's at all but a hundredth of their vertices; and each speck of dead-flat \
+               ground more than 32 landblocks from all other land. The nine copies of one island \
+               north of the continents go, and the two specks at the world's south-west corner \
+               and out in its north-east; the continents and every other island stay.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MAP-PLACEHOLDERS"),
+        station: "auberean-horizon::dat::map::the_map_leaves_out_the_nine_placeholder_islands_and_two_specks_and_no_other_land",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-map-reads-the-world-s-size-and-labels-from-the-region",
+        says: "Horizon's map reads from the world's region the land's size and the closer maps' \
+               labels, written from the game's strings; the five continents' names from the game's \
+               map window, as its buttons for them name them, each put on its own one of the five \
+               largest stretches of land; the fellows' marker's picture; and the game's date and \
+               time of day from the region's calendar.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MAP"),
+        station: "auberean-horizon::dat::map::the_map_reads_the_worlds_size_and_the_closer_maps_labels_from_the_region",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-map-writes-the-time-of-day-and-the-date-from-the-calendar",
+        says: "Horizon's map writes the game's time of day and, under it, the date, by the region's \
+               calendar and the game's strings: late on the 21st of Leafcull in 664 it says Sunset, \
+               then Leafcull 21, 664 P.Y., as the game's own map window does.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MAP-DATE"),
+        station: "auberean-horizon::dat::map::the_map_writes_the_time_of_day_and_the_date_from_the_calendar",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-minimap-places-the-player-and-holds-the-radar-s-objects",
+        says: "In the world Horizon's minimap places the player as the game's radar does (inside \
+               a building or a dungeon it reads Inside and reaches the shorter range; outdoors, the \
+               map coordinates of the world's size) and holds the objects the player's scripts put \
+               on the radar within its reach, the player not among them.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-MINIMAP"),
+        station: "auberean-horizon::dat::interfaces::horizons_minimap_places_the_player_and_holds_the_radars_objects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-minimap-s-reach-ends-at-its-frame-as-the-game-s-radar-s-does",
+        says: "Horizon's minimap's reach ends where its frame's inside edge begins, as the game's \
+               own radar's 60-texel reach ends at its bezel: a blip at the edge of the reach \
+               stands at the frame, no disc shows past the reach, and the last ring stands \
+               0.770 of the way to the frame.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-RADAR-REACH"),
+        station: "auberean-horizon::cpu::play::minimap::the_minimap_s_reach_ends_at_its_frame_as_the_game_s_radar_s_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-minimap-s-rings-stand-where-the-game-s-radar-s-do",
+        says: "Horizon's minimap draws four rings at the game's own radar's places, 0.187, 0.384, \
+               0.581 and 0.770 of its reach from the middle, and they stay there whatever the \
+               reach: inside an interior cell (50 meters) they mark 9.3, 19.2, 29.1 and 38.5 \
+               meters, outdoors (75 meters) 14.0, 28.8, 43.6 and 57.7; only how far the blips \
+               stand changes.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-RADAR-RINGS"),
+        station: "auberean-horizon::cpu::play::minimap::the_minimap_s_rings_stand_where_the_game_s_radar_s_do_inside_and_outdoors",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-money-is-the-game-s-gold-picture",
+        says: "Horizon draws the money (the inventory's money bag, coins carried, a sold listing) \
+               with the game's own picture of a pile of gold coins, the one the game's inventory \
+               shows.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-GOLD"),
+        station: "auberean-horizon::dat::things::the_money_is_the_games_gold_picture",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-parameter-bar-reads-each-vital-s-current-and-greatest",
+        says: "Horizon's parameter bar shows the player's health of its greatest health and its \
+               vigor of its greatest vigor, as the qualities the server sent give them.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-VITALS"),
+        station: "auberean-horizon::dat::vitals::the_parameter_bar_reads_each_vitals_current_and_greatest",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-settings-open-on-their-key-and-set-the-orbit-camera",
+        says: "Horizon's settings open on Horizon's key for them (K, from the key layers the shell \
+               pushes while Horizon is shown) and close on Escape; a movement chosen there is \
+               applied to the orbit camera and kept in the preferences file as `[Orbit] \
+               Movement`.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SETTINGS"),
+        station: "auberean-horizon::dat::interfaces::horizons_settings_open_on_their_key_and_set_the_orbit_cameras_movement",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-shell-s-plugins-hear-the-game-and-horizon-draws-their-windows",
+        says: "The desktop shell runs the plugins its product hands it as each session's frame \
+               hook: a plugin hears the player enter the world; a line typed in Horizon that the \
+               plugin claims is the plugin's and never said; what the plugin prints shows in \
+               Horizon's log in the plugins' own color, not as an error; the window it shows is drawn by Horizon, and a press on its button \
+               reaches the plugin.",
+        since: THIS_CLIENT,
+        divergence: "CD2-plugins",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-PLUGIN-SEAT"),
+        station: "auberean-horizon::dat::extras::the_shells_plugins_hear_the_game_and_horizon_draws_their_windows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-social-window-opens-on-its-key-and-asks-the-game",
+        says: "Horizon's social window opens on Horizon's key for it (O); a fellowship asked for \
+               there, its name typed, goes to the player's scripts, which send the server their \
+               call for it; Escape closes the window.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SOCIAL"),
+        station: "auberean-horizon::dat::interfaces::horizons_social_window_opens_on_its_key_and_a_fellowship_asked_for_reaches_the_server",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-vitae-lamp-gives-the-game-s-words-and-examines-the-vitae",
+        says: "Horizon's vitae lamp shows below full vitae only, giving the game's own words for \
+               the vitae (\"Vitae: 95% XP to recover next 1 point: 1234.\", the vitae cut down to \
+               a whole percent); a click on it examines the vitae in the examine window and lets \
+               the selection go. At full vitae nothing of it is drawn and a click asks for nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-VITAE-LAMP"),
+        station: "auberean-horizon::cpu::play::status::the_vitae_lamp_gives_the_game_s_words_and_a_click_below_full_examines_the_vitae",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.input.a-click-that-brings-the-window-forward-is-not-heard",
@@ -1085,6 +1530,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-line-naming-no-command-shows-the-clients-error-line",
+        says: "A line typed that names a command the player's scripts don't know shows the client's own \
+               error line on the line of messages: type /help for a list of the commands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-UNKNOWN-COMMAND"),
+        station: "auberean-interface::dat::screens::a_line_naming_no_command_shows_the_clients_error_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-ray-meets-triangles-as-the-clients-trace-finds-them",
         says: "A ray meets a list of triangles as the client's trace finds it: the nearest triangle \
                whose plane the ray reaches, as a share of the ray's length, with the triangle's normal; \
@@ -1156,6 +1610,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.each-key-map-preset-is-chosen-at-character-select",
+        says: "The key map screen at character select starts on the keys the game's installer \
+               laid down, X examining; each of its five presets, pressed and agreed to, binds its \
+               three maps from the data at once, and Apply writes the one chosen to the player's \
+               three files.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYBOARD-PRESETS"),
+        station: "auberean-interface::dat::screens::each_key_map_preset_is_chosen_at_character_select",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.every-panel-is-drawn-in-front-of-the-world",
         says: "In the world every panel is drawn in front of the world, which fills the window \
                behind every element: a panel's own viewport puts nothing behind the world. The \
@@ -1194,6 +1659,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECT-PORTAL"),
         station: "auberean-interface::dat::screens::the_character_screen_runs_the_portal_under_its_backdrop",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-chat-entry-steps-back-to-a-line-typed-through-the-client",
+        says: "The up arrow in a chat line asks the client for the line typed before, and the client's \
+               answer, a frame later, fills the entry.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-HISTORY-ANSWER"),
+        station: "auberean-interface::dat::screens::the_chat_entry_steps_back_to_a_line_typed_through_the_client",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1267,11 +1741,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.interface.the-play-screen-runs-on-the-frameworks",
-        says: "In the world the play screen runs on the frameworks: E shows the examination \
-               window; the skills button shows the skills window and its tooltip turns to Hide; \
-               F12 hides the toolbar and shows it again; the middle button turns mouse look on and \
-               off, the camera following and the crosshair showing; the up arrow still runs the \
-               body forward.",
+        says: "In the world the play screen runs on the frameworks: X, the installed keys' \
+               examine, shows the examination window; the skills button shows the skills window \
+               and its tooltip turns to Hide; F12 hides the toolbar and shows it again; the middle \
+               button turns mouse look on and off, the camera following and the crosshair \
+               showing; the up arrow still runs the body forward.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PLAY-FRAMEWORKS"),
         station: "auberean-interface::dat::screens::the_play_screen_runs_on_the_frameworks",
@@ -1296,6 +1770,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-KEPT-PLACES-TABLE"),
         station: "auberean-interface::dat::screens::the_play_screens_kept_places_go_into_a_table_and_come_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-play-screens-settings-reach-the-client-as-its-actions",
+        says: "What the play screen sets of the chat windows, the names over heads and the panels' places, and \
+               what it asks of the command line, reaches the client as its actions, not as calls \
+               into the player's scripts: an attack ceased, names shown, the commands made known, a \
+               line typed, each chat window setting and the chat options kept, a list stepped \
+               through, the panels' places kept in the order the play screen made them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-SETTINGS-ASKED"),
+        station: "auberean-interface::dat::screens::the_play_screens_settings_reach_the_client_as_its_actions",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1346,6 +1832,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-selection-keys-select-what-actions-alone-select",
+        says: "Our choice: the selection keys pressed through the retail interface select, press \
+               by press, what the same selections asked through actions alone select on the \
+               SDK's driver with no window, by one set of the game's rules.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SELECTION-KEYS-AS-ASKED"),
+        station: "auberean-interface::dat::screens::the_selection_keys_select_what_actions_alone_select",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.what-a-body-holds-is-picked-and-selected-as-itself",
         says: "What a body holds (a wielded bow) is drawn with its holder and a click on it \
                selects it as itself, its name and marks shown where it is drawn; a double press \
@@ -1372,6 +1868,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-INPUT-BEHAVIOR-ACTION"),
         station: "auberean-shell::cpu::keys::a_behavior_action_asks_the_player_to_play_it_and_to_stop_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.a-fresh-start-has-the-installed-keys",
+        says: "With no key map file a player starts with the keys the game's installer laid down: \
+               the WoW preset's keys alone (X examines, Q and E strafe, R replies), the Defaults' \
+               Shift map, and the WoW preset's Ctrl map less its developer keys and Ctrl+F6.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-INSTALLED"),
+        station: "auberean-shell::dat::keys::a_fresh_start_has_the_keys_the_installer_laid_down",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.keys.a-key-let-go-ends-what-its-press-began",
@@ -1412,6 +1918,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.keys.an-interfaces-own-maps-are-written-to-its-files",
+        says: "Our choice: an interface's own key maps as its bindings page applies them are \
+               written to its own files (keys alone, with Shift, with Ctrl), which are its layers \
+               from then on; the player's own key map files are left as they were, and the retail \
+               interface writes none.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-KEYS-INTERFACE-WRITTEN"),
+        station: "auberean-shell::cpu::keys::an_interfaces_own_maps_are_written_to_its_files_and_read_back_as_its_layers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.an-interfaces-own-maps-stand-in-for-the-players",
+        says: "Our choice: while an interface with key maps of its own is shown, its maps are looked up \
+               first and stand in for the player's, with only the base map under them; with none, the \
+               player's maps answer as before.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-KEYS-INTERFACE-LAYERS"),
+        station: "auberean-shell::cpu::keys::an_interfaces_own_maps_stand_in_for_the_players_over_the_base_map",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.keys.apply-writes-the-files-and-binds-them",
         says: "Applying keys on the key map screen writes the three key map files the \
                preferences name and binds them in place of the player's maps; when a file cannot \
@@ -1422,10 +1951,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.keys.horizons-key-files-read-back-as-written",
+        says: "Our choice: Horizon's whole layout, written to its three key files as its Key \
+               Bindings page applies it, reads back over the data as the same layout, binding for \
+               binding, the game's actions and this client's own alike.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-KEY-EXPORT"),
+        station: "auberean-shell::dat::keys::horizons_layout_written_to_its_files_reads_back_as_it_is",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.keys.horizons-own-keys-are-in-use-only-while-it-is-shown",
+        says: "Our choice: Horizon's own key maps are in use only while it is shown, the player's maps \
+               standing aside meanwhile and back as they were after; the orbit camera it asked for \
+               ends with the switch.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-KEYS-HORIZON-SHOWN"),
+        station: "auberean-shell::dat::interfaces::horizons_own_keys_are_in_use_only_while_it_is_shown",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.keys.maps-come-from-their-files-else-the-defaults",
         says: "At startup the player's key maps come from their files, the plain one read with \
-               the update binding R to reply and written again when it gains it; a file missing \
-               or not reading leaves the data's Defaults map in its place.",
+               the update binding R to reply and written again when it gains it; a file not \
+               reading leaves the data's Defaults map in its place, and a file not there the map \
+               the game's installer laid down.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-KEYS-START"),
         station: "auberean-shell::cpu::keys::the_key_maps_come_from_their_files_else_the_defaults",
@@ -1438,6 +1990,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-KEYS-MODIFIERS"),
         station: "auberean-shell::cpu::keys::the_modifiers_held_choose_an_actions_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.own-actions-are-held-by-the-world-controls",
+        says: "Our choice: a key bound to one of this client's own actions (Horizon's look at the front) \
+               is held by the world's controls while down and never sent to the client as a control; \
+               letting it go or the window losing the keyboard ends it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-KEYS-OWN-HELD"),
+        station: "auberean-shell::cpu::keys::an_own_action_is_held_by_the_world_controls_and_never_sent",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1504,6 +2067,110 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-NET-BINDING"),
         station: "auberean-shell::cpu::net_binding::the_game_socket_binds_as_the_preferences_say",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.orbit.a-plugin-choosing-the-orbit-camera-shows-the-world-through-it",
+        says: "Our choice: a plugin that chooses the orbit camera has the world shown through it, \
+               under an interface that asks for none, until the interface asks for another.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-PLUGINS-CAMERA-SCENE"),
+        station: "auberean-shell::dat::schemes::a_plugin_choosing_the_orbit_camera_shows_the_world_through_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.orbit.an-interface-shows-the-world-through-the-orbit-camera",
+        says: "Our choice: an interface that asks for the orbit camera shows the world through it, mouse \
+               look off: the camera stands behind the player within its distance, looking its way, and \
+               turned to look west it stands east of the player; W then turns the body west and runs \
+               it there in the window's scene.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-SCENE"),
+        station: "auberean-shell::dat::schemes::an_interface_asking_for_the_orbit_camera_shows_the_world_through_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.orbit.camera-based-movement-runs-the-way-the-controls-point",
+        says: "Our choice: camera-based, the body runs forward the way the movement controls point \
+               against where the orbit camera looks (backward turned round toward it, the turns and \
+               strafes across its view, two together between), at the pace asked; with nothing asked \
+               it stands as it faces, and the camera never turns it while the server moves it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-CAMERA-BASED"),
+        station: "auberean-client-sim::cpu::orbit::camera_based_movement_runs_the_way_the_controls_point_against_the_camera",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.orbit.character-based-movement-is-the-games-own",
+        says: "Our choice: character-based, the movement is the game's own unless the right button is \
+               held, when the body faces where the camera looks and the turns step sideways; moving \
+               or turning with no button held brings the camera round behind the player in a fifth of \
+               a second, never past.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-CHARACTER-BASED"),
+        station: "auberean-client-sim::cpu::orbit::character_based_movement_is_the_games_own_and_brings_the_camera_behind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.orbit.the-mouse-the-controls-and-the-wheel-move-the-orbit-camera",
+        says: "Our choice: the mouse turns the orbit camera only while a mouse button is held (right \
+               looks right, away from the player looks up, each the other way when reversed); the \
+               camera's rotate and tilt controls turn and tilt it at their rate, the tilt held to its \
+               range; the wheel brings it closer and further, between its nearest and farthest.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-TURNING"),
+        station: "auberean-client-sim::cpu::orbit::the_mouse_turns_it_while_a_button_is_held_and_the_controls_and_wheel_move_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.orbit.the-orbit-camera-moves-smoothly-over-the-land-and-a-blocks-edge",
+        says: "Our choice: under the orbit camera, running over land that bends between the body's \
+               ticks and over a block's edge, behind the player or turned by the mouse, the camera \
+               moves on smoothly every frame, never further in a frame than the body moves in a \
+               tick.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-SMOOTH"),
+        station: "auberean-shell::dat::schemes::the_orbit_camera_moves_smoothly_over_the_land_and_a_blocks_edge",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.orbit.the-orbit-camera-stands-back-along-the-way-it-looks",
+        says: "Our choice: the orbit camera stands its distance back from a point most of the way up the \
+               player's body, along the way it looks: level and facing north it is due south, tilted \
+               down it stands above. Holding the look-at-front control turns the view to the \
+               player's front and leaves the way the player moves as it was.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-PLACE"),
+        station: "auberean-client-sim::cpu::orbit::the_orbit_camera_stands_its_distance_back_along_the_way_it_looks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.orbit.the-orbit-preferences-are-laid-over-what-the-interface-asks",
+        says: "Our choice: the player's orbit preferences (the movement, the reversed directions), as \
+               applied, are laid over what the interface asks of the orbit camera, which keeps its \
+               place; applied character-based, W runs the body on its own way.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-PREFERENCES"),
+        station: "auberean-shell::dat::schemes::the_orbit_preferences_are_laid_over_what_the_interface_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.orbit.with-no-window-forward-runs-the-way-each-movement-says",
+        says: "Our choice: with no window, under the orbit camera turned a quarter left of the player, \
+               forward camera-based turns the body to where the camera looks and runs it there; \
+               character-based it runs the body on the way it faced.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-ORBIT-WALK"),
+        station: "auberean-shell::dat::schemes::with_no_window_forward_runs_where_the_camera_looks_only_camera_based",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.others.a-body-created-again-comes-back-into-the-world",
@@ -1971,6 +2638,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.a-refused-interface-keeps-the-one-shown-and-says-why",
+        says: "An interface that can't be shown is refused when it is chosen: the interface shown \
+               stays, the interface preference is put back to it (the client page shows it, and \
+               the preferences file keeps it), and the player is told why.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-UI-INTERFACE-REFUSED"),
+        station: "auberean-shell::dat::interfaces::a_refused_interface_keeps_the_one_shown_and_says_why",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.a-standing-jump-leads-in-then-leaves-the-ground",
         says: "The jump key with the player standing: its figure plays the jump's lead-in while \
                the body stays on the ground, until the lead-in's animation sets the jump off; \
@@ -2032,6 +2710,31 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.portal-space-readies-the-world-before-coming-out",
+        says: "Going out of portal space, the client readies on the device what the world's first \
+               frame puts there, a share a frame while the world is still hidden: the pictures it \
+               is drawn into first, then its pictures a few a frame, then its draws and the land's \
+               pieces, all of them before coming out begins but those of the effects the player's \
+               arrival sets going as the world is first drawn.",
+        since: THIS_CLIENT,
+        divergence: "CD2-portal-space-fades-out-after-the-world-s-first-frame",
+        evidence: Evidence::Private("AC2-EVID-PORTAL-WARMUP"),
+        station: "auberean-shell::dat::session::portal_space_readies_the_world_before_coming_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.switching-the-interface-leaves-one-then-enters-the-other",
+        says: "A choice of interface is followed at the start of the next frame: the interface shown \
+               is left, the world's controls let go of what they held and mouse look ends, then the \
+               interface chosen is entered and shown from then on. Each interface is built the first \
+               time it is chosen and kept.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-UI-INTERFACE-SWITCH"),
+        station: "auberean-shell::dat::interfaces::switching_the_interface_leaves_one_then_enters_the_other",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.the-body-runs-with-the-default-keys-and-is-reported",
         says: "In the world, W held runs the player's body over the hall's floor at the running \
                speed, and its place is reported to the server by the report rule; closing the window \
@@ -2044,12 +2747,23 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.shell.the-host-shows-the-game-as-the-interface-asks",
-        says: "How the game is shown goes to the host and into the settings as the interface asks: \
-               a flip of full screen is the interface's to answer, and what it answers is carried \
-               out.",
+        says: "How the game is shown goes to the host and into the settings as the client's \
+               rendering preferences say: a flip of full screen goes through the full-screen \
+               preference, and what the preferences then say is carried out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-FLIP-HOST"),
         station: "auberean-shell::dat::session::the_host_shows_the_game_as_the_interface_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-interface-chosen-is-kept-in-the-preferences-file",
+        says: "The interface chosen is kept in the preferences file as `[UI] Interface`, `Retail` or \
+               `Horizon`, and the next run starts in it; a run whose file names an interface that \
+               can't be shown starts in the retail one, and the player is told why.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-UI-INTERFACE-KEPT"),
+        station: "auberean-shell::dat::interfaces::the_interface_chosen_is_kept_in_the_preferences_file",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -1,13 +1,15 @@
-//! The chat window's lines as the player's scripts write them, from a recorded 2017 session.
+//! The chat window's lines as the player's scripts write them, from a recorded 2017 session, and
+//! what the chat panel sets and asks through the client's actions.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use auberean_client_contract::Action;
+use auberean_client_contract::event::{ChatEvent, GameEvent};
+use auberean_client_contract::{Action, ChatHistory, ChatWindowAction};
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
 use auberean_client_runtime::shell::ShellStatus;
-use auberean_client_runtime::{link_scripts, Client, ClientData, ClientSettings};
+use auberean_client_runtime::{chat_options, link_scripts, Client, ClientData, ClientSettings};
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::testing::require_target_install;
 use auberean_dat::DatFile;
@@ -140,7 +142,7 @@ fn words_sent(args: &[u8], program: &auberean_script::Program) -> Vec<String> {
 
 /// The client through the recorded session to its end, in the world, recording what its scripts
 /// send, its commands made known as the chat panel makes them known when it is made.
-fn in_the_world() -> (Client, Arc<auberean_script::Program>) {
+pub(crate) fn in_the_world() -> (Client, Arc<auberean_script::Program>) {
     let index = auberean_testkit::data::require_capture_index();
     let mut types: Vec<u32> = (0x1_0000..0x1_0100)
         .filter(|t| ServerMessage::is_known_type(*t))
@@ -1797,6 +1799,138 @@ fn help_shows_a_commands_help_every_commands_line_or_that_it_knows_no_such_comma
         at = found.unwrap_or(at) + line.len();
     }
     assert!(names.len() >= 130, "{}", names.len());
+}
+
+/// The server functions the chat options and the windows' places and opacities are sent to.
+const UPLOAD_CHAT_OPTIONS: u32 = 0x8212_0032;
+const UPLOAD_UI_SETTINGS: u32 = 0x8212_002F;
+
+/// The server functions the client called since `before`, in order.
+pub(crate) fn called_since(c: &Client, before: usize) -> Vec<u32> {
+    c.sent()[before..]
+        .iter()
+        .filter_map(|s| match &s.message {
+            ClientMessage::ServerCall(sc) => Some(sc.function.0),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The chat events told since the host last took them.
+fn chat_events(c: &mut Client) -> Vec<ChatEvent> {
+    c.take_events()
+        .into_iter()
+        .filter_map(|e| match e {
+            GameEvent::Chat(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The chat windows' settings, set as the chat panel and the chat options page set them, are kept
+/// in the player's options at once: a window's filter and the channel it is given over to, a kind
+/// of text's font size, color and popup flag, a window's opacity. Nothing goes to the server for
+/// them until the chat options are kept (then the chat options are sent, once), except an opacity,
+/// which sends the windows' places and opacities as it is set.
+///
+/// Behaviour: script.chat.the-chat-windows-settings-are-kept-in-the-options-and-sent-when-kept
+#[test]
+fn the_chat_windows_settings_are_kept_in_the_options_and_sent_when_kept() {
+    use ChatWindowAction as W;
+    let (mut c, _) = in_the_world();
+    let was = c.options().expect("the player's options");
+    let (window, kind) = (2, chat_options::kind::TELL);
+    let filter = chat_options::filter(&was, window) ^ chat_options::kind::EMOTE;
+    let size = chat_options::font_size(&was, kind) + 1;
+    let color = chat_options::font_color(&was, kind) ^ 0x00FF_00FF;
+    let popup = !chat_options::popup(&was, kind);
+    let devoted = chat_options::kind::GENERAL_CHANNEL;
+    let before = c.sent().len();
+    for a in [
+        W::Filter { window, filter },
+        W::FontSize { kind, size },
+        W::FontColor { kind, color },
+        W::Popup { kind, on: popup },
+        W::Devote {
+            window,
+            kind: devoted,
+        },
+    ] {
+        c.act(Action::ChatWindows(a));
+    }
+    let now = c.options().expect("the player's options");
+    assert_eq!(chat_options::filter(&now, window), filter);
+    assert_eq!(chat_options::font_size(&now, kind), size);
+    assert_eq!(chat_options::font_color(&now, kind), color);
+    assert_eq!(chat_options::popup(&now, kind), popup);
+    assert_eq!(chat_options::devoted_channel(&now, window), devoted);
+    assert_eq!(called_since(&c, before), [0u32; 0], "nothing sent yet");
+    c.act(Action::ChatWindows(W::Keep));
+    assert_eq!(called_since(&c, before), [UPLOAD_CHAT_OPTIONS]);
+    let before = c.sent().len();
+    let opacity_of = 0x1234_5678;
+    c.act(Action::ChatWindows(W::Opacity {
+        window: opacity_of,
+        opacity: 0.25,
+    }));
+    let now = c.options().expect("the player's options");
+    assert_eq!(chat_options::window_opacity(&now, opacity_of), Some(0.25));
+    assert_eq!(called_since(&c, before), [UPLOAD_UI_SETTINGS]);
+}
+
+/// Each ask of a list the chat entry steps through is answered once, in order: the lines typed
+/// (the one before is the last typed), the names told and the names that told the player (none
+/// here, so nothing more either way). A line naming a command no one knows is told as one, with
+/// its words; a line said is not.
+///
+/// Behaviour: script.chat.each-list-ask-is-answered-and-an-unknown-command-is-told
+#[test]
+fn each_list_ask_is_answered_once_and_an_unknown_command_is_told() {
+    let (mut c, _) = in_the_world();
+    c.take_events();
+    c.act(Action::Say {
+        text: "Well met".into(),
+    });
+    assert!(
+        !chat_events(&mut c)
+            .iter()
+            .any(|e| matches!(e, ChatEvent::UnknownCommand { .. })),
+        "a line said names no command"
+    );
+    for (list, earlier) in [
+        (ChatHistory::Commands, true),
+        (ChatHistory::Retells, true),
+        (ChatHistory::Replies, false),
+    ] {
+        c.act(Action::AskHistory { list, earlier });
+    }
+    let answers = chat_events(&mut c);
+    assert_eq!(
+        answers,
+        [
+            ChatEvent::History {
+                list: ChatHistory::Commands,
+                text: Some("Well met".into())
+            },
+            ChatEvent::History {
+                list: ChatHistory::Retells,
+                text: None
+            },
+            ChatEvent::History {
+                list: ChatHistory::Replies,
+                text: None
+            },
+        ]
+    );
+    c.act(Action::Say {
+        text: "/nosuchcommand at all".into(),
+    });
+    assert_eq!(
+        chat_events(&mut c),
+        [ChatEvent::UnknownCommand {
+            text: "/nosuchcommand at all".into()
+        }]
+    );
 }
 
 /// The commands players of other games reach for (`/duel`, `/petition`, `/report`, `/appeal`,

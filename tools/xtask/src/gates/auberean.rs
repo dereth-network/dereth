@@ -8,7 +8,7 @@
 //! | `auberean-corpus` | the installs and the capture index | every `corpus` binary: every recorded message and script call, bodies and looks against the recordings, the recorded logins replayed through the client and against the server |
 //! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback; the world builder's: its playtest with the server and our client as programs (it builds them first) |
 //! | `auberean-network` | the installs and the first game's data files | the test kit's `network` binary: the Dereth Network end to end, the hub, a first-game world and two of this game's worlds as programs, with both games' clients; it builds those programs first |
-//! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw, and the remaster's frames beside it |
+//! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw, the remaster's frames beside it, the interface's batches composed over them, and the view behind Horizon's character select |
 //! | `yalain-soak` | the installs | the server's `soak` binary: the soak and load runs, players playing scripted behaviors on the whole world, measured and checked against their invariants and the host's baseline |
 //!
 //! `cargo xtask gate <tier>` runs one. `cargo xtask ci tier1` runs the crates' tests that read
@@ -64,9 +64,11 @@ pub const TIERS: &[Tier] = &[
             ("auberean-animation", "retail-dats", "dat"),
             ("yalain-testkit", "retail-dats", "dat"),
             ("auberean-shell", "retail-dats", "dat"),
+            ("auberean-headless", "retail-dats", "dat"),
             ("auberean-ui", "retail-dats", "dat"),
             ("auberean-ui-game", "retail-dats", "dat"),
             ("auberean-interface", "retail-dats", "dat"),
+            ("auberean-horizon", "retail-dats", "dat"),
             ("athenaeum-foundry", "retail-dats", "dat"),
             ("athenaeum-editor", "retail-dats", "dat"),
             ("auberean-audio", "retail-dats", "dat"),
@@ -134,6 +136,8 @@ pub const GPU_TIER: Tier = Tier {
     runs: &[
         ("auberean-gpu", "retail-dats", "gpu"),
         ("auberean-remaster", "retail-dats", "gpu"),
+        ("auberean-present", "retail-dats", "gpu"),
+        ("auberean-horizon", "retail-dats", "gpu"),
     ],
 };
 

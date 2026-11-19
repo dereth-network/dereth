@@ -1,0 +1,11 @@
+id = "example.effects"
+name = "Effects"
+version = "0.1.0"
+api = "0.7"
+game = "auberean"
+entry = "main.lua"
+description = "Counts the effects put on the player and taken off, in a small window and with /effects."
+contexts = ["world"]
+
+[capabilities]
+optional = ["ui.window"]

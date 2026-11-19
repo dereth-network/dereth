@@ -225,6 +225,14 @@ impl Session {
         received_rate(self.net.link_status())
     }
 
+    /// Seconds from when the world's server was last heard to `now`; none with no connection to
+    /// it.
+    #[must_use]
+    pub fn since_heard(&self, now: LocalTime) -> Option<f64> {
+        let r = self.net.receiver(self.net.world_recipient())?;
+        Some((now.0 - r.local_time_last_got_data.0).max(0.0))
+    }
+
     /// Counts so far.
     #[must_use]
     pub fn stats(&self) -> Stats {

@@ -104,7 +104,7 @@ fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
         dereth_web::settings::Files::from([(dereth_web::settings::preferences_file(), profile)]);
     dereth_web::settings::install(&dereth_web::settings::encode(&files), None);
     dereth_web::host::hand_over_horizon_art(Ok(
-        dereth_horizon::pieces::Pieces::built_in().expect("the Horizon interface's art")
+        dereth_horizon_art::Pieces::built_in().expect("the Horizon interface's art")
     ))
     .expect("the art is taken");
     let mut play = Play::new(

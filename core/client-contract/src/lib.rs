@@ -1,18 +1,20 @@
 //! The read-only view onto the game, the request channel back out and the action vocabulary, with
 //! no presentation and no platform in it.
 //!
-//! **Depends on** `dereth-primitives` (plus `glam` and `raw-window-handle`). **Used by** everything
+//! **Depends on** `dereth-primitives`, `dereth-ui-overlay` (the overlay's types, which [`overlay`]
+//! re-exports) and `dereth-render-params` (the projection parameters and startup filtering, which
+//! [`camera`] and [`sampler`] re-export), plus `raw-window-handle`. **Used by** everything
 //! on either side of the seam between the game and what draws it: the object model and the runtime
 //! (`dereth-client-model`, `dereth-client-runtime`), the SDK, the drawing and UI crates
-//! (`dereth-render`, `dereth-render-cpu`, `dereth-ui`, `dereth-ui-screens`), the device input
-//! (`dereth-input`), the client and its test kit.
+//! (`dereth-render`, `dereth-ui`, `dereth-ui-screens`), the device input (`dereth-input`), the
+//! client and its test kit.
 //!
-//! **Must never** reach another `dereth-*` crate or a presentation or platform crate: its direct
-//! production dependencies are exactly `dereth-primitives`, `glam` and `raw-window-handle`, and
-//! nothing in its tree is a UI, a renderer, `winit` or `windows` (`cargo xtask seams`, `seam:
-//! dereth-client-contract deps`; the allowed list is the seam check's own, so adding a dependency
-//! is a reviewed change there). It does no file I/O either: the persistence formats are here, the
-//! reading and writing is the client's.
+//! **Must never** reach another `dereth-*` crate (but the three named above, which name no game)
+//! or a presentation or platform crate: its direct production dependencies are exactly those named
+//! above, and nothing in its tree is a UI, a renderer, `winit` or `windows` (`cargo xtask seams`,
+//! `seam: dereth-client-contract deps`; the allowed list is the seam check's own, so adding a
+//! dependency is a reviewed change there). It does no file I/O either: the persistence formats are
+//! here, the reading and writing is the client's.
 //!
 //! [`GameView`], [`UiRequest`] and the `…View` value structs ([`view`], glob-re-exported here) are
 //! the contract between whoever holds the world and whoever draws it; both sides depend on this
@@ -27,7 +29,7 @@
 /// actions; a front end's device pipeline makes them.
 pub mod actions;
 pub mod book;
-/// The projection parameters `ViewParams` carries. `dereth_render_cpu::camera` re-exports them.
+/// The projection parameters `ViewParams` carries, from `dereth-render-params`.
 pub mod camera;
 /// The chat seam shared with `dereth_ui_screens::chat`: the failure table,
 /// `ChatMessage`, the window ids and opacity attributes, the reply targets and the auto-target
@@ -88,7 +90,7 @@ pub mod renderer;
 /// with no per-thread state.
 pub mod requests;
 pub mod research;
-/// `STARTUP_FILTERING`, which `dereth_render_cpu::sampler` re-exports.
+/// `STARTUP_FILTERING`, from `dereth-render-params`.
 pub mod sampler;
 pub mod snapshot;
 pub mod social;

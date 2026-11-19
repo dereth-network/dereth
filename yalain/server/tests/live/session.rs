@@ -613,3 +613,29 @@ fn a_new_characters_starting_sword_sold_at_the_money_bag_brings_its_gold() {
     );
     assert_eq!(money(s.client_ref()), before + 1, "its script's 1 gold");
 }
+
+/// The ways of moving the player, each through a session of its own.
+mod ways_of_moving {
+    use crate::schemes;
+
+    /// The game's own steering, through the session, draws no correction from the server.
+    /// Behaviour: session.server.the-games-own-steering-keeps-the-servers-word
+    #[test]
+    fn the_games_own_steering_draws_no_correction_from_the_server_executable() {
+        schemes::draws_no_corrections(schemes::Scheme::Game, "Game");
+    }
+
+    /// The orbit camera's camera-based movement, through the session, draws no correction.
+    /// Behaviour: session.server.camera-based-movement-keeps-the-servers-word
+    #[test]
+    fn camera_based_movement_draws_no_correction_from_the_server_executable() {
+        schemes::draws_no_corrections(schemes::Scheme::Camera, "Camera");
+    }
+
+    /// The orbit camera's character-based movement, through the session, draws no correction.
+    /// Behaviour: session.server.character-based-movement-keeps-the-servers-word
+    #[test]
+    fn character_based_movement_draws_no_correction_from_the_server_executable() {
+        schemes::draws_no_corrections(schemes::Scheme::Character, "Character");
+    }
+}

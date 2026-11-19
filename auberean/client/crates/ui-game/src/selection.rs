@@ -9,16 +9,10 @@
 //! press then uses the selection (not an item the player holds); a right press asks for the
 //! examination panel.
 //!
-//! The selection keys select by kind among the objects around the player within the radar's
-//! range (indoors the shorter): the next, the previous and the nearest creature, item, player,
-//! foe, fellow or pet, ordered by how far each stands (along the ground, plus a fifth more for
-//! each meter up or down) and then by id; after the last comes the first again. The player
-//! itself, the last selection and the last attacker have keys of their own, and Escape selects
-//! nothing.
-//!
-//! An object being taken out of the world while selected is no longer selected (the nearest foe
-//! is selected in its place when the player targets what attacks it); one that may no longer be
-//! selected stops being attacked and stops being selected, unless it may still be seen.
+//! The selection keys ask the game to select as each does (the next, the previous and the nearest
+//! creature, item, player, foe, fellow or pet; the player itself, the last selection, the last
+//! attacker), whose rules choose what; Escape selects nothing. The game itself lets the selection
+//! go when its object is taken out of the world or may no longer be selected.
 //!
 //! The scripts' targeting notice shows the field's usage cursor over the world (an item waits
 //! for its target) or puts the cursor back.
@@ -72,70 +66,16 @@ pub mod key {
     pub const PREVIOUS_PET: u32 = 0x4100_005C;
     pub const NEXT_PET: u32 = 0x4100_005D;
     pub const NEAREST_PET: u32 = 0x4100_005E;
-
-    /// Whether a key selects among the objects by kind (and so asks which are fellows and foes).
-    #[must_use]
-    pub const fn wants_targets(key: u32) -> bool {
-        (key >= PREVIOUS_CREATURE && key <= NEAREST_FELLOW)
-            || (key >= PREVIOUS_PET && key <= NEAREST_PET)
-    }
 }
 
 /// The player's scripts' notices the selection hears.
 pub mod notice {
-    /// An object may (1) or may no longer (0) be selected; about the object.
+    /// An object may (1) or may no longer (0) be selected; about the object. The game follows it.
     pub const UPDATE_SELECTABILITY: u32 = 0x0085 << 16 | 0x0004;
     /// An item waits for its target (1), or no longer (0): the usage cursor.
     pub const SET_TARGETING_POINTER: u32 = 0x0092 << 16 | 0x0001;
     /// The client's own: select as a selection key would (the word: the key).
     pub const SELECT: u32 = 0x464;
-}
-
-/// How far an object stands for the selection keys: along the ground, and a fifth more for each
-/// meter above or below.
-#[must_use]
-pub fn distance(from_player: [f32; 3]) -> f32 {
-    let (x, y) = (from_player[0], from_player[1]);
-    (x * x + y * y).sqrt() + from_player[2].abs() * 1.2
-}
-
-/// Whether `(d1, id1)` lies beyond `(d2, id2)`: farther, or as far with a greater id.
-// D2-01979
-#[must_use]
-pub fn farther(d1: f32, id1: u64, d2: f32, id2: u64) -> bool {
-    if d2 < d1 {
-        return true;
-    }
-    d1 == d2 && id1 > id2
-}
-
-/// Whether an object of these kind bits answers a selection key: items the item keys; players
-/// the player, foe and fellow keys; other creatures the creature, foe and pet keys.
-// D2-01980
-#[must_use]
-pub fn kind_answers(kind_bits: u32, key: u32) -> bool {
-    let item = kind::ITEM.iter().any(|k| kind_bits & k == *k);
-    if item {
-        return (key::PREVIOUS_ITEM..=key::NEAREST_ITEM).contains(&key);
-    }
-    if kind_bits & kind::PLAYER == kind::PLAYER {
-        return (key::PREVIOUS_PLAYER..=key::NEAREST_FELLOW).contains(&key);
-    }
-    if kind_bits & kind::CREATURE == kind::CREATURE {
-        return matches!(
-            key,
-            key::PREVIOUS_CREATURE
-                | key::NEXT_CREATURE
-                | key::NEAREST_CREATURE
-                | key::PREVIOUS_FOE
-                | key::NEXT_FOE
-                | key::NEAREST_FOE
-                | key::PREVIOUS_PET
-                | key::NEXT_PET
-                | key::NEAREST_PET
-        );
-    }
-    false
 }
 
 /// The selection's panel.
@@ -224,140 +164,25 @@ impl Selection {
         self.double_click = false;
     }
 
-    /// A selection key: see the module's description.
+    /// A selection key: Escape selects nothing (unless a text element has the keyboard); every
+    /// other selection key asks the game to select as it does.
     // D2-01986, D2-01987
     pub fn select(&self, ui: &Ui, world: &World, key: u32, out: &mut Vec<Request>) {
         if world.player == 0 {
             return;
         }
-        let me = world.player;
-        let mut fellow = false;
-        let mut foe = false;
-        let mut pet = false;
         match key {
-            key::SELF => {
-                if world.selection != me {
-                    out.push(Request::Select(me));
-                } else {
-                    out.push(Request::Select(world.last_selection));
-                }
-                return;
-            }
             key::ESCAPE => {
                 // Escape is the text's while a text element has the keyboard.
                 if ui.active().is_some() {
                     return;
                 }
                 out.push(Request::Select(0));
-                return;
             }
-            key::LAST => {
-                out.push(Request::Select(world.last_selection));
-                return;
+            key::SELF..=key::LAST | key::LAST_ATTACKER | key::PREVIOUS_PET..=key::NEAREST_PET => {
+                out.push(Request::SelectBy(key))
             }
-            key::LAST_ATTACKER => {
-                out.push(Request::Select(world.last_attacker));
-                return;
-            }
-            key::PREVIOUS_FOE..=key::NEAREST_FOE => foe = true,
-            key::PREVIOUS_FELLOW..=key::NEAREST_FELLOW => fellow = true,
-            key::PREVIOUS_PET..=key::NEAREST_PET => pet = true,
             _ => {}
-        }
-        let direction = match key {
-            key::PREVIOUS_CREATURE
-            | key::PREVIOUS_ITEM
-            | key::PREVIOUS_PLAYER
-            | key::PREVIOUS_FOE
-            | key::PREVIOUS_FELLOW
-            | key::PREVIOUS_PET => -1,
-            key::NEXT_CREATURE
-            | key::NEXT_ITEM
-            | key::NEXT_PLAYER
-            | key::NEXT_FOE
-            | key::NEXT_FELLOW
-            | key::NEXT_PET => 1,
-            key::NEAREST_CREATURE
-            | key::NEAREST_ITEM
-            | key::NEAREST_PLAYER
-            | key::NEAREST_FOE
-            | key::NEAREST_FELLOW
-            | key::NEAREST_PET => 0,
-            _ => return,
-        };
-        let range = world.range();
-        // The square of the range bounds the search on the ground, and stands for the farthest
-        // distance a search starts from (the original compares the two as they are).
-        let range_sq = range * range;
-        // Where the search starts: from the selection (when it is in range), or from the
-        // nearest (or the farthest) for a fresh search.
-        let mut current = 0u64;
-        let mut current_d = 0.0f32;
-        if direction != 0 {
-            if let Some(t) = world.thing(world.selection) {
-                let [x, y, _] = t.from_player;
-                if x * x + y * y <= range_sq {
-                    current = t.id;
-                    current_d = distance(t.from_player);
-                }
-            }
-        }
-        let backwards = direction == -1;
-        let mut best_d = range_sq;
-        if current != 0 || backwards {
-            if current == 0 {
-                current_d = range_sq;
-            }
-            if backwards {
-                best_d = 0.0;
-            }
-        }
-        let mut best = 0u64;
-        for pass in 0..2 {
-            for t in &world.things {
-                if t.id == current || t.id == me || !t.selectable {
-                    continue;
-                }
-                if !kind_answers(t.kind, key) {
-                    continue;
-                }
-                if fellow && !t.fellow {
-                    continue;
-                }
-                if foe && !(t.attackable && !t.fellow) {
-                    continue;
-                }
-                if pet && t.owner != Some(me) {
-                    continue;
-                }
-                if foe {
-                    if let Some(o) = t.owner {
-                        if o == me || t.owner_fellow {
-                            continue;
-                        }
-                    }
-                }
-                let [x, y, _] = t.from_player;
-                if x * x + y * y > range_sq {
-                    continue;
-                }
-                let d = distance(t.from_player);
-                if farther(d, t.id, best_d, best) == backwards
-                    && farther(d, t.id, current_d, current) != backwards
-                {
-                    best = t.id;
-                    best_d = d;
-                }
-            }
-            if best != 0 {
-                out.push(Request::Select(best));
-                return;
-            }
-            if current == 0 || pass == 1 {
-                return;
-            }
-            // Round again from the other end.
-            current_d = if backwards { range_sq } else { 0.0 };
         }
     }
 
@@ -390,58 +215,6 @@ impl Selection {
                 hot_y: y,
             },
         );
-    }
-
-    /// An object may or may no longer be selected: when it is the selection (not the player)
-    /// and may no longer be, it is no longer selected unless it is dead, it stops being
-    /// attacked, and the nearest foe is selected when the player targets what attacks it.
-    // D2-01990
-    pub fn update_selectability(
-        &self,
-        ui: &Ui,
-        world: &World,
-        object: u64,
-        selectable: bool,
-        dead: bool,
-        out: &mut Vec<Request>,
-    ) {
-        if world.player == 0
-            || object == 0
-            || world.selection != object
-            || object == world.player
-            || selectable
-        {
-            return;
-        }
-        if !dead {
-            out.push(Request::Select(0));
-        }
-        out.push(Request::CeaseAttack(object));
-        if world.auto_target {
-            self.select(ui, world, key::NEAREST_FOE, out);
-        }
-    }
-
-    /// An object went from the world: when it was the selection, the player stops attacking it
-    /// and selects the nearest foe when it targets what attacks it, and it is no longer
-    /// selected if nothing else was.
-    // D2-01991
-    pub fn being_deleted(&self, ui: &Ui, world: &World, object: u64, out: &mut Vec<Request>) {
-        if world.player == 0 || object == 0 || world.selection != object {
-            return;
-        }
-        let mut asked = Vec::new();
-        if world.auto_target {
-            out.push(Request::CeaseAttack(object));
-            self.select(ui, world, key::NEAREST_FOE, &mut asked);
-        }
-        let other = asked
-            .iter()
-            .any(|r| matches!(r, Request::Select(x) if *x != object));
-        out.extend(asked);
-        if !other {
-            out.push(Request::Select(0));
-        }
     }
 }
 
@@ -481,10 +254,7 @@ impl Child for Selection {
         // Every object's notices reach the panel, as it listens to each object as it comes.
         // D2-01974, D2-01975
         for n in view.everyone {
-            self.notice_about(ui, world, n, out);
-        }
-        for gone in view.gone {
-            self.being_deleted(ui, world, *gone, out);
+            self.notice_about(ui, world, n);
         }
     }
 
@@ -569,17 +339,9 @@ impl Selection {
     }
 
     /// A notice of the player's scripts about any object.
-    fn notice_about(&mut self, ui: &mut Ui, world: &World, n: &Notice, out: &mut Vec<Request>) {
-        match n.native {
-            notice::SET_TARGETING_POINTER if n.about == Some(world.player) => {
-                self.set_targeting_pointer(ui, n.word() != 0);
-            }
-            notice::UPDATE_SELECTABILITY => {
-                let Some(object) = n.about else { return };
-                let dead = world.thing(object).is_some_and(|t| t.dead);
-                self.update_selectability(ui, world, object, n.word() != 0, dead, out);
-            }
-            _ => {}
+    fn notice_about(&mut self, ui: &mut Ui, world: &World, n: &Notice) {
+        if n.native == notice::SET_TARGETING_POINTER && n.about == Some(world.player) {
+            self.set_targeting_pointer(ui, n.word() != 0);
         }
     }
 }

@@ -830,6 +830,9 @@ pub struct Frame {
     pub volumes: crate::volume::Volumes,
     /// The decals laid on the ground this frame, drawn after the landscape.
     pub decals: Vec<ObjectBatch>,
+    /// The pictures the frame brings itself rather than the world's data, by the ids its draws
+    /// name them by ([`crate::decal::OWN_PICTURES`] on): an interface's marks on the ground.
+    pub pictures: Vec<(u32, Arc<crate::picture::Image>)>,
     /// How the frame's textures are taken.
     pub textures: Textures,
 }
@@ -860,6 +863,15 @@ impl Default for Textures {
 }
 
 impl Frame {
+    /// The picture the frame brings itself under `id` ([`Frame::pictures`]), when it brings one.
+    #[must_use]
+    pub fn own_picture(&self, id: u32) -> Option<crate::picture::Image> {
+        self.pictures
+            .iter()
+            .find(|(k, _)| *k == id)
+            .map(|(_, p)| p.as_ref().clone())
+    }
+
     /// What the frame shows at the moment, in a picture `aspect` times as wide as it is high: none
     /// when it draws everything, on the land with no cell to look into.
     // D2-03646
@@ -2374,6 +2386,7 @@ impl<'a> SceneBuilder<'a> {
             looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
+            pictures: Vec::new(),
             textures: self.textures,
         }
     }
@@ -2539,6 +2552,7 @@ impl<'a> SceneBuilder<'a> {
             looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
+            pictures: Vec::new(),
             textures: self.textures,
         }
     }

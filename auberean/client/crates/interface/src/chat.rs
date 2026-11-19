@@ -1,15 +1,14 @@
-//! The chat panel's side of the client: the chat's part of the player's options read for the
-//! windows (when the player is first here, and again when the player's scripts say the options
-//! changed), and what the panel asks of the client made before the next frame: a line typed
-//! carried out by the player's command line (a command no one knows said as an error line), the
-//! player's commands made known, the lines the windows step through, a window's opacity, the chat
-//! options set.
+//! The chat panel's side of the client: the chat's part of the player's options taken from the
+//! game's view for the windows (when the player is first here, and again when the player's
+//! scripts say the options changed), and what the panel asks of the client as the client's actions: a line typed carried
+//! out by the player's command line, the lines the windows step through (each answered in a later
+//! frame, in order, to the window that asked), a window's opacity, the chat options set.
 
-use auberean_client_sdk::runtime::chat_options as options;
-use auberean_client_sdk::runtime::interface::function;
-use auberean_client_sdk::runtime::shell::ShellStatus;
-use auberean_client_sdk::runtime::InterfaceArg;
-use auberean_client_sdk::Client;
+use std::collections::VecDeque;
+
+use auberean_client_sdk::contract::view::{GameOptions, View};
+use auberean_client_sdk::contract::{ChatHistory, ChatWindowAction};
+use auberean_client_sdk::Action;
 use auberean_ui_game::chat::{self, Ask, ChatSettings, History, TEXT_TYPES};
 use auberean_ui_game::gameplay::{self, Notice};
 
@@ -20,12 +19,17 @@ pub struct ChatClient {
     revision: u64,
     /// The options changed: read them again before the next frame.
     stale: bool,
-    asks: Vec<Ask>,
-    /// The names asked for, given back: the window that asked, the list, the name.
-    answers: Vec<(usize, History, String)>,
-    /// The commands are to be made known; lines typed that named no command since last asked.
-    know_commands: bool,
-    unknown: usize,
+    /// The lists asked of and not yet answered, oldest first: the window that asked, the list.
+    asked: VecDeque<(usize, History)>,
+}
+
+/// A list the windows step through, as the client's actions name it.
+const fn list(h: History) -> ChatHistory {
+    match h {
+        History::Commands => ChatHistory::Commands,
+        History::Retells => ChatHistory::Retells,
+        History::Replies => ChatHistory::Replies,
+    }
 }
 
 impl ChatClient {
@@ -45,122 +49,58 @@ impl ChatClient {
         }
     }
 
-    /// Something the panel asked of the player's scripts, for before the next frame.
-    pub fn ask(&mut self, a: Ask) {
-        self.asks.push(a);
-    }
-
-    /// The names asked for since the last frame.
-    pub fn take_answers(&mut self) -> Vec<(usize, History, String)> {
-        std::mem::take(&mut self.answers)
-    }
-
-    /// The player's commands made known before the next frame.
-    pub fn know_commands(&mut self) {
-        self.know_commands = true;
-    }
-
-    /// How many lines typed named no command since last asked.
-    pub fn take_unknown(&mut self) -> usize {
-        std::mem::take(&mut self.unknown)
-    }
-
-    /// Before a frame: the options read where they changed (or were never read); what the panel
-    /// asked, asked of the player's scripts.
-    pub fn prepare(&mut self, client: &mut Client) {
-        if client.model.player_object().is_none() {
-            return;
-        }
-        if std::mem::take(&mut self.know_commands) {
-            client.know_commands();
-        }
-        for a in std::mem::take(&mut self.asks) {
-            self.carry_out(client, a);
-        }
-        if self.stale || self.settings.is_none() {
-            if let Some(o) = client.options() {
-                self.revision += 1;
-                self.settings = Some(read(&o, self.revision));
-                self.stale = false;
-            }
-        }
-    }
-
-    fn carry_out(&mut self, client: &mut Client, a: Ask) {
-        let word = InterfaceArg::Word;
-        match a {
+    /// Something the panel asked, as the client's action (none for what the panel's side keeps
+    /// to itself: the options read again).
+    pub fn action(&mut self, a: Ask) -> Option<Action> {
+        use ChatWindowAction as W;
+        Some(match a {
+            Ask::Text(text) => Action::Say { text },
             Ask::History {
-                list,
+                list: l,
                 earlier,
                 window,
             } => {
-                let f = match (list, earlier) {
-                    // D2-00587
-                    (History::Retells, true) => function::INQ_PREV_RETELL_HISTORY_ITEM,
-                    // D2-00586
-                    (History::Retells, false) => function::INQ_NEXT_RETELL_HISTORY_ITEM,
-                    // D2-00589
-                    (History::Replies, true) => function::INQ_PREV_REPLY_HISTORY_ITEM,
-                    // D2-00588
-                    (History::Replies, false) => function::INQ_NEXT_REPLY_HISTORY_ITEM,
-                    (History::Commands, _) => {
-                        let item = if earlier {
-                            client.previous_command()
-                        } else {
-                            client.next_command()
-                        };
-                        if let Some(t) = item {
-                            self.answers.push((window, list, t));
-                        }
-                        return;
-                    }
-                };
-                if let Some(t) = client.history_item(f) {
-                    self.answers.push((window, list, t));
+                self.asked.push_back((window, l));
+                Action::AskHistory {
+                    list: list(l),
+                    earlier,
                 }
             }
-            // D2-00575, D2-01269, D2-00596, D2-01284
-            Ask::Opacity { window, opacity } => {
-                let a = [word(opacity.to_bits()), word(window.raw())];
-                client.interface(function::SET_WINDOW_OPACITY, &a);
-                client.interface(function::UPLOAD_UI_SETTINGS, &[]);
+            Ask::Opacity { window, opacity } => Action::ChatWindows(W::Opacity {
+                window: window.raw(),
+                opacity,
+            }),
+            Ask::Filter { window, filter } => Action::ChatWindows(W::Filter { window, filter }),
+            Ask::FontSize { kind, size } => Action::ChatWindows(W::FontSize { kind, size }),
+            Ask::FontColor { kind, color } => Action::ChatWindows(W::FontColor { kind, color }),
+            Ask::Popup { kind, on } => Action::ChatWindows(W::Popup { kind, on }),
+            Ask::Devote { window, kind } => Action::ChatWindows(W::Devote { window, kind }),
+            Ask::KeepChatOptions => Action::ChatWindows(W::Keep),
+            Ask::ReloadChatSettings => {
+                self.stale = true;
+                return None;
             }
-            // D2-00571, D2-01248
-            Ask::Filter { window, filter } => {
-                client.interface(
-                    function::SET_CHAT_WINDOW_FILTER,
-                    &[word(filter), word(window)],
-                );
-            }
-            // D2-00572, D2-01246
-            Ask::FontSize { kind, size } => {
-                client.interface(function::SET_CHAT_FONT_SIZE, &[word(size), word(kind)]);
-            }
-            // D2-00573, D2-01245
-            Ask::FontColor { kind, color } => {
-                client.interface(function::SET_CHAT_FONT_COLOR, &[word(color), word(kind)]);
-            }
-            // D2-00576, D2-01247
-            Ask::Popup { kind, on } => {
-                client.interface(
-                    function::SET_CHAT_POPUP_FLAG,
-                    &[word(u32::from(on)), word(kind)],
-                );
-            }
-            // D2-00574, D2-01084
-            Ask::Devote { window, kind } => {
-                client.interface(function::DEVOTE_CHAT_WINDOW, &[word(kind), word(window)]);
-            }
-            // D2-00595, D2-01282
-            Ask::KeepChatOptions => {
-                client.interface(function::UPLOAD_CHAT_OPTIONS, &[]);
-            }
-            Ask::ReloadChatSettings => self.stale = true,
-            // D2-03118
-            Ask::Text(t) => {
-                if client.process_text(&t) == ShellStatus::UnknownCommand {
-                    self.unknown += 1;
-                }
+        })
+    }
+
+    /// The client answered a list asked of: the window that asked it, and the list, when one
+    /// waits for it.
+    pub fn answered(&mut self, l: ChatHistory) -> Option<(usize, History)> {
+        let at = self.asked.iter().position(|(_, h)| list(*h) == l)?;
+        self.asked.remove(at)
+    }
+
+    /// Before a frame: the options taken from the view where they changed (or were never
+    /// taken).
+    pub fn take(&mut self, view: &View) {
+        if view.player.is_none() {
+            return;
+        }
+        if self.stale || self.settings.is_none() {
+            if let Some(o) = &view.options {
+                self.revision += 1;
+                self.settings = Some(read(o, self.revision));
+                self.stale = false;
             }
         }
     }
@@ -169,33 +109,26 @@ impl ChatClient {
 /// The chat's part of a new player's options (the chat page's defaults).
 #[must_use]
 pub fn defaults() -> ChatSettings {
-    read(
-        &auberean_client_sdk::script::options::GameplayOptions::default(),
-        0,
-    )
+    read(&auberean_client_sdk::runtime::view::default_options(), 0)
 }
 
 /// The chat's part of a profile, for the windows.
-fn read(o: &auberean_client_sdk::script::options::GameplayOptions, revision: u64) -> ChatSettings {
-    let windows = [1, 2, 3, 4];
+fn read(o: &GameOptions, revision: u64) -> ChatSettings {
+    let c = &o.chat;
     ChatSettings {
         revision,
-        filters: windows.map(|w| options::filter(o, w)),
-        devoted: windows.map(|w| options::devoted_channel(o, w)),
+        filters: c.filters,
+        devoted: c.devoted,
         fonts: TEXT_TYPES
             .iter()
             .map(|t| {
-                (
-                    t.kind,
-                    options::font_size(o, t.kind),
-                    options::font_color(o, t.kind),
-                    options::popup(o, t.kind),
-                )
+                let (size, color, popup) = c.fonts.get(&t.kind).copied().unwrap_or_default();
+                (t.kind, size, color, popup)
             })
             .collect(),
         opacities: chat::CHAT_WINDOWS
             .iter()
-            .filter_map(|w| options::window_opacity(o, w.raw()).map(|v| (*w, v)))
+            .filter_map(|w| c.opacities.get(&w.raw()).map(|v| (*w, *v)))
             .collect(),
     }
 }

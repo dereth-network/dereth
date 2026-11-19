@@ -262,13 +262,18 @@ fn open(launch: &Launch, sound: bool) -> Result<Game, String> {
         std::fs::read_to_string(launch.settings.join(SETTINGS_FILE)).unwrap_or_default();
     let (world, data, language) = open_data(&install, None, &preferences)?;
     let assets = ui_assets(&install, &language)?;
-    let interface =
-        auberean_interface::Retail::new(assets, SMALLEST_SCREEN, None).with_auto(DevLogin::new(
-            launch.server,
-            launch.account.clone(),
-            launch.password.clone(),
-            Some(launch.character.clone()),
-        ));
+    let records: auberean_horizon::art::Records = assets.clone();
+    let auto = DevLogin::new(
+        launch.server,
+        launch.account.clone(),
+        launch.password.clone(),
+        Some(launch.character.clone()),
+    );
+    let start = auberean_horizon::Start {
+        auto: Some(auto.clone()),
+        ..auberean_horizon::Start::default()
+    };
+    let interface = auberean_interface::Retail::new(assets, SMALLEST_SCREEN, None).with_auto(auto);
     let host = PlayHost {
         start: Instant::now(),
         socket: None,
@@ -285,7 +290,12 @@ fn open(launch: &Launch, sound: bool) -> Result<Game, String> {
         friends: auberean_client::friends::FriendsSocket::default(),
     };
     Ok(Game::new(world, |world| {
-        let mut shell = Shell::new(host, world, data, Box::new(interface));
+        let maker = auberean_horizon::maker(interface, move || {
+            auberean_horizon::Horizon::built_in(Some(std::sync::Arc::clone(&records)))
+                .map(|h| h.with_start(start.clone()))
+                .map(|h| Box::new(h) as Box<dyn auberean_shell::interface::Interface + '_>)
+        });
+        let mut shell = Shell::with_interfaces(host, world, data, maker);
         // The editor's world is Yalain's, which takes the client's word on its overlay.
         shell.world_takes_overlays = true;
         // Its friends service is at the login's address, with the ticket the login makes.

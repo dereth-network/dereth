@@ -265,6 +265,7 @@ impl CharacterPage {
         let Some(list) = self.page.and_then(|p| ui.child_recursive(p, name::LIST)) else {
             return;
         };
+        helper::step_by_line(ui, list);
         for s in &self.main {
             if let Some(e) = self.rows.all.get(*s).and_then(|r| r.element) {
                 ui.list_add(list, e);

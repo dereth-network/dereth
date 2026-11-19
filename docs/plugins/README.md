@@ -45,6 +45,7 @@ permission, capability, UI node, limit and conformance case, generated from the 
 | [automation.md](automation.md) | combat actions, the player-killer and parity rules, and metas (`dereth.meta`) |
 | [audit.md](audit.md) | the answer to a server that asks which plugins are running |
 | [ubscript.md](ubscript.md) | scripts written for UtilityBelt's scripting, run as they are: its script API, HUDs and ImGui, and what it answers |
+| [auberean.md](auberean.md) | plugins for Auberean, the Asheron's Call 2 client: what they hear of the game and ask of it |
 | [conformance.md](conformance.md) | the conformance suite: test plugins, profiles and the host driver |
 | [wasm.md](wasm.md) | compiled plugins: WebAssembly components against [`wit/dereth-plugin.wit`](wit/dereth-plugin.wit), generated with [`dereth.d.luau`](dereth.d.luau) from the API's schema |
 | [guide/](guide/README.md) | the guide: getting started in Lua and WebAssembly, lifecycle and sandbox, install and update, publishing, running the samples, each sample walked through |

@@ -19,8 +19,8 @@
 //!   `release` with `--dev`, which keeps function names for stack traces): the launcher's
 //!   (`dereth-web-front`, into `www/pkg-front/`), Dereth's (`dereth-web`, into `www/pkg/`) and
 //!   Auberean's (`auberean-web`, into `www/pkg-auberean/`), each with its bindgen step. It
-//!   copies the Horizon interface's art beside Dereth's module into `www/pkg/horizon/` (the module
-//!   does not carry it; the page fetches it), copies the launcher's art the front page wears (both
+//!   copies the Horizon interface's art beside Dereth's module into `www/pkg/horizon/` (neither
+//!   game's module carries it; each game's worker fetches it from there), copies the launcher's art the front page wears (both
 //!   realms' paintings and portals, the emblems, and the two typefaces with their licences) into `www/assets/`, copies
 //!   the launcher's own page into `www/` beside the web page's files, and serves `www/` at
 //!   `http://127.0.0.1:<port>/`.
@@ -74,7 +74,7 @@ const RELAY_LISTEN: &str = "127.0.0.1:9180";
 
 /// The Horizon interface's art, relative to the workspace: the files the module does not carry,
 /// served beside it.
-const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
+const HORIZON_ART: &str = "dereth/client/crates/horizon-art/pieces";
 
 /// The desktop launcher's art, relative to the workspace: the front page wears the part of it that
 /// is Dereth's (its paintings, its emblem and the typefaces), copied into `www/assets/`.

@@ -51,10 +51,8 @@ dereth-ui-screens.workspace = true
 tracing.workspace = true
 # The player's own clock on the HUD, in the browser too.
 web-time.workspace = true
-# The interface's own pieces: their manifest and their atlases.
-png.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+# The interface's own art: its pieces' manifest, their atlases and its fonts.
+dereth-horizon-art.workspace = true
 
 [dev-dependencies]
 dereth-client-runtime = { workspace = true, features = ["test-support"] }
@@ -64,6 +62,9 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 dereth-world-data.workspace = true
 # The server's messages, built for the tests.
 dereth-protocol.workspace = true
+# The art's atlases and manifest read as files, and a picture of a window written out.
+png.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

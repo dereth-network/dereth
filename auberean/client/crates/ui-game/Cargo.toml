@@ -21,8 +21,11 @@ auberean-primitives.workspace = true
 auberean-text.workspace = true
 # The original's float-to-integer conversion.
 dereth-primitives.workspace = true
-# How the C library reads a number (a preference's text form).
-auberean-dat.workspace = true
+# The client's own preferences, which the client page lists and edits.
+auberean-options.workspace = true
+# The pets' modes in the order they turn, and how a pet's name is shown, which every front end
+# shares.
+auberean-client-contract.workspace = true
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["fs", "test-support"] }

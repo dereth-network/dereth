@@ -191,6 +191,9 @@ impl Notice {
 pub struct View<'a> {
     /// The player's health, its greatest, vigor, its greatest.
     pub vitals: Option<[u32; 4]>,
+    /// The player is a hero, and its focus and greatest focus, as its qualities hold them.
+    pub hero: bool,
+    pub focus: Option<[u32; 2]>,
     /// The radar's place line.
     pub place: Option<&'a str>,
     /// Lines for the chat windows, each with the kind of text it is (the client's own errors are
@@ -299,6 +302,10 @@ pub enum Request {
     UseSelected,
     /// Select an object (0: nothing): the player's scripts take it and the player looks at it.
     Select(u64),
+    /// Select as a selection key does (the key's interface action): the next, previous or nearest
+    /// of a kind around the player, the player itself, the last selection or the last attacker,
+    /// by the game's rules.
+    SelectBy(u32),
     /// Select an object (0: nothing) from a panel: the player's scripts take it and the player's
     /// head stays as it is.
     SetSelection(u64),

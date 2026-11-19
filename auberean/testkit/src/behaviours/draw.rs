@@ -1377,6 +1377,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.portal.coming-out-counts-from-the-frame-after-the-world-s-first",
+        says: "Coming out of portal space, the white's second-long fade counts from the frame \
+               after the one that draws the world again: however long that first frame takes, the \
+               white is still whole after it and fades over a full second.",
+        since: THIS_CLIENT,
+        divergence: "CD2-portal-space-fades-out-after-the-world-s-first-frame",
+        evidence: Evidence::Private("AC2-EVID-PORTAL-EXIT-AFTER-WORLD-FRAME"),
+        station: "auberean-draw::cpu::effects::portal::coming_out_counts_from_the_frame_after_the_world_s_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.portal.portal-space-comes-in-and-goes-out-a-second-a-phase",
         says: "Portal space comes in over a second (the world's view narrowing to a fifth under a black veil while the tunnel and the nebula fade in), stays in with no world drawn, then goes out over a second (the tunnel's view widening to 2.4 times as white fades in) and comes out over another (the world's view widening back as the white fades out); started at once, it is in at once.",
         since: RETAIL,
@@ -1900,6 +1911,19 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-VOLUME-CONNECTIVITY"),
         station: "auberean-draw::cpu::objects::volume::triangles_meet_at_edges_run_the_other_way",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.warm.a-town-s-readied-first-frame-puts-nothing-new-on-the-device",
+        says: "A town readied on the device ahead of its first frame, a share at a time (its \
+               pictures, its draws' lists, texture sets and programs, its shadow casters' and the \
+               land's lists, the pictures it is drawn into), has that frame load none of those \
+               pictures again, find every list there, make no picture to draw into and no more \
+               bind groups than the frame after it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-portal-space-fades-out-after-the-world-s-first-frame",
+        evidence: Evidence::Private("AC2-EVID-PORTAL-WARMUP-GPU"),
+        station: "auberean-gpu::gpu::textures::a_town_s_readied_first_frame_puts_nothing_new_on_the_device",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.water.a-rooms-draws-are-not-in-the-reflection",

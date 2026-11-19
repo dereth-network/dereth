@@ -120,6 +120,9 @@ impl ChatOptionsPage {
         let page = ui.element(name::PAGE);
         let find = |ui: &Ui, n| page.and_then(|p| ui.child_recursive(p, n));
         let list = find(ui, name::LIST);
+        if let Some(l) = list {
+            helper::step_by_line(ui, l);
+        }
         let apply_button = find(ui, super::name::APPLY_BUTTON);
         let recall_button = apply_button.and(find(ui, super::name::RECALL_BUTTON));
         if recall_button.is_some() {

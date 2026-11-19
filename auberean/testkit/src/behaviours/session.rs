@@ -60,6 +60,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.controls.a-release-ends-the-press-its-source-began",
+        says: "A control's release ends the press its own source began, whatever else was pressed \
+               between; the same control pressed by another source stays, and a source's press of \
+               another control takes the place of what it pressed before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONTROLS-SOURCES"),
+        station: "auberean-client-runtime::cpu::world::controls::a_release_ends_the_press_its_source_began",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.controls.held-latched-and-single-press-controls-through-the-contract",
+        says: "Controls pressed through the contract are carried as the data's action map says each \
+               toggles: held from press to release, a latched run until pressed again or ended by \
+               forward or backward, a jump one press for its frame; a modifier held chooses the \
+               values; the movement controls begun are told once; a client with no action map \
+               carries none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONTROLS-TOGGLES"),
+        station: "auberean-client-runtime::cpu::world::controls::held_latched_and_single_press_controls_through_the_contract",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.controls.letting-go-keeps-a-run-and-a-press-and-typing-keeps-modifiers",
+        says: "Letting go of the controls in force ends the held ones and leaves a latched run and \
+               a single press; for a text entry the modifiers' and the interface's stay too. A \
+               mouse look control flips mouse look, in which a turn strafes while the mouse steers; \
+               the camera's and the interface's controls press the camera and ask for use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONTROLS-LETTING-GO"),
+        station: "auberean-client-runtime::cpu::world::controls::letting_go_keeps_a_run_and_a_press_and_typing_keeps_modifiers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.double.a-server-double-takes-the-client-into-the-world",
         says: "Played the servers' side of a game login, the client sends its data versions when \
                asked, enters the world with the character picked from the list, follows the referral \
@@ -69,6 +102,201 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-DOUBLE"),
         station: "auberean-headless::cpu::world_entry::a_server_double_takes_the_client_through_login_character_list_and_world_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.driver.a-fixed-step-run-enters-the-world-the-same-every-time",
+        says: "Our choice: the SDK's driver runs the client's frames on a clock and a port the host \
+               gives it; on a fixed-step clock over a network in memory, the client logs in, enters \
+               the world as its events tell it and says the scene is drawn, and a second run sends \
+               the same messages on the same frames.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DRIVER-FIXED-STEP"),
+        station: "auberean-client-sdk::cpu::driver::the_driver_on_a_fixed_step_clock_enters_the_world_the_same_way_every_run",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.driver.a-frame-hook-hears-each-notice-once",
+        says: "Our choice: the frame's hook is handed what the player's scripts told the panels since \
+               it last ran, read as the contract carries it, once and in the order told, whenever \
+               the host takes the notices (those taken between frames in the next); the host still \
+               takes every one, and none from before the hook was installed reach it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DRIVER-HOOK-NOTICES"),
+        station: "auberean-client-runtime::cpu::world::hook::a_frame_hook_hears_each_notice_once_in_order_whenever_the_host_takes_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.driver.a-frame-hook-sees-each-event-once-and-its-actions-are-carried-out",
+        says: "Our choice: a hook installed through the driver runs once a frame, at its end, and \
+               is handed every event since it last ran, once and in the order the host takes them \
+               (those from between frames in the next); the actions it answers with are carried \
+               out as a front end's are. Taken out, it runs no more.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DRIVER-FRAME-HOOK"),
+        station: "auberean-client-sdk::cpu::driver::a_frame_hook_sees_each_event_once_in_order_and_its_actions_are_carried_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.events.a-refused-entry-is-told-and-the-session-is-back-at-the-list",
+        says: "Our choice: an entry the server refuses is told to a front end with its reason, \
+               once, and the session goes back from entering to the character list.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-EVENTS-ENTRY-REFUSED"),
+        station: "auberean-headless::cpu::world_entry::a_refused_entry_is_told_and_the_session_goes_back_to_the_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.events.the-login-and-the-sessions-end-are-told-once",
+        says: "Our choice: the client tells a front end how its login goes (each login going out, \
+               then the server's answer acknowledged), that it is connecting, and once the server \
+               is gone, that the session is over and how it ended: each once, in order.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-EVENTS-SESSION-END"),
+        station: "auberean-client-runtime::cpu::world::session::the_login_and_the_sessions_end_are_told_once_each_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.events.the-session-tells-its-phases-in-order",
+        says: "Our choice: the client tells a front end where its session stands as it moves \
+               (connecting, at the character list with the account's characters, entering the \
+               world, in it, back at the list after a log-off, gone once closed), each phase once, \
+               in order: a front end driven by the events alone can log in and play.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-EVENTS-SESSION-PHASES"),
+        station: "auberean-headless::cpu::world_entry::the_client_tells_its_sessions_phases_in_order_and_the_characters_it_enters_from",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.a-control-pressed-held-and-let-go-is-in-force-for-its-frames",
+        says: "Our choice: with the action map read from the data, a headless script's begin presses \
+               a control and its end lets it go, hold keeps it pressed for its seconds and press for \
+               one frame; the movement the controls in force ask for each frame says so, and nothing \
+               is in force after.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-CONTROLS"),
+        station: "auberean-headless::dat::script::a_control_begun_held_pressed_and_let_go_is_in_force_for_its_frames",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.headless.a-script-logs-in-enters-tells-the-view-and-logs-off",
+        says: "Our choice: a headless script logs in, enters the world as the character it names, \
+               tells where the player stands and the view as text, dumps the session's events in \
+               order and logs off back to the character list, the entry and the log-off sent once \
+               each.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-SESSION"),
+        station: "auberean-headless::cpu::run::a_script_logs_in_enters_tells_the_view_dumps_the_events_and_logs_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.a-script-reads-one-command-a-line",
+        says: "Our choice: the headless client's script is one command a line, a verb and its words; \
+               say keeps all after it, a comment runs from # to the end of any other line, and a \
+               wrong line is told with its number and what is wrong.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-SCRIPT-LINES"),
+        station: "auberean-headless::cpu::script::every_verb_reads_as_its_command_and_a_wrong_line_is_told_with_its_number",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.a-script-selects-uses-and-says-through-actions",
+        says: "Our choice: without the player's scripts, a headless script's selections and uses are \
+               the client's own, each with the server's call, and the view says what is selected; a \
+               line said is told.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-SELECT-USE"),
+        station: "auberean-headless::cpu::run::a_script_selects_uses_and_says_through_actions_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.a-script-walks-selects-uses-and-says-with-no-window",
+        says: "Our choice: with no window, a headless script walks the player's body through the \
+               world to a wall, selects the player, uses it and says a line; the view says what is \
+               selected and the client makes the server's calls for the selection and the use.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-WALK-SCRIPT"),
+        station: "auberean-headless::dat::script::a_script_walks_the_body_through_the_hall_selects_the_player_uses_it_and_says_a_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.headless.actions-read-from-their-text-form",
+        says: "Our choice: the contract's actions have a text form for a headless script, the \
+               action's name and its fields in order; a wrong one says what the action takes, and an \
+               unknown name lists the names.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-ACTION-TEXT"),
+        station: "auberean-headless::cpu::script::every_action_named_reads_from_its_words_and_a_wrong_one_says_what_it_takes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.an-entry-refused-is-asked-again-two-seconds-later",
+        says: "Our choice: a headless script's entry that the server refuses for the character still \
+               in the world is told and asked again two seconds later, and the second goes in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-REFUSED"),
+        station: "auberean-headless::cpu::run::an_entry_the_server_refuses_is_asked_again_two_seconds_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.offers-are-answered-as-the-standing-orders-say",
+        says: "Our choice: the headless client answers what other players offer as its standing \
+               orders say: agreeing, it takes a place in a fellowship and an oath, opens a trade \
+               another asks for and accepts it once the other side has, once; offering, it offers the \
+               first item of its pack when a trade opens.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-OFFERS"),
+        station: "auberean-headless::cpu::run::offers_are_answered_as_the_standing_orders_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.the-built-in-script-does-what-its-flags-did",
+        says: "Our choice: the headless client's built-in script for its line and trade flags says \
+               the line three seconds after entering and every ten after, asks for the trade at the \
+               third second, and logs off when its time is up.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-BUILTIN-RUN"),
+        station: "auberean-headless::cpu::builtin::the_built_in_script_says_asks_for_a_trade_and_logs_off_when_its_flags_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.the-flags-make-the-built-in-script",
+        says: "Our choice: the headless client's flags make a script of its commands that does what \
+               they ask, timed from the entry: the walk's legs, the trade, the makings, the line \
+               said, and at the end the slots told, the log-off and the stop.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-BUILTIN-SCRIPT"),
+        station: "auberean-headless::cpu::builtin::the_flags_make_the_script_that_does_what_they_ask",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.the-walk-flag-runs-and-turns-with-no-window",
+        says: "Our choice: with no window, the headless client's built-in walk runs the player's body \
+               forward for two seconds from the second second, then lets the run go and turns right \
+               for one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-WALK-FLAG"),
+        station: "auberean-headless::dat::script::the_built_in_walk_runs_the_body_forward_for_two_seconds_then_turns_for_one",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.headless.tick-run-and-at-wait-their-frames-and-seconds",
+        says: "Our choice: a headless script's tick runs its frames, run its seconds of the clock, \
+               and at waits until its seconds after the entry (nothing when already past); a command \
+               that takes no time runs in the same frame as the one before it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-WAITS"),
+        station: "auberean-headless::cpu::run::tick_run_and_at_wait_their_frames_and_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.headless.typed-lines-run-at-once-and-scripts-carry-plugin-lines",
+        says: "Our choice: a line typed into the headless client runs at once when it takes no time \
+               and is told so when it takes time; a script's plugin lines reach the plugin host, and \
+               a line that is none is told.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-RUN-TYPED"),
+        station: "auberean-headless::cpu::run::typed_lines_run_at_once_and_a_scripts_plugin_lines_reach_the_plugins",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -373,6 +601,40 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "session.selection.a-selection-that-may-no-longer-be-selected-is-let-go",
+        says: "When the player's scripts say the object selected may no longer be selected, the \
+               client lets the selection go at its next frame for every front end, each notice \
+               heard once whether or not a front end took it first; a dead object stays \
+               selected, and a notice about another object, one that may be selected or the \
+               player itself changes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECTION-UNSELECTABLE"),
+        station: "auberean-client-sdk::cpu::selection::a_selection_that_may_no_longer_be_selected_is_let_go_unless_dead",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.selection.actions-alone-select-by-the-keys-rules",
+        says: "Through actions alone the selection keys' rules choose: the next of a kind nearest \
+               first, then farther, round again past the last, the previous backward, the nearest, \
+               the player itself and then the selection before it, the last selection, the last \
+               attacker. Our choice: with no scripts the client keeps the selection, which the \
+               view says, and makes the server's calls for selecting and using it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SELECTION-ASKED-ALONE"),
+        station: "auberean-client-sdk::cpu::selection::actions_alone_select_by_the_keys_rules_and_without_scripts_make_the_calls",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.selection.the-selection-goes-with-its-object",
+        says: "An object selected that is taken out of the world is no longer selected; when the \
+               player targets what attacks it, the attack on it stops and the nearest foe is \
+               selected in its place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECTION-GONE"),
+        station: "auberean-client-sdk::cpu::selection::the_selection_goes_with_its_object_out_of_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.send.every-message-stamped-from-its-counter",
         says: "Each message the client sends carries the ordering type and stamp of its counter: \
                the game-events queue's are ordered, stamped from a counter counted up before each \
@@ -438,6 +700,29 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SERVER-WORN-IN-CODE"),
         station: "yalain-testkit::corpus::keeping::every_recorded_look_of_a_template_without_worn_properties_is_one_the_world_gives",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "session.server.camera-based-movement-keeps-the-servers-word",
+        says: "Our choice: under the orbit camera's camera-based movement, on loopback against the server's \
+               executable, a player who walks, runs, backs up, turns in place, strafes both ways, runs while turning, jumps \
+               standing and running, starts and stops, crosses a block's edge and back, and \
+               closes in on a creature and fights it (and runs while the camera swings) draws no \
+               correction of its place and no refused report.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-SCHEME-CAMERA-SERVER-WORD"),
+        station: "yalain::live::session::ways_of_moving::camera_based_movement_draws_no_correction_from_the_server_executable",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "session.server.character-based-movement-keeps-the-servers-word",
+        says: "Our choice: the same session under the orbit camera's character-based movement draws no \
+               correction of the player's place and no refused report.",
+        since: THIS_CLIENT,
+        divergence: "CD2-orbit-camera",
+        evidence: Evidence::Private("AC2-EVID-SCHEME-CHARACTER-SERVER-WORD"),
+        station: "yalain::live::session::ways_of_moving::character_based_movement_draws_no_correction_from_the_server_executable",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
@@ -513,6 +798,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.the-games-own-steering-keeps-the-servers-word",
+        says: "On loopback against the server's executable, a player steered as the game steers it who \
+               walks, runs, backs up, turns in place, strafes both ways, runs while turning, jumps \
+               standing and running, starts and stops, crosses a block's edge and back, and \
+               closes in on a creature and fights it draws no correction of its place and no refused report.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCHEME-GAME-SERVER-WORD"),
+        station: "yalain::live::session::ways_of_moving::the_games_own_steering_draws_no_correction_from_the_server_executable",
+        tier: Tier::Live,
+    },
+    behaviour! {
         id: "session.time.a-players-position-leaves-the-game-clock-alone",
         says: "A position the server gives for the player places its body and leaves the game \
                clock alone, whether its time is ahead of the clock or behind it: only the \
@@ -581,5 +877,68 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SESS-TIME-SYNC"),
         station: "auberean-client-runtime::cpu::world::clock::the_game_clock_moves_forward_to_the_servers_time_sync",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.view.the-view-counts-the-servers-calls",
+        says: "Our choice: the view counts the server's calls the player's scripts ran and those \
+               that ran to their end, as they stand at its refresh.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-VIEW-CALLS"),
+        station: "auberean-client-sdk::cpu::view::the_view_counts_the_servers_calls_run_and_run_to_their_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.view.the-view-says-what-the-server-and-the-scripts-told",
+        says: "Our choice: the game's view a front end reads in place of the client tells the \
+               player's vitals as the server gave them, the objects around the player named as \
+               their scripts write them, and the selection as the player's scripts hold it, each \
+               as the last refresh read it (the host refreshes it once a frame).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-VIEW-SCRIPTS-TOLD"),
+        station: "auberean-interface::dat::screens::the_view_says_what_the_server_and_the_scripts_told",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.view.the-view-says-what-the-server-told",
+        says: "Our choice: the game's view tells the account's characters as the server listed \
+               them (their names, the slots, the account), then the player and where its body \
+               stands once it is in the world; it says what its last refresh read until the host \
+               refreshes it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-VIEW-SERVER-TOLD"),
+        station: "auberean-client-sdk::cpu::view::the_view_lists_the_characters_then_the_player_where_the_server_put_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.walk.with-no-window-a-creature-in-the-way-holds-the-body-up",
+        says: "Our choice: with no window, a creature the server puts in the player's way stands \
+               where the server put it and holds the player's body up as the forward control \
+               runs it there, short of the creature, before it slides off round it; the body \
+               never runs through it, as a window's scene runs it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-CREATURE-IN-THE-WAY"),
+        station: "auberean-headless::dat::walk::with_no_window_a_creature_in_the_way_holds_the_body_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.walk.with-no-window-the-body-climbs-the-steps",
+        says: "Our choice: with no window, the forward control held runs the player's body west \
+               from the hall's starting place up the platform's steps, each lower than its \
+               step-up height, and onto the platform, as a window's scene runs it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-STEPS"),
+        station: "auberean-headless::dat::walk::with_no_window_the_forward_control_runs_the_body_up_the_steps",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.walk.with-no-window-the-body-runs-to-a-wall-and-stops-there",
+        says: "Our choice: with no window, the forward control held runs the player's body \
+               through the hall's cells on their floor and through a doorway, and stops it \
+               against a wall while the control is still held; the client reports it where it \
+               stopped.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SIM-WALL"),
+        station: "auberean-headless::dat::walk::with_no_window_the_forward_control_runs_the_body_to_a_wall_and_stops_it_there",
+        tier: Tier::Dat,
     },
 ];

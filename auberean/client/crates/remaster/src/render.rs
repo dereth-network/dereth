@@ -1371,8 +1371,11 @@ impl Remaster {
         frame: &Frame,
         width: u32,
         height: u32,
-        load: &mut dyn FnMut(u32) -> Option<Image>,
+        world_load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> Result<Texture, RemasterError> {
+        // The frame's own pictures first, then the world's.
+        let mut own = |id: u32| frame.own_picture(id).or_else(|| world_load(id));
+        let load: &mut dyn FnMut(u32) -> Option<Image> = &mut own;
         self.frame += 1;
         self.take_textures(frame.textures)?;
         let cam = &frame.camera;

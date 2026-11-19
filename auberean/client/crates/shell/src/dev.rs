@@ -112,7 +112,8 @@ impl DevLogin {
 impl Interface for DevLogin {
     fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
         // An entry refused: back at the list, asked again a little later.
-        if let Some((reason, n)) = game.client.and_then(|c| c.model.refused) {
+        if let Some(r) = game.view.and_then(|v| v.pregame.refused.as_ref()) {
+            let (reason, n) = (r.reason, r.count);
             if n != self.refusals {
                 self.refusals = n;
                 if self.stage == Stage::Entering {
@@ -136,18 +137,16 @@ impl Interface for DevLogin {
                 self.stage = Stage::Connecting;
             }
             (Stage::Connecting | Stage::Creating, Phase::Characters) => {
-                let Some(list) = game.client.and_then(|c| c.model.characters.as_ref()) else {
+                let Some(list) = game.view.and_then(|v| v.pregame.characters.as_ref()) else {
                     return;
                 };
                 let live = list.characters.iter().filter(|c| c.seconds_greyed_out == 0);
                 let pick = match &self.character {
-                    Some(name) => live
-                        .clone()
-                        .find(|c| c.name.text().eq_ignore_ascii_case(name)),
+                    Some(name) => live.clone().find(|c| c.name.eq_ignore_ascii_case(name)),
                     None => live.clone().next(),
                 };
                 if let Some(c) = pick {
-                    tracing::info!(character = %c.name.text(), id = format_args!("{:#x}", c.id), "entering the world");
+                    tracing::info!(character = %c.name, id = format_args!("{:#x}", c.id), "entering the world");
                     requests.push(Request::Act(Action::PlayCharacter { character: c.id }));
                     self.stage = Stage::Entering;
                 } else if self.stage == Stage::Connecting {

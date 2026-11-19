@@ -350,7 +350,7 @@ mod seed {
 
 /// What a material group gives the vertex at global vertex `(x, y)`; `None` when its base, corner
 /// or side list is empty.
-// D2-12487, D2-12482
+// D2-12487
 fn group_pick(g: &MaterialGroup, x: i32, y: i32) -> Option<SurfacePick> {
     let base = pick(&g.base, g.base_frequency, x, y, seed::BASE)?;
     let corner = pick(&g.corner_masks, g.corner_frequency, x, y, seed::CORNER)?;
@@ -370,7 +370,30 @@ fn group_pick(g: &MaterialGroup, x: i32, y: i32) -> Option<SurfacePick> {
         y,
         seed::DIAGONAL,
     );
-    let (color, far_color) = match g.vertex_colors.len() {
+    let (color, far_color) = group_colors(g, x, y);
+    let detail = pick(&g.detail, g.detail_frequency, x, y, seed::DETAIL);
+    let bump = pick(&g.bump, g.bump_frequency, x, y, seed::BUMP);
+    Some(SurfacePick {
+        base: base.material,
+        base_tile: base.tile_width,
+        corner_mask: corner.material,
+        side_mask: side.material,
+        three_corner_mask: id(three),
+        diagonal_mask: id(diagonal),
+        detail: id(detail),
+        detail_tile: detail.map_or(0.0, |m| m.tile_width),
+        bump: id(bump),
+        bump_tile: bump.map_or(0.0, |m| m.tile_width),
+        color,
+        far_color,
+    })
+}
+
+/// A material group's near and far colors at global vertex `(x, y)`: white for a group with no
+/// colorings.
+// D2-12482
+fn group_colors(g: &MaterialGroup, x: i32, y: i32) -> (Color, Color) {
+    match g.vertex_colors.len() {
         0 => (Color::WHITE, Color::WHITE),
         n => {
             let v = scaled(x, y, seed::COLORING, g.vertex_color_frequency);
@@ -388,23 +411,17 @@ fn group_pick(g: &MaterialGroup, x: i32, y: i32) -> Option<SurfacePick> {
             let b = scaled(x, y, seed::BRIGHTNESS, 1.0);
             coloring_at(chosen, h, s, b)
         }
-    };
-    let detail = pick(&g.detail, g.detail_frequency, x, y, seed::DETAIL);
-    let bump = pick(&g.bump, g.bump_frequency, x, y, seed::BUMP);
-    Some(SurfacePick {
-        base: base.material,
-        base_tile: base.tile_width,
-        corner_mask: corner.material,
-        side_mask: side.material,
-        three_corner_mask: id(three),
-        diagonal_mask: id(diagonal),
-        detail: id(detail),
-        detail_tile: detail.map_or(0.0, |m| m.tile_width),
-        bump: id(bump),
-        bump_tile: bump.map_or(0.0, |m| m.tile_width),
-        color,
-        far_color,
-    })
+    }
+}
+
+/// The far color a surface shows at a vertex of slope `pitch`, as [`surface_pick`] picks it: its
+/// group's, white where no group holds the slope or the group picks nothing.
+fn surface_far_color(s: &SurfaceType, pitch: f32, x: i32, y: i32) -> Color {
+    s.groups
+        .iter()
+        .find(|g| g.min_pitch * g.min_pitch <= pitch && pitch <= g.max_pitch * g.max_pitch)
+        .filter(|g| !g.base.is_empty() && !g.corner_masks.is_empty() && !g.side_masks.is_empty())
+        .map_or(Color::WHITE, |g| group_colors(g, x, y).1)
 }
 
 /// What a surface shows at a vertex of slope `pitch` (`n.x² + n.y²`): the first material group
@@ -628,6 +645,38 @@ pub fn vertex_materials(
                     .iter()
                     .find(|s| s.index == road)
                     .map_or(0, |s| surface_material(s, pitch)),
+            );
+        }
+    }
+    Some(out)
+}
+
+/// Block `(x, y)`'s far landscape colors, a vertex at a time as [`TerrainBlock::vertex`] orders
+/// them, each its terrain's as [`build_block`] picks it, or `None` when the world has no landblock
+/// there: what a map draws the land in, with no more of the ground worked out than that.
+#[must_use]
+pub fn far_colors(
+    land: &LandConstants,
+    surfaces: Surfaces<'_>,
+    source: &dyn LandSource,
+    x: i32,
+    y: i32,
+) -> Option<Vec<Color>> {
+    let lb = source.landblock(x, y)?;
+    let hood = Neighborhood::new(land, source, x, y);
+    let n = hood.side();
+    let squares_per_side = n - 1;
+    let mut out = Vec::with_capacity(usize::try_from(n * n).unwrap_or(0));
+    for i in 0..n {
+        for j in 0..n {
+            let normal = hood.normal(i, j);
+            let pitch = normal.x * normal.x + normal.y * normal.y;
+            let word = lb.vertices[usize::try_from(n * i + j).unwrap_or(0)];
+            let (gx, gy) = (x * squares_per_side + i, y * squares_per_side + j);
+            out.push(
+                surfaces
+                    .terrain_surface(land.word.terrain.of(word))
+                    .map_or(Color::WHITE, |s| surface_far_color(s, pitch, gx, gy)),
             );
         }
     }

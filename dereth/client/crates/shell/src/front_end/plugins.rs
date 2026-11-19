@@ -1024,7 +1024,7 @@ mod tests {
     fn host() -> PluginHost {
         PluginHost::new(
             HostConfig::new("dereth-test", vec![HostCapability::Core]),
-            Box::new(dereth_plugin_lua::LuauEngine),
+            Box::new(dereth_plugin_lua::LuauEngine::dereth()),
             Box::new(StaticSource {
                 packages: Vec::new(),
             }),

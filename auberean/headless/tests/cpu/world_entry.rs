@@ -1,6 +1,8 @@
 //! A server double takes the client through the login, the character list, the world entry and a
 //! log-off, with no network.
 
+use auberean_client_sdk::contract::event::SessionEvent;
+use auberean_client_sdk::contract::session::{Character, Phase};
 use auberean_client_sdk::net::LocalTime;
 use auberean_client_sdk::protocol::login::{CharacterList, DataQuery, Empty, PlayerObject};
 use auberean_client_sdk::protocol::physics::CreateObject;
@@ -8,11 +10,11 @@ use auberean_client_sdk::protocol::quality::PrivateQuality;
 use auberean_client_sdk::protocol::text::{NarrowString, WideString};
 use auberean_client_sdk::protocol::types::{CharacterIdentity, PhysicsDesc, Placement};
 use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
-use auberean_client_sdk::{runtime, Action, Client, ClientData, ClientSettings, Motion};
+use auberean_client_sdk::{runtime, Action, Client, ClientData, ClientSettings, GameEvent, Motion};
 use auberean_testkit::double::script::{ConnSpec, Event, Msg, Script};
 use auberean_testkit::double::ServerDouble;
 
-const PLAYER: u64 = 0x2130_0000_0000_0001;
+pub(crate) const PLAYER: u64 = 0x2130_0000_0000_0001;
 
 fn conn(n: usize, login: bool, port: u16, t_request: f64) -> ConnSpec {
     ConnSpec {
@@ -62,7 +64,7 @@ const LOGIN: u64 = 0x2300_0000_0000_0000;
 const WORLD: u64 = 0x0300_0000_0000_0000;
 const PRIVATE: u64 = 0x0100_0000_0000_0000;
 
-fn script() -> Script {
+pub(crate) fn script() -> Script {
     let list = CharacterList {
         characters: vec![CharacterIdentity {
             id: PLAYER,
@@ -264,6 +266,90 @@ fn a_server_double_takes_the_client_through_login_character_list_and_world_entry
     assert!(client.session.login_connected());
     assert_eq!(client.model.player, None, "the character left the world");
     assert_eq!(client.session.connections().count(), 1);
+}
+
+/// Driven by its events alone, the client tells where its session stands as it goes: connecting,
+/// at the character list (the account's characters listed, the one to enter among them), entering
+/// the world (as soon as it asks, before the server answers), in the world, back at the list once
+/// the character has left, and gone once the host closes it; each phase once, in that order.
+///
+/// Behaviour: session.events.the-session-tells-its-phases-in-order
+#[test]
+fn the_client_tells_its_sessions_phases_in_order_and_the_characters_it_enters_from() {
+    let mut double = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let settings = ClientSettings {
+        login_server: double.login_addr(),
+        account: b"tester".to_vec(),
+        ticket: b"t".to_vec(),
+        timestamp: 0,
+        session_key: [0; 64],
+        script_sends: false,
+    };
+    let mut client = Client::new(settings, ClientData::default());
+    let mut phases = Vec::new();
+    let mut listed = None;
+    let mut now = 0.0;
+    let mut entered = None;
+    let mut entering_told = None;
+    let mut left = false;
+    while now < 30.0 {
+        now += 1.0 / 60.0;
+        frame(&mut client, &mut double, now);
+        for e in client.take_events() {
+            match e {
+                GameEvent::Session(SessionEvent::Phase(p)) => {
+                    if p == Phase::Entering {
+                        entering_told = Some(now);
+                    }
+                    phases.push(p);
+                }
+                GameEvent::Session(SessionEvent::Characters(l)) => listed = Some(l),
+                _ => {}
+            }
+        }
+        if entered.is_none() {
+            if let Some(c) = listed.as_ref().and_then(|l| l.characters.first()) {
+                client.act(Action::PlayCharacter { character: c.id });
+                entered = Some(now);
+            }
+        }
+        if !left && now > 19.5 {
+            client.act(Action::LogOff);
+            left = true;
+        }
+    }
+    let (asked, told) = (entered.expect("asked"), entering_told.expect("told"));
+    assert!(
+        told > asked && told < asked + 0.05,
+        "entering told the frame after asking ({asked}), not when the server answered ({told})"
+    );
+    let listed = listed.expect("the characters listed");
+    assert_eq!(
+        listed.characters,
+        [Character {
+            id: PLAYER,
+            name: "Tester".into(),
+            seconds_greyed_out: 0,
+        }]
+    );
+    assert_eq!(listed.slots, 6);
+    assert_eq!(listed.named("tester").map(|c| c.id), Some(PLAYER));
+    client.disconnect();
+    phases.extend(client.take_events().into_iter().filter_map(|e| match e {
+        GameEvent::Session(SessionEvent::Phase(p)) => Some(p),
+        _ => None,
+    }));
+    assert_eq!(
+        phases,
+        [
+            Phase::Connecting,
+            Phase::Characters,
+            Phase::Entering,
+            Phase::World,
+            Phase::Characters,
+            Phase::Disconnected,
+        ]
+    );
 }
 
 /// A client the double took into the world, 12 seconds in, and the time it stands at.
@@ -477,7 +563,7 @@ fn where_the_players_head_points_is_sent_at_most_every_half_second() {
 
 /// The login of [`script`] with its first entry refused (the character still in the world) and
 /// the second let in.
-fn refused_script() -> Script {
+pub(crate) fn refused_script() -> Script {
     use auberean_client_sdk::protocol::login::CharacterRefused;
     let full = script();
     let list = full
@@ -576,6 +662,54 @@ fn exchange(client: &mut Client, double: &mut ServerDouble, t: LocalTime) {
     for d in double.tick(t) {
         client.handle_datagram(d.from, &d.bytes, t);
     }
+}
+
+/// An entry the server refuses is told with its reason, once, and the session goes back to the
+/// character list from entering; a second entry goes in.
+///
+/// Behaviour: session.events.a-refused-entry-is-told-and-the-session-is-back-at-the-list
+#[test]
+fn a_refused_entry_is_told_and_the_session_goes_back_to_the_list() {
+    let mut double = ServerDouble::new(refused_script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let mut client = tester(&double);
+    let mut now = 0.0;
+    let mut told = Vec::new();
+    let mut list = None;
+    let mut ask_at = Some(0.0);
+    while now < 12.0 {
+        now += 1.0 / 60.0;
+        exchange(&mut client, &mut double, LocalTime(1.0 + now));
+        for e in client.take_events() {
+            match e {
+                GameEvent::Session(SessionEvent::Characters(l)) => list = Some(l),
+                GameEvent::Session(SessionEvent::EntryRefused { reason }) => {
+                    told.push(SessionEvent::EntryRefused { reason });
+                    ask_at = Some(now + 2.0);
+                }
+                GameEvent::Session(s @ SessionEvent::Phase(_)) => told.push(s),
+                _ => {}
+            }
+        }
+        let first = list.as_ref().and_then(|l| l.characters.first());
+        if let (Some(t), Some(c)) = (ask_at, first) {
+            if now >= t {
+                client.act(Action::PlayCharacter { character: c.id });
+                ask_at = None;
+            }
+        }
+    }
+    assert_eq!(
+        told,
+        [
+            SessionEvent::Phase(Phase::Connecting),
+            SessionEvent::Phase(Phase::Characters),
+            SessionEvent::Phase(Phase::Entering),
+            SessionEvent::EntryRefused { reason: 11 },
+            SessionEvent::Phase(Phase::Characters),
+            SessionEvent::Phase(Phase::Entering),
+            SessionEvent::Phase(Phase::World),
+        ]
+    );
 }
 
 /// An entry the server refuses for the character still being in the world is seen with its

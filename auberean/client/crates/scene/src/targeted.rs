@@ -145,7 +145,7 @@ impl Scene<'_> {
     /// `object`'s effects, whichever kind of object it is.
     pub(crate) fn fx_of(&mut self, object: u64) -> Option<&mut crate::fx::BodyFx> {
         match self.player.as_mut() {
-            Some(p) if p.id == object => p.effects.as_mut(),
+            Some(p) if p.id == object => p.front.as_mut(),
             _ => self
                 .others
                 .effects_mut(object)
@@ -224,7 +224,7 @@ impl Scene<'_> {
                 let at = b.position;
                 let holder = self.temporaries.get(target).and_then(|t| t.holder);
                 self.holder_lets_go(holder.map(|(h, _)| h), target);
-                let (land, table) = (&self.land, &mut self.table);
+                let (land, table) = (&self.ground.land, &mut self.ground.table);
                 if let Some(t) = self.temporaries.body_mut(target) {
                     t.enter_world_at(land, table, &at, false);
                 }
@@ -270,11 +270,11 @@ impl Scene<'_> {
             );
         } else if let Some(mut at) = self.body(a.object).map(|b| b.position) {
             if n.water_plane == Some(true) {
-                if let Some(h) = crate::water_height(&self.land, at.cell) {
+                if let Some(h) = crate::water_height(&self.ground.land, at.cell) {
                     at.frame.origin.z = h;
                 }
             }
-            let (land, table) = (&self.land, &mut self.table);
+            let (land, table) = (&self.ground.land, &mut self.ground.table);
             if let Some(b) = self.temporaries.body_mut(made) {
                 b.enter_world_at(land, table, &at, false);
             }
@@ -301,7 +301,7 @@ impl Scene<'_> {
         if let Some(b) = self.body_mut(object) {
             b.set_fx_target(made);
         }
-        let list = self.table.property_list();
+        let list = self.ground.table.property_list();
         let mut pass = auberean_physics::ethereal::PhysicsTypes::default();
         pass.set_property(list, MADE_OBJECT_ETHEREAL, true);
         pass.set_property(list, MOVER_ETHEREAL, true);

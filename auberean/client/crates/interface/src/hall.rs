@@ -6,7 +6,6 @@
 use std::collections::BTreeMap;
 
 use auberean_assets::ui::UiScene;
-use auberean_client_sdk::protocol::types::CharacterIdentity;
 use auberean_primitives::{DataId, Vec3};
 use auberean_scene::view::{scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene};
 use auberean_world::chargen::{self, Avatar, Choice, Random};
@@ -156,7 +155,7 @@ impl Creation {
 pub fn select_scene(
     records: &WorldRecords,
     rect: auberean_ui::Rect,
-    characters: &[CharacterIdentity],
+    characters: &[Desc],
     arms: &[f32],
 ) -> Option<ViewScene> {
     let scene: UiScene = records.get(SELECT_SCENE)?;
@@ -164,7 +163,7 @@ pub fn select_scene(
     let mut figures = Vec::new();
     for (i, c) in characters.iter().enumerate() {
         let Some(&h) = arms.get(i) else { break };
-        let mut look = auberean_scene::desc_of(records, &c.visual);
+        let mut look = c.clone();
         if (look.parent.is_none() && look.groups.is_empty()) || Look::of(records, &look).is_err() {
             look = plain(NO_LOOK);
         }

@@ -6,32 +6,11 @@
 //! the races drawn shorter), the figure's own place half that height below the camera; a
 //! portrait's camera sees a quarter of it, the figure lower, so the head fills the picture.
 
-use auberean_client_sdk::protocol::types::VisualDesc as WireVisual;
-use auberean_client_sdk::runtime::description;
-use auberean_client_sdk::Client;
 use auberean_scene::view::{figure_box, scene_camera, ViewFigure, ViewLight, ViewScene};
 use auberean_ui::{Handle, Ui};
-use auberean_ui_game::inventory::paper_doll::{doll_scale, RACE};
+use auberean_ui_game::inventory::paper_doll::doll_scale;
 use auberean_world::look::Desc;
 use auberean_world::records::WorldRecords;
-
-/// The player's look as the world draws it: its own record's when the description names one, else
-/// the description sent.
-#[must_use]
-pub fn look_of(records: &WorldRecords, v: &WireVisual) -> Desc {
-    if v.bits & WireVisual::DID != 0 && v.did != 0 {
-        if let Some(id) = auberean_scene::visual_of(records, v) {
-            return Desc {
-                parent: id,
-                scale: auberean_primitives::Vec3::new(1.0, 1.0, 1.0),
-                child_scale: 1.0,
-                particle_scale: 1.0,
-                ..Desc::default()
-            };
-        }
-    }
-    auberean_scene::desc_of(records, v)
-}
 
 /// The race whose portrait stands higher.
 const DRUDGE: i32 = 8;
@@ -100,7 +79,8 @@ impl Dolls {
     }
 
     /// The scene of each such viewport on the screen now: its own scene and camera, the camera
-    /// seeing straight on as much as the figure's framing says, the figure as the player looks.
+    /// seeing straight on as much as the figure's framing says, the figure as the player looks
+    /// (`player`: its id and its look as a figure stands; `race`, the player's).
     /// A search of the paper doll's figure under `pick` (window pixels) goes with the whole
     /// figure's scene, the pointer taken from its viewport's corner: that scene's place in `out`.
     // D2-02900, D2-02322, D2-02907, D2-06211, D2-06212, D2-05962, D2-10483, D2-10490, D2-10492, D2-02902, D2-02330, D2-02331
@@ -108,14 +88,12 @@ impl Dolls {
         &mut self,
         ui: &Ui,
         records: &WorldRecords,
-        client: &Client,
+        player: &(u64, Desc),
+        race: Option<i32>,
         pick: Option<(f32, f32)>,
         out: &mut Vec<ViewScene>,
     ) -> Option<usize> {
-        let player = client.model.player.and_then(|p| client.model.object(p))?;
-        let race = description::int(&player.weenie, RACE)
-            .or_else(|| player.qualities.ints.get(&RACE).copied());
-        let look = self.follow(player.id, look_of(records, &player.visual));
+        let look = self.follow(player.0, player.1.clone());
         if self.framed.as_ref().is_none_or(|(d, _)| *d != look) {
             let height = figure_box(records, &look).map_or(0.0, |(lo, hi)| hi.z - lo.z);
             self.framed = Some((look.clone(), height));

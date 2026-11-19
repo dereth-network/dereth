@@ -2,7 +2,8 @@
 
 The web client is static files: the pages and scripts in `www/`, and three WebAssembly modules, each
 with its bindings: the launcher's in `www/pkg-front/`, Dereth's in `www/pkg/` with the Horizon
-interface's art beside it in `www/pkg/horizon/`, and Auberean's in `www/pkg-auberean/`. The page
+interface's art beside it in `www/pkg/horizon/` (both games' Horizon draw from it), and Auberean's
+in `www/pkg-auberean/`. The page
 loads the launcher's when it opens and a game's only when a world of that game is played, so a
 visit to the launcher fetches neither game and a play fetches only its own.
 Any static host serves it (Cloudflare Pages, GitHub Pages, nginx, an object store). It has no
@@ -57,7 +58,7 @@ What a page fetches:
 | The page opens | the page's scripts, the launcher's page and module, and the paintings of the realm it opens in |
 | A realm is first shown | that realm's paintings |
 | A world of Asheron's Call's is played | `play-worker.js`, Dereth's module and the Horizon interface's art |
-| A world of Asheron's Call 2's is played | `auberean-worker.js` and Auberean's module |
+| A world of Asheron's Call 2's is played | `auberean-worker.js`, Auberean's module and the Horizon interface's art |
 
 Each game plays in a worker of its own, made at its first play and kept for its next, each play with
 a canvas of its own. A worker is not ended between plays: WebKit does not survive the end of a worker
@@ -541,6 +542,12 @@ the art is loading; a player whose saved interface is Horizon starts in the mode
 switched to Horizon once the art is in. If the files could not be fetched, the page's log says
 what failed and choosing Horizon is refused with the chat saying why. The modern and classic
 interfaces work as ever throughout.
+
+Auberean's worker fetches the same files from `pkg/horizon/` when it starts. Until they are in, a
+choice of Horizon is refused with the client saying the art is not here; a player whose saved
+interface is Horizon waits for the art before the client starts. If the files could not be fetched,
+the page's log says what failed, the client starts in the game's own interface, and choosing Horizon
+is refused with the reason.
 
 ## The classic interface
 

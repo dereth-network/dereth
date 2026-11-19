@@ -67,6 +67,7 @@ SHA-256 for every zip and a check of each zip against its entry.
 | `name` | optional | its name; else its id |
 | `version` | required | the release's version, SemVer 2 |
 | `api` | required | the lowest API version the release needs, `MAJOR.MINOR` |
+| `game` | optional | the game it is written for, as its manifest says: `dereth` or `auberean`; `dereth` when absent. A host of another game does not run it |
 | `description` | optional | what it does, for the player |
 | `authors` | optional | a list of names |
 | `homepage` | optional | an address for people |
@@ -97,8 +98,8 @@ A host takes a zip only when all of these hold, and keeps nothing otherwise:
 
 1. **It is the file the entry names:** its size is `size` (when given) and its SHA-256 is `sha256`.
 2. **It is a package** whose manifest reads ([packages.md](packages.md)).
-3. **Its manifest says what the entry says:** the same `id`, `version` and `api`, the same set of
-   `permissions` and the same set of `domains`. So what a launcher shows before the download (what
+3. **Its manifest says what the entry says:** the same `id`, `version`, `api` and `game`, the same
+   set of `permissions` and the same set of `domains`. So what a launcher shows before the download (what
    the plugin uses) is what the package holds.
 4. **The client runs its API version** ([the rule](README.md)).
 

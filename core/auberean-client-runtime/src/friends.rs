@@ -1184,6 +1184,7 @@ impl Client {
                 requests: Vec::new(),
                 effect_lines: Vec::new(),
                 listed: Vec::new(),
+                selections: Vec::new(),
             }),
         }
     }
@@ -1218,6 +1219,7 @@ impl Client {
             requests: Vec::new(),
             effect_lines: Vec::new(),
             listed: Vec::new(),
+            selections: Vec::new(),
         });
     }
 }

@@ -43,6 +43,9 @@ dereth-world-data.workspace = true
 dereth-primitives.workspace = true
 # The places of a world learned while playing, which the map draws over the data's.
 dereth-navigation.workspace = true
+# The drawing the world map shares with the second game's: the light, the shrink, the build off
+# the frame.
+dereth-map-picture.workspace = true
 # The simulation the scene draws: the world state, the object stream, the models, the movement,
 # the landblock window's residency, and the presentation seam the scene implements.
 dereth-client-runtime.workspace = true

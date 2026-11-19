@@ -40,10 +40,7 @@ impl Body {
         if let (Some(d), Some(host)) = (self.detections.as_mut(), detections) {
             d.handle_leave_world(host);
         }
-        let now = self.clock;
-        let mut mi = std::mem::take(&mut self.minterp);
-        mi.handle_leave_world(self, now);
-        self.minterp = mi;
+        self.motion_leaves_world();
         self.end_all_collisions(land, world, objects);
         self.transient |= transient::LEFT_WORLD;
         self.set_movement_active(false);

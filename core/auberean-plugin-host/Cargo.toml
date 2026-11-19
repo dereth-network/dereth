@@ -1,0 +1,39 @@
+[package]
+name = "auberean-plugin-host"
+description = "Auberean's plugin host: loads plugin packages into VMs, turns the game's events into the events plugins hear and their requests into the client's actions, runs their timers, and keeps their stores, commands, windows and services."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+# The interface: the manifest, permissions, events, the UI tree, values and the engine boundary.
+dereth-plugin-api.workspace = true
+# Packages: their files and manifest.
+dereth-plugin-package.workspace = true
+# The game, as a front end reaches it: the actions and the events (the contract) and the frame
+# hook the host installs itself as (the runtime). No crate under `auberean/client/` (`cargo xtask
+# seams`, `seam: Auberean plugin host`).
+auberean-client-contract.workspace = true
+auberean-client-runtime.workspace = true
+# The Luau engine running Auberean's bindings (`bindings::engine`). Off by default: it compiles the
+# Luau VM from C++ source, and a browser build needs a C++ compiler for that target set up first.
+dereth-plugin-lua = { workspace = true, optional = true }
+
+[features]
+lua = ["dep:dereth-plugin-lua"]
+
+[dev-dependencies]
+dereth-plugin-lua.workspace = true
+auberean-client-net.workspace = true
+auberean-protocol.workspace = true
+auberean-testkit = { workspace = true, features = ["double"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

@@ -13,6 +13,16 @@
 //! reloaded, a recipe gone, a skill or the reset times changed, the inventory or a container
 //! changed, the options reloaded), when objects came or went, and when the player put a shortcut
 //! in a slot or showed another set; [`Toolbar::version`] counts the changes.
+//!
+//! **The clean-up.** Each time the toolbar is asked, the slots the bar would look at again are
+//! looked at, and a slot whose shortcut no longer belongs on the bar is emptied in the player's
+//! scripts, whichever interface is shown ([`Checks`]): an emote, a recipe naming none or one the
+//! scripts said is gone, an item the player no longer has, a skill it no longer has trained. The
+//! bar looks again at every slot when the shortcuts or the options came again; at a skill's slots
+//! when the skill changed, every skill slot when the reset times did; at an item's slots (or every
+//! item slot) when the inventory or a container changed, every skill slot too for the inventory;
+//! at an item's slots when it went from around the player; at a slot the scripts changed since
+//! the last ask.
 
 use auberean_script::native::{Status, Stop};
 use auberean_script::native_object::{native_type, NativeObject};
@@ -105,6 +115,142 @@ pub struct Toolbar {
     pub insta_scroll: bool,
     pub skills: Vec<Skill>,
     pub items: Vec<Item>,
+}
+
+/// The panel notices the clean-up hears, by the native that sends each.
+pub mod notice {
+    /// The shortcuts came again; a recipe is gone (its data id).
+    pub const RELOAD_SHORTCUTS: u32 = 0x008F << 16 | 0x0001;
+    pub const REMOVE_RECIPE: u32 = 0x008F << 16 | 0x0002;
+    /// A skill changed (its enumerated value); the reset times changed.
+    pub const UPDATE_SKILL: u32 = 0x0085 << 16 | 0x0006;
+    pub const UPDATE_RESET_TIME: u32 = 0x0085 << 16 | 0x0007;
+    /// The player's options came again, or the options window changed them.
+    pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
+    pub const OPTIONS_CHANGED: u32 = crate::OPTIONS_CHANGED;
+    /// The inventory changed (how, the item as a long), a container changed (the container as a
+    /// long, how, the item as a long).
+    pub const UPDATE_INVENTORY: u32 = 0x008B << 16 | 0x0001;
+    pub const UPDATE_CONTAINER: u32 = 0x008B << 16 | 0x0002;
+}
+
+/// How the inventory or a container changed, as their notices say: all of it.
+const CHANGED_ALL: u32 = 0x4000_0001;
+
+/// What the clean-up looks at the next time the toolbar is asked, from the notices heard since
+/// it last looked.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Checks {
+    /// Every slot.
+    pub all: bool,
+    /// Every item slot, and the slots of these items.
+    pub all_items: bool,
+    pub items: Vec<u64>,
+    /// Every skill slot, and the slots of these skills.
+    pub all_skills: bool,
+    pub skills: Vec<u32>,
+    /// The recipes the scripts said are gone: their slots are emptied.
+    pub recipes_gone: Vec<u32>,
+}
+
+/// A long argument of a notice: its high word, then its low.
+fn long_at(words: &[u32], i: usize) -> u64 {
+    let w = |i: usize| u64::from(words.get(i).copied().unwrap_or(0));
+    w(i) << 32 | w(i + 1)
+}
+
+impl Checks {
+    /// A panel notice heard (its native and words): what the bar looks at again after it.
+    // D2-02539, D2-02540, D2-02499, D2-02519, D2-02520, D2-02517, D2-02518
+    pub fn hear(&mut self, native: u32, words: &[u32]) {
+        let w = |i: usize| words.get(i).copied().unwrap_or(0);
+        match native {
+            notice::RELOAD_SHORTCUTS | notice::RELOAD_OPTIONS | notice::OPTIONS_CHANGED => {
+                self.all = true;
+            }
+            notice::REMOVE_RECIPE => self.recipes_gone.push(w(0)),
+            notice::UPDATE_SKILL => self.skills.push(w(0)),
+            notice::UPDATE_RESET_TIME => self.all_skills = true,
+            notice::UPDATE_INVENTORY => {
+                if w(0) == CHANGED_ALL {
+                    self.all_items = true;
+                } else {
+                    self.items.push(long_at(words, 1));
+                }
+                self.all_skills = true;
+            }
+            notice::UPDATE_CONTAINER => {
+                if w(2) == CHANGED_ALL {
+                    self.all_items = true;
+                } else {
+                    self.items.push(long_at(words, 3));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether a slot holding `s` is looked at.
+    fn looks_at(&self, s: &Shortcut) -> bool {
+        self.all
+            || match s.kind {
+                kind::ITEM => self.all_items || self.items.contains(&s.item),
+                kind::SKILL => self.all_skills || self.skills.contains(&s.data_enum),
+                _ => false,
+            }
+    }
+
+    /// The slots to empty, in order, now that the toolbar is `now`: the slots looked at whose
+    /// shortcut no longer belongs on the bar ([`goes`]), those holding a recipe that is gone, and,
+    /// against the toolbar as it was last asked (`before`, none before the first), the slots the
+    /// scripts changed and those holding an item that went from around the player.
+    // D2-02529, D2-02521
+    #[must_use]
+    pub fn emptied(&self, before: Option<&Toolbar>, now: &Toolbar) -> Vec<u32> {
+        let went: Vec<u64> = before.map_or_else(Vec::new, |b| {
+            b.items
+                .iter()
+                .filter(|i| i.here.is_some())
+                .filter(|i| {
+                    now.items
+                        .iter()
+                        .any(|n| n.item == i.item && n.here.is_none())
+                })
+                .map(|i| i.item)
+                .collect()
+        });
+        let mut out = Vec::new();
+        for (i, s) in now.shortcuts.iter().enumerate() {
+            if s.kind == 0 {
+                continue;
+            }
+            let changed = before.is_some_and(|b| b.shortcuts.get(i) != Some(s));
+            let gone = s.kind == kind::RECIPE && self.recipes_gone.contains(&s.data_id);
+            let went = s.kind == kind::ITEM && went.contains(&s.item);
+            if gone || ((changed || went || self.looks_at(s)) && goes(s, now)) {
+                out.push(u32::try_from(i).unwrap_or(u32::MAX));
+            }
+        }
+        out
+    }
+}
+
+/// Whether a slot's shortcut no longer belongs on the bar, by what the toolbar says of it: an
+/// emote always; a recipe naming none; an item the player no longer has; a skill it no longer has
+/// trained. (An item or a skill the toolbar says nothing of yet stays.)
+// D2-02512, D2-02500, D2-02504, D2-02509
+#[must_use]
+pub fn goes(s: &Shortcut, t: &Toolbar) -> bool {
+    match s.kind {
+        kind::EMOTE => true,
+        kind::RECIPE => s.data_id == 0,
+        kind::ITEM => t.items.iter().any(|i| i.item == s.item && !i.have),
+        kind::SKILL => t
+            .skills
+            .iter()
+            .any(|k| k.skill == s.data_enum && !k.trained),
+        _ => false,
+    }
 }
 
 /// An out argument's storage: a word, or a new native object of a type.

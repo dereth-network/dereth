@@ -96,8 +96,10 @@
 
 mod icon;
 mod local;
+mod pad;
 mod perf;
 mod player_count;
+mod plugins;
 mod script;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -114,7 +116,6 @@ use auberean_interface::data::{open_data, ui_assets, Install};
 use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
-use auberean_shell::interface::Interface;
 use auberean_shell::net_binding::NetBinding;
 use auberean_shell::preferences::Names;
 use auberean_shell::profile::Profile;
@@ -530,9 +531,19 @@ struct Desktop {
     /// Where a count of the world's players goes ([`player_count`]); none for a world that is not
     /// reported.
     players: Option<Box<dyn FnMut(u32)>>,
+    /// The pad.
+    pad: pad::DesktopPad,
 }
 
 impl Host for Desktop {
+    fn gamepad(&mut self) -> Option<auberean_shell::pad::PadState> {
+        // A script plays alone: no pad is heard beside it.
+        if self.scripted {
+            return None;
+        }
+        self.pad.poll()
+    }
+
     fn world_players(&mut self, players: u32) {
         if let Some(report) = &mut self.players {
             report(players);
@@ -1165,7 +1176,7 @@ impl App<'_> {
                 self.shot_next = asked.shot;
             }
             if let Some(m) = &asked.mark {
-                self.marks.print(m, self.shell.client.as_ref());
+                self.marks.print(m, self.shell.client.as_deref());
             }
             if asked.quit {
                 self.shell.event(&Event::Close);
@@ -1195,6 +1206,7 @@ impl App<'_> {
         if let Some(p) = &mut self.present {
             p.set_brightness(brightness);
             let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
+            p.warm(out.warm, &mut load);
             p.present(
                 out.world,
                 out.portal.map(|f| (f, out.portal_alpha)),
@@ -1382,6 +1394,20 @@ fn world_overlay(
 }
 
 // D2-00130, D2-01703
+/// The interfaces the client offers: the game's own, and Horizon over the art the client carries,
+/// started as the game's own is.
+fn interfaces<'w>(
+    retail: auberean_interface::Retail,
+    records: auberean_horizon::art::Records,
+    start: auberean_horizon::Start,
+) -> Box<dyn auberean_shell::interface::InterfaceMaker<'w> + 'w> {
+    auberean_horizon::maker(retail, move || {
+        auberean_horizon::Horizon::built_in(Some(std::sync::Arc::clone(&records)))
+            .map(|h| h.with_start(start.clone()))
+            .map(|h| Box::new(h) as Box<dyn auberean_shell::interface::Interface + 'w>)
+    })
+}
+
 fn run() -> Result<(), String> {
     let o = options()?;
     let explore = match o.explore.as_deref() {
@@ -1436,21 +1462,32 @@ fn run() -> Result<(), String> {
             account: account.clone(),
             password: password.clone(),
         });
+    let records: auberean_horizon::art::Records = assets.clone();
+    let mut start = auberean_horizon::Start {
+        login: login.clone(),
+        auto: None,
+        play: o.user.clone(),
+        create: o.create.clone(),
+        admin: o.admin_client,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+    };
     let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login)
-        .with_forced_gore(o.forced_gore.0, o.forced_gore.1)
         .with_start_character(o.user.as_deref(), o.create.as_deref())
         .with_admin_client(o.admin_client);
     if let Some((account, password)) = &o.login {
-        retail = retail.with_auto(auberean_shell::dev::DevLogin::new(
+        let auto = auberean_shell::dev::DevLogin::new(
             server,
             account.clone(),
             password.clone(),
             o.character.clone(),
-        ));
+        );
+        start.auto = Some(auto.clone());
+        retail = retail.with_auto(auto);
     } else if o.account.is_none() && o.explore.is_none() {
         tracing::warn!("no account: log in with --account ACCOUNT:PASSWORD");
     }
-    let interface: Box<dyn Interface> = Box::new(retail);
+    // The plugins in the settings folder, when it has any.
+    let plugin_host = plugins::host(&settings);
     let host = Desktop {
         start: Instant::now(),
         socket: None,
@@ -1475,8 +1512,15 @@ fn run() -> Result<(), String> {
             .world_address
             .as_ref()
             .and_then(|(host, port)| player_count::reporter(host, *port)),
+        pad: pad::DesktopPad::default(),
     };
-    let mut shell = Shell::new(host, &world, data, interface);
+    let mut shell = Shell::with_interfaces(host, &world, data, interfaces(retail, records, start));
+    if let Some(h) = plugin_host {
+        shell.set_plugins(h);
+    }
+    if o.forced_gore != (0, 0) {
+        shell.force_gore(o.forced_gore.0, o.forced_gore.1);
+    }
     shell.apply_line(&o.line);
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
@@ -1564,7 +1608,7 @@ fn no_window(
                 shell.event(e);
             }
             if let Some(m) = &asked.mark {
-                marks.print(m, shell.client.as_ref());
+                marks.print(m, shell.client.as_deref());
             }
             if asked.quit {
                 shell.event(&Event::Close);

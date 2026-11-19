@@ -102,6 +102,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.each-list-ask-is-answered-and-an-unknown-command-is-told",
+        says: "Each ask of a list the chat entry steps through (the lines typed, the names told, the names \
+               that told the player) is answered once, in order, with the item or with nothing; a \
+               line naming a command no one knows is told as one, with its words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CHAT-LIST-ANSWERS"),
+        station: "auberean-client-runtime::corpus::chat::each_list_ask_is_answered_once_and_an_unknown_command_is_told",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.every-recorded-saying-and-tell-is-written-with-the-words-and-a-bare-name",
         says: "Every saying and tell the 2005, 2013 and 2017 captures recorded, taken through the player's scripts, reaches the chat windows as a line of the spoken or the tell kind holding the words as said and the speaker's name without its marks; no line shows a name's mark.",
         since: RETAIL,
@@ -143,6 +153,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.the-chat-windows-settings-are-kept-in-the-options-and-sent-when-kept",
+        says: "The chat windows' settings are kept in the player's options as they are set: a window's \
+               filter and devoted channel, a kind of text's font size, color and popup flag, a \
+               window's opacity. Nothing goes to the server for them until the chat options are \
+               kept, then the chat options once; an opacity sends the windows' places and \
+               opacities as it is set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-WINDOW-SETTINGS"),
+        station: "auberean-client-runtime::corpus::chat::the_chat_windows_settings_are_kept_in_the_options_and_sent_when_kept",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.the-layout-commands-reach-the-panels-with-their-file",
         says: "The player's commands to save and load the panels' places reach the play screen as \
                notices naming the file, and the player's files are written and read back by a bare \
@@ -171,6 +193,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CHAT-SERVER-TEXT"),
         station: "auberean-client-runtime::corpus::chat::the_servers_lines_of_text_are_shown_by_the_players_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.events.the-servers-calls-and-the-chat-lines-are-told-as-events",
+        says: "Our choice: every recorded server's call of a kind told as an event (sayings, tells, \
+               offers of a place in a fellowship and of an oath, a trade's setting up, opening and \
+               acceptance, effects put on and taken off, a making's answer) comes out of the \
+               client's event stream once, in order, with the call's values; every line the \
+               scripts wrote for the chat windows comes out written as the chat windows write it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-EVENTS-CALLS"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_call_told_as_an_event_and_every_chat_line_comes_out_of_the_stream",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -1457,7 +1491,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.model.the-journal-holds-the-quests-the-server-sent",
-        says: "Through every recorded capture whose server changed a quest, the journal's list, a copy of the list the player's scripts keep asked for through the interface, holds at each log-off and at the end what the server sent: the session start's records, each update copied over its quest's record or added before the first record given earlier, removals taken out.",
+        says: "Through every recorded capture whose server changed a quest, the journal's list, a copy of the list the player's scripts keep asked for through the interface, holds at each log-off and at the end what the server sent: the session start's records, each update copied over its quest's record or added before the first record given earlier, removals taken out; and the view's journal, refreshed as a front end refreshes it whenever the scripts tell the journal something, holds the same quests.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-QUEST-JOURNAL"),
         station: "auberean-client-runtime::corpus::quests::the_journal_holds_every_quest_the_server_gave_newest_given_first",
@@ -1472,6 +1506,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-LOG-MASKS"),
         station: "auberean-client-runtime::cpu::scripts::log_system::the_log_masks_start_at_the_clients_and_change_as_the_scripts_say",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.the-names-attack-commands-and-places-actions-reach-the-players-scripts",
+        says: "Names over heads shown or hidden are kept in the player's options; an attack on an object \
+               ceased goes to the server; the commands made known are taken by the player's \
+               scripts; the panels' places kept are what the player's options then hold, and the \
+               windows' places and opacities go to the server.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-PANEL-SETTINGS"),
+        station: "auberean-client-runtime::corpus::interface::the_names_attack_commands_and_places_actions_reach_the_players_scripts",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "script.model.the-pack-the-scripts-list-is-what-the-player-holds",
@@ -1525,6 +1570,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-SKILL-ROOTS"),
         station: "auberean-client-runtime::corpus::skills::the_skill_windows_root_panels_are_known_when_the_player_arrives",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-view-says-how-long-since-the-server-was-heard",
+        says: "The view says how long it has been since the world's server was last heard, on the \
+               client's own clock: none before a connection, under the time between messages \
+               while the server talks, and growing second for second once it falls silent.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-LINK-HEARD"),
+        station: "auberean-client-runtime::cpu::world::session::the_view_says_how_long_since_the_server_was_heard_on_the_clients_clock",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.model.what-the-recorded-player-selected-may-be-selected",
@@ -1802,6 +1857,39 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-OFF-WHEN-SET"),
         station: "auberean-glue::cpu::options::two_options_are_on_with_their_bit_clear",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.notices.a-notice-names-its-words-and-records-as-the-panels-read-them",
+        says: "Our choice: a notice's words are read where the retail panels read them (an object's id \
+               as its high word and its low) and the records its words name come as plain data \
+               (a name as its string reference, the friends as their states, a profile with the \
+               tabs it asks for, a selection's kind and vitals).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-NOTICES-READ"),
+        station: "auberean-client-runtime::cpu::scripts::notices::a_notice_names_its_words_and_records_as_the_panels_read_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.notices.every-notice-a-panel-reads-comes-named",
+        says: "Our choice: every notice the client binds that a panel reads, and the client's own (the \
+               chat service's connection lost and its ticket taken again, the options window's \
+               change), comes out of the client named, as the contract carries it; one no panel \
+               reads comes as the scripts sent it, words and all.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-NOTICES-NAMED"),
+        station: "auberean-client-runtime::cpu::scripts::notices::every_notice_a_panel_reads_comes_named",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.notices.every-recorded-notice-comes-named-with-its-records",
+        says: "Our choice: every notice the recorded sessions' scripts sent the panels comes named, but \
+               for those no panel reads; a notice whose word named a record the panels read (a \
+               profile, the scenes, a shop, a fellowship, an allegiance, a hit's damage) comes \
+               with it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-NOTICES-RECORDED"),
+        station: "auberean-client-runtime::corpus::interface::notices::every_recorded_notice_comes_named_with_its_records",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "script.options.aliases-in-the-english-code-page",

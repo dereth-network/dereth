@@ -1,6 +1,6 @@
 //! The options window's client page: the client's own preferences (kept on the computer, not
-//! with the character), in eight sections: rendering, graphics, camera, avatars, input,
-//! effects, sound, other.
+//! with the character), in nine sections: rendering, graphics, camera, avatars, input,
+//! effects, sound, other, and this client's own last, the interface the game is shown in.
 //!
 //! The client lists each section's preferences when the page asks for them (and again whenever
 //! they change); the page makes a row for each (a choice, a number or a yes-or-no one) and takes
@@ -8,8 +8,8 @@
 //! tried at once ([`Request::Change`]). **Apply** submits the rendering preferences (which take
 //! effect with a question whether to keep them: no puts them back) and applies the others, then
 //! keeps them in the preferences' file; **Recall** and **Default** (each asked first) put back
-//! what was applied, or the defaults (then applied). Apply and Recall are ghosted while nothing
-//! changed.
+//! what was applied, or the defaults (then applied; the interface chosen stays). Apply and Recall
+//! are ghosted while nothing changed.
 
 use auberean_ui::framework::FrameId;
 use auberean_ui::token::{attr, msg};
@@ -26,23 +26,10 @@ mod name {
     pub const LIST: Token = Token::of("ClientList");
 }
 
-/// The client's preferences' sections.
-pub mod section {
-    pub const GRAPHICS: u32 = 0x4000_0004;
-    pub const SOUND: u32 = 0x4000_0007;
-    pub const CAMERA: u32 = 0x4000_0008;
-    pub const EFFECTS: u32 = 0x4000_0009;
-    pub const RENDERING: u32 = 0x4000_000B;
-    pub const OTHER: u32 = 0x4000_000C;
-    pub const AVATARS: u32 = 0x4000_000D;
-    pub const INPUT: u32 = 0x4000_000E;
-}
-
-/// The string table the client's preference labels are in.
-pub const PREFERENCE_STRINGS: u32 = 0x4000_0008;
+pub use auberean_options::page::{section, Listing, Request, PREFERENCE_STRINGS};
 
 /// The sections in the page's order: each one's section and its label.
-const SECTIONS: [(u32, &str); 8] = [
+const SECTIONS: [(u32, &str); 9] = [
     (section::RENDERING, "ID_Rendering_RenderingSection"),
     (section::GRAPHICS, "ID_Graphics_GraphicsSection"),
     (section::CAMERA, "ID_Camera_CameraSection"),
@@ -51,10 +38,11 @@ const SECTIONS: [(u32, &str); 8] = [
     (section::EFFECTS, "ID_FX_FXSection"),
     (section::SOUND, "ID_Sound_SoundSection"),
     (section::OTHER, "ID_Misc_MiscSection"),
+    (section::UI, "ID_UI_UISection"),
 ];
 
 /// The sections applied (after the rendering's is submitted), in the client's order.
-const APPLIED: [u32; 7] = [
+const APPLIED: [u32; 8] = [
     section::GRAPHICS,
     section::SOUND,
     section::EFFECTS,
@@ -62,29 +50,11 @@ const APPLIED: [u32; 7] = [
     section::AVATARS,
     section::INPUT,
     section::OTHER,
+    section::UI,
 ];
 
 /// The dialog kind of a question that takes itself down after a while unless answered.
 pub const TIMED_CONFIRMATION: u32 = 0x4000_0005;
-
-/// What the client page asks of the client's preferences.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Request {
-    /// The sections the page shows: list each one's preferences now and whenever they change.
-    Attach(Vec<u32>),
-    /// The page goes: no longer.
-    Detach(Vec<u32>),
-    /// Try a preference the player set.
-    Change(Change),
-    /// A section's preferences taken into effect (the rendering's submitted, to be kept or put
-    /// back), applied, kept as they are now (synchronized) or put back (recalled).
-    Submit(u32),
-    Apply(u32),
-    Synchronize(u32),
-    Recall(u32),
-    /// The preferences kept in the preferences' file.
-    Save,
-}
 
 /// The client page.
 #[derive(Debug)]
@@ -144,6 +114,7 @@ impl ClientPage {
         let Some(list) = self.page.and_then(|p| ui.child_recursive(p, name::LIST)) else {
             return;
         };
+        helper::step_by_line(ui, list);
         for (s, label) in SECTIONS {
             let mut row = Row::section(ui, self.frame);
             row.describe(ui, PREFERENCE_STRINGS, Token::of(label).raw(), 0);
@@ -286,10 +257,14 @@ impl ClientPage {
         self.update_buttons(ui);
     }
 
-    /// Every section to its defaults, then applied.
+    /// Every section to its defaults, then applied; the interface's section is left as it is
+    /// (putting it back would change the whole interface the player sees).
     // D2-02856
     pub fn default(&mut self, ui: &mut Ui, out: &mut Vec<gameplay::Request>) {
         for (s, r) in self.sections.clone() {
+            if s == section::UI {
+                continue;
+            }
             self.rows.to_default(ui, r);
             // The rendering's are told as it is applied.
             if s != section::RENDERING {
@@ -512,14 +487,6 @@ impl ClientPage {
         }
         ui.drop_frame(self.frame);
     }
-}
-
-/// The client's preferences as a host lists them for the page: each section's, in its order, and
-/// a count that grows with every listing (the page takes a listing in once).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Listing {
-    pub serial: u32,
-    pub sections: Vec<(u32, Vec<Change>)>,
 }
 
 /// A yes-or-no preference of the client's (for a host listing its preferences).

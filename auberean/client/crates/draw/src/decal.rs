@@ -695,3 +695,124 @@ pub fn point_light_pool(
         draw_once: true,
     })
 }
+
+/// The first id of the pictures a frame brings itself ([`crate::scene::Frame::pictures`]): no
+/// picture of the world's data is numbered from here on.
+pub const OWN_PICTURES: u32 = 0xFE00_0000;
+
+/// The least radius a mark on the ground is laid at, in meters, so a small object's still shows.
+pub const MARK_MIN_RADIUS: f32 = 0.5;
+
+/// The box a mark of `radius` meters is laid in on the ground, turned `turn` radians from running
+/// east toward the north: as wide and as deep as the mark, and as high again (two meters at
+/// least), so it lies on the ground under its object over a slope or a step.
+#[must_use]
+pub fn mark_desc(radius: f32, turn: f32) -> DecalDesc {
+    let r = radius.max(MARK_MIN_RADIUS);
+    let (s, c) = dereth_primitives::num::math::sin_cosf(turn);
+    DecalDesc {
+        material: 0,
+        lifespan: 1.0,
+        size: Vec3::new(2.0 * r, 2.0 * r, (2.0 * r).max(2.0)),
+        direction: Vec3::new(c, s, 0.0),
+        color: Color::WHITE,
+        draw_once: true,
+    }
+}
+
+/// The layer a mark on the ground is drawn with: picture `picture` times the vertices' color,
+/// unlit, blended over the ground by its alpha, hidden where the ground or anything nearer stands
+/// in front of it, and marking no depth.
+#[must_use]
+pub fn mark_layer(picture: u32) -> DrawLayer {
+    use crate::material::{d3d, switch, Stage, UV_IDENTITY};
+    DrawLayer {
+        stages: vec![Stage {
+            texture: picture,
+            color_op: d3d::OP_MODULATE,
+            color_arg1: d3d::ARG_TEXTURE,
+            color_arg2: d3d::ARG_DIFFUSE,
+            alpha_op: d3d::OP_MODULATE,
+            alpha_arg1: d3d::ARG_TEXTURE,
+            alpha_arg2: d3d::ARG_DIFFUSE,
+            clamp_u: true,
+            clamp_v: true,
+            tex_coord: 0,
+            uv_transform: UV_IDENTITY,
+        }],
+        source_blend: d3d::BLEND_SRC_ALPHA,
+        dest_blend: d3d::BLEND_INV_SRC_ALPHA,
+        depth_test: d3d::CMP_LESS_EQUAL,
+        depth_write: false,
+        cull: d3d::CULL_NONE,
+        alpha_test: true,
+        alpha_ref: 0.0,
+        tests_alpha: false,
+        switches: switch::VERTEX_DIFFUSE,
+        ambient: Color::WHITE,
+        diffuse: Color::WHITE,
+        specular: Color::new(0.0, 0.0, 0.0, 0.0),
+        specular_power: 0.0,
+        pixel_program: None,
+        light_variants: vec![(0, 0)],
+        motion: None,
+    }
+}
+
+/// The draw of a mark on the ground: `triangles` (laid in [`mark_desc`]'s box, north at the
+/// picture's top) showing the `uv` part (`[left, top, right, bottom]`) of picture `picture`,
+/// colored `tint` (packed `0xAARRGGBB`); none for no triangles, or more than a draw holds.
+#[must_use]
+pub fn mark_batch(
+    triangles: &[[DecalVertex; 3]],
+    uv: [f32; 4],
+    tint: u32,
+    picture: u32,
+) -> Option<ObjectBatch> {
+    let n = u16::try_from(triangles.len() * 3).ok().filter(|n| *n > 0)?;
+    let vertices: Vec<MeshVertex> = triangles
+        .iter()
+        .flatten()
+        .map(|v| {
+            let (u, t) = (v.uv[0], 1.0 - v.uv[1]);
+            MeshVertex {
+                position: [v.position.x, v.position.y, v.position.z],
+                normal: [v.normal.x, v.normal.y, v.normal.z],
+                diffuse: tint,
+                uv: [
+                    [uv[0] + u * (uv[2] - uv[0]), uv[1] + t * (uv[3] - uv[1])],
+                    [0.0; 2],
+                    [0.0; 2],
+                    [0.0; 2],
+                ],
+                ..MeshVertex::default()
+            }
+        })
+        .collect();
+    Some(ObjectBatch {
+        vertices: Arc::new(vertices),
+        posed: None,
+        played: None,
+        indices: Arc::new((0..n).collect()),
+        transform: Mat4::IDENTITY,
+        layer: mark_layer(picture),
+        tint: Color::WHITE,
+        points: PointLights::NONE,
+        mesh_type: 0,
+        shade: None,
+        outside: false,
+        cull: Cull::Never,
+        mesh: 0,
+        casts_volume: false,
+        caster: None,
+        seen_through: false,
+        kept_by: None,
+        anchor: None,
+        step: None,
+        visible: None,
+        block: None,
+        far: false,
+        ground: None,
+        lod: None,
+    })
+}

@@ -328,6 +328,41 @@ pub fn figure_ground(p: &mut Painter<'_>, r: Rect) {
     }
 }
 
+/// How tall a client's brand mark stands, in layout units.
+pub const BRAND_MARK_HEIGHT: f32 = 96.0;
+
+/// A client's brand mark (its picture with its name beside it, one piece) centered across the
+/// screen and down a band `band` pixels tall along the screen's top, [`BRAND_MARK_HEIGHT`] units
+/// tall and as wide as the piece keeps it; where it was drawn.
+pub fn brand_mark(p: &mut Painter<'_>, mark: &Sprite, band: f32) -> Rect {
+    let (sw, _) = p.screen;
+    let mh = BRAND_MARK_HEIGHT * p.scale;
+    let mw = mh * mark.w / mark.h.max(1.0);
+    let r = Rect::new(sw / 2.0 - mw / 2.0, (band - mh) / 2.0, mw, mh);
+    p.sprite(mark, r, WHITE);
+    r
+}
+
+/// A brand mark's picture alone: the square at its left end, as tall as the mark.
+#[must_use]
+pub fn brand_picture(mark: &Sprite) -> Sprite {
+    mark.sub(0.0, 0.0, mark.h.min(mark.w), mark.h)
+}
+
+/// A brand mark's picture over `r`, as large a square as fits with `margin` pixels clear of `r`'s
+/// nearer edges, centered in it; where it was drawn.
+pub fn brand_picture_in(p: &mut Painter<'_>, mark: &Sprite, r: Rect, margin: f32) -> Rect {
+    let side = (r.w.min(r.h) - 2.0 * margin).max(0.0);
+    let at = Rect::new(
+        r.x + (r.w - side) / 2.0,
+        r.y + (r.h - side) / 2.0,
+        side,
+        side,
+    );
+    p.sprite(&brand_picture(mark), at, WHITE);
+    at
+}
+
 /// A plain window background over `r`, no title: the skin's plate where it has one, else its
 /// untitled frame, else plainly.
 pub fn panel(p: &mut Painter<'_>, r: Rect, alpha: f32) {
@@ -1977,6 +2012,36 @@ pub fn text_box_holding(
     align: Align,
     max: usize,
 ) -> bool {
+    text_box_in(p, ctx, r, text, focus, id, align, max, true)
+}
+
+/// [`text_box_holding`] placed from the left with no field of its own under the text: a line typed
+/// straight onto the ground it is drawn over (a log window's entry line).
+pub fn text_line_bare(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    r: Rect,
+    text: &mut String,
+    focus: &mut u32,
+    id: u32,
+    max: usize,
+) -> bool {
+    text_box_in(p, ctx, r, text, focus, id, Align::Left, max, false)
+}
+
+/// A one-line text box, with its field under the text while `field`.
+#[allow(clippy::too_many_arguments)]
+fn text_box_in(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    r: Rect,
+    text: &mut String,
+    focus: &mut u32,
+    id: u32,
+    align: Align,
+    max: usize,
+    field: bool,
+) -> bool {
     use crate::edit;
     use crate::input::vk;
     let k = p.scale;
@@ -1997,7 +2062,7 @@ pub fn text_box_holding(
     }
     ctx.over(&r);
     let focused = *focus == id;
-    if !p.art.has_piece("field.left") {
+    if field && !p.art.has_piece("field.left") {
         let pal = *p.art.palette();
         p.fill(
             r,
@@ -2018,7 +2083,9 @@ pub fn text_box_holding(
     }
     let style = TextStyle::new(Family::Body, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
     // The own field under the text: its rim lit while it has the keyboard.
-    let own_pad = if p.halves("field", r, if focused { WHITE } else { 0xD0FF_FFFF }) {
+    let own_pad = if !field {
+        0.0
+    } else if p.halves("field", r, if focused { WHITE } else { 0xD0FF_FFFF }) {
         p.art
             .piece("field.left", 1.0)
             .map_or(6.0 * k, |l| l.w * r.h / l.h.max(1.0) + 4.0 * k)
@@ -2423,5 +2490,42 @@ mod tests {
         slider_frame(&mut input, 0.0);
         input.mouse = (150.0, 112.0);
         assert_eq!(slider_frame(&mut input, 0.0), None);
+    }
+
+    /// Behaviour: none (this client's own title)
+    #[test]
+    fn a_brand_mark_stands_centered_on_its_band_and_its_picture_fits_a_well_with_a_margin() {
+        let art = Art::empty();
+        let mut list = DrawList::default();
+        let mut p = Painter {
+            list: &mut list,
+            art: &art,
+            scale: 2.0,
+            screen: (1920.0, 1080.0),
+            fade: 1.0,
+        };
+        // A mark baked at two texels a unit: its picture's square, then its name.
+        let mark = Sprite {
+            tex: 3,
+            src: Rect::new(10.0, 20.0, 836.0, 192.0),
+            w: 418.0,
+            h: 96.0,
+            scale: 2.0,
+        };
+        let r = brand_mark(&mut p, &mark, 360.0);
+        assert_eq!(r, Rect::new(960.0 - 418.0, 84.0, 836.0, 192.0));
+        // A well taller than it is wide: the picture as wide as the well less the margins, in
+        // its middle, cut from the mark's left square.
+        let well = Rect::new(100.0, 100.0, 80.0, 120.0);
+        let at = brand_picture_in(&mut p, &mark, well, 6.0);
+        assert_eq!(at, Rect::new(106.0, 126.0, 68.0, 68.0));
+        let drawn: Vec<_> = list.quads.iter().map(|q| (q.tex, q.src, q.dst)).collect();
+        assert_eq!(
+            drawn,
+            vec![
+                (Some(3), mark.src, r),
+                (Some(3), Rect::new(10.0, 20.0, 192.0, 192.0), at),
+            ]
+        );
     }
 }

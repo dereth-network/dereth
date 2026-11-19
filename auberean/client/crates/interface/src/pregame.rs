@@ -8,7 +8,7 @@
 
 use std::any::Any;
 
-use auberean_client_sdk::runtime::LoginProgress;
+use auberean_client_sdk::contract::session::LoginProgress;
 use auberean_client_sdk::Action;
 use auberean_shell::interface::{Game, Overlay, Phase, Request};
 use auberean_ui::framework::flow::Screen as FlowScreen;
@@ -138,19 +138,19 @@ pub(crate) fn make_credits(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn Flo
 }
 
 /// The account's characters as the screens take them, from the server's list.
-fn character_set(list: &auberean_client_sdk::protocol::login::CharacterList) -> CharacterSet {
+fn character_set(list: &auberean_client_sdk::contract::session::CharacterList) -> CharacterSet {
     CharacterSet {
         characters: list
             .characters
             .iter()
             .map(|c| pregame::Character {
                 id: c.id,
-                name: c.name.text(),
+                name: c.name.clone(),
                 greyed: c.seconds_greyed_out,
             })
             .collect(),
         slots: i32::try_from(list.slots).unwrap_or(-1),
-        account: list.account.text(),
+        account: list.account.clone(),
     }
 }
 
@@ -176,10 +176,10 @@ pub(crate) const LEFT_BUTTON_WORD: u32 = 0x8200_040C;
 const GENERIC_ERROR: &str = "ID_ConnectionError_Generic";
 
 /// A session's connection error as the connecting screen is told it.
-fn connect_error(e: Option<auberean_client_sdk::net::NetErrorCode>) -> ConnectError {
-    use auberean_client_sdk::net::NetErrorCode;
+fn connect_error(e: Option<auberean_client_sdk::contract::session::NetError>) -> ConnectError {
+    use auberean_client_sdk::contract::session::NetError;
     match e {
-        Some(NetErrorCode::BadServerAddress) => ConnectError::BadAddress,
+        Some(NetError::BAD_SERVER_ADDRESS) => ConnectError::BadAddress,
         Some(e) => ConnectError::Named(e.id_string().to_owned()),
         None => ConnectError::Named(String::new()),
     }
@@ -226,46 +226,44 @@ impl Retail {
         // An entry refused, or the login ended: the screen its reason leads to, saying why (the
         // character list for a character still in the world; the disconnected screen with the
         // server's own line for a boot).
-        if let Some((reason, n)) = game.client.and_then(|c| c.model.refused) {
-            if n != self.refusals {
-                self.refusals = n;
-                let given = game
-                    .client
-                    .and_then(|c| c.model.refused_with.as_ref())
-                    .map(auberean_client_sdk::runtime::text::from_wire);
-                self.flow.character_error(&self.ui, reason, given.as_ref());
+        let pre = game.view.map(|v| &v.pregame);
+        if let Some(r) = pre.and_then(|p| p.refused.as_ref()) {
+            if r.count != self.refusals {
+                self.refusals = r.count;
+                let given = r
+                    .text
+                    .as_ref()
+                    .map(auberean_client_sdk::runtime::text::from_view);
+                self.flow
+                    .character_error(&self.ui, r.reason, given.as_ref());
             }
         }
         let d = &mut self.flow.flow.data;
         d.pre.pointer = self.pointer;
         d.pre.sound_playing = game.screens_sound;
-        if let Some(list) = game.client.and_then(|c| c.model.characters.as_ref()) {
+        if let Some(list) = pre.and_then(|p| p.characters.as_ref()) {
             let set = character_set(list);
             if d.pre.characters.as_ref() != Some(&set) {
                 // D2-11860
                 d.pre.characters = Some(set);
                 d.pre.lists += 1;
             }
-            d.pre.may_make = (if list.has_expansion != 0 {
+            d.pre.may_make = (if list.expansion {
                 creation::EMPYREAN
             } else {
                 0
-            }) | (if list.unknown != 0 {
-                creation::DRUDGE
-            } else {
-                0
-            });
+            }) | (if list.third_flag { creation::DRUDGE } else { 0 });
         }
-        if let Some((response, id, n, error)) = game.client.and_then(|c| c.model.creation) {
+        if let Some(a) = pre.and_then(|p| p.creation) {
+            let (response, id, n, error) = (a.response, a.character, a.count, a.error);
             if n != self.answers {
                 self.answers = n;
-                let character = game
-                    .client
-                    .and_then(|c| c.model.characters.as_ref())
+                let character = pre
+                    .and_then(|p| p.characters.as_ref())
                     .and_then(|l| l.characters.iter().find(|c| c.id == id))
                     .map(|c| pregame::Character {
                         id: c.id,
-                        name: c.name.text(),
+                        name: c.name.clone(),
                         greyed: c.seconds_greyed_out,
                     })
                     .or_else(|| {
@@ -288,9 +286,7 @@ impl Retail {
             Phase::Disconnected => Net::Idle,
         };
         // Each login that goes out, counted; then the wait for the server's first packet.
-        let progress = game
-            .client
-            .and_then(auberean_client_sdk::Client::login_progress);
+        let progress = pre.and_then(|p| p.login);
         if net != Net::Connecting {
             self.login_told = None;
         } else if progress != self.login_told {
@@ -331,10 +327,7 @@ impl Retail {
         }
         // The login refused, or the login server letting its connection go, with an error: the
         // connecting screen, while it is up, is told why, once a session.
-        let state = game
-            .client
-            .map(auberean_client_sdk::Client::session_state)
-            .or(game.ended);
+        let state = pre.map(|p| p.state).or(game.ended);
         match state.and_then(|s| s.connect_failed) {
             None => self.failure_told = false,
             Some(error) if !self.failure_told && self.pre::<DataPatch>().is_some() => {
@@ -355,9 +348,7 @@ impl Retail {
             Some(_) => {}
         }
         // The data download's events, each once (a new session's from its first).
-        let events = game
-            .client
-            .map_or(&[][..], |c| c.data_download().events.as_slice());
+        let events = pre.map_or(&[][..], |p| p.download.as_slice());
         if events.len() < self.ddd_told {
             self.ddd_told = 0;
         }
@@ -367,11 +358,7 @@ impl Retail {
         self.ddd_told = events.len();
         // The connection's health, while the connecting screen is up to show it.
         let connecting = self.pre::<DataPatch>().is_some();
-        if let Some(h) = game
-            .client
-            .and_then(auberean_client_sdk::Client::heartbeat)
-            .filter(|_| connecting)
-        {
+        if let Some(h) = game.view.and_then(|v| v.link).filter(|_| connecting) {
             // The rate over the last two measures; busy while packets came in the last.
             self.flow.flow.data.pre_notices.push(Notice::Heartbeat {
                 rate: h.rate_in,
@@ -655,10 +642,12 @@ impl Retail {
             if let Some(v) = portal.and_then(|r| hall::portal_scene(records, r)) {
                 overlay.scenes.push(v);
             }
-            let list = game.client.and_then(|c| c.model.characters.as_ref());
             let rect = s.viewports().0.and_then(|v| self.ui.screen_rect(v));
-            if let (Some(l), Some(r)) = (list, rect) {
-                scene = hall::select_scene(records, r, &l.characters, &s.arm_headings(now));
+            if let (Some(_), Some(r)) =
+                (game.view.and_then(|v| v.pregame.characters.as_ref()), rect)
+            {
+                scene =
+                    hall::select_scene(records, r, &game.looks.characters, &s.arm_headings(now));
             }
         } else if let Some(a) = self.pre::<AvatarSelection>() {
             let rect = a.viewport().and_then(|v| self.ui.screen_rect(v));

@@ -891,7 +891,8 @@ name = "dereth-client-contract"
 version = "0.0.0"
 dependencies = [
  "dereth-primitives",
- "glam",
+ "dereth-render-params",
+ "dereth-ui-overlay",
  "raw-window-handle",
 ]
 
@@ -1034,11 +1035,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-render-params"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "glam",
+]
+
+[[package]]
 name = "dereth-transport"
 version = "0.0.0"
 dependencies = [
  "dereth-primitives",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "dereth-ui-overlay"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
 ]
 
 [[package]]

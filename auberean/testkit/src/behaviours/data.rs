@@ -801,6 +801,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.key-map.the-five-presets-are-the-installs",
+        says: "The game's five key map presets (Defaults, WoW, FK, EQ, DAoC) are the install's: \
+               each has its three maps, for keys alone, with Shift and with Ctrl, with as many \
+               bindings as the install's; the Defaults examine on E, the WoW keys on X.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-PRESETS"),
+        station: "auberean-shell::dat::keys::the_five_presets_decode_as_the_install_holds_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.key-map.written-as-the-client-saves-one",
         says: "A key map is saved as version 1, its name, its identity's eleven parts in decimal \
                and a binding a line, each line after a blank one, with Windows line ends.",

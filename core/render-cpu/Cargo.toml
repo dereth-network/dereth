@@ -19,10 +19,10 @@ mock = []
 [dependencies]
 dereth-primitives.workspace = true
 # `camera.rs`'s projection *parameters* -- `ViewParams` and the fog, light and aspect
-# types it carries -- live in `dereth-client-contract`, because `dereth_client_runtime::present::Scene`
-# names `ViewParams` and may not depend on a renderer. This crate re-exports them at their
-# `camera` paths and keeps all the arithmetic.
-dereth-client-contract.workspace = true
+# types it carries -- and `sampler.rs`'s startup filtering live in `dereth-render-params`, which
+# names no game, because a scene names `ViewParams` and may not depend on a renderer. This crate
+# re-exports them at their `camera` and `sampler` paths and keeps all the arithmetic.
+dereth-render-params.workspace = true
 thiserror.workspace = true
 # `camera.rs` builds the projection and view matrices; `pso.rs` and `ui.rs` use the vector types.
 glam.workspace = true

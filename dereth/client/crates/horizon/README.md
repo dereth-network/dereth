@@ -77,7 +77,8 @@ the window offers it again.
 ## Its art
 
 Horizon draws its own art: pieces packed into atlases at several scales, with a manifest that
-names them (`pieces/`), and its fonts as glyph pages. The game's own icons (items, spells,
+names them, and its fonts as glyph pages. The art names no game, so it is a crate of its own
+(`dereth-horizon-art`, its files in `../horizon-art/pieces/`). The game's own icons (items, spells,
 effects) come from the game's data files. Everything is drawn on whole pixels, and text at its
 font's own size. Where a piece is missing, a plain shape is drawn in its place.
 
@@ -137,6 +138,6 @@ refused and the chat says why.
 - `src/pad.rs`: gamepad mode.
 - `src/options.rs`, `src/scale.rs`, `src/looks.rs`: its settings, the interface scale, and the
   remembered looks.
-- `src/art.rs`, `src/pieces.rs` and `pieces/`, `src/font.rs`, `src/resample.rs`: the art, the fonts
+- `src/art.rs`, `src/pieces.rs` (the art crate's files), `src/font.rs`, `src/resample.rs`: the art, the fonts
   and pictures drawn at sizes their atlases lack.
 - `src/draw.rs`: the quads, turned into the shared overlay's batches.

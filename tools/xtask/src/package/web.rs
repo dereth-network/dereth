@@ -869,7 +869,7 @@ mod tests {
     #[test]
     fn the_bundle_s_horizon_art_is_the_interface_s_art_folder() {
         // What `cargo xtask web --build-only` copies into `pkg/horizon/`.
-        let folder = workspace_root().join("dereth/client/crates/horizon/pieces");
+        let folder = workspace_root().join("dereth/client/crates/horizon-art/pieces");
         let mut on_disk: Vec<String> = std::fs::read_dir(&folder)
             .unwrap_or_else(|e| panic!("{}: {e}", folder.display()))
             .map(|e| format!("pkg/horizon/{}", e.unwrap().file_name().to_string_lossy()))
