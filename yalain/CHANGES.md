@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Fixed dying players still running at what they attacked.
+- New characters start with classic examination on.
 - Fixed summoned pets showing a string error in place of their name in the pet list.
 - Players on the retail client can now restore a deleted character.
 - Pack Rat now gives your last bag one more place per rank.

@@ -19650,6 +19650,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.world.new-character-classic-examination",
+        says: "A new character starts with the classic examination window chosen in its options, \
+               the rest of its option bits as the 2017 servers gave them; a character's own choice, \
+               once kept, comes back as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEW-OPTIONS-CLASSIC"),
+        station: "yalain-testkit::cpu::entry::world::a_new_character_starts_with_classic_examination_and_keeps_its_own_choice",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world.objects-around-the-player",
         says: "The objects of the world in the player's view are made for it as it enters: \
                indoors those of its own landblock in the cells its cell sees, outdoors those \

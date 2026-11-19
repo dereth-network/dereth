@@ -575,6 +575,63 @@ fn options_the_client_sends_come_back_in_the_next_session_start() {
     );
 }
 
+/// A new character's first session start holds the option bits the 2017 servers gave with the
+/// classic examination window chosen; a player who turns it off has it off at the next entry.
+/// Behaviour: server.world.new-character-classic-examination
+#[test]
+fn a_new_character_starts_with_classic_examination_and_keeps_its_own_choice() {
+    const CLASSIC: u32 = 0x0002_0000;
+    let skills = [(835, 0), (96, 0), (176, 0), (207, 0), (1, 1), (7, 1)];
+    let session_start = |h: &Harness, b: usize, from: usize| {
+        sent_order(h, b, from, true)
+            .into_iter()
+            .find(|r| matches!(r.message(), Some(ServerMessage::PlayerCall(c)) if c.function.0 == function::SESSION_START))
+            .expect("a session start")
+    };
+    let mut h = Harness::new();
+    let b = at_character_list(&mut h, "tester");
+    let id = create(&mut h, b, "Babyfare");
+    let from = h.bots[b].inbox.len();
+    enter(&mut h, b, id, true);
+    let mut first = Options::new_character(&skills);
+    first.option_bits = 0x3F5 | CLASSIC;
+    let packed = first.to_packed();
+    assert!(
+        session_start(&h, b, from)
+            .bytes
+            .windows(packed.len())
+            .any(|w| w == packed),
+        "classic on, the rest as the 2017 servers gave"
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &call(
+            request::GAME_OPTIONS,
+            &[
+                Arg::Int(0x3F5),
+                Arg::Int(0xFFFF_FFFF),
+                Arg::Int(1),
+                Arg::Float(1.0f32.to_bits()),
+            ],
+        ),
+    );
+    h.run(20);
+    log_off(&mut h, b, id);
+    let from = h.bots[b].inbox.len();
+    enter(&mut h, b, id, true);
+    let mut kept = Options::new_character(&skills);
+    kept.set_game_options(1.0, 1, 0xFFFF_FFFF, 0x3F5);
+    let packed = kept.to_packed();
+    assert!(
+        session_start(&h, b, from)
+            .bytes
+            .windows(packed.len())
+            .any(|w| w == packed),
+        "the player's own choice, classic off"
+    );
+}
+
 /// Without a referral (a setting), the world comes on the login connection: the same entry, the
 /// private messages numbered from 1 at every entry, positions sent back; logging off returns to
 /// the character list on the same connection.

@@ -572,8 +572,12 @@ impl Options {
     }
 }
 
-/// The option bits the 2017 servers gave a new character.
-pub const NEW_OPTION_BITS: u32 = 0x0000_03F5;
+/// The option bits a new character starts with: those the 2017 servers gave, with the classic
+/// examination window chosen (every tab's lines on one page) where they left it off.
+pub const NEW_OPTION_BITS: u32 = 0x0000_03F5 | CLASSIC_EXAMINATION;
+
+/// The option bit that chooses the classic examination window.
+pub const CLASSIC_EXAMINATION: u32 = 0x0002_0000;
 
 /// A new character's chat filters: per chat window, the kinds of text it shows.
 pub const NEW_CHAT_FILTERS: [(u32, u32); 4] = [
