@@ -26,7 +26,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Windows: Task Manager now names the server Empyrean.
 - Assessing now shows what retail did, and many creatures have retail's armor.
 - Players far apart outdoors now send each other far fewer updates.
-- Players' positions move on the server between their reports, as retail's did; an optional server setting corrects players who stray through walls.
+- Players' positions move on the server between their reports, and players who stray through walls are put back, as retail's were.
 
 ## 0.3.15 (2026-11-17)
 - Examining a player now always shows their Enlightenment.

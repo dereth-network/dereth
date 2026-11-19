@@ -397,6 +397,14 @@ fn forward_command(m: &MovementSetObjectMovement) -> Option<u32> {
 #[test]
 fn a_run_forward_move_to_state_and_autonomous_positions_move_the_player() {
     let mut ts = seeded();
+    // The report path without the motion correction: a report the sweep takes sends the player
+    // nothing (`position_cadence::server_movement`), so this one names it off.
+    assert!(empyrean_world::managers::property_manager::modify_bool(
+        &ts.world,
+        "server_motion_correction",
+        false
+    ));
+    empyrean_world::world_objects::player_tick::refresh_movement_options(&mut ts.world);
     let start = outdoor(HOME, 100.0, 100.0, 20.0);
     let (a, _) = enter(&mut ts, "alpha", ALPHA, start);
     let g = ObjectGuid::new(ALPHA);

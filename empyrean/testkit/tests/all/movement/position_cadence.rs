@@ -916,8 +916,25 @@ mod server_movement {
     }
 
     #[test]
-    fn by_default_a_report_the_sweep_cannot_reach_is_taken_and_heartbeats_go_on() {
+    fn by_default_a_report_the_sweep_cannot_reach_sends_the_player_back() {
+        let (mut ts, runner, _near) = pair();
+        pillar(&mut ts, &east(&start(), 4.0));
+        ts.advance(0.5);
+
+        let own = ts.received_raw(runner).len();
+        ts.send_game_action(runner, &report(&east(&start(), 8.0), 0));
+        ts.advance(0.6);
+        assert!(sent_back(&ts, runner, own), "sent back");
+        assert!(
+            body(&ts).position_x - start().position_x < 4.0,
+            "held short of the pillar"
+        );
+    }
+
+    #[test]
+    fn with_the_correction_off_a_report_the_sweep_cannot_reach_is_taken_and_heartbeats_go_on() {
         let (mut ts, runner, near) = pair();
+        set_option(&mut ts, CORRECTION, false);
         pillar(&mut ts, &east(&start(), 4.0));
         ts.advance(0.5);
 

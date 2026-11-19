@@ -773,10 +773,13 @@ mod indoor_creation_real {
     #[test]
     fn admin_create_places_an_object_in_another_indoor_cell() {
         let mut l = create_and_enter();
-        let mut spot = l.location();
-        spot.position_x = 10.5;
-        spot.position_y = -21.0;
-        l.walk_toward(&spot, 0.0);
+        // a straight walk there crosses the hall's step, which no client walks through: the
+        // admin goes there instead
+        l.admin_command("@teleloc 0x860201AD 10.5 -21 0.005");
+        l.advance(1.0);
+        // out of portal space, as a client tells the server
+        l.action(&CharacterLoginCompleteNotification);
+        l.advance(0.5);
         // face east (+x): a rotation of 270 degrees about z
         let mut at = l.location();
         (at.rotation_w, at.rotation_x, at.rotation_y, at.rotation_z) = (

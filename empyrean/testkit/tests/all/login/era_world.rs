@@ -179,9 +179,10 @@ mod era_real {
         l.action(&autonomous(&b));
         l.advance(0.3);
         assert_eq!(l.location().position_x, b.position_x, "ran 1.5 m");
+        // a report the server's sweep took sends the player nothing (the motion correction)
         assert!(
-            !l.since::<MovementPositionEvent>(mark).is_empty(),
-            "Movement_PositionEvent"
+            l.since::<MovementPositionEvent>(mark).is_empty(),
+            "no Movement_PositionEvent back"
         );
         l.action(&stop(&b));
         l.advance(0.3);
