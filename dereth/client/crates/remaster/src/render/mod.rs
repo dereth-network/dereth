@@ -974,6 +974,15 @@ impl Renderer {
             .unwrap_or_default()
     }
 
+    /// How far from the eye the last frame's ground mesh is drawn from its `levels` finest levels of
+    /// detail, meters: the grid's vertices within it are no farther apart than its level
+    /// `levels - 1`'s. `None` while no frame drew the ground.
+    #[must_use]
+    pub fn drawn_levels_reach(&self, levels: u32) -> Option<f32> {
+        let ground = self.last_drawn.as_ref()?;
+        Some(drawn::reach(levels.saturating_sub(1), ground.knobs.detail))
+    }
+
     /// The height the last frame's ground mesh is drawn at, at each of `points` (x and y in the
     /// frame's space), as its triangles lay it between their vertices, without the fine relief:
     /// for the checks that what stands on the ground meets it. `None` where the last frame drew

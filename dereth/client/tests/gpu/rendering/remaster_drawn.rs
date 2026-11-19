@@ -644,12 +644,23 @@ struct Row {
     off_mesh: f32,
     off_mesh_unlifted: f32,
     off_surface: f32,
+    /// How far the drawn mesh lies off the drawn surface under the tree: the ground's own error.
+    ground_off: f32,
+    /// Whether the tree stands where the ground is drawn at full detail ([`FULL_DETAIL_LEVELS`]).
+    full_detail: bool,
 }
 
-/// One band of far trees' cards: the nearest and farthest card's distance, meters; how far off
-/// the drawn mesh their trees stand, at most and on average, lifted and unlifted; and how far off
-/// the drawn surface, at most.
+/// The drawn ground's finest levels of detail, the ground at full detail: a vertex every 4 m or
+/// less at the default detail. Farther out the ground is drawn coarser than the surface the trees
+/// stand on, its triangles cutting under or over that surface between their vertices.
+const FULL_DETAIL_LEVELS: u32 = 3;
+
+/// One band of trees: how many, the nearest and farthest tree's distance, meters; how far off
+/// the drawn mesh they stand, at most and on average, lifted and unlifted; how far off the drawn
+/// surface, at most; how far the mesh lies off that surface under them, at most; and how much
+/// farther off the mesh a tree stands than the mesh lies off the surface under it, at most.
 struct Band {
+    count: usize,
     from: f32,
     to: f32,
     worst: f32,
@@ -657,6 +668,8 @@ struct Band {
     worst_unlifted: f32,
     mean_unlifted: f32,
     worst_surface: f32,
+    worst_ground: f32,
+    worst_past_ground: f32,
 }
 
 impl Band {
@@ -666,6 +679,7 @@ impl Band {
         let mean =
             |f: &dyn Fn(&Row) -> f32| rows.iter().map(f).sum::<f32>() / rows.len().max(1) as f32;
         Self {
+            count: rows.len(),
             from: rows.first().map_or(0.0, |x| x.distance),
             to: rows.last().map_or(0.0, |x| x.distance),
             worst: worst(&|x| x.off_mesh.abs()),
@@ -673,6 +687,11 @@ impl Band {
             worst_unlifted: worst(&|x| x.off_mesh_unlifted.abs()),
             mean_unlifted: mean(&|x| x.off_mesh_unlifted.abs()),
             worst_surface: worst(&|x| x.off_surface.abs()),
+            worst_ground: worst(&|x| x.ground_off.abs()),
+            worst_past_ground: rows
+                .iter()
+                .map(|x| x.off_mesh.abs() - x.ground_off.abs())
+                .fold(f32::MIN, f32::max),
         }
     }
 }
@@ -768,6 +787,11 @@ fn tree_rows(
         .draw
         .remaster_drawn_heights(&mut gpu, None, &probe);
     let retail = shot.scene.draw.remaster_retail_heights(&mut gpu, &points);
+    let full_detail = shot
+        .scene
+        .draw
+        .remaster_drawn_levels_reach(&mut gpu, FULL_DETAIL_LEVELS)
+        .expect("the ground drawn");
     // A tree keeps the height retail stands it at over its ground (some are sunk into it): how
     // far it is lifted against how far the drawn ground rises over retail's under it.
     let rows: Vec<Row> = bases
@@ -783,6 +807,8 @@ fn tree_rows(
                 off_mesh: lift - (m - r),
                 off_mesh_unlifted: r - m,
                 off_surface: lift - (f - r),
+                ground_off: f - m,
+                full_detail: d <= full_detail,
             })
         })
         .collect();
@@ -805,17 +831,27 @@ fn tree_rows(
     rows
 }
 
-/// `rows` split into their nearest quarter and their farthest, each printed under its name.
+/// `rows` split into those where the ground is drawn at full detail and those farther out, each
+/// printed under its name.
 fn bands(mut rows: Vec<Row>, names: [&str; 2]) -> (Band, Band) {
     rows.sort_by(|a, b| a.distance.total_cmp(&b.distance));
-    let quarter = rows.len() / 4;
-    let near = Band::of(&rows[..quarter]);
-    let far = Band::of(&rows[rows.len() - quarter..]);
+    let (near, far): (Vec<Row>, Vec<Row>) = rows.into_iter().partition(|r| r.full_detail);
+    let (near, far) = (Band::of(&near), Band::of(&far));
     for (name, b) in [(names[0], &near), (names[1], &far)] {
         println!(
-            "{name}, {:.0} to {:.0} m: off the drawn mesh by {:.3} at most, {:.3} on average; \
-             unlifted {:.3} at most, {:.3} on average; off the drawn surface by {:.4} at most",
-            b.from, b.to, b.worst, b.mean, b.worst_unlifted, b.mean_unlifted, b.worst_surface
+            "{name}, {} from {:.0} to {:.0} m: off the drawn mesh by {:.3} at most, {:.3} on \
+             average; unlifted {:.3} at most, {:.3} on average; off the drawn surface by {:.4} at \
+             most; the mesh off that surface by {:.3} at most, a tree off the mesh by {:.3} more",
+            b.count,
+            b.from,
+            b.to,
+            b.worst,
+            b.mean,
+            b.worst_unlifted,
+            b.mean_unlifted,
+            b.worst_surface,
+            b.worst_ground,
+            b.worst_past_ground
         );
     }
     (near, far)
@@ -824,9 +860,10 @@ fn bands(mut rows: Vec<Row>, names: [&str; 2]) -> (Band, Band) {
 /// **Far trees stand on the drawn ground, near the switch to impostors and far out**: looking out
 /// over the land from the heights by Holtburg, and in the forest, with every piece of the ground
 /// and the levels of detail on, each impostor card's tree stands as far above (or into) the
-/// ground's own mesh drawn under it as retail stands it over retail's ground,
-/// within a bound measured near the switch (the nearest quarter of the cards) and far out (the
-/// farthest quarter); unlifted, standing on retail's ground, they stand further off it.
+/// ground's own mesh drawn under it as retail stands it over retail's ground: within a bound where
+/// the ground is drawn at full detail, and farther out, where the ground is drawn coarser than the
+/// surface the trees stand on, off the mesh by no more than the mesh lies off that surface under
+/// it, and a little; unlifted, standing on retail's ground, they stand further off it.
 #[test]
 fn far_trees_stand_on_the_drawn_ground_near_the_switch_and_far_out() {
     let _gpu = crate::common::gpu_lock();
@@ -837,10 +874,16 @@ fn far_trees_stand_on_the_drawn_ground_near_the_switch_and_far_out() {
     }
     assert!(rows.len() > 80, "cards measured: {}", rows.len());
     let (near, far) = bands(rows, ["near the switch", "far out"]);
-    // Measured: near the switch 0.090 m at most off the mesh, far out 0.117 m; off the surface
-    // the mesh's vertices are laid on, 0.077 m and 0.004 m.
+    assert!(near.count > 80 && far.count > 80, "cards near and far");
+    // Measured: near the switch (at full detail) 0.090 m at most off the mesh; far out 1.05 m,
+    // where the mesh lies as far off the surface, a card 0.077 m more at most; off the surface
+    // the mesh's vertices are laid on, 0.077 m and 0.075 m.
     assert!(near.worst < 0.15, "near the switch: {}", near.worst);
-    assert!(far.worst < 0.2, "far out: {}", far.worst);
+    assert!(
+        far.worst_past_ground < 0.1,
+        "far out, past the ground's own error: {}",
+        far.worst_past_ground
+    );
     assert!(
         near.worst_surface < 0.1 && far.worst_surface < 0.1,
         "on the drawn surface: {} {}",
@@ -857,9 +900,10 @@ fn far_trees_stand_on_the_drawn_ground_near_the_switch_and_far_out() {
 /// impostors**: at the vista and in the forest, with every piece of the ground and the levels of
 /// detail on, the G-buffer's vertex shader lifts each tree drawn as a mesh exactly as the
 /// impostor cards' arithmetic lifts it, and stands it as far above (or into) the ground's own mesh
-/// drawn under it as retail stands it over retail's ground, within a bound measured near the eye
-/// (the nearest quarter of them) and just before the switch (the farthest quarter); unlifted, they
-/// stand further off it.
+/// drawn under it as retail stands it over retail's ground: within a bound where the ground is
+/// drawn at full detail, and farther out, where the ground is drawn coarser than the surface the
+/// trees stand on, off the mesh by no more than the mesh lies off that surface under it, and a
+/// little; unlifted, they stand further off it.
 #[test]
 fn mesh_trees_stand_on_the_drawn_ground_near_and_just_before_the_switch() {
     let _gpu = crate::common::gpu_lock();
@@ -870,13 +914,15 @@ fn mesh_trees_stand_on_the_drawn_ground_near_and_just_before_the_switch() {
     }
     assert!(rows.len() > 80, "trees measured: {}", rows.len());
     let (near, before) = bands(rows, ["near the eye", "just before the switch"]);
-    // Measured: near the eye 0.014 m at most off the mesh (its 1 cm laid under the surface among
-    // it), just before the switch 0.077 m; off the surface 0.005 m and 0.006 m.
-    assert!(near.worst < 0.05, "near the eye: {}", near.worst);
+    assert!(near.count > 80 && before.count > 80, "trees near and far");
+    // Measured: near the eye (at full detail) 0.049 m at most off the mesh, the mesh itself 0.050
+    // m off the surface there; just before the switch 0.48 m, the mesh as far off the surface, a
+    // tree 0.004 m more at most; off the surface 0.005 m and 0.006 m.
+    assert!(near.worst < 0.08, "near the eye: {}", near.worst);
     assert!(
-        before.worst < 0.15,
-        "just before the switch: {}",
-        before.worst
+        before.worst_past_ground < 0.02,
+        "just before the switch, past the ground's own error: {}",
+        before.worst_past_ground
     );
     assert!(
         near.worst_surface < 0.1 && before.worst_surface < 0.1,

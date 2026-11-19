@@ -318,6 +318,13 @@ impl SceneDraw {
         remaster(gpu).map_or_else(Vec::new, |r| r.renderer().drawn_mesh_heights(&points))
     }
 
+    /// How far from the eye the remaster's last frame drew its ground's mesh from its `levels`
+    /// finest levels of detail, meters; `None` while the remaster is off or drew no ground.
+    #[cfg(feature = "test-support")]
+    pub fn remaster_drawn_levels_reach(&self, gpu: &mut Gpu, levels: u32) -> Option<f32> {
+        remaster(gpu).and_then(|r| r.renderer().drawn_levels_reach(levels))
+    }
+
     /// Retail's height at render-space `points`, over the world's vertices the remaster's last
     /// frame drew its ground from. Empty while it drew none.
     #[cfg(feature = "test-support")]
