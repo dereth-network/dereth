@@ -1,0 +1,168 @@
+# How far a monster's attack chase stops from its target, for a monster holding one of these weapons:
+# the end-of-retail server sent the creature's scale times a fresh draw between `factor` and twice it.
+# A monster holding nothing drew between 1 and 2 (every one of 279,551 chases did). The factor is each
+# weapon class's median distance over the creature's scale, divided by 1.5 (a draw between f and 2f has
+# its median at 1.5 f), from chases by a creature holding that one weapon (shields left out: holding one alone
+# drew as holding nothing).
+wcid	factor	chases	name
+44	0.978	146	Buckler
+301	1.327	20	Battle Axe
+310	0.969	185	Throwing Club
+317	1.018	45	Djarid
+352	1.392	24	Short Sword
+3943	1.191	499	Club
+3944	1.276	90	Dabus
+3945	1.377	132	Kasrullah
+3946	1.140	111	Tofun
+3947	1.199	152	Mace
+3948	1.325	75	Morning Star
+7577	1.675	104	Lugian Axe
+7799	0.965	103	Ball of plasma
+12051	1.131	123	Bandit Acid Dagger
+12052	1.238	154	Bandit Dagger
+12053	1.202	263	Bandit Lightning Dagger
+12054	1.308	21	Bandit Flaming Dagger
+12056	1.200	222	Bandit Acid Jambiya
+12060	1.224	82	Bandit Frost Jambiya
+12061	1.162	267	Bandit Acid Khanjar
+12064	1.185	43	Bandit Flaming Khanjar
+12065	1.181	60	Bandit Frost Khanjar
+12066	1.208	208	Bandit Acid Knife
+12067	1.162	62	Bandit Knife
+12069	1.127	153	Bandit Flaming Knife
+12071	1.447	44	Bandit Acid Simi
+12072	1.421	21	Bandit Simi
+12073	1.378	39	Bandit Lightning Simi
+12075	1.335	62	Bandit Frost Simi
+12076	1.474	476	Bandit Rapier
+12077	1.312	173	Bandit Acid Short Sword
+12078	1.339	388	Bandit Short Sword
+12079	1.213	65	Bandit Lightning Short Sword
+12081	1.214	31	Bandit Frost Short Sword
+12082	1.370	224	Bandit Acid Yaoji
+12085	1.470	136	Bandit Flaming Yaoji
+12086	1.420	47	Bandit Frost Yaoji
+12189	1.202	32	Assassin's Lightning Jambiya
+12191	1.228	21	Assassin's Frost Jambiya
+12195	1.333	42	Assassin's Simi
+22545	0.992	103	Obsidian Spines
+22546	0.994	594	Coconut
+22785	1.093	21	Knife
+22791	1.287	25	Bandit Rapier
+22793	1.415	48	Bandit Rapier
+23132	1.699	173	Lugian Axe
+23133	1.007	258	Rock
+23134	1.859	198	Lugian Morning Star
+23136	1.363	57	Tachi
+23646	1.313	69	Club
+23649	1.218	53	Club
+23707	1.575	27	Fire Tachi
+23741	1.695	21	Lugian Axe
+23744	0.931	34	Rock
+23765	1.845	46	Lugian Morning Star
+26025	1.652	270	Stone Axe
+26033	1.241	27	Bone Dagger
+26034	1.110	64	Bone Dagger
+26046	1.539	195	Stone Mace
+26051	1.652	92	Stone Spear
+26054	1.653	55	Bone Sword
+26055	1.440	141	Bone Sword
+27868	1.776	28	Stone Axe
+27880	1.791	28	Bone Sword
+29965	1.623	21	Quadrelle
+29975	1.462	20	Spadone
+29979	1.573	81	Spadone
+31386	1.412	122	Raven Sabra
+31387	1.440	90	Raven Sabra
+31388	1.363	78	Raven Sabra
+31389	1.421	184	Raven Sabra
+31390	1.469	75	Raven Sabra
+34017	1.550	192	Tachi
+34018	1.487	53	Frost Tachi
+35095	1.295	29	Pyre Claw
+41240	1.714	88	Gearknight Sword
+41244	1.689	28	Gearknight Greatsword
+44265	1.230	240	Burning Sands Katar
+46990	1.353	823	Iasparailaun
+47234	1.340	40	Acid Board with Nail
+47248	1.571	479	Board with Nail
+47252	1.485	39	Board with Nail
+47253	1.390	109	Board with Nail
+47255	1.221	66	Board with Nail
+47257	1.736	31	Board with Nail
+47272	1.177	20	Electric Board with Nail
+47291	1.329	59	Fire Board with Nail
+47310	1.466	25	Frost Board with Nail
+47312	1.399	20	Frost Board with Nail
+47331	1.234	32	Acid Club
+47343	1.381	125	Club
+47344	1.321	159	Club
+47348	1.330	87	Club
+47350	1.514	24	Club
+47354	1.470	26	Club
+47382	1.170	27	Flaming Club
+47386	1.424	96	Flaming Club
+47388	1.451	20	Flaming Club
+47389	1.321	112	Flaming Club
+47392	1.242	57	Flaming Club
+47405	1.240	41	Frost Club
+47408	1.344	135	Frost Club
+47426	1.454	21	Acid Mace
+47439	1.254	83	Mace
+47440	1.399	69	Mace
+47442	1.441	22	Mace
+47443	1.358	84	Mace
+47445	1.449	72	Mace
+47446	1.301	25	Mace
+47449	1.272	34	Mace
+47461	1.408	55	Lightning Mace
+47477	1.409	52	Flaming Mace
+47481	1.317	78	Flaming Mace
+47487	1.307	42	Flaming Mace
+47499	1.531	35	Frost Mace
+47514	1.533	90	Lightning Tachi
+47517	1.474	59	Lightning Tachi
+47518	1.424	373	Lightning Tachi
+47617	1.578	25	Acid Tachi
+47619	1.658	50	Acid Tachi
+47622	1.768	20	Acid Tachi
+47630	1.356	35	Acid Tachi
+47636	1.582	76	Tachi
+47638	1.692	21	Tachi
+47641	1.590	83	Tachi
+47642	1.471	77	Tachi
+47645	1.484	47	Tachi
+47649	1.480	167	Tachi
+47658	1.869	21	Lightning Tachi
+47664	1.327	45	Lightning Tachi
+47682	1.477	41	Flaming Tachi
+47690	1.643	24	Frost Tachi
+47693	1.557	31	Frost Tachi
+47707	1.795	20	Acid Spear
+47708	1.752	34	Acid Spear
+47711	1.931	20	Acid Spear
+47712	1.730	32	Acid Spear
+47726	1.762	37	Spear
+47727	1.570	45	Spear
+47731	2.040	30	Spear
+47867	1.429	22	Lightning Silifi
+47890	1.289	47	Katar
+47898	1.408	49	Ono
+47922	1.330	24	Nekode
+47967	1.394	20	Nekode
+47980	1.169	20	Katar
+47982	1.172	53	Nekode
+48083	1.102	62	Acid Katar
+48086	1.324	103	Nekode
+48102	1.311	64	Khopesh
+48103	1.233	47	Sickle
+48501	1.413	61	Flaming Katar
+48629	1.657	68	Icy Club
+48631	0.948	61	Ice Shard
+48633	1.686	20	Glacial Blade
+48770	1.435	25	Blade of Phainor
+48976	1.156	25	Acid Hatchet
+48991	1.194	78	Flaming Hatchet
+48994	1.205	326	Frost Hatchet
+48995	1.141	182	Frost Hatchet
+48998	1.251	60	Frost Hatchet

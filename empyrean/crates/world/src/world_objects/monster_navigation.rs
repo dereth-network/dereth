@@ -77,6 +77,9 @@ pub struct MonsterNavigationFields {
     /// runs to before its current attack, drawn once per attack decision (see
     /// [`closes_to_range`]); `None` until drawn, and always with the option off.
     pub closing_distance: Option<f32>,
+    /// Not ACE's (retail, V541): the distance from the target the current attack chase stops at,
+    /// drawn once per chase ([`draw_chase_distance`]); `None` until drawn, which leaves ACE's.
+    pub chase_distance: Option<f32>,
 }
 
 /// `Creature`'s `Monster_Navigation.cs` fields.
@@ -179,6 +182,8 @@ pub fn start_turn(w: &mut World, this: ObjectGuid) {
         }
         NextMove::Chase => {
             let run_rate = fields(w, this).run_rate;
+            let d = draw_chase_distance(w, this);
+            fields_mut(w, this).chase_distance = Some(d);
             creature_navigation::creature_move_to(w, this, attack_target, run_rate);
         }
         NextMove::CloseTo(distance_to_object) => {
@@ -270,6 +275,27 @@ pub const CLOSING_FRACTION_MIN: f32 = 2.0 / 3.0;
 /// Not ACE's (retail, V336): the farthest fraction of the attack range a
 /// ranged or casting monster runs to (retail's end sharply at 16/15, slightly beyond the range).
 pub const CLOSING_FRACTION_MAX: f32 = 16.0 / 15.0;
+
+/// Not ACE's (retail, V541): the distance from its target an attack chase stops at, drawn afresh
+/// for each chase: the creature's scale times a draw between 1 and 2, the draw's range scaled by
+/// the factor of the weapon it holds ([`empyrean_content::corrections::chase_reach`]). ACE sends
+/// 0.6 for every chase.
+pub fn draw_chase_distance(w: &World, this: ObjectGuid) -> f32 {
+    let scale = w
+        .objects
+        .get(this)
+        .and_then(WorldObject::obj_scale)
+        .filter(|s| *s > 0.0)
+        .unwrap_or(1.0);
+    let factor = crate::world_objects::creature_equipment::get_equipped_weapon(w, this, false)
+        .and_then(|g| w.objects.get(g))
+        .map_or(1.0, |weapon| {
+            empyrean_content::corrections::chase_reach::weapon_factor(weapon.biota.weenie_class_id)
+        });
+    #[allow(clippy::cast_possible_truncation)] // a distance in metres
+    let d = (f64::from(scale * factor) * ThreadSafeRandom::next_float(1.0, 2.0)) as f32;
+    d
+}
 
 /// Not ACE's (retail, V336): whether the `monster_ranged_closing` server
 /// option is on (the default).
@@ -752,10 +778,13 @@ pub fn get_movement_parameters(w: &mut World, this: ObjectGuid) -> MovementParam
         // are sent, retail's attack chase; ACE adds FailWalk, UseFinalHeading, Sticky and
         // MoveAway to its own defaults without CanWalk (0x1EFFE, threshold 1.0).
         mvp = RetailMoveTo::AttackChase.movement_parameters();
-        // DIVERGE: V541, the chase's minimum and fail distances as the clients are sent.
+        // DIVERGE: V541, the chase's distance, minimum and fail distances as the clients are sent.
         mvp.min_distance = crate::network::motion::move_to_parameters::RETAIL_CHASE_MIN_DISTANCE;
         mvp.fail_distance =
             crate::network::motion::move_to_parameters::RETAIL_MONSTER_CHASE_FAIL_DISTANCE;
+        if let Some(d) = fields(w, this).chase_distance {
+            mvp.distance_to_object = d;
+        }
     } else if let NextMove::CloseTo(distance_to_object) = next {
         // Not ACE's (retail, V336): the run to within the drawn distance,
         // with no minimum distance and no fail distance, not stuck to the target on arrival.

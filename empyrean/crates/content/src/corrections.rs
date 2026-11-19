@@ -53,6 +53,7 @@ use crate::pack::TableId;
 use crate::world_database::WorldDatabaseBase;
 
 pub mod body_armor;
+pub mod chase_reach;
 pub mod deception;
 pub mod report;
 

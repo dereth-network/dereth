@@ -350,28 +350,33 @@ fn through_the_world_loop_a_monster_wakes_closes_in_and_swings() {
         monster::State::Awake
     );
 
-    let _ = take_local();
-    let mut evades = 0;
     assert!(
         ts.run_until(5.0, |ts| {
-            evades += take_local()
-                .get("ACE: Player.OnEvade")
-                .copied()
-                .unwrap_or(0);
-            evades + defender_notifications(ts, client) >= 2
+            defender_notifications(ts, client) + game_events(ts, client, EVASION_DEFENDER) >= 2
         }),
-        "two strikes run DamageEvent.CalculateDamage: a hit (DefenderNotification) or an evade"
+        "two strikes run DamageEvent.CalculateDamage: a hit (DefenderNotification) or an evade \
+         (EvasionDefenderNotification)"
     );
 }
 
+/// `DefenderNotification`, the game event a player is sent when a strike hits it.
+const DEFENDER: u32 = 0x01B2;
+/// `EvasionDefenderNotification`, the game event a player is sent when it evades a strike.
+const EVASION_DEFENDER: u32 = 0x01B4;
+
 /// The `DefenderNotification` game events the client has received so far.
 pub(crate) fn defender_notifications(ts: &TestServer, client: ClientId) -> u64 {
+    game_events(ts, client, DEFENDER)
+}
+
+/// The game events of type `event` the client has received so far.
+fn game_events(ts: &TestServer, client: ClientId, event: u32) -> u64 {
     let n = ts
         .received_raw(client)
         .iter()
         .filter(|m| {
             m.opcode == 0xF7B0
-                && u32::from_le_bytes(m.body[8..12].try_into().expect("an event type")) == 0x01B2
+                && u32::from_le_bytes(m.body[8..12].try_into().expect("an event type")) == event
         })
         .count();
     u64::try_from(n).expect("a count")

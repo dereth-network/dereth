@@ -772,7 +772,8 @@ fn a_monster_notices_a_player_closes_to_melee_range_and_attacks_at_aces_cadence(
     let next_attack = combat::fields(&h.w, MONSTER).next_attack_time;
 
     // RNG in ACE's order since the seed: FindNextTarget's tactic roll, StartTurn's cancel time,
-    // GetCombatManeuver's attack height, MeleeAttack's delay (Next(0, PowerupTime 1.0))
+    // GetCombatManeuver's attack height, MeleeAttack's delay (Next(0, PowerupTime 1.0)); and
+    // retail's chase reach (V541), drawn as the chase starts, before the cancel time
     let mut reference = DotNetRandom::new(SEED);
     let tactics = [
         TargetingTactic::None,
@@ -780,6 +781,11 @@ fn a_monster_notices_a_player_closes_to_melee_range_and_attacks_at_aces_cadence(
         TargetingTactic::TopDamager,
     ];
     let tactic = tactics[usize::try_from(reference.next_range(1, 3)).unwrap()];
+    let reach = 1.0 + reference.next_double();
+    assert!(
+        (f64::from(nav::fields(&h.w, MONSTER).chase_distance.unwrap()) - reach).abs() < 1e-6,
+        "the chase reach, drawn in its place"
+    );
     assert_eq!(
         awareness::fields(&h.w, MONSTER).current_targeting_tactic,
         tactic
@@ -3985,4 +3991,110 @@ fn a_launch_monsters_real_shot_can_go_wild() {
     };
     assert!(wild(EraId::Launch) > 0);
     assert_eq!(wild(EraId::Eor), 0);
+}
+
+// ------------------------------------------------------------------------------------ V541 reach
+
+/// A board with a nail (class 47248): a weapon the chase reach table measured.
+const BOARD: ObjectGuid = ObjectGuid::new(0x8000_0105);
+const BOARD_WCID: u32 = 47248;
+
+/// `n` chase distances drawn for the monster as it stands.
+fn chase_draws(h: &H, n: usize) -> Vec<f32> {
+    (0..n)
+        .map(|_| nav::draw_chase_distance(&h.w, MONSTER))
+        .collect()
+}
+
+/// Asserts `draws` fill `[lo, 2 lo]`: none outside, the two ends both reached near, and fresh draws.
+fn assert_fills_band(draws: &[f32], lo: f32) {
+    let hi = 2.0 * lo;
+    for d in draws {
+        assert!(
+            *d >= lo - 1e-4 && *d <= hi + 1e-4,
+            "{d} outside [{lo}, {hi}]"
+        );
+    }
+    let min = draws.iter().copied().fold(f32::MAX, f32::min);
+    let max = draws.iter().copied().fold(0.0, f32::max);
+    assert!(
+        min < lo * 1.1 && max > hi * 0.95,
+        "the band is filled: {min}..{max}"
+    );
+    let mut seen: Vec<u32> = draws.iter().map(|d| d.to_bits()).collect();
+    seen.sort_unstable();
+    seen.dedup();
+    assert!(
+        seen.len() > draws.len() * 9 / 10,
+        "drawn afresh: {} distinct",
+        seen.len()
+    );
+}
+
+/// V541 (retail's chase reach): an unarmed monster's attack chase stops between its scale and
+/// twice it, drawn afresh for each chase (retail's 279,551 unarmed chases all lay within it), and
+/// the chase sent to the clients and walked by the server's body carries the distance drawn.
+#[test]
+fn an_unarmed_monsters_chase_stops_between_its_scale_and_twice_it_drawn_afresh() {
+    let mut h = H::new();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.player(100.0, 115.0);
+    h.monster(100.0, 100.0);
+    assert_fills_band(&chase_draws(&h, 400), 1.0);
+
+    let _ = take_local();
+    wake(&mut h);
+    assert!(h.run_until(5.0, moving_to), "a chase");
+    let drawn = nav::fields(&h.w, MONSTER)
+        .chase_distance
+        .expect("a distance drawn for the chase");
+    assert!((1.0..=2.0).contains(&drawn), "{drawn}");
+    assert!(
+        (move_to(&h).2 - drawn).abs() < 1e-6,
+        "the chase sent carries it: {}",
+        move_to(&h).2
+    );
+    assert!(
+        (nav::get_movement_parameters(&mut h.w, MONSTER).distance_to_object - drawn).abs() < 1e-6,
+        "the body chases to it"
+    );
+}
+
+/// V541: a monster at scale 2.5 draws its chase between 2.5 and 5 m.
+#[test]
+fn a_scaled_monsters_chase_reach_scales_with_it() {
+    let mut h = H::new();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.monster(100.0, 100.0);
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .set_property(PropertyFloat::DefaultScale, 2.5);
+    assert_fills_band(&chase_draws(&h, 400), 2.5);
+}
+
+/// V541: a monster wielding a measured weapon draws its chase between the weapon's factor and twice
+/// it (a board with a nail, 1.571, from 479 retail chases).
+#[test]
+fn a_monster_with_a_measured_weapon_stretches_its_chase_by_the_weapons_factor() {
+    let mut h = H::new();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.monster(100.0, 100.0);
+    let mut board = WorldObject::allocate(Class::MeleeWeapon);
+    board.guid = BOARD;
+    board.biota.id = BOARD.full();
+    board.biota.weenie_type = WeenieType::MeleeWeapon;
+    board.biota.weenie_class_id = BOARD_WCID;
+    board.biota.properties_enchantment_registry = Some(Vec::new());
+    board.set_property(PropertyString::Name, "Board with Nail".to_owned());
+    h.w.objects.insert(board).unwrap();
+    assert!(creature_equipment::try_equip_object(
+        &mut h.w,
+        MONSTER,
+        BOARD,
+        EquipMask::MeleeWeapon
+    ));
+    let f = empyrean_content::corrections::chase_reach::weapon_factor(BOARD_WCID);
+    assert!((f - 1.571).abs() < 1e-6, "{f}");
+    assert_fills_band(&chase_draws(&h, 400), f);
 }
