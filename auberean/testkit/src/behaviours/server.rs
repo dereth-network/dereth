@@ -4500,6 +4500,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.player-order-stopped",
+        says: "A player killed while a movement order of the server still holds (closing in on \
+               what it attacks, turning to it) is stopped in its death tick, under that order's \
+               stamp, after it turns unselectable and before its pose; a player under no order is \
+               sent none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-STOPS-MOVE"),
+        station: "yalain-testkit::cpu::play::dying::a_player_killed_while_closing_in_on_a_creature_is_stopped_where_it_fell",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.resurrection",
         says: "A dead player that asks to be resurrected goes through portal space to its \
                lifestone and is alive again a second and a half later, with three quarters of \

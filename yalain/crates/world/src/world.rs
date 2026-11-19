@@ -136,6 +136,8 @@ pub struct Player {
     pub entered_at: f64,
     /// The stamp of its last movement order.
     pub move_to_stamp: u16,
+    /// Its last movement order still holds: the last one sent was not a stop.
+    pub move_in_force: bool,
     /// A use it is being walked toward: the use and the reach it needs.
     pub walking_to: Option<(crate::places::Use, f32)>,
     /// An item it is giving to a person or an object.
@@ -534,6 +536,7 @@ pub fn enter<S: Store>(
         refused_admin_line: false,
         entered_at: clock.local.0,
         move_to_stamp: 0,
+        move_in_force: false,
         walking_to: None,
         giving: None,
         walk_rest: None,

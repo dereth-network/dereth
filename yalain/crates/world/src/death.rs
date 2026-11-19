@@ -1513,8 +1513,9 @@ fn killer_name<S: Store>(s: &Server<S>, killer: Option<u64>) -> TextInfo {
 }
 
 /// A player dies: in one tick its death message (the last attacker's name), and for everyone who
-/// sees it, it is dead, wounded, its killer announced, unselectable, in a death pose, playing its
-/// death; a creature that killed it may play its victory. Its corpse is made ten seconds later.
+/// sees it, it is dead, wounded, its killer announced, unselectable, stopped if a movement order
+/// still held, in a death pose, playing its death; a creature that killed it may play its victory.
+/// Its corpse is made ten seconds later.
 pub fn player_dies<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1611,6 +1612,9 @@ pub fn player_dies<S: Store>(
         quality: q::SELECTABLE,
         value: 0,
     });
+    // A movement order still holding (closing in on what it attacked, turning to it) is stopped
+    // where it fell, under that order's stamp.
+    let stop = p.move_in_force.then(|| crate::places::stop_order(p));
     let slide = ServerMessage::MoveSlider(ObjectEvent {
         sender: player_stamp(p),
         action: Slide {
@@ -1637,7 +1641,11 @@ pub fn player_dies<S: Store>(
         sender: player_stamp(p),
         action: b,
     });
-    for m in [dead, wounded, who, unselectable, slide, behave] {
+    let tick = [dead, wounded, who, unselectable]
+        .into_iter()
+        .chain(stop)
+        .chain([slide, behave]);
+    for m in tick {
         to_all_seeing(s, net, id, &m);
     }
     // Its pets die with it, in its death tick.

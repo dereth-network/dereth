@@ -78,10 +78,10 @@
 //! reason), and it is carried out, or refused, as the running one ends.
 
 use auberean_primitives::Vec3;
-use auberean_protocol::physics::{MoveOrder, ObjectEvent, Word};
+use auberean_protocol::physics::{ObjectEvent, Word};
 use auberean_protocol::quality::PrivateQuality;
 use auberean_protocol::types::{
-    BehaviorParams, MoveTarget, MovementParams, PhysicsStory, Placement, StoryHook,
+    BehaviorParams, MoveTarget, MovementParams, PhysicsStory, StoryHook,
 };
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
@@ -1623,76 +1623,49 @@ fn toggles_off<S: Store>(
 /// A movement order turning the player to its target.
 pub(crate) fn turn_to(p: &mut crate::world::Player, target: u64, context: u32) -> ServerMessage {
     p.move_to_stamp = p.move_to_stamp.wrapping_add(1);
-    let stamp = p.move_to_stamp;
-    ServerMessage::MoveTo(player_event(
+    crate::places::move_order(
         p,
-        MoveOrder {
-            params: MovementParams {
-                flags: 0x46A,
-                desired_velocity: 0.0,
-                fail_distance: 0.0,
-                desired_distance: 0.0,
-                max_success_distance: 0.0,
-                min_success_distance: 0.0,
-                target: MoveTarget::Object(target),
-                offset: Vec3::ZERO,
-                offset_id: 0,
-                waypoints: Vec::new(),
-                context,
-            },
-            stamp,
+        MovementParams {
+            flags: 0x46A,
+            desired_velocity: 0.0,
+            fail_distance: 0.0,
+            desired_distance: 0.0,
+            max_success_distance: 0.0,
+            min_success_distance: 0.0,
+            target: MoveTarget::Object(target),
+            offset: Vec3::ZERO,
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context,
         },
-    ))
+    )
 }
 
 /// A movement order walking the player to within a skill's reach of its target.
 fn approach(p: &mut crate::world::Player, target: u64, reach: f32, context: u32) -> ServerMessage {
     p.move_to_stamp = p.move_to_stamp.wrapping_add(1);
-    let stamp = p.move_to_stamp;
-    ServerMessage::MoveTo(player_event(
+    crate::places::move_order(
         p,
-        MoveOrder {
-            params: MovementParams {
-                flags: 0x46B,
-                desired_velocity: 1.0,
-                fail_distance: f32::MAX,
-                desired_distance: reach,
-                max_success_distance: reach,
-                min_success_distance: 0.0,
-                target: MoveTarget::Object(target),
-                offset: Vec3::ZERO,
-                offset_id: 0,
-                waypoints: Vec::new(),
-                context,
-            },
-            stamp,
+        MovementParams {
+            flags: 0x46B,
+            desired_velocity: 1.0,
+            fail_distance: f32::MAX,
+            desired_distance: reach,
+            max_success_distance: reach,
+            min_success_distance: 0.0,
+            target: MoveTarget::Object(target),
+            offset: Vec3::ZERO,
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context,
         },
-    ))
+    )
 }
 
 /// A movement order stopping the player.
 pub(crate) fn stop_moving(p: &mut crate::world::Player) -> ServerMessage {
     p.move_to_stamp = p.move_to_stamp.wrapping_add(1);
-    let stamp = p.move_to_stamp;
-    ServerMessage::MoveTo(player_event(
-        p,
-        MoveOrder {
-            params: MovementParams {
-                flags: 0x40,
-                desired_velocity: 0.0,
-                fail_distance: 0.0,
-                desired_distance: 0.0,
-                max_success_distance: 0.0,
-                min_success_distance: 0.0,
-                target: MoveTarget::Place(Placement::default()),
-                offset: Vec3::ZERO,
-                offset_id: 0,
-                waypoints: Vec::new(),
-                context: 0,
-            },
-            stamp,
-        },
-    ))
+    crate::places::stop_order(p)
 }
 
 /// A run's swing slot taken by the special waiting in it (the run has sent its movement order):

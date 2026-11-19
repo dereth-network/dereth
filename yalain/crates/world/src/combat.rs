@@ -36,7 +36,7 @@
 //! specials are [`crate::missiles`].
 
 use auberean_primitives::Vec3;
-use auberean_protocol::physics::{Fx, MoveOrder, ObjectEvent, Word};
+use auberean_protocol::physics::{Fx, ObjectEvent, Word};
 use auberean_protocol::types::{
     BehaviorParams, MoveTarget, MovementParams, ObjectStamp, PhysicsStory, StoryHook,
 };
@@ -748,26 +748,22 @@ pub fn swing_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock)
 /// A movement order taking a player into reach of its target.
 pub(crate) fn close_in(p: &mut Player, target: u64, context: u32) -> ServerMessage {
     p.move_to_stamp = p.move_to_stamp.wrapping_add(1);
-    let stamp = p.move_to_stamp;
-    ServerMessage::MoveTo(player_event(
+    crate::places::move_order(
         p,
-        MoveOrder {
-            params: MovementParams {
-                flags: 0x46B,
-                desired_velocity: 1.0,
-                fail_distance: f32::MAX,
-                desired_distance: 1.0,
-                max_success_distance: 1.0,
-                min_success_distance: 0.0,
-                target: MoveTarget::Object(target),
-                offset: Vec3::ZERO,
-                offset_id: 0,
-                waypoints: Vec::new(),
-                context,
-            },
-            stamp,
+        MovementParams {
+            flags: 0x46B,
+            desired_velocity: 1.0,
+            fail_distance: f32::MAX,
+            desired_distance: 1.0,
+            max_success_distance: 1.0,
+            min_success_distance: 0.0,
+            target: MoveTarget::Object(target),
+            offset: Vec3::ZERO,
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context,
         },
-    ))
+    )
 }
 
 /// One swing of a player's run.

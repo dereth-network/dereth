@@ -14,6 +14,7 @@ const DEATH_STATE: u32 = 0x8207_0033;
 const RESURRECT: u32 = 0x8207_000E;
 const CORPSE: u32 = 0x4700_0539;
 const DEAD: u32 = 279;
+const SELECTABLE: u32 = 624;
 const FOCUS: u32 = 266;
 
 /// Let `seconds` pass, the connections talking.
@@ -123,6 +124,104 @@ fn a_player_killed_by_a_creature_dies_and_its_corpse_is_made_ten_seconds_later()
         });
     let corpse = corpse.expect("its corpse is made");
     assert_eq!(corpse.weenie.objects[3], me, "the player's corpse");
+}
+
+/// The player's own death tick as its client takes it, from its death message, in the order of
+/// the visual stamps: unselectable, a movement order (its flags and stamp), the pose, the death
+/// behavior.
+fn death_tick(h: &Harness, b: usize, from: usize, me: u64) -> Vec<String> {
+    let msgs = h.world_messages(b, from);
+    let at = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == DEATH_MESSAGE))
+        .expect("its death message");
+    let mut tick: Vec<(u16, String)> = Vec::new();
+    for m in &msgs[at..] {
+        match m {
+            ServerMessage::UpdateBoolVisual(q) if q.object.id == me && q.quality == SELECTABLE => {
+                tick.push((q.object.other_stamp, "unselectable".into()));
+            }
+            ServerMessage::MoveTo(e) if e.sender.id == me => tick.push((
+                e.sender.other_stamp,
+                format!(
+                    "order {:#x} stamp {}",
+                    e.action.params.flags, e.action.stamp
+                ),
+            )),
+            ServerMessage::MoveSlider(e) if e.sender.id == me => {
+                tick.push((e.sender.other_stamp, "pose".into()));
+            }
+            ServerMessage::PlayBehavior(e) if e.sender.id == me => {
+                tick.push((e.sender.other_stamp, "death".into()));
+                break;
+            }
+            _ => {}
+        }
+    }
+    tick.sort_by_key(|(stamp, _)| *stamp);
+    tick.into_iter().map(|(_, what)| what).collect()
+}
+
+/// A player closing in on the creature it attacks, killed by it, is stopped in its death tick: an
+/// order to stop under the close-in's own stamp, after it turns unselectable and before its pose,
+/// so its client's body stops running at the creature where it fell.
+/// Behaviour: server.death.player-order-stopped
+#[test]
+fn a_player_killed_while_closing_in_on_a_creature_is_stopped_where_it_fell() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    h.arm(b, me, 0x4700_051C);
+    let creature = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.alive())
+        .map(|t| t.id)
+        .expect("a creature");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::combat::function::START_ATTACK,
+            &[auberean_script::args::Arg::LongInt(creature)],
+        ),
+    );
+    run_to_death(&mut h, b, from);
+    let close_in = h
+        .world_messages(b, from)
+        .into_iter()
+        .rev()
+        .find_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x46B => {
+                Some(e.action.stamp)
+            }
+            _ => None,
+        })
+        .expect("the run closes in on the creature");
+    assert_eq!(
+        death_tick(&h, b, from, me),
+        vec![
+            "unselectable".to_string(),
+            format!("order 0x40 stamp {close_in}"),
+            "pose".into(),
+            "death".into(),
+        ]
+    );
+}
+
+/// A player standing still when it is killed is sent no movement order in its death tick.
+/// Behaviour: server.death.player-order-stopped
+#[test]
+fn a_player_killed_standing_still_is_sent_no_stop() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    run_to_death(&mut h, b, from);
+    assert_eq!(
+        death_tick(&h, b, from, me),
+        vec!["unselectable", "pose", "death"]
+    );
 }
 
 /// What follows an object made for a client since `from`: each message about it, after its

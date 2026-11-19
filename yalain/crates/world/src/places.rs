@@ -387,22 +387,7 @@ pub(crate) fn stop_walking<S: Store>(s: &mut Server<S>, net: &mut ServerNet, wor
         return;
     };
     p.walking_to = None;
-    let stop = move_order(
-        p,
-        MovementParams {
-            flags: 0x40,
-            desired_velocity: 0.0,
-            fail_distance: 0.0,
-            desired_distance: 0.0,
-            max_success_distance: 0.0,
-            min_success_distance: 0.0,
-            target: MoveTarget::Place(Placement::default()),
-            offset: Vec3::ZERO,
-            offset_id: 0,
-            waypoints: Vec::new(),
-            context: 0,
-        },
-    );
+    let stop = stop_order(p);
     let id = p.character;
     to_all_knowing(s, net, id, &stop);
 }
@@ -1085,9 +1070,35 @@ pub fn use_object<S: Store>(
     }
 }
 
+/// The flags of a movement order that stops the player where it is.
+pub(crate) const STOP_FLAGS: u32 = 0x40;
+
+/// A movement order for a player under its last order's stamp; anything but a stop holds until
+/// another order replaces it.
 pub(crate) fn move_order(p: &mut Player, params: MovementParams) -> ServerMessage {
+    p.move_in_force = params.flags != STOP_FLAGS;
     let stamp = p.move_to_stamp;
     ServerMessage::MoveTo(player_event(p, MoveOrder { params, stamp }))
+}
+
+/// A movement order stopping the player where it is.
+pub(crate) fn stop_order(p: &mut Player) -> ServerMessage {
+    move_order(
+        p,
+        MovementParams {
+            flags: STOP_FLAGS,
+            desired_velocity: 0.0,
+            fail_distance: 0.0,
+            desired_distance: 0.0,
+            max_success_distance: 0.0,
+            min_success_distance: 0.0,
+            target: MoveTarget::Place(Placement::default()),
+            offset: Vec3::ZERO,
+            offset_id: 0,
+            waypoints: Vec::new(),
+            context: 0,
+        },
+    )
 }
 
 /// What a walk for a use goes to: the object an item is used on, else the object used.
