@@ -103,6 +103,12 @@ pub struct PlayerTickFields {
     pub requested_force_stamp: Option<u16>,
     /// Not ACE's (V550): when the server last moved the player back to its own position.
     pub forced_time: Option<empyrean_common::dotnet::datetime::DotNetDateTime>,
+    /// Not ACE's (retail captures, V550): where the last teleport sent the player, until its first
+    /// report after it; a first report there is taken unswept.
+    pub teleport_sent: Option<Position>,
+    /// Not ACE's (V550): the report being taken is that first report, so the body stands where it
+    /// says, though something stands there too.
+    pub taking_teleport_arrival: bool,
 }
 
 fn fields(w: &World, this: ObjectGuid) -> &PlayerTickFields {
@@ -1041,22 +1047,33 @@ pub fn update_player_position(
             }
             if motion_correction_enabled(w) && !moving_to_target(w, this) {
                 fields_mut(w, this).taking_swept_report = false;
+                fields_mut(w, this).taking_teleport_arrival = false;
                 // the client is still to be sent back: its reports predate that
                 if fields(w, this).force_due.is_some() {
                     return false;
                 }
-                match sweep_to(w, h, &new_position) {
-                    None => fields_mut(w, this).taking_swept_report = true,
-                    Some(stop) => {
-                        let now = w.now.utc;
-                        fields_mut(w, this).force_due =
-                            Some(now + TimeSpan::from_seconds(SWEEP_SECONDS));
-                        if phys_ext::position(w, h).is_some_and(|b| {
-                            b.cell != stop.cell || b.frame.origin != stop.frame.origin
-                        }) {
-                            phys_ext::set_position(w, h, &stop);
+                // the first report after a teleport, standing where the teleport sent the player, is
+                // taken unswept and the body stands where it says: retail's client reported that spot
+                // and its server took it, beside a creature as anywhere
+                let sent = fields_mut(w, this).teleport_sent.take();
+                if sent.is_some_and(|s| at_teleport_destination(&s, &new_position)) {
+                    let f = fields_mut(w, this);
+                    f.taking_swept_report = true;
+                    f.taking_teleport_arrival = true;
+                } else {
+                    match sweep_to(w, h, &new_position) {
+                        None => fields_mut(w, this).taking_swept_report = true,
+                        Some(stop) => {
+                            let now = w.now.utc;
+                            fields_mut(w, this).force_due =
+                                Some(now + TimeSpan::from_seconds(SWEEP_SECONDS));
+                            if phys_ext::position(w, h).is_some_and(|b| {
+                                b.cell != stop.cell || b.frame.origin != stop.frame.origin
+                            }) {
+                                phys_ext::set_position(w, h, &stop);
+                            }
+                            return false;
                         }
-                        return false;
                     }
                 }
             }
@@ -1296,10 +1313,11 @@ fn location_follows_body(w: &mut World, this: ObjectGuid, body: &PPosition) -> b
 
 /// Not ACE's (V550): with server movement on, a teleport ends the body's motion and any move back
 /// still to be sent, so the body waits at the destination for the client's own motion.
-pub fn on_teleport(w: &mut World, this: ObjectGuid) {
+pub fn on_teleport(w: &mut World, this: ObjectGuid, destination: &Position) {
     if !server_movement_enabled(w) {
         return;
     }
+    fields_mut(w, this).teleport_sent = Some(*destination);
     if let Some(h) = phys_ext::physics_obj(w, this) {
         phys_ext::stop_completely(w, h, false);
     }
@@ -1386,6 +1404,26 @@ fn report_is_floating(w: &mut World, h: PhysHandle, report: &Position) -> bool {
 /// is sent back: retail moved players back a median 0.54 s after their last report (most 0.5 to 0.6
 /// s), where its routine positions to the player followed reports within 0.2 s.
 pub const SWEEP_SECONDS: f64 = 0.5;
+/// Not ACE's (V550): whether a placement at `at` left the body further across from it than a sweep
+/// reaches ([`SWEEP_REACHED`]).
+fn slid_across(w: &World, h: PhysHandle, at: &PPosition) -> bool {
+    phys_ext::position(w, h).is_none_or(|b| {
+        let off = offset_between(
+            &physics_position_to_location(at),
+            &physics_position_to_location(&b),
+        );
+        off.x * off.x + off.y * off.y > SWEEP_REACHED * SWEEP_REACHED
+    })
+}
+
+/// Not ACE's (retail captures, V550): whether a report stands where a teleport sent the player,
+/// within a sweep's reach of it ([`SWEEP_REACHED`] across, [`SWEEP_REACHED_UP`] up or down).
+fn at_teleport_destination(sent: &Position, report: &Position) -> bool {
+    let off = offset_between(report, sent);
+    off.x * off.x + off.y * off.y <= SWEEP_REACHED * SWEEP_REACHED
+        && off.z.abs() <= SWEEP_REACHED_UP
+}
+
 /// Not ACE's (V550): how close across, and up or down, a sweep must end to the report for the
 /// report to be reached, in meters.
 pub const SWEEP_REACHED: f32 = 0.05;
@@ -2165,11 +2203,15 @@ fn set_current_pos(w: &mut World, this: ObjectGuid, h: PhysHandle, new_pos: &PPo
     let moved = w.physics.get(h).is_some_and(|o| {
         !dereth_physics::V3::eq_eps(o.position.frame.origin, new_pos.frame.origin)
     });
+    // DIVERGE: V550, the first report after a teleport stands where the client stands, which may be
+    // inside a creature placed there before it (retail's client stood there and its server took it):
+    // a placement that slid it out keeps the report's position as ACE's does
+    let arrival = std::mem::take(&mut fields_mut(w, this).taking_teleport_arrival);
     if moved_on && moved {
         if let Some(o) = w.physics.get_mut(h) {
             o.transient_state.set_sliding(false);
         }
-        if phys_ext::set_position(w, h, new_pos) {
+        if phys_ext::set_position(w, h, new_pos) && !(arrival && slid_across(w, h, new_pos)) {
             w.physics.calc_cross_cells(h, true);
             let cached = fields(w, this).request_cached_velocity;
             if let Some(o) = w.physics.get_mut(h) {

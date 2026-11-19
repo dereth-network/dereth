@@ -1,8 +1,9 @@
 //! Divergence: V550
 //! (real-content) A client that runs and turns as the server moves it, through Holtburg and the
 //! Academy's halls, with its reports arriving late and unevenly, is never sent back, with the
-//! motion correction on or off; with it on, one claiming to be 30 m under the ground is. A player
-//! who is not a player killer, killed mid-run, stops on the server at once.
+//! motion correction on or off; with it on, one claiming to be 30 m under the ground is, and one
+//! standing where a teleport put it, inside an NPC's reach, is not. A player who is not a player
+//! killer, killed mid-run, stops on the server at once.
 //! Fixture: virtual-time bots, retail dats and world.pack.
 
 #![allow(clippy::disallowed_methods)]
@@ -282,6 +283,57 @@ mod real {
             l.position_z > start.position_z - 1.0,
             "on the ground: {l:?}"
         );
+    }
+
+    /// Inside the Holtburg bowyer's shop, a step from the bowyer.
+    const BESIDE_THE_BOWYER: &str = "@teleloc 0xA9B40121 101.5 135.6 66.2";
+
+    #[test]
+    fn a_client_standing_where_a_teleport_put_it_beside_an_npc_is_never_sent_back() {
+        let mut b = create_character(&[]);
+        b.enter_world();
+        correction(&mut b, true);
+        let mark = b.mark();
+        b.admin_command(BESIDE_THE_BOWYER);
+        let id = b.id;
+        assert!(
+            b.ts.run_until(5.0, |ts| !decode::all_of::<EffectsPlayerTeleport>(
+                &ts.received_raw(id)[mark..]
+            )
+            .is_empty()),
+            "teleported"
+        );
+        // where the teleport sent the client, which stands there on arrival, inside the bowyer's
+        // reach: retail's client reported exactly that spot and its server took it
+        let sent = *positions_of(&b.ts, b.id, mark, b.g.full())
+            .last()
+            .expect("the teleport's position");
+        assert_eq!(sent.cell, 0xA9B4_0121);
+        let mut there = b.location();
+        there.position_x = sent.x;
+        there.position_y = sent.y;
+        there.position_z = 66.205;
+
+        b.advance(1.0);
+        b.action(&CharacterLoginCompleteNotification);
+        // it stands there, reporting it each second
+        for _ in 0..3 {
+            b.advance(1.0);
+            b.action(&autonomous(&there));
+        }
+        b.advance(1.0);
+        let at = body(&b);
+        let across = ((at.position_x - there.position_x).powi(2)
+            + (at.position_y - there.position_y).powi(2))
+        .sqrt();
+        assert!(across < 0.05, "the server's body stands there too: {at:?}");
+        // then steps away, south from the bowyer
+        let mut away = there;
+        away.position_y -= 0.8;
+        away.position_z = at.position_z;
+        b.action(&autonomous(&away));
+        b.advance(1.0);
+        assert_eq!(sent_back(&b, mark), 0, "the player is never sent back");
     }
 
     #[test]
