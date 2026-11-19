@@ -44,10 +44,13 @@ pub fn store() -> Arc<RetailDatStore> {
 
 /// The human body the routes are walked with: setup `0x02000001`, spheres only, as the player.
 pub fn player_setup(store: &RetailDatStore) -> Arc<SetupGeometry> {
-    let id = DataId(0x0200_0001);
-    let bytes = store
-        .read_typed(DbType::Setup, id)
-        .expect("the human setup");
+    setup_of(store, 0x0200_0001)
+}
+
+/// A creature's body: setup `id`'s spheres and cylinders, as the physics collides with it.
+pub fn setup_of(store: &RetailDatStore, id: u32) -> Arc<SetupGeometry> {
+    let id = DataId(id);
+    let bytes = store.read_typed(DbType::Setup, id).expect("the setup");
     let s = dereth_assets::Setup::decode_payload(id, &bytes).expect("decodes");
     Arc::new(dereth_world_data::setup::setup_geometry(&s))
 }

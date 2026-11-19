@@ -5,8 +5,10 @@
 //! is stopped by them. Doors and other placed objects gate the places they stand on: a closed door
 //! is passed with an instruction to open it, a locked one and a solid object are not passed. A low
 //! object is stepped over where that is shortest, and a creature standing in the way is walked
-//! round once the route knows of it. Fixtures: the rooms of pillars and furniture of block
-//! `0x0106` and other dungeons, and Holtburg's streets (`0xA9B4`), from the retail dats.
+//! round once the route knows of it, up a shop's stairs past the people standing in it too.
+//! Fixtures: the rooms of pillars and furniture of block `0x0106` and other dungeons, Holtburg's
+//! streets (`0xA9B4`) and its scriveners' shop (`0xA9B3`), from the retail dats; the shop's people
+//! where the server's world database stands them.
 
 use std::sync::Arc;
 
@@ -17,6 +19,7 @@ use dereth_physics::{CylSphere, SetupGeometry};
 use dereth_primitives::{Frame, ObjectId, Position, Quat, Vec3};
 
 use crate::common::*;
+use crate::drive::drive;
 
 /// Which objects a crossing is over.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -392,4 +395,170 @@ fn a_creature_standing_in_the_way_is_walked_round_when_the_route_knows_it() {
         legs.len(),
         "every creature is in the way of a body walking straight"
     );
+}
+
+/// Holtburg's scriveners' shop, upstairs and down, with its twelve people standing where the
+/// world database puts them: cell, place, heading (a rotation about the vertical) and body.
+const SCRIVENERS: [(u32, f32, f32, f32, f32, f32, u32); 12] = [
+    (
+        0xA9B3_0100,
+        182.336,
+        87.006,
+        116.005,
+        -0.0014,
+        -1.0,
+        0x0200_004E,
+    ),
+    (
+        0xA9B3_0101,
+        183.749,
+        79.945,
+        116.005,
+        -0.9303,
+        -0.3667,
+        0x0200_0001,
+    ),
+    (
+        0xA9B3_0102,
+        184.705,
+        85.662,
+        116.005,
+        -0.6406,
+        -0.7679,
+        0x0200_0001,
+    ),
+    (
+        0xA9B3_0103,
+        178.117,
+        85.978,
+        116.005,
+        0.3427,
+        -0.9394,
+        0x0200_004E,
+    ),
+    (
+        0xA9B3_0103,
+        177.444,
+        79.747,
+        116.005,
+        0.8127,
+        -0.5827,
+        0x0200_196F,
+    ),
+    (
+        0xA9B3_0103,
+        175.884,
+        81.608,
+        116.005,
+        0.6811,
+        -0.7322,
+        0x0200_0001,
+    ),
+    (
+        0xA9B3_0107,
+        176.794,
+        82.194,
+        119.005,
+        -0.5143,
+        0.8576,
+        0x0200_004E,
+    ),
+    (
+        0xA9B3_0107,
+        177.083,
+        80.469,
+        119.005,
+        0.9110,
+        -0.4125,
+        0x0200_004E,
+    ),
+    (
+        0xA9B3_0107,
+        178.599,
+        79.030,
+        119.005,
+        0.9890,
+        -0.1482,
+        0x0200_0001,
+    ),
+    (
+        0xA9B3_0108,
+        184.705,
+        85.161,
+        119.005,
+        0.8444,
+        0.5358,
+        0x0200_0001,
+    ),
+    (
+        0xA9B3_0108,
+        184.464,
+        86.882,
+        119.005,
+        -0.5614,
+        -0.8276,
+        0x0200_004E,
+    ),
+    (
+        0xA9B3_0108,
+        182.096,
+        88.145,
+        119.005,
+        -0.2871,
+        -0.9579,
+        0x0200_004E,
+    ),
+];
+
+/// Up the scriveners' stairs from the street, by the south door and by the east, with the shop's
+/// twelve people standing about them, downstairs and up: the route goes round them, and the body,
+/// driven by keys at 60, 20, 10 and 5 frames a second, walks it to the chest upstairs without once
+/// being stuck. A planner not told of them, or not minding them, walks the body into them.
+#[test]
+fn a_shop_s_stairs_are_climbed_round_the_people_standing_in_it_at_every_frame_rate() {
+    let mut d = load(&[0xA9B3], true, NavConfig::default());
+    for (k, &(cell, x, y, z, w, turn, body)) in SCRIVENERS.iter().enumerate() {
+        let id = ObjectId(0x7A9B_3000 + u32::try_from(k).expect("small"));
+        let standing = Position::new(
+            dereth_primitives::CellId(cell),
+            Frame::new(Vec3::new(x, y, z), Quat::new(w, 0.0, 0.0, turn)),
+        );
+        let setup = setup_of(&store(), body);
+        let h = d.world.create(id, Arc::clone(&setup), true);
+        assert!(d.world.set_position(h, &standing), "{id:?} stands there");
+        d.nav.set_obstacle(Obstacle {
+            id,
+            position: standing,
+            setup,
+            scale: 1.0,
+            kind: ObstacleKind::Creature,
+        });
+    }
+    let chest = Position::new(
+        dereth_primitives::CellId(0xA9B3_0107),
+        Frame::new(Vec3::new(178.525, 78.895, 119.055), Quat::IDENTITY),
+    );
+    for (door, x, y) in [("south", 180.0, 74.0), ("east", 190.0, 84.0)] {
+        let street = ground(&d, 0xA9B3, x, y);
+        let path = d
+            .nav
+            .plan_near(&street, &chest, 2.0)
+            .unwrap_or_else(|e| panic!("by the {door} door: no route: {e}"));
+        for fps in [60.0, 20.0, 10.0, 5.0] {
+            let player = Arc::clone(&d.player);
+            let Dungeon { world, nav, .. } = &mut d;
+            nav.unblock();
+            let mut replan = |p: &Position, _: &Position| nav.plan_near(p, &chest, 2.0).ok();
+            let r = drive(world, &player, path.clone(), fps, &mut replan);
+            let end = r.end.expect("the body");
+            assert!(
+                r.arrived && r.stuck == 0,
+                "by the {door} door at {fps} frames a second: {r:?}"
+            );
+            assert!(
+                end.frame.origin.z > 118.5,
+                "by the {door} door at {fps} frames a second: not upstairs, {end:?}"
+            );
+        }
+    }
 }

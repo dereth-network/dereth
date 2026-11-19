@@ -1640,12 +1640,15 @@ impl Travel {
         self.send_obstacles();
     }
 
-    /// The objects and creatures within `reach` across of `p`, nearest first, for the log.
+    /// The objects and creatures within `reach` across of `p` and a body's height up or down,
+    /// nearest first, for the log: one on the floor above or below is not in the way.
     fn near(&self, p: &Position, reach: f32) -> Vec<String> {
+        const RISE: f32 = 2.0;
         let here = global(p);
         let creatures = self.creatures_seen.iter().filter_map(|(name, q)| {
             let d = hypotf(q.x - here.x, q.y - here.y);
-            (d <= reach).then(|| (d, format!("creature {name} at {d:.1} m")))
+            (d <= reach && (q.z - here.z).abs() <= RISE)
+                .then(|| (d, format!("creature {name} at {d:.1} m")))
         });
         let mut v: Vec<(f32, String)> = self
             .obstacles
@@ -1654,7 +1657,7 @@ impl Travel {
             .filter_map(|o| {
                 let q = global(&o.obstacle.position);
                 let d = hypotf(q.x - here.x, q.y - here.y);
-                (d <= reach).then(|| {
+                (d <= reach && (q.z - here.z).abs() <= RISE).then(|| {
                     (
                         d,
                         format!(
@@ -4242,6 +4245,45 @@ mod tests {
         let t = walk.travel.trip.as_ref().expect("the journey goes on");
         let route = t.follower.as_ref().expect("it walks on").path();
         assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    #[test]
+    fn what_a_stuck_body_is_said_to_be_near_leaves_out_what_stands_on_another_floor() {
+        let mut travel = Travel::new(StoreFiles::default());
+        let place = |x: f32, y: f32, z: f32| {
+            Position::new(
+                CellId(0xA9B3_0100),
+                Frame::new(Vec3::new(x, y, z), Quat::IDENTITY),
+            )
+        };
+        let creature = |id: u32, name: &str, at: Position| WorldObstacle {
+            obstacle: Obstacle {
+                id: ObjectId(id),
+                position: at,
+                setup: Arc::new(SetupGeometry::default()),
+                scale: 1.0,
+                kind: ObstacleKind::Creature,
+            },
+            name: String::from(name),
+        };
+        // The scriveners' shop: one standing a metre away on the body's floor, one a fifth of a
+        // metre across but on the floor above.
+        let body = place(182.06, 87.95, 116.005);
+        travel.set_obstacles(
+            vec![
+                creature(1, "Scrivener of War Magic", place(182.336, 87.006, 116.005)),
+                creature(
+                    2,
+                    "Scrivener of Creature Magic",
+                    place(182.096, 88.145, 119.005),
+                ),
+            ],
+            Some(&body),
+        );
+        assert_eq!(
+            travel.near(&body, 4.0),
+            ["creature Scrivener of War Magic at 1.0 m"]
+        );
     }
 
     #[test]
