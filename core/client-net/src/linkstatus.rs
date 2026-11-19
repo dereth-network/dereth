@@ -187,14 +187,14 @@ impl LinkStatusAverages {
     /// The head of the function computes the duration sample, the one piece of the
     /// arithmetic that is not a straight copy:
     /// The sample is the snapshot's duration by default; it is forced to 1.0 on the very first
-    /// snapshot and whenever the duration is zero, and the snapshot time is then stored.
+    /// snapshot and whenever the duration is zero or negative, and the snapshot time is then stored.
     ///
     /// It then copies the 28-byte snapshot; the six packet/byte
     /// averagers take their fields and the duration ring takes the sample. The copied
     /// round-trip delay is deliberately **not** sampled here: EchoResponse calls
     /// [`Self::on_ping_response`] at packet-arrival time.
     pub fn add_snapshot(&mut self, s: &Snapshot, local_time: f64) {
-        let sample = if self.local_time_of_snapshot == 0.0 || f64::from(s.snapshot_duration) == 0.0
+        let sample = if self.local_time_of_snapshot == 0.0 || f64::from(s.snapshot_duration) <= 0.0
         {
             1.0
         } else {
@@ -338,6 +338,27 @@ mod tests {
         assert!((INITIAL_PACKET_LOSS - 1.0).abs() < f32::EPSILON);
         assert!((HEARTBEAT_INTERVAL - 2.0).abs() < f64::EPSILON);
         assert_eq!(PACKET_SAMPLES, 40);
+    }
+
+    /// After the first snapshot, a zero or negative duration still counts as one second.
+    #[test]
+    fn a_zero_or_negative_snapshot_duration_counts_as_one_second() {
+        let mut a = LinkStatusAverages::default();
+        let lasting = |snapshot_duration| Snapshot {
+            snapshot_duration,
+            ..Snapshot::default()
+        };
+        a.add_snapshot(&lasting(2.0), 2.0);
+        a.add_snapshot(&lasting(-0.5), 4.0);
+        assert_eq!(
+            a.time_diffs.total(),
+            2.0,
+            "the first counts as 1.0, the negative one as 1.0"
+        );
+        a.add_snapshot(&lasting(0.0), 6.0);
+        assert_eq!(a.time_diffs.total(), 2.0, "1.0 + 1.0");
+        a.add_snapshot(&lasting(0.25), 8.0);
+        assert_eq!(a.time_diffs.total(), 1.25, "a positive duration is kept");
     }
 
     /// The snapshot copies the round-trip delay, but only the ping response
