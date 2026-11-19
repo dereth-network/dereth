@@ -197,7 +197,8 @@ fn slide_sphere_with_a_zero_normal_halves_the_remaining_offset() {
     let sphere = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];
     let before = t.sphere_path.check_pos.frame.origin;
-    let r = slide_sphere(&mut t, sphere, Vec3::ZERO, curr);
+    let mut normal = Vec3::ZERO;
+    let r = slide_sphere(&mut t, sphere, &mut normal, curr);
     assert_eq!(r, TransitionState::Adjusted);
     let after = t.sphere_path.check_pos.frame.origin;
     assert!(
@@ -221,7 +222,8 @@ fn slide_sphere_projects_movement_onto_the_wall_floor_crease() {
         .add_offset_to_check_pos(Vec3::new(1.0, 1.0, 0.0));
     let sphere = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];
-    let r = slide_sphere(&mut t, sphere, Vec3::new(-1.0, 0.0, 0.0), curr);
+    let mut normal = Vec3::new(-1.0, 0.0, 0.0);
+    let r = slide_sphere(&mut t, sphere, &mut normal, curr);
     assert_eq!(r, TransitionState::Slid);
     // The X component of the move is removed, the Y component survives.
     let moved = t
@@ -232,6 +234,50 @@ fn slide_sphere_projects_movement_onto_the_wall_floor_crease() {
         .sub(Vec3::new(12.0, 12.0, 20.5));
     assert!(moved.x.abs() < 1e-4, "{moved:?}");
     assert!((moved.y - 1.0).abs() < 1e-4, "{moved:?}");
+}
+
+/// A surface facing straight against the ground the mover stands on, met along the move: the
+/// mover stops, and the normal it was handed becomes the move's own direction backwards, as the
+/// collision normal does.
+#[test]
+fn slide_sphere_into_a_surface_against_the_ground_hands_back_the_move_reversed() {
+    let (mut t, _) = transition_on_flat_ground(20.5);
+    t.collision_info.set_contact_plane(
+        Plane {
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            d: -20.0,
+        },
+        false,
+    );
+    t.sphere_path
+        .add_offset_to_check_pos(Vec3::new(3.0, 4.0, 0.0));
+    let sphere = t.sphere_path.global_sphere[0];
+    let curr = t.sphere_path.global_curr_center[0];
+    let mut normal = Vec3::new(0.0, 0.0, -1.0);
+    let r = slide_sphere(&mut t, sphere, &mut normal, curr);
+    assert_eq!(r, TransitionState::Collided);
+    let back = Vec3::new(-0.6, -0.8, 0.0);
+    assert!(normal.sub(back).mag2() < 1e-8, "{normal:?}");
+    assert!(
+        t.collision_info.collision_normal.sub(back).mag2() < 1e-8,
+        "the collision normal too"
+    );
+}
+
+/// The step-up slide keeps the normal the slide hands back as the sphere path's step-up normal.
+#[test]
+fn the_step_up_slide_keeps_the_normal_the_slide_hands_back() {
+    let (mut t, _) = transition_on_flat_ground(20.5);
+    t.collision_info.last_known_contact_plane = Plane {
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        d: -20.0,
+    };
+    t.sphere_path
+        .add_offset_to_check_pos(Vec3::new(3.0, 4.0, 0.0));
+    t.sphere_path.step_up_normal = Vec3::new(0.0, 0.0, -1.0);
+    assert_eq!(step_up_slide(&mut t), TransitionState::Collided);
+    let n = t.sphere_path.step_up_normal;
+    assert!(n.sub(Vec3::new(-0.6, -0.8, 0.0)).mag2() < 1e-8, "{n:?}");
 }
 
 #[test]

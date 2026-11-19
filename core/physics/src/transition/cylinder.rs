@@ -80,7 +80,7 @@ pub fn slide_cyl_sphere(
         return TransitionState::Collided;
     }
     let curr = t.sphere_path.global_curr_center[index];
-    slide_sphere(t, *sphere, n, curr)
+    slide_sphere(t, *sphere, &mut n, curr)
 }
 
 /// The cylinder's step up.
@@ -121,8 +121,10 @@ pub fn step_cyl_sphere_up(
     t.sphere_path.step_up = false;
     let s0 = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];
-    let up_n = t.sphere_path.step_up_normal;
-    slide_sphere(t, s0, up_n, curr)
+    let mut up_n = t.sphere_path.step_up_normal;
+    let r = slide_sphere(t, s0, &mut up_n, curr);
+    t.sphere_path.step_up_normal = up_n;
+    r
 }
 
 /// The cylinder's step down.

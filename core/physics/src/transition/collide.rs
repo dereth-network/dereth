@@ -30,19 +30,21 @@ use crate::transition::{Transition, TransitionCtx, TransitionState};
 ///
 /// `sphere` is the **mover's** sphere at the check position and `curr_center` its centre at
 /// `curr_pos`; `normal` is the surface normal to slide along. With a zero normal it just halves
-/// the remaining offset and returns `ADJUSTED_TS`.
+/// the remaining offset and returns `ADJUSTED_TS`. Where the move runs into the surface along its
+/// own line it stops, and `normal` becomes the move's own direction backwards, which the caller
+/// keeps (the step-up normal, a back face's normal).
 pub fn slide_sphere(
     t: &mut Transition,
     sphere: Sphere,
-    normal: Vec3,
+    normal_out: &mut Vec3,
     curr_center: Vec3,
 ) -> TransitionState {
+    let normal = *normal_out;
     if normal.x == 0.0 && normal.y == 0.0 && normal.z == 0.0 {
         let v = curr_center.sub(sphere.center).mul(0.5);
         t.sphere_path.add_offset_to_check_pos(v);
         return TransitionState::Adjusted;
     }
-    let mut normal = normal;
     t.collision_info.set_collision_normal(normal);
     let d = t
         .sphere_path
@@ -85,8 +87,7 @@ pub fn slide_sphere(
         if !n.normalize_check_small() {
             t.collision_info.set_collision_normal(n);
         }
-        normal = n;
-        let _ = normal;
+        *normal_out = n;
         TransitionState::Collided
     } else {
         let offset = normal.mul(-d.dot(normal));
@@ -103,7 +104,7 @@ pub fn slide_sphere(
 pub fn slide(t: &mut Transition, sphere: Sphere, normal: &mut Vec3, curr: Vec3) -> TransitionState {
     match t.rules.slide {
         Some(world) if !t.object_info.slides => (world.along)(t, &sphere, normal, curr),
-        _ => slide_sphere(t, sphere, *normal, curr),
+        _ => slide_sphere(t, sphere, normal, curr),
     }
 }
 
@@ -179,7 +180,7 @@ pub fn slide_sphere_from_centers(
     }
     let sphere = t.sphere_path.global_sphere[index];
     let curr = t.sphere_path.global_curr_center[index];
-    slide_sphere(t, sphere, n, curr)
+    slide_sphere(t, sphere, &mut n, curr)
 }
 
 /// A mover that steps ([`super::objectinfo::ObjectInfo::steps`]), meeting a rise whose face
@@ -227,8 +228,10 @@ pub fn step_sphere_up(
         t.sphere_path.step_up = false;
         let sphere = t.sphere_path.global_sphere[0];
         let curr = t.sphere_path.global_curr_center[0];
-        let n = t.sphere_path.step_up_normal;
-        slide_sphere(t, sphere, n, curr)
+        let mut n = t.sphere_path.step_up_normal;
+        let r = slide_sphere(t, sphere, &mut n, curr);
+        t.sphere_path.step_up_normal = n;
+        r
     }
 }
 
@@ -497,7 +500,8 @@ fn glide_on_ground(
     let mut result = TransitionState::Adjusted;
     if sphere.center.sub(began).dot(plane.normal) < 0.0 {
         let s = t.sphere_path.global_sphere[0];
-        result = slide_sphere(t, s, plane.normal, curr);
+        let mut n = plane.normal;
+        result = slide_sphere(t, s, &mut n, curr);
         if result != TransitionState::Slid {
             return result;
         }
@@ -1067,7 +1071,8 @@ fn bsp_find_collisions_on(
             }
             let sphere = t.sphere_path.global_sphere[0];
             let curr = t.sphere_path.global_curr_center[0];
-            return slide_sphere(t, sphere, n, curr);
+            let mut n = n;
+            return slide_sphere(t, sphere, &mut n, curr);
         }
         if hit || hit_poly.is_some() {
             let Some(p) = hit_poly else {
