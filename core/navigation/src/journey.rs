@@ -37,6 +37,46 @@ pub enum Realm {
     /// it, that a walk reaches; another region (a crater walled off from the land round it) only
     /// a portal does.
     Land(u32),
+    /// One stretch of floor of a dungeon part whose places are built: what a walk joins. A part
+    /// can hold floors no walk joins (a mine's lower levels under the holes in its upper), that
+    /// only a portal or a drop off a ledge leads between.
+    Set {
+        /// The part.
+        part: CellId,
+        /// The stretch of floor, as the part's places label it.
+        set: u32,
+    },
+}
+
+/// How much faster than its own full-power jump leaves the ground a body may come down and land
+/// unhurt: the server hurts a landing faster than about one and a half times the character's
+/// jump speed, so a drop is taken only below that.
+pub const HARMLESS_LANDING: f32 = 1.5;
+
+/// The least a jump rises, metres: a feather-touch jump's, which is how a body leaves a ledge. A
+/// walk cannot: the edge holds a walking body back.
+pub const LEAST_JUMP_RISE: f32 = 0.35;
+
+/// The highest drop a character whose full-power jump leaves the ground at `jump_speed` (metres a
+/// second) falls unhurt, metres: hopping off the ledge with the least jump, it comes down from
+/// [`LEAST_JUMP_RISE`] above it at under [`HARMLESS_LANDING`] times its jump speed.
+#[must_use]
+pub fn survivable_drop(jump_speed: f32) -> f32 {
+    let landing = HARMLESS_LANDING * jump_speed;
+    (landing * landing / (-2.0 * dereth_primitives::num::consts::GRAVITY) - LEAST_JUMP_RISE)
+        .max(0.0)
+}
+
+/// A drop off a ledge: from where the body stands at the ledge's edge, down to where it lands.
+/// One way only, and taken only where nothing else leads on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropLink {
+    /// Where to stand at the ledge's edge.
+    pub stand: Position,
+    /// Where the body lands.
+    pub land: Position,
+    /// How far it falls, metres.
+    pub height: f32,
 }
 
 /// One way a character can teleport from anywhere.
@@ -72,6 +112,9 @@ pub struct CharacterState {
     pub recall_commands: Vec<(Recall, String)>,
     /// Whether it may cast now (not in a cooldown, not busy).
     pub can_cast: bool,
+    /// How fast its full-power jump leaves the ground, metres a second, when known: how high a
+    /// drop it lands from unhurt ([`survivable_drop`]).
+    pub jump_speed: Option<f32>,
 }
 
 impl CharacterState {
@@ -163,6 +206,11 @@ pub enum Leg {
     HandBack {
         /// The person.
         hand_back: HandBack,
+    },
+    /// Step off the ledge, standing at its `stand`, and come down at its `land`.
+    Drop {
+        /// The drop.
+        drop: DropLink,
     },
 }
 
@@ -322,13 +370,19 @@ pub fn plan_journey(
 enum Link<'a> {
     Portal(&'a PortalEdge),
     HandBack(&'a HandBack),
+    Drop(&'a DropLink),
 }
+
+/// Seconds a drop takes, from standing at the ledge to standing below: the step off, the fall and
+/// the landing.
+const DROP_SECONDS: f32 = 3.0;
 
 impl Link<'_> {
     fn from(&self) -> Position {
         match self {
             Self::Portal(p) => p.from,
             Self::HandBack(h) => h.at,
+            Self::Drop(d) => d.stand,
         }
     }
 
@@ -336,6 +390,7 @@ impl Link<'_> {
         match self {
             Self::Portal(p) => p.to,
             Self::HandBack(h) => Some(h.to),
+            Self::Drop(d) => Some(d.land),
         }
     }
 
@@ -346,6 +401,7 @@ impl Link<'_> {
                 config.portal_seconds + (1.0 - p.source.confidence()) * config.doubt_seconds
             }
             Self::HandBack(_) => config.hand_back_seconds,
+            Self::Drop(_) => DROP_SECONDS,
         }
     }
 
@@ -355,6 +411,7 @@ impl Link<'_> {
             Self::HandBack(h) => Leg::HandBack {
                 hand_back: (*h).clone(),
             },
+            Self::Drop(d) => Leg::Drop { drop: (*d).clone() },
         }
     }
 }
@@ -362,7 +419,6 @@ impl Link<'_> {
 /// [`plan_journey`], with the `hand_backs` the character can use besides: each is taken from
 /// where its person stands, as a portal is.
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn plan_journey_with(
     from: &Position,
     to: &Position,
@@ -372,11 +428,56 @@ pub fn plan_journey_with(
     realm: &dyn Fn(&Position) -> Option<Realm>,
     config: &JourneyConfig,
 ) -> Option<Journey> {
+    plan_journey_with_drops(from, to, portals, teleports, hand_backs, &[], realm, config)
+}
+
+/// [`plan_journey_with`], and only where that finds none, with the `drops` off ledges besides: a
+/// drop is the last resort, taken where no walk, portal, recall or hand-back reaches the goal.
+/// `drops` is asked for only then.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn plan_journey_or_drop(
+    from: &Position,
+    to: &Position,
+    portals: &[&PortalEdge],
+    teleports: &[Teleport],
+    hand_backs: &[HandBack],
+    drops: impl FnOnce() -> Vec<DropLink>,
+    realm: &dyn Fn(&Position) -> Option<Realm>,
+    config: &JourneyConfig,
+) -> Option<Journey> {
+    plan_journey_with(from, to, portals, teleports, hand_backs, realm, config).or_else(|| {
+        let drops = drops();
+        if drops.is_empty() {
+            return None;
+        }
+        plan_journey_with_drops(
+            from, to, portals, teleports, hand_backs, &drops, realm, config,
+        )
+    })
+}
+
+/// [`plan_journey_with`], with the `drops` off ledges besides: each is taken one way, from where
+/// the body stands at the ledge, as a portal is. A caller offers them only where no journey
+/// without them reaches the goal.
+#[must_use]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn plan_journey_with_drops(
+    from: &Position,
+    to: &Position,
+    portals: &[&PortalEdge],
+    teleports: &[Teleport],
+    hand_backs: &[HandBack],
+    drops: &[DropLink],
+    realm: &dyn Fn(&Position) -> Option<Realm>,
+    config: &JourneyConfig,
+) -> Option<Journey> {
     let (start_realm, goal_realm) = (realm(from)?, realm(to)?);
     let portals: Vec<Link> = portals
         .iter()
         .map(|p| Link::Portal(p))
         .chain(hand_backs.iter().map(Link::HandBack))
+        .chain(drops.iter().map(Link::Drop))
         .collect();
     // Realms one portal (or hand-back) leads between, and where each teleport lands.
     let ends: Vec<Option<(Realm, Realm)>> = portals
@@ -652,6 +753,140 @@ mod tests {
         }
     }
 
+    /// A mine of two floors no walk joins: its upper (cells from `0x0300`) and, under holes in
+    /// it, its lower (below `0x0300`); a drop off a ledge leads from the upper down to the lower.
+    mod mine {
+        use super::*;
+
+        pub(super) fn realm(p: &Position) -> Option<Realm> {
+            if p.cell.0 >> 16 != 0x01AE {
+                return land_realm(p.cell).or(Some(Realm::Outdoors));
+            }
+            let set = u32::from(p.cell.0 & 0xFFFF < 0x0300);
+            Some(Realm::Set {
+                part: CellId(0x01AE_0100),
+                set,
+            })
+        }
+
+        pub(super) fn hole() -> DropLink {
+            DropLink {
+                stand: at(0x01AE_0369, 139.0, -95.0),
+                land: at(0x01AE_024F, 139.0, -96.0),
+                height: 12.0,
+            }
+        }
+
+        pub(super) fn portal(from: Position, to: Position) -> PortalEdge {
+            PortalEdge {
+                to: Some(to),
+                from,
+                name: String::from("Colier Mine Portal"),
+                ..portal_to_dungeon(EdgeSource::Published)
+            }
+        }
+    }
+
+    #[test]
+    fn a_drop_is_taken_only_where_nothing_else_reaches_and_only_down() {
+        let entrance = at(0x01AE_032C, 76.6, -97.4);
+        let below = at(0x01AE_01FE, 98.0, -28.3);
+        let config = JourneyConfig::default();
+        let asked = std::cell::Cell::new(0);
+        let drops = || {
+            asked.set(asked.get() + 1);
+            vec![mine::hole()]
+        };
+        // Nothing else: walk to the ledge, drop, walk on.
+        let j = plan_journey_or_drop(
+            &entrance,
+            &below,
+            &[],
+            &[],
+            &[],
+            drops,
+            &mine::realm,
+            &config,
+        )
+        .expect("the drop");
+        assert!(
+            matches!(
+                j.legs.as_slice(),
+                [Leg::Walk { to }, Leg::Drop { drop }, Leg::Walk { .. }]
+                    if *to == mine::hole().stand && *drop == mine::hole()
+            ),
+            "{:?}",
+            j.legs
+        );
+        // A walk on the floor the body is on: no drop, and none asked for.
+        asked.set(0);
+        let near = at(0x01AE_0361, 140.4, -67.5);
+        let j = plan_journey_or_drop(
+            &entrance,
+            &near,
+            &[],
+            &[],
+            &[],
+            drops,
+            &mine::realm,
+            &config,
+        )
+        .expect("a walk");
+        assert!(j.legs.iter().all(|l| matches!(l, Leg::Walk { .. })));
+        assert_eq!(asked.get(), 0, "drops are not even looked for");
+        // A portal round from the street outside into the lower floor: that, not the drop.
+        let street = at(0xA9B4_0011, 50.0, 50.0);
+        let (out_of, into) = (
+            mine::portal(at(0x01AE_032C, 76.0, -98.0), street),
+            mine::portal(at(0xA9B4_0011, 60.0, 50.0), below),
+        );
+        let j = plan_journey_or_drop(
+            &entrance,
+            &below,
+            &[&out_of, &into],
+            &[],
+            &[],
+            drops,
+            &mine::realm,
+            &config,
+        )
+        .expect("by the portals");
+        assert!(
+            !j.legs.iter().any(|l| matches!(l, Leg::Drop { .. })),
+            "{:?}",
+            j.legs
+        );
+        assert_eq!(asked.get(), 0);
+        // A drop leads one way: nothing back up from the lower floor.
+        assert!(plan_journey_or_drop(
+            &below,
+            &entrance,
+            &[],
+            &[],
+            &[],
+            drops,
+            &mine::realm,
+            &config
+        )
+        .is_none());
+    }
+
+    /// The highest drop a character takes keeps its landing under every landing retail's server
+    /// hurt, for that character's jump: three of the nearest the boundary (full-power jump speed,
+    /// landing speed). A 12-metre hole is a drop for a jump of 10.5 metres a second, not for 10.
+    #[test]
+    fn the_highest_drop_lands_slower_than_any_landing_retail_hurt_for_that_jump() {
+        let g = -dereth_primitives::num::consts::GRAVITY;
+        for (jump, hurt) in [(8.85_f32, 13.42_f32), (6.35, 9.65), (10.08, 15.63)] {
+            let hop = 2.0 * g * LEAST_JUMP_RISE;
+            let landing = (hop + 2.0 * g * survivable_drop(jump)).sqrt();
+            assert!(landing < hurt, "{jump}: {landing} against {hurt}");
+            assert!((landing - HARMLESS_LANDING * jump).abs() < 1e-3);
+        }
+        assert!(survivable_drop(10.5) >= 12.0 && survivable_drop(10.0) < 12.0);
+        assert_eq!(survivable_drop(0.0), 0.0);
+    }
+
     /// The cheapest journey's cost by the plain search: every node walks to every other node of
     /// its realm, nothing left out.
     fn exhaustive(
@@ -891,6 +1126,7 @@ mod tests {
             recall_items: Vec::new(),
             recall_commands: vec![(Recall::Lifestone, String::from("lifestone"))],
             can_cast: true,
+            jump_speed: None,
         };
         // Ten landblocks away from home: recalling beats a long walk.
         let far = at(0xB3B4_0001, 10.0, 10.0);

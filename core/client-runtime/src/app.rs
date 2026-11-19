@@ -1281,6 +1281,30 @@ const NAV_RECALL_KINDS: [u32; 2] = [6, 8];
 
 /// What `--nav-proof` needs of the player for choosing teleports: name, level, mana, the
 /// recall-type spells in its spellbook and the recall items it carries.
+/// How fast the character's full-power jump leaves the ground, metres a second, as the jump
+/// itself works it out (burden, jump skill and the world's jump scale): how high a drop a journey
+/// may take. `None` while its qualities or the skill table are not known, or it is too burdened
+/// to jump.
+fn nav_jump_speed(
+    qualities: Option<&dereth_client_model::Qualities>,
+    skills: Option<&dereth_assets::tables::SkillTable>,
+    filter: Option<&dereth_assets::tables::QualityFilter>,
+    rules: &dereth_primitives::WorldRules,
+) -> Option<f32> {
+    let qualities = qualities?;
+    let load = dereth_rules::burden::inq_load_in(qualities, rules);
+    if load >= 2.0 {
+        return None;
+    }
+    let skill = dereth_rules::skills::inq_jump_skill(qualities, skills?, filter)?;
+    Some(dereth_rules::movement::jump_velocity(
+        load,
+        skill,
+        1.0,
+        rules.jump_scale,
+    ))
+}
+
 fn nav_character(
     world: &dereth_client_model::world::World,
     spells: Option<&dereth_assets::tables::SpellTable>,

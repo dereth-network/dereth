@@ -135,7 +135,10 @@ fails `no_path` (nothing known reaches the target), `no_target`, `no_route` (a w
 `door_shut: <door> is locked, the server says` or `door_shut: <door> did not open after 4 uses` (a
 door on the way would not open and no walk goes round it; the last `door` leg names it too),
 `refused: …` (a portal on the only way refuses the character, saying why: a level it needs, a quest
-it asks, or what the server said when it refused it before), `stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
+it asks, or what the server said when it refused it before), `only_by_drop: …` (only a drop the body
+would not survive leads on), `drop_blocked: …` (the body could not leave the ledge of a drop),
+`drop_failed: …`, `stuck`, `too_many_replans`, `interrupted` (the player moved the character),
+`stopped` (`nav.stop()`),
 `replaced`, `declined` (the player said no to leaving the Academy), `needs the player to agree to
 leave the Training Academy` (it would hand a token back, and `hand_backs` was not given), or at a
 hand-back `no_token`
@@ -148,8 +151,9 @@ A journey's progress arrives as events, to the plugin whose journey it is:
   again (`reason` says why);
 - `nav.journey_leg` `{ id, index, kind, to, … }` as each leg begins; `kind` is `walk` (with its
   `path` once its route is planned), `door` (`object`), `portal` (`name`, `class`, `from`,
-  `source`: `learned`, `published` or `hint`), `recall` (`name`, `recall`, `item`) or `hand_back`
-  (`name`, the person; `token`; `from`, where they stand);
+  `source`: `learned`, `published` or `hint`), `recall` (`name`, `recall`, `item`), `hand_back`
+  (`name`, the person; `token`; `from`, where they stand) or `drop` (`from`, the ledge; `height`,
+  metres: a hop off a ledge, taken one way and only where nothing else reaches the target);
 - `nav.journey_learned` `{ id, kind, … }`: `portal` (`name`, `to`), `refusal` (`name`, `reason`) or
   `recall` (`recall`, `to`).
 

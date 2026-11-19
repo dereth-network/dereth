@@ -749,10 +749,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-drop-is-taken-only-where-the-character-lands-unhurt",
+        says: "A journey takes a drop off a ledge only where the character lands from it unhurt: \
+               the server hurts a landing faster than about one and a half times the \
+               character's own full-power jump speed, which its burden, its jump skill and the \
+               world's jump scale set, so the highest drop taken is the one a hop off the ledge \
+               with the least jump lands from at one and a half times it. A character whose jump \
+               is not known takes none. Colier Mine's floors under its 12-metre holes are \
+               reached so by a character jumping at 10.5 metres a second, and not by one at 10.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-RR1003-FALL-DAMAGE"),
+        station: "dereth-navigation::dat::drops::colier_mines_floors_under_its_holes_are_reached_from_its_entrance_by_a_drop",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-dungeons-drops-are-links-of-its-mesh-marked-and-never-walked",
         says: "The client's planner finds a dungeon's drops off its ledges when it builds the dungeon's \
                mesh and holds them as links of it, kept with it between sessions: marked, never \
-               walked, so that a way only a drop leads on names the drop rather than taking it.",
+               walked, so that a walk a way only a drop leads on names the drop rather than \
+               taking it; a journey takes it only where nothing else leads on.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DROP-LINKS"),
@@ -1039,18 +1055,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "plugins.nav.a-way-only-a-drop-leads-on-is-no-route-and-names-the-drop",
-        says: "The client's planner only walks: it never takes a fall or a jump by itself. Where \
-               no walk reaches a place but a drop off a ledge does (a metre of open air beyond \
-               the ledge, nothing to catch the body before the floor below), it answers no \
-               route and names the drop: where to stand, where the body lands and how far it \
-               falls. In the Black Dominion, below the floor its stairs and ramps reach 48 m \
-               down from the portal, it names a ledge six metres high, and a body jumping off \
-               there comes down on the floor below.",
+        id: "plugins.nav.a-way-only-a-drop-leads-on-is-taken-by-the-drop",
+        says: "The client's planner never walks a drop by itself: where no walk reaches a place \
+               but a drop off a ledge does (a metre of open air beyond the ledge, nothing to \
+               catch the body before the floor below), the walk answers no route and names the \
+               drop. A journey takes the drop, one way, only where no walk, portal, recall or \
+               hand-back reaches the goal, and only a fall the body lands from unhurt: the body \
+               walks to the ledge, hops off it with the least jump (the edge holds a walking \
+               body back), and walks on from where it comes down. In the Black Dominion, below \
+               the floor its stairs and ramps reach 48 m down from the portal, the way to its \
+               bottom is six such drops of 6 to 12 metres; in Colier Mine its floors at -12 m \
+               and 12 m are one 12-metre drop down a hole from its entrance. Where a walk \
+               reaches, no drop is taken or looked for.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DROP"),
-        station: "dereth-navigation::dat::drops::a_route_down_the_black_dominion_past_its_ledge_is_none_and_names_the_drop_a_jump_takes",
+        station: "dereth-navigation::dat::drops::a_journey_down_the_black_dominion_past_its_ledge_takes_the_drop_no_walk_takes",
         tier: Tier::Dat,
     },
     behaviour! {

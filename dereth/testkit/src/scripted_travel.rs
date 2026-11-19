@@ -420,6 +420,11 @@ impl ScriptedTravel {
                         at: hand_back.at,
                         to: hand_back.to,
                     },
+                    Leg::Drop { drop } => TravelLeg::Drop {
+                        from: drop.stand,
+                        to: drop.land,
+                        height: drop.height,
+                    },
                 })
                 .collect(),
             seconds: j.seconds,
@@ -507,8 +512,9 @@ impl ScriptedTravel {
         t.phase = Some(match leg {
             Leg::Walk { to } => Phase::Walk { to },
             Leg::Portal { edge } => Phase::Walk { to: edge.from },
-            // A scripted case offers no hand-backs: its journeys never plan one.
+            // A scripted case offers no hand-backs or drops: its journeys never plan one.
             Leg::HandBack { hand_back } => Phase::Walk { to: hand_back.at },
+            Leg::Drop { drop } => Phase::Walk { to: drop.land },
             Leg::Teleport { teleport } => {
                 self.moves
                     .push(format!("travel recall {}", teleport.recall.word()));
@@ -624,6 +630,7 @@ impl ScriptedTravel {
                         Leg::Portal { edge } => edge.to,
                         Leg::Teleport { teleport } => Some(teleport.to),
                         Leg::HandBack { hand_back } => Some(hand_back.to),
+                        Leg::Drop { drop } => Some(drop.land),
                     })
                     .collect(),
                 goal: t.goal,

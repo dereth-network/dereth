@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use dereth_dat::RetailDatStore;
 use dereth_navigation::{
-    plan_journey_with, Done, HandBack, Journey, JourneyConfig, NavPath, NoPath, Obstacle,
-    PortalEdge, Realm, Refusal, Task, Teleport,
+    Done, HandBack, Journey, JourneyConfig, NavPath, NoPath, Obstacle, PortalEdge, Realm, Refusal,
+    Task, Teleport,
 };
 use dereth_primitives::{CellId, ObjectId, Position};
 use dereth_world_data::land_source::DatLandSource;
@@ -60,6 +60,9 @@ pub enum Job {
         teleports: Vec<Teleport>,
         hand_backs: Vec<HandBack>,
         reach: Option<f32>,
+        /// The highest drop off a ledge the character lands from unhurt, metres; `0.0` for
+        /// none. A journey takes a drop only where nothing else reaches the goal.
+        highest_drop: f32,
     },
     /// The objects in the world now (doors, other solid objects, creatures), replacing the last.
     Obstacles(Vec<Obstacle>),
@@ -227,6 +230,7 @@ struct Ask {
     teleports: Vec<Teleport>,
     hand_backs: Vec<HandBack>,
     reach: Option<f32>,
+    highest_drop: f32,
 }
 
 /// The most interior cells looked at to tell whether a cell of a landblock that is not loaded is
@@ -458,6 +462,7 @@ impl Worker {
                 teleports,
                 hand_backs,
                 reach,
+                highest_drop,
             } => {
                 let Some(to) = self.place_of(to) else {
                     out.push(Answer::Journey {
@@ -479,6 +484,7 @@ impl Worker {
                         teleports,
                         hand_backs,
                         reach,
+                        highest_drop,
                     },
                 });
             }
@@ -499,6 +505,7 @@ impl Worker {
             teleports: ask.teleports.clone(),
             hand_backs: ask.hand_backs.clone(),
             reach: ask.reach,
+            highest_drop: ask.highest_drop,
         };
         all.portals
             .extend(ask.refused.iter().map(|(e, _)| e.clone()));
@@ -527,6 +534,11 @@ impl Worker {
     /// plan: a building's inside (where many portals stand) is told from a dungeon (where nearly
     /// every portal leads).
     fn realm_of(&self, p: &Position) -> Option<Realm> {
+        // Where the dungeon's places are built, the stretch of floor a walk joins: a part's
+        // floors under holes in its upper ones are apart.
+        if let Some(set) = self.nav.walk_set(p) {
+            return Some(set);
+        }
         let r = self.nav.realm(p).or_else(|| {
             (p.cell.0 & 0xFFFF >= 0x0100).then(|| self.far.borrow_mut().of(&self.store, p.cell))
         });
@@ -554,12 +566,24 @@ impl Worker {
         let clock = web_time::Instant::now();
         let realm = |p: &Position| self.realm_of(p);
         let portals: Vec<&PortalEdge> = ask.portals.iter().collect();
-        let j = plan_journey_with(
+        // A drop off a ledge only where nothing else reaches the goal: one way, and only where
+        // the body falls unhurt.
+        let drops = || {
+            if ask.highest_drop <= 0.0 {
+                return Vec::new();
+            }
+            [&ask.from, to]
+                .into_iter()
+                .flat_map(|p| self.nav.drops(p, ask.highest_drop))
+                .collect()
+        };
+        let j = dereth_navigation::plan_journey_or_drop(
             &ask.from,
             to,
             &portals,
             &ask.teleports,
             &ask.hand_backs,
+            drops,
             &realm,
             &JourneyConfig::default(),
         )?;
@@ -1013,6 +1037,7 @@ mod guard_tests {
                 teleports: Vec::new(),
                 hand_backs: Vec::new(),
                 reach: None,
+                highest_drop: 0.0,
             },
             Job::Route {
                 id: 8,
@@ -1147,6 +1172,7 @@ mod refusal_tests {
             teleports: Vec::new(),
             hand_backs: Vec::new(),
             reach: None,
+            highest_drop: 0.0,
         });
         let answers = planning.answers_waited();
         match answers.as_slice() {
@@ -1244,6 +1270,7 @@ mod land_region_tests {
                 teleports: Vec::new(),
                 hand_backs: Vec::new(),
                 reach: None,
+                highest_drop: 0.0,
             });
             planning.answers_waited()
         };

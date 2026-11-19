@@ -2665,6 +2665,7 @@ impl PluginHost {
             TravelLeg::Portal { name, .. } => format!("Portal: {name}"),
             TravelLeg::Recall { name, .. } => format!("Recall: {name}"),
             TravelLeg::HandBack { name, .. } => format!("Hand back: {name}"),
+            TravelLeg::Drop { height, .. } => format!("Drop: {height:.0} m"),
         };
         let mut out = Vec::new();
         if can(overlay::Kind::Arrow) {

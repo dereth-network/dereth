@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Navigator: drops off a ledge when nothing else gets there, if the fall won't hurt.
 - Fixed the Navigator's turns swinging back and forth at low frame rates.
 - Horizon map: the whole world shows only towns, with more places as you zoom in.
 - Fixed the Navigator stopping downstairs, and waiting at portals that turn you away.

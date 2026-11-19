@@ -160,11 +160,19 @@ impl<S: Shell> App<S> {
             idle,
             land: land.as_ref(),
             store: &self.store,
-            character: nav_character(
-                &self.objects.world,
-                self.nav_spells.as_deref(),
-                self.hud.era.features(),
-            ),
+            character: dereth_navigation::CharacterState {
+                jump_speed: super::nav_jump_speed(
+                    self.hud.player_desc(&self.objects.world),
+                    self.hud.skill_table.as_ref(),
+                    self.hud.quality_filter.as_ref(),
+                    &self.objects.world.world_rules,
+                ),
+                ..nav_character(
+                    &self.objects.world,
+                    self.nav_spells.as_deref(),
+                    self.hud.era.features(),
+                )
+            },
             stance: nav_stance(&self.objects.world),
             portals,
             world,
@@ -203,6 +211,20 @@ impl<S: Shell> App<S> {
                 } else {
                     crate::actions::Action::end(MOVE_FORWARD)
                 }),
+                TravelCommand::Walk(on) => self.actions.steer(if on {
+                    crate::actions::Action::begin(
+                        dereth_client_contract::actions::movement::TOGGLE_RUN_WALK,
+                    )
+                } else {
+                    crate::actions::Action::end(
+                        dereth_client_contract::actions::movement::TOGGLE_RUN_WALK,
+                    )
+                }),
+                TravelCommand::Jump => {
+                    use dereth_client_contract::actions::movement::JUMP;
+                    self.actions.steer(crate::actions::Action::begin(JUMP));
+                    self.actions.steer(crate::actions::Action::end(JUMP));
+                }
                 TravelCommand::Turn(turn) => {
                     // Release both, then hold the one asked for.
                     self.actions.steer(crate::actions::Action::end(TURN_LEFT));

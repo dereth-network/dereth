@@ -160,6 +160,12 @@ pub enum TravelLeg {
         at: Position,
         to: Position,
     },
+    /// Step off the ledge at `from` and come down at `to`, `height` metres below.
+    Drop {
+        from: Position,
+        to: Position,
+        height: f32,
+    },
 }
 
 impl TravelLeg {
@@ -172,6 +178,7 @@ impl TravelLeg {
             Self::Portal { .. } => "portal",
             Self::Recall { .. } => "recall",
             Self::HandBack { .. } => "hand_back",
+            Self::Drop { .. } => "drop",
         }
     }
 
@@ -182,7 +189,9 @@ impl TravelLeg {
             Self::Walk { to, .. } => Some(*to),
             Self::Door { at, .. } => Some(*at),
             Self::Portal { to, .. } => *to,
-            Self::Recall { to, .. } | Self::HandBack { to, .. } => Some(*to),
+            Self::Recall { to, .. } | Self::HandBack { to, .. } | Self::Drop { to, .. } => {
+                Some(*to)
+            }
         }
     }
 
@@ -210,6 +219,11 @@ impl TravelLeg {
                 token: hand_back.token.clone(),
                 at: hand_back.at,
                 to: hand_back.to,
+            },
+            Leg::Drop { drop } => Self::Drop {
+                from: drop.stand,
+                to: drop.land,
+                height: drop.height,
             },
         }
     }
@@ -342,6 +356,10 @@ pub struct TravelStatus {
 pub enum TravelCommand {
     /// Hold or release the forward key.
     Forward(bool),
+    /// Hold or release the walk key: forward walks rather than runs while it is held.
+    Walk(bool),
+    /// Jump, the least a jump can: the key pressed and let go at once.
+    Jump,
     /// Hold the turn-left key (`Some(false)`), the turn-right key (`Some(true)`), or neither.
     Turn(Option<bool>),
     /// Face this heading at once, degrees clockwise from north: the last of a turn, less than a
@@ -606,6 +624,16 @@ enum Step {
         hand_back: HandBack,
         tries: HandBackTries,
     },
+    /// At a ledge: walking at it since `since` (wall seconds), hopping off it (`hops` so far),
+    /// then, once `off`, falling until the body stops coming down (`still` steps at `last_z`).
+    Drop {
+        drop: dereth_navigation::DropLink,
+        since: f64,
+        hops: u32,
+        off: bool,
+        last_z: f32,
+        still: u32,
+    },
 }
 
 /// How a hand-back stands: when the person was last used for the token and how often, when the
@@ -725,6 +753,9 @@ struct Trip {
     lock_answers: BTreeSet<u32>,
     /// Doors that have had their second go: if they stay shut, the journey has no way through them.
     tried_again: BTreeSet<u32>,
+    /// Whether the journey was planned again because only a drop led on from a walk: once the
+    /// walk's places are built, its floors no walk joins are told apart.
+    drop_replanned: bool,
     /// Recalls that did not land on this trip: not offered again.
     disabled: BTreeSet<Recall>,
     /// Where portals stand that no walk reaches from the land the trip walked on (a portal on a
@@ -1145,6 +1176,8 @@ pub struct Travel {
     pub wait_for_plans: bool,
     forward: bool,
     turning: Option<bool>,
+    /// Whether the walk key is held: a drop is stepped off at a walk.
+    walk_held: bool,
     /// When the character was first seen in the magic stance, while getting ready to cast.
     magic_since: Option<f64>,
     obstacles: Vec<WorldObstacle>,
@@ -1201,6 +1234,7 @@ impl Travel {
             wait_for_plans: false,
             forward: false,
             turning: None,
+            walk_held: false,
             magic_since: None,
             obstacles: Vec::new(),
             creatures_seen: Vec::new(),
@@ -1305,6 +1339,7 @@ impl Travel {
                 Leg::Portal { edge } => edge.from,
                 Leg::Teleport { teleport } => teleport.to,
                 Leg::HandBack { hand_back } => hand_back.at,
+                Leg::Drop { drop } => drop.stand,
             });
         let mut shown = t.leg;
         if let Some(j) = t.journey.as_ref() {
@@ -1313,6 +1348,7 @@ impl Travel {
                 Leg::Portal { edge } => edge.to,
                 Leg::Teleport { teleport } => Some(teleport.to),
                 Leg::HandBack { hand_back } => Some(hand_back.to),
+                Leg::Drop { drop } => Some(drop.land),
             }));
             // The shown legs split the first walk at its doors: past it, the index moves on by as
             // many legs as that split added.
@@ -1678,6 +1714,10 @@ impl Travel {
             out.push(TravelCommand::Forward(false));
             self.forward = false;
         }
+        if self.walk_held {
+            out.push(TravelCommand::Walk(false));
+            self.walk_held = false;
+        }
         if self.turning.is_some() {
             out.push(TravelCommand::Turn(None));
             self.turning = None;
@@ -1820,6 +1860,11 @@ impl Travel {
             teleports,
             hand_backs,
             reach: object.then_some(OBJECT_REACH),
+            // Only a drop the character lands from unhurt; none with its jump unknown.
+            highest_drop: self
+                .character
+                .jump_speed
+                .map_or(0.0, dereth_navigation::survivable_drop),
         });
         Some(id)
     }
@@ -1891,13 +1936,15 @@ impl Travel {
         tracing::info!(
             target: "travel",
             "recalls for {:?}: spells {:?}, items {:?}, by command {}; can cast {}, mana {:?}; \
-             allowed {allow:?}; stance {:?}",
+             jump {:?} m/s, drops to {:.1} m; allowed {allow:?}; stance {:?}",
             c.name,
             c.recall_spells,
             c.recall_items,
             c.recall_commands.len(),
             c.can_cast,
             c.mana,
+            c.jump_speed,
+            c.jump_speed.map_or(0.0, dereth_navigation::survivable_drop),
             self.stance
         );
         let Some(job) = self.ask_journey(from, goal, allow, disabled, object) else {
@@ -2065,6 +2112,40 @@ impl Travel {
                 self.release_keys(out);
                 self.start_recall(here, teleport.recall, teleport.item, out);
             }
+            Leg::Drop { drop } => {
+                // Facing where it lands, walk at the ledge and hop off it with the least jump (the
+                // edge holds a walking body back): at a walk, so it comes down near there rather
+                // than carried on past it.
+                self.release_keys(out);
+                if let Some(t) = self.trip.as_mut() {
+                    t.follower = None;
+                }
+                let (a, b) = (global(here), global(&drop.land));
+                let heading = dereth_primitives::num::math::atan2f(b.x - a.x, b.y - a.y)
+                    .to_degrees()
+                    .rem_euclid(360.0);
+                tracing::info!(
+                    target: "travel",
+                    "stepping off the ledge at {:08X} {:?}, {:.1} m down to {:08X}",
+                    drop.stand.cell.0,
+                    drop.stand.frame.origin,
+                    drop.height,
+                    drop.land.cell.0
+                );
+                out.push(TravelCommand::Face(heading));
+                out.push(TravelCommand::Walk(true));
+                out.push(TravelCommand::Forward(true));
+                self.walk_held = true;
+                self.forward = true;
+                self.set_step(Step::Drop {
+                    drop,
+                    since: self.wall,
+                    hops: 0,
+                    off: false,
+                    last_z: a.z,
+                    still: 0,
+                });
+            }
             Leg::HandBack { hand_back } => {
                 let at = hand_back.at;
                 self.set_step(Step::HandBack {
@@ -2077,6 +2158,99 @@ impl Travel {
                     self.walk_toward(here, &at, out);
                 }
             }
+        }
+    }
+
+    /// A step at a ledge: walking off it, then falling. Once the body has stopped coming down,
+    /// near where the drop lands the journey goes on; landed elsewhere, it is planned again
+    /// from there. A ledge it cannot step off, or a fall that does not end, ends the journey.
+    fn drop_frame(&mut self, p: &Position, out: &mut Vec<TravelCommand>) {
+        /// Seconds walking at the ledge before the first hop, between hops, the most hops, and
+        /// seconds to come down after.
+        const FIRST_HOP: f64 = 0.3;
+        const NEXT_HOP: f64 = 1.5;
+        const HOPS: u32 = 3;
+        const FALL: f64 = 10.0;
+        let Some(Step::Drop {
+            drop,
+            since,
+            mut hops,
+            mut off,
+            mut last_z,
+            mut still,
+        }) = self.trip.as_ref().and_then(|t| t.step.clone())
+        else {
+            return;
+        };
+        let (here, stand, land) = (global(p), global(&drop.stand), global(&drop.land));
+        let step_off = FIRST_HOP + f64::from(HOPS) * NEXT_HOP;
+        if !off {
+            if stand.z - here.z > 1.0 {
+                // Off the ledge: its keys go, and the fall is the world's.
+                self.release_keys(out);
+                off = true;
+            } else if hops < HOPS && self.wall - since >= FIRST_HOP + f64::from(hops) * NEXT_HOP {
+                out.push(TravelCommand::Jump);
+                hops += 1;
+            } else if self.wall - since > step_off {
+                self.end(
+                    out,
+                    Some(p),
+                    Some(&format!(
+                        "drop_blocked: the ledge at {:08X} did not let the body step off",
+                        drop.stand.cell.0
+                    )),
+                );
+                return;
+            }
+        } else {
+            still = if (here.z - last_z).abs() < 0.02 {
+                still + 1
+            } else {
+                0
+            };
+            if still >= 3 {
+                let across = hypotf(here.x - land.x, here.y - land.y);
+                tracing::info!(
+                    target: "travel",
+                    "came down at {:08X} {:?}, {across:.1} m across from where the drop lands",
+                    p.cell.0,
+                    p.frame.origin
+                );
+                if across <= 6.0 && (here.z - land.z).abs() <= 1.5 {
+                    if let Some(t) = self.trip.as_mut() {
+                        t.step = None;
+                        t.leg += 1;
+                    }
+                    self.start_leg(p, out);
+                } else {
+                    if let Some(t) = self.trip.as_mut() {
+                        t.step = None;
+                        t.stats.replans += 1;
+                    }
+                    self.carry_on(p, out, Some(String::from("came down elsewhere")));
+                }
+                return;
+            }
+            if self.wall - since > step_off + FALL {
+                self.end(
+                    out,
+                    Some(p),
+                    Some("drop_failed: the body did not come down"),
+                );
+                return;
+            }
+        }
+        last_z = here.z;
+        if let Some(t) = self.trip.as_mut() {
+            t.step = Some(Step::Drop {
+                drop,
+                since,
+                hops,
+                off,
+                last_z,
+                still,
+            });
         }
     }
 
@@ -2416,6 +2590,17 @@ impl Travel {
             }
             Err(e) => {
                 tracing::warn!(target: "travel", "no route from {:?}: {e}", here.frame.origin);
+                // Only a drop leads on: the walk's places are built now, and its floors no walk
+                // joins are told apart, so the journey is planned again once, to find a portal
+                // round or, with nothing else, the drop.
+                if matches!(e, NoPath::OnlyByDrop { .. }) {
+                    if let Some(t) = self.trip.as_mut().filter(|t| !t.drop_replanned) {
+                        t.drop_replanned = true;
+                        t.stats.replans += 1;
+                        self.plan_trip(here, out, Some(format!("only a drop leads on: {e}")));
+                        return;
+                    }
+                }
                 // A walk to a portal that the land does not join to where the body is: the
                 // journey took the land for one place. It is planned again without that portal.
                 if e == NoPath::Unreachable {
@@ -3056,6 +3241,10 @@ impl Travel {
                 self.wait_frame(p, idle, &what, &watch, out);
                 return;
             }
+            Step::Drop { .. } => {
+                self.drop_frame(p, out);
+                return;
+            }
             Step::Approach { portal } if global_distance(p, &portal) < PORTAL_REACH => {
                 self.use_portal(p, &portal, out);
                 return;
@@ -3694,6 +3883,7 @@ impl Trip {
             shut: None,
             lock_answers: BTreeSet::new(),
             tried_again: BTreeSet::new(),
+            drop_replanned: false,
             disabled: BTreeSet::new(),
             unwalkable: Vec::new(),
             route_dirty: None,
@@ -3760,6 +3950,10 @@ fn describe(j: &Journey) -> String {
             Leg::HandBack { hand_back } => format!(
                 "hand the {:?} back to {:?} to {:08X}",
                 hand_back.token, hand_back.name, hand_back.to.cell.0
+            ),
+            Leg::Drop { drop } => format!(
+                "drop {:.1} m from {:08X} to {:08X}",
+                drop.height, drop.stand.cell.0, drop.land.cell.0
             ),
         })
         .collect::<Vec<_>>()
@@ -4245,6 +4439,145 @@ mod tests {
         let t = walk.travel.trip.as_ref().expect("the journey goes on");
         let route = t.follower.as_ref().expect("it walks on").path();
         assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    /// Colier Mine's hole: a ledge on the entrance's floor, 12 metres over the floor below.
+    mod hole {
+        use super::*;
+
+        pub(super) fn at(cell: u32, x: f32, y: f32, z: f32) -> Position {
+            Position::new(CellId(cell), Frame::new(Vec3::new(x, y, z), Quat::IDENTITY))
+        }
+
+        pub(super) fn drop() -> dereth_navigation::DropLink {
+            dereth_navigation::DropLink {
+                stand: at(0x01AE_0369, 139.0, -95.0, 0.0),
+                land: at(0x01AE_024F, 139.0, -96.0, -12.0),
+                height: 12.0,
+            }
+        }
+
+        /// A journey from the ledge, down the hole and on to the floor below; at its drop.
+        pub(super) fn at_the_ledge() -> Travel {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.planning = Some(Planning::held());
+            let goal = at(0x01AE_01FE, 98.0, -28.3, -12.0);
+            let mut trip = Trip::new(
+                1,
+                Purpose::Go,
+                TravelTarget::Place(goal),
+                TravelAllow::default(),
+                0.0,
+                0.0,
+            );
+            trip.goal = Some(goal);
+            trip.journey = Some(Journey {
+                legs: vec![
+                    Leg::Walk { to: drop().stand },
+                    Leg::Drop { drop: drop() },
+                    Leg::Walk { to: goal },
+                ],
+                seconds: 20.0,
+            });
+            trip.leg = 1;
+            travel.trip = Some(trip);
+            let mut out = Vec::new();
+            travel.start_leg(&drop().stand, &mut out);
+            assert_eq!(
+                out,
+                [
+                    TravelCommand::Face(180.0),
+                    TravelCommand::Walk(true),
+                    TravelCommand::Forward(true)
+                ],
+                "faces where it lands and walks at the ledge"
+            );
+            travel
+        }
+
+        pub(super) fn frame(travel: &mut Travel, wall: f64, p: &Position) -> Vec<TravelCommand> {
+            travel.wall = wall;
+            let mut out = Vec::new();
+            travel.trip_frame(p, true, &mut out);
+            out
+        }
+    }
+
+    /// Behaviour: none (the travel's own carrying out of a drop)
+    /// At a drop: faced where it lands and walking at the ledge, the body hops off it with the
+    /// least jump; off the ledge its keys go; come to rest near where the drop lands, the journey
+    /// walks on.
+    #[test]
+    fn a_drop_is_hopped_off_and_the_journey_walks_on_from_where_the_body_comes_down() {
+        let mut travel = hole::at_the_ledge();
+        let ledge = hole::drop().stand;
+        assert_eq!(hole::frame(&mut travel, 0.1, &ledge), []);
+        assert_eq!(
+            hole::frame(&mut travel, 0.35, &ledge),
+            [TravelCommand::Jump]
+        );
+        let falling = hole::at(0x01AE_024F, 139.0, -97.0, -4.0);
+        assert_eq!(
+            hole::frame(&mut travel, 0.8, &falling),
+            [TravelCommand::Forward(false), TravelCommand::Walk(false)],
+            "off the ledge, its keys go"
+        );
+        let down = hole::at(0x01AE_024F, 139.0, -101.6, -12.0);
+        for k in 0..4 {
+            let _ = hole::frame(&mut travel, 2.0 + f64::from(k) * 0.1, &down);
+        }
+        let t = travel.trip.as_ref().expect("the journey goes on");
+        assert_eq!(t.leg, 2, "on to the walk below");
+        assert!(
+            matches!(t.step, Some(Step::Walk { .. })),
+            "walking on: {:?}",
+            t.step
+        );
+        // The guard leaves the body the least a jump rises, the client's own feather-touch jump.
+        assert_eq!(
+            dereth_rules::movement::get_jump_height(0.0, 0, 0.0, 1.0),
+            dereth_navigation::LEAST_JUMP_RISE
+        );
+    }
+
+    /// Behaviour: none (the travel's own carrying out of a drop)
+    /// A ledge the body cannot leave, hop as it may, ends the journey saying so; one that sets
+    /// it down far from where the drop lands has the journey planned again from there.
+    #[test]
+    fn a_ledge_that_holds_the_body_ends_the_journey_and_one_far_off_plans_again() {
+        let mut travel = hole::at_the_ledge();
+        let ledge = hole::drop().stand;
+        let mut hops = 0;
+        let mut wall = 0.0;
+        while travel.trip.is_some() && wall < 10.0 {
+            wall += 0.1;
+            hops += hole::frame(&mut travel, wall, &ledge)
+                .iter()
+                .filter(|c| **c == TravelCommand::Jump)
+                .count();
+        }
+        assert_eq!(hops, 3);
+        assert!(
+            travel.events.iter().any(|e| matches!(
+                e,
+                TravelEvent::Failed { reason, .. } if reason.starts_with("drop_blocked")
+            )),
+            "{:?}",
+            travel.events
+        );
+
+        let mut travel = hole::at_the_ledge();
+        let _ = hole::frame(&mut travel, 0.35, &ledge);
+        let elsewhere = hole::at(0x01AE_024F, 150.0, -80.0, -12.0);
+        for k in 0..5 {
+            let _ = hole::frame(&mut travel, 1.0 + f64::from(k) * 0.1, &elsewhere);
+        }
+        let t = travel.trip.as_ref().expect("the journey goes on");
+        assert!(
+            matches!(&t.step, Some(Step::Planning { reason: Some(r), .. }) if r == "came down elsewhere"),
+            "{:?}",
+            t.step
+        );
     }
 
     #[test]

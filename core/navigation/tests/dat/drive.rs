@@ -209,6 +209,57 @@ pub fn drive(
     out
 }
 
+/// A walk's pace, metres a second: how a journey steps off a ledge, so the body comes down near
+/// where the drop lands.
+pub const WALK_SPEED: f32 = 3.0;
+
+/// Step a body off a ledge, as a journey's drop does: placed at `stand`, walking toward `land`
+/// at [`WALK_SPEED`] (the edge holds it back), then hopping off with the least jump, carried on at
+/// the walk's pace, and left to come down. Where it came to rest; `None` when it could not stand
+/// at `stand` or did not leave the ledge.
+pub fn step_off(
+    world: &mut PhysicsWorld,
+    setup: &Arc<SetupGeometry>,
+    stand: &Position,
+    land: &Position,
+) -> Option<Position> {
+    let (a, b) = (
+        dereth_navigation::global(stand),
+        dereth_navigation::global(land),
+    );
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let l = (dx * dx + dy * dy).sqrt().max(1e-3);
+    let (ux, uy) = (dx / l, dy / l);
+    let mut body = KeyBody::new(world, Arc::clone(setup), stand, 0.0)?;
+    let start = dereth_navigation::global(&body.position()?).z;
+    let rise =
+        (2.0 * -dereth_physics::globals::GRAVITY * dereth_navigation::LEAST_JUMP_RISE).sqrt();
+    let mut off = false;
+    for frame in 0..30 * 15 {
+        let z = dereth_navigation::global(&body.position()?).z;
+        off |= start - z > 1.0;
+        if let Some(o) = body.world.get_mut(body.handle) {
+            if frame == 9 {
+                // The hop: the walk's pace on, and the least jump up.
+                o.velocity_vector = Vec3::new(ux * WALK_SPEED, uy * WALK_SPEED, rise);
+                o.set_motion(Box::new(Push(Vec3::ZERO)));
+            } else if frame < 9 {
+                o.set_motion(Box::new(Push(Vec3::new(
+                    ux * WALK_SPEED,
+                    uy * WALK_SPEED,
+                    0.0,
+                ))));
+            } else {
+                o.set_motion(Box::new(Push(Vec3::ZERO)));
+            }
+            o.transient_state.set_active_bit(true);
+        }
+        body.now += 1.0 / 30.0;
+        body.world.use_time(LocalTime(body.now), false);
+    }
+    off.then(|| body.position()).flatten()
+}
+
 /// Jump a body off a ledge: placed at `stand`, leaping toward `land` (a body cannot walk off a
 /// ledge: it slides along the edge), and left to come down. Where it came to rest from `land`:
 /// across and up or down; `None` when it could not stand at `stand`.

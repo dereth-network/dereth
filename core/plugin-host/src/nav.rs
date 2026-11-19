@@ -790,6 +790,10 @@ pub fn leg_value(leg: &TravelLeg) -> Value {
             .with("token", token.as_str())
             .with("from", place(at))
             .with("to", place(to)),
+        TravelLeg::Drop { from, to, height } => v
+            .with("from", place(from))
+            .with("to", place(to))
+            .with("height", f64::from(*height)),
     }
 }
 

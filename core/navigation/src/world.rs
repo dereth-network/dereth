@@ -118,6 +118,9 @@ pub struct NavWorld<S> {
     obstacles: BTreeMap<u32, Obstacle>,
     /// The serial number the last region built was given.
     pub(crate) serial: u64,
+    /// The stretches of floor of each dungeon region asked about, by its serial: a label per
+    /// clear place ([`Region::components`]).
+    sets: std::cell::RefCell<HashMap<u64, Arc<HashMap<u32, u32>>>>,
     /// The landblocks built as tiles of their own, by block coordinates, that outdoor windows
     /// are put together from: `None` for one with no terrain. Past [`MAX_TILES`] the one used
     /// longest ago goes first.
@@ -155,6 +158,7 @@ impl<S: NavSource> NavWorld<S> {
             regions: Vec::new(),
             obstacles: BTreeMap::new(),
             serial: 0,
+            sets: std::cell::RefCell::new(HashMap::new()),
             tiles: HashMap::new(),
             tile_order: VecDeque::new(),
             tile_store: None,
@@ -386,6 +390,75 @@ impl<S: NavSource> NavWorld<S> {
             Joined::Outdoors => crate::journey::Realm::Outdoors,
             Joined::Part(lowest) => crate::journey::Realm::Part(CellId(lowest)),
         })
+    }
+
+    /// The dungeon region built round `p`, if one is.
+    fn dungeon_at(&self, p: &Position) -> Option<&Region> {
+        self.regions
+            .iter()
+            .find(|r| r.window.is_none() && r.covers(p))
+    }
+
+    /// The labels of the stretches of floor of a dungeon region, worked out once.
+    fn sets_of(&self, region: &Region) -> Arc<HashMap<u32, u32>> {
+        let mut sets = self.sets.borrow_mut();
+        // A region built again is a new serial; the old ones' labels go with them.
+        sets.retain(|serial, _| self.regions.iter().any(|r| r.serial == *serial));
+        Arc::clone(
+            sets.entry(region.serial)
+                .or_insert_with(|| Arc::new(region.components().0)),
+        )
+    }
+
+    /// Where a body standing at `p` can walk to, finer than [`Self::realm`] where the dungeon's
+    /// places are built: the stretch of floor of its part that a walk joins. `None` outdoors, or
+    /// where no dungeon region is built round `p`.
+    #[must_use]
+    pub fn walk_set(&self, p: &Position) -> Option<crate::journey::Realm> {
+        let crate::journey::Realm::Part(part) = self.realm(p)? else {
+            return None;
+        };
+        let region = self.dungeon_at(p)?;
+        let place = region.nearest_place(p, 2.0)?;
+        let set = *self.sets_of(region).get(&place)?;
+        Some(crate::journey::Realm::Set { part, set })
+    }
+
+    /// The drops off the ledges of the dungeon region built round `p`, falls of at most
+    /// `highest` metres: for each two stretches of floor one leads down between, the lowest.
+    #[must_use]
+    pub fn drops(&self, p: &Position, highest: f32) -> Vec<crate::journey::DropLink> {
+        let Some(region) = self.dungeon_at(p) else {
+            return Vec::new();
+        };
+        let sets = self.sets_of(region);
+        let mut lowest: HashMap<(u32, u32), (f32, u32, u32)> = HashMap::new();
+        for (stand, lands) in region.drops_by_place() {
+            let Some(&from) = sets.get(&stand) else {
+                continue;
+            };
+            for land in lands {
+                let Some(&to) = sets.get(&land) else { continue };
+                let height = region.node_point(stand).z - region.node_point(land).z;
+                if from == to || height > highest {
+                    continue;
+                }
+                let e = lowest.entry((from, to)).or_insert((f32::MAX, stand, land));
+                if height < e.0 {
+                    *e = (height, stand, land);
+                }
+            }
+        }
+        let mut out: Vec<crate::journey::DropLink> = lowest
+            .into_values()
+            .map(|(height, stand, land)| crate::journey::DropLink {
+                stand: region.position(stand),
+                land: region.position(land),
+                height,
+            })
+            .collect();
+        out.sort_by(|a, b| a.height.total_cmp(&b.height));
+        out
     }
 
     /// The landblocks a walk from landblock `from` to landblock `to` crosses, both included: the
