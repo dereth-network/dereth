@@ -1226,7 +1226,7 @@ impl<S: Shell> App<S> {
 
     /// The asynchronous cache-miss path's production caller.
     ///
-    /// [`dereth_world_data::land_source::DatLandSource::build`] is the run-time cache miss: a landblock record
+    /// [`dereth_world_data::land_source::DatLandSource::build_uncached`] is the run-time cache miss: a landblock record
     /// the store does not carry, discovered while the streaming ring was building a block. This
     /// turns each one into the `0xF7E3` the client sends, under the client's own two conditions --
     /// a connection has to exist and one `QualifiedDataID` gets one
