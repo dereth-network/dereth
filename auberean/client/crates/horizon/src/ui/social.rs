@@ -206,7 +206,7 @@ pub struct Breaking {
 pub struct SocialWindow {
     window: WindowState,
     drawn: Option<(Rect, Rect)>,
-    /// The tab shown.
+    /// The tab shown, kept while it is closed: it opens on the tab last shown.
     pub tab: usize,
     focus: u32,
     /// A new fellowship's name, whether it shares the experience, how it shares loot.
@@ -281,16 +281,6 @@ impl SocialWindow {
         if self.window.open {
             self.close(actions);
         } else {
-            self.open();
-        }
-    }
-
-    /// Open it on `tab`; already open on it, close it.
-    pub fn show_tab(&mut self, tab: usize, actions: &mut Vec<Action>) {
-        if self.window.open && self.tab == tab {
-            self.close(actions);
-        } else {
-            self.tab = tab;
             self.open();
         }
     }

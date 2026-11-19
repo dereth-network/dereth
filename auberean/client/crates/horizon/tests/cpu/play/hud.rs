@@ -390,12 +390,7 @@ fn each_menu_bar_button_opens_its_window_lit_and_closes_it_again() {
                 MenuButton::Skills => ui.skills.is_open(),
                 MenuButton::Crafting => ui.crafting.is_open(),
                 MenuButton::Quests => ui.journal.is_open(),
-                MenuButton::Fellowship => {
-                    ui.social.is_open() && ui.social.tab == social::FELLOWSHIP
-                }
-                MenuButton::Allegiance => {
-                    ui.social.is_open() && ui.social.tab == social::ALLEGIANCE
-                }
+                MenuButton::Social => ui.social.is_open(),
                 MenuButton::System => unreachable!(),
             }
         };
@@ -414,21 +409,74 @@ fn each_menu_bar_button_opens_its_window_lit_and_closes_it_again() {
     }
 }
 
+/// The middle of the menu bar's Social button.
+fn social_button(h: &Harness) -> (f32, f32) {
+    let i = MenuButton::ALL
+        .iter()
+        .position(|x| *x == MenuButton::Social)
+        .unwrap();
+    centre(menu_button_rect(h.screen, h.k(), i))
+}
+
 #[test]
-fn the_fellowship_and_allegiance_buttons_show_the_social_window_on_their_tab() {
+fn the_menu_bar_has_one_social_button_with_the_fellowship_icon() {
+    let names: Vec<&str> = MenuButton::ALL.iter().map(|b| b.name()).collect();
+    assert_eq!(
+        names.iter().filter(|n| **n == "Social").count(),
+        1,
+        "{names:?}"
+    );
+    for gone in ["Fellowship", "Allegiance"] {
+        assert!(!names.contains(&gone), "no {gone} button: {names:?}");
+    }
+    let mut h = Harness::with_built_in_art();
+    let s = in_world();
+    h.frame(&s);
+    let drawn: Vec<_> = drew_piece(&h, "menu.social")
+        .iter()
+        .map(|r| centre(*r))
+        .collect();
+    assert_eq!(drawn, vec![social_button(&h)], "the fellowship icon");
+    assert!(
+        drew_piece(&h, "menu.allegiance").is_empty(),
+        "no allegiance icon"
+    );
+}
+
+#[test]
+fn the_social_window_opens_on_the_tab_last_shown_from_its_button_and_its_key() {
     let mut h = Harness::new();
     let s = in_world();
     h.frame(&s);
-    let (k, screen) = (h.k(), h.screen);
-    let at = |b: MenuButton| {
-        let i = MenuButton::ALL.iter().position(|x| *x == b).unwrap();
-        centre(menu_button_rect(screen, k, i))
-    };
-    h.click(&s, at(MenuButton::Fellowship));
-    assert_eq!(h.ui.social.tab, social::FELLOWSHIP);
-    h.click(&s, at(MenuButton::Allegiance));
-    assert!(h.ui.social.is_open(), "still open, on the other tab");
-    assert_eq!(h.ui.social.tab, social::ALLEGIANCE);
+    h.click(&s, social_button(&h));
+    assert!(h.ui.social.is_open());
+    assert_eq!(
+        h.ui.social.tab,
+        social::FELLOWSHIP,
+        "the fellowship at first"
+    );
+    h.ui.social.tab = social::ALLEGIANCE;
+    h.frame(&s);
+    h.click(&s, social_button(&h));
+    assert!(!h.ui.social.is_open(), "Social again closes it, on any tab");
+    h.click(&s, social_button(&h));
+    assert!(h.ui.social.is_open());
+    assert_eq!(
+        h.ui.social.tab,
+        social::ALLEGIANCE,
+        "back on the allegiance"
+    );
+    h.ui.social.tab = social::FELLOWSHIP;
+    h.frame(&s);
+    h.ui.keyed(Keyed::Social, &s);
+    assert!(!h.ui.social.is_open(), "the key closes it too");
+    h.ui.keyed(Keyed::Social, &s);
+    assert!(h.ui.social.is_open());
+    assert_eq!(
+        h.ui.social.tab,
+        social::FELLOWSHIP,
+        "the key opens the tab last shown"
+    );
 }
 
 /// Open the system menu and press its row for `item`; what was asked.
@@ -605,6 +653,18 @@ fn with_its_art_each_menu_bar_button_glows_while_its_window_is_open_and_not_once
         h.frame(&s);
         assert!(!glowing(&h, b), "{b:?} dark once closed");
     }
+    // Social glows on whichever tab its window shows.
+    h.click(&s, social_button(&h));
+    for tab in [social::FELLOWSHIP, social::ALLEGIANCE, social::FRIENDS] {
+        h.ui.social.tab = tab;
+        h.input.mouse = away;
+        h.frame(&s);
+        assert!(glowing(&h, MenuButton::Social), "Social glows on tab {tab}");
+    }
+    h.click(&s, social_button(&h));
+    h.input.mouse = away;
+    h.frame(&s);
+    assert!(!glowing(&h, MenuButton::Social));
     // Under the pointer it glows too.
     let r = menu_button_rect(h.screen, k, 0);
     h.input.mouse = centre(r);

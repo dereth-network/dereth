@@ -5,10 +5,9 @@
 //! band, the link line and the vitae lamp are [`super::status`]'s.
 //!
 //! **The menu bar** holds a button for each of the windows (Map, Examine, Inventory, Skills,
-//! Crafting, Quests, Fellowship, Allegiance), its icon glowing while its window is open or the
-//! pointer is over it, and a last one that opens a menu over it: Settings, HUD Layout, Log Out and
-//! Exit Game. A button opens or closes its window; Fellowship and Allegiance open the social
-//! window on their tab.
+//! Crafting, Quests, Social), its icon glowing while its window is open or the pointer is over it,
+//! and a last one that opens a menu over it: Settings, HUD Layout, Log Out and Exit Game. A button
+//! opens or closes its window; Social's holds the fellowship, the allegiance and the friends.
 
 use dereth_ui_kit::art::Family;
 use dereth_ui_kit::paint::{Align, Painter, TextStyle};
@@ -258,23 +257,22 @@ pub enum MenuButton {
     Skills,
     Crafting,
     Quests,
-    Fellowship,
-    Allegiance,
+    /// The social window, on whichever tab it showed last.
+    Social,
     /// The menu of Settings, HUD Layout, Log Out and Exit Game.
     System,
 }
 
 impl MenuButton {
     /// The buttons, left to right.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::Map,
         Self::Examine,
         Self::Inventory,
         Self::Skills,
         Self::Crafting,
         Self::Quests,
-        Self::Fellowship,
-        Self::Allegiance,
+        Self::Social,
         Self::System,
     ];
 
@@ -288,8 +286,7 @@ impl MenuButton {
             Self::Skills => "Skills",
             Self::Crafting => "Crafting",
             Self::Quests => "Quests",
-            Self::Fellowship => "Fellowship",
-            Self::Allegiance => "Allegiance",
+            Self::Social => "Social",
             Self::System => "System",
         }
     }
@@ -304,8 +301,7 @@ impl MenuButton {
             Self::Skills => &["menu.skills", "menu.character"],
             Self::Crafting => &["menu.crafting"],
             Self::Quests => &["menu.quests", "menu.journal"],
-            Self::Fellowship => &["menu.fellowship", "menu.social"],
-            Self::Allegiance => &["menu.allegiance"],
+            Self::Social => &["menu.fellowship", "menu.social"],
             Self::System => &["menu.settings"],
         }
     }

@@ -901,7 +901,7 @@ impl HorizonUi {
         self.windows_drawn = below;
     }
 
-    /// Whether the menu bar's button `b` is lit: its window is open (the social window's on its
+    /// Whether the menu bar's button `b` is lit: its window is open (the social window on any
     /// tab).
     fn menu_lit(&self, b: hud::MenuButton) -> bool {
         use hud::MenuButton as B;
@@ -912,8 +912,7 @@ impl HorizonUi {
             B::Skills => self.skills.is_open(),
             B::Crafting => self.crafting.is_open(),
             B::Quests => self.journal.is_open(),
-            B::Fellowship => self.social.is_open() && self.social.tab == social::FELLOWSHIP,
-            B::Allegiance => self.social.is_open() && self.social.tab == social::ALLEGIANCE,
+            B::Social => self.social.is_open(),
             B::System => self.settings.is_open(),
         }
     }
@@ -953,12 +952,8 @@ impl HorizonUi {
                 self.journal.toggle();
                 Some(W::Journal)
             }
-            MenuPick::Button(B::Fellowship) => {
-                self.social.show_tab(social::FELLOWSHIP, &mut out.acts);
-                Some(W::Social)
-            }
-            MenuPick::Button(B::Allegiance) => {
-                self.social.show_tab(social::ALLEGIANCE, &mut out.acts);
+            MenuPick::Button(B::Social) => {
+                self.social.toggle(&mut out.acts);
                 Some(W::Social)
             }
             MenuPick::Button(B::System) => None,

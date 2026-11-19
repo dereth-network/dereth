@@ -122,7 +122,7 @@ the game's own interface does.
 - **The conflict lamp** at the status row's left end: whether the place is at peace, controlled,
   kingdom against kingdom or free for all, as a picture for each where the art has them; over it,
   the player's kingdom.
-- **The social window** (O), a tab each:
+- **The social window** (O, or Social on the menu bar), a tab each, opening on the tab last shown:
   - **Fellowship:** out of one, a name, whether the experience is shared and how loot is shared,
     and Create. In one, its fellows with their levels, shares and vitals; Leave, and for the leader
     Recruit and Dismiss (the one selected) and Disband.
@@ -169,8 +169,8 @@ the game's own interface does.
   Buff and Heal command them.
 - **Dismount** beside the attack button while the player rides a mount.
 - **The menu bar** at the bottom right, on Dereth's Horizon's plate: a button for the map, examine,
-  inventory, skills, crafting, quests, fellowship and allegiance windows, lit while the window is
-  open, and a last one whose menu holds Settings, HUD Layout, Log Out and Exit Game.
+  inventory, skills, crafting, quests and social windows, lit while the window is open, and a
+  last one whose menu holds Settings, HUD Layout, Log Out and Exit Game.
 - **The settings** (the menu bar, or K), a tab a page:
   - **General:** the interface, the camera's movement and directions, whether the map
     coordinates show under the minimap, the interface scale, HUD Layout, and Log Out.
