@@ -26,6 +26,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "headless.a-held-action-over-a-server-connection-runs-at-the-wall-clocks-pace",
+        says: "A script's held action or walk runs at the wall clock's pace while the client is \
+               connected to a server, each frame waiting for its moment as a plain run does, so \
+               the server sees the movement at its own speed; offline a hold runs as fast as its \
+               frames do.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-979-HOLD-PACING"),
+        station: "dereth-headless::lib::run::tests::a_held_action_over_a_server_connection_waits_for_each_frames_moment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "headless.a-whole-client-with-no-device-or-window",
         says: "The client is a complete running client with no graphics device and no window: it \
                runs every per-frame job in order, hands its draw and present work to whatever it \

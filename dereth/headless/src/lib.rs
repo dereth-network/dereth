@@ -25,7 +25,7 @@
 //! |---|---|
 //! | `login <session> [<character>]` | replay a recorded session's login; with a character, select it and carry on into the world |
 //! | `tick <n>` | run `n` frames |
-//! | `hold <action> <secs>` | begin the action, run `secs` of simulated time, end it |
+//! | `hold <action> <secs>` | begin the action, run `secs`, end it: simulated time offline, the wall clock's over a server connection |
 //! | `press <action>` | begin the action, run a frame, end it, run a frame |
 //! | `begin <action>` / `end <action>` | one edge of the action alone, and the frame it lands in |
 //! | `walk <direction> <secs>` | `hold` of a movement action: `forward`, `back`, `left`, `right`, `strafe-left`, `strafe-right` |

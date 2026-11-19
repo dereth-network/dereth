@@ -196,6 +196,21 @@ pub fn settings_preferences(dir: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
 /// Why a session ended, in words. A logon refused because the account is still in the world (the
 /// server holds a session a client left without logging off) names that: the server logs that
 /// session off as it refuses, and the next logon gets in.
+/// How long frame `i` of a paced run still has to wait, `elapsed` after the run began: frame `i`
+/// is due `i` steps in. `None` when it is already due.
+fn frame_wait(i: u64, elapsed: std::time::Duration) -> Option<std::time::Duration> {
+    #[allow(clippy::cast_precision_loss)]
+    let due = std::time::Duration::from_secs_f64(i as f64 * HEADLESS_STEP);
+    due.checked_sub(elapsed).filter(|w| !w.is_zero())
+}
+
+/// Whether a held action's frames wait for the wall clock. Over a server connection they must:
+/// run as fast as they can, a held movement reaches the server as many times its speed.
+/// Offline (a replay, a world loaded here) they need not, and a script runs as fast as it can.
+const fn hold_is_paced(connected: bool) -> bool {
+    connected
+}
+
 fn ended_why(why: dereth_client_sdk::net::client_session::DisconnectReason) -> String {
     use dereth_client_sdk::net::client_session::DisconnectReason;
     match why {
@@ -627,8 +642,8 @@ impl<'a> Run<'a> {
         self.line(format!("tick {n} frames={frames} time={time:.6}"))
     }
 
-    /// Hold one movement action for `secs` of *simulated* time: [`Self::hold`] on the direction's
-    /// action, printed as the walk it is.
+    /// Hold one movement action for `secs`: [`Self::hold`] on the direction's action, printed as
+    /// the walk it is.
     fn walk(&mut self, direction: Direction, secs: f64) -> Result<(), RunError> {
         let frames = self.hold_frames(direction.action(), secs)?;
         self.line(format!(
@@ -637,7 +652,8 @@ impl<'a> Run<'a> {
         ))
     }
 
-    /// Hold an action for `secs` of *simulated* time.
+    /// Hold an action for `secs`: of simulated time offline, and at the wall clock's pace over a
+    /// server connection ([`hold_is_paced`]).
     ///
     /// The begin is injected into the runtime's action queue (`App::inject_action`), the frames
     /// run, and the end stops it. That is the same pair of edges a held key produces, and this
@@ -655,26 +671,22 @@ impl<'a> Run<'a> {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let frames = (secs / HEADLESS_STEP).ceil().max(0.0) as u64;
         self.app.inject_action(Action::begin(action));
-        for _ in 0..frames {
-            self.frame()?;
-        }
+        self.frames_for(frames, hold_is_paced(self.opts.connect.is_some()))?;
         self.app.inject_action(Action::end(action));
         self.frame()?;
         Ok(frames + 1)
     }
 
-    /// `secs` of frames at the wall clock's pace, as a connection to a server needs: each frame
-    /// waits for its moment.
-    fn run_for(&mut self, secs: f64) -> Result<(), RunError> {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let frames = (secs / HEADLESS_STEP).ceil().max(0.0) as u64;
+    /// `frames` frames: as fast as they run, or each at its moment on the wall clock
+    /// ([`frame_wait`]), as a connection to a server needs.
+    fn frames_for(&mut self, frames: u64, paced: bool) -> Result<(), RunError> {
         let start = std::time::Instant::now();
-        self.paced = true;
+        self.paced = paced;
         for i in 0..frames {
-            #[allow(clippy::cast_precision_loss)]
-            let due = std::time::Duration::from_secs_f64(i as f64 * HEADLESS_STEP);
-            if let Some(wait) = due.checked_sub(start.elapsed()) {
-                std::thread::sleep(wait);
+            if paced {
+                if let Some(wait) = frame_wait(i, start.elapsed()) {
+                    std::thread::sleep(wait);
+                }
             }
             if let Err(e) = self.frame() {
                 self.paced = false;
@@ -682,6 +694,15 @@ impl<'a> Run<'a> {
             }
         }
         self.paced = false;
+        Ok(())
+    }
+
+    /// `secs` of frames at the wall clock's pace, as a connection to a server needs: each frame
+    /// waits for its moment.
+    fn run_for(&mut self, secs: f64) -> Result<(), RunError> {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let frames = (secs / HEADLESS_STEP).ceil().max(0.0) as u64;
+        self.frames_for(frames, true)?;
         let state = self.app.network_mut().map(|n| n.session_state());
         self.state = state;
         self.line(format!("run secs={secs} frames={frames} state={state:?}"))
@@ -1659,7 +1680,8 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 #[cfg(test)]
 mod tests {
     use super::{
-        caster, ended_why, new_character, settings_preferences, soldier, with_free_skills,
+        caster, ended_why, frame_wait, hold_is_paced, new_character, settings_preferences, soldier,
+        with_free_skills, HEADLESS_STEP,
     };
     use crate::script::Role;
     use dereth_client_sdk::net::client_session::DisconnectReason;
@@ -1953,6 +1975,23 @@ mod tests {
         );
         assert_eq!(settings_preferences(Some(std::ffi::OsStr::new(""))), None);
         assert_eq!(settings_preferences(None), None);
+    }
+
+    /// Behaviour: headless.a-held-action-over-a-server-connection-runs-at-the-wall-clocks-pace
+    #[test]
+    fn a_held_action_over_a_server_connection_waits_for_each_frames_moment() {
+        assert!(hold_is_paced(true), "a hold over a connection is paced");
+        assert!(
+            !hold_is_paced(false),
+            "offline, a hold runs as fast as it can"
+        );
+        // Frame 30 is due one second in: 0.2 s in, it waits the other 0.8 s.
+        let wait = frame_wait(30, std::time::Duration::from_millis(200)).expect("not due yet");
+        let want = 30.0 * HEADLESS_STEP - 0.2;
+        assert!((wait.as_secs_f64() - want).abs() < 1e-9, "{wait:?}");
+        // A frame already due, or late, does not wait.
+        assert_eq!(frame_wait(0, std::time::Duration::ZERO), None);
+        assert_eq!(frame_wait(3, std::time::Duration::from_secs(1)), None);
     }
 
     #[test]

@@ -144,10 +144,11 @@ pub enum Command {
     },
     /// `tick <n>` -- run `n` whole frames.
     Tick(u64),
-    /// `walk <direction> <secs>` -- hold a movement action for `secs` of simulated time. The
+    /// `walk <direction> <secs>` -- hold a movement action for `secs` (as [`Command::Hold`]). The
     /// movement shorthand for [`Command::Hold`].
     Walk { direction: Direction, secs: f64 },
-    /// `hold <action> <secs>` -- begin an action, run `secs` of simulated time, end it.
+    /// `hold <action> <secs>` -- begin an action, run `secs`, end it: simulated time offline,
+    /// the wall clock's over a server connection.
     Hold { action: ActionId, secs: f64 },
     /// `press <action>` -- begin an action, run a frame, end it, run a frame: a key tapped.
     Press(ActionId),

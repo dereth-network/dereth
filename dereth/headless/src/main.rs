@@ -71,7 +71,7 @@ refused it), are kept there between runs. Unset, the client writes neither.
 Script: one command per line, `#` starts a comment.
   login <session> [<character>]   replay a recorded login, optionally into the world
   tick <n>                        run n frames
-  hold <action> <secs>            begin an action, run secs of simulated time, end it
+  hold <action> <secs>            begin an action, run secs, end it (paced over a connection)
   press <action>                  begin, one frame, end, one frame
   begin <action> | end <action>   one edge of an action
   walk <direction> <secs>         hold forward/back/left/right/strafe-left/strafe-right
