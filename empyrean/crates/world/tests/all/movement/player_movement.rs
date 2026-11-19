@@ -918,16 +918,106 @@ fn a_pk_position_update_between_steps_keeps_the_time_for_the_next_step() {
 
 // ---- falling damage, recalls, teleport --------------------------------------------------------
 
-/// Falling damage: at -30 m/s the ratio is `-(11.25434 - 30 + 4.5) / 11.25434`, times 87.29381:
-/// 110.4958 in single precision, rounded to 110, then the fall message and the wound sound.
+/// The full-power jump speed of the test player (Jump 100 from its attributes, no burden).
+fn jump_speed(w: &mut World) -> f32 {
+    let h = body(w);
+    phys_ext::weenie_obj(w, h)
+        .full_jump_velocity(w)
+        .expect("a player")
+}
+
+/// A fall's amount as the points it takes at full resistance, rounded as `TakeDamage_Falling`
+/// rounds them.
+pub(crate) fn points(amount: f32) -> u32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let points = amount.round_ties_even() as u32;
+    points
+}
+
+fn health(w: &World) -> u32 {
+    let o = obj(w);
+    o.health().current(o)
+}
+
+/// V562: whether a landing hurts follows retail's measured chance by the landing speed over the
+/// character's own full-power jump speed, at the landings nearest the boundary in the end-of-retail
+/// captures: none to 1.50, about a quarter of 1.50-1.56, about 70% of 1.56-1.60, every one from
+/// 1.64.
 #[test]
-fn falling_damage_follows_aces_formula() {
+fn a_landing_hurts_by_retails_chance_past_one_and_a_half_jump_speeds() {
+    let chance = player_move::fall_damage_chance;
+    // (landing m/s, jump m/s, the chance's least, its most)
+    let samples = [
+        (15.53, 10.39, 0.0, 0.0),  // 1.494: harmless
+        (17.36, 11.62, 0.0, 0.0),  // 1.495: harmless
+        (10.54, 6.98, 0.0, 0.1),   // 1.510: harmless
+        (13.42, 8.85, 0.1, 0.2),   // 1.517: 1 point
+        (9.65, 6.35, 0.1, 0.2),    // 1.521: 1 point
+        (15.73, 10.22, 0.3, 0.4),  // 1.540: harmless
+        (15.63, 10.08, 0.4, 0.5),  // 1.551: 1 point
+        (11.29, 7.20, 0.55, 0.65), // 1.569: 1 point
+        (18.36, 11.47, 0.85, 0.9), // 1.600: 1 point
+    ];
+    for (landing, jump, least, most) in samples {
+        let p = chance(landing, jump);
+        assert!(
+            (least..=most).contains(&p),
+            "{landing} m/s on a {jump} m/s jump ({:.3}): {p}",
+            landing / jump
+        );
+    }
+    // the measured bins: 18 of 67 hurt at 1.50-1.56, 21 of 30 at 1.56-1.60, 24 of 26 at 1.60-1.64
+    let mean = |from: f32, to: f32| {
+        (0..60)
+            .map(|i| chance(10.0 * (from + (to - from) * (i as f32 + 0.5) / 60.0), 10.0))
+            .sum::<f32>()
+            / 60.0
+    };
+    assert!((0.22..0.32).contains(&mean(1.50, 1.56)));
+    assert!((0.62..0.78).contains(&mean(1.56, 1.60)));
+    assert!((0.85..0.97).contains(&mean(1.60, 1.64)));
+    assert_eq!(chance(16.4, 10.0), 1.0, "every landing from 1.64");
+    assert_eq!(chance(40.0, 10.0), 1.0);
+    assert_eq!(chance(0.0, 10.0), 0.0);
+}
+
+/// V562: a landing that hurts takes `0.325 (v - 1.46 vj)^1.5` points, at least 1: the end-of-retail
+/// captures' landings and the amounts the fit gives them (retail's own amounts in the comments).
+#[test]
+fn a_landing_that_hurts_takes_retails_measured_amount() {
+    // (landing m/s, jump m/s, points)
+    let landings = [
+        (18.36, 11.47, 1),  // retail 1
+        (11.47, 6.60, 1),   // retail 1
+        (21.61, 11.82, 3),  // retail 3
+        (20.09, 10.24, 4),  // retail 4
+        (22.68, 10.41, 7),  // retail 6
+        (15.69, 6.78, 5),   // retail 7
+        (29.96, 11.42, 16), // retail 14
+        (33.76, 10.97, 24), // retail 18
+        (46.99, 11.19, 55), // retail 65
+    ];
+    for (landing, jump, want) in landings {
+        let amount = player_move::fall_damage(landing, jump);
+        assert_eq!(
+            points(amount),
+            want,
+            "{landing} m/s on a {jump} m/s jump: {amount}"
+        );
+    }
+}
+
+/// V562: a hard landing takes retail's amount for the player's own jump speed, then the fall
+/// message (its word by the share of health, as ACE's) and the wound sound; a landing under one
+/// and a half jump speeds takes nothing.
+#[test]
+fn a_hard_landing_takes_retails_amount_for_the_players_jump() {
     let mut w = world();
     let h = body(&w);
+    let jump = jump_speed(&mut w);
     w.physics.get_mut(h).unwrap().velocity_vector = Vec3::new(0.0, 0.0, -30.0);
-    let health = obj(&w).health();
-    let before = health.current(obj(&w));
-    let max = health.max_value(
+    let before = health(&w);
+    let max = obj(&w).health().max_value(
         &mut empyrean_world::world_objects::entity::creature_attribute::StatCtx::in_world(
             &mut w,
             g(),
@@ -935,11 +1025,9 @@ fn falling_damage_follows_aces_formula() {
     );
     start_capture();
     player_move::handle_falling_damage(&mut w, g());
-    let after = {
-        let o = obj(&w);
-        o.health().current(o)
-    };
-    assert_eq!(before - after, 110);
+    let want = points(player_move::fall_damage(30.0, jump));
+    assert!(want > 10, "{want}: well past ACE's 0 for a jump this weak");
+    assert_eq!(before - health(&w), want);
     let sent = take_sent();
     let chat = sent
         .iter()
@@ -948,7 +1036,7 @@ fn falling_damage_follows_aces_formula() {
     let len = usize::from(u16::from_le_bytes(chat.2[4..6].try_into().unwrap()));
     assert_eq!(
         String::from_utf8_lossy(&chat.2[6..6 + len]),
-        strings::get_fall_message(110, max)
+        strings::get_fall_message(want, max)
     );
     assert!(
         sent.iter()
@@ -956,16 +1044,41 @@ fn falling_damage_follows_aces_formula() {
         "Sound.Wound3"
     );
 
-    // a gentle landing does nothing
-    w.physics.get_mut(h).unwrap().velocity_vector = Vec3::new(0.0, 0.0, -10.0);
+    // a landing at 1.49 jump speeds does nothing
+    let after = health(&w);
+    w.physics.get_mut(h).unwrap().velocity_vector = Vec3::new(0.0, 0.0, -1.49 * jump);
     player_move::handle_falling_damage(&mut w, g());
-    assert_eq!(
-        {
-            let o = obj(&w);
-            o.health().current(o)
-        },
-        after
-    );
+    assert_eq!(health(&w), after);
+}
+
+/// V562: in the boundary's band a landing hurts by the server's own random draw, at retail's
+/// measured shares; past it, always.
+#[test]
+fn a_landing_in_the_band_hurts_by_the_servers_draw() {
+    empyrean_common::thread_safe_random::ThreadSafeRandom::seed(1004);
+    let mut w = world();
+    let h = body(&w);
+    let jump = jump_speed(&mut w);
+    let hurt = |w: &mut World, ratio: f32| {
+        (0..200)
+            .filter(|_| {
+                let before = health(w);
+                w.physics.get_mut(h).unwrap().velocity_vector = Vec3::new(0.0, 0.0, -ratio * jump);
+                player_move::handle_falling_damage(w, g());
+                let hurt = health(w) < before;
+                let o = w.objects.get_mut(g()).unwrap();
+                let vital = o.health();
+                vital.set_current(o, before);
+                hurt
+            })
+            .count()
+    };
+    assert_eq!(hurt(&mut w, 1.49), 0);
+    let low = hurt(&mut w, 1.53);
+    assert!((30..80).contains(&low), "{low} of 200 at 1.53");
+    let mid = hurt(&mut w, 1.58);
+    assert!((115..175).contains(&mid), "{mid} of 200 at 1.58");
+    assert_eq!(hurt(&mut w, 1.65), 200);
 }
 
 /// The recall refusals, in ACE's order: a PK arena recall by a non-PK, a busy player, a moved

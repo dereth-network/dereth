@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Falling now hurts as it did in retail, by your own jump.
 
 ## 0.3.16 (2026-11-20)
 - Monsters that run at you now stop at their own reach instead of walking into you.

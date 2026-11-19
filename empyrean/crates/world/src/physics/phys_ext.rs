@@ -132,6 +132,10 @@ pub struct PhysObjExt {
     /// creature, and every other ethereal weenie object (ACE's `ObjectInfo.MissileIgnore`, A11).
     // ACE: PhysicsObj.ProjectileTarget
     pub projectile_target: Option<PhysHandle>,
+    /// Not ACE's (V562): the highest the body's flight reaches, from where it left the ground and
+    /// how fast it was going up, kept by [`update_object`] until the body is on the ground again;
+    /// [`landing_speed`] reads it. `None` until the body's first step, and after a teleport.
+    pub flight_top: Option<f32>,
 }
 
 /// ACE's physics `Landblock`, server half: the server objects registered on it and its adjacent
@@ -727,6 +731,45 @@ pub fn velocity(w: &World, h: PhysHandle) -> Vector3 {
         .map_or(Vector3::ZERO, |o| vector3_of_data(o.velocity_vector))
 }
 
+/// Not ACE's (V562): the speed `h` is coming down at as it lands, in m/s (0 for a body going up):
+/// `sqrt(2 g drop)` from the top of its flight, the speed of the fall itself.
+///
+/// The body's velocity is a poor measure of it: a step adds a whole step's gravity to the velocity
+/// also when the body touched down early in the step, and each position report from the client
+/// puts the body back where the client was a moment before while the velocity runs on, so a body
+/// that has fallen 12 m can be going 0.8 m/s faster than the fall. A body [`update_object`] has not
+/// stepped since it came into the world or was teleported has no flight, and its downward velocity
+/// is taken, as ACE takes it.
+#[must_use]
+pub fn landing_speed(w: &World, h: PhysHandle) -> f32 {
+    let Some(o) = w.physics.get(h) else {
+        return 0.0;
+    };
+    let vz = o.velocity_vector.z;
+    match ext(w, h).and_then(|e| e.flight_top) {
+        // On the ground the landing's bounce may already point the velocity up; in the air, a
+        // body going up meets a wall or a ceiling on its way up.
+        Some(top) if vz <= 0.0 || o.transient_state.on_walkable() => {
+            let drop = top - o.position.frame.origin.z;
+            if drop > 0.0 {
+                (-2.0 * dereth_physics::globals::GRAVITY * drop).sqrt()
+            } else {
+                0.0
+            }
+        }
+        Some(_) => 0.0,
+        None => (-vz).max(0.0),
+    }
+}
+
+/// Not ACE's (V562): the body was teleported, so the flight it was on (if any) is not the one it
+/// may land from.
+pub(crate) fn forget_flight(w: &mut World, h: PhysHandle) {
+    if let Some(e) = ext_mut(w, h) {
+        e.flight_top = None;
+    }
+}
+
 /// `PhysicsObj.get_velocity()`: the cached velocity (`CachedVelocity`), not the `Velocity` field.
 // ACE: PhysicsObj.get_velocity
 #[must_use]
@@ -1257,6 +1300,17 @@ pub fn update_object(w: &mut World, h: PhysHandle) -> bool {
     let stepped = in_world && elapsed <= dereth_physics::globals::HUGE_QUANTUM;
     let before = o.position.frame;
     let before_position = o.position;
+    // DIVERGE: V562, the top of the body's flight: on the ground, where it is and how fast it is
+    // going up; in the air, the highest of those so far
+    let grounded = o.transient_state.in_contact();
+    let rise = o.velocity_vector.z.max(0.0);
+    let top = before.origin.z + rise * rise / (-2.0 * dereth_physics::globals::GRAVITY);
+    if let Some(e) = ext_mut(w, h) {
+        e.flight_top = Some(match e.flight_top {
+            Some(highest) if !grounded => highest.max(top),
+            _ => top,
+        });
+    }
     prepare_mover(w, h);
 
     let motion = crate::physics::motion::before_update(w, h);

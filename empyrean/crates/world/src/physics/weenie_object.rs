@@ -189,6 +189,25 @@ impl WeenieObject {
         (true, velocity_z)
     }
 
+    /// Not ACE's (V562): the player's full-power jump speed, from its burden and Jump skill as
+    /// [`Self::inq_jump_velocity`] takes them for a jump at full extent, but whatever its stamina;
+    /// `None` for a non-player.
+    #[must_use]
+    pub fn full_jump_velocity(&self, w: &mut World) -> Option<f32> {
+        let player = self
+            .world_object(w)
+            .filter(|&g| w.objects.get(g).is_some_and(WorldObject::is_player))?;
+        let burden = self.inq_burden(w)?;
+        let jump = obj_mut(w, player)
+            .get_creature_skill(Skill::Jump, true)
+            .expect("GetCreatureSkill(add: true)");
+        #[allow(clippy::cast_precision_loss)]
+        let skill = jump.current(w, player) as f32;
+        Some(dereth_rules::movement::jump_velocity_of(
+            burden, skill, 1.0, 1.0,
+        ))
+    }
+
     /// Returns the player's load / burden as a percentage, usually 0.0 - 3.0; `None` for a
     /// non-player. `Strength.Current` reads the caching `EnchantmentManager`.
     // ACE: WeenieObject.InqBurden

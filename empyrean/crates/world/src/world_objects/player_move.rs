@@ -455,33 +455,69 @@ pub fn get_charge_parameters() -> MovementParameters {
     mvp
 }
 
-// ACE: Player.HandleFallingDamage
-/// Landing: the vertical speed past the jump velocity plus 4.5 m/s of leeway becomes falling
-/// damage. ACE's `EnvCollisionProfile` parameter is unused.
-pub fn handle_falling_damage(w: &mut World, this: ObjectGuid) {
-    // starting with phat logic
-
-    // jumping skill sort of used as a damping factor here
-    let jump_velocity = 11.254_34_f32; // TODO: figure out how to scale this better
-
-    //var currVelocity = FastTick ? PhysicsObj.Velocity : PhysicsObj.CachedVelocity;
-    let h =
-        phys_ext::physics_obj(w, this).expect("ACE: PhysicsObj is null (NullReferenceException)");
-    let curr_velocity = phys_ext::velocity(w, h);
-
-    let overspeed = jump_velocity + curr_velocity.z + 4.5; // a little leeway
-
-    let ratio = -overspeed / jump_velocity;
-
-    if ratio > 0.0 {
-        let damage = ratio * 87.293_81;
-
-        // bludgeon damage
-        // impact damage
-        if damage > 0.0 {
-            take_damage_falling(w, this, damage);
+/// Not ACE's (V562): retail's chance that a landing hurts, by how many times the character's own
+/// full-power jump speed `jump` it comes down at (`landing`, m/s): none to 1.50, rising through
+/// half at 1.56 to every landing from 1.64, as the end-of-retail captures show it.
+#[must_use]
+pub fn fall_damage_chance(landing: f32, jump: f32) -> f32 {
+    // (landings per jump speed, the share of them hurt), joined by straight lines
+    const RAMP: [(f32, f32); 4] = [(1.50, 0.0), (1.56, 0.5), (1.60, 0.85), (1.64, 1.0)];
+    if jump <= 0.0 {
+        return 0.0;
+    }
+    let ratio = landing / jump;
+    if ratio <= RAMP[0].0 {
+        return 0.0;
+    }
+    for pair in RAMP.windows(2) {
+        let ((r0, p0), (r1, p1)) = (pair[0], pair[1]);
+        if ratio < r1 {
+            return p0 + (p1 - p0) * (ratio - r0) / (r1 - r0);
         }
     }
+    1.0
+}
+
+/// Not ACE's (V562): how much a landing that hurts takes, before bludgeon resistance: retail's
+/// `0.325 (landing - 1.46 jump)^1.5` points, at least 1.
+#[must_use]
+pub fn fall_damage(landing: f32, jump: f32) -> f32 {
+    let past = (landing - 1.46 * jump).max(0.0);
+    (0.325 * past * past.sqrt()).max(1.0)
+}
+
+// ACE: Player.HandleFallingDamage
+/// Landing: by retail's rule (V562), a landing faster than about one and a half times the
+/// character's own full-power jump speed hurts, by [`fall_damage_chance`] and [`fall_damage`].
+/// ACE's `EnvCollisionProfile` parameter is unused.
+pub fn handle_falling_damage(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: V562, retail's rule. ACE hurt every landing faster than a fixed jump speed plus a
+    // little leeway, by a jump speed's worth past it times 87.29381:
+    //     overspeed = 11.25434 + PhysicsObj.Velocity.Z + 4.5;
+    //     if (-overspeed / 11.25434 > 0) TakeDamage_Falling(-overspeed / 11.25434 * 87.29381);
+    let h =
+        phys_ext::physics_obj(w, this).expect("ACE: PhysicsObj is null (NullReferenceException)");
+    let landing = phys_ext::landing_speed(w, h);
+    // nobody jumps slower than the least jump, a 0.35 m hop
+    let least = dereth_rules::movement::jump_velocity_of(0.0, 0.0, 0.0, 1.0);
+    if fall_damage_chance(landing, least) <= 0.0 {
+        return;
+    }
+    let Some(jump) = phys_ext::weenie_obj(w, h).full_jump_velocity(w) else {
+        return;
+    };
+
+    let chance = fall_damage_chance(landing, jump);
+    if chance <= 0.0 {
+        return;
+    }
+    if chance < 1.0
+        && empyrean_common::thread_safe_random::ThreadSafeRandom::next_float(0.0, 1.0)
+            >= f64::from(chance)
+    {
+        return;
+    }
+    take_damage_falling(w, this, fall_damage(landing, jump));
 }
 
 // ACE: Player.TakeDamage_Falling

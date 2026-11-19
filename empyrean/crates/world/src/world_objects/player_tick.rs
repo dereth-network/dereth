@@ -1999,6 +1999,8 @@ pub fn update_object_server(
     if is_teleport {
         // `SetPosition(SendPositionEvent | Slide | Placement | Teleport)`
         phys_ext::set_position(w, h, &request_pos);
+        // DIVERGE: V562, a teleport ends the flight
+        phys_ext::forget_flight(w, h);
 
         // hack...
         if let Some(o) = w.physics.get_mut(h) {
@@ -2098,6 +2100,8 @@ pub fn update_object_server_new(
     // for teleport, use SetPosition?
     if is_teleport {
         phys_ext::set_position(w, h, &request_pos);
+        // DIVERGE: V562, a teleport ends the flight
+        phys_ext::forget_flight(w, h);
     }
 
     // `UpdateTime = PhysicsTimer_CurrentTime`: the time the steps above reached, which the step

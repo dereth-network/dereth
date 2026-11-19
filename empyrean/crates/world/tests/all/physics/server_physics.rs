@@ -2916,13 +2916,78 @@ mod body_state {
 
 mod falling_damage {
     use crate::support::navigation_world::*;
+    use empyrean_world::world_objects::player_move;
+
+    /// V562: a player dropped from a height and stepped by the server takes the damage of the speed
+    /// it fell at, `sqrt(2 g h)`, not of its velocity: a report from the client puts the body back
+    /// up its fall while the velocity runs on, and the velocity after the landing step is the
+    /// landing's bounce.
+    #[test]
+    fn a_landing_is_hurt_by_the_speed_of_the_fall_not_by_the_bodys_velocity() {
+        let mut w = world();
+        let h = body(&w);
+        let jump = phys_ext::weenie_obj(&w, h)
+            .full_jump_velocity(&mut w)
+            .expect("a player");
+        // materialized, out of the pink bubble (a hidden body does not move), and reporting its
+        // collisions as a player's body does
+        use empyrean_entity::enums::PhysicsState;
+        for (state, on) in [
+            (PhysicsState::Hidden, false),
+            (PhysicsState::IgnoreCollisions, false),
+            (PhysicsState::ReportCollisions, true),
+        ] {
+            phys_ext::set_physics_state(&mut w, g(), state, Some(on));
+        }
+        let ground = phys_ext::position(&w, h).unwrap().frame.origin.z;
+        // 11 m: the fall lands at 14.7 m/s, 5 points; with the body put back 0.6 m once on the way
+        // down and its velocity left as it was, the body lands at 15.1 m/s, 6
+        let drop = 11.0;
+        let mut up = phys_ext::position(&w, h).unwrap();
+        up.frame.origin.z = ground + drop;
+        assert!(phys_ext::set_position(&mut w, h, &up));
+        let before = {
+            let o = obj(&w);
+            o.health().current(o)
+        };
+        let mut landed = false;
+        for step in 0..30 {
+            w.now.portal_year_ticks += 0.1;
+            phys_ext::update_object(&mut w, h);
+            if step == 8 {
+                // a report from a moment before: the body is put back up its fall
+                let mut back = phys_ext::position(&w, h).unwrap();
+                back.frame.origin.z += 0.6;
+                assert!(phys_ext::set_position(&mut w, h, &back));
+            }
+            let o = w.physics.get(h).unwrap();
+            if o.position.frame.origin.z <= ground + 0.01 {
+                landed = true;
+                break;
+            }
+        }
+        assert!(landed);
+        let fall = (2.0 * 9.8 * drop).sqrt();
+        let after = {
+            let o = obj(&w);
+            o.health().current(o)
+        };
+        assert_eq!(
+            before - after,
+            crate::movement::player_movement::points(player_move::fall_damage(fall, jump))
+        );
+        assert_eq!(before - after, 5);
+    }
 
     /// Landing hard: `WeenieObject.DoCollision(EnvCollisionProfile)` gives a player
-    /// `HandleFallingDamage` (110 at -30 m/s).
+    /// `HandleFallingDamage` (V562: retail's amount for its jump at 30 m/s).
     #[test]
     fn a_hard_landing_reaches_falling_damage_through_the_weenie_object() {
         let mut w = world();
         let h = body(&w);
+        let jump = phys_ext::weenie_obj(&w, h)
+            .full_jump_velocity(&mut w)
+            .expect("a player");
         w.physics.get_mut(h).unwrap().velocity_vector = Vec3::new(0.0, 0.0, -30.0);
         let before = {
             let o = obj(&w);
@@ -2935,7 +3000,10 @@ mod falling_damage {
             let o = obj(&w);
             o.health().current(o)
         };
-        assert_eq!(before - after, 110);
+        assert_eq!(
+            before - after,
+            crate::movement::player_movement::points(player_move::fall_damage(30.0, jump))
+        );
     }
 }
 
