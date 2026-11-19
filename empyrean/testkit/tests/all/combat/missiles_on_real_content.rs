@@ -1,6 +1,7 @@
 //! ACE: Source/ACE.Server/WorldObjects/Creature_Missile.cs::LaunchProjectile
 //! (real-content) Atlatl darts, arrows and thrown darts reach a Holtburg drudge from range, point
-//! blank, while it chases and after crossing a landblock edge; no 'hit the environment'.
+//! blank, while it chases (catching up through an arrow in flight too: V561) and after crossing a
+//! landblock edge; no 'hit the environment'.
 //! Fixture: virtual-time bots, retail dats and world.pack.
 
 #![allow(clippy::disallowed_methods)]
@@ -402,6 +403,20 @@ mod real {
             RANGE,
             true,
         );
+    }
+
+    /// Seeds of the server's generator, set as the chase begins, under which the drudge catches up
+    /// with the character in one step at the moment an arrow is on its way to it: the step passes
+    /// through the arrow.
+    const LUNGES_THROUGH_AN_ARROW: [u64; 6] = [18, 23, 30, 32, 52, 57];
+
+    #[test]
+    fn arrows_reach_a_chasing_holtburg_drudge_that_lunges_through_them() {
+        for seed in LUNGES_THROUGH_AN_ARROW {
+            let (b, drudge) = arm(Some(SHORTBOW), ARROW, EquipMask::MissileAmmo, POINT_BLANK);
+            empyrean_common::thread_safe_random::ThreadSafeRandom::seed(seed);
+            engage(b, drudge, ARROW, true);
+        }
     }
 
     #[test]

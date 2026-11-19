@@ -1256,6 +1256,7 @@ pub fn update_object(w: &mut World, h: PhysHandle) -> bool {
     }
     let stepped = in_world && elapsed <= dereth_physics::globals::HUGE_QUANTUM;
     let before = o.position.frame;
+    let before_position = o.position;
     prepare_mover(w, h);
 
     let motion = crate::physics::motion::before_update(w, h);
@@ -1272,7 +1273,72 @@ pub fn update_object(w: &mut World, h: PhysHandle) -> bool {
     after_physics(w, h);
     // the motion layer's requests and notices from the step
     crate::physics::motion::after_update(w, h, motion);
+    // DIVERGE: V561, a creature's step that passed through a missile aimed at it is hit by it
+    for (missile, target) in missiles_passed_through(w, h, &before_position) {
+        crate::dispatch::on_collide_object::on_collide_object(w, missile, target);
+    }
     stepped
+}
+
+/// Not ACE's (V561): the missiles aimed at a creature whose step from `from` passed through them. A
+/// missile is no obstacle to the bodies it meets (only its own sweep finds them), and a creature
+/// steps five times a second while a missile steps every frame: a creature closing on its target
+/// fast (a stuck creature catching up) can cover more than its own width in one step, and pass
+/// the arrow shot at it between two of the arrow's sweeps. A missile is passed through when its
+/// position lies within the creature's radius and its own of the line the creature's base moved
+/// along, and between the creature's feet and the top of its height (each widened by the missile's
+/// radius). Answers each as (missile, creature).
+fn missiles_passed_through(
+    w: &World,
+    h: PhysHandle,
+    from: &PPosition,
+) -> Vec<(empyrean_entity::ObjectGuid, empyrean_entity::ObjectGuid)> {
+    let Some(body) = w.physics.get(h) else {
+        return Vec::new();
+    };
+    let is_creature = server_record(w, h).is_some_and(|e| e.weenie_obj.is_creature);
+    let to = body.position;
+    if !is_creature || to.cell.0 == 0 || from.cell.0 == 0 || to.frame.origin == from.frame.origin {
+        return Vec::new();
+    }
+    let Some(landblock) = cur_landblock(w, h) else {
+        return Vec::new();
+    };
+    let (radius, height, id) = (body.radius(), body.height(), body.id);
+    let step = dereth_primitives::position::get_offset(from, &to);
+    let along = step.x * step.x + step.y * step.y;
+    let mut hit = Vec::new();
+    for m in get_server_objects(w, landblock, true) {
+        let Some(missile) = w.physics.get(m) else {
+            continue;
+        };
+        if m == h
+            || !missile.state.is_missile()
+            || missile.projectile_target_id != id
+            || missile.cell.is_none()
+            || !is_active(w, m)
+        {
+            continue;
+        }
+        let at = dereth_primitives::position::get_offset(from, &missile.position);
+        // the nearest point of the creature's step to the missile, across
+        let t = if along > 0.0 {
+            ((at.x * step.x + at.y * step.y) / along).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let (dx, dy) = (at.x - step.x * t, at.y - step.y * t);
+        let reach = radius + missile.radius();
+        let feet = (step.z * t) - missile.radius();
+        let top = (step.z * t) + height + missile.radius();
+        if dx * dx + dy * dy <= reach * reach && at.z >= feet && at.z <= top {
+            hit.push((
+                empyrean_entity::ObjectGuid::new(missile.id.0),
+                empyrean_entity::ObjectGuid::new(id.0),
+            ));
+        }
+    }
+    hit
 }
 
 /// `PhysicsObj.transition(oldPos, newPos, adminMove)`: a transition of the body from `from` to
