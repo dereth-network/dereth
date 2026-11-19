@@ -166,6 +166,7 @@ pub mod table {
     pub const WANTING: &str = "wanting objects";
     pub const HALLS: &str = "allegiance halls";
     pub const HAZARDS: &str = "hazards";
+    pub const AWAY_REGEN: &str = "away regeneration";
     pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
@@ -330,6 +331,12 @@ impl<S: Store> Server<S> {
         if changed {
             self.content.hazards = std::mem::take(&mut t.content.hazards);
             self.hazards = crate::hazards::Hazards::default();
+        }
+        // What vitals regain while away: taken at once, for the characters that enter next.
+        let changed = t.content.away_regen != self.content.away_regen;
+        r.note(table::AWAY_REGEN, changed, true);
+        if changed {
+            self.content.away_regen = std::mem::take(&mut t.content.away_regen);
         }
         // The defended devices: those standing go on as their rows now say, by their place.
         let changed = t.content.defenses != self.content.defenses;

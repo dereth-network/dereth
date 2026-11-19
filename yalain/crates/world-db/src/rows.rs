@@ -749,6 +749,7 @@ pub enum Row {
     Tally(Tally),
     PointsBonus(PointsBonus),
     KingdomJoin(KingdomJoinRow),
+    AwayRegen(AwayRegenRow),
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
@@ -929,6 +930,15 @@ pub struct PointsBonus {
 pub struct KingdomJoinRow {
     pub kingdom: u32,
     pub join: yalain_content::kingdoms::Join,
+    pub prov: Prov,
+}
+
+/// `[[away_regen]]`: what a vital regains while its character is out of the world: `points` for each
+/// whole `every` seconds it was away, given back as it enters again. One row per vital.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AwayRegenRow {
+    pub vital: yalain_content::vitals::Vital,
+    pub regen: yalain_content::vitals::AwayRegen,
     pub prov: Prov,
 }
 
@@ -1581,6 +1591,7 @@ impl Row {
             Self::Tally(_) => "tally",
             Self::PointsBonus(_) => "points_bonus",
             Self::KingdomJoin(_) => "kingdom_join",
+            Self::AwayRegen(_) => "away_regen",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
@@ -1661,6 +1672,7 @@ impl Row {
             Self::Tally(r) => Some(&r.prov),
             Self::PointsBonus(r) => Some(&r.prov),
             Self::KingdomJoin(r) => Some(&r.prov),
+            Self::AwayRegen(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
@@ -1710,7 +1722,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 74] = [
+pub const KINDS: [&str; 75] = [
     "object",
     "camp",
     "loot",
@@ -1742,6 +1754,7 @@ pub const KINDS: [&str; 74] = [
     "tally",
     "points_bonus",
     "kingdom_join",
+    "away_regen",
     "popup",
     "effect_rule",
     "treasure_value",
@@ -1788,7 +1801,7 @@ pub const KINDS: [&str; 74] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 74] = [
+pub const FIELDS: [(&str, &[&str]); 75] = [
     (
         "object",
         &[
@@ -2153,6 +2166,7 @@ pub const FIELDS: [(&str, &[&str]); 74] = [
             "prov",
         ],
     ),
+    ("away_regen", &["vital", "every", "points", "prov"]),
     ("popup", &["on", "effect", "prov"]),
     (
         "effect_rule",
@@ -3923,6 +3937,23 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::KingdomJoin(KingdomJoinRow {
                 kingdom,
                 join,
+                prov: f.req_prov()?,
+            })
+        }
+        "away_regen" => {
+            use yalain_content::vitals::{AwayRegen, Vital};
+            let vital = match f.word("vital", Vital::from_word, "health, vigor or focus") {
+                Some(Some(v)) => v,
+                Some(None) => return None,
+                None => return f.missing("vital"),
+            };
+            let every = f.req_u32("every")?;
+            let every = f.held("every", every, every > 0, "seconds, above 0")?;
+            let points = f.req_u32("points")?;
+            let points = f.held("points", points, points > 0, "above 0")?;
+            Row::AwayRegen(AwayRegenRow {
+                vital,
+                regen: AwayRegen { every, points },
                 prov: f.req_prov()?,
             })
         }

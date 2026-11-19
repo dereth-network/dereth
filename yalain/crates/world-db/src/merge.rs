@@ -66,6 +66,9 @@ pub fn item(l: &Located) -> Option<Item> {
                 .unwrap_or_default()
                 .to_string(),
         },
+        Row::AwayRegen(r) => Item::AwayRegen {
+            vital: r.vital.word().to_string(),
+        },
         Row::EffectRule(r) => match &r.effect {
             crate::rows::EffectOf::State(effect) => Item::EffectRule { effect: *effect },
             crate::rows::EffectOf::Name(name) => Item::EffectRuleNamed { name: name.clone() },
@@ -227,6 +230,7 @@ fn value(row: &Row) -> String {
         Row::Tally(x) => x.prov = crate::rows::Prov::default(),
         Row::PointsBonus(x) => x.prov = crate::rows::Prov::default(),
         Row::KingdomJoin(x) => x.prov = crate::rows::Prov::default(),
+        Row::AwayRegen(x) => x.prov = crate::rows::Prov::default(),
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),

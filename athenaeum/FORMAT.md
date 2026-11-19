@@ -50,6 +50,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/areas.toml           [[area]]
 <pack>/server/allegiance.toml      [[allegiance_hall]]
 <pack>/server/kingdoms.toml        [[points_bonus]], [[kingdom_join]]
+<pack>/server/vitals.toml          [[away_regen]]
 <pack>/server/popups.toml          [[popup]]
 <pack>/server/treasure.toml        [[treasure_rules]], [[treasure_sort]]
 <pack>/server/treasure_words.toml  [[treasure_word]]
@@ -1213,6 +1214,21 @@ kingdom has left a kingdom then.
 | `sworn_refused` | | true: a player sworn to another kingdom than the neutral one is refused; false when left out |
 | `wait` | | seconds by the calendar, kept while the player is away, since it last left a kingdom; 0 when left out |
 | `costs` | | `{ from, gold }`: the gold a join costs from each level on, levels rising from 0; nothing when left out |
+| `prov` | required | where it came from |
+
+#### `[[away_regen]]`
+
+What a vital regains while its character is out of the world: `points` for each whole `every`
+seconds since the character was last kept (as it left the world), given back as it enters again and
+carried in its description, never past its greatest. The time it spends in the world counts for
+nothing. Only a vital the character holds regains: focus, a hero's. One row per vital; a vital no
+row names regains nothing while its character is away.
+
+| field | | meaning |
+|---|---|---|
+| `vital` | required | `health`, `vigor` or `focus` |
+| `every` | required | seconds, above 0 |
+| `points` | required | above 0 |
 | `prov` | required | where it came from |
 
 #### `[[popup]]`

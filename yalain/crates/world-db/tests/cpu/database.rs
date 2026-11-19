@@ -5688,6 +5688,64 @@ fn kingdom_join_rows_compile_by_kingdom_and_bad_ones_are_problems() {
     }
 }
 
+/// An away regeneration row compiles to what its vital regains while its character is away, by
+/// the vital; one row a vital; a vital by its word, and seconds and points above 0.
+#[test]
+fn away_regen_rows_compile_by_vital_and_bad_ones_are_problems() {
+    use yalain_content::vitals::{AwayRegen, Vital};
+    let row = "[[away_regen]]\nvital = \"focus\"\nevery = 600\npoints = 1\n\
+               prov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/vitals.toml".into(), row.into());
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let focus = AwayRegen {
+        every: 600,
+        points: 1,
+    };
+    assert_eq!(t.content.away_regen.of(Vital::Focus), Some(focus));
+    assert_eq!(t.content.away_regen.of(Vital::Health), None);
+    assert_eq!(t.content.away_regen.by_vital.len(), 1);
+    assert_eq!(
+        (focus.after(599.9), focus.after(600.0), focus.after(1250.0)),
+        (0, 1, 2)
+    );
+
+    // One row a vital.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/vitals.toml".into(),
+        format!(
+            "{row}\n[[away_regen]]\nvital = \"focus\"\nevery = 60\npoints = 2\n\
+             prov = {{ from = \"authored\" }}\n"
+        ),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+
+    for bad in [
+        "vital = \"mana\"\nevery = 600\npoints = 1",
+        "every = 600\npoints = 1",
+        "vital = \"focus\"\npoints = 1",
+        "vital = \"focus\"\nevery = 600",
+        "vital = \"focus\"\nevery = 0\npoints = 1",
+        "vital = \"focus\"\nevery = 600\npoints = 0",
+        "vital = \"focus\"\nevery = -600\npoints = 1",
+        "vital = \"focus\"\nevery = 600\npoints = 1\nlasts = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/vitals.toml".into(),
+            format!("[[away_regen]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_are_problems() {
     use yalain_content::crafts::CraftGate;

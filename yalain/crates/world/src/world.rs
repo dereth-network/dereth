@@ -579,6 +579,13 @@ pub fn enter<S: Store>(
         conflict,
     };
     p.admin.cloaked = p.admin_character && p.play.cloaked;
+    // What its vitals regained while it was away is in its description.
+    let was_away = time_away(&p.play, net.game_time(clock.local));
+    let qualities = if crate::regen::while_away(s, &mut p, was_away) {
+        Qualities::read(&mut Reader::new(&p.qualities)).unwrap_or_default()
+    } else {
+        qualities
+    };
     let me = ObjectStamp {
         id: character,
         instance_stamp: p.instance,
@@ -738,11 +745,7 @@ pub fn enter<S: Store>(
     s.game_now = game_now;
     // A skill's wait does not run while the character is away, nor a quest's time: its last use,
     // and when each quest was given, move on by the time since the character was last kept.
-    let away = if p.play.kept_at > 0.0 {
-        (game_now - p.play.kept_at).max(0.0)
-    } else {
-        0.0
-    };
+    let away = time_away(&p.play, game_now);
     for (_, t) in &mut p.play.last_used {
         *t += away;
     }
@@ -876,6 +879,16 @@ pub fn enter<S: Store>(
         )
     );
     Ok(())
+}
+
+/// The seconds of game time since a character was last kept (as it left the world); none for one
+/// never kept.
+fn time_away(play: &crate::state::PlayState, game_now: f64) -> f64 {
+    if play.kept_at > 0.0 {
+        (game_now - play.kept_at).max(0.0)
+    } else {
+        0.0
+    }
 }
 
 /// Keep what a character is in the world. Its next periodic save is counted from now

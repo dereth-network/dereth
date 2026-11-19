@@ -54,6 +54,7 @@
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! <pack>/server/allegiance.toml   [[allegiance_hall]]
+//! <pack>/server/vitals.toml       [[away_regen]]
 //! ```
 //!
 //! Every row carries `prov`, where it came from: `capture` (measured from recorded sessions, with an

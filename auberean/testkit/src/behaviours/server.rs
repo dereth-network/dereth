@@ -5958,6 +5958,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.focus.a-magroot-gives-35",
+        says: "The Magroot is a hero's, used up as it is eaten, and its use puts on an instant change \
+               of 35 to its eater's focus alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-MAGROOT"),
+        station: "yalain-testkit::dat::effects::a_magroot_is_a_heros_and_eating_it_gives_35_focus",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.focus.fellowship-shares",
         says: "In a fellowship that shares experience, each part of a kill's focus is shared out \
                without a text: every fellow of a level to share within 100 m of the one whose \
@@ -6016,6 +6025,35 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-HERO-MADE"),
         station: "yalain-testkit::cpu::play::focus::a_character_made_a_hero_is_told_and_has_its_greatest_focus",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.focus.regained-only-while-away",
+        says: "Time a hero spends in the world brings no focus back, at entry or after; what it \
+               regains away stops at its greatest; a world with no away regeneration row gives \
+               nothing back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-OFFLINE-ONLY"),
+        station: "yalain-testkit::cpu::play::focus_away::focus_comes_back_only_while_away_and_stops_at_its_greatest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.focus.regained-while-away",
+        says: "A hero out of the world regains the points its world's row gives for each whole span \
+               it was away (1 for each 10 minutes), given back as it enters: its description \
+               carries the new focus and no focus is sent besides.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-OFFLINE"),
+        station: "yalain-testkit::cpu::play::focus_away::a_hero_regains_a_point_of_focus_for_each_ten_minutes_away_in_its_description",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.focus.regained-while-away-heroes-only",
+        says: "A player who is no hero regains no focus while away: one never a hero has none, its \
+               description carrying none; one no longer a hero keeps what it held, no more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-OFFLINE-HEROES"),
+        station: "yalain-testkit::cpu::play::focus_away::a_player_who_is_no_hero_regains_no_focus_while_away",
         tier: Tier::Cpu,
     },
     behaviour! {

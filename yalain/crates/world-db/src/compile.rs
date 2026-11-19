@@ -1919,6 +1919,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::KingdomJoin(r) => {
                 t.kingdoms.joins.insert(r.kingdom, r.join.clone());
             }
+            Row::AwayRegen(r) => {
+                t.content.away_regen.by_vital.insert(r.vital, r.regen);
+            }
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(
                     r.effect,

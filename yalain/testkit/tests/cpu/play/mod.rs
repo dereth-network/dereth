@@ -50,6 +50,7 @@ mod falls;
 mod fellowships;
 mod fights;
 mod focus;
+mod focus_away;
 mod follow;
 mod forces;
 mod gives;

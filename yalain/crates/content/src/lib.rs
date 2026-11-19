@@ -62,6 +62,7 @@ pub mod treasure_looks;
 pub mod treasure_tables;
 pub mod treasure_words;
 pub mod untraining;
+pub mod vitals;
 pub mod wanting;
 pub mod worn_table;
 
@@ -834,6 +835,9 @@ pub struct ContentPack {
     /// The placed objects and spots that harm a player who uses one or comes within its reach. Not
     /// part of the text form: the world database's hazard rows fill it.
     pub hazards: hazards::HazardTable,
+    /// What each vital regains while its character is out of the world. Not part of the text form:
+    /// the world database's away regeneration rows fill it.
+    pub away_regen: vitals::AwayRegens,
 }
 
 /// The kind of player conflict a place allows.
@@ -1222,6 +1226,7 @@ impl ContentPack {
             rounds: rounds::RoundTable::default(),
             defenses: defenses::DefenseTable::default(),
             hazards: hazards::HazardTable::default(),
+            away_regen: vitals::AwayRegens::default(),
         })
     }
 

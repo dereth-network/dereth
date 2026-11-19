@@ -19,6 +19,13 @@
 //! **Swimming.** A player who swims regains nothing; its steps take vigor, then health, instead
 //! ([`crate::swimming`]).
 //!
+//! **Away.** A character out of the world regains what a world's away regeneration rows give
+//! (2017: focus came back 1 point for each whole 10 minutes a hero was out of the world, its next
+//! description carrying it, 20 of 20 times the account played another character meanwhile; the time
+//! it spent in the world brought none back). It is given back as it enters, before its description,
+//! counted from when it was last kept: a vital the character holds (focus, a hero's), up to its
+//! greatest, never a dead one's health. A vital no row names regains nothing while away.
+//!
 //! **Creatures** not hurt for eight seconds regain their greatest health in a minute (a share of it a
 //! second), in whole points as the share earned adds up (measured through 2017's selection pushes;
 //! nothing is sent for them). One still in a fight regains its template's combat rate instead, where
@@ -52,6 +59,42 @@ pub mod rate {
 /// Seconds a creature must go unhurt before it regains health, and the share a second.
 pub const CREATURE_REST: f64 = 8.0;
 pub const CREATURE_HEALTH_RATE: f64 = 1.0 / 60.0;
+
+/// What a player's vitals regained in the `away` seconds since it was last kept, as it enters: for
+/// each vital a world's row names and the player holds (focus only a hero's), the row's points for
+/// each whole span, up to its greatest. Nothing is sent: its description carries them. Returns
+/// whether any changed.
+pub fn while_away<S: Store>(s: &Server<S>, p: &mut crate::world::Player, away: f64) -> bool {
+    use yalain_content::vitals::Vital;
+    let mut changed = false;
+    for v in Vital::ALL {
+        let Some(rule) = s.content.away_regen.of(v) else {
+            continue;
+        };
+        let (cur, max) = match v {
+            Vital::Health => (quality::HEALTH, quality::HEALTH_MAX),
+            Vital::Vigor => (quality::VIGOR, quality::VIGOR_MAX),
+            Vital::Focus => (quality::FOCUS, quality::FOCUS_MAX),
+        };
+        if v == Vital::Focus && !crate::focus::is_hero(&p.qualities) {
+            continue;
+        }
+        let Some(was) = quals::int(&p.qualities, cur) else {
+            continue;
+        };
+        if v == Vital::Health && was <= 0 {
+            continue;
+        }
+        let gain = rule.after(away);
+        let max = effects::max_vital(s, p, max);
+        if gain <= 0 || was >= max {
+            continue;
+        }
+        quals::set_int(&mut p.qualities, cur, was.saturating_add(gain).min(max));
+        changed = true;
+    }
+    changed
+}
 
 /// The share of its greatest health a creature regains a minute while unhurt: its greatest in a
 /// minute, or in a fight its template's combat rate where it sets one.

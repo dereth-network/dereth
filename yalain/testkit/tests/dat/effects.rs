@@ -695,6 +695,37 @@ fn the_effects_of_items_uses_read_from_their_names() {
     );
 }
 
+/// The Magroot is a hero's, used up as it is eaten, and its use puts on its focus boost: an instant
+/// change of 35 to its eater's focus alone.
+/// Behaviour: server.focus.a-magroot-gives-35
+#[test]
+fn a_magroot_is_a_heros_and_eating_it_gives_35_focus() {
+    use yalain_world::effect_defs::vital;
+    use yalain_world::item_use::UsageEffect;
+    const MAGROOT: u32 = 0x4700_1C84;
+    const BOOST: u32 = 0x6F00_2568;
+    let p = Portal::open();
+    let t = p.template(MAGROOT);
+    assert!(t.props.flag("Usage_HeroOnly"), "a hero's");
+    assert!(t.props.flag("Item_IsDestroyOnUse"), "used up");
+    let uses = p.item_uses(&[MAGROOT]);
+    let effects: Vec<(u32, f32)> = uses
+        .get(&MAGROOT)
+        .map(|l| {
+            l.iter()
+                .map(|e: &UsageEffect| (e.state, e.spellcraft))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(effects, vec![(BOOST, 1.0)]);
+    let defs = p.effects(&[BOOST]);
+    let Kind::InstantVital { flags, change } = &defs.get(BOOST).expect("the boost").kind else {
+        panic!("not a change to vitals")
+    };
+    assert!(flags & vital::FOCUS != 0 && flags & (vital::HEALTH | vital::VIGOR) == 0);
+    assert_eq!(change.at(1.0), Some(35.0));
+}
+
 /// A chain of other effects reads as the data defines it: the chain of the Atlan weapon recipes holds
 /// sixteen grants, in its order, each read with it as the recipe it teaches.
 /// Behaviour: server.effects.a-chain-reads-as-its-data-says
