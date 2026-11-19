@@ -2291,6 +2291,92 @@ mod real_content {
         assert!(!inventory.is_empty());
         assert!(!wielded.is_empty() || r.heritage_group == 6);
     }
+
+    /// Divergence: V547
+    /// Headless soldier and caster creation requests seeded via the shared
+    /// `dereth_rules::chargen::creation_skill_classes` helper pass the server's
+    /// `player_factory::create` validation against the real retail `client_portal.dat` tables,
+    /// while leaving out free baseline skills is still refused.
+    #[test]
+    fn soldier_and_caster_presets_pass_real_dats_v547_validation() {
+        use dereth_rules::chargen::{
+            creation_skill_classes, SkillAdvancementClass as SharedSac, RETIRED_WEAPON_SKILLS,
+        };
+        let mut w = world_with(dats());
+        let cg = w.dats.portal_dat().char_gen().clone();
+        let sk = w.dats.portal_dat().skill_table().clone();
+        let era = w.era.id;
+
+        let build = |name: &str, attrs: [i32; 6], trained: &[u32]| {
+            let overrides: Vec<(u32, SharedSac)> = trained
+                .iter()
+                .copied()
+                .map(|id| (id, SharedSac::Trained))
+                .collect();
+            let sacs: Vec<i32> = creation_skill_classes(&cg, &sk, 1, era, &overrides)
+                .into_iter()
+                .map(|s| i32::from(s as u8))
+                .collect();
+            let mut m = request(name, 1, attrs, sacs);
+            m.result.template_num = 6;
+            m.result.start_area = 0;
+            m
+        };
+
+        let soldier_req = build(
+            "HeadlessSoldier",
+            [100, 60, 100, 50, 10, 10],
+            &[44, 6, 21, 22, 24],
+        );
+        let caster_req = build(
+            "HeadlessCaster",
+            [10, 60, 50, 10, 100, 100],
+            &[34, 31, 33, 16],
+        );
+
+        for (label, req) in [("soldier", &soldier_req), ("caster", &caster_req)] {
+            for retired in RETIRED_WEAPON_SKILLS {
+                assert_eq!(
+                    req.result.skill_advancement_classes[usize::try_from(retired).unwrap()],
+                    INACTIVE,
+                    "{label}: retired weapon {retired} must remain Inactive"
+                );
+            }
+            assert_eq!(
+                req.result.skill_advancement_classes[23], INACTIVE,
+                "{label}: unrelated paid skill Lockpick must remain Inactive"
+            );
+            let (res, _created) = create(&mut w, req);
+            assert_eq!(
+                res,
+                CreateResult::Success,
+                "{label} must pass server chargen"
+            );
+        }
+
+        // Confirm V547 validation still rejects the legacy requests lacking free baseline skills.
+        let mut legacy_soldier = soldier_req.clone();
+        legacy_soldier.result.skill_advancement_classes = vec![INACTIVE; 55];
+        for id in [44usize, 6, 21, 22, 24] {
+            legacy_soldier.result.skill_advancement_classes[id] = TRAINED;
+        }
+        let mut legacy_caster = caster_req.clone();
+        legacy_caster.result.skill_advancement_classes = vec![INACTIVE; 55];
+        for id in [34usize, 31, 33, 16] {
+            legacy_caster.result.skill_advancement_classes[id] = TRAINED;
+        }
+        for (label, req) in [
+            ("legacy soldier", &legacy_soldier),
+            ("legacy caster", &legacy_caster),
+        ] {
+            let (res, _) = create(&mut w, req);
+            assert_eq!(
+                res,
+                CreateResult::InvalidSkillRequested,
+                "{label} must still be refused by V547"
+            );
+        }
+    }
 }
 
 /// V243: a template number outside the heritage's list is answered
@@ -2405,6 +2491,158 @@ fn a_create_that_leaves_a_free_skill_below_trained_is_refused() {
     assert_eq!(
         create(&mut eor, &without).0,
         CreateResult::InvalidSkillRequested
+    );
+}
+
+/// Divergence: V547
+/// The shared `dereth_rules::chargen` era skill lists, retired-weapon list, and
+/// `creation_skill_classes` helper agree with server chargen validation for both soldier and
+/// caster presets without weakening V547 refusal of missing free baseline skills.
+#[test]
+fn shared_chargen_helper_matches_server_v547_validation_for_soldier_and_caster() {
+    use dereth_rules::chargen::{
+        creation_skill_classes, era_creation_skills, SkillAdvancementClass as SharedSac,
+        RETIRED_WEAPON_SKILLS,
+    };
+    use empyrean_common::era::EraId;
+
+    // Shared era skill sets and retired-weapon ids must match server authority.
+    for era in EraId::ALL {
+        assert_eq!(
+            era_creation_skills(era),
+            era.rules().creation_skills,
+            "era {era:?}"
+        );
+    }
+    let mut server_retired: Vec<u32> =
+        empyrean_entity::enums::ext::skill_extensions::RETIRED_WEAPONS
+            .iter()
+            .map(|s| u32::try_from(s.0).expect("positive skill id"))
+            .collect();
+    server_retired.sort_unstable();
+    let mut shared_retired = RETIRED_WEAPON_SKILLS.to_vec();
+    shared_retired.sort_unstable();
+    assert_eq!(shared_retired, server_retired);
+
+    // Build an EoR-shaped table covering soldier + caster skills, free baseline skills, and a
+    // paid unrelated skill (Lockpick). `DatManager` adds the retired weapon skills (including
+    // Sword 11 and Unarmed Combat 13) at cost 0 automatically.
+    let mut table = skill_table();
+    for &(id, tc, sc) in &[
+        (15u32, 0, 12), // Magic Defense (free)
+        (16, 6, 12),    // Mana Conversion
+        (23, 6, 12),    // Lockpick (paid unrelated)
+        (33, 12, 24),   // Life Magic
+        (34, 16, 32),   // War Magic
+        (40, 0, 4),     // Salvaging (free)
+        (44, 6, 12),    // Heavy Weapons
+    ] {
+        table.skills.insert(id, skill(tc, sc));
+    }
+    let dats = dats_builder()
+        .with_skill_table(table)
+        .build()
+        .expect("dats");
+    let mut w = world_with(dats);
+    let cg = w.dats.portal_dat().char_gen().clone();
+    let sk = w.dats.portal_dat().skill_table().clone();
+    assert!(
+        sk.skills.contains_key(&11),
+        "server table carries retired weapons at zero cost"
+    );
+
+    let build_sacs = |era: EraId, trained: &[u32]| -> Vec<i32> {
+        let overrides: Vec<(u32, SharedSac)> = trained
+            .iter()
+            .copied()
+            .map(|id| (id, SharedSac::Trained))
+            .collect();
+        creation_skill_classes(&cg, &sk, 1, era, &overrides)
+            .into_iter()
+            .map(|s| i32::from(s as u8))
+            .collect()
+    };
+
+    let soldier_sacs = build_sacs(EraId::Eor, &[44, 6, 21, 22, 24]);
+    let caster_sacs = build_sacs(EraId::Eor, &[34, 31, 33, 16]);
+    assert_eq!(
+        soldier_sacs[11], INACTIVE,
+        "retired zero-cost weapon stays Inactive"
+    );
+    assert_eq!(
+        caster_sacs[11], INACTIVE,
+        "retired zero-cost weapon stays Inactive"
+    );
+    assert_eq!(
+        soldier_sacs[23], INACTIVE,
+        "paid unrelated skill stays Inactive"
+    );
+    assert_eq!(
+        caster_sacs[23], INACTIVE,
+        "paid unrelated skill stays Inactive"
+    );
+
+    let soldier_req = request(
+        "SoldierTest",
+        1,
+        [100, 60, 100, 50, 10, 10],
+        soldier_sacs.clone(),
+    );
+    let caster_req = request(
+        "CasterTest",
+        1,
+        [10, 60, 50, 10, 100, 100],
+        caster_sacs.clone(),
+    );
+    assert_eq!(create(&mut w, &soldier_req).0, CreateResult::Success);
+    assert_eq!(create(&mut w, &caster_req).0, CreateResult::Success);
+
+    // Lowering any required free skill on either preset is still rejected by V547.
+    for free in [14usize, 15, 22, 24, 36, 40] {
+        let mut bad_soldier = soldier_sacs.clone();
+        bad_soldier[free] = INACTIVE;
+        assert_eq!(
+            create(
+                &mut w,
+                &request("BadSoldier", 1, [100, 60, 100, 50, 10, 10], bad_soldier)
+            )
+            .0,
+            CreateResult::InvalidSkillRequested,
+            "soldier missing free skill {free}"
+        );
+        let mut bad_caster = caster_sacs.clone();
+        bad_caster[free] = UNTRAINED;
+        assert_eq!(
+            create(
+                &mut w,
+                &request("BadCaster", 1, [10, 60, 50, 10, 100, 100], bad_caster)
+            )
+            .0,
+            CreateResult::InvalidSkillRequested,
+            "caster lowering free skill {free}"
+        );
+    }
+
+    // On Launch, Salvaging (40) is omitted and Unarmed Combat (13) passes skill validation.
+    let mut launch = world_with(Arc::clone(&w.dats));
+    launch.era = EraId::Launch.rules();
+    let launch_soldier = build_sacs(EraId::Launch, &[13, 6, 21, 22, 24]);
+    assert_eq!(launch_soldier[40], INACTIVE);
+    assert_eq!(launch_soldier[44], INACTIVE);
+    assert_eq!(launch_soldier[13], TRAINED);
+    assert_eq!(
+        create(
+            &mut launch,
+            &request(
+                "LaunchSoldier",
+                1,
+                [100, 60, 100, 50, 10, 10],
+                launch_soldier
+            )
+        )
+        .0,
+        CreateResult::StarterProvisioningFailed,
+        "passes skill validation and reaches Launch starter provisioning"
     );
 }
 

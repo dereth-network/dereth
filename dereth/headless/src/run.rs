@@ -765,8 +765,7 @@ impl<'a> Run<'a> {
         let mut created = false;
         if find(self).is_none() {
             let before = self.app.host_state.chargen_response_notices;
-            let store = &self.app.store;
-            let character = new_character(self.opts.era, || creation_table(store), name, role);
+            let character = creation_request_for_store(&self.app.store, self.opts.era, name, role);
             self.app
                 .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(character))]);
             let answered = |run: &mut Self| run.app.host_state.chargen_response_notices != before;
@@ -1424,15 +1423,91 @@ pub fn step_lines() -> Vec<String> {
         .collect()
 }
 
-/// A new character for `enter <name> mage`: the soldier's look and start, with War Magic,
-/// Creature Enchantment, Life Magic and Mana Conversion trained and Focus and Self high.
-fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData {
-    let mut c = soldier(name);
-    let mut skills = vec![0; 55];
-    for skill in [34usize, 31, 33, 16] {
-        skills[skill] = 2;
+/// The Aluvian heritage id used by [`soldier`] and [`caster`].
+const DEFAULT_HERITAGE: u32 = 1;
+
+/// Builds the character-creation request `enter` sends for `role` on a world of `era`, reading
+/// the character-creation and skill tables from `store` to seed the heritage's required free
+/// baseline skills.
+#[must_use]
+pub fn creation_request_for_store(
+    store: &dereth_client_sdk::dat::RetailDatStore,
+    era: Option<dereth_client_sdk::primitives::EraId>,
+    name: &str,
+    role: crate::script::Role,
+) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    let effective_era =
+        era.unwrap_or_else(|| dereth_client_sdk::contract::EraView::era_of_dats(store.era()));
+    new_character(
+        Some(effective_era),
+        || creation_tables(store, effective_era),
+        name,
+        role,
+    )
+}
+
+/// The skill advancement classes for a built-in headless character on `era`, starting from the
+/// heritage's required free baseline skills in `tables` and raising `trained` to at least Trained.
+fn builtin_skill_classes(
+    era: dereth_client_sdk::primitives::EraId,
+    tables: Option<(
+        &dereth_client_sdk::assets::tables::CharGen,
+        &dereth_client_sdk::assets::tables::SkillTable,
+    )>,
+    trained: &[u32],
+) -> Vec<i32> {
+    use dereth_client_sdk::rules::chargen::{
+        creation_skill_classes, era_creation_skills, SkillAdvancementClass, TOTAL_NUM_SKILLS,
+    };
+    if let Some((cg, skill_table)) = tables {
+        let overrides: Vec<(u32, SkillAdvancementClass)> = trained
+            .iter()
+            .copied()
+            .map(|id| (id, SkillAdvancementClass::Trained))
+            .collect();
+        return creation_skill_classes(cg, skill_table, DEFAULT_HERITAGE, era, &overrides)
+            .into_iter()
+            .map(|sac| i32::from(sac as u8))
+            .collect();
     }
-    c.skill_advancement_classes = skills;
+    let mut skills = vec![0; TOTAL_NUM_SKILLS];
+    let allowed = era_creation_skills(era);
+    for &id in trained {
+        if id == 0 || allowed.is_some_and(|set| !set.contains(&id)) {
+            continue;
+        }
+        if let Some(slot) = usize::try_from(id).ok().and_then(|i| skills.get_mut(i)) {
+            *slot = (*slot).max(i32::from(SkillAdvancementClass::Trained as u8));
+        }
+    }
+    skills
+}
+
+/// The melee weapon skill for [`soldier`] in `era`: Heavy Weapons (44) at the end of retail,
+/// Unarmed Combat (13) in eras before the weapon-skill consolidation.
+fn soldier_melee_skill(era: dereth_client_sdk::primitives::EraId) -> u32 {
+    if dereth_client_sdk::rules::chargen::era_creation_skills(era)
+        .is_none_or(|allowed| allowed.contains(&44))
+    {
+        44
+    } else {
+        13
+    }
+}
+
+/// A new character for `enter <name> mage`: the soldier's look and start, with War Magic,
+/// Creature Enchantment, Life Magic and Mana Conversion trained over the heritage's free baseline
+/// skills, and Focus and Self high.
+fn caster(
+    name: &str,
+    era: dereth_client_sdk::primitives::EraId,
+    tables: Option<(
+        &dereth_client_sdk::assets::tables::CharGen,
+        &dereth_client_sdk::assets::tables::SkillTable,
+    )>,
+) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    let mut c = soldier(name, era, tables);
+    c.skill_advancement_classes = builtin_skill_classes(era, tables, &[34, 31, 33, 16]);
     c.strength = 10;
     c.endurance = 60;
     c.coordination = 50;
@@ -1443,48 +1518,83 @@ fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData
 }
 
 /// The character `enter` creates on a world of `era`. A world whose characters take a template
-/// whole (no credits to spend) is sent the character-creation table's template, read from `table`
-/// only then; any other world, or one whose table has no usable template, the soldier (for a
-/// mage, the caster).
+/// whole (no credits to spend) is sent the character-creation table's template; any other world,
+/// or one whose table has no usable template, the soldier (for a mage, the caster) seeded with the
+/// heritage's free baseline skills from `tables`.
 fn new_character(
     era: Option<dereth_client_sdk::primitives::EraId>,
-    table: impl FnOnce() -> Option<dereth_client_sdk::assets::tables::CharGen>,
+    tables: impl FnOnce() -> (
+        Option<dereth_client_sdk::assets::tables::CharGen>,
+        Option<dereth_client_sdk::assets::tables::SkillTable>,
+    ),
     name: &str,
     role: crate::script::Role,
 ) -> dereth_client_sdk::contract::pregame::CharGenResultData {
-    (era == Some(dereth_client_sdk::primitives::EraId::Launch))
-        .then(table)
-        .flatten()
-        .and_then(|cg| templated(&cg, name, role))
-        .unwrap_or_else(|| {
-            if role == crate::script::Role::Mage {
-                caster(name)
-            } else {
-                soldier(name)
-            }
-        })
+    let effective_era = era.unwrap_or_default();
+    let (cg, skill_table) = tables();
+    if era == Some(dereth_client_sdk::primitives::EraId::Launch) {
+        if let Some(character) = cg
+            .as_ref()
+            .and_then(|cg| templated(cg, skill_table.as_ref(), effective_era, name, role))
+        {
+            return character;
+        }
+    }
+    let pair = cg.as_ref().zip(skill_table.as_ref());
+    if role == crate::script::Role::Mage {
+        caster(name, effective_era, pair)
+    } else {
+        soldier(name, effective_era, pair)
+    }
 }
 
-/// The character-creation table: the 1999 one when the world's own files are the older ones
-/// beside the later.
-fn creation_table(
+/// The character-creation and skill tables for `era`: the pre-Throne-of-Destiny files when `era`
+/// plays a classic set and those files are present beside the modern ones, else `store` itself.
+fn creation_tables(
     store: &dereth_client_sdk::dat::RetailDatStore,
-) -> Option<dereth_client_sdk::assets::tables::CharGen> {
-    use dereth_client_sdk::assets::{tables::CharGen, Decode};
-    use dereth_client_sdk::primitives::AssetSource as _;
-    let id = dereth_client_sdk::primitives::DataId(0x0E00_0002);
-    let store = store.classic_files().unwrap_or_else(|| store.clone());
-    CharGen::decode_payload_in(store.era(), id, &store.read(id).ok()?).ok()
+    era: dereth_client_sdk::primitives::EraId,
+) -> (
+    Option<dereth_client_sdk::assets::tables::CharGen>,
+    Option<dereth_client_sdk::assets::tables::SkillTable>,
+) {
+    use dereth_client_sdk::assets::{
+        tables::{CharGen, SkillTable},
+        Decode,
+    };
+    use dereth_client_sdk::primitives::{AssetSource as _, ContainerEra, DataId};
+    let cg_id = DataId(0x0E00_0002);
+    let sk_id = DataId(0x0E00_0004);
+    let owned;
+    let src = if era.container_era() == ContainerEra::Classic {
+        owned = store.classic_files();
+        owned.as_ref().unwrap_or(store)
+    } else {
+        store
+    };
+    let cg = src
+        .read(cg_id)
+        .ok()
+        .and_then(|b| CharGen::decode_payload_in(src.era_of(cg_id), cg_id, &b).ok());
+    let sk = src
+        .read(sk_id)
+        .ok()
+        .and_then(|b| SkillTable::decode_payload_in(src.era_of(sk_id), sk_id, &b).ok());
+    (cg, sk)
 }
 
 /// A new character for `enter` in a world whose characters take a template whole: an Aluvian
-/// male of the character-creation table's first template that trains what `role` asks for, its attributes and skills as the template gives them, at the heritage's first start.
+/// male of the character-creation table's first template that trains what `role` asks for, its
+/// attributes and skills as the template gives them (preserving any required free baseline skills
+/// when `skill_table` is present), at the heritage's first start.
 fn templated(
     cg: &dereth_client_sdk::assets::tables::CharGen,
+    skill_table: Option<&dereth_client_sdk::assets::tables::SkillTable>,
+    era: dereth_client_sdk::primitives::EraId,
     name: &str,
     role: crate::script::Role,
 ) -> Option<dereth_client_sdk::contract::pregame::CharGenResultData> {
     use crate::script::Role;
+    use dereth_client_sdk::rules::chargen::{default_creation_skill_classes, TOTAL_NUM_SKILLS};
     const BOW: u32 = 2;
     const WAR_MAGIC: u32 = 34;
     let wanted = match role {
@@ -1492,20 +1602,30 @@ fn templated(
         Role::Mage => Some(WAR_MAGIC),
         Role::Archer => Some(BOW),
     };
-    let heritage = cg.heritage_groups.get(&1)?;
+    let heritage = cg.heritage_groups.get(&DEFAULT_HERITAGE)?;
     let (number, template) = heritage.templates.iter().enumerate().find(|(_, t)| {
         wanted.is_none_or(|skill| {
             t.normal_skills.contains(&skill) || t.primary_skills.contains(&skill)
         })
     })?;
     let color = *heritage.sexes.get(&1)?.clothing_colors.first()?;
-    let mut c = soldier(name);
-    let mut skills = vec![0; 55];
+    let mut c = soldier(name, era, skill_table.map(|st| (cg, st)));
+    let mut skills = skill_table.map_or_else(
+        || vec![0; TOTAL_NUM_SKILLS],
+        |st| {
+            default_creation_skill_classes(cg, st, DEFAULT_HERITAGE, era)
+                .into_iter()
+                .map(|sac| i32::from(sac as u8))
+                .collect()
+        },
+    );
     for &skill in &template.normal_skills {
-        *skills.get_mut(usize::try_from(skill).ok()?)? = 2;
+        let slot = skills.get_mut(usize::try_from(skill).ok()?)?;
+        *slot = (*slot).max(2);
     }
     for &skill in &template.primary_skills {
-        *skills.get_mut(usize::try_from(skill).ok()?)? = 3;
+        let slot = skills.get_mut(usize::try_from(skill).ok()?)?;
+        *slot = (*slot).max(3);
     }
     c.skill_advancement_classes = skills;
     c.template_num = i32::try_from(number).ok()?;
@@ -1527,15 +1647,21 @@ fn templated(
     Some(c)
 }
 
-/// A new character for `enter`: an Aluvian male soldier (template 6) with Heavy Weapons, Melee
-/// Defense, Healing, Jump and Run trained, starting in Holtburg.
-fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData {
-    let mut skills = vec![0; 55];
-    for skill in [44usize, 6, 21, 22, 24] {
-        skills[skill] = 2;
-    }
+/// A new character for `enter`: an Aluvian male soldier (template 6) with Heavy Weapons (or
+/// Unarmed Combat in pre-consolidation eras), Melee Defense, Healing, Jump and Run trained over
+/// the heritage's free baseline skills, starting in Holtburg.
+fn soldier(
+    name: &str,
+    era: dereth_client_sdk::primitives::EraId,
+    tables: Option<(
+        &dereth_client_sdk::assets::tables::CharGen,
+        &dereth_client_sdk::assets::tables::SkillTable,
+    )>,
+) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    let trained = [soldier_melee_skill(era), 6, 21, 22, 24];
+    let skills = builtin_skill_classes(era, tables, &trained);
     dereth_client_sdk::contract::pregame::CharGenResultData {
-        heritage_group: 1,
+        heritage_group: DEFAULT_HERITAGE,
         gender: 1,
         eyes_strip: 0,
         nose_strip: 0,
@@ -1578,16 +1704,74 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 mod tests {
     use super::{caster, ended_why, new_character, settings_preferences, soldier};
     use crate::script::Role;
-    use dereth_client_sdk::net::client_session::DisconnectReason;
-
     use dereth_client_sdk::assets::tables::{
-        CharGen, CharGenTemplate, HeritageGroup, ObjDesc, SexCg,
+        CharGen, CharGenTemplate, HeritageGroup, ObjDesc, SexCg, SkillBase, SkillFormula,
+        SkillTable,
     };
+    use dereth_client_sdk::net::client_session::DisconnectReason;
     use dereth_client_sdk::primitives::{DataId, EraId};
+    use dereth_client_sdk::rules::chargen::RETIRED_WEAPON_SKILLS;
     use std::collections::BTreeMap;
 
-    /// A creation table with one heritage (Aluvian), one sex wearing color 7, a first start area
-    /// of 3, and two templates: a fighter, then one that trains War Magic as its primary.
+    fn skill(trained_cost: i32, specialized_cost: i32) -> SkillBase {
+        SkillBase {
+            description: String::new(),
+            name: String::new(),
+            icon: 0,
+            trained_cost,
+            specialized_cost,
+            category: 1,
+            chargen_use: 1,
+            min_level: 1,
+            formula: SkillFormula {
+                w: 0,
+                x: 1,
+                y: 0,
+                z: 3,
+                attr1: 4,
+                attr2: 3,
+            },
+            upper_bound: 0.0,
+            lower_bound: 0.0,
+            learn_mod: 0.0,
+        }
+    }
+
+    /// A skill table carrying EoR-style free skills, heritage-discounted Arcane Lore, a zero-cost
+    /// retired weapon (Sword), a negative-cost skill, paid soldier/caster skills, and a paid
+    /// unrelated skill (Lockpick).
+    fn sample_skill_table() -> SkillTable {
+        let entries: &[(u32, i32, i32)] = &[
+            (6, 10, 20),  // Melee Defense
+            (11, 0, 0),   // Sword (retired weapon held at cost 0)
+            (13, 4, 8),   // Unarmed Combat
+            (14, 4, 6),   // Arcane Lore (discounted to 0/2 for Aluvian)
+            (15, 0, 12),  // Magic Defense (free Trained)
+            (16, 6, 12),  // Mana Conversion
+            (17, -1, 0),  // Spellcraft (negative cost)
+            (21, 6, 12),  // Healing
+            (22, 0, 4),   // Jump (free Trained)
+            (23, 6, 12),  // Lockpick (paid, not part of presets)
+            (24, 0, 4),   // Run (free Trained)
+            (31, 8, 16),  // Creature Enchantment
+            (33, 12, 24), // Life Magic
+            (34, 16, 32), // War Magic
+            (36, 0, 2),   // Loyalty (free Trained)
+            (40, 0, 4),   // Salvaging (free Trained in EoR/Infiltration, excluded in Launch)
+            (44, 6, 12),  // Heavy Weapons (EoR only)
+        ];
+        SkillTable {
+            id: DataId(0x0E00_0004),
+            buckets: 11,
+            skills: entries
+                .iter()
+                .map(|&(id, tc, sc)| (id, skill(tc, sc)))
+                .collect(),
+        }
+    }
+
+    /// A creation table with one heritage (Aluvian, Arcane Lore discounted to 0/2), one sex
+    /// wearing color 7, a first start area of 3, and three templates.
     fn creation_table() -> CharGen {
         let sex = SexCg {
             naming_help: None,
@@ -1634,11 +1818,11 @@ mod tests {
             icon: 0,
             setup: DataId(0),
             environment_setup: DataId(0),
-            attribute_credits: 0,
-            skill_credits: 0,
+            attribute_credits: 330,
+            skill_credits: 52,
             primary_start_areas: vec![3, 1],
             secondary_start_areas: Vec::new(),
-            skills: Vec::new(),
+            skills: vec![(14, 0, 2)],
             templates: vec![
                 template("Fighter", [90, 80, 70, 60, 20, 10], vec![6], vec![45]),
                 template("Mage", [10, 40, 20, 30, 100, 100], vec![6], vec![34]),
@@ -1664,7 +1848,7 @@ mod tests {
     fn a_launch_world_is_sent_the_creation_tables_template_whole() {
         let fighter = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || (Some(creation_table()), None),
             "Pell",
             Role::Any,
         );
@@ -1704,7 +1888,7 @@ mod tests {
         );
         let mage = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || (Some(creation_table()), None),
             "Pell",
             Role::Mage,
         );
@@ -1719,7 +1903,7 @@ mod tests {
     fn an_archer_is_the_first_template_that_trains_the_bow() {
         let archer = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || (Some(creation_table()), None),
             "Pell",
             Role::Archer,
         );
@@ -1729,34 +1913,129 @@ mod tests {
 
     #[test]
     fn a_later_world_or_a_launch_world_without_a_table_is_sent_the_built_in_characters() {
+        let cg = creation_table();
+        let sk = sample_skill_table();
         for era in [None, Some(EraId::Infiltration), Some(EraId::Eor)] {
-            let read = std::cell::Cell::new(false);
-            let table = || {
-                read.set(true);
-                Some(creation_table())
-            };
+            let effective = era.unwrap_or_default();
             assert_eq!(
-                new_character(era, table, "Pell", Role::Any),
-                soldier("Pell"),
+                new_character(
+                    era,
+                    || (Some(cg.clone()), Some(sk.clone())),
+                    "Pell",
+                    Role::Any
+                ),
+                soldier("Pell", effective, Some((&cg, &sk))),
                 "{era:?}"
             );
-            assert!(
-                !read.get(),
-                "{era:?}: the table is read only for a Launch world"
-            );
             assert_eq!(
-                new_character(era, || Some(creation_table()), "Pell", Role::Mage),
-                caster("Pell")
+                new_character(
+                    era,
+                    || (Some(cg.clone()), Some(sk.clone())),
+                    "Pell",
+                    Role::Mage
+                ),
+                caster("Pell", effective, Some((&cg, &sk))),
+                "{era:?}"
             );
         }
         assert_eq!(
-            new_character(Some(EraId::Launch), || None, "Pell", Role::Any),
-            soldier("Pell")
+            new_character(Some(EraId::Launch), || (None, None), "Pell", Role::Any),
+            soldier("Pell", EraId::Launch, None)
         );
         assert_eq!(
-            new_character(Some(EraId::Launch), || None, "Pell", Role::Mage),
-            caster("Pell")
+            new_character(Some(EraId::Launch), || (None, None), "Pell", Role::Mage),
+            caster("Pell", EraId::Launch, None)
         );
+    }
+
+    #[test]
+    fn soldier_and_caster_seed_required_free_skills_without_training_unrelated_or_retired_skills() {
+        let cg = creation_table();
+        let sk = sample_skill_table();
+
+        let s = soldier("Pell", EraId::Eor, Some((&cg, &sk)));
+        let c = caster("Pell", EraId::Eor, Some((&cg, &sk)));
+
+        // Every required free baseline skill (heritage-discounted Arcane Lore + table-free Magic
+        // Defense, Jump, Run, Loyalty, Salvaging) is Trained for both builders.
+        for free in [14usize, 15, 22, 24, 36, 40] {
+            assert_eq!(s.skill_advancement_classes[free], 2, "soldier free {free}");
+            assert_eq!(c.skill_advancement_classes[free], 2, "caster free {free}");
+        }
+        // Role-specific skills are Trained.
+        for skill_id in [44usize, 6, 21] {
+            assert_eq!(s.skill_advancement_classes[skill_id], 2);
+            assert_eq!(c.skill_advancement_classes[skill_id], 0);
+        }
+        for skill_id in [34usize, 31, 33, 16] {
+            assert_eq!(c.skill_advancement_classes[skill_id], 2);
+            assert_eq!(s.skill_advancement_classes[skill_id], 0);
+        }
+        // Zero-cost retired weapons, negative-cost skills, and paid unrelated skills stay Inactive.
+        for retired in RETIRED_WEAPON_SKILLS {
+            let i = usize::try_from(retired).expect("small");
+            assert_eq!(
+                s.skill_advancement_classes[i], 0,
+                "soldier retired {retired}"
+            );
+            assert_eq!(
+                c.skill_advancement_classes[i], 0,
+                "caster retired {retired}"
+            );
+        }
+        assert_eq!(s.skill_advancement_classes[17], 0, "negative cost");
+        assert_eq!(c.skill_advancement_classes[17], 0, "negative cost");
+        assert_eq!(s.skill_advancement_classes[23], 0, "paid unrelated skill");
+        assert_eq!(c.skill_advancement_classes[23], 0, "paid unrelated skill");
+        assert_eq!(
+            s.skill_advancement_classes
+                .iter()
+                .filter(|&&v| v != 0)
+                .count(),
+            9
+        );
+        assert_eq!(
+            c.skill_advancement_classes
+                .iter()
+                .filter(|&&v| v != 0)
+                .count(),
+            10
+        );
+    }
+
+    #[test]
+    fn soldier_and_caster_respect_era_eligibility_and_free_specialized_baseline() {
+        let cg = creation_table();
+        let mut sk = sample_skill_table();
+        // Make Jump free Specialized to verify builders preserve Specialized over Trained.
+        sk.skills.get_mut(&22).expect("jump").specialized_cost = 0;
+
+        let s_inf = soldier("Pell", EraId::Infiltration, Some((&cg, &sk)));
+        assert_eq!(
+            s_inf.skill_advancement_classes[44], 0,
+            "Heavy Weapons is excluded in Infiltration"
+        );
+        assert_eq!(
+            s_inf.skill_advancement_classes[13], 2,
+            "Infiltration soldier uses Unarmed Combat"
+        );
+        assert_eq!(
+            s_inf.skill_advancement_classes[22], 3,
+            "free Specialized baseline must not be lowered to Trained"
+        );
+        assert_eq!(
+            s_inf.skill_advancement_classes[40], 2,
+            "Salvaging exists in Infiltration"
+        );
+
+        let c_launch = caster("Pell", EraId::Launch, Some((&cg, &sk)));
+        assert_eq!(
+            c_launch.skill_advancement_classes[40], 0,
+            "Salvaging is excluded in Launch"
+        );
+        assert_eq!(c_launch.skill_advancement_classes[22], 3);
+        assert_eq!(c_launch.skill_advancement_classes[14], 2);
+        assert_eq!(c_launch.skill_advancement_classes[34], 2);
     }
 
     #[test]

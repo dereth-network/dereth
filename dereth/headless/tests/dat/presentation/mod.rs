@@ -1,3 +1,4 @@
+mod chargen_presets;
 mod headless_replay_run;
 mod navigator_go;
 mod navigator_go_to_a_booth;

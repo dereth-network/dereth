@@ -7,9 +7,10 @@
 //! client's own arithmetic.
 
 use dereth_assets::tables::{CharGen, SkillTable};
+use dereth_primitives::EraId;
 
 /// The skill advancement class. ACE's `SkillAdvancementClass` has the same values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[allow(missing_docs)]
 pub enum SkillAdvancementClass {
     #[default]
@@ -81,6 +82,107 @@ pub fn default_skill_class(
     } else {
         SkillAdvancementClass::Untrained
     }
+}
+
+/// The eleven pre-2012 weapon skill ids (Axe through Unarmed Combat), which the end-of-retail
+/// server skill table holds at zero cost while the creation wizard does not offer them.
+pub const RETIRED_WEAPON_SKILLS: [u32; 11] = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13];
+
+/// The 36 skills eligible at character creation in February 2005 (Infiltration): Axe (1) through
+/// Unarmed Combat (13) without Sling (8), and none of the post-2005 weapon or magic skills.
+const INFILTRATION_CREATION_SKILLS: [u32; 36] = [
+    1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30,
+    31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+];
+
+/// The 35 skills eligible at character creation in November 1999 (Launch): February 2005's set
+/// without Salvaging (40).
+const LAUNCH_CREATION_SKILLS: [u32; 35] = [
+    1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30,
+    31, 32, 33, 34, 35, 36, 37, 38, 39,
+];
+
+/// The skill ids eligible at character creation in `era`, or `None` when every skill in the
+/// portal skill table is eligible (end of retail).
+#[must_use]
+pub const fn era_creation_skills(era: EraId) -> Option<&'static [u32]> {
+    match era {
+        EraId::Launch => Some(&LAUNCH_CREATION_SKILLS),
+        EraId::Infiltration => Some(&INFILTRATION_CREATION_SKILLS),
+        EraId::Eor => None,
+    }
+}
+
+/// The minimum skill advancement class character creation requires for `id` on `heritage` in
+/// `era`: `Trained` when training costs nothing, `Specialized` when specialising costs nothing as
+/// well, and `Inactive` otherwise (including when `id` is outside `era`'s creation skill set, is
+/// one of [`RETIRED_WEAPON_SKILLS`], is missing from `skills`, or has a negative cost).
+#[must_use]
+pub fn required_free_skill_class(
+    cg: &CharGen,
+    skills: &SkillTable,
+    heritage: u32,
+    era: EraId,
+    id: u32,
+) -> SkillAdvancementClass {
+    if era_creation_skills(era).is_some_and(|allowed| !allowed.contains(&id))
+        || RETIRED_WEAPON_SKILLS.contains(&id)
+    {
+        return SkillAdvancementClass::Inactive;
+    }
+    match default_skill_class(cg, skills, heritage, id) {
+        SkillAdvancementClass::Trained => SkillAdvancementClass::Trained,
+        SkillAdvancementClass::Specialized => SkillAdvancementClass::Specialized,
+        SkillAdvancementClass::Inactive | SkillAdvancementClass::Untrained => {
+            SkillAdvancementClass::Inactive
+        }
+    }
+}
+
+/// The [`TOTAL_NUM_SKILLS`]-entry skill advancement class array seeded with `heritage`'s required
+/// free baseline skills in `era` ([`required_free_skill_class`]) and every other entry left
+/// `Inactive`.
+#[must_use]
+pub fn default_creation_skill_classes(
+    cg: &CharGen,
+    skills: &SkillTable,
+    heritage: u32,
+    era: EraId,
+) -> Vec<SkillAdvancementClass> {
+    (0..TOTAL_NUM_SKILLS)
+        .map(|i| {
+            u32::try_from(i).map_or(SkillAdvancementClass::Inactive, |id| {
+                required_free_skill_class(cg, skills, heritage, era, id)
+            })
+        })
+        .collect()
+}
+
+/// The [`TOTAL_NUM_SKILLS`]-entry skill advancement class array starting from `heritage`'s
+/// required free baseline skills in `era` ([`default_creation_skill_classes`]) and raising each
+/// `(skill_id, class)` in `overrides` to at least `class` when eligible in `era`.
+///
+/// Required free skills are never lowered below their baseline floor, and non-free skills outside
+/// `overrides` remain `Inactive`.
+#[must_use]
+pub fn creation_skill_classes(
+    cg: &CharGen,
+    skills: &SkillTable,
+    heritage: u32,
+    era: EraId,
+    overrides: &[(u32, SkillAdvancementClass)],
+) -> Vec<SkillAdvancementClass> {
+    let mut classes = default_creation_skill_classes(cg, skills, heritage, era);
+    let allowed = era_creation_skills(era);
+    for &(id, sac) in overrides {
+        if id == 0 || allowed.is_some_and(|set| !set.contains(&id)) {
+            continue;
+        }
+        if let Some(slot) = usize::try_from(id).ok().and_then(|i| classes.get_mut(i)) {
+            *slot = (*slot).max(sac);
+        }
+    }
+    classes
 }
 
 /// The skill credits `levels` spend — a **full re-sum**, not a delta.
@@ -365,5 +467,172 @@ mod tests {
         assert!(!name_length_ok(""));
         assert!(name_length_ok(&"a".repeat(32)));
         assert!(!name_length_ok(&"a".repeat(33)));
+    }
+
+    fn skill_entry(trained: i32, specialized: i32) -> SkillBase {
+        SkillBase {
+            description: String::new(),
+            name: String::new(),
+            icon: 0,
+            trained_cost: trained,
+            specialized_cost: specialized,
+            category: 1,
+            chargen_use: 1,
+            min_level: 1,
+            formula: SkillFormula {
+                w: 0,
+                x: 1,
+                y: 1,
+                z: 3,
+                attr1: 4,
+                attr2: 3,
+            },
+            upper_bound: 0.0,
+            lower_bound: 0.0,
+            learn_mod: 0.0,
+        }
+    }
+
+    fn chargen_with_heritage_skills(heritage: u32, skills: Vec<(u32, i32, i32)>) -> CharGen {
+        use dereth_assets::tables::HeritageGroup;
+        let mut cg = no_heritages();
+        cg.heritage_order = vec![heritage];
+        cg.heritage_groups.insert(
+            heritage,
+            HeritageGroup {
+                description: None,
+                name: "Test".into(),
+                icon: 0,
+                setup: DataId(0),
+                environment_setup: DataId(0),
+                attribute_credits: 330,
+                skill_credits: 52,
+                primary_start_areas: vec![0],
+                secondary_start_areas: Vec::new(),
+                skills,
+                templates: Vec::new(),
+                sex_order: Vec::new(),
+                template_presentations: BTreeMap::new(),
+                sex_table_marker: 0,
+                sexes: BTreeMap::new(),
+            },
+        );
+        cg
+    }
+
+    #[test]
+    fn required_free_skills_respect_era_heritage_retired_and_default_classes() {
+        let mut skills = SkillTable {
+            id: DataId(0x0E00_0004),
+            buckets: 11,
+            skills: BTreeMap::new(),
+        };
+        // Retired weapon held at zero cost in EoR table.
+        skills.skills.insert(11, skill_entry(0, 0));
+        // Paid base skill discounted to free Trained by heritage 1.
+        skills.skills.insert(14, skill_entry(4, 6));
+        // Free Trained in base table.
+        skills.skills.insert(22, skill_entry(0, 4));
+        // Free Specialized in base table.
+        skills.skills.insert(24, skill_entry(0, 0));
+        // Paid skill not free for any heritage.
+        skills.skills.insert(21, skill_entry(6, 12));
+        // Negative-cost skill (unselectable).
+        skills.skills.insert(17, skill_entry(-1, 0));
+        // Salvaging: free in EoR/Infiltration, excluded in Launch.
+        skills.skills.insert(40, skill_entry(0, 4));
+        // Heavy Weapons: EoR only.
+        skills.skills.insert(44, skill_entry(6, 12));
+
+        let cg = chargen_with_heritage_skills(1, vec![(14, 0, 2)]);
+
+        let eor = default_creation_skill_classes(&cg, &skills, 1, EraId::Eor);
+        assert_eq!(eor.len(), TOTAL_NUM_SKILLS);
+        assert_eq!(eor[11], SkillAdvancementClass::Inactive, "retired weapon");
+        assert_eq!(
+            eor[14],
+            SkillAdvancementClass::Trained,
+            "heritage-discounted free skill"
+        );
+        assert_eq!(eor[22], SkillAdvancementClass::Trained);
+        assert_eq!(eor[24], SkillAdvancementClass::Specialized);
+        assert_eq!(eor[40], SkillAdvancementClass::Trained);
+        assert_eq!(
+            eor[21],
+            SkillAdvancementClass::Inactive,
+            "paid skill stays Inactive"
+        );
+        assert_eq!(
+            eor[17],
+            SkillAdvancementClass::Inactive,
+            "negative cost stays Inactive"
+        );
+        assert_eq!(
+            eor[44],
+            SkillAdvancementClass::Inactive,
+            "paid EoR skill stays Inactive"
+        );
+        assert_eq!(
+            eor.iter()
+                .filter(|&&c| c != SkillAdvancementClass::Inactive)
+                .count(),
+            4
+        );
+
+        // Another heritage without the Arcane Lore discount does not get skill 14 free.
+        let other = default_creation_skill_classes(&cg, &skills, 2, EraId::Eor);
+        assert_eq!(other[14], SkillAdvancementClass::Inactive);
+        assert_eq!(other[22], SkillAdvancementClass::Trained);
+        assert_eq!(other[24], SkillAdvancementClass::Specialized);
+        assert_eq!(other[40], SkillAdvancementClass::Trained);
+
+        // Launch excludes Salvaging (40) even when free in the table.
+        let launch = default_creation_skill_classes(&cg, &skills, 1, EraId::Launch);
+        assert_eq!(launch[40], SkillAdvancementClass::Inactive);
+        assert_eq!(launch[14], SkillAdvancementClass::Trained);
+        assert_eq!(launch[22], SkillAdvancementClass::Trained);
+        assert_eq!(launch[24], SkillAdvancementClass::Specialized);
+
+        // Overrides raise eligible skills without lowering a free Specialized skill, and skip
+        // skills outside the era's creation set.
+        let overlaid = creation_skill_classes(
+            &cg,
+            &skills,
+            1,
+            EraId::Infiltration,
+            &[
+                (21, SkillAdvancementClass::Trained),
+                (24, SkillAdvancementClass::Trained),
+                (44, SkillAdvancementClass::Trained),
+                (13, SkillAdvancementClass::Trained),
+            ],
+        );
+        assert_eq!(overlaid[21], SkillAdvancementClass::Trained);
+        assert_eq!(
+            overlaid[24],
+            SkillAdvancementClass::Specialized,
+            "must not lower a free Specialized baseline skill"
+        );
+        assert_eq!(
+            overlaid[44],
+            SkillAdvancementClass::Inactive,
+            "Heavy Weapons is outside Infiltration's creation skills"
+        );
+        assert_eq!(
+            overlaid[13],
+            SkillAdvancementClass::Trained,
+            "explicit Infiltration weapon override is kept"
+        );
+        assert_eq!(overlaid[40], SkillAdvancementClass::Trained);
+
+        // Skill 0 is never a valid creation skill even when unconstrained by an era list.
+        let with_zero = creation_skill_classes(
+            &cg,
+            &skills,
+            1,
+            EraId::Eor,
+            &[(0, SkillAdvancementClass::Trained)],
+        );
+        assert_eq!(with_zero[0], SkillAdvancementClass::Inactive);
     }
 }
