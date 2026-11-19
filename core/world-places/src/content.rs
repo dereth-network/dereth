@@ -19,6 +19,7 @@ pub mod id {
         pub const CREATURE: u32 = 10;
         pub const VENDOR: u32 = 12;
         pub const COW: u32 = 15;
+        pub const DOOR: u32 = 19;
         pub const LIFESTONE: u32 = 25;
     }
     /// Integer properties.

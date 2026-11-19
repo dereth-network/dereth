@@ -30,6 +30,13 @@ pub(super) struct Learning {
     portals_learned: u64,
 }
 
+impl Learning {
+    /// The places, as a borrow of this field alone: travel reads them while its trip is borrowed.
+    pub(super) fn store(&self) -> &PlaceStore {
+        &self.store
+    }
+}
+
 /// An object in the world, as places are learned from it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaceSeen {

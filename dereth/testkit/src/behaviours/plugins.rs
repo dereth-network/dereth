@@ -728,8 +728,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-door-no-use-opens-is-opened-by-its-lever",
+        says: "A door that cannot be used, which the server publishes a lever for, is planned                as passable: at it the walk goes to the nearest lever a walk reaches, uses it (a                plate is stepped on), and walks through once the door stands open, going back to                the lever a few times if it shuts first; with no lever reached, the door is                planned round.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-LEVER-DOOR"),
+        station: "dereth-client-runtime::lib::travel::tests::a_door_no_use_opens_is_opened_by_walking_to_its_lever_and_using_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-door-no-use-opens-is-planned-round-at-once",
-        says: "A closed door whose description says it cannot be used (a prison door a lever                elsewhere opens) is planned round from the start, as a locked one is: the client                sends no use for it, so no answer would ever say it is locked.",
+        says: "A closed door whose description says it cannot be used (a prison door a lever                elsewhere opens) is planned round from the start, as a locked one is, unless the server publishes a lever for it: the client                sends no use for it, so no answer would ever say it is locked.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-UNUSABLE-DOOR"),

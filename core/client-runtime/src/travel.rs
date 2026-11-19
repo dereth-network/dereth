@@ -564,6 +564,23 @@ const MAX_UNWALKABLE: usize = 4;
 /// What a journey fails with when its walk has no route and a door on the way would not open.
 const DOOR_SHUT: &str = "door_shut";
 
+/// How near the door a lever's place names a door stands to be that door, metres; and how near
+/// the lever's place an object stands to be the lever.
+const LEVER_NEAR: f32 = 1.5;
+
+/// The levers that work the door standing at `door`, as the world's places name them.
+fn levers_of(places: &dereth_navigation::PlaceStore, door: &Position) -> Vec<Position> {
+    places
+        .places()
+        .iter()
+        .filter(|p| {
+            p.kind == dereth_navigation::PlaceKind::Lever
+                && p.to.is_some_and(|d| global_distance(&d, door) < LEVER_NEAR)
+        })
+        .map(|p| p.at)
+        .collect()
+}
+
 /// What the walk does at a closed door its route passes through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AtDoor {
@@ -623,6 +640,16 @@ enum Step {
     HandBack {
         hand_back: HandBack,
         tries: HandBackTries,
+    },
+    /// At a door no use opens: walking to the `which`th of its `levers` (nearest first), then
+    /// working it (`used`: when last, and how often) until the door stands open; then on with
+    /// `resume`, the step the walk was on.
+    Lever {
+        door: ObjectId,
+        levers: Vec<Position>,
+        which: usize,
+        used: Option<(f64, u32)>,
+        resume: Box<Step>,
     },
     /// At a ledge: walking at it since `since` (wall seconds), hopping off it (`hops` so far),
     /// then, once `off`, falling until the body stops coming down (`still` steps at `last_z`).
@@ -753,6 +780,9 @@ struct Trip {
     lock_answers: BTreeSet<u32>,
     /// Doors that have had their second go: if they stay shut, the journey has no way through them.
     tried_again: BTreeSet<u32>,
+    /// How many times the walk went to each door's levers (by door): a door that stays shut
+    /// after [`DOOR_TRIES`] goes is planned round.
+    lever_goes: BTreeMap<u32, u32>,
     /// Whether the journey was planned again because only a drop led on from a walk: once the
     /// walk's places are built, its floors no walk joins are told apart.
     drop_replanned: bool,
@@ -1601,12 +1631,27 @@ impl Travel {
             .as_ref()
             .map(|t| t.locked.clone())
             .unwrap_or_default();
+        // The door whose lever the walk is going to: shut to the way there, which never goes
+        // through it.
+        let to_its_lever = match self.trip.as_ref().and_then(|t| t.step.as_ref()) {
+            Some(Step::Lever { door, .. }) => Some(door.0),
+            _ => None,
+        };
         let mut kept = Vec::with_capacity(list.len());
         self.creatures_seen.clear();
         let mut seen = BTreeMap::new();
         for mut o in list {
-            if locked.contains(&o.obstacle.id.0) {
+            if locked.contains(&o.obstacle.id.0)
+                || (to_its_lever == Some(o.obstacle.id.0)
+                    && o.obstacle.kind == ObstacleKind::Door(DoorState::Closed))
+            {
                 o.obstacle.kind = ObstacleKind::Door(DoorState::Locked);
+            } else if o.obstacle.kind == ObstacleKind::Door(DoorState::Locked)
+                && to_its_lever != Some(o.obstacle.id.0)
+                && !levers_of(self.places.store(), &o.obstacle.position).is_empty()
+            {
+                // A door no use opens, which a lever does: the walk goes through by the lever.
+                o.obstacle.kind = ObstacleKind::Door(DoorState::Closed);
             }
             if o.obstacle.kind == ObstacleKind::Creature {
                 let g = global(&o.obstacle.position);
@@ -2323,6 +2368,182 @@ impl Travel {
         }
     }
 
+    /// The object standing where the lever at `lever` stands (not the door it works); `None` for
+    /// one that is no object in sight, or is stepped on rather than used (a pressure plate).
+    fn lever_object(&self, lever: &Position, door: ObjectId) -> Option<ObjectId> {
+        self.obstacles
+            .iter()
+            .filter(|o| o.obstacle.id != door && o.obstacle.kind != ObstacleKind::Creature)
+            .map(|o| (global_distance(&o.obstacle.position, lever), o.obstacle.id))
+            .filter(|(d, _)| *d < LEVER_NEAR)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, id)| id)
+    }
+
+    /// At a door no use opens whose levers are known: off to the nearest of them, unless the
+    /// walk has gone to them [`DOOR_TRIES`] times already, when the door is planned round.
+    fn go_to_levers(
+        &mut self,
+        here: &Position,
+        door: ObjectId,
+        mut levers: Vec<Position>,
+        out: &mut Vec<TravelCommand>,
+    ) {
+        levers.sort_by(|a, b| global_distance(here, a).total_cmp(&global_distance(here, b)));
+        let Some(t) = self.trip.as_mut() else { return };
+        let goes = t.lever_goes.entry(door.0).or_insert(0);
+        if *goes >= DOOR_TRIES {
+            self.door_stays_shut(here, door, "did not open from its lever", out);
+            return;
+        }
+        *goes += 1;
+        // Back at the door after its lever, the walk goes on with what it was doing.
+        let resume = match t.step.take() {
+            Some(Step::Lever { resume, .. }) => resume,
+            Some(step) => Box::new(step),
+            None => Box::new(Step::Walk {
+                target: *here,
+                last: false,
+            }),
+        };
+        let first = levers[0];
+        tracing::info!(
+            target: "travel",
+            "door {:08X} opens by a lever: to the one at {:08X} {:?}",
+            door.0,
+            first.cell.0,
+            first.frame.origin
+        );
+        t.step = Some(Step::Lever {
+            door,
+            levers,
+            which: 0,
+            used: None,
+            resume,
+        });
+        // The way to a lever never goes through its door: a lever beyond it is no way to open it.
+        let list = std::mem::take(&mut self.obstacles);
+        self.set_obstacles(list, Some(here));
+        self.walk_toward(here, &first, out);
+    }
+
+    /// At the lever being walked to: once the door stands open, on with the walk; else work the
+    /// lever (use it, or stand on a plate), again after a while, and after [`DOOR_TRIES`] tries
+    /// plan round the door.
+    fn at_lever(&mut self, here: &Position, out: &mut Vec<TravelCommand>) {
+        let Some(Step::Lever {
+            door,
+            levers,
+            which,
+            used,
+            resume,
+        }) = self.trip.as_ref().and_then(|t| t.step.clone())
+        else {
+            return;
+        };
+        let open = self.obstacles.iter().any(|o| {
+            o.obstacle.id == door && o.obstacle.kind == ObstacleKind::Door(DoorState::Open)
+        });
+        if open {
+            tracing::info!(target: "travel", "door {:08X} is open: back to it", door.0);
+            self.set_step(*resume);
+            let list = std::mem::take(&mut self.obstacles);
+            self.set_obstacles(list, Some(here));
+            self.replan_leg(here, out);
+            return;
+        }
+        match used {
+            Some((since, _)) if self.wall - since <= DOOR_WAIT => {}
+            Some((_, n)) if n >= DOOR_TRIES => {
+                self.door_stays_shut(here, door, "did not open from its lever", out);
+            }
+            _ => {
+                let n = used.map_or(0, |(_, n)| n) + 1;
+                let lever = self.lever_object(&levers[which], door);
+                tracing::info!(
+                    target: "travel",
+                    "working the lever {} for door {:08X} ({n} of {DOOR_TRIES})",
+                    lever.map_or_else(|| String::from("underfoot"), |l| format!("{:08X}", l.0)),
+                    door.0
+                );
+                self.release_keys(out);
+                if let Some(lever) = lever {
+                    out.push(TravelCommand::Use(lever));
+                }
+                self.set_step(Step::Lever {
+                    door,
+                    levers,
+                    which,
+                    used: Some((self.wall, n)),
+                    resume,
+                });
+            }
+        }
+    }
+
+    /// No walk reaches the lever being walked to: on to the next, or with none left, the door
+    /// is planned round.
+    fn next_lever(&mut self, here: &Position, out: &mut Vec<TravelCommand>) {
+        let Some(Step::Lever {
+            door,
+            levers,
+            which,
+            resume,
+            ..
+        }) = self.trip.as_ref().and_then(|t| t.step.clone())
+        else {
+            return;
+        };
+        if which + 1 >= levers.len() {
+            self.door_stays_shut(here, door, "has no lever a walk reaches", out);
+            return;
+        }
+        let next = levers[which + 1];
+        tracing::info!(
+            target: "travel",
+            "no walk reaches that lever: to the one at {:08X} {:?}",
+            next.cell.0,
+            next.frame.origin
+        );
+        self.set_step(Step::Lever {
+            door,
+            levers,
+            which: which + 1,
+            used: None,
+            resume,
+        });
+        self.walk_toward(here, &next, out);
+    }
+
+    /// A door that stays shut, `why` said of it: planned round from now on, the walk on with
+    /// what it was doing.
+    fn door_stays_shut(
+        &mut self,
+        here: &Position,
+        door: ObjectId,
+        why: &str,
+        out: &mut Vec<TravelCommand>,
+    ) {
+        let name = self
+            .obstacles
+            .iter()
+            .find(|o| o.obstacle.id == door)
+            .map_or_else(|| format!("door {:08X}", door.0), |o| o.name.clone());
+        tracing::warn!(target: "travel", "door {:08X} {why}; planning round it", door.0);
+        let Some(t) = self.trip.as_mut() else { return };
+        if let Some(Step::Lever { resume, .. }) = t.step.take() {
+            t.step = Some(*resume);
+        }
+        t.shut = Some(format!("{name} {why}"));
+        t.door = None;
+        t.locked.insert(door.0);
+        t.route_dirty = None;
+        t.stats.replans += 1;
+        let list = std::mem::take(&mut self.obstacles);
+        self.set_obstacles(list, Some(here));
+        self.replan_leg(here, out);
+    }
+
     /// Recall by `recall`: an item is used, a command typed, a spell cast once the character is in
     /// the magic stance.
     fn start_recall(
@@ -2542,7 +2763,14 @@ impl Travel {
             .trip
             .as_ref()
             .filter(|t| matches!(t.target, TravelTarget::Object(_)) && t.goal == Some(*to))
-            .map(|_| OBJECT_REACH);
+            .map(|_| OBJECT_REACH)
+            .or_else(|| match self.trip.as_ref().and_then(|t| t.step.as_ref()) {
+                // A lever is used from within reach; a plate is stood on.
+                Some(Step::Lever { door, .. }) => {
+                    self.lever_object(to, *door).map(|_| OBJECT_REACH)
+                }
+                _ => None,
+            });
         let id = self.job();
         let Some(planning) = self.planning.as_mut() else {
             self.end(out, Some(here), Some("no_route"));
@@ -2590,6 +2818,13 @@ impl Travel {
             }
             Err(e) => {
                 tracing::warn!(target: "travel", "no route from {:?}: {e}", here.frame.origin);
+                if matches!(
+                    self.trip.as_ref().and_then(|t| t.step.as_ref()),
+                    Some(Step::Lever { .. })
+                ) {
+                    self.next_lever(here, out);
+                    return;
+                }
                 // Only a drop leads on: the walk's places are built now, and its floors no walk
                 // joins are told apart, so the journey is planned again once, to find a portal
                 // round or, with nothing else, the drop.
@@ -3249,6 +3484,23 @@ impl Travel {
                 self.use_portal(p, &portal, out);
                 return;
             }
+            // At the lever: within reach of one to use, or on a plate.
+            Step::Lever {
+                door,
+                ref levers,
+                which,
+                used,
+                ..
+            } if used.is_some()
+                || global_distance(p, &levers[which])
+                    < match self.lever_object(&levers[which], door) {
+                        Some(_) => OBJECT_REACH + 0.5,
+                        None => LEVER_NEAR / 2.0,
+                    } =>
+            {
+                self.at_lever(p, out);
+                return;
+            }
             _ => {}
         }
         let dirty = self.trip.as_mut().and_then(|t| t.route_dirty.take());
@@ -3726,6 +3978,7 @@ impl Travel {
                             self.walk_toward(p, &hand_back.at, out);
                         }
                     }
+                    Some(Step::Lever { .. }) => self.at_lever(p, out),
                     _ => {}
                 }
             }
@@ -3761,6 +4014,18 @@ impl Travel {
                     o.obstacle.id == door && o.obstacle.kind == ObstacleKind::Door(DoorState::Open)
                 });
                 let answered = t.lock_answers.contains(&door.0);
+                // A door with levers is opened by one of them, not by a use of the door.
+                let levers = self
+                    .obstacles
+                    .iter()
+                    .find(|o| o.obstacle.id == door)
+                    .map(|o| levers_of(self.places.store(), &o.obstacle.position))
+                    .filter(|l| !l.is_empty());
+                if let (Some(levers), false, false) = (levers, open, answered) {
+                    t.door = None;
+                    self.go_to_levers(p, door, levers, out);
+                    return;
+                }
                 let used = t
                     .door
                     .filter(|(d, ..)| *d == door)
@@ -3883,6 +4148,7 @@ impl Trip {
             shut: None,
             lock_answers: BTreeSet::new(),
             tried_again: BTreeSet::new(),
+            lever_goes: BTreeMap::new(),
             drop_replanned: false,
             disabled: BTreeSet::new(),
             unwalkable: Vec::new(),
@@ -4439,6 +4705,251 @@ mod tests {
         let t = walk.travel.trip.as_ref().expect("the journey goes on");
         let route = t.follower.as_ref().expect("it walks on").path();
         assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    /// Colier Mine's door that cannot be activated from where it stands (at x = 5 on the way)
+    /// and the levers that work it, as the server publishes them: one behind the body at x = -4,
+    /// and a plate just beyond the door at x = 7, nearer but on its far side.
+    mod at_a_lever_door {
+        use super::*;
+
+        pub(super) const DOOR: ObjectId = ObjectId(0x701A_E06F);
+        pub(super) const LEVER: ObjectId = ObjectId(0x701A_E06A);
+        pub(super) const FAR_LEVER: ObjectId = ObjectId(0x701A_E070);
+
+        pub(super) fn at(x: f32) -> Position {
+            Position::new(
+                CellId(0x01AE_0361),
+                Frame::new(Vec3::new(x, 0.0, 0.0), Quat::IDENTITY),
+            )
+        }
+
+        /// The places: the door's two levers, with where the door stands.
+        const PLACES: &str = concat!(
+            "dereth-places-store\t1\nworld\tHere\n",
+            "place\tlever\tpublished\t2609\tLever\t0x01AE0361 -4.000 0.000 0.000\t0\t0\t-\t",
+            "0x01AE0361 5.000 0.000 0.000\n",
+            "place\tlever\tpublished\t298\tPressure Plate\t0x01AE0361 7.000 0.000 0.000\t0\t0\t-\t",
+            "0x01AE0361 5.000 0.000 0.000\n",
+        );
+
+        /// A straight route from `from` to `to`, opening the door on the way when it crosses it.
+        pub(super) fn route(from: f32, to: f32) -> NavPath {
+            let mut waypoints = vec![dereth_navigation::Waypoint {
+                position: at(from),
+                action: None,
+            }];
+            if from.min(to) < 5.0 && 5.0 < from.max(to) {
+                waypoints.push(dereth_navigation::Waypoint {
+                    position: at(5.0),
+                    action: Some(WaypointAction::OpenDoor(DOOR)),
+                });
+            }
+            waypoints.push(dereth_navigation::Waypoint {
+                position: at(to),
+                action: None,
+            });
+            NavPath {
+                waypoints,
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            }
+        }
+
+        pub(super) struct Walk {
+            pub travel: Travel,
+            pub wall: f64,
+            pub body: f32,
+            pub uses: Vec<ObjectId>,
+            pub door: DoorState,
+        }
+
+        impl Walk {
+            /// A journey on foot to x = 9, stopped at the shut door its route goes through.
+            pub fn new() -> Self {
+                let mut travel = Travel::new(StoreFiles::default());
+                assert_eq!(travel.take_published(PLACES), Ok(2));
+                travel.note_world("Here@127.0.0.1:9000");
+                travel.planning = Some(Planning::held());
+                let mut trip = Trip::new(
+                    1,
+                    Purpose::Go,
+                    TravelTarget::Place(at(9.0)),
+                    TravelAllow::default(),
+                    0.0,
+                    0.0,
+                );
+                trip.step = Some(Step::Walk {
+                    target: at(9.0),
+                    last: true,
+                });
+                travel.trip = Some(trip);
+                let mut walk = Self {
+                    travel,
+                    wall: 0.0,
+                    body: 4.9,
+                    uses: Vec::new(),
+                    door: DoorState::Locked,
+                };
+                walk.objects();
+                walk.travel.follow_route(route(4.9, 9.0), true);
+                walk
+            }
+
+            /// The world's objects now: the door as `self.door` says (a door no use opens is
+            /// `Locked` to the client), and the two levers.
+            pub fn objects(&mut self) {
+                let object = |id: ObjectId, x: f32, kind: ObstacleKind, name: &str| WorldObstacle {
+                    obstacle: Obstacle {
+                        id,
+                        position: at(x),
+                        setup: Arc::new(SetupGeometry::default()),
+                        scale: 1.0,
+                        kind,
+                    },
+                    name: String::from(name),
+                };
+                let list = vec![
+                    object(DOOR, 5.0, ObstacleKind::Door(self.door), "Door"),
+                    object(LEVER, -4.0, ObstacleKind::Solid, "Lever"),
+                    object(FAR_LEVER, 7.0, ObstacleKind::Solid, "Pressure Plate"),
+                ];
+                self.travel.set_obstacles(list, Some(&at(self.body)));
+            }
+
+            /// The door as the travel takes it now.
+            pub fn door_seen(&self) -> Option<ObstacleKind> {
+                self.travel
+                    .obstacles
+                    .iter()
+                    .find(|o| o.obstacle.id == DOOR)
+                    .map(|o| o.obstacle.kind)
+            }
+
+            /// One frame with the body where it is, `route` answering each route asked for (to
+            /// the x it was asked toward).
+            pub fn frame(&mut self, route: impl Fn(&Self, f32) -> Walked) {
+                self.wall += 0.5;
+                self.travel.wall = self.wall;
+                self.travel.now = self.wall;
+                let mut out = Vec::new();
+                self.travel.trip_frame(&at(self.body), true, &mut out);
+                while let Some((_, toward)) =
+                    self.travel.trip.as_mut().and_then(|t| t.walking.take())
+                {
+                    let answer = route(self, toward.frame.origin.x);
+                    self.travel
+                        .walked(&at(self.body), toward, answer, 0.0, &mut out);
+                }
+                self.uses.extend(out.iter().filter_map(|c| match c {
+                    TravelCommand::Use(o) => Some(*o),
+                    _ => None,
+                }));
+            }
+
+            /// The step the journey is on.
+            pub fn step(&self) -> Option<Step> {
+                self.travel.trip.as_ref().and_then(|t| t.step.clone())
+            }
+        }
+
+        /// Every route there is from wherever the body stands, except through the door while
+        /// the travel plans it shut.
+        pub(super) fn anywhere(walk: &Walk, to: f32) -> Walked {
+            let crosses = walk.body.min(to) < 5.0 && 5.0 < walk.body.max(to);
+            if crosses && walk.door_seen() == Some(ObstacleKind::Door(DoorState::Locked)) {
+                Err(NoPath::Unreachable)
+            } else {
+                Ok((route(walk.body, to), true))
+            }
+        }
+    }
+
+    /// Behaviour: plugins.nav.a-door-no-use-opens-is-opened-by-its-lever
+    /// A door that cannot be used, which the server names a lever for, is planned as passable;
+    /// at it the walk goes to the nearest lever on its own side (the way to a lever never goes
+    /// through its door), uses it (never the door), and once the door stands open walks back
+    /// through it.
+    #[test]
+    fn a_door_no_use_opens_is_opened_by_walking_to_its_lever_and_using_it() {
+        let mut walk = at_a_lever_door::Walk::new();
+        assert_eq!(
+            walk.door_seen(),
+            Some(ObstacleKind::Door(DoorState::Closed)),
+            "planned as passable, by its lever"
+        );
+        walk.frame(at_a_lever_door::anywhere);
+        assert!(
+            matches!(walk.step(), Some(Step::Lever { which: 1, .. })),
+            "the plate beyond the door passed over for the lever behind: {:?}",
+            walk.step()
+        );
+        assert!(walk.uses.is_empty(), "nothing used on the way");
+        // At the lever: it is used, once, and given time to work.
+        walk.body = -1.5;
+        walk.frame(at_a_lever_door::anywhere);
+        walk.frame(at_a_lever_door::anywhere);
+        assert_eq!(walk.uses, [at_a_lever_door::LEVER]);
+        // The door swings open: back through it.
+        walk.door = DoorState::Open;
+        walk.objects();
+        walk.frame(at_a_lever_door::anywhere);
+        assert!(
+            matches!(walk.step(), Some(Step::Walk { last: true, .. })),
+            "on with the walk: {:?}",
+            walk.step()
+        );
+        let end = walk
+            .travel
+            .trip
+            .as_ref()
+            .and_then(|t| t.follower.as_ref())
+            .expect("a route")
+            .path()
+            .waypoints
+            .last()
+            .map(|w| w.position.frame.origin.x);
+        assert_eq!(end, Some(9.0), "through the door to where it was going");
+        assert!(
+            !walk.uses.contains(&at_a_lever_door::DOOR),
+            "the door is never used"
+        );
+    }
+
+    /// Behaviour: plugins.nav.a-door-no-use-opens-is-opened-by-its-lever
+    /// With no lever a walk reaches (the plate is beyond the door, and the lever behind is cut
+    /// off), the door is planned round, and a journey with no way round ends saying so.
+    #[test]
+    fn a_lever_no_walk_reaches_is_passed_over_and_with_none_the_journey_says_the_door_is_shut() {
+        let mut walk = at_a_lever_door::Walk::new();
+        let mut why = None;
+        for _ in 0..200 {
+            walk.frame(|w, to| {
+                let round = w
+                    .travel
+                    .trip
+                    .as_ref()
+                    .is_some_and(|t| t.locked.contains(&at_a_lever_door::DOOR.0));
+                if to < 0.0 || round {
+                    Err(NoPath::Unreachable)
+                } else {
+                    at_a_lever_door::anywhere(w, to)
+                }
+            });
+            if walk.travel.trip.is_none() {
+                why = walk.travel.take_events().into_iter().find_map(|e| match e {
+                    TravelEvent::Failed { reason, .. } => Some(reason),
+                    _ => None,
+                });
+                break;
+            }
+        }
+        assert_eq!(
+            why.as_deref(),
+            Some("door_shut: Door has no lever a walk reaches")
+        );
+        assert!(walk.uses.is_empty(), "nothing was used");
     }
 
     /// Colier Mine's hole: a ledge on the entrance's floor, 12 metres over the floor below.

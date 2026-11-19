@@ -294,6 +294,10 @@ impl PlaceIndex {
         self.places_len = stores.places.map_or(0, |s| s.places().len());
         if let Some(s) = stores.places {
             for (i, p) in s.places().iter().enumerate() {
+                // A lever is no place to go: it is what opens a door on the way.
+                if p.kind == dereth_navigation::PlaceKind::Lever {
+                    continue;
+                }
                 add(
                     &mut self.entries,
                     &p.name,

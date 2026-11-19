@@ -1770,6 +1770,8 @@ impl HostCalls for Call<'_, '_> {
                 for p in frame
                     .and_then(|f| f.world_places)
                     .map_or(&[][..], |s| s.places())
+                    .iter()
+                    .filter(|p| p.kind != dereth_navigation::PlaceKind::Lever)
                 {
                     *places.entry(p.source.word()).or_default() += 1;
                 }
@@ -2547,6 +2549,8 @@ fn places_value(store: &dereth_navigation::PlaceStore) -> Vec<Listed<'_>> {
     store
         .places()
         .iter()
+        // A lever is no place to go: it is what opens a door on the way.
+        .filter(|p| p.kind != dereth_navigation::PlaceKind::Lever)
         .map(|p| Listed {
             kind: p.kind.word(),
             name: &p.name,

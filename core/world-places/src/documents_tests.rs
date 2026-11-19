@@ -456,3 +456,45 @@ fn towns_are_named_landmarks_and_the_named_drop_points_vendors_stand_round() {
         "{doc}"
     );
 }
+
+/// Colier Mine's door that cannot be activated from where it stands, linked to the two levers
+/// that open it: each lever is a place, standing where it stands, with the door it works.
+#[test]
+fn a_doors_levers_are_places_naming_the_door_they_work() {
+    let door = Spot::at(0x01AE_0369, [140.074, -91.858, 0.0]);
+    let world = WorldContent::new()
+        .with_weenie(
+            Weenie::new(2180, "doordungeonactivated", id::kind::DOOR)
+                .with_string(id::string::NAME, "Door"),
+        )
+        .with_weenie(Weenie::new(2609, "leverbigswitch", 26).with_string(id::string::NAME, "Lever"))
+        .with_placement(0x701A_E06F, 2180, door, &[0x701A_E06A, 0x701A_E070])
+        .with_placement(
+            0x701A_E06A,
+            2609,
+            Spot::at(0x01AE_035F, [141.268, -61.89, 0.0]),
+            &[],
+        )
+        .with_placement(
+            0x701A_E070,
+            2609,
+            Spot::at(0x01AE_0369, [139.976, -94.196, 0.0]),
+            &[],
+        );
+    let doc = places("Here", &world);
+    let levers: Vec<&str> = doc
+        .lines()
+        .filter(|l| l.starts_with("place\tlever\t"))
+        .collect();
+    assert_eq!(
+        levers,
+        [
+            "place\tlever\tpublished\t2609\tLever\t0x01AE035F 141.268 -61.890 0.000\t0\t0\t-\t0x01AE0369 140.074 -91.858 0.000",
+            "place\tlever\tpublished\t2609\tLever\t0x01AE0369 139.976 -94.196 0.000\t0\t0\t-\t0x01AE0369 140.074 -91.858 0.000",
+        ]
+    );
+    assert!(
+        !doc.lines().any(|l| l.contains("\tDoor\t")),
+        "the door itself is no place"
+    );
+}

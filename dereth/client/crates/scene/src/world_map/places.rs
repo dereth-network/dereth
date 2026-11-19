@@ -88,6 +88,8 @@ pub fn learned(places: &[dereth_navigation::KnownPlace], named: &[Place]) -> Vec
         let (kind, name) = match p.kind {
             // The map names its towns and landmarks from its own notes.
             Learned::Town | Learned::Landmark => continue,
+            // A lever is no place to go: it is what opens a door on the way.
+            Learned::Lever => continue,
             Learned::Lifestone => (PlaceKind::Lifestone, p.name.clone()),
             Learned::Vendor => (PlaceKind::Vendor, p.name.clone()),
             Learned::Npc => (PlaceKind::Npc, p.name.clone()),

@@ -54,11 +54,14 @@ pub enum PlaceKind {
     Town,
     /// A named place that is no town, at its drop point.
     Landmark,
+    /// What works a door (a lever, a switch), with where the door stands as its `to`: a door
+    /// that cannot be used opens only so. Only ever published.
+    Lever,
 }
 
 impl PlaceKind {
     /// Every kind, in the order they are listed.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Lifestone,
         Self::Portal,
         Self::Vendor,
@@ -66,10 +69,11 @@ impl PlaceKind {
         Self::House,
         Self::Town,
         Self::Landmark,
+        Self::Lever,
     ];
 
-    /// The kind as one word: `lifestone`, `portal`, `vendor`, `npc`, `house`, `town` or
-    /// `landmark`.
+    /// The kind as one word: `lifestone`, `portal`, `vendor`, `npc`, `house`, `town`, `landmark`
+    /// or `lever`.
     #[must_use]
     pub const fn word(self) -> &'static str {
         match self {
@@ -80,6 +84,7 @@ impl PlaceKind {
             Self::House => "house",
             Self::Town => "town",
             Self::Landmark => "landmark",
+            Self::Lever => "lever",
         }
     }
 

@@ -42,8 +42,9 @@
 //! There is one `place` line per placed instance whose weenie is a lifestone (`lifestone`), a
 //! portal (`portal`, with where it leads), a vendor (`vendor`), or a creature that cannot be
 //! attacked (`npc`), leaving out any whose weenie hides it from the interface; one per portal a
-//! spawner makes, as the portal table lists it; and one per town (`town`) and named landmark
-//! (`landmark`) at its drop point ([`crate::towns`]), which has no class. They are ordered by
+//! spawner makes, as the portal table lists it; one per town (`town`) and named landmark
+//! (`landmark`) at its drop point ([`crate::towns`]), which has no class; and one per instance
+//! linked to a door (`lever`: what works the door, with the door's position as its `to`). They are ordered by
 //! cell, then kind in that order, then weenie class id, then the guid of the instance that placed
 //! or spawned it. Positions and names are written as the portal table writes them. The two zeros
 //! are when the place was first and last seen, which a world database does not know, and the `-`
@@ -205,6 +206,9 @@ pub enum PlaceKind {
     Npc,
     Town,
     Landmark,
+    /// What works a door (a lever, a switch), with where the door stands: a door that cannot be
+    /// used opens only so.
+    Lever,
 }
 
 impl PlaceKind {
@@ -218,6 +222,7 @@ impl PlaceKind {
             Self::Npc => "npc",
             Self::Town => "town",
             Self::Landmark => "landmark",
+            Self::Lever => "lever",
         }
     }
 
@@ -345,6 +350,25 @@ impl WorldPlaces {
                         .flatten()
                         .map(|e| e.to);
                     places.push(Place { to, ..place });
+                }
+            }
+            // Each instance linked to a door works it: a lever, the only way to open a door that
+            // cannot be used itself.
+            if w.weenie_type == id::kind::DOOR {
+                for c in &p.links {
+                    let Some(&i) = by_guid.get(c) else {
+                        continue;
+                    };
+                    let child = &placements[i];
+                    let Some(cw) = weenies.get(child.wcid) else {
+                        continue;
+                    };
+                    if let Some(lever) = place(PlaceKind::Lever, child, &cw) {
+                        places.push(Place {
+                            to: Some(landed(&p.at)),
+                            ..lever
+                        });
+                    }
                 }
             }
             if !w.spawns.is_empty() {
