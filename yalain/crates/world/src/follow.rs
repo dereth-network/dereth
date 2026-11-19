@@ -1,8 +1,9 @@
 //! Following: a player asks to follow an object (the client sends its selection) and is told so,
 //! with one standing movement order toward it; the client keeps up on its own, and nothing is
 //! sent again as the object moves. Asked again while following, the old follow ends first. An
-//! attack or a use ends it: the order is stopped and the player told. The object followed is told
-//! nothing.
+//! attack or a use ends it: the order is stopped and the player told. A death ends it too, the
+//! player told just after its death message. The object followed is told nothing, even when it
+//! dies.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::types::{MoveTarget, MovementParams, Placement};
@@ -107,6 +108,20 @@ pub fn stop<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     );
     let id = p.character;
     crate::places::to_all_knowing(s, net, id, &m);
+    let said = crate::chat::show_text(SHOWN_AS, progress::text(STOPPED));
+    progress::private(net, world, &said);
+}
+
+/// A player following something dies: it follows no more and is told so, just after its death
+/// message (2017: 8 of 8). No movement order is sent with it (2017: the one stop of the order comes
+/// later in the death's tick, for all who see it, 8 of 8).
+pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if p.following.take().is_none() {
+        return;
+    }
     let said = crate::chat::show_text(SHOWN_AS, progress::text(STOPPED));
     progress::private(net, world, &said);
 }

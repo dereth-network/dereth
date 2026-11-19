@@ -4287,6 +4287,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.attack-ends-after-the-message",
+        says: "A player killed while attacking is told its death first; then a skill's use under \
+               way is over and refused as interrupted, and a run of basic attacks fails as \
+               interrupted; then the player is attacking no more, told once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-ATTACK-ORDER"),
+        station: "yalain-testkit::cpu::play::dying::a_player_killed_while_attacking_is_told_its_death_before_its_attack_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.back-at-entry",
         says: "A character that left the world dead, by logging off, its client going away or the \
                server stopping, comes back by itself as it enters: at the lifestone it is bound \
@@ -6051,6 +6061,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-PACED"),
         station: "yalain-testkit::cpu::play::follow::a_follow_asked_again_and_again_reaches_those_who_see_it_at_a_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-at-death",
+        says: "A player that dies while following is told it stopped following just after its \
+               death message and follows no more; the one it followed is told nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-ENDS-FOLLOW"),
+        station: "yalain-testkit::cpu::play::follow::a_player_that_dies_while_following_follows_no_more",
         tier: Tier::Cpu,
     },
     behaviour! {

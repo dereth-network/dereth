@@ -1564,3 +1564,65 @@ fn a_dead_player_starts_no_attack_run() {
         "told why"
     );
 }
+
+/// A player killed in a run of basic attacks is told its death first, then that the run failed as
+/// interrupted, then that it is attacking no more; it attacks no more.
+/// Behaviour: server.death.attack-ends-after-the-message
+#[test]
+fn a_player_killed_while_attacking_is_told_its_death_before_its_attack_ends() {
+    use yalain_world::combat::{error, function};
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.arm(b, me, 0x4700_051C);
+    let creature = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.alive())
+        .map(|t| t.id)
+        .expect("a creature");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::START_ATTACK,
+            &[auberean_script::args::Arg::LongInt(creature)],
+        ),
+    );
+    let world = *h.server.players.keys().next().expect("the player");
+    assert!(
+        h.run_until(400, |h| h.server.players[&world].attacking.is_some()),
+        "a run under way"
+    );
+    h.run(4);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(creature), clock);
+    h.run(4);
+    let told: Vec<(u32, Vec<Value>)> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| {
+            [
+                DEATH_MESSAGE,
+                function::BASIC_ATTACKS_FAILED,
+                function::ATTACK_STATE,
+            ]
+            .contains(f)
+        })
+        .map(|(f, v)| (f, if f == DEATH_MESSAGE { Vec::new() } else { v }))
+        .collect();
+    assert_eq!(
+        told,
+        vec![
+            (DEATH_MESSAGE, Vec::new()),
+            (
+                function::BASIC_ATTACKS_FAILED,
+                vec![Value::Int(error::INTERRUPTED)]
+            ),
+            (function::ATTACK_STATE, vec![Value::Int(0)]),
+        ]
+    );
+    assert!(h.server.players[&world].attacking.is_none(), "no run");
+}

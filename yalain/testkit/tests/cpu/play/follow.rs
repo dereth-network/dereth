@@ -136,3 +136,62 @@ fn a_follow_asked_again_and_again_reaches_those_who_see_it_at_a_pace() {
     h.run(10);
     assert!(orders(&h, from) > 0, "the pace has filled");
 }
+
+/// A player that dies while following another is told it stopped following just after its death
+/// message, and follows no more: following again only starts. The one it followed is told
+/// nothing.
+/// Behaviour: server.follow.ends-at-death
+#[test]
+fn a_player_that_dies_while_following_follows_no_more() {
+    const DEATH_MESSAGE: u32 = 0x8207_002B;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    let (c, other) = h.player_in_world("two", "Torvald");
+    h.run(5);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(follow::FOLLOW, &[Arg::LongInt(other)]),
+    );
+    h.run(4);
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(w, _)| *w)
+        .expect("in the world");
+    let (from, theirs) = (h.bots[b].inbox.len(), h.bots[c].inbox.len());
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(4);
+    assert_eq!(shown(&h, b, from), vec![follow::STOPPED.0]);
+    let calls: Vec<u32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => Some(c.function.0),
+            _ => None,
+        })
+        .collect();
+    let died = calls.iter().position(|f| *f == DEATH_MESSAGE);
+    assert!(died.is_some(), "its death message");
+    assert_eq!(
+        calls.get(died.map_or(0, |i| i + 1)),
+        Some(&SHOW_TEXT),
+        "told just after its death message: {calls:x?}"
+    );
+    assert!(
+        shown(&h, c, theirs).is_empty(),
+        "the one followed is told nothing"
+    );
+
+    let again = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(follow::FOLLOW, &[Arg::LongInt(other)]),
+    );
+    h.run(4);
+    assert_eq!(shown(&h, b, again), vec![follow::STARTED.0]);
+}

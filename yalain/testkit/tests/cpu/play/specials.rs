@@ -2241,3 +2241,46 @@ fn a_skill_that_reaches_only_what_is_in_sight_is_refused_at_a_creature_out_of_si
     assert!(!refused(&h, from), "not refused in sight");
     assert!(told(&h, from), "used");
 }
+
+/// A player killed with Deadeye under way is told its death first, then that the use is over and
+/// why (interrupted, naming its target), then that it is attacking no more.
+/// Behaviour: server.death.attack-ends-after-the-message
+#[test]
+fn a_death_cuts_a_skills_use_short_after_the_death_message() {
+    const DEATH_MESSAGE: u32 = 0x8207_002B;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    let _ = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(6);
+    let world = *h.server.players.keys().next().expect("the player");
+    assert!(h.server.players[&world].using.is_some(), "under way");
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+    h.run(4);
+    let got = calls_of(&h, b, from);
+    let at = |f: u32| got.iter().position(|(x, _)| *x == f);
+    let died = at(DEATH_MESSAGE).expect("its death message");
+    let names: Vec<u32> = got.iter().map(|(f, _)| *f).collect();
+    assert!(at(function::ENDED) > Some(died), "{names:x?}");
+    let refused = at(function::REFUSED).expect("why");
+    assert!(refused > died, "{names:x?}");
+    assert_eq!(
+        got[refused].1,
+        vec![
+            Value::Int(DEADEYE),
+            Value::Long(beetle),
+            Value::Int(refusal::INTERRUPTED)
+        ]
+    );
+    let states: Vec<(usize, &Vec<Value>)> = got
+        .iter()
+        .enumerate()
+        .filter(|(_, (f, _))| *f == ATTACK_STATE)
+        .map(|(i, (_, v))| (i, v))
+        .collect();
+    assert_eq!(states.len(), 1, "{names:x?}");
+    assert!(states[0].0 > refused, "{names:x?}");
+    assert_eq!(states[0].1, &vec![Value::Int(0)]);
+}

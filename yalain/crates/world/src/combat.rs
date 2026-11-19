@@ -67,6 +67,8 @@ pub mod function {
 
 /// Why basic attacks failed (the client writes the text).
 pub mod error {
+    /// The run was cut short (its player died).
+    pub const INTERRUPTED: u32 = 91;
     pub const WRONG_IMPLEMENT: u32 = 30026;
     pub const TARGET_DEAD: u32 = 22000;
     pub const TARGET_GONE: u32 = 20002;

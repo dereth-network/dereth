@@ -1534,39 +1534,35 @@ pub fn player_dies<S: Store>(
     crate::pk_points::died(s, world, by_player, clock.local.0);
     crate::places::walk_cut_short(s, net, world);
     crate::fellowship::died(s, net, me);
-    // A skill's use under way is cut short (2017: the use over, the move interrupted).
-    crate::skill_use::interrupt(
-        s,
-        net,
-        world,
-        crate::skill_use::refusal::MOVE_INTERRUPTED,
-        clock,
-    );
     // Its quests that fail when it dies fail first (2017: in the death's tick, before its
     // message).
     crate::quests::died(s, net, world, clock);
-    let Some(p) = s.players.get(&world) else {
-        return;
-    };
     let name = killer_name(s, killer);
-    let attacking = p.attacking.is_some();
-    if attacking {
-        if let Some(p) = s.players.get_mut(&world) {
-            p.attacking = None;
-        }
-        progress::private(
-            net,
-            world,
-            &session::call(crate::combat::function::ATTACK_STATE, &[Arg::Int(0)]).expect("packs"),
-        );
-    }
     let said = session::call(
         player_fn::DEATH_MESSAGE,
         &[crate::chat::text_arg(name.clone())],
     )
     .expect("packs");
     progress::private(net, world, &said);
-    // So is an item's use, after the message.
+    // After the message (2017: first in 114 of 115 deaths that end an attack), a follow ends
+    // ("Stopped following.", 8 of 8), a skill's use under way is cut short as interrupted (the
+    // use over, then why, 46 of 57), and a run of basic attacks ends: failed as interrupted, then
+    // not attacking (79 of 85).
+    crate::follow::died(s, net, world);
+    crate::skill_use::interrupt(s, net, world, crate::skill_use::refusal::INTERRUPTED, clock);
+    if s.players
+        .get_mut(&world)
+        .and_then(|p| p.attacking.take())
+        .is_some()
+    {
+        progress::private(
+            net,
+            world,
+            &crate::combat::failed(crate::combat::error::INTERRUPTED),
+        );
+        progress::private(net, world, &crate::combat::attack_state(false));
+    }
+    // So is an item's use.
     crate::item_use::cut_short(s, net, world);
     #[allow(clippy::cast_precision_loss)]
     let pose = s.rng.below(6) as f32;
