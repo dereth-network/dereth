@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed the Navigator's turns swinging back and forth at low frame rates.
 - Fixed other players jumping back and forth while they fight.
 - Fixed the Navigator stopping when you search for a place.
 - Fixed the Navigator planning journeys through destroyed portals.

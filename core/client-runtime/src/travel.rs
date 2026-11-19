@@ -344,6 +344,9 @@ pub enum TravelCommand {
     Forward(bool),
     /// Hold the turn-left key (`Some(false)`), the turn-right key (`Some(true)`), or neither.
     Turn(Option<bool>),
+    /// Face this heading at once, degrees clockwise from north: the last of a turn, less than a
+    /// turn key held for one frame would turn.
+    Face(f32),
     /// Use this object: a door, a portal, a recall item.
     Use(ObjectId),
     /// Take up this item (a caster).
@@ -3337,11 +3340,17 @@ impl Travel {
                 }
             }
             Steer::Go {
-                forward: go, turn, ..
+                forward: go,
+                turn,
+                face,
+                ..
             } => {
                 if turn != self.turning {
                     out.push(TravelCommand::Turn(turn));
                     self.turning = turn;
+                }
+                if let Some(heading) = face {
+                    out.push(TravelCommand::Face(heading));
                 }
                 if go != self.forward {
                     out.push(TravelCommand::Forward(go));
@@ -3918,6 +3927,48 @@ mod tests {
         let t = walk.travel.trip.as_ref().expect("the journey goes on");
         let route = t.follower.as_ref().expect("it walks on").path();
         assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    #[test]
+    fn at_a_low_frame_rate_the_last_of_a_turn_is_faced_at_once_not_turned_with_a_key() {
+        let mut travel = Travel::new(StoreFiles::default());
+        travel.planning = Some(Planning::held());
+        let mut trip = Trip::new(
+            1,
+            Purpose::Go,
+            TravelTarget::Place(at_a_door::at(9.0)),
+            TravelAllow::default(),
+            0.0,
+            0.0,
+        );
+        trip.step = Some(Step::Walk {
+            target: at_a_door::at(9.0),
+            last: true,
+        });
+        travel.trip = Some(trip);
+        travel.follow_route(at_a_door::round_the_door(), true);
+        // East along the room, facing ten degrees short of it, at five frames a second: a turn
+        // key held one frame would turn the body 27 degrees.
+        let facing = |degrees: f32| {
+            let mut p = at_a_door::at(0.0);
+            dereth_primitives::frame::set_heading(&mut p.frame, degrees);
+            p
+        };
+        let mut out = Vec::new();
+        travel.follow(&facing(80.0), &mut out);
+        out.clear();
+        travel.now = 0.2;
+        travel.follow(&facing(80.0), &mut out);
+        assert!(
+            out.iter()
+                .any(|c| matches!(c, TravelCommand::Face(h) if (h - 90.0).abs() < 0.5)),
+            "{out:?}"
+        );
+        assert!(
+            !out.iter()
+                .any(|c| matches!(c, TravelCommand::Turn(Some(_)))),
+            "{out:?}"
+        );
     }
 
     /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so

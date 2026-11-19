@@ -1,8 +1,9 @@
 //! A body driven the way the client's travel drives the player's character: a turn key turns it at
-//! the character's turn rate, the forward key runs it at the character's run speed, and the world
-//! steps once a frame at the frame rate asked for. Every key the steering asks for takes effect for
-//! the whole of the next frame, as a key the client reads at the end of one frame moves the body
-//! in the next.
+//! the character's turn rate, the forward key runs it at the character's run speed, a heading the
+//! steering asks for is faced at once, and the world steps once a frame at the frame rate asked
+//! for. Each frame runs in the client's order: the frame's time passes, the steering is asked
+//! about the body as the last frame left it, and the world then moves the body through the frame
+//! with what it asked for.
 
 use std::sync::Arc;
 
@@ -165,7 +166,7 @@ pub fn drive(
         let Some(p) = body.position() else { break };
         out.walked += dereth_navigation::global_distance(&p, &last);
         last = p;
-        match f.update(&p, body.heading, body.now) {
+        match f.update(&p, body.heading, body.now + dt) {
             Steer::Arrived => {
                 out.arrived = true;
                 break;
@@ -175,12 +176,18 @@ pub fn drive(
                 body.frame(dt, false, None);
             }
             Steer::Go {
-                forward: go, turn, ..
+                forward: go,
+                turn,
+                face,
+                ..
             } => {
                 if forward && !go {
                     out.stops += 1;
                 }
                 forward = go;
+                if let Some(heading) = face {
+                    body.heading = heading;
+                }
                 body.frame(dt, go, turn);
             }
             Steer::Stuck { waypoint } => {
