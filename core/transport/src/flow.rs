@@ -208,6 +208,19 @@ impl FlowQueue {
         }
     }
 
+    /// A server connection's queue: its interval count starts at 1 and its interval clock runs
+    /// from `opened`, when the connection's handshake was answered. Packets sent before the first
+    /// advance carry interval 1; the first advance after `opened` counts every half second since.
+    #[must_use]
+    pub fn server(net_id: u16, iteration: u16, opened: LocalTime) -> Self {
+        Self {
+            cur_local_interval: 1,
+            interval_time: opened,
+            interval_started: true,
+            ..Self::new(net_id, iteration)
+        }
+    }
+
     /// Set the values the time-sensitive sections are rewritten from at the next send.
     pub fn set_time_sensitive(&mut self, values: TimeSensitive) {
         self.time_sensitive = values;

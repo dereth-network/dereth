@@ -181,7 +181,7 @@ fn an_item_whose_end_passed_while_its_holder_was_away_is_not_brought_back() {
     let ends = h.server.things.get(long).and_then(|t| t.own.ends);
     h.run(5);
     log_off(&mut h, b, me);
-    h.advance(f64::from(LIFE) + 50.0);
+    wait(&mut h, f64::from(LIFE) + 50.0);
     let from = h.bots[b].inbox.len();
     h.enter_world(b, "one", me);
     h.run(10);

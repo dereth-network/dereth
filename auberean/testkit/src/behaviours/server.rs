@@ -9637,6 +9637,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.interval-counts-from-the-handshake",
+        says: "A server connection's packets count their interval from 1, two to a second, from \
+               when its handshake was answered: the handshake carries 0, a world's server switch \
+               1, and the first data a login or a world is sent 2.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FLOW-INTERVAL"),
+        station: "yalain-net::cpu::intervals::a_connection_counts_its_intervals_from_one_and_from_its_handshake",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.large-message-holds-only-its-kind",
         says: "A small message of another ordering kind on a large message's queue goes past it at \
                once; one of the large message's own kind waits behind it.",

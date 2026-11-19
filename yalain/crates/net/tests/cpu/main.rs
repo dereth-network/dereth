@@ -5,6 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 mod cookies;
 mod handshakes;
 mod hub_challenge;
+mod intervals;
 mod pace;
 mod status_ping;
 mod websocket;

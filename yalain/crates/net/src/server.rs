@@ -33,7 +33,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use dereth_network_protocol::challenge::{self, Challenge};
 use dereth_primitives::LocalTime;
 use dereth_transport::conn::{ConnectRequest, ConnectSeeds, Referral};
-use dereth_transport::flow::{CONNECTION_TIMEOUT, WORLD_LOGIN_TIMEOUT};
+use dereth_transport::flow::{FlowQueue, CONNECTION_TIMEOUT, WORLD_LOGIN_TIMEOUT};
 use dereth_transport::wire::{PacketFlags, ParsedPacket};
 
 use crate::blob::{blob_id, BlobKind};
@@ -778,6 +778,9 @@ impl ServerNet {
             self.game_time(now),
             now,
         );
+        // The interval count starts at 1 and runs from the handshake, not from its answer, as the
+        // January 2017 servers' did: a world's server switch carries 1, the first data 2.
+        ep.flow = FlowQueue::server(id.server_id, id.iteration, w.first_answered());
         ep.pace = Pace::at_rate(self.cfg.large_message_bytes_per_second);
         if self.held {
             ep.hold_clock(now);

@@ -89,6 +89,12 @@ impl Waiting {
             left: None,
         }
     }
+
+    /// When it was first answered: where its connection's interval clock starts.
+    #[must_use]
+    pub const fn first_answered(&self) -> LocalTime {
+        self.at
+    }
 }
 
 /// Whose an address's waiting count is: an IPv4 address (one mapped into IPv6 included), or an
