@@ -101,6 +101,8 @@ pub struct Pace {
     spent: usize,
     /// The interval `spent` counts.
     interval: Option<u16>,
+    /// Sections that go on the next packet this sends.
+    carried: Vec<(u32, Vec<u8>)>,
 }
 
 impl Default for Pace {
@@ -121,6 +123,7 @@ impl Pace {
             by_kind: BTreeMap::new(),
             spent: 0,
             interval: None,
+            carried: Vec::new(),
         }
     }
 
@@ -166,6 +169,12 @@ impl Pace {
         self.by_queue.get(&queue).copied().unwrap_or(0)
     }
 
+    /// Put a section on the next packet this sends: a world's clock, sent while the large message
+    /// sent as it enters is the only data going, rides that message's first packet.
+    pub fn carry(&mut self, mask: u32, data: Vec<u8>) {
+        self.carried.push((mask, data));
+    }
+
     /// The connection is in interval `interval`: a new one starts its budget again.
     pub fn at_interval(&mut self, interval: u16) {
         if self.interval != Some(interval) {
@@ -200,6 +209,12 @@ impl Pace {
                 iteration: flow.iteration,
                 ..Default::default()
             });
+            // Carried sections go first. When the next fragment does not fit beside them, they
+            // go on a packet of their own ahead of it, as a queue sends a section packet that has
+            // data behind it.
+            for (mask, data) in std::mem::take(&mut self.carried) {
+                let _ = packet.add_optional_header(mask, data);
+            }
             while let Some(f) = self.fragments.front() {
                 if packet.fragments.len() >= MAX_FRAGS_PER_PACKET
                     || packet.payload_len() + f.wire_len() > MAX_BUILD_PAYLOAD
@@ -225,7 +240,7 @@ impl Pace {
                 // The bounds were just checked, so this cannot fail.
                 let _ = packet.add_fragment(f);
             }
-            if packet.fragments.is_empty() {
+            if packet.fragments.is_empty() && packet.optional.is_empty() {
                 break;
             }
             flow.highest_id_sent = flow.highest_id_sent.wrapping_add(1);

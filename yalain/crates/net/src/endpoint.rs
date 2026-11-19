@@ -7,8 +7,9 @@
 //! seeds swapped. What differs by role:
 //!
 //! - the **client** sends its clock request and an echo request every six half-second intervals;
-//! - the **server** sends its clock with its first data and every [`SERVER_TIME_SYNC_INTERVAL`]
-//!   seconds, and answers each echo request at once with an acknowledgement;
+//! - the **server** sends its clock with its first data and at each multiple of
+//!   [`SERVER_TIME_SYNC_INTERVALS`] of its interval, on the next packet it sends, and answers each
+//!   echo request at once with an acknowledgement;
 //! - the **server** sends its large messages at a pace ([`crate::pace`]).
 //!
 //! Sans-IO: the caller passes the time and sends the datagrams [`Endpoint::tick`] returns.
@@ -26,9 +27,10 @@ use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
 
 use crate::pace::Pace;
 
-/// How often the server sends its clock: the January 2017 servers sent it with the first data
-/// packet and then about every 20 seconds.
-pub const SERVER_TIME_SYNC_INTERVAL: f64 = 20.0;
+/// How often the server sends its clock, in intervals: the January 2017 servers sent it with the
+/// first data packet and then each time their interval reached a multiple of 40 (20 seconds),
+/// whenever the last one went.
+pub const SERVER_TIME_SYNC_INTERVALS: u32 = 40;
 
 /// The most packets resent in one [`Endpoint::tick`]: as many as one retransmit request can ask
 /// for. The rest of a longer list is dropped; the peer asks again for what is still missing.
@@ -83,7 +85,8 @@ pub struct Endpoint {
     clock_base: LocalTime,
     /// Server: the game clock is held at `game_time`.
     held: bool,
-    last_time_sync: Option<LocalTime>,
+    /// Server: the clock has been sent once.
+    time_sync_sent: bool,
     ack_now: bool,
     /// The highest sequence the peer has acknowledged: by its acknowledgement, or by asking for
     /// the one after it again (it has everything before the first it asks for).
@@ -136,7 +139,7 @@ impl Endpoint {
             game_time,
             clock_base: now,
             held: false,
-            last_time_sync: None,
+            time_sync_sent: false,
             ack_now: false,
             peer_acked: 1,
             last_message_seq: 1,
@@ -306,6 +309,7 @@ impl Endpoint {
     pub fn tick(&mut self, now: LocalTime) -> Vec<Vec<u8>> {
         self.indicator.flush_timed_out_eph_info(now);
         let mut sync_due = false;
+        let before = self.flow.cur_local_interval;
         for ev in self.flow.advance_interval(now) {
             if ev == IntervalEvent::TimeSyncAndEcho {
                 sync_due = true;
@@ -340,12 +344,20 @@ impl Endpoint {
                 sections.push((PacketFlags::ECHO_REQUEST, 0f32.to_le_bytes().to_vec()));
             }
             Role::Server
-                if self
-                    .last_time_sync
-                    .is_none_or(|t| now.seconds_since(t) >= SERVER_TIME_SYNC_INTERVAL) =>
+                if !self.time_sync_sent
+                    || reaches_a_multiple(before, self.flow.cur_local_interval) =>
             {
-                sections.push((PacketFlags::TIME_SYNC, 0f64.to_le_bytes().to_vec()));
-                self.last_time_sync = Some(now);
+                // A world's first data is often only the large message it is sent as it enters,
+                // which goes by the pace: the clock rides its first packet, as the first data.
+                if sections.is_empty() && self.unsent_blobs == 0 && !self.pace.is_empty() {
+                    self.pace.carry(
+                        PacketFlags::TIME_SYNC,
+                        self.game_time(now).to_le_bytes().to_vec(),
+                    );
+                } else {
+                    sections.push((PacketFlags::TIME_SYNC, 0f64.to_le_bytes().to_vec()));
+                }
+                self.time_sync_sent = true;
             }
             _ => {}
         }
@@ -428,4 +440,12 @@ pub fn standalone(rec_id: u16, iteration: u16, mask: u32, body: Vec<u8>) -> Vec<
     });
     let _ = p.add_optional_header(mask, body);
     p.serialize(None).unwrap_or_default()
+}
+
+/// Does the interval, gone from `before` to `after`, reach a multiple of
+/// [`SERVER_TIME_SYNC_INTERVALS`]?
+fn reaches_a_multiple(before: u16, after: u16) -> bool {
+    let from = u32::from(before);
+    let to = from + u32::from(after.wrapping_sub(before));
+    from / SERVER_TIME_SYNC_INTERVALS != to / SERVER_TIME_SYNC_INTERVALS
 }

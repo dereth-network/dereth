@@ -9555,6 +9555,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.clock-every-fortieth-interval",
+        says: "A server connection sends its clock with its first data and then each time its \
+               interval reaches a multiple of 40, on the next packet it sends: on a grid of \
+               twenty seconds from the start, not twenty seconds after the last one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIME-SYNC-GRID"),
+        station: "yalain-net::cpu::intervals::the_server_sends_its_clock_with_its_first_data_and_at_each_fortieth_interval",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.cookies-and-seeds-from-the-hosts-source",
         says: "Every cookie and checksum seed the server sends a client, a login's handshake, a \
                referral and the world's handshake, is taken from the random source its host gave \
@@ -9759,6 +9769,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-COOKIE-ONCE"),
         station: "yalain-net::cpu::cookies::a_referrals_cookie_lets_in_one_world_connection_and_a_resend_changes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.world-clock-on-its-first-data",
+        says: "A world connection sends its clock on the first packet after its server switch, \
+               with its first data, even when that data is a large message going by the pace: \
+               the clock goes ahead of it, not after it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIME-SYNC-WORLD-FIRST"),
+        station: "yalain-net::cpu::intervals::a_worlds_clock_goes_first_after_its_switch_even_ahead_of_a_paced_message",
         tier: Tier::Cpu,
     },
     behaviour! {

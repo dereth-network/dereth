@@ -1,5 +1,6 @@
-//! The interval a server's packets carry in their headers: a connection counts from 1, two to a
-//! second, from when its handshake was answered.
+//! The interval a server's packets carry in their headers, and the clock they carry on it: a
+//! connection counts from 1, two to a second, from when its handshake was answered, and sends its
+//! clock with its first data and at each fortieth interval.
 
 use std::net::{SocketAddr, SocketAddrV4};
 
@@ -123,4 +124,102 @@ fn a_connection_counts_its_intervals_from_one_and_from_its_handshake() {
         [2],
         "the world's first data"
     );
+}
+
+fn services() -> (ServerNet, SocketAddr) {
+    let world: SocketAddrV4 = "203.0.113.10:9002".parse().expect("an address");
+    let net = ServerNet::new(NetConfig::retail_ids(world), fixed_stream(7), 0.0, at(0.0));
+    (net, "198.51.100.7:50000".parse().expect("an address"))
+}
+
+/// The player logs in: its handshake at the start, its answer 0.15 s later.
+fn logged_in(net: &mut ServerNet, player: SocketAddr) -> ConnId {
+    net.on_datagram(
+        Port::LOGIN_EVEN,
+        player,
+        &request(
+            PacketFlags::LOGIN_REQUEST,
+            build_login("tester", b"a ticket", 1),
+        ),
+        at(0.0),
+    );
+    let cookie = the_cookie(&sent_to(net, player)[0]);
+    net.on_datagram(
+        Port::LOGIN_ODD,
+        player,
+        &request(PacketFlags::CONNECT_RESPONSE, cookie.to_le_bytes().to_vec()),
+        at(0.15),
+    );
+    joined(net).expect("logged in")
+}
+
+/// The intervals of the packets that carry the clock.
+fn clocks(packets: &[ParsedPacket]) -> Vec<u16> {
+    packets
+        .iter()
+        .filter(|p| p.optional.contains_key(&PacketFlags::TIME_SYNC))
+        .map(|p| p.header.interval)
+        .collect()
+}
+
+/// A login sent a message every half second for a minute carries the clock on its first data and
+/// then on intervals 40, 80 and 120: on a grid of forty intervals from the start, not twenty
+/// seconds after the last, which would put them on 42, 82 and 122.
+/// Behaviour: server.net.clock-every-fortieth-interval
+#[test]
+fn the_server_sends_its_clock_with_its_first_data_and_at_each_fortieth_interval() {
+    let (mut net, player) = services();
+    let login = logged_in(&mut net, player);
+    let mut sent = Vec::new();
+    for k in 0..124u8 {
+        let t = at(0.15 + f64::from(k) * 0.5);
+        net.send(login, 5, BlobKind::LOGIN, vec![k; 40]);
+        net.tick(t);
+        sent.extend(sent_to(&mut net, player));
+    }
+    assert_eq!(intervals(&sent)[..2], [2, 3], "one packet an interval");
+    assert_eq!(clocks(&sent), [2, 40, 80, 120]);
+}
+
+/// A world whose first data is a message long enough to go by the pace sends its clock on the
+/// first packet after the server switch, ahead of the message, not after it.
+/// Behaviour: server.net.world-clock-on-its-first-data
+#[test]
+fn a_worlds_clock_goes_first_after_its_switch_even_ahead_of_a_paced_message() {
+    let (mut net, player) = services();
+    let login = logged_in(&mut net, player);
+    let referral = net.refer(login, at(0.2)).expect("a referral");
+    net.tick(at(0.2));
+    sent_to(&mut net, player);
+    net.on_datagram(
+        Port::WORLD_EVEN,
+        player,
+        &request(
+            PacketFlags::WORLD_LOGIN_REQUEST,
+            referral.to_le_bytes().to_vec(),
+        ),
+        at(1.0),
+    );
+    let cookie = the_cookie(&sent_to(&mut net, player)[0]);
+    net.on_datagram(
+        Port::WORLD_ODD,
+        player,
+        &request(PacketFlags::CONNECT_RESPONSE, cookie.to_le_bytes().to_vec()),
+        at(1.05),
+    );
+    let world = joined(&mut net).expect("in the world");
+    net.send(world, 5, BlobKind::PRIVATE, vec![0x44; 70_000]);
+    net.tick(at(1.05));
+    let sent = sent_to(&mut net, player);
+    assert!(sent[0].optional.contains_key(&PacketFlags::SERVER_SWITCH));
+    assert!(sent.len() > 2, "the message's first packets");
+    assert!(
+        sent[1].optional.contains_key(&PacketFlags::TIME_SYNC),
+        "the clock first"
+    );
+    assert_eq!(
+        sent[2].fragments[0].header.blob_num, 0,
+        "a whole fragment does not fit beside it: the message's first goes next"
+    );
+    assert_eq!(clocks(&sent).len(), 1, "once");
 }

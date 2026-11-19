@@ -179,7 +179,7 @@ const ENDED: usize = 3;
 const ENDED_AT: f64 = 60.0;
 
 /// The fixed session's datagrams as recorded: their digest, and how many.
-const RECORDED_SESSION: (u64, usize) = (0x1327_38F7_C87B_4719, 14_686);
+const RECORDED_SESSION: (u64, usize) = (0xAF79_2369_1CCF_D3E5, 14_683);
 
 /// A 64-bit FNV-1a digest.
 struct Digest(u64);
