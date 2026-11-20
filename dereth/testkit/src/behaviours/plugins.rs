@@ -1049,6 +1049,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-walk-meeting-a-closed-door-opens-it-at-once",
+        says: "A walk whose route passes a closed door uses the door as soon as it is within \
+               1.5 meters of the door's place on its level, also where the route's point before \
+               the door lies inside the shut door, nearer than a body stands; it does not press \
+               into the door until it is stuck.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DOOR-REACH"),
+        station: "dereth-navigation::lib::follow::tests::a_walk_meeting_a_closed_door_opens_it_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-walking-route-goes-round-walls-and-through-doors-and-a-line-of-sight-stops-at-them",
         says: "Asked without moving, the client answers a walking route round a wall to a monster \
                behind it, one through a closed door in a wall's gap naming the door to open, and \

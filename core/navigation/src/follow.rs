@@ -105,6 +105,11 @@ const PASS_REACH: f32 = 2.5;
 /// How far above or below a waypoint the body may be and still count it reached: a body's height.
 const REACH_RISE: f32 = 2.0;
 
+/// How near the door's own place a body at a closed door counts the waypoint before it reached,
+/// metres. That waypoint may lie in the shut door itself, nearer than a body can stand: the door
+/// stops a body some 0.7 m short of it, and the door is opened from there.
+const DOOR_REACH: f32 = 1.5;
+
 /// How far from the leg it is on, across, or above or below it, the body is off the route and
 /// the owner should plan again from where it is.
 const LOST_ACROSS: f32 = 4.0;
@@ -400,6 +405,18 @@ impl Follower {
         }
     }
 
+    /// Whether a body at `here` stands at the closed door waypoint `i` is before: within
+    /// [`DOOR_REACH`] of the door's place, the waypoint after it, on its level.
+    fn at_shut_door(&self, i: usize, here: Vec3) -> bool {
+        let w = &self.path.waypoints;
+        matches!(w[i].action, Some(WaypointAction::OpenDoor(_)))
+            && self.door_done != Some(i)
+            && w.get(i + 1).is_some_and(|d| {
+                let d = global(&d.position);
+                (here.z - d.z).abs() <= REACH_RISE && dist_xy(here, d) <= DOOR_REACH
+            })
+    }
+
     /// The step for a body at `at`, facing `facing` (degrees clockwise from north), at time `now`
     /// (seconds, any steady clock).
     pub fn update(&mut self, at: &Position, facing: f32, now: f64) -> Steer {
@@ -435,7 +452,8 @@ impl Follower {
                 && (dist_xy(here, p) <= close
                     || point_segment_dist_sq(flat(p, here), flat(prev, here), here)
                         <= close * close))
-                || (!stop && !sharp && self.crossed(self.next, here));
+                || (!stop && !sharp && self.crossed(self.next, here))
+                || self.at_shut_door(self.next, here);
             if !reached {
                 break;
             }
@@ -744,6 +762,95 @@ mod tests {
             s => panic!("{s:?}"),
         }
         assert_eq!(f.update(&at(9.9, 10.0), 90.0, 2.0), Steer::Arrived);
+    }
+
+    /// A closed door's waypoint as the planner puts it, a quarter metre before the door's place:
+    /// inside the shut door, where no body stands. The door stops the body 0.67 m short of the
+    /// waypoint, and the follower asks for the door to be opened there, at once, instead of
+    /// pressing into it until it is stuck; once it is open the body walks on through it.
+    ///
+    /// Behaviour: plugins.nav.a-walk-meeting-a-closed-door-opens-it-at-once
+    #[test]
+    fn a_walk_meeting_a_closed_door_opens_it_at_once() {
+        const DOOR: ObjectId = ObjectId(0x7019_E00C);
+        let points = [
+            (10.0, -40.0),
+            (15.25, -40.0),
+            (15.5, -40.0),
+            (16.0, -40.0),
+            (23.25, -39.75),
+        ];
+        let waypoints: Vec<Waypoint> = points
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| Waypoint {
+                position: at(x, y),
+                action: (i == 1).then_some(WaypointAction::OpenDoor(DOOR)),
+            })
+            .collect();
+        let legs = waypoints[1..].iter().map(|w| vec![w.position]).collect();
+        let cuts = vec![0.0; waypoints.len()];
+        let path = NavPath {
+            waypoints,
+            legs,
+            goal_offset: 0.0,
+            cuts,
+        };
+        // The shut door: the body's front stops it at x 14.58.
+        const STOPPED: f32 = 14.58;
+        let mut body = Body {
+            x: 10.0,
+            y: -40.0,
+            heading: 90.0,
+            now: 0.0,
+            speed: 3.0,
+            turn_rate: 135.0,
+        };
+        let mut f = Follower::new(path, FollowConfig::default());
+        let (mut open, mut stopped_at, mut opened_at) = (false, None, None);
+        while body.now < 30.0 {
+            let dt = 1.0 / 30.0;
+            body.now += dt;
+            match f.update(&at(body.x, body.y), body.heading, body.now) {
+                Steer::Arrived => break,
+                Steer::OpenDoor(door) => {
+                    assert_eq!(door, DOOR);
+                    assert!(!open, "asked again for an open door");
+                    opened_at = Some(body.now);
+                    open = true;
+                    f.door_opened();
+                }
+                Steer::Go {
+                    forward,
+                    turn,
+                    face,
+                    ..
+                } => {
+                    if let Some(h) = face {
+                        body.heading = h;
+                    }
+                    body.frame(dt, forward, turn);
+                    if !open && body.x >= STOPPED {
+                        body.x = STOPPED;
+                        stopped_at.get_or_insert(body.now);
+                    }
+                }
+                s => panic!("{s:?} at {:.2} s, x {:.2}", body.now, body.x),
+            }
+        }
+        let opened = opened_at.expect("the door was opened");
+        if let Some(stopped) = stopped_at {
+            assert!(
+                opened - stopped < 0.1,
+                "pressed into the shut door for {:.2} s",
+                opened - stopped
+            );
+        }
+        assert!(
+            body.x > 22.5,
+            "walked on through the door to x {:.2}",
+            body.x
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Plugins: a journey a shut door stops now says which door and why.
+- Fixed the Navigator running into a closed door before opening it.
 
 ## 0.4.20 (2026-11-20)
 - Navigator: opens doors that only a lever works, by using the lever.
