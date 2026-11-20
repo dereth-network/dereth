@@ -613,6 +613,27 @@ fn the_desktop_products_build_natively() {
     assert!(targets::plan_desktop(target(a, MAC_ARM), &host(Os::Mac)).is_ok());
 }
 
+/// A release build of Asheron's Call 2's programs compiles the plugin engine without its assertions,
+/// which would name the builder's home folder.
+#[test]
+fn a_release_build_of_any_program_compiles_the_plugin_engine_without_its_assertions() {
+    let facts = super::BuildFacts {
+        commit: "b".repeat(40),
+        branch: "auberean-v0.1.0".to_owned(),
+        number: "1".to_owned(),
+        epoch: 1_700_000_000,
+        source_url: super::DEFAULT_SOURCE_URL.to_owned(),
+    };
+    for triple in [WINDOWS, MAC_ARM] {
+        let env = desktop::build_env(&workspace_root(), &facts, target(&ONE_PROGRAM, triple));
+        assert!(
+            env.iter().any(|(k, v)| k == "LUAU_CXXFLAGS"
+                && v.split_whitespace().any(|f| f == "-DNDEBUG")),
+            "{triple}: {env:?}"
+        );
+    }
+}
+
 /// A release build of any of Asheron's Call 2's programs names the commit and the target in every
 /// product's variables, which each program's `--version` reads; on Windows it links the C runtime
 /// in, and on macOS it claims the release's floor.

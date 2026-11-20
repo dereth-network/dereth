@@ -126,8 +126,16 @@ pub const BUILD_VARS: &[(&str, &str)] = &[
 /// target the programs name in `--version` ([`BUILD_VARS`]), the commit's time, and the flags that
 /// keep local paths out of the programs. On Windows the C runtime is linked in and the linker
 /// writes no time; on macOS the programs claim the release's oldest macOS.
+///
+/// The plugin engine's C++ is built without its own assertions, as Dereth's is: each names its
+/// source file by the full path it was compiled from, which holds the builder's home folder, and the
+/// compiler's path remapping reaches only Rust.
 pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, String)> {
     let mut env = super::build_env(facts, target, &super::local_remaps(ws));
+    env.push((
+        "LUAU_CXXFLAGS".to_owned(),
+        super::dereth::LUAU_RELEASE_FLAGS.to_owned(),
+    ));
     for (commit, triple) in BUILD_VARS {
         env.push(((*commit).to_owned(), facts.commit.clone()));
         env.push(((*triple).to_owned(), target.triple.to_owned()));
