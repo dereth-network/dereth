@@ -6045,6 +6045,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.teaching-stone-rows",
+        says: "A world gives each teaching stone named by its own script its name and page, from the \
+               stone's own table, as the 2017 servers examined them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-EXAMINATIONS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_teaching_stones_named_by_their_scripts_have_their_name_and_page",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.examination.template-text-rows",
         says: "A world's examination row gives the placed objects of a template whose own data names nothing \
                the name and page examining them shows; a template that names itself keeps its own.",

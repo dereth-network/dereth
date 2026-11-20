@@ -257,6 +257,37 @@ fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
     assert!(quest.hidden);
 }
 
+/// The world's teaching stones named by their own scripts (the three vaults', the maps', the
+/// Tumerok hall's loot stone) are examined by their name and page, each from its own table as 2017
+/// sent them: every one placed carries both.
+/// Behaviour: server.examination.teaching-stone-rows
+#[test]
+fn the_worlds_teaching_stones_named_by_their_scripts_have_their_name_and_page() {
+    let t = &compiled().tables;
+    for (template, table) in [
+        (0x4700_2E4D, 0x2500_1AAE),
+        (0x4700_2E4E, 0x2500_1AAF),
+        (0x4700_2E4F, 0x2500_1AB0),
+        (0x4700_2E46, 0x2500_1AA7),
+        (0x4700_2DF2, 0x2500_091B),
+    ] {
+        let placed: Vec<_> = t
+            .content
+            .objects
+            .iter()
+            .filter(|o| o.template == template)
+            .collect();
+        assert!(!placed.is_empty(), "{template:08X} placed");
+        for o in placed {
+            assert_eq!(
+                (o.facts.name, o.facts.description),
+                (Some((0xA860_7CEC, table)), Some((0x6C45_9364, table))),
+                "{template:08X}"
+            );
+        }
+    }
+}
+
 /// A world's mine and map region rows hold the test world's, entry for entry: each mining skill's
 /// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
 /// effects, and what each mining tool yields unmade.
