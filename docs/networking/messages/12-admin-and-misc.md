@@ -149,7 +149,7 @@ server's patch logic works unchanged. A server that knows the extension can do m
   wanted (type dword, id dword, record id), which the server sends as `0xF7E2`s, each once however
   the list is split; an empty list declines the whole offer. The client declines whole an offer it
   did not ask for or cannot open, and with what is pending a stream that breaks, stalls or ends
-  early. A server that sees no connection within 30 seconds sends the whole offer as `0xF7E2`s.
+  early. A server that sees no connection within 120 seconds sends the whole offer as `0xF7E2`s.
 
 ## 6. Where reimplementations differ
 

@@ -3,7 +3,7 @@
 //! (`FLAG_BULK` in `0xF7E6`) is offered one (`0xF7ED`) in place of the records' `0xF7E2`s, and
 //! reads every record from a TCP connection that presents the offer's token, once. What a client
 //! that could not finish names in `0xF7EE` goes as `0xF7E2`s, once each, and so does a whole offer
-//! it declines or nobody collects in its 30 seconds. A world with the stream off patches as
+//! it declines or nobody collects in its 120 seconds. A world with the stream off patches as
 //! before, and the overlay a client takes holds the same records whichever way they came.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and an overlay written in a scratch folder.
 
@@ -244,9 +244,29 @@ fn a_client_that_asks_is_offered_the_patch_as_a_stream_that_opens_once() {
         .all(|d| d.compressed == 1 && d.dat_file_id == 1));
     assert!(stream(port, offer).is_none(), "the token opens one stream");
 
-    // Collected: nothing goes over UDP when its 30 seconds are up.
-    ts.run_until(35.0, |_| false);
+    // Collected: nothing goes over UDP when its 120 seconds are up.
+    ts.run_until(125.0, |_| false);
     assert!(ts.received::<DddData>(id).is_empty());
+}
+
+/// An offer that reaches its client late, behind a manifest and a begin slow to arrive, still
+/// opens its stream a minute and a half after it was made, and none of its records went over UDP
+/// meanwhile.
+#[test]
+fn an_offer_collected_long_after_it_was_made_still_opens() {
+    let port = listen();
+    let scratch = dereth_dat::testing::ScratchDir::new("bulk-late").expect("scratch");
+    let (dats, base) = world(scratch.path());
+    let (mut ts, id) = exchange(&dats, &answer(&base, true));
+    ts.run_until(1.0, |_| false);
+    let offer = ts.received::<DddBulkOffer>(id)[0].clone();
+    ts.run_until(90.0, |_| false);
+    assert!(
+        ts.received::<DddData>(id).is_empty(),
+        "nothing over UDP while the offer waits"
+    );
+    let records = stream(port, &offer).expect("the late stream opens");
+    assert_eq!(records.len(), RECORDS as usize);
 }
 
 #[test]
@@ -327,7 +347,7 @@ fn an_offer_nobody_collects_goes_over_udp() {
     let (dats, base) = world(scratch.path());
     let (mut ts, id) = exchange(&dats, &answer(&base, true));
     let offer = ts.received::<DddBulkOffer>(id)[0].clone();
-    ts.run_until(45.0, |ts| {
+    ts.run_until(135.0, |ts| {
         ts.received::<DddData>(id).len() >= RECORDS as usize
     });
     assert_eq!(ts.received::<DddData>(id).len(), RECORDS as usize);

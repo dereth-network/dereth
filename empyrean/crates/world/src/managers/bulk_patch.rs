@@ -30,7 +30,10 @@ use crate::World;
 use empyrean_net::SessionId;
 
 /// How long a ticket waits for its client to connect before its records go back to `0xF7E2`.
-pub const TICKET_SECONDS: f64 = 30.0;
+/// Long enough for the offer to reach the client behind the manifest and the begin, which list
+/// every record of the patch and can take tens of seconds to arrive over a lossy link; a client
+/// whose stream fails says so (`0xF7EE`) and does not wait for this.
+pub const TICKET_SECONDS: f64 = 120.0;
 /// A ticket still unclaimed this long after it was made is dropped, whatever became of its
 /// session.
 const STALE: Duration = Duration::from_secs(600);
@@ -220,7 +223,9 @@ impl Service {
             return;
         };
         if !self.expects(peer.ip()) {
-            log::debug!("[DDD] bulk patch: {peer} holds no ticket; closed");
+            log::info!(
+                "[DDD] bulk patch: {peer} holds no ticket (none offered to it, or expired); closed"
+            );
             return;
         }
         // Taken before the thread starts, so the cap holds however fast connections come.
