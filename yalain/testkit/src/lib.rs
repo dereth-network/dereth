@@ -2773,6 +2773,7 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
             CRYSTALABRA_CURE,
             yalain_world::effect_defs::VitaeRestore {
                 points: 2.0,
+                most: None,
                 fellows: true,
             },
         )]),

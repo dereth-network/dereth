@@ -236,6 +236,7 @@ fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
             yalain_testkit::CRYSTALABRA_CURE,
             VitaeRestore {
                 points: 2.0,
+                most: None,
                 fellows: true
             }
         )])

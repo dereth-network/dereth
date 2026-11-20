@@ -17,13 +17,33 @@ pub struct Ward {
     pub chance: f32,
 }
 
-/// Vitae an effect gives back when it is put on: points of it, never above full, to its player and,
-/// where it reaches them, the player's fellows in the world.
+/// Vitae an effect gives back when it is put on: points of it, or whole points drawn evenly from
+/// `points` to `most`, never above full, to its player and, where it reaches them, the player's
+/// fellows in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct VitaeRestore {
     /// Above 0 and at most 100.
     pub points: f32,
+    /// The most a draw gives: a whole number at least `points` (then whole too), at most 100.
+    pub most: Option<f32>,
     pub fellows: bool,
+}
+
+impl VitaeRestore {
+    /// The points one putting on gives back, from a draw `pick(n)` below `n`.
+    #[must_use]
+    pub fn drawn(&self, pick: impl FnOnce(usize) -> usize) -> f32 {
+        match self.most {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(most) if most > self.points => {
+                let n = (most - self.points) as usize + 1;
+                #[allow(clippy::cast_precision_loss)]
+                let extra = pick(n).min(n - 1) as f32;
+                self.points + extra
+            }
+            _ => self.points,
+        }
+    }
 }
 
 /// Which of its skills a complete reset gives a player back: those bought with skill credits, or

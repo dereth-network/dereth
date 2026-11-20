@@ -133,6 +133,7 @@ mod treasure_values;
 mod two_blows;
 mod untraining;
 mod vaults;
+mod vitae_healing;
 mod wanting_objects;
 mod watchers;
 mod weapons;

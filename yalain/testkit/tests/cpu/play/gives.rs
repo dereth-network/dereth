@@ -1315,6 +1315,7 @@ fn a_vitae_restore_gives_its_points_back_to_its_player_and_fellows_never_above_f
                 state,
                 kind: Kind::VitaeRestore(VitaeRestore {
                     points: 2.0,
+                    most: None,
                     fellows,
                 }),
                 fx: FX,

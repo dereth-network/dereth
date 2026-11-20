@@ -162,6 +162,8 @@ pub mod ui_flag {
     pub const IGNORE_WEAPON_VIGOR: u32 = 0x20;
     pub const IGNORE_SHIELD_VIGOR: u32 = 0x80;
     pub const NON_DAMAGING: u32 = 0x200;
+    /// It harms what it is used on (the library's own mark of a harmful skill).
+    pub const HARMFUL: u32 = 0x400;
     /// The player is walked to its target (rather than refused as too far).
     pub const MOVE_TO: u32 = 0x800;
     pub const SELF_TARGETED: u32 = 0x2000;
@@ -856,6 +858,8 @@ pub mod target_bit {
     pub const MONSTER_CORPSE: u32 = 0x40;
     /// A monster.
     pub const MONSTER: u32 = 0x80;
+    /// Another player.
+    pub const PLAYER: u32 = 0x100;
     /// Only a player outside its user's fellowship.
     pub const NOT_FELLOW: u32 = 0x800;
     /// Only a pet of the class the skill names.
@@ -972,10 +976,13 @@ fn self_only(u: &Usage) -> bool {
     u.valid_targets == 1 || u.ui_flags & ui_flag::SELF_TARGETED != 0
 }
 
-/// Is a skill helpful: it does no damage and may be used on its user (a heal, a buff)?
+/// Is a skill helpful: it does no damage and may be used on its user (a heal, a buff), or it is
+/// used on other players and does them no harm (a heal of another alone, a vitae restore)?
 #[must_use]
 pub fn helpful(u: &Usage) -> bool {
-    u.ui_flags & ui_flag::NON_DAMAGING != 0 && u.valid_targets & 1 != 0
+    u.ui_flags & ui_flag::NON_DAMAGING != 0
+        && (u.valid_targets & target_bit::SELF != 0
+            || (u.valid_targets & target_bit::PLAYER != 0 && u.ui_flags & ui_flag::HARMFUL == 0))
 }
 
 /// Does a skill only heal?
@@ -984,9 +991,10 @@ pub fn heals_only(u: &Usage) -> bool {
     u.ui_flags & ui_flag::HEAL_ONLY != 0
 }
 
-/// Whom a use is aimed at: a skill used on its user alone, at it; a helpful skill at the player
-/// the request names, else at its user (a creature, nothing or itself named); any other at the
-/// other player the request names, else at the thing it names.
+/// Whom a use is aimed at: a skill used on its user alone, at it; a helpful skill that may be used
+/// on its user at the player the request names, else at its user (a creature, nothing or itself
+/// named); any other at the other player the request names, else at the thing it names (so its
+/// user, for a skill that takes only others, is refused).
 #[must_use]
 pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> Aim {
     let me = s.players.get(&world).map_or(0, |p| p.character);
@@ -999,10 +1007,11 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
     if aims_at_pet(u) {
         return Aim::Pet(r.target);
     }
-    if self_only(u) || (r.target == me && helpful(u)) {
+    let takes_me = u.valid_targets & target_bit::SELF != 0;
+    if self_only(u) || (r.target == me && helpful(u) && takes_me) {
         return Aim::Me;
     }
-    if helpful(u) {
+    if helpful(u) && takes_me {
         return crate::presence::player_for(s, world, r.target)
             .map_or(Aim::Me, |c| Aim::Player(c, r.target));
     }

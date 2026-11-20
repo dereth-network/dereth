@@ -1168,7 +1168,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `effect` | required | its saved state, one the install holds; or, for an effect the install's templates name (an item's use) but holds no saved state of, its name as text, such a rule naming only `places` |
 | `ward` | | `{ classes, effects, chance }`: what a player or a creature holding it keeps off |
 | `vitae_share` | | the share of its player's vitae it takes when it is put on, above 0 and at most 1 |
-| `vitae_restore` | | `{ points, fellows }`, the vitae it gives back when it is put on |
+| `vitae_restore` | | `{ points, most, fellows }`, the vitae it gives back when it is put on: `points` of it, or with `most` whole points drawn evenly from `points` to `most` each time (both whole, `most` at most 100); `fellows` true gives the same to its player's fellows in the world |
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
 | `reset` | | `skills` or `hero-skills`: putting it on grants its player one complete reset of that kind, which `/skills reset` or `/heroskills reset` uses |
 | `untrains` | | true: putting it on finishes its player's untraining under way at once, as earning its experience again would: the skill untrained, its credits back and its experience given back to spend, the player told so; a player untraining nothing gains nothing |

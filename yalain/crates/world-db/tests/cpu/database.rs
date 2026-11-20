@@ -3296,7 +3296,8 @@ fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {
     files.insert(
         "town/server/effects.toml".into(),
         "[[effect_rule]]\neffect = 0x6F000DCC\nvitae_restore = { points = 2.0, fellows = true }\nprov = { from = \"authored\" }\n\n\
-         [[effect_rule]]\neffect = 0x6F000DCD\nvitae_restore = { points = 100 }\nprov = { from = \"authored\" }\n"
+         [[effect_rule]]\neffect = 0x6F000DCD\nvitae_restore = { points = 100 }\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000DCE\nvitae_restore = { points = 1, most = 8 }\nprov = { from = \"authored\" }\n"
             .into(),
     );
     assert_eq!(check(&files), Vec::new());
@@ -3306,6 +3307,7 @@ fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {
         r.get(&0x6F00_0DCC),
         Some(&yalain_content::effect_rules::VitaeRestore {
             points: 2.0,
+            most: None,
             fellows: true
         })
     );
@@ -3313,9 +3315,19 @@ fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {
         r.get(&0x6F00_0DCD),
         Some(&yalain_content::effect_rules::VitaeRestore {
             points: 100.0,
+            most: None,
             fellows: false
         }),
         "the whole of it, its player alone"
+    );
+    assert_eq!(
+        r.get(&0x6F00_0DCE),
+        Some(&yalain_content::effect_rules::VitaeRestore {
+            points: 1.0,
+            most: Some(8.0),
+            fellows: false
+        }),
+        "whole points drawn from 1 to 8"
     );
     assert!(t.effect_rules.vitae_taps.is_empty());
     // Points above nothing and at most full, and nothing else.
@@ -3326,6 +3338,10 @@ fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {
         "{ fellows = true }",
         "{ points = 2, fellows = 1 }",
         "{ points = 2, share = 0.1 }",
+        "{ points = 1.5, most = 8 }",
+        "{ points = 3, most = 2 }",
+        "{ points = 1, most = 8.5 }",
+        "{ points = 1, most = 101 }",
         "2.0",
     ] {
         files.insert(

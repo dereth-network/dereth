@@ -6964,22 +6964,34 @@ impl<'a> Fields<'a> {
         };
         let read = v.as_table().and_then(|t| {
             if t.keys()
-                .any(|k| !["points", "fellows"].contains(&k.as_str()))
+                .any(|k| !["points", "most", "fellows"].contains(&k.as_str()))
             {
                 return None;
             }
             let points = to_f32(as_number(t.get("points")?)?);
+            let most = match t.get("most") {
+                Some(m) => Some(to_f32(as_number(m)?)),
+                None => None,
+            };
             let fellows = match t.get("fellows") {
                 Some(b) => b.as_bool()?,
                 None => false,
             };
-            (points > 0.0 && points <= 100.0)
-                .then_some(yalain_content::effect_rules::VitaeRestore { points, fellows })
+            let whole = |x: f32| x.fract().abs() < f32::EPSILON;
+            let drawn_ok =
+                most.is_none_or(|m| whole(points) && whole(m) && m >= points && m <= 100.0);
+            (points > 0.0 && points <= 100.0 && drawn_ok).then_some(
+                yalain_content::effect_rules::VitaeRestore {
+                    points,
+                    most,
+                    fellows,
+                },
+            )
         });
         if read.is_none() {
             self.bad(
                 "vitae_restore",
-                "{ points, fellows }: the points of vitae it gives back, above 0, at most 100, and whether its player's fellows have them too",
+                "{ points, most, fellows }: the points of vitae it gives back, above 0, at most 100, or with most whole points drawn evenly from points to most (both whole, most at most 100), and whether its player's fellows have them too",
             );
         }
         read

@@ -5247,6 +5247,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.vitae-restore-drawn",
+        says: "An effect a world's rule says gives back whole points of vitae drawn between a least \
+               and a most gives one of them each time it is put on, evenly, never above full.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-RESTORE-DRAWN"),
+        station: "yalain-testkit::cpu::play::vitae_healing::a_drawn_vitae_restore_gives_whole_points_from_its_least_to_its_most_never_above_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.vitae-restore-rows",
         says: "A world that gives vitae back gives the Crystalabra's cure two points to its user and \
                fellows, and has its quest as a row whose giving puts the cure on.",
@@ -17678,6 +17687,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.harmless-skill-on-others-lands",
+        says: "A skill that does no damage, is not marked harmful and takes only other players (a \
+               vitae restore, a heal of another) lands on another player wherever it is used, \
+               without the check of who may harm whom, and aimed at its user is refused as on \
+               yourself.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HARMLESS-SKILL-ON-OTHERS"),
+        station: "yalain-testkit::cpu::play::vitae_healing::a_harmless_skill_for_others_alone_lands_on_another_player_and_is_refused_at_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.hero-credit-cap-by-level",
         says: "The level table gives each level the most hero skill credits a character of it may \
                have had: none below 45, 125 at 45, 750 at 50, 19,750 at 150.",
@@ -18033,6 +18053,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-USAGE"),
         station: "yalain-testkit::dat::skills::the_starting_skills_read_with_how_they_are_used",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.vitae-healing-skills-read",
+        says: "Ease Memories and Calm Vitae read as the install defines them: helpful skills for \
+               other players alone, each putting on its own effect, at 650 and 520 vigor, 10 s to \
+               recover, within 40 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-HEALING-SKILLS"),
+        station: "yalain-testkit::dat::effects::the_vitae_healing_skills_read_as_helpful_skills_for_others_alone",
         tier: Tier::Dat,
     },
     behaviour! {

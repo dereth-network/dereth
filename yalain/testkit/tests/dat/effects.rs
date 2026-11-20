@@ -4064,3 +4064,23 @@ fn a_creature_takes_its_peace_when_its_victory_ends() {
         assert!(over > 0 && none > 0, "{template:08X}: {over} and {none}");
     }
 }
+
+/// The vitae-healing skills read as the data defines them: Ease Memories and Calm Vitae take other
+/// players alone, do no damage and are not marked harmful, so they are helpful skills; each puts
+/// on its own effect, costs 650 and 520 vigor and recovers in 10 s, within 40 m.
+/// Behaviour: server.skills.vitae-healing-skills-read
+#[test]
+fn the_vitae_healing_skills_read_as_helpful_skills_for_others_alone() {
+    let t = Portal::open().skills();
+    for (skill, effect, vigor) in [(296, 0x7000_0837, -650.0), (637, 0x7000_08EA, -520.0)] {
+        let u = t.skills[&skill].usage.as_ref().expect("used");
+        assert_eq!(u.valid_targets, 0x100, "{skill}: other players alone");
+        assert!(yalain_world::skill_use::helpful(u), "{skill}");
+        assert_eq!(u.target_effects, [effect], "{skill}");
+        assert_eq!(
+            (u.vigor_add, u.recovery, u.max_range),
+            (vigor, 10.0, 40.0),
+            "{skill}"
+        );
+    }
+}

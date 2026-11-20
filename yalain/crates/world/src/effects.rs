@@ -1034,14 +1034,16 @@ pub fn apply_on<S: Store>(
             }
             true
         }
-        // The appearance plays on each player whose vitae it raises.
+        // The appearance plays on each player whose vitae it raises. A drawn amount is drawn once
+        // for the putting on.
         (Kind::VitaeRestore(r), On::Player(world)) => {
             let mut to = vec![world];
             if r.fellows {
                 to.extend(crate::fellowship::fellows_in_world(s, world));
             }
+            let points = r.drawn(|n| s.rng.below(n));
             for w in to {
-                if crate::death::restore_vitae(s, net, w, r.points) && def.fx != 0 {
+                if crate::death::restore_vitae(s, net, w, points) && def.fx != 0 {
                     show_fx(s, net, w, def.fx);
                 }
             }

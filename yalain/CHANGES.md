@@ -17,6 +17,8 @@ what they see, not how it was done.
 - Fixed level-ups ignoring your buffs and vitae, and showing too few skill credits.
 - Fewer monsters play a victory emote, and they finish it before calming down.
 - Buffs and heals on other players follow the kingdom rules, and pets can fight players.
+- Fixed helpful skills used only on others, like Ease Memories, being refused outside PvP.
+- Worlds can now give back a random amount of vitae.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.
