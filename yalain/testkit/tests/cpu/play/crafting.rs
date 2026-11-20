@@ -2763,14 +2763,16 @@ fn spellbinding_ready_as(
     item
 }
 
-/// An item with no enchantment is not taken apart: nothing is lost and nothing made.
+/// An item with no enchantment is not taken apart: the player is told no enchantments could be
+/// extracted, and nothing is lost and nothing made.
 /// Behaviour: server.craft.spellbinding-takes-an-enchantment
 #[test]
 fn spellbinding_refuses_an_item_with_no_enchantment() {
     let (mut h, b, _me, world) = in_world();
     let item = spellbinding_ready(&mut h, world, 0x4700_207F);
-    execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    let from = execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
     h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::NOTHING_EXTRACTED]);
     wait(&mut h, 9.0);
     let p = &h.server.players[&world];
     assert!(p.play.items.iter().any(|i| i.id == item), "still held");
@@ -2869,8 +2871,8 @@ fn a_major_spellbinding_makes_a_totem_of_each_bindable_enchantment() {
     );
 }
 
-/// An item whose enchantments may none of them be bound is not taken apart: nothing is lost and
-/// nothing made.
+/// An item whose enchantments may none of them be bound is not taken apart: the player is told no
+/// enchantments could be extracted, and nothing is lost and nothing made.
 /// Behaviour: server.craft.spellbinding-takes-an-enchantment
 #[test]
 fn spellbinding_refuses_an_item_with_nothing_bindable() {
@@ -2878,8 +2880,9 @@ fn spellbinding_refuses_an_item_with_nothing_bindable() {
     known(&mut h, UNBOUND, false);
     let item = spellbinding_ready(&mut h, world, 0x4700_207F);
     h.server.things.get_mut(item).expect("made").enchantments = vec![(UNBOUND, 5.0)];
-    execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    let from = execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
     h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::NOTHING_EXTRACTED]);
     wait(&mut h, 9.0);
     let p = &h.server.players[&world];
     assert!(p.play.items.iter().any(|i| i.id == item), "still held");
@@ -2890,6 +2893,46 @@ fn spellbinding_refuses_an_item_with_nothing_bindable() {
             .any(|i| h.server.crafting.crafts.totem_word(i.template).is_some()),
         "no totem"
     );
+}
+
+/// An item whose data says its enchantments may not be taken from it is not taken apart, whatever it
+/// holds: the player is told so, and nothing is lost and nothing made. One whose data says they may
+/// is.
+/// Behaviour: server.craft.spellbinding-refuses-an-unextractable-item
+#[test]
+fn spellbinding_refuses_an_item_whose_data_bars_taking_its_enchantments() {
+    use yalain_content::props::EXTRACTABLE;
+    use yalain_content::Prop;
+    const SOURCE: u32 = 0x4700_207F;
+    let (mut h, b, _me, world) = in_world();
+    known(&mut h, ENCHANTMENT, true);
+    let item = spellbinding_ready(&mut h, world, SOURCE);
+    for (extractable, answer) in [(false, error::NOT_EXTRACTABLE), (true, 0)] {
+        h.server
+            .catalog
+            .templates
+            .get_mut(&SOURCE)
+            .expect("described")
+            .props
+            .set(EXTRACTABLE, Prop::Bool(extractable));
+        h.server.things.get_mut(item).expect("made").enchantments = vec![(ENCHANTMENT, 12.0)];
+        let from = execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+        h.run(4);
+        wait(&mut h, 9.0);
+        assert_eq!(craft_answers(&h, b, from), [answer], "{extractable}");
+        let p = &h.server.players[&world];
+        let totems = p
+            .play
+            .items
+            .iter()
+            .filter(|i| h.server.crafting.crafts.totem_word(i.template).is_some())
+            .count();
+        assert_eq!(
+            (p.play.items.iter().any(|i| i.id == item), totems),
+            if extractable { (false, 1) } else { (true, 0) },
+            "{extractable}"
+        );
+    }
 }
 
 /// A world's `[[spellbinding]]` row says which totem its sort of item makes and the word it says it

@@ -1809,6 +1809,7 @@ pub fn starting_weapon(template: u32) -> yalain_content::Template {
         .set("Name", Prop::Str(item_line::NAME, w.table))
         .set("Description", Prop::Str(item_line::DESCRIPTION, w.table))
         .set("Item_ImplementType", int(w.implement))
+        .set(yalain_content::props::EXTRACTABLE, Prop::Bool(true))
         .set("Item_Value", Prop::Int(1))
         .set("Usage_MinLevel", Prop::Int(1))
         .set("Usage_MinLevel_OfClass", Prop::Bool(true))

@@ -49,6 +49,13 @@ const PLACE_QUALITIES: [(&str, u32); 9] = [
     ("Weapon_TwoWeaponStance", 0x25C),
 ];
 
+/// The truths of an item its qualities may say: whether spellbinding may take its enchantments
+/// apart from it ([`EXTRACTABLE`]).
+const FLAG_QUALITIES: [(&str, u32); 1] = [(EXTRACTABLE, 0x25D)];
+
+/// The property saying whether an item may give up its enchantments to spellbinding.
+pub const EXTRACTABLE: &str = "Item_Extractable";
+
 /// The properties of how an item is drawn, and the qualities' data ids that say the same: the
 /// entity it is drawn as ([`LOOK_ENTITY`]) and its appearance as it lies ([`PILE_APPEARANCE`]).
 const LOOK_QUALITIES: [(&str, u32); 2] = [(LOOK_ENTITY, 0x1), (PILE_APPEARANCE, 0x103)];
@@ -133,6 +140,13 @@ impl Props {
                 if let Some((_, v)) = q.string_infos.iter().find(|(k, _)| *k == quality) {
                     self.values
                         .insert(name.to_string(), Prop::Str(v.token, v.table.0));
+                }
+            }
+        }
+        for (name, quality) in FLAG_QUALITIES {
+            if !self.values.contains_key(name) {
+                if let Some((_, v)) = q.bools.iter().find(|(k, _)| *k == quality) {
+                    self.values.insert(name.to_string(), Prop::Bool(*v != 0));
                 }
             }
         }

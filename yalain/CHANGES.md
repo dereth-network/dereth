@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Spellbinding an item with nothing it can take now says why.
 - Examining signs, doors, lifestones and shrines now shows their names and descriptions.
 - Recalls now take as long as each race's own animation.
 - Consignments are now limited at each broker: three a player, seven an account.

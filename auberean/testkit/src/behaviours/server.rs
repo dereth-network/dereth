@@ -2838,10 +2838,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.spellbinding-refuses-an-unextractable-item",
+        says: "An item whose data says its enchantments may not be taken from it is not taken apart: \
+               the player is told enchantments cannot be extracted from it, and nothing is lost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-NOT-EXTRACTABLE"),
+        station: "yalain-testkit::cpu::play::crafting::spellbinding_refuses_an_item_whose_data_bars_taking_its_enchantments",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.spellbinding-takes-an-enchantment",
-        says: "An item with no enchantment spellbinding may take is not taken apart into a totem, \
-               and nothing is lost. Our choice.",
-        since: TOOLING,
+        says: "An item with no enchantment spellbinding may take is not taken apart into a totem: the \
+               player is told no enchantments could be extracted, and nothing is lost.",
+        since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-EMPTY"),
         station: "yalain-testkit::cpu::play::crafting::spellbinding_refuses_an_item_with_no_enchantment",
         tier: Tier::Cpu,

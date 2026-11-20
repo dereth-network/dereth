@@ -166,6 +166,10 @@ pub mod error {
     pub const TOO_FEW: u32 = 40_002;
     pub const BAD_RECIPE: u32 = 40_016;
     pub const INVALID_INGREDIENTS: u32 = 40_018;
+    /// A spellbinding of an item whose data says its enchantments may not be taken from it.
+    pub const NOT_EXTRACTABLE: u32 = 40_048;
+    /// A spellbinding of an item holding no enchantment spellbinding may take.
+    pub const NOTHING_EXTRACTED: u32 = 40_050;
     /// A recipe with no charges left: the recipe's own message for it, if it has one, is the client's.
     pub const NO_CHARGES: u32 = 40_021;
     /// A recipe that asks for a target, not given one of its own (2017: 8 of 8, none of them at a mine).
@@ -2010,11 +2014,23 @@ fn check_slots<S: Store>(
     if slots.len() != def.ingredients_at(spinner).count() {
         return error::INVALID_INGREDIENTS;
     }
-    // Spellbinding takes an enchantment: an item with nothing bindable is refused.
+    // Spellbinding takes an enchantment apart from an item that may give one up: an item whose
+    // data says it may not is refused as such, and one holding nothing bindable as yielding none.
     if matches!(def.custom, Custom::Spellbind | Custom::SpellbindAll) {
-        let holds = slots.first().and_then(|(_, item)| s.things.get(*item));
-        if holds.is_none_or(|t| bindable(s, t).is_empty()) {
+        let Some(t) = slots.first().and_then(|(_, item)| s.things.get(*item)) else {
             return error::INVALID_INGREDIENTS;
+        };
+        let barred = s.catalog.get(t.template).is_some_and(|tp| {
+            matches!(
+                tp.props.get(yalain_content::props::EXTRACTABLE),
+                Some(yalain_content::Prop::Bool(false))
+            )
+        });
+        if barred {
+            return error::NOT_EXTRACTABLE;
+        }
+        if bindable(s, t).is_empty() {
+            return error::NOTHING_EXTRACTED;
         }
     }
     // One stack may fill two slots only with enough of it for both.

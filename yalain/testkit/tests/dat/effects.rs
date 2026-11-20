@@ -1599,6 +1599,24 @@ fn the_installs_major_spellbinding_recipes_bind_each_enchantment_and_are_thirty_
     }
 }
 
+/// The install's weapons, armor and shields read as giving up their enchantments to spellbinding,
+/// as their qualities say; an object that is no item says nothing of it.
+/// Behaviour: server.craft.spellbinding-refuses-an-unextractable-item
+#[test]
+fn the_installs_weapons_armor_and_shields_may_give_up_their_enchantments() {
+    use yalain_content::props::EXTRACTABLE;
+    use yalain_content::Prop;
+    let p = Portal::open();
+    for t in [0x4700_207F, 0x4700_0D88, 0x4700_1C0F] {
+        assert_eq!(
+            p.template(t).props.get(EXTRACTABLE),
+            Some(&Prop::Bool(true)),
+            "{t:08X}"
+        );
+    }
+    assert_eq!(p.template(0x4700_2E4D).props.get(EXTRACTABLE), None);
+}
+
 /// The install's slots read what they ask: spellbinding's sword by the spinner, a level up to 50
 /// and an Arcane Lore from 51; an armor empowerment's refused flag, which the recipe itself adds;
 /// a recipe's cutoff.
