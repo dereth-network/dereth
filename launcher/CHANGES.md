@@ -9,6 +9,8 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+
+## 0.5.7 (2026-11-20)
 - The Navigator knows the portals and towns of the era your world plays.
 - Worlds you add yourself can be set to Launch, Infiltration or the end of retail, unless they say their own.
 - The Asheron's Call 2 side no longer says it is in its infancy.
