@@ -11996,6 +11996,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.perks.anatomy",
+        says: "A player's Anatomy of a race makes its hits on a player of that race more by its value (×1.01 \
+               to ×1.03); of another race, nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-ANATOMY"),
+        station: "yalain-testkit::cpu::play::player_fights::anatomy_of_a_race_makes_hits_on_players_of_that_race_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.perks.criticals-heals-notice",
         says: "A hero's Deadly Precision adds to the chance of its criticals, its Fortitude makes the heals \
                of health it receives more, and its Facade the share of its damage creatures notice, each \
@@ -12003,6 +12012,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-CRITICALS-HEALS"),
         station: "yalain-testkit::cpu::play::hero_perks::fortitude_makes_the_heals_a_player_receives_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.perks.death-hardiness",
+        says: "Death Hardiness gives its value as the chance that a death takes no vitae (0.2 to 0.6).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-DEATH-HARDINESS"),
+        station: "yalain-testkit::cpu::play::dying::death_hardiness_gives_its_chance_that_a_death_takes_no_vitae",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12015,12 +12032,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.perks.material-miners",
+        says: "A mining perk of a node's material (Iron, Crystal, Silver, Stone Miner, Lumberjack) adds its \
+               units to each use of a summoned node of that material; another material's adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-MATERIAL-MINERS"),
+        station: "yalain-testkit::cpu::play::mining::a_material_miners_perk_adds_its_units_to_a_node_of_its_material",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.perks.pets-by-demeanor-and-presence",
         says: "A hero's Demeanors make its pets' greatest health or damage more by their value, and its \
                Commanding Presence lets an attack order send them that many meters farther.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-PETS"),
         station: "yalain-testkit::cpu::play::pets::a_rangers_demeanors_make_its_pets_hardier_and_harder_hitting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.perks.prospector",
+        says: "Prospector adds its points to the chance a use of a node is a rich find.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-PROSPECTOR"),
+        station: "yalain-testkit::cpu::play::mining::prospector_adds_its_points_to_the_chance_of_a_rich_find",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12032,6 +12066,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-RATINGS"),
         station: "yalain-testkit::cpu::play::hero_perks::a_heros_perks_add_to_its_accuracy_and_evasion_where_they_apply",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.perks.read-by-kind",
+        says: "The perks the server reads by kind hold the install's values: Death Hardiness, Prospector, \
+               each race's Anatomy and each material's miner, rank by rank.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERKS-READ-BY-KIND"),
+        station: "yalain-testkit::dat::skills::the_perks_read_by_their_kind_hold_the_installs_values",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.personal.rename-refused",

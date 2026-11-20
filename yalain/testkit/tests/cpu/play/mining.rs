@@ -537,6 +537,108 @@ fn a_summoned_nodes_use_adds_the_tool_in_hand_and_the_mining_perk() {
     assert!(rich_or_plain(got, units(0.0)), "neither: {got}");
 }
 
+/// Give the player a perk of a kind at a value (its own made-up skill).
+fn holds_perk(h: &mut Harness, world: yalain_net::ConnId, kind: u32, value: f64) {
+    let skill = 9_000 + kind;
+    h.server.skill_table.skills.insert(
+        skill,
+        yalain_world::skills::SkillDef {
+            id: skill,
+            perk: Some(yalain_world::skills::Perk {
+                kind,
+                value,
+                priority: 3,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .skills
+        .push(yalain_world::state::SkillState {
+            skill,
+            granted: 0,
+            mask: 0,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+}
+
+/// A summoned iron node's player with a stone, mining it once: the units it got and the node's
+/// own (its variance taken out).
+fn mined_once(h: &mut Harness, b: usize, me: u64, world: yalain_net::ConnId) -> (u32, f32) {
+    let stone = give(h, world, STONE);
+    let from = send_use(h, b, me, stone, 0.5);
+    let (node, _) = node_made(h, b, from).expect("the node");
+    let own = {
+        let n = h
+            .server
+            .things
+            .get_mut(node)
+            .and_then(|t| t.node.as_mut())
+            .expect("a node");
+        n.variance = 0.0;
+        n.units
+    };
+    let before = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == ORE)
+        .map_or(0, |i| i.quantity);
+    send_use(h, b, me, node, mining::WORK_SECONDS + 0.5);
+    let after = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == ORE)
+        .map_or(0, |i| i.quantity);
+    (after - before, own)
+}
+
+/// A mining perk of a node's material adds its units to each use (Iron Miner's 3 on iron); one of
+/// another material (Crystal Miner) adds nothing.
+/// Behaviour: server.perks.material-miners
+#[test]
+fn a_material_miners_perk_adds_its_units_to_a_node_of_its_material() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "Elara");
+    holds_perk(&mut h, world, 44, 3.0);
+    let (got, own) = mined_once(&mut h, b, me, world);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let units = |more: f32| (own + more).round() as u32;
+    assert!(
+        got == units(0.0) || got == 2 * units(0.0),
+        "another material's: {got}"
+    );
+    holds_perk(&mut h, world, 43, 3.0);
+    let (got, own) = mined_once(&mut h, b, me, world);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let units = (own + 3.0).round() as u32;
+    assert!(got == units || got == 2 * units, "Iron Miner's 3: {got}");
+}
+
+/// Prospector adds its points to the chance a use is a rich find, twice the units: at a made-up
+/// 100 points every use is.
+/// Behaviour: server.perks.prospector
+#[test]
+fn prospector_adds_its_points_to_the_chance_of_a_rich_find() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "Elara");
+    holds_perk(&mut h, world, 29, 100.0);
+    for _ in 0..3 {
+        let (got, own) = mined_once(&mut h, b, me, world);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let units = own.round() as u32;
+        assert_eq!(got, 2 * units, "rich");
+    }
+}
+
 /// A mine a quest works, placed beside the start: a made-up barium mine of three units, and a ruby
 /// mine its recipe works.
 fn with_quest_mines(h: &mut Harness, quest: u32) -> (u64, u64) {

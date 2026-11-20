@@ -49,7 +49,8 @@ pub fn third(amount: i32) -> i32 {
 
 /// What a hit of `raw` (before armor) by one player takes off another: the target's armor against
 /// the attacker off, at least one point left, a third of it; then the two players' kingdom perks
-/// ([`crate::combat_perks::between_kingdoms`]).
+/// ([`crate::combat_perks::between_kingdoms`]) and the attacker's Anatomy of the target's race
+/// ([`crate::combat_perks::against_race`]).
 #[must_use]
 pub fn hit<S: Store>(s: &Server<S>, attacker: ConnId, target: ConnId, raw: i32) -> i32 {
     let from = s.players.get(&attacker).map(|p| p.position);
@@ -71,7 +72,10 @@ pub fn hit_from<S: Store>(
     let armor = crate::combat::armor_against(s, target, from);
     let left = dereth_primitives::num::to_i32((raw as f32 - armor).round()).max(1);
     let by = match (s.players.get(&attacker), s.players.get(&target)) {
-        (Some(a), Some(t)) => crate::combat_perks::between_kingdoms(s, a, t),
+        (Some(a), Some(t)) => {
+            crate::combat_perks::between_kingdoms(s, a, t)
+                * crate::combat_perks::against_race(s, a, t)
+        }
         _ => 1.0,
     };
     dereth_primitives::num::to_i32_f64((f64::from(third(left)) * by).round()).max(1)

@@ -2054,12 +2054,25 @@ pub(crate) fn returns_keeping<S: Store>(
         return;
     };
     let most_focus = crate::focus::back_with(crate::focus::greatest(s, p), kept_focus);
+    // Death Hardiness gives its chance that the death takes no vitae.
+    let hardy = {
+        let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+        let held = crate::skills::held(&starting, &p.play.skills);
+        crate::skills::perk_value(
+            &s.skill_table,
+            &held,
+            crate::skills::perk_kind::DEATH_HARDINESS,
+        )
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let spared = hardy.is_some_and(|c| s.rng.chance(c as f32));
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let level = crate::examine::level_of(&p.qualities);
     let was = quals::float(&p.qualities, vitae_q::VITAE).unwrap_or(100.0);
-    let vitae = (was - VITAE_LOST).max(min_vitae(level)).min(100.0);
+    let lost = if spared { 0.0 } else { VITAE_LOST };
+    let vitae = (was - lost).max(min_vitae(level)).min(100.0);
     if (vitae - was).abs() > f32::EPSILON {
         quals::set_float(&mut p.qualities, vitae_q::VITAE, vitae);
         progress::send_float(net, world, vitae_q::VITAE, vitae);

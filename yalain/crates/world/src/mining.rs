@@ -18,7 +18,8 @@
 //!
 //! **The units** a node gives a use: its base quantity and 40 for every 150 of its summoner's
 //! surveying levels (set when it is summoned), the yield of the node's own tool in the miner's
-//! hand, and the miner's mining perk, spread either side by the node's variance.
+//! hand, and the miner's mining perks (the general one and the one of the node's material), spread
+//! either side by the node's variance. Prospector adds its points to the chance of a rich find.
 //!
 //! **Veins.** A craft node placed in the world (a hoard's vein) is no one's: anyone may mine it,
 //! the units are drawn for each miner (the node's base quantity and half the miner's level in its
@@ -347,16 +348,33 @@ fn in_front(at: &StoredPosition) -> StoredPosition {
     p
 }
 
-/// The units a player's mining perk adds to each use of a summoned node (none without one).
-fn mining_perk<S: Store>(s: &Server<S>, world: ConnId) -> f64 {
-    s.players
-        .get(&world)
-        .and_then(|p| {
-            let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
-            let held = crate::skills::held(&starting, &p.play.skills);
-            crate::skills::perk_value(&s.skill_table, &held, crate::skills::perk_kind::MINED_UNITS)
-        })
-        .unwrap_or(0.0)
+/// What a player holds of a kind of perk.
+fn perk<S: Store>(s: &Server<S>, world: ConnId, kind: u32) -> Option<f64> {
+    s.players.get(&world).and_then(|p| {
+        let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+        let held = crate::skills::held(&starting, &p.play.skills);
+        crate::skills::perk_value(&s.skill_table, &held, kind)
+    })
+}
+
+/// The units a player's mining perks add to each use of a summoned node of a craft skill: the
+/// general one's and the one of the skill's material (none without them).
+fn mining_perk<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f64 {
+    use crate::skills::perk_kind::{MATERIAL_UNITS, MINED_UNITS};
+    let material = MATERIAL_UNITS
+        .iter()
+        .find(|(of, _)| *of == skill)
+        .and_then(|(_, kind)| perk(s, world, *kind));
+    perk(s, world, MINED_UNITS).unwrap_or(0.0) + material.unwrap_or(0.0)
+}
+
+/// The chance a player's use of a node is a rich find: by its level in the craft skill, and
+/// Prospector's points on it.
+fn rich_chance_of<S: Store>(s: &Server<S>, world: ConnId, level: i32) -> f32 {
+    let points = perk(s, world, crate::skills::perk_kind::PROSPECTOR).unwrap_or(0.0);
+    #[allow(clippy::cast_possible_truncation)]
+    let more = (points / 100.0) as f32;
+    (rich_chance(level) + more).min(1.0)
 }
 
 /// The item in a player's primary hand: its id and template.
@@ -499,7 +517,7 @@ pub fn done<S: Store>(
         None
     };
     let level = level_in(s, world, n.skill);
-    let expert = find.is_none() && s.rng.chance(rich_chance(level));
+    let expert = find.is_none() && s.rng.chance(rich_chance_of(s, world, level));
     let spread = s.rng.between(-n.variance, n.variance);
     let tools = mine.tools;
     let tool = in_hand(s, world).filter(|(_, t)| tools.contains(t));
@@ -514,7 +532,7 @@ pub fn done<S: Store>(
             .and_then(|t| t.own.made)
             .and_then(|m| m.tool_yield);
         let yields = tool.map_or(0, |(_, t)| tool_yield(&s.crafting.tool_yields, t, made));
-        use_units(n.units, yields, mining_perk(s, world))
+        use_units(n.units, yields, mining_perk(s, world, n.skill))
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let units = if find.is_some() {

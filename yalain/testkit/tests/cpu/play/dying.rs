@@ -510,6 +510,67 @@ fn a_player_under_vitae_comes_back_with_three_quarters_of_the_greatest_its_new_v
     );
 }
 
+/// Death Hardiness gives its chance that a death takes no vitae: at its top rank's 0.6, of 400
+/// returns from death at 90 vitae about three in five keep the 90 and the rest come back at 85;
+/// without it every one takes 5.
+/// Behaviour: server.perks.death-hardiness
+#[test]
+fn death_hardiness_gives_its_chance_that_a_death_takes_no_vitae() {
+    use yalain_world::death::vitae_q::VITAE;
+    let mut h = Harness::new();
+    let _ = about_to_die(&mut h);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let back = |h: &mut Harness| {
+        let p = h.server.players.get_mut(&world).expect("in");
+        yalain_world::quals::set_int(&mut p.qualities, 302, 30);
+        yalain_world::quals::set_float(&mut p.qualities, VITAE, 90.0);
+        yalain_world::death::returns(&mut h.server, &mut h.net, world);
+        yalain_world::quals::float(&h.server.players[&world].qualities, VITAE).expect("vitae")
+    };
+    assert!((back(&mut h) - 85.0).abs() < 1e-4, "no perk: five taken");
+    h.server.skill_table.skills.insert(
+        9_016,
+        yalain_world::skills::SkillDef {
+            id: 9_016,
+            perk: Some(yalain_world::skills::Perk {
+                kind: 16,
+                value: 0.6,
+                priority: 3,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .skills
+        .push(yalain_world::state::SkillState {
+            skill: 9_016,
+            granted: 0,
+            mask: 0x1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    let (mut kept, mut taken) = (0, 0);
+    for _ in 0..400 {
+        let v = back(&mut h);
+        if (v - 90.0).abs() < 1e-4 {
+            kept += 1;
+        } else {
+            assert!((v - 85.0).abs() < 1e-4, "{v}");
+            taken += 1;
+        }
+    }
+    assert!(
+        (200..=280).contains(&kept) && taken > 0,
+        "{kept} kept, {taken} taken"
+    );
+}
+
 /// As it goes, a resurrected player is set standing at once, never played into it: the mode set
 /// to peace, the resurrection's glow, then the arrival's effect as it goes into portal space.
 /// Behaviour: server.death.resurrection-look

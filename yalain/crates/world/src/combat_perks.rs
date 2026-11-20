@@ -16,7 +16,9 @@
 //!   when they choose whom to fight (×1.03 to ×1.18, ×0.97 to ×0.82);
 //! - **Commanding Presence:** how far from it a pet's attack order may send the pet (+5 to +30 m);
 //! - **Aggressive Demeanor, Nurturing Demeanor:** its pets' damage, its pets' greatest health (×1.02
-//!   to ×1.12).
+//!   to ×1.12);
+//! - **Anatomy** of a race: the damage it does to a player of that race (×1.01 to ×1.03, the
+//!   install's own text: "Increases damage done when attacking Human players").
 //!
 //! A creature's category is its template's (Nature, Decay, Martial, Arcane: the install's
 //! creatures of each are the beasts and plants, the dead, the armed peoples, the made and the
@@ -57,6 +59,8 @@ pub mod kind {
     pub const UNIMPOSING_FACADE: u32 = 26;
     pub const DUNGEON_CRAWLER: u32 = 30;
     pub const PLAINS_WALKER: u32 = 31;
+    /// Anatomy of Humans, Lugians, Tumeroks, Drudges, Empyreans: each with the race it names.
+    pub const ANATOMY: [(u32, u32); 5] = [(32, 1), (33, 2), (34, 4), (35, 8), (36, 16)];
 }
 
 /// A creature template's category.
@@ -162,6 +166,17 @@ pub fn pet_damage<S: Store>(s: &Server<S>, p: &Player) -> f64 {
 #[must_use]
 pub fn pet_health<S: Store>(s: &Server<S>, p: &Player) -> f64 {
     perk(s, p, kind::NURTURING_DEMEANOR).unwrap_or(1.0)
+}
+
+/// What a hit of one player on another is multiplied by for the target's race: the attacker's
+/// Anatomy of that race; one without it.
+#[must_use]
+pub fn against_race<S: Store>(s: &Server<S>, attacker: &Player, target: &Player) -> f64 {
+    kind::ANATOMY
+        .iter()
+        .find(|(_, race)| *race == target.race)
+        .and_then(|(k, _)| perk(s, attacker, *k))
+        .unwrap_or(1.0)
 }
 
 /// What a hit of one player on another is multiplied by: the attacker's Kingdom Soldier and the

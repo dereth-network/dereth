@@ -2767,3 +2767,42 @@ fn each_hero_chant_drains_its_users_focus_over_time() {
         );
     }
 }
+
+/// The perks this server reads by their kind read as the install defines them: Death Hardiness
+/// (16) at 0.2, 0.4, 0.6; Prospector (29) at 5 and 10 points; each race's Anatomy (32 to 36) at 1.01,
+/// 1.02, 1.03; each material's miner (43 to 47) at 1, 2, 3 units.
+/// Behaviour: server.perks.read-by-kind
+#[test]
+fn the_perks_read_by_their_kind_hold_the_installs_values() {
+    let t = Portal::open().skills();
+    let values = |kind: u32| {
+        let mut v: Vec<f64> = t
+            .skills
+            .values()
+            .filter_map(|d| d.perk)
+            .filter(|p| p.kind == kind)
+            .map(|p| p.value)
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let near = |got: Vec<f64>, want: &[f64]| {
+        got.len() == want.len() && got.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-6)
+    };
+    assert!(near(values(16), &[0.2, 0.4, 0.6]), "{:?}", values(16));
+    assert!(near(values(29), &[5.0, 10.0]), "{:?}", values(29));
+    for kind in 32..=36 {
+        assert!(
+            near(values(kind), &[1.01, 1.02, 1.03]),
+            "{kind}: {:?}",
+            values(kind)
+        );
+    }
+    for kind in 43..=47 {
+        assert!(
+            near(values(kind), &[1.0, 2.0, 3.0]),
+            "{kind}: {:?}",
+            values(kind)
+        );
+    }
+}

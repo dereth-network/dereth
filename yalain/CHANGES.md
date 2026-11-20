@@ -33,6 +33,7 @@ what they see, not how it was done.
 - Selected players and fellows now show the damage other players did them.
 - Worlds can now have an effect put on one of a list of effects at random.
 - Fellowship dismissals, a full fellowship and broken allegiances now say so.
+- Death Hardiness, Anatomy, Prospector and the miners' perks now work.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

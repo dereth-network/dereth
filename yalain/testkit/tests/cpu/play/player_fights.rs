@@ -1377,6 +1377,23 @@ fn kingdom_soldier_and_guard_change_hits_between_players_of_two_kingdoms() {
     assert_eq!(hit(&h), 100, "a neutral attacker");
 }
 
+/// The attacker's Anatomy of the target's race makes its hit on that player more: a hit of 300
+/// (no armor) takes 100, 103 with the top Anatomy of the target's race, and still 100 with
+/// Anatomy of another race alone.
+/// Behaviour: server.perks.anatomy
+#[test]
+fn anatomy_of_a_race_makes_hits_on_players_of_that_race_more() {
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let (wa, wb) = (conn(&h, ida), conn(&h, idb));
+    with_player(&mut h, idb, |p| p.race = 2);
+    let hit = |h: &Harness| yalain_world::pvp::hit(&h.server, wa, wb, 300);
+    assert_eq!(hit(&h), 100);
+    holds_perk(&mut h, ida, 32, 1.03);
+    assert_eq!(hit(&h), 100, "Anatomy of Humans, on a Lugian");
+    holds_perk(&mut h, ida, 33, 1.03);
+    assert_eq!(hit(&h), 103, "Anatomy of Lugians");
+}
+
 /// Who may help whom is the game's shared check of a helpful act between two players: itself
 /// always; never a dead target; past permissions that keep help out or let it through; anyone
 /// where the target stands in peace or where all fight; else only a player of the target's status,

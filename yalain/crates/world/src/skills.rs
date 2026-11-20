@@ -447,6 +447,19 @@ pub mod perk_kind {
     pub const HEROISM: u32 = 41;
     /// Places more in the last bag.
     pub const BAGS: u32 = 18;
+    /// The chance a death takes no vitae.
+    pub const DEATH_HARDINESS: u32 = 16;
+    /// Points on the chance a use of a node is a rich find.
+    pub const PROSPECTOR: u32 = 29;
+    /// Units more each use of a node of one material gives: by the mining craft skill (its saved
+    /// state), Iron Miner, Crystal Miner, Silver Miner, Lumberjack, Stone Miner.
+    pub const MATERIAL_UNITS: [(u32, u32); 5] = [
+        (0x6F00_069C, 43),
+        (0x6F00_069B, 44),
+        (0x6F00_069D, 45),
+        (0x6F00_069F, 46),
+        (0x6F00_069E, 47),
+    ];
 }
 
 /// The places the bags' perk a character holds adds to its last bag: of its ranks held, the
