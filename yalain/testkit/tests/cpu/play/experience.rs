@@ -78,6 +78,7 @@ fn world(death_xp: i64) -> (Harness, usize, u64, [u64; 3]) {
             missed: false,
             closing: None,
             vigor: None,
+            turn_to: None,
         },
     );
     (h, b, me, [prey, pet, other])

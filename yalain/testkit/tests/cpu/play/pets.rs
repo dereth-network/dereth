@@ -2202,6 +2202,7 @@ fn a_supporting_pet_turns_to_its_owners_new_target_about_two_times_in_three() {
         if let Some(p) = h.server.pets.by_id.get_mut(&pet) {
             p.flags = flags;
             p.assist = Some(a);
+            p.turn_to = None;
         }
         if let Some(c) = h
             .server
@@ -2212,11 +2213,80 @@ fn a_supporting_pet_turns_to_its_owners_new_target_about_two_times_in_three() {
             c.mode = yalain_world::things::Mode::Chasing;
             c.target = Some(a);
         }
-        pets::owner_hurt(&mut h.server, me, b);
-        target_of(h, pet) == Some(b)
+        let now = h.now.0;
+        pets::owner_hurt(&mut h.server, me, b, now);
+        h.server.pets.by_id[&pet].turn_to.map(|(to, _)| to) == Some(b)
     };
     let supporting = (0..300).filter(|_| trial(&mut h, 0x448)).count();
     assert!((160..=240).contains(&supporting), "{supporting} of 300");
     let defending = (0..100).filter(|_| trial(&mut h, 0x454)).count();
     assert_eq!(defending, 0, "a pet that does not support its owner");
+}
+
+/// A supporting pet that turns to its owner's new target does so at its next think, not at once:
+/// within three seconds of its owner's hit, spread over them, keeping on the old creature until
+/// then and taking on the new at the world's next step after.
+/// Behaviour: server.pets.turns-at-its-next-think
+#[test]
+fn a_supporting_pet_turns_to_its_owners_new_target_at_its_next_think() {
+    let mut h = Harness::new();
+    let (_, me, pet) = with_lasher(&mut h);
+    let (a, b) = kin_beetles(&mut h);
+    let fighting_a = |h: &mut Harness| {
+        if let Some(p) = h.server.pets.by_id.get_mut(&pet) {
+            p.flags = 0x448;
+            p.assist = Some(a);
+            p.turn_to = None;
+        }
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(pet)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.mode = yalain_world::things::Mode::Chasing;
+            c.target = Some(a);
+        }
+    };
+    let mut after = Vec::new();
+    for _ in 0..300 {
+        fighting_a(&mut h);
+        let now = h.now.0;
+        pets::owner_hurt(&mut h.server, me, b, now);
+        if let Some((to, at)) = h.server.pets.by_id[&pet].turn_to {
+            assert_eq!(to, b);
+            after.push(at - now);
+        }
+        assert_eq!(target_of(&h, pet), Some(a), "not at once");
+    }
+    assert!(after.len() > 150, "{} turns of 300", after.len());
+    assert!(
+        after.iter().all(|d| (0.0..pets::PLAN_EVERY).contains(d)),
+        "within its think's beat"
+    );
+    let early = after.iter().filter(|d| **d < 1.0).count();
+    let late = after.iter().filter(|d| **d > 2.0).count();
+    assert!(
+        early > 30 && late > 30,
+        "spread: {early} early, {late} late"
+    );
+    // Played out: the old creature until then, the new one after.
+    let mut played = 0;
+    while played < 3 {
+        fighting_a(&mut h);
+        let now = h.now.0;
+        pets::owner_hurt(&mut h.server, me, b, now);
+        let Some((_, at)) = h.server.pets.by_id[&pet].turn_to else {
+            continue;
+        };
+        while h.now.0 + 0.1 < at {
+            h.step();
+            assert_ne!(target_of(&h, pet), Some(b), "not before its time");
+        }
+        while h.now.0 < at + yalain_world::spawn::STEP_SECONDS + 0.1 {
+            h.step();
+        }
+        assert_eq!(target_of(&h, pet), Some(b), "turned at its think");
+        played += 1;
+    }
 }

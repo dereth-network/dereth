@@ -1759,7 +1759,7 @@ fn hurt_creature_noticed<S: Store>(
 ) {
     // Its hurter's pets take it on; a pet a player hurt may fight back.
     if damage > 0 {
-        crate::pets::owner_hurt(s, by, id);
+        crate::pets::owner_hurt(s, by, id, clock.local.0);
         if s.pets.is_pet(id) && by == damager {
             crate::pets::hurt_by_player(s, net, id, by);
         }
@@ -2452,7 +2452,7 @@ pub(crate) fn hurt_player<S: Store>(
         crate::pvp::harmed(p, quality::HEALTH, before.unwrap_or(after) - after);
     }
     if let Some(b) = behind {
-        crate::pets::player_hurt(s, net, (by, b), id);
+        crate::pets::player_hurt(s, net, (by, b), id, clock.local.0);
     }
     wounded(s, net, id, share, was);
     after_hurt(s, net, world, by, clock);

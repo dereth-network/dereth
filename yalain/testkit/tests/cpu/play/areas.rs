@@ -144,6 +144,7 @@ fn a_skill_and_an_area_spare_another_players_pet_while_its_owner_may_not_be_harm
             missed: false,
             closing: None,
             vigor: None,
+            turn_to: None,
         },
     );
     place(&mut h, me, target, 6.0, 0.0);

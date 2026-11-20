@@ -266,6 +266,9 @@ pub struct Pet {
     /// For a pet that pays its attacks' vigor: when it last paid, and the vigor it had left (none:
     /// it has never paid, and is full).
     pub vigor: Option<(f64, f32)>,
+    /// What it turns to from the creature it fights, its owner having hurt that, and when (world
+    /// seconds): its next think.
+    pub turn_to: Option<(u64, f64)>,
 }
 
 /// Every pet in the world, each owner's debt of orders, and the kinds of pet the world makes.
@@ -799,6 +802,7 @@ fn summon_kind<S: Store>(
             missed: false,
             closing: None,
             vigor: None,
+            turn_to: None,
         },
     );
     if let Some(seconds) = seconds {
@@ -1861,6 +1865,19 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             p.order = Order::Follow;
         }
     }
+    // A turn to what its owner now hurts comes at its time; the creature is taken on if it still
+    // stands.
+    if let Some((to, _)) = pet.turn_to.filter(|(_, t)| now >= *t) {
+        if let Some(p) = s.pets.by_id.get_mut(&id) {
+            p.turn_to = None;
+        }
+        if s.things.get(to).is_some_and(Thing::alive) {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.target = Some(to);
+                c.lost_since = None;
+            }
+        }
+    }
     let fighting = if order == Order::Return || never_attacks(s, id) {
         None
     } else {
@@ -2171,10 +2188,11 @@ fn attack_reach(a: &AttackSkill) -> f32 {
     a.max_range.max(crate::ai::MELEE_REACH)
 }
 
-/// The owner of a pet hurt a creature: its supporting pets take it on (2017: they joined at the
-/// owner's first hit that took health, in that same tick, 422 of 677 timed); one fighting another
-/// turns to it now and then ([`FOLLOWS_OWNER`]).
-pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
+/// The owner of a pet hurt a creature (at world second `now`): its supporting pets take it on
+/// (2017: they joined at the owner's first hit that took health, in that same tick, 422 of 677
+/// timed); one fighting another turns to it now and then ([`FOLLOWS_OWNER`]), not at once but at its
+/// next think, up to [`PLAN_EVERY`] later, fighting on until then.
+pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64, now: f64) {
     if s.pets.is_pet(creature) {
         return;
     }
@@ -2195,9 +2213,9 @@ pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
             .and_then(|t| t.creature.as_ref())
             .is_some_and(|c| c.mode == Mode::Chasing && c.target.is_some_and(|t| t != creature));
         if fights_another && s.rng.chance(FOLLOWS_OWNER) {
-            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-                c.target = Some(creature);
-                c.lost_since = None;
+            let after = f64::from(s.rng.unit()) * PLAN_EVERY;
+            if let Some(p) = s.pets.by_id.get_mut(&id) {
+                p.turn_to = Some((creature, now + after));
             }
         }
     }
@@ -2206,7 +2224,10 @@ pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
 /// The chance a supporting pet turns from the creature it fights to another its owner turns to and
 /// hurts (2017: of the recorded players' own pets fighting a creature still alive 8 s on, those
 /// whose mode supports their owner went next at the owner's new one within 8 s 53 times of 79, a
-/// median 2.0 s after the owner's first attack on it).
+/// median 2.0 s after the owner's first attack on it). The turn waits for the pet's next think: of 37
+/// such turns, 17 struck the old creature once to five times more first, the last of those up to
+/// 2.5 s after the owner's first hit, and the first blow on the new one came 0.2 s to 6.4 s after it,
+/// its run there included.
 pub const FOLLOWS_OWNER: f32 = 0.67;
 
 /// The world connection of a player a pet may fight: one in the world, out of portal space and
@@ -2255,8 +2276,9 @@ pub fn player_hurt<S: Store>(
     net: &mut ServerNet,
     (by, behind): (u64, u64),
     hurt: u64,
+    now: f64,
 ) {
-    owner_hurt(s, behind, hurt);
+    owner_hurt(s, behind, hurt, now);
     if by != behind {
         return;
     }

@@ -80,6 +80,7 @@ fn field() -> Field {
             missed: false,
             closing: None,
             vigor: None,
+            turn_to: None,
         },
     );
     let conn = |h: &Harness, id: u64| {

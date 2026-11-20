@@ -113,6 +113,7 @@ fn pet(id: u64, owner: u64) -> yalain_world::pets::Pet {
         missed: false,
         closing: None,
         vigor: None,
+        turn_to: None,
     }
 }
 

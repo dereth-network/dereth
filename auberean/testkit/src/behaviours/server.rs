@@ -12927,6 +12927,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.turns-at-its-next-think",
+        says: "A supporting pet that turns from the creature it fights to its owner's new target does \
+               so at its next think, within three seconds of its owner's hit and spread over them, \
+               keeping on the old creature until then.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-TURN-DELAY"),
+        station: "yalain-testkit::cpu::play::pets::a_supporting_pet_turns_to_its_owners_new_target_at_its_next_think",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-body-behind-is-told-back-after-two-seconds",
         says: "A player's body that misses a report its client sent is behind from then: two seconds \
                after that first miss, with none reached since, its client is to be told where the body \
