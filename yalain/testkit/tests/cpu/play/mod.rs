@@ -67,6 +67,7 @@ mod items;
 mod kill_quests;
 mod kingdom_points;
 mod kingdoms;
+mod level_ups;
 mod levers;
 mod lying_client;
 mod made_chests;

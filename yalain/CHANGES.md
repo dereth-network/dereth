@@ -13,6 +13,7 @@ what they see, not how it was done.
 - World: monarchs can bind their allegiance's recall at the halls' binding stones.
 - World: treasure above level 50 hits and protects as retail's did; enchanted gear is worth more.
 - World: keyed dungeon caches hold treasure, and now and then a rare.
+- Fixed level-ups ignoring your buffs and vitae, and showing too few skill credits.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

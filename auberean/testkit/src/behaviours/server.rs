@@ -5744,6 +5744,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.experience.level-up-fills-to-the-greatest",
+        says: "A level-up raises greatest health and vigor each by the level's step on what the player \
+               held, so a greatest above the level's base keeps its difference, and fills health and \
+               vigor to the greatest the player then has with its vitae and effects: below the raised \
+               greatest under vitae, above it with an effect that adds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVEL-UP-VITALS"),
+        station: "yalain-testkit::cpu::play::level_ups::a_level_up_raises_the_greatest_by_its_step_and_fills_to_the_greatest_with_vitae_and_effects",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.experience.level-up-text-names-the-credits-held",
+        says: "A level-up's text names the skill credits the player holds after the level, those it \
+               had banked with the level's own, not the credits the level gave.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVEL-UP-CREDITS-HELD"),
+        station: "yalain-testkit::cpu::play::level_ups::a_level_ups_text_names_the_skill_credits_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.solo-kill-award",
         says: "A solo kill by a killer under level 50 pays the creature's death experience in full from ten \
                levels below the killer to nine above, 15% less a level further below (at least 1%), 20% less a \

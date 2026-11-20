@@ -15,11 +15,14 @@
 //! at its next award as a hero.
 //!
 //! **A level-up** sends the level, the skill repository with a credit more (and from level 45 the
-//! level's hero skill credits), the greatest health
-//! and vigor of the level, "Congratulations! You are now level %1..." (the unspent experience, the
-//! health and vigor gained, the level, the credits), health and vigor made whole (2017 sent the
-//! maxima before the text in 41 of 70 level-ups, after it in 29), and to every client that sees the
-//! player its level-up effect and the end of its wounded effect.
+//! level's hero skill credits), the greatest health and vigor each raised by the level's step on
+//! what the player held, "Congratulations! You are now level %1..." (the unspent experience, the
+//! health and vigor gained, the level, the skill credits the player now holds), health and vigor
+//! filled to the greatest the player now has with its skills, perks, vitae and effects (2017 sent
+//! the maxima before the text in 41 of 70 level-ups, after it in 29; the vitals sent were the
+//! player's top until the next change in 28 of 30, above the level's base in 45 of 62 and below it
+//! under vitae or a lowering effect in 10), and to every client that sees the player its level-up
+//! effect and the end of its wounded effect.
 
 use auberean_protocol::physics::{Fx, ObjectEvent, Word};
 use auberean_protocol::quality::PrivateQuality;
@@ -453,9 +456,15 @@ pub fn level_up<S: Store>(
     };
     let old_health = quals::int(&p.qualities, quality::HEALTH_MAX).unwrap_or(100);
     let old_vigor = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(100);
-    let health = new.map_or(old_health, |l| l.health);
-    let vigor = new.map_or(old_vigor, |l| l.vigor);
-    let _ = old;
+    // Each greatest rises by the level's step, so what the player holds above the table's stays.
+    let (health, vigor) = match (old, new) {
+        (Some(o), Some(n)) => (
+            old_health.saturating_add(n.health - o.health),
+            old_vigor.saturating_add(n.vigor - o.vigor),
+        ),
+        (None, Some(n)) => (n.health, n.vigor),
+        (_, None) => (old_health, old_vigor),
+    };
     quals::set_int(&mut p.qualities, q::LEVEL, now);
     send_int(net, world, q::LEVEL, now);
     p.play.credits = p
@@ -492,16 +501,24 @@ pub fn level_up<S: Store>(
                     2,
                     (vigor - old_vigor).max(0).cast_unsigned(),
                 ),
-                word(var::CREDITS, 6, gained_credits.max(0).cast_unsigned()),
+                word(var::CREDITS, 6, p.play.credits),
             ],
         ),
     );
     quals::set_int(&mut p.qualities, quality::HEALTH_MAX, health);
     quals::set_int(&mut p.qualities, quality::VIGOR_MAX, vigor);
-    quals::set_int(&mut p.qualities, quality::HEALTH, health);
-    quals::set_int(&mut p.qualities, quality::VIGOR, vigor);
-    send_int(net, world, quality::HEALTH, health);
-    send_int(net, world, quality::VIGOR, vigor);
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let full_health = crate::effects::max_vital(s, p, quality::HEALTH_MAX);
+    let full_vigor = crate::effects::max_vital(s, p, quality::VIGOR_MAX);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    quals::set_int(&mut p.qualities, quality::HEALTH, full_health);
+    quals::set_int(&mut p.qualities, quality::VIGOR, full_vigor);
+    send_int(net, world, quality::HEALTH, full_health);
+    send_int(net, world, quality::VIGOR, full_vigor);
     p.visual = p.visual.wrapping_add(1);
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: ObjectStamp {
