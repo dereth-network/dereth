@@ -153,6 +153,8 @@ members = [
     "dereth/testkit",
     # tools/: research and build tools (MIT).
     "tools/pcap",
+    # Records a session between a client and its server on loopback, and reads it back.
+    "tools/recorder",
     "tools/web-relay",
     "tools/plugin",
     "tools/web-dev",

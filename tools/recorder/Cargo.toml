@@ -1,0 +1,30 @@
+[package]
+name = "dereth-recorder"
+description = "The session recorder: a loopback proxy between a game client and its server that writes every datagram to a capture file, and the reader that lists what one object was sent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Every test is a `#[cfg(test)]` module beside the code it tests, as in `dereth-pcap`.
+autotests = false
+
+[dependencies]
+# The packet header and its sections, for the one datagram the recorder changes: the referral.
+dereth-transport.workspace = true
+# The capture container, the link layer, the session router, reassembly and the first game's
+# decoder: a recording is read exactly as the capture index reads one.
+dereth-pcap.workspace = true
+# The second game's messages, by name, and the object each one is about.
+auberean-protocol.workspace = true
+auberean-client-model.workspace = true
+# Ctrl-C ends a recording cleanly.
+ctrlc.workspace = true
+
+[dev-dependencies]
+# The tests make first-game messages with the codecs the reader names them by.
+dereth-protocol.workspace = true
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true

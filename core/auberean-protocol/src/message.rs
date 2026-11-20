@@ -45,6 +45,23 @@ macro_rules! messages {
                 }
             }
 
+            /// The message's name.
+            #[must_use]
+            pub const fn name(&self) -> &'static str {
+                match self {
+                    $( Self::$variant(_) => stringify!($variant), )*
+                }
+            }
+
+            /// The name of the message of this type in this direction, if there is one.
+            #[must_use]
+            pub const fn type_name(message_type: u32) -> Option<&'static str> {
+                match message_type {
+                    $( $code => Some(stringify!($variant)), )*
+                    _ => None,
+                }
+            }
+
             /// Whether a message of this type travels in this direction.
             #[must_use]
             pub const fn is_known_type(message_type: u32) -> bool {

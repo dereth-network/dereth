@@ -1,8 +1,8 @@
 # Tools
 
-The workspace's programs include `xtask/`, `corpus/`, `pack/`, `art/`, `pcap/` and `plugin/`. They are
-crates like any other, but they are things people run, so each has
-its own page. The workspace carries no scripts: every check and runner is Rust, reached through
+The workspace's programs include `xtask/`, `corpus/`, `pack/`, `art/`, `pcap/`, `recorder/` and
+`plugin/`. They are crates like any other, but they are things people run, so each has its own
+page. The workspace carries no scripts: every check and runner is Rust, reached through
 `cargo xtask`. `sweep-timings/` holds the recorded per-test times the sweep deals shards by.
 
 ## `xtask` — the task runner
@@ -115,6 +115,14 @@ and decodes every session with the workspace's own transport and codecs, and wri
 index: `ingest`, `stats`, `query` and `triage` (decode failures grouped by type and error, as
 markdown). See [`pcap/README.md`](pcap/README.md) for the workflow and for what these captures can
 and cannot tell you.
+
+## `dereth-recorder` — recording a play session
+
+Sits between a client and its server on loopback (Auberean or Horizon and Yalain, Dereth and
+Empyrean), passes everything on and writes the session to a capture file on your machine
+(`record`); then lists the session's messages by name, or only those that name one object, in
+order (`read --object <id>`). For a play-tester who saw something wrong in the world and wants to
+know what the server actually sent. See [`recorder/README.md`](recorder/README.md).
 
 ## `dereth-places` — a world's places from its era's database
 

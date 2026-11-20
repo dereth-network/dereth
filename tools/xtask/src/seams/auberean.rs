@@ -31,8 +31,8 @@
 //!    as a program), and nothing uses the world builder's; a core crate's
 //!    tests may use the client's test kit and the server's network crate (the server double), the
 //!    server's tests the client's test kit. Nothing of the first game's uses any of them, but the
-//!    launcher's knowledge the friends stream's codec and the art tool the install's records
-//!    ([`OUTSIDE_MAY_USE`]). No crate
+//!    launcher's knowledge the friends stream's codec, the art tool the install's records and the
+//!    session recorder the messages ([`OUTSIDE_MAY_USE`]). No crate
 //!    but a test kit names a test kit outside its tests, and no library names a log subscriber
 //!    ([`super::LIBRARY_NO_SUBSCRIBER`]): only an executable installs one, and the libraries in
 //!    [`OUTERMOST`], loaded by a program that is not ours.
@@ -284,6 +284,10 @@ pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     ("dereth-art", "auberean-assets"),
     ("dereth-art", "auberean-dat"),
     ("dereth-art", "auberean-world"),
+    // The session recorder names each recorded message of the second game by its type and the
+    // object it is about, and nothing of its client, server or world builder.
+    ("dereth-recorder", "auberean-protocol"),
+    ("dereth-recorder", "auberean-client-model"),
 ];
 
 /// The four parts' folders.

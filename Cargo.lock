@@ -2323,6 +2323,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-recorder"
+version = "0.0.0"
+dependencies = [
+ "auberean-client-model",
+ "auberean-protocol",
+ "ctrlc",
+ "dereth-pcap",
+ "dereth-primitives",
+ "dereth-protocol",
+ "dereth-transport",
+]
+
+[[package]]
 name = "dereth-remaster"
 version = "0.0.0"
 dependencies = [
