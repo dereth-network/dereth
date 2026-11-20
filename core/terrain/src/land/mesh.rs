@@ -390,82 +390,17 @@ pub fn land_geometry(
 /// same number mathematically and different floats in practice, and the plane distance feeds
 /// Set a plane's height, which places every tree.
 ///
-/// The client works it in double precision and keeps a float only at certain steps, and the
-/// plane's last bit depends on which: the first edge's x and y, each part of the cross product,
-/// and the reciprocal length that scales y and z are kept as floats; the reciprocal that scales x
-/// and the whole sum behind `d` stay in double precision, and `d` is rounded once. It is the
-/// plane bodies stand on, to the bit. This is the first game's ([`PlaneArithmetic::Double`]).
+/// Worked as the first game's client works it ([`PlaneArithmetic::Double`], see [`Plane::of_triangle`]):
+/// the plane bodies stand on, to the bit.
 pub(crate) fn make_plane(a: Vec3, b: Vec3, c: Vec3) -> Plane {
     make_plane_in(a, b, c, PlaneArithmetic::Double)
 }
 
-/// [`make_plane`] worked in `arithmetic`: as it says, or in single precision at every step.
-#[allow(clippy::cast_possible_truncation)]
+/// [`make_plane`] worked in `arithmetic`. The client divides by the normal's length
+/// unconditionally; a triangle with no area (which a land cell's fixed footprint never makes)
+/// faces straight up here instead.
 pub(crate) fn make_plane_in(a: Vec3, b: Vec3, c: Vec3, arithmetic: PlaneArithmetic) -> Plane {
-    if arithmetic == PlaneArithmetic::Single {
-        return make_plane_single(a, b, c);
-    }
-    let kept = |x: f64| f64::from(x as f32);
-    let edge = |v: Vec3| {
-        (
-            f64::from(v.x) - f64::from(a.x),
-            f64::from(v.y) - f64::from(a.y),
-            f64::from(v.z) - f64::from(a.z),
-        )
-    };
-    let (ux, uy, uz) = edge(b);
-    let (ux, uy) = (kept(ux), kept(uy));
-    let (vx, vy, vz) = edge(c);
-    let nx = kept(uy * vz - uz * vy);
-    let ny = kept(uz * vx - vz * ux);
-    let nz = kept(vy * ux - uy * vx);
-    let len = ((nz * nz + ny * ny) + nx * nx).sqrt();
-    // The client divides unconditionally, producing inf/NaN for a degenerate polygon. Land cells
-    // have a fixed non-degenerate xy footprint so this branch is unreachable for terrain; it exists
-    // so a malformed caller gets a usable plane rather than NaN propagating into the scenery hash.
-    let n = if len > 0.0 {
-        let inv = 1.0 / len;
-        let inv_kept = kept(inv);
-        Vec3::new(
-            (inv * nx) as f32,
-            (inv_kept * ny) as f32,
-            (inv_kept * nz) as f32,
-        )
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    };
-    let (gx, gy, gz) = (f64::from(n.x), f64::from(n.y), f64::from(n.z));
-    let sum: f64 = [a, b, c]
-        .iter()
-        .map(|v| (gz * f64::from(v.z) + gy * f64::from(v.y)) + gx * f64::from(v.x))
-        .sum();
-    Plane {
-        normal: n,
-        d: (-(sum / 3.0)) as f32,
-    }
-}
-
-/// [`make_plane`] in single precision at every step.
-fn make_plane_single(a: Vec3, b: Vec3, c: Vec3) -> Plane {
-    let u = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
-    let v = Vec3::new(c.x - a.x, c.y - a.y, c.z - a.z);
-    let n = Vec3::new(
-        u.y * v.z - u.z * v.y,
-        u.z * v.x - u.x * v.z,
-        u.x * v.y - u.y * v.x,
-    );
-    let len = n.magnitude();
-    let n = if len > 0.0 {
-        let inv = 1.0 / len;
-        Vec3::new(n.x * inv, n.y * inv, n.z * inv)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    };
-    let sum = n.dot(a) + n.dot(b) + n.dot(c);
-    Plane {
-        normal: n,
-        d: -(sum / 3.0),
-    }
+    Plane::of_triangle(a, b, c, arithmetic)
 }
 
 /// Drop a point onto the plane:

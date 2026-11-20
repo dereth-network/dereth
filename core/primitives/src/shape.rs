@@ -70,6 +70,90 @@ impl Plane {
         }
     }
 
+    /// The plane of the triangle `a`, `b`, `c`, worked in `arithmetic`. The normal is
+    /// `(b - a) x (c - a)` divided by its length, so a triangle wound counter-clockwise seen from
+    /// above faces up; a triangle with no area faces straight up. `d` is
+    /// `-(N·a + N·b + N·c) / 3`, not `-N·a`: for a planar triangle the two are the same number
+    /// mathematically and different floats in practice.
+    ///
+    /// In [`PlaneArithmetic::Double`] it is worked in double precision and kept as a float only
+    /// at certain steps, and the plane's last bit depends on which: the first edge's x and y, each
+    /// part of the cross product, and the reciprocal length that scales y and z are kept as
+    /// floats; the reciprocal that scales x and the whole sum behind `d` stay in double precision,
+    /// and `d` is rounded once. In [`PlaneArithmetic::Single`] every step is a float.
+    #[must_use]
+    pub fn of_triangle(a: Vec3, b: Vec3, c: Vec3, arithmetic: PlaneArithmetic) -> Self {
+        match arithmetic {
+            PlaneArithmetic::Double => Self::triangle_double(a, b, c),
+            PlaneArithmetic::Single => Self::triangle_single(a, b, c),
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn triangle_double(a: Vec3, b: Vec3, c: Vec3) -> Self {
+        let kept = |x: f64| f64::from(x as f32);
+        let edge = |v: Vec3| {
+            (
+                f64::from(v.x) - f64::from(a.x),
+                f64::from(v.y) - f64::from(a.y),
+                f64::from(v.z) - f64::from(a.z),
+            )
+        };
+        let (ux, uy, uz) = edge(b);
+        let (ux, uy) = (kept(ux), kept(uy));
+        let (vx, vy, vz) = edge(c);
+        let nx = kept(uy * vz - uz * vy);
+        let ny = kept(uz * vx - vz * ux);
+        let nz = kept(vy * ux - uy * vx);
+        let len = ((nz * nz + ny * ny) + nx * nx).sqrt();
+        let normal = if len > 0.0 {
+            let inv = 1.0 / len;
+            let inv_kept = kept(inv);
+            Vec3::new(
+                (inv * nx) as f32,
+                (inv_kept * ny) as f32,
+                (inv_kept * nz) as f32,
+            )
+        } else {
+            Vec3::new(0.0, 0.0, 1.0)
+        };
+        let (gx, gy, gz) = (
+            f64::from(normal.x),
+            f64::from(normal.y),
+            f64::from(normal.z),
+        );
+        let sum: f64 = [a, b, c]
+            .iter()
+            .map(|v| (gz * f64::from(v.z) + gy * f64::from(v.y)) + gx * f64::from(v.x))
+            .sum();
+        Self {
+            normal,
+            d: (-(sum / 3.0)) as f32,
+        }
+    }
+
+    fn triangle_single(a: Vec3, b: Vec3, c: Vec3) -> Self {
+        let u = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
+        let v = Vec3::new(c.x - a.x, c.y - a.y, c.z - a.z);
+        let n = Vec3::new(
+            u.y * v.z - u.z * v.y,
+            u.z * v.x - u.x * v.z,
+            u.x * v.y - u.y * v.x,
+        );
+        let len = n.magnitude();
+        let normal = if len > 0.0 {
+            let inv = 1.0 / len;
+            Vec3::new(n.x * inv, n.y * inv, n.z * inv)
+        } else {
+            Vec3::new(0.0, 0.0, 1.0)
+        };
+        let sum = normal.dot(a) + normal.dot(b) + normal.dot(c);
+        Self {
+            normal,
+            d: -(sum / 3.0),
+        }
+    }
+
     /// The plane equation at `p`: `dot(N, p) + d`, summed in that order.
     #[inline]
     #[must_use]

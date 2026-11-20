@@ -175,23 +175,14 @@ pub fn cell_triangles(side: usize, i: usize, j: usize, cut: bool) -> [[usize; 3]
     }
 }
 
-/// A triangle's unit normal: `(b − a) × (c − a)`, divided by its length; straight up for a
-/// triangle with no area.
+/// A triangle's unit normal: `(b − a) × (c − a)`, divided by its length, worked as the client
+/// works a land triangle's plane, to the bit; straight up for a triangle with no area.
 fn plane_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
-    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    let n = [
-        u[1] * v[2] - u[2] * v[1],
-        u[2] * v[0] - u[0] * v[2],
-        u[0] * v[1] - u[1] * v[0],
-    ];
-    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    if len > 0.0 {
-        let inv = 1.0 / len;
-        [n[0] * inv, n[1] * inv, n[2] * inv]
-    } else {
-        [0.0, 0.0, 1.0]
-    }
+    use dereth_primitives::shape::{Plane, PlaneArithmetic};
+    use dereth_primitives::Vec3;
+    let v = |p: [f32; 3]| Vec3::new(p[0], p[1], p[2]);
+    let n = Plane::of_triangle(v(a), v(b), v(c), PlaneArithmetic::Double).normal;
+    [n.x, n.y, n.z]
 }
 
 /// Retail's per-vertex normals of a block's drawn grid: at each vertex the sum of the unit normals
@@ -255,6 +246,14 @@ mod tests {
         }
     }
 
+    /// **A triangle's normal is worked as the client works a land triangle's plane, to the last
+    /// bit**: on this steep triangle a float at every step lands one bit off in x and y.
+    #[test]
+    fn a_triangles_normal_is_the_clients_to_the_last_bit() {
+        let n = plane_normal([48.0, 24.0, 43.5], [72.0, 24.0, 0.5], [48.0, 48.0, 46.0]);
+        assert_eq!(n, [0.872_074_6, -0.050_702_013, 0.486_739_34]);
+    }
+
     /// **Flat ground's normals are straight up, and a uniform slope's are its plane's normal at
     /// every vertex**, inside the block and on its edges, whichever way the cells are cut.
     #[test]
@@ -291,7 +290,11 @@ mod tests {
         // Cut from SW to NE, the north-east corner is in both triangles; the south-east one is in
         // the first alone, whose plane rises toward the north-east corner.
         let tri0 = plane_normal([0.0, 0.0, 0.0], [192.0, 0.0, 0.0], [192.0, 192.0, 24.0]);
-        assert_eq!(n[2], tri0, "the south-east corner takes its one triangle");
+        assert!(
+            (Vec3::from(n[2]) - Vec3::from(tri0)).length() < 1e-6,
+            "the south-east corner takes its one triangle: {:?} against {tri0:?}",
+            n[2]
+        );
         let tri1 = plane_normal([0.0, 0.0, 0.0], [192.0, 192.0, 24.0], [0.0, 192.0, 0.0]);
         let sum = Vec3::from(tri0) + Vec3::from(tri1);
         let both = sum / sum.length();

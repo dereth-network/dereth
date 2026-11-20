@@ -357,8 +357,10 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         // The crates with a `gpu` binary.
         "dereth-client" | "dereth-render" | "lyceum-editor" => &["retail-dats", "vulkan"],
         // The application's halves: their unit tests hold a device, on the backend they held it
-        // on inside `dereth-client`.
-        "dereth-scene" | "dereth-client-shell" => &["retail-dats", "vulkan"],
+        // on inside `dereth-client`. The scene's tests of the remaster's assets against Retail
+        // Look's are built only with `remaster`.
+        "dereth-scene" => &["retail-dats", "vulkan", "remaster"],
+        "dereth-client-shell" => &["retail-dats", "vulkan"],
         // dereth-physics's trace recorder and the tests of it are built with `trace`.
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
@@ -1128,6 +1130,22 @@ mod tests {
                 "{krate} is gated; drop it from the exceptions"
             );
         }
+    }
+
+    /// **The scene's tier builds the remaster**: its tests of the remaster's assets against Retail
+    /// Look's read the dats and sit behind `remaster`, so without it no tier builds them.
+    #[test]
+    fn the_scenes_tier_builds_its_remaster_asset_tests() {
+        let manifest = std::fs::read_to_string(
+            crate::util::workspace_root().join("dereth/client/crates/scene/Cargo.toml"),
+        )
+        .unwrap();
+        assert!(
+            manifest.contains("\nremaster = ["),
+            "the scene declares `remaster`"
+        );
+        assert!(tier_features("dereth-scene").contains(&"remaster"));
+        assert!(GATES.iter().any(|g| g.crates.contains(&"dereth-scene")));
     }
 
     /// The split names every test binary these crates declare.
