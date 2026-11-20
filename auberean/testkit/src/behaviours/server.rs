@@ -5727,6 +5727,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.a-portal-with-no-destination",
+        says: "A portal, a shard or a vault the world gives no destination is still examined as a \
+               place: its name, the line saying what may be recalled to it, its page.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-PORTAL-NO-DESTINATION"),
+        station: "yalain-testkit::cpu::entry::examine::a_portal_with_no_destination_is_examined_as_a_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.a-rows-own-name",
         says: "A placed row a world gave a name of its own is examined under that name, as it is \
                shown over its head; one with none under its template's.",

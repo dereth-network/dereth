@@ -916,6 +916,7 @@ struct Play {
     chests: std::collections::HashSet<u32>,
     chests_gone_once_closed: std::collections::HashSet<u32>,
     portal_doors: std::collections::HashSet<u32>,
+    portals: std::collections::HashSet<u32>,
     treasure: yalain_world::treasure::Kinds,
     treasure_tables: yalain_world::treasure::TreasureTables,
     tesserae: std::collections::HashSet<u32>,
@@ -1156,6 +1157,7 @@ fn run<S: Store>(
     server.chests.packages = play.chests;
     server.chests.gone_once_closed = play.chests_gone_once_closed;
     server.portal_door_packages = play.portal_doors;
+    server.portal_packages = play.portals;
     server.treasure = play.treasure;
     server.treasure_tables = play.treasure_tables;
     server.tesserae = play.tesserae;
@@ -2306,10 +2308,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &content,
             &[yalain_world::usable::vaults::PORTAL_DOOR],
         )?;
+        let portals = data::packages_deriving_from(
+            portal,
+            &content,
+            &[yalain_world::usable::portals::PACKAGE],
+        )?;
         tracing::info!(
             doors = doors.len(),
             chests = chests.len(),
             portal_doors = portal_doors.len(),
+            portals = portals.len(),
             "the doors', chests' and portal doors' kinds read"
         );
         let treasure = data::treasure(portal, &catalog, &treasure_tables)?;
@@ -2402,6 +2410,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             chests,
             chests_gone_once_closed,
             portal_doors,
+            portals,
             treasure,
             treasure_tables,
             tesserae,
@@ -2474,6 +2483,7 @@ fn reload_world(
             chests: p.chests,
             chests_gone_once_closed: p.chests_gone_once_closed,
             portal_doors: p.portal_doors,
+            portals: p.portals,
         }),
         ground: Some(Box::new(p.ground)),
         patch: yalain_world::world_patch::WorldPatch::of(&p.files),

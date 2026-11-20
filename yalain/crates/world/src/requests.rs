@@ -702,7 +702,11 @@ fn profile_bytes<S: Store>(
                     profile::portal_line(f.portal)
                 };
                 let name = placed_name(s, o, named);
-                if lifestone || o.destination.is_some() {
+                // A portal is examined as a place, the world giving it a destination or not (2017: 38
+                // portals, shards and vaults with no destination here, 59 examinations, each with
+                // the line saying what may be recalled to it).
+                let portal = s.portal_packages.contains(&o.description.package);
+                if lifestone || portal || o.destination.is_some() {
                     let door = s.portal_door_packages.contains(&o.description.package);
                     let recall = (!door).then_some(recall);
                     profile::place_recalling(req.asked, name, recall, f, quest)

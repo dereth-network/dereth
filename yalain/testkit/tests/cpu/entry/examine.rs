@@ -2502,3 +2502,54 @@ fn an_architects_page_says_no_building_project_is_under_way() {
     recorded.push("break 2".into());
     assert_eq!(examined_lines(&mut h, a, id), recorded);
 }
+
+/// A portal the world gives no destination is still examined as a place: its name, two breaks,
+/// the line saying what may be recalled to it, its page; an object of another kind with no
+/// destination as a plain object (2017: 59 examinations of 38 portals, shards and vaults with no
+/// destination here, each with its recall line).
+/// Behaviour: server.examination.a-portal-with-no-destination
+#[test]
+fn a_portal_with_no_destination_is_examined_as_a_place() {
+    const PORTAL_PACKAGE: u32 = 0x0E70;
+    let mut h = Harness::new();
+    h.server.portal_packages.insert(PORTAL_PACKAGE);
+    let f = Facts {
+        name: Some(NAME),
+        description: Some(PAGE),
+        ..Facts::default()
+    };
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![
+            placed(1, 0x4700_1154, PORTAL_PACKAGE, None, f),
+            placed(2, 0x4700_1BB7, SIGN_PACKAGE, None, f),
+        ],
+        ..yalain_content::ContentPack::default()
+    };
+    let id = |n: u64| 0x400D_FA00_0000_0100 | n;
+    let got = general_words(&mut h, &[id(1), id(2)]);
+    let (text, brk, label, value) = (0x4000_0004, 0x4000_0006, 0x33BE_4035, 0xBE5B_6513);
+    let line = |look: u32, (s, t): (u32, u32)| [text, 2, look, s, t, 0];
+    let mut place = line(value, NAME).to_vec();
+    place.extend([brk, 2, brk, 2]);
+    place.extend(line(
+        label,
+        (profile::line::CANNOT_RECALL_PORTAL, profile::line::TABLE),
+    ));
+    place.extend([brk, 2]);
+    place.extend(line(label, PAGE));
+    place.extend([brk, 2]);
+    assert_eq!(
+        got[0][1..got[0].len() - 1],
+        place[..],
+        "a portal: a place's lines"
+    );
+    let mut plain = line(value, NAME).to_vec();
+    plain.extend([brk, 2]);
+    plain.extend(line(label, PAGE));
+    plain.extend([brk, 2]);
+    assert_eq!(
+        got[1][1..got[1].len() - 1],
+        plain[..],
+        "a sign: its name and page"
+    );
+}

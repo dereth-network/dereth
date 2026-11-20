@@ -46,6 +46,9 @@ use crate::{presence, progress, Clock, Server, Timer};
 /// The summoned portal's template.
 pub const TEMPLATE: u32 = 0x4700_0604;
 
+/// The script package every portal derives from, shards and vaults among them.
+pub const PACKAGE: &str = "Portal";
+
 /// The skills that summon one.
 pub const SUMMON_LIFESTONE: u32 = 871;
 pub const SUMMON_PORTAL: u32 = 872;

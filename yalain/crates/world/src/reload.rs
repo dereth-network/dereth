@@ -138,6 +138,7 @@ pub struct PlacedKinds {
     /// Of the chests, those that go once closed.
     pub chests_gone_once_closed: HashSet<u32>,
     pub portal_doors: HashSet<u32>,
+    pub portals: HashSet<u32>,
 }
 
 /// The tables a reload looks at, by the name it reports them under.
@@ -497,6 +498,7 @@ impl<S: Store> Server<S> {
                 .gone_once_closed
                 .extend(k.chests_gone_once_closed);
             self.portal_door_packages.extend(k.portal_doors);
+            self.portal_packages.extend(k.portals);
         }
 
         // Veins stand in the world as nodes, not among the placed objects.

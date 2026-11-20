@@ -543,6 +543,9 @@ pub struct Server<S: Store> {
     /// The packages of the world's portal doors: portals that stand as doors, which a locked one's
     /// key carries its user through.
     pub portal_door_packages: std::collections::HashSet<u32>,
+    /// The packages of the world's portals (shards and vaults among them): one is examined as a
+    /// place, whether or not the world gives it a destination.
+    pub portal_packages: std::collections::HashSet<u32>,
     /// The templates of creatures' weapons, by the names creatures' templates give them.
     pub creature_weapons: HashMap<String, u32>,
     /// What the world database says of those weapons beyond their templates, by the same names.
@@ -993,6 +996,7 @@ impl<S: Store> Server<S> {
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),
             vault_trips: usable::vaults::VaultTrips::new(),
+            portal_packages: std::collections::HashSet::new(),
             portal_door_packages: std::collections::HashSet::new(),
             creature_weapons: HashMap::new(),
             creature_weapon_rules: HashMap::new(),
