@@ -5361,6 +5361,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.equip.nothing-on-or-off-while-riding",
+        says: "A riding player puts nothing on and takes off nothing it wears, answered as asked with 1055 for its status; it may still put away what it holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-RIDING"),
+        station: "yalain-testkit::cpu::play::paper_doll::a_rider_puts_nothing_on_and_takes_off_nothing_worn_but_may_empty_its_hands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.equip.nothing-on-or-off-while-swimming",
+        says: "A swimming player puts nothing on and takes nothing off, its hands included, answered as asked with 1103 for its status; wading, it may.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-SWIMMING"),
+        station: "yalain-testkit::cpu::play::paper_doll::a_swimmer_puts_nothing_on_and_takes_nothing_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.equip.own-requirements-refuse",
         says: "A treasure item whose template names no requirement is refused by its own: below \
                its own least level 10009, then below its own Arcane Lore (the player's Arcane \
@@ -5390,6 +5406,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-REQUIREMENTS-DIRECTIVE"),
         station: "yalain-testkit::cpu::play::paper_doll::a_ring_for_another_race_dragged_to_the_doll_is_refused_and_stays_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.equip.two-in-the-way-refused",
+        says: "An item whose places two or more worn items hold is refused with 1104, nothing taken off; one in the way is taken off to make room.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-SLOTS-FILLED"),
+        station: "yalain-testkit::cpu::play::wearing::a_robe_over_a_chest_piece_and_leggings_is_refused_and_over_the_chest_piece_alone_is_worn",
         tier: Tier::Cpu,
     },
     behaviour! {

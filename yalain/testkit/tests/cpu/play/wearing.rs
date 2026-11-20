@@ -19,6 +19,7 @@ const CHEST: u32 = 0x4700_7101;
 const SHIRT: u32 = 0x4700_7102;
 const ROBE: u32 = 0x4700_7103;
 const RING: u32 = 0x4700_7104;
+const LEGS: u32 = 0x4700_7105;
 const CHEST_LOOK: u32 = 0x2000_7101;
 const SHIRT_LOOK: u32 = 0x2000_7102;
 const ROBE_LOOK: u32 = 0x2000_7103;
@@ -73,6 +74,7 @@ fn two_players() -> (Harness, usize, u64, usize) {
         garment(SHIRT, (2, 2, 0), SHIRT_LOOK, race, sex),
         garment(ROBE, (2, 2, 8), ROBE_LOOK, race, sex),
         garment(RING, (0x300, 0x100, 0), 0, race, sex),
+        garment(LEGS, (8, 8, 0), 0, race, sex),
     ] {
         h.server.catalog.insert(t);
     }
@@ -947,4 +949,46 @@ fn a_world_without_worn_rows_gives_no_worn_look_and_with_some_its_rows_alone() {
         None,
         "no row of it"
     );
+}
+
+/// A robe over a chest piece and leggings is refused, nothing taken off: answered with all its
+/// places filled (1104), at the chest, with no profile. With only the chest piece in its way, the
+/// chest piece is taken off to make room.
+/// Behaviour: server.equip.two-in-the-way-refused
+#[test]
+fn a_robe_over_a_chest_piece_and_leggings_is_refused_and_over_the_chest_piece_alone_is_worn() {
+    let (mut h, a, me, _) = two_players();
+    let chest = h.arm(a, me, CHEST);
+    let legs = h.arm(a, me, LEGS);
+    let fa = h.bots[a].inbox.len();
+    let robe = h.arm(a, me, ROBE);
+    let got = answers(&h, a, fa);
+    assert_eq!(got.len(), 1, "one answer: {got:?}");
+    let (wearing, d, profile) = &got[0];
+    assert!(*wearing);
+    assert_eq!(d[13], equip::refusal::SLOTS_FILLED);
+    assert_eq!(
+        (d[7], d[14], d[5], d[16]),
+        (2, 2, 0, 0),
+        "at the chest, nothing replaced"
+    );
+    assert_eq!(d[12], flags::WORN);
+    assert_eq!(profile.iter().sum::<u32>(), 0, "an empty profile");
+    assert_eq!(
+        (
+            held(&h, me, chest).0,
+            held(&h, me, legs).0,
+            held(&h, me, robe).0
+        ),
+        (2, 8, 0),
+        "nothing moved"
+    );
+    use_it(&mut h, a, me, legs);
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, robe);
+    let got = answers(&h, a, fa);
+    assert_eq!(got.len(), 2, "the chest piece off, the robe on: {got:?}");
+    assert_eq!(got[0].1[12], flags::MADE_ROOM);
+    assert_eq!((got[1].1[13], got[1].1[14]), (0, 10));
+    assert_eq!((held(&h, me, chest).0, held(&h, me, robe).0), (0, 2));
 }

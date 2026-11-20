@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Moving, attacking or dying now interrupts a craft, which then makes and costs nothing.
+- Equipping is refused while riding or swimming, and a robe won't replace two pieces at once.
 - World: heroes regain focus while logged out.
 - World: lifestones stand where the wiki and players' maps of the time show them.
 - World: any creature can leave a lodestone or a Tessera, by your level.

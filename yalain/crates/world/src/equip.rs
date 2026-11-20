@@ -12,7 +12,7 @@
 //!
 //! **Wearing** armor, clothing or jewelry (an item whose template names places on the body):
 //! the item goes to the place it prefers, or another of its places that is free, taking off
-//! whatever is there first (that item goes where the worn one was in the pack). The player is
+//! the one item there first (that item goes where the worn one was in the pack). The player is
 //! answered (the places, those ruled out, the item it replaced), its look gains the item's
 //! appearance for its race and sex (seen by all who see it; jewelry gives none), and it is told the
 //! item's container and wearer. **Taking it off**: the answer, the look without it, the wearer
@@ -30,6 +30,15 @@
 //! player's (10009), or a quest not where the item needs it (a hidden one's refusal is the
 //! mysterious one), checked in that order. A use is answered with the refusal alone; a directive
 //! with its equipping answer, the refusal for its status.
+//!
+//! **When nothing goes on or comes off.** A player riding may put nothing on and take off nothing
+//! it wears, though it may still empty its hands (2017: 10 of 11 equips refused, the one carried
+//! out just after a portal; 1 of 1 worn piece kept on; 5 of 5 hands emptied). A player swimming may
+//! do neither, hands and all (2 of 2 equips and take-offs at 1.25 m or more under the water's
+//! surface). An item whose places two or more worn items hold is refused, nothing taken off: a
+//! robe over a jacket and leggings (2017: 3 of 3; with one in the way, it is taken off, 48 of 48 at
+//! the chest). Each is answered as the equipping or taking off it asked for, the refusal for its
+//! status.
 
 use auberean_protocol::physics::{Attach, ObjectEvent, Slide};
 use auberean_protocol::quality::VisualQuality;
@@ -115,6 +124,12 @@ pub mod refusal {
     pub const MISSING_SKILL: u32 = 10_013;
     /// The player's Arcane Lore is below the item's.
     pub const ARCANE_LORE_TOO_LOW: u32 = 10_050;
+    /// "You cannot equip or unequip items while you are on your mount."
+    pub const MOUNTED: u32 = 1055;
+    /// "You cannot equip/unequip items while you are swimming."
+    pub const SWIMMING: u32 = 1103;
+    /// "All the valid slots for this item are already filled. ..."
+    pub const SLOTS_FILLED: u32 = 1104;
 }
 
 /// The control flags of a use refused for the item's requirements.
@@ -555,6 +570,19 @@ pub fn use_held<S: Store>(
     let Some(h) = p.play.items.iter().find(|h| h.id == item).copied() else {
         return;
     };
+    let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
+    let puts_on = h.location == 0 && (fit.is_some() || wields_by_use(s, h.template));
+    let empties_a_hand = h.location != 0 && h.location & BODY_PLACES == 0;
+    if puts_on || h.location != 0 {
+        if let Some(why) = barred_now(s, world, empties_a_hand) {
+            if puts_on {
+                refuse_equip(s, net, world, &h, None, None, why);
+            } else {
+                refuse_unequip(s, net, world, &h, 0, why);
+            }
+            return;
+        }
+    }
     if h.location == 0 {
         if let Some(why) = refused_item(s, world, &h, clock) {
             let no = crate::places::use_refused(u, 0, Some(REFUSED_FLAGS), 0.0, why);
@@ -562,7 +590,6 @@ pub fn use_held<S: Store>(
             return;
         }
     }
-    let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
         (0, None) if !wields_by_use(s, h.template) => {
@@ -584,6 +611,109 @@ pub fn use_held<S: Store>(
         }
         _ => put_away(s, net, world, item, false, None),
     }
+}
+
+/// Why a player may put nothing on, or take nothing off, as it is now, if it may not: riding,
+/// anything but a hand emptied; swimming, anything.
+fn barred_now<S: Store>(s: &Server<S>, world: ConnId, empties_a_hand: bool) -> Option<u32> {
+    let p = s.players.get(&world)?;
+    if crate::mounts::mounted(p) && !empties_a_hand {
+        return Some(refusal::MOUNTED);
+    }
+    crate::swimming::swims(s, p).map(|_| refusal::SWIMMING)
+}
+
+/// Refuse to put on an item of the pack: answered as the equipping asked for (at the place named,
+/// else where its use would put it), the refusal for its status.
+fn refuse_equip<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    h: &crate::state::Held,
+    at: Option<u32>,
+    directed: Option<u32>,
+    why: u32,
+) {
+    let player = s.players.get(&world).map_or(0, |p| p.character);
+    let (fit, location, answer_flags) =
+        match s.catalog.get(h.template).and_then(|t| fit_of(&t.props)) {
+            Some(fit) => {
+                let at = at.filter(|a| fit.valid & a != 0).unwrap_or(fit.preferred);
+                (fit, at, flags::WORN)
+            }
+            None => {
+                let hold = hold_of(&s.catalog, h.template);
+                let at = at
+                    .filter(|a| hold.valid & a != 0)
+                    .unwrap_or_else(|| hand_of_use(s, h.id, h.template));
+                let fit = Fit {
+                    valid: hold.valid,
+                    preferred: hold.preferred,
+                    precluded: hold.precluded,
+                    primary: hold.primary,
+                    secondary: hold.secondary,
+                };
+                (fit, at, hold.flags)
+            }
+        };
+    let no = session::call(
+        function::EQUIP_DONE,
+        &[desc(&Answer {
+            item: h.id,
+            player,
+            fit: Fit {
+                precluded: 0,
+                ..fit
+            },
+            taken: location | fit.precluded,
+            precluded: fit.precluded,
+            location,
+            slot: h.slot,
+            flags: directed.unwrap_or(answer_flags),
+            status: why,
+            ..Answer::default()
+        })],
+    )
+    .expect("packs");
+    progress::private(net, world, &no);
+}
+
+/// Refuse to take off an item worn or wielded: answered as the taking off asked for (to the pack's
+/// slot named), the refusal for its status.
+fn refuse_unequip<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    h: &crate::state::Held,
+    target: u32,
+    why: u32,
+) {
+    let player = s.players.get(&world).map_or(0, |p| p.character);
+    let (location, precluded) = if h.location & BODY_PLACES != 0 {
+        (h.location, precluded_of(s, h.template))
+    } else if h.location == OFF_HAND {
+        (OFF_HAND, 0)
+    } else {
+        (PRIMARY_HAND, hold_of(&s.catalog, h.template).precluded)
+    };
+    let slot = crate::inventory::named_slot(target);
+    let no = session::call(
+        function::UNEQUIP_DONE,
+        &[desc(&Answer {
+            item: h.id,
+            player,
+            taken: location | precluded,
+            precluded,
+            location,
+            target_slot: slot,
+            slot,
+            flags: flags::TAKEN_OFF,
+            status: why,
+            ..Answer::default()
+        })],
+    )
+    .expect("packs");
+    progress::private(net, world, &no);
 }
 
 /// The player's look sent to everyone who sees it (a rider's, on its mount).
@@ -639,6 +769,32 @@ fn wear<S: Store>(
         free.unwrap_or(fit.preferred)
     };
     let in_the_way = holds(p, location);
+    if in_the_way.len() > 1 {
+        // More than one in the way: refused, nothing taken off; the answer names no profile.
+        let player = p.character;
+        let slot = p
+            .play
+            .items
+            .iter()
+            .find(|h| h.id == item)
+            .map_or(0, |h| h.slot);
+        let no = session::call(
+            function::EQUIP_DONE,
+            &[desc(&Answer {
+                item,
+                player,
+                taken: location,
+                location,
+                slot,
+                flags: answer_flags,
+                status: refusal::SLOTS_FILLED,
+                ..Answer::default()
+            })],
+        )
+        .expect("packs");
+        progress::private(net, world, &no);
+        return;
+    }
     let mut blocking = (0, 0);
     for other in in_the_way {
         let at = s
@@ -1251,6 +1407,18 @@ pub fn directive_equip<S: Store>(
     if h.location != 0 {
         return;
     }
+    if let Some(why) = barred_now(s, world, false) {
+        refuse_equip(
+            s,
+            net,
+            world,
+            &h,
+            Some(location),
+            Some(flags::DIRECTED),
+            why,
+        );
+        return;
+    }
     let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     if let Some(why) = refused_item(s, world, &h, clock) {
         // Answered as the equipping it asked for, with the refusal for its status.
@@ -1314,15 +1482,20 @@ pub fn directive_unequip<S: Store>(
         s.unhandled.note("an unequip directive that does not read");
         return;
     };
-    let Some(at) = s
+    let Some(h) = s
         .players
         .get(&world)
         .and_then(|p| p.play.items.iter().find(|h| h.id == item))
-        .map(|h| h.location)
+        .copied()
     else {
         return;
     };
+    let at = h.location;
     if at == 0 {
+        return;
+    }
+    if let Some(why) = barred_now(s, world, at & BODY_PLACES == 0) {
+        refuse_unequip(s, net, world, &h, target, why);
         return;
     }
     if at & BODY_PLACES != 0 {

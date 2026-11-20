@@ -518,3 +518,152 @@ fn the_hand_an_item_was_last_in_is_kept_with_it() {
     let back = yalain_world::state::ItemState::from_bytes(&kept.to_bytes()).expect("reads");
     assert_eq!(back.own.hand, equip::OFF_HAND);
 }
+
+/// The answers' statuses since `from`: (function, item, status).
+fn statuses(h: &Harness, b: usize, from: usize) -> Vec<(u32, u64, u32)> {
+    answers(h, b, from)
+        .into_iter()
+        .map(|a| (a.0, a.1, a.4))
+        .collect()
+}
+
+/// A riding player puts nothing on and takes off nothing it wears, by a directive or a use: each
+/// is answered as asked, the refusal for its status (1055), and nothing moves; it may still put
+/// away what it holds, and wields nothing again.
+/// Behaviour: server.equip.nothing-on-or-off-while-riding
+#[test]
+fn a_rider_puts_nothing_on_and_takes_off_nothing_worn_but_may_empty_its_hands() {
+    let (mut h, b, me, world, [ring, other, sword]) = player();
+    h.server
+        .catalog
+        .implements
+        .insert(SWORD, yalain_world::skill_use::implement::SWORD);
+    let at = slot_of(&h, world, ring).1;
+    h.ask(
+        b,
+        function::DIRECTIVE_EQUIP,
+        &[directive(ring, me, LEFT_RING, 0, at)],
+        3,
+    );
+    use_it(&mut h, b, me, sword);
+    assert_eq!(slot_of(&h, world, ring).0, LEFT_RING);
+    assert_ne!(slot_of(&h, world, sword).0, 0, "wielded");
+    h.server.players.get_mut(&world).unwrap().riding = Some(yalain_world::mounts::Riding {
+        eid: 1,
+        state: 0,
+        look: auberean_protocol::types::VisualDesc::default(),
+        speed: 1.0,
+        checking: false,
+    });
+    let mounted = equip::refusal::MOUNTED;
+    let from = h.bots[b].inbox.len();
+    let other_at = slot_of(&h, world, other).1;
+    h.ask(
+        b,
+        function::DIRECTIVE_EQUIP,
+        &[directive(other, me, 512, 0, other_at)],
+        3,
+    );
+    assert_eq!(
+        answers(&h, b, from),
+        [(
+            function::EQUIP_DONE,
+            other,
+            512,
+            equip::flags::DIRECTED,
+            mounted,
+            0,
+            other_at,
+            0
+        )]
+    );
+    assert_eq!(slot_of(&h, world, other).0, 0, "still in the pack");
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::DIRECTIVE_UNEQUIP,
+        &[directive(ring, me, LEFT_RING, 5, 0)],
+        3,
+    );
+    use_it(&mut h, b, me, ring);
+    assert_eq!(
+        statuses(&h, b, from),
+        [
+            (function::UNEQUIP_DONE, ring, mounted),
+            (function::UNEQUIP_DONE, ring, mounted)
+        ]
+    );
+    assert_eq!(slot_of(&h, world, ring).0, LEFT_RING, "still worn");
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, sword);
+    assert_eq!(
+        statuses(&h, b, from),
+        [(function::UNEQUIP_DONE, sword, 0)],
+        "put away"
+    );
+    assert_eq!(slot_of(&h, world, sword).0, 0);
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, sword);
+    assert_eq!(
+        statuses(&h, b, from),
+        [(function::EQUIP_DONE, sword, mounted)]
+    );
+    assert_eq!(slot_of(&h, world, sword).0, 0, "not wielded");
+}
+
+/// A swimming player puts nothing on and takes nothing off, its hands included: each answered as
+/// asked, the refusal for its status (1103). Wading, it may.
+/// Behaviour: server.equip.nothing-on-or-off-while-swimming
+#[test]
+fn a_swimmer_puts_nothing_on_and_takes_nothing_off() {
+    const SURFACE: f32 = 70.0;
+    let (mut h, b, me, world, [ring, _, sword]) = player();
+    h.server
+        .catalog
+        .implements
+        .insert(SWORD, yalain_world::skill_use::implement::SWORD);
+    use_it(&mut h, b, me, sword);
+    assert_ne!(slot_of(&h, world, sword).0, 0, "wielded");
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround {
+        land: Some(SURFACE - 30.0),
+        water: Some(SURFACE),
+        ..yalain_testkit::TestGround::default()
+    }));
+    let (cell, x, y) = yalain_world::spawn::outdoor(0x0299, 80.0, 80.0);
+    let to = |h: &mut Harness, depth: f32| {
+        h.server.players.get_mut(&world).unwrap().position = yalain_store::StoredPosition {
+            cell,
+            origin: [x, y, SURFACE - depth],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+    };
+    to(&mut h, 1.5);
+    let swimming = equip::refusal::SWIMMING;
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, ring);
+    use_it(&mut h, b, me, sword);
+    h.ask(
+        b,
+        function::DIRECTIVE_UNEQUIP,
+        &[directive(sword, me, 64, 5, 0)],
+        3,
+    );
+    assert_eq!(
+        statuses(&h, b, from),
+        [
+            (function::EQUIP_DONE, ring, swimming),
+            (function::UNEQUIP_DONE, sword, swimming),
+            (function::UNEQUIP_DONE, sword, swimming)
+        ]
+    );
+    assert_eq!(slot_of(&h, world, ring).0, 0, "not worn");
+    assert_ne!(slot_of(&h, world, sword).0, 0, "still wielded");
+    to(&mut h, 1.0);
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, ring);
+    assert_eq!(
+        statuses(&h, b, from),
+        [(function::EQUIP_DONE, ring, 0)],
+        "wading"
+    );
+}
