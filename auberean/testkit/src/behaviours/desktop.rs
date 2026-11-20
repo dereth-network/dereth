@@ -1048,6 +1048,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-line-selected-in-the-log-is-copied-by-control-c",
+        says: "Our choice: text dragged over in Horizon's log is copied to the system's clipboard \
+               by Control-C or Control-Insert, as in Dereth's chat; the key maps do not see the \
+               key.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-COPY"),
+        station: "auberean-horizon::dat::interfaces::a_line_selected_in_horizons_log_is_copied_by_control_c",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-line-typed-goes-to-the-command-line-and-its-answer-is-logged",
         says: "A line typed in Horizon's chat entry goes to the player's command line as the \
                game's own chat sends it: the command line's answer shows in Horizon's log (a line \

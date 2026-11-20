@@ -119,6 +119,8 @@ const DOUBLE_PRESS: f64 = 0.5;
 /// The modifier bits Shift and Ctrl, as the key maps hold them.
 const SHIFT: u32 = 1;
 const CTRL: u32 = 4;
+/// The widget kit's number for Insert, which copies with Control and pastes with Shift.
+const INSERT: usize = 0x2D;
 
 /// How far the pointer may move between a left press on the world and its release for the two
 /// to be a click, in pixels; further, the press turned the camera.
@@ -823,6 +825,7 @@ impl Horizon {
             Key::ArrowRight => vk::RIGHT,
             Key::ArrowDown => vk::DOWN,
             Key::Delete => vk::DELETE,
+            Key::Insert => INSERT,
             _ => return None,
         })
     }
@@ -1247,6 +1250,18 @@ impl Interface for Horizon {
                 }
                 if *repeat {
                     return self.taken_keys.contains(key);
+                }
+                // Control-C or Control-Insert copying what is selected in the chat log is the
+                // interface's: the key maps' C does not see it.
+                if self.held & CTRL != 0
+                    && matches!(key, Key::C | Key::Insert)
+                    && self.ui.chat.has_selection()
+                {
+                    if let Some(k) = Self::kit_key(*key) {
+                        self.input.keys.push(k);
+                    }
+                    self.taken_keys.push(*key);
+                    return true;
                 }
                 // Escape closes the window on top while one is open; every other key is the key
                 // maps'.

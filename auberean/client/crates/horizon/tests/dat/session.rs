@@ -355,6 +355,8 @@ pub struct DoubleHost {
     pub files: std::collections::HashMap<String, Vec<u8>>,
     pub folder: Option<Folder>,
     pub pad: Option<auberean_shell::pad::PadState>,
+    /// Each text put on the system's clipboard.
+    pub copied: Vec<String>,
 }
 
 /// The player's folder for a test: files by name behind a lock the test keeps a handle to.
@@ -382,6 +384,9 @@ fn me() -> SocketAddr {
 impl Host for DoubleHost {
     fn now(&self) -> f64 {
         self.time
+    }
+    fn set_clipboard_text(&mut self, text: &str) {
+        self.copied.push(text.to_owned());
     }
     fn local_system(
         &self,
@@ -492,6 +497,7 @@ impl Session {
             files: std::collections::HashMap::new(),
             folder: None,
             pad: None,
+            copied: Vec::new(),
         };
         let horizon = Rc::new(RefCell::new(None));
         let made = Rc::clone(&horizon);

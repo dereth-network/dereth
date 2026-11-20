@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Horizon: Ctrl+C copies what you select in the chat log.
 - Horizon: windows now open clear of the chat and HUD where you put them.
 - Horizon: fellowship and allegiance are now one Social button.
 - Switching interfaces now keeps your open windows and hotbar.

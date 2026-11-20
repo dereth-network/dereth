@@ -564,6 +564,75 @@ fn a_line_typed_in_horizon_goes_to_the_command_line_and_its_answer_is_logged() {
     assert_eq!(answer.kind, auberean_horizon::state::ERROR_TEXT);
 }
 
+/// A line dragged over in Horizon's log and Control-C copy it to the system's clipboard, the C key
+/// not reaching the key maps; with nothing selected, Control-C copies nothing. In the chat entry,
+/// Control-C copies what is selected there.
+///
+/// Behaviour: desktop.horizon.a-line-selected-in-the-log-is-copied-by-control-c
+#[test]
+fn a_line_selected_in_horizons_log_is_copied_by_control_c() {
+    use auberean_shell::input::Button;
+    let mut s = Session::new(Some("[UI]\r\nInterface=Horizon\r\n"));
+    s.enter_the_world();
+    for _ in 0..30 {
+        s.step();
+    }
+    write_line(&mut s, "Copy this line");
+    for _ in 0..5 {
+        s.step();
+    }
+    ctrl(&mut s, Key::C);
+    assert!(
+        s.shell.host.copied.is_empty(),
+        "nothing selected, nothing copied"
+    );
+    let lines = s.horizon().borrow().ui().chat.dock;
+    // The newest line is the lowest, just above the entry's strip and the corner's grip; its
+    // text begins past the window's margin.
+    let (y, sent) = (lines.y + lines.h - 48.0, calls(&s));
+    for e in [
+        Event::Pointer {
+            x: lines.x + 10.0,
+            y,
+        },
+        Event::Button {
+            button: Button::Left,
+            down: true,
+        },
+        Event::Pointer {
+            x: lines.x + lines.w - 2.0,
+            y: lines.y + lines.h - 30.0,
+        },
+        Event::Button {
+            button: Button::Left,
+            down: false,
+        },
+    ] {
+        s.shell.event(&e);
+        s.step();
+    }
+    assert!(
+        s.horizon().borrow().ui().chat.has_selection(),
+        "the line selected"
+    );
+    ctrl(&mut s, Key::C);
+    assert_eq!(
+        s.shell.host.copied.last().map(String::as_str),
+        Some("Copy this line")
+    );
+    assert_eq!(calls(&s), sent, "nothing sent for it");
+    // In the entry, what is selected there is copied.
+    press(&mut s, Key::Enter);
+    s.shell.event(&Event::Text("typed words".into()));
+    s.step();
+    ctrl(&mut s, Key::A);
+    ctrl(&mut s, Key::C);
+    assert_eq!(
+        s.shell.host.copied.last().map(String::as_str),
+        Some("typed words")
+    );
+}
+
 /// T, Horizon's reply key, opens the chat entry with the game's reply command in it (`/reply `), as
 /// the game's own reply key starts its entry.
 ///
