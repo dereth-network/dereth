@@ -1,6 +1,8 @@
 //! Horizon beside the game's own interface: chosen and left in one session, each keeping its
 //! windows and showing the shortcut bar's set the other showed, the game's own screens before the
-//! world, the chat entry's command line, and the social window asking the game.
+//! world, the chat entry's command line, the social window asking the game, and the game's own
+//! pointers over Horizon's counterparts of the elements that name them and its crosshair in mouse
+//! look.
 
 use auberean_client_sdk::protocol::ClientMessage;
 use auberean_horizon::ui::hud;
@@ -894,4 +896,180 @@ fn horizons_social_window_opens_on_its_key_and_a_fellowship_asked_for_reaches_th
         !s.horizon().borrow().ui().social.is_open(),
         "Escape closes it"
     );
+}
+
+/// Horizon chosen in the player's files.
+const HORIZON_CHOSEN: &str = "[UI]\r\nInterface=Horizon\r\n";
+
+/// The pointer shown with the pointer at `(x, y)`: its picture and its point.
+fn pointer_at(s: &mut Session, (x, y): (f32, f32)) -> Option<(u32, u32, u32)> {
+    s.shell.event(&Event::Pointer { x, y });
+    s.step();
+    let o = s.frame();
+    o.cursor.map(|c| (c.picture, c.hot_x, c.hot_y))
+}
+
+/// In the world, Horizon shows the pointer each of the game's own elements names in its state
+/// over Horizon's counterpart of it: a window's move bar's over a window's title bar, the paper
+/// doll's over the player's figure in the inventory window, the money bag's over the money bag,
+/// the log window's sizing corner's over the corner the log window is sized by; and the default
+/// pointer elsewhere.
+///
+/// Behaviour: desktop.horizon.the-game-s-element-pointers
+#[test]
+fn horizon_shows_the_pointers_the_game_s_elements_name_over_their_counterparts() {
+    const DEFAULT: (u32, u32, u32) = (0x4100_0870, 0, 0);
+    const MOVE: (u32, u32, u32) = (0x4100_0D0B, 11, 11);
+    const HAND: (u32, u32, u32) = (0x4100_0D0C, 11, 11);
+    const CORNER: (u32, u32, u32) = (0x4100_44B6, 11, 11);
+    let mut s = Session::new(Some(HORIZON_CHOSEN));
+    s.enter_the_world();
+    for _ in 0..30 {
+        s.step();
+    }
+    for down in [true, false] {
+        s.shell.event(&Event::Key {
+            key: Key::I,
+            down,
+            repeat: false,
+        });
+        s.step();
+    }
+    let (window, figure, money, grip) = {
+        let h = s.horizon();
+        let h = h.borrow();
+        let ui = h.ui();
+        let inventory = &ui.goods.inventory;
+        let window = inventory.rect().expect("the inventory is open");
+        let (figure, _) = inventory.figure().expect("its figure");
+        let k = ui.layout_scale((1920.0, 1080.0));
+        let money = inventory.layout(k).expect("its parts").money;
+        let grip = ui
+            .chat
+            .control("Resize 1")
+            .expect("the log window's corner");
+        (window, figure, money, grip)
+    };
+    let middle = |r: dereth_ui_kit::draw::Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    assert_eq!(
+        pointer_at(&mut s, (960.0, 400.0)),
+        Some(DEFAULT),
+        "the world"
+    );
+    assert_eq!(
+        pointer_at(&mut s, (window.x + window.w / 2.0, window.y + 6.0)),
+        Some(MOVE),
+        "the inventory window's title bar"
+    );
+    assert_eq!(pointer_at(&mut s, middle(figure)), Some(HAND), "the figure");
+    assert_eq!(
+        pointer_at(&mut s, middle(money)),
+        Some(HAND),
+        "the money bag"
+    );
+    assert_eq!(
+        pointer_at(&mut s, (window.x + window.w / 2.0, window.bottom() - 4.0)),
+        Some(DEFAULT),
+        "the window's body"
+    );
+    assert_eq!(
+        pointer_at(&mut s, middle(grip)),
+        Some(CORNER),
+        "the log window's corner"
+    );
+    assert_eq!(
+        pointer_at(&mut s, (960.0, 400.0)),
+        Some(DEFAULT),
+        "the world again"
+    );
+}
+
+/// In character creation, the figure that turns as the pointer drags across it shows the pointer
+/// the game's own figure for turning names, with its point.
+///
+/// Behaviour: desktop.horizon.the-game-s-element-pointers
+#[test]
+fn horizon_shows_the_turning_pointer_over_creation_s_figure() {
+    use auberean_horizon::creation::Creation;
+    use auberean_horizon::ui::pregame::Screen;
+    use auberean_primitives::random::Random;
+    let mut s = Session::choosing(Some(HORIZON_CHOSEN));
+    let listed = s.until(10.0, |s| {
+        s.horizon().borrow().screen() == Some(Screen::Select)
+    });
+    assert!(listed, "character select up");
+    let records = &crate::session::data().0.records;
+    s.horizon().borrow_mut().ui_mut().pregame.creation =
+        Some(Creation::new(records, 0, Random::new()));
+    s.step();
+    assert_eq!(s.horizon().borrow().screen(), Some(Screen::Creation));
+    let (figure, _) = s
+        .horizon()
+        .borrow()
+        .ui()
+        .pregame
+        .creation_window
+        .figure
+        .expect("the figure");
+    assert_eq!(
+        pointer_at(
+            &mut s,
+            (figure.x + figure.w / 2.0, figure.y + figure.h / 2.0)
+        ),
+        Some((0x4100_0D0D, 17, 14)),
+        "over the figure"
+    );
+    assert_eq!(
+        pointer_at(&mut s, (figure.x - 20.0, figure.y + figure.h / 2.0)),
+        Some((0x4100_0870, 0, 0)),
+        "beside it"
+    );
+}
+
+/// While the pointer is held for mouse look, Horizon draws the game's crosshair over the world in
+/// the middle of the screen at its own size, placed as the game's play screen places it; once the
+/// pointer is let go, it draws none.
+///
+/// Behaviour: desktop.horizon.the-mouse-look-crosshair
+#[test]
+fn horizon_draws_the_game_s_crosshair_in_the_middle_while_in_mouse_look() {
+    const CROSSHAIR: u32 = 0x4100_0D17;
+    let mut s = Session::new(Some(HORIZON_CHOSEN));
+    s.enter_the_world();
+    for _ in 0..30 {
+        s.step();
+    }
+    let drawn = |s: &mut Session| {
+        s.step();
+        let h = s.horizon();
+        let h = h.borrow();
+        let at = h.ui().crosshair_drawn()?;
+        let tex = h
+            .ui()
+            .art()
+            .icon(CROSSHAIR)
+            .expect("the crosshair's picture")
+            .tex;
+        let quad = h
+            .draw_list()
+            .quads
+            .iter()
+            .find(|q| q.tex == Some(tex))
+            .expect("drawn from the crosshair's picture");
+        assert_eq!(quad.dst, at);
+        Some(at)
+    };
+    assert_eq!(drawn(&mut s), None, "none before mouse look");
+    let heading = s.shell.scene.status.heading;
+    s.shell.scene.camera.set_mouse_look(true, heading);
+    s.step();
+    let at = drawn(&mut s).expect("in mouse look");
+    assert_eq!(
+        (at.x, at.y, at.w, at.h),
+        (949.0, 529.0, 22.0, 22.0),
+        "its middle the screen's"
+    );
+    s.shell.scene.camera.set_mouse_look(false, heading);
+    s.step();
+    assert_eq!(drawn(&mut s), None, "none once mouse look ends");
 }

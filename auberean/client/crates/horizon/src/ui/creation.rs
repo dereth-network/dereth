@@ -307,9 +307,12 @@ impl CreationWindow {
         true
     }
 
-    /// A drag across the figure turns it.
-    fn turn(&mut self, ctx: &Ctx<'_>, c: &mut Creation, figure: Rect) {
+    /// A drag across the figure turns it, and the figure shows the pointer of one turned so.
+    fn turn(&mut self, ctx: &mut Ctx<'_>, c: &mut Creation, figure: Rect) {
         let x = ctx.input.mouse.0;
+        if ctx.input.hover(&figure) || self.turning.is_some() {
+            ctx.input.pointer_over = Some(dereth_ui_kit::input::PointerOver::Turn);
+        }
         if ctx.input.pressed[0] && ctx.input.hover(&figure) {
             self.turning = Some(x);
         }

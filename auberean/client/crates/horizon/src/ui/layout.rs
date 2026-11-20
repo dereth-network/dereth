@@ -660,6 +660,10 @@ impl HudLayout {
             p.fill(at, 0xA000_0000);
             p.text(&label, at.x + 3.0 * k, at.y + 1.0 * k, title);
             self.labels.push((name, at));
+            // An element the editor moves by dragging it shows the pointer of one moved so.
+            if over || selected && self.grab.is_some() {
+                ctx.input.pointer_over = Some(dereth_ui_kit::input::PointerOver::Move);
+            }
             if over && ctx.input.pressed[0] && !ctx.input.captured {
                 self.selected = Some(name);
                 self.grab = Some((ctx.input.mouse.0 - r.x, ctx.input.mouse.1 - r.y));

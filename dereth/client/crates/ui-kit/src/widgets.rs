@@ -664,7 +664,16 @@ pub fn window(
         closed = true;
     }
     p.fade = fade_before;
-    // Over the window, but not a place for the pad's focus to rest: what it holds is.
+    // Over the window, but not a place for the pad's focus to rest: what it holds is. Its title
+    // bar, but for the close button, shows the pointer of something moved by dragging it.
+    let (mx, my) = ctx.input.mouse;
+    if ctx.input.hover(&rect) {
+        ctx.input.pointer_over = (header.contains(mx, my) && !close.contains(mx, my))
+            .then_some(crate::input::PointerOver::Move);
+    }
+    if state.grab.is_some() {
+        ctx.input.pointer_over = Some(crate::input::PointerOver::Move);
+    }
     if ctx.input.hover(&rect) {
         ctx.hot = true;
         if ctx.input.pressed[0] && header.contains(ctx.input.mouse.0, ctx.input.mouse.1) {

@@ -1,5 +1,5 @@
 //! The game's flow between its screens: which screen each mode is, the screen the game starts
-//! on, the default cursor, the screenshot key, and the screens the client's troubles lead to
+//! on, the default cursor and the cursors elements name, the screenshot key, and the screens the client's troubles lead to
 //! (a character refused or logged off, the server gone, the chat service lost).
 //!
 //! It is the element framework's [`Flow`] with the game's nine screens registered: a screen
@@ -252,6 +252,46 @@ pub fn set_default_cursor(ui: &mut Ui) {
     if let Some(c) = default_cursor(ui.assets().as_ref()) {
         ui.set_cursor(c, true);
     }
+}
+
+/// The cursor an element of the game's own interface shows while the pointer is over it, as its
+/// state names it: the element `path` names, child by child, under the top-level element `root`
+/// of the layout `layout_enum` names.
+#[must_use]
+pub fn element_cursor(
+    assets: std::sync::Arc<dyn auberean_ui::Assets + Send + Sync>,
+    layout_enum: u32,
+    root: Token,
+    path: &[Token],
+) -> Option<auberean_ui::Cursor> {
+    let mut ui = Ui::new(assets, 1, 1);
+    let mut h = ui.frame_create_element(layout_enum, root)?;
+    for name in path {
+        h = ui.child(h, *name)?;
+    }
+    ui.node(h)?.cursor
+}
+
+/// The cursor a window of the game's own interface shows over the corner it is sized by at its
+/// bottom right: the cursor of the resize bar on its right and bottom borders, among the children
+/// of the top-level element `root` of the layout `layout_enum` names.
+#[must_use]
+pub fn sizing_corner_cursor(
+    assets: std::sync::Arc<dyn auberean_ui::Assets + Send + Sync>,
+    layout_enum: u32,
+    root: Token,
+) -> Option<auberean_ui::Cursor> {
+    let mut ui = Ui::new(assets, 1, 1);
+    let h = ui.frame_create_element(layout_enum, root)?;
+    let corner = |n: &auberean_ui::system::Node| {
+        n.bool_attr(Token::of("border_right")) && n.bool_attr(Token::of("border_bottom"))
+    };
+    ui.node(h)?
+        .children
+        .iter()
+        .filter_map(|c| ui.node(*c))
+        .find(|n| corner(n))?
+        .cursor
 }
 
 /// The game's default cursor as the records name it: its picture, pointing from its corner.

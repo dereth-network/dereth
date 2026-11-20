@@ -58,12 +58,12 @@ use std::sync::Arc;
 
 use auberean_client_sdk::Action;
 use auberean_shell::interface::{Choice, Request};
-pub use dereth_ui_kit::input::{vk, InputFrame};
+pub use dereth_ui_kit::input::{vk, InputFrame, PointerOver};
 use dereth_ui_kit::paint::Painter;
 use dereth_ui_kit::widgets::Ctx;
 
 use crate::art::Art;
-use crate::draw::{DrawList, Rect};
+use crate::draw::{DrawList, Rect, WHITE};
 use crate::state::GameState;
 
 /// What the player asked for in a frame.
@@ -140,6 +140,11 @@ pub struct HorizonUi {
     pub stack: stack::Stack,
     /// The menu bar's system menu is open.
     pub system_menu: bool,
+    /// The game's crosshair, drawn over the world while the pointer is held for mouse look: its
+    /// picture and where it stands.
+    pub crosshair: Option<(u32, Rect)>,
+    /// Where the crosshair was drawn this frame.
+    crosshair_drawn: Option<Rect>,
     /// Where the stacking windows and the game's question were drawn this frame, for the ones
     /// drawn over them.
     windows_drawn: Vec<Rect>,
@@ -180,6 +185,8 @@ impl HorizonUi {
             pregame: pregame::Screens::default(),
             stack: stack::Stack::default(),
             system_menu: false,
+            crosshair: None,
+            crosshair_drawn: None,
             windows_drawn: Vec::new(),
             covers: Vec::new(),
             tip: None,
@@ -221,6 +228,13 @@ impl HorizonUi {
     #[must_use]
     pub fn covers(&self, x: f32, y: f32) -> bool {
         self.covers.iter().any(|r| r.contains(x, y))
+    }
+
+    /// Where the game's crosshair was drawn in the last frame, while the pointer is held for mouse
+    /// look.
+    #[must_use]
+    pub const fn crosshair_drawn(&self) -> Option<Rect> {
+        self.crosshair_drawn
     }
 
     /// Whether the usage pointer shows at `(x, y)` while an item waits for its target, as the
@@ -268,6 +282,7 @@ impl HorizonUi {
         let mut out = Outcome::default();
         let coordinates = state.in_world.then_some(state.radar.show_coordinates);
         self.covers.clear();
+        self.crosshair_drawn = None;
         self.windows_drawn.clear();
         self.stack.drawn.clear();
         let backing = art.palette().panel;
@@ -365,8 +380,14 @@ impl HorizonUi {
         } else if state.in_world {
             use layout::element as e;
             let k = p.scale;
-            // The selection's marks lie over the world, under the HUD.
+            // The selection's marks lie over the world, under the HUD; the crosshair too.
             marker::draw(&mut p, state, self.time);
+            if let Some((picture, at)) = self.crosshair {
+                if let Some(s) = p.art.icon(picture) {
+                    p.sprite(&s, at, WHITE);
+                    self.crosshair_drawn = Some(at);
+                }
+            }
             let screen = p.screen;
             // Health and vigor stand beside a hero's focus gauge at its default place, as they
             // do in the editor for anyone; else they close up.

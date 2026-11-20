@@ -9,6 +9,7 @@
 //! coins are carried out of the money bag the same way, asking how many.
 
 use dereth_ui_kit::art::Family;
+use dereth_ui_kit::input::PointerOver;
 use dereth_ui_kit::paint::{Align, Painter, TextStyle};
 use dereth_ui_kit::widgets::{self as kit, Ctx, WindowState};
 
@@ -246,6 +247,10 @@ impl Inventory {
         kit::figure_ground(p, l.figure);
         self.figure = Some((l.figure, p.list.mark()));
         carry.zone(l.figure, Zone::Figure);
+        // The figure and the money bag show the pointer of a place an item is dropped on.
+        if ctx.input.hover(&l.figure) {
+            ctx.input.pointer_over = Some(PointerOver::Drop);
+        }
         for (location, r) in &l.worn {
             let worn = goods.worn_at(*location);
             let item = worn.and_then(|id| goods.item(id).map(|it| (id, it)));
@@ -343,6 +348,9 @@ impl Inventory {
         // The money bag: its coins carried out, an item put down on it melted.
         let money = goods.money();
         let over = ctx.input.hover(&l.money);
+        if over {
+            ctx.input.pointer_over = Some(PointerOver::Drop);
+        }
         let pressed = kit::icon_slot(p, ctx, l.money, None, crate::draw::WHITE);
         items::coin(p, kit::icon_rect(l.money));
         carry.zone(l.money, Zone::Money);

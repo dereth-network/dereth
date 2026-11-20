@@ -757,6 +757,9 @@ impl<L: Clone, const N: usize> ChatLog<L, N> {
                 });
             }
         }
+        if ctx.input.hover(&grip) || self.resizing.is_some_and(|(s, _)| s == slot) {
+            ctx.input.pointer_over = Some(crate::input::PointerOver::Size);
+        }
         self.controls.push((format!("Resize {}", slot + 1), grip));
         grip
     }
@@ -897,6 +900,11 @@ impl<L: Clone, const N: usize> ChatLog<L, N> {
             ctx.input.wheel = 0.0;
         }
         let dragging = self.floating[slot].grab.is_some();
+        if dragging || ctx.input.hover(&handle) {
+            ctx.input.pointer_over = Some(crate::input::PointerOver::Move);
+        } else if ctx.input.hover(&whole) {
+            ctx.input.pointer_over = None;
+        }
         self.popped_rects[slot] = Some(whole);
         let tab_bar = Rect::new(x, y, w, tab_h);
         let tr = tab(p, x, y);

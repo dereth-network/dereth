@@ -1254,6 +1254,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.the-game-s-element-pointers",
+        says: "Our choice: over its counterparts of the game's own elements, Horizon shows the \
+               pointers those elements' states name in the records: a window's move bar's over a \
+               title bar, the paper doll's over the player's figure and the money bag, the log \
+               window's sizing corner's over its corner, the turning figure's over creation's \
+               figure.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-ELEMENT-POINTERS"),
+        station: "auberean-horizon::dat::interfaces::horizon_shows_the_pointers_the_game_s_elements_name_over_their_counterparts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.the-game-s-own-pointers",
         says: "Our choice: Horizon shows the game's own pointers from its records, as the game's \
                own interface does: the default one, and over the world the usage one while an \
@@ -1409,6 +1422,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-interface-choice",
         evidence: Evidence::Private("AC2-EVID-HORIZON-GOLD"),
         station: "auberean-horizon::dat::things::the_money_is_the_games_gold_picture",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-mouse-look-crosshair",
+        says: "Our choice: while the pointer is held for mouse look, Horizon draws the game's \
+               crosshair over the world, placed in the middle of the screen as the game's play \
+               screen places it, and none once it is let go.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CROSSHAIR"),
+        station: "auberean-horizon::dat::interfaces::horizon_draws_the_game_s_crosshair_in_the_middle_while_in_mouse_look",
         tier: Tier::Dat,
     },
     behaviour! {

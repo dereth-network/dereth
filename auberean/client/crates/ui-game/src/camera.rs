@@ -58,6 +58,19 @@ pub enum Request {
     Act { action: u32, extent: f32 },
 }
 
+/// The crosshair as the play screen shows it in mouse look on a screen `size` pixels across: its
+/// picture and where it stands (left, top, right, bottom, the last row and column its own).
+#[must_use]
+pub fn crosshair(
+    assets: std::sync::Arc<dyn auberean_ui::Assets + Send + Sync>,
+    size: (i32, i32),
+) -> Option<(u32, auberean_ui::Rect)> {
+    let mut ui = Ui::new(assets, size.0, size.1);
+    let h = ui.frame_create_element(GAMEPLAY_LAYOUT_ENUM, name::MOUSE_LOOK_CURSOR_FIELD)?;
+    let picture = ui.node(h)?.picture?.id;
+    Some((picture, ui.screen_rect(h)?))
+}
+
 /// The camera's panel: a child framework of the play screen.
 #[derive(Debug)]
 pub struct Camera {

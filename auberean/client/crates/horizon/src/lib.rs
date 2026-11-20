@@ -5,7 +5,7 @@
 //! **Depends on** the shell's interface seam (`auberean-shell`), the client's contract through the
 //! SDK (`auberean-client-sdk`: the view, the events, the notices and the actions), the game's
 //! records an interface reads (`auberean-ui`'s `Assets`: its strings and pictures), the game's own
-//! interface's pointers as the records name them (`auberean-ui-game`), the client's own
+//! interface's pointers and crosshair as the records name them (`auberean-ui-game`), the client's own
 //! preferences (`auberean-options`), the world's records the map reads, the credits' layout and a
 //! look's figure for the player's figure in the inventory window and a character's before the
 //! world (`auberean-assets`, `auberean-scene`, `auberean-world`: the region's map pictures and
@@ -97,7 +97,7 @@ use auberean_shell::interface::MovementMode;
 use crate::art::{Pieces, Records};
 use crate::draw::DrawList;
 use crate::state::{Frame, GameState};
-use crate::ui::{vk, HorizonUi, InputFrame};
+use crate::ui::{vk, HorizonUi, InputFrame, PointerOver};
 
 /// The interface's string table, where the game's own messages are.
 pub const STRINGS: u32 = 0x2500_0012;
@@ -285,6 +285,10 @@ pub struct Horizon {
     pre_figure: figure::Figure,
     state: GameState,
     input: InputFrame,
+    /// What the pointer was over that shows a pointer of its own, as the last frame was drawn.
+    pointer_over: Option<PointerOver>,
+    /// The crosshair for the screen's size it was last placed on.
+    crosshair: Option<((u32, u32), Option<Crosshair>)>,
     list: DrawList,
     overlay: draw::Overlay,
     /// The modifier bits held.
@@ -364,17 +368,34 @@ const fn change_key(c: &Change) -> u32 {
     }
 }
 
-/// The game's pointers as its own interface shows them: the default one everywhere, and while an
-/// item waits for its target the usage one over the world and over the items' icons.
+/// The game's crosshair as its play screen places it: its picture and where it stands.
+type Crosshair = (u32, auberean_ui::Rect);
+
+/// The game's pointers as its own interface shows them: the default one everywhere, while an item
+/// waits for its target the usage one over the world and over the items' icons, and over Horizon's
+/// counterparts of the game's own elements the pointers those elements name.
 #[derive(Clone, Debug, Default)]
 struct Cursors {
     default: Option<Arc<CursorImage>>,
     usage: Option<Arc<CursorImage>>,
+    /// A window's move bar's: over a title bar, a log window's tab.
+    moving: Option<Arc<CursorImage>>,
+    /// The log window's corner at its bottom right, which sizes it.
+    sizing: Option<Arc<CursorImage>>,
+    /// The player's figure in the inventory window's, and the money bag's.
+    dropping: Option<Arc<CursorImage>>,
+    /// The figure turned by dragging across it, in character creation.
+    turning: Option<Arc<CursorImage>>,
 }
 
 impl Cursors {
     /// The pointers the records name, with their pictures.
     fn of(records: &Records) -> Self {
+        use auberean_ui::Token;
+        use auberean_ui_game::creation::AVATAR_MODIFICATION_LAYOUT_ENUM as CREATION;
+        use auberean_ui_game::flow::{element_cursor, sizing_corner_cursor};
+        use auberean_ui_game::gameplay::PLAY_LAYOUT_ENUM as PLAY;
+        use auberean_ui_game::shortcuts::TOOLBAR_LAYOUT_ENUM as TOOLBAR;
         let image = |c: Option<auberean_ui::Cursor>| {
             let c = c?;
             let img = records.image(c.picture)?;
@@ -385,11 +406,41 @@ impl Cursors {
                 (c.hot_x, c.hot_y),
             )))
         };
+        let element = |layout, path: &[&str]| {
+            let names: Vec<Token> = path.iter().map(|n| Token::of(n)).collect();
+            image(element_cursor(
+                Arc::clone(records),
+                layout,
+                names[0],
+                &names[1..],
+            ))
+        };
         Self {
             default: image(auberean_ui_game::flow::default_cursor(records.as_ref())),
             usage: image(auberean_ui_game::selection::usage_cursor(Arc::clone(
                 records,
             ))),
+            moving: element(PLAY, &["Book", "MoveBar"]),
+            sizing: image(sizing_corner_cursor(
+                Arc::clone(records),
+                TOOLBAR,
+                Token::of("ChatWindow1"),
+            )),
+            dropping: element(TOOLBAR, &["PaperDollViewport"]),
+            turning: element(
+                CREATION,
+                &["AvatarModificationField", "MouseRotationOverField"],
+            ),
+        }
+    }
+
+    /// The pointer Horizon's counterpart of the game's element shows.
+    fn over(&self, over: PointerOver) -> Option<Arc<CursorImage>> {
+        match over {
+            PointerOver::Move => self.moving.clone(),
+            PointerOver::Size => self.sizing.clone(),
+            PointerOver::Drop => self.dropping.clone(),
+            PointerOver::Turn => self.turning.clone(),
         }
     }
 }
@@ -434,6 +485,8 @@ impl Horizon {
             pre_figure: figure::Figure::default(),
             state: GameState::default(),
             input: InputFrame::default(),
+            pointer_over: None,
+            crosshair: None,
             list: DrawList::default(),
             overlay: draw::Overlay::default(),
             held: 0,
@@ -527,6 +580,30 @@ impl Horizon {
         self.pending.push(Request::Act(Action::LogOff));
     }
 
+    /// The crosshair as the game's own play screen places it on a screen of `size` pixels: its
+    /// picture, and where it is drawn at its own size. Placed again only when the size changes.
+    fn crosshair_on(&mut self, size: (u32, u32)) -> Option<(u32, draw::Rect)> {
+        if self.crosshair.is_none_or(|(at, _)| at != size) {
+            let placed = self.records.as_ref().and_then(|r| {
+                let w = i32::try_from(size.0).ok()?;
+                let h = i32::try_from(size.1).ok()?;
+                auberean_ui_game::camera::crosshair(Arc::clone(r), (w, h))
+            });
+            self.crosshair = Some((size, placed));
+        }
+        let (picture, r) = self.crosshair.and_then(|(_, c)| c)?;
+        #[allow(clippy::cast_precision_loss)] // a screen's pixels
+        Some((
+            picture,
+            draw::Rect::new(
+                r.x0 as f32,
+                r.y0 as f32,
+                (r.x1 - r.x0 + 1) as f32,
+                (r.y1 - r.y0 + 1) as f32,
+            ),
+        ))
+    }
+
     /// This frame's draw list, as the last update drew it.
     #[must_use]
     pub const fn draw_list(&self) -> &DrawList {
@@ -608,6 +685,7 @@ impl Horizon {
             &lines,
             &mut out,
         );
+        self.pointer_over = self.input.pointer_over;
         // Kept while the credits are up, and read once they are: the frame Credits was pressed in
         // drew none.
         self.credits = match (self.ui.pregame.credits.is_some(), lines.is_empty()) {
@@ -1462,6 +1540,7 @@ impl Interface for Horizon {
             #[allow(clippy::cast_precision_loss)]
             let screen = (game.size.0 as f32, game.size.1 as f32);
             ui::leaving::frame(&mut self.list, self.ui.art(), screen);
+            self.pointer_over = None;
             self.input.next_frame();
             return;
         }
@@ -1491,6 +1570,12 @@ impl Interface for Horizon {
             game.now,
             inner,
         )));
+        // The crosshair in the middle of the screen while the pointer is held for mouse look.
+        self.ui.crosshair = if game.mouse_look {
+            self.crosshair_on(game.size)
+        } else {
+            None
+        };
         let out = self.ui.frame(
             &mut self.list,
             screen,
@@ -1499,6 +1584,7 @@ impl Interface for Horizon {
             &mut self.input,
             game.interface,
         );
+        self.pointer_over = self.input.pointer_over;
         self.input.next_frame();
         if let Some(text) = out.say {
             requests.push(Request::Act(Action::Say { text }));
@@ -1560,14 +1646,13 @@ impl Interface for Horizon {
         overlay.front = None;
         let (x, y) = self.input.mouse;
         let aimed = self.ui.usage_pointer_at(x, y);
+        let element = self.pointer_over.and_then(|o| self.cursors.over(o));
         overlay.cursor = if game.phase == Phase::World && self.state.goods.targeting && aimed {
-            self.cursors
-                .usage
-                .clone()
-                .or_else(|| self.cursors.default.clone())
+            self.cursors.usage.clone()
         } else {
-            self.cursors.default.clone()
-        };
+            element
+        }
+        .or_else(|| self.cursors.default.clone());
         overlay.screen = None;
         if game.phase != Phase::World {
             self.draw_before_world(game, overlay);

@@ -70,6 +70,22 @@ pub struct InputFrame {
     pub pad: PadFrame,
     /// What answers the pointer this frame, for the pad's focus to move over.
     pub nav: crate::nav::NavFrame,
+    /// What the pointer is over that shows a pointer of its own, as this frame was drawn: the
+    /// last thing drawn under it says, and a window drawn over it says it is over none.
+    pub pointer_over: Option<PointerOver>,
+}
+
+/// What the pointer can be over that shows a pointer of its own; the interface picks its picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerOver {
+    /// Something moved by dragging it: a window's title bar, a log window's tab.
+    Move,
+    /// The corner a window is made larger or smaller by, at its bottom right.
+    Size,
+    /// A place an item is dropped on: the player's figure, the money bag.
+    Drop,
+    /// A figure turned by dragging across it.
+    Turn,
 }
 
 /// What the pad asks of the interface this frame.
@@ -170,6 +186,7 @@ impl InputFrame {
         self.pad.pick = None;
         self.pad.close = None;
         self.nav.finish();
+        self.pointer_over = None;
     }
 
     /// Note a left press at `time_ms`: the second within half a second and a few pixels of the

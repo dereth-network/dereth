@@ -7,7 +7,7 @@ not how it was done.
 
 ## Unreleased
 - Horizon: Ctrl+C copies what you select in the chat log.
-- Horizon: shows the game's own mouse pointers, including the one for using an item on something.
+- Horizon: shows the game's own mouse pointers, and its crosshair in mouse look.
 - Horizon: windows now open clear of the chat and HUD where you put them.
 - Horizon: fellowship and allegiance are now one Social button.
 - Switching interfaces now keeps your open windows and hotbar.

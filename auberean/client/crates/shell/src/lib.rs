@@ -129,6 +129,7 @@ macro_rules! game {
             files_read: &$s.files_read,
             pad: $s.pad,
             plugin_windows: &$s.plugins.windows,
+            mouse_look: $s.input.pointer_held(),
         }
     };
 }

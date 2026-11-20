@@ -353,6 +353,8 @@ pub struct Game<'a> {
     pub plugin_lines: &'a [String],
     /// The plugins' windows and HUDs, open or not, as their host has them ([`crate::plugins`]).
     pub plugin_windows: &'a [crate::plugins::PluginWindow],
+    /// The pointer is held for mouse look: hidden, the camera turned by it.
+    pub mouse_look: bool,
 }
 
 /// The looks of the figures an interface's viewports show, as the world's records make them.
