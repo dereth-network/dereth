@@ -2766,6 +2766,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.refused-for-a-while-after-a-skills-use",
+        says: "For five seconds after a use of a skill is over, the player's template's combat mode delay, \
+               a craft is refused as the player not being at peace; from then on it is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-AFTER-A-USE"),
+        station: "yalain-testkit::cpu::play::crafting::a_craft_is_refused_for_five_seconds_after_a_skills_use_is_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.required-amount-by-the-spinner",
         says: "Too few of the amount the spinner asks for is refused with why, as the ingredient goes in and at the making.",
         since: RETAIL,

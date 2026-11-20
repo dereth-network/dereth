@@ -159,6 +159,10 @@ pub mod raised_text {
     pub const SHORT: (u32, u32) = (0xD848_9F51, 0x2500_000C);
 }
 
+/// How long after a use of a skill is over a player may not craft, in seconds: the combat mode
+/// delay the player's template holds (5 in the install, as every record holding it says).
+pub const COMBAT_MODE_DELAY: f64 = 5.0;
+
 /// Why an ingredient or a craft is refused (the client writes the reason).
 pub mod error {
     pub const NOT_OWNED: u32 = 1048;
@@ -2199,6 +2203,11 @@ pub fn execute<S: Store>(
         return;
     };
     if p.attacking.is_some() || p.using.is_some() || p.making.is_some() {
+        return refuse(net, error::PEACE_REQUIRED);
+    }
+    // Nor for a while after a use of a skill is over (2017: 81 of 85 such refusals came within
+    // 4.9 s of the use's end; none of the 19 crafts asked 4.9 to 6 s after was refused so).
+    if p.use_over.is_some_and(|at| now - at < COMBAT_MODE_DELAY) {
         return refuse(net, error::PEACE_REQUIRED);
     }
     if p.dying.is_some() || crate::combat::is_dead(p) || p.trip.is_some() {

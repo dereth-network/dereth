@@ -3220,6 +3220,9 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
         skill_unused(s, net, world, &x);
     } else {
         skill_info(s, net, world, &x, now_game, 0);
+        if let Some(p) = s.players.get_mut(&world) {
+            p.use_over = Some(now_game);
+        }
     }
     let Some(p) = s.players.get_mut(&world) else {
         return;

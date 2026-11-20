@@ -201,6 +201,9 @@ pub struct Player {
     pub follows: Option<crate::call_limit::Bucket>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
+    /// When its last use of a skill was over and told (game time): it may not craft for a while
+    /// after.
+    pub use_over: Option<f64>,
     /// Another player it is walked to, and what for.
     pub approaching: Option<(u64, crate::social::Approach)>,
     /// The story shard's protection on it (its effect's id), until it ends.
@@ -567,6 +570,7 @@ pub fn enter<S: Store>(
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
+        use_over: None,
         talk: None,
         asks: None,
         follows: None,

@@ -2935,6 +2935,74 @@ fn spellbinding_refuses_an_item_whose_data_bars_taking_its_enchantments() {
     }
 }
 
+/// For five seconds after a use of a skill is over (its information told), a craft is refused as
+/// the player not being at peace, and nothing is lost; from then on it is made.
+/// Behaviour: server.craft.refused-for-a-while-after-a-skills-use
+#[test]
+fn a_craft_is_refused_for_five_seconds_after_a_skills_use_is_over() {
+    use yalain_world::craft::COMBAT_MODE_DELAY;
+    const SKILL_INFO: u32 = 0x8214_000D;
+    let (mut h, b, me, world) = in_world();
+    h.arm(b, me, 0x4700_051C);
+    for q in [
+        yalain_world::player::quality::VIGOR_MAX,
+        yalain_world::player::quality::VIGOR,
+    ] {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        yalain_world::quals::set_int(&mut p.qualities, q, 400);
+    }
+    known(&mut h, ENCHANTMENT, true);
+    let item = spellbinding_ready(&mut h, world, 0x4700_207F);
+    h.server.things.get_mut(item).expect("made").enchantments = vec![(ENCHANTMENT, 12.0)];
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::skill_use::function::USE,
+            &[
+                Arg::Int(3),
+                Arg::Int(yalain_testkit::EASE_SUFFERING),
+                Arg::LongInt(0),
+            ],
+        ),
+    );
+    assert!(
+        h.run_until(2000, |h| calls_of(h, b, from)
+            .iter()
+            .any(|(f, _)| *f == SKILL_INFO)),
+        "the use is over"
+    );
+    // When the server told it, on the harness's clock.
+    let told = h.server.players[&world].use_over.expect("told");
+    let over = h.now.0 - (h.net.game_time(h.clock().local) - told);
+    for at in [0.5, COMBAT_MODE_DELAY - 0.2] {
+        let left = over + at - h.now.0;
+        wait(&mut h, left);
+        let from = execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+        h.run(4);
+        assert_eq!(
+            craft_answers(&h, b, from),
+            [error::PEACE_REQUIRED],
+            "{at} s after"
+        );
+    }
+    let left = over + COMBAT_MODE_DELAY + 0.2 - h.now.0;
+    wait(&mut h, left);
+    let from = execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    assert_eq!(craft_answers(&h, b, from), [0], "made after");
+    assert!(
+        !h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "taken apart"
+    );
+}
+
 /// A world's `[[spellbinding]]` row says which totem its sort of item makes and the word it says it
 /// goes on.
 /// Behaviour: server.craft.spellbinding-by-world-rows
