@@ -159,8 +159,13 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Book(r) => Item::Book {
             template: r.template,
         },
-        Row::Examination(r) => Item::Examination {
-            template: r.template,
+        Row::Examination(r) => match &r.object {
+            Some(object) => Item::ObjectExamination {
+                object: object.clone(),
+            },
+            None => Item::Examination {
+                template: r.template.unwrap_or(0),
+            },
         },
         Row::StartItem(r) => Item::StartItem {
             template: r.template,

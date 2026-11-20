@@ -1339,12 +1339,16 @@ pub struct Book {
     pub prov: Prov,
 }
 
-/// `[[examination]]`: what examining an object of a template says where its template names nothing
-/// (a name and description its script gives it): its name and its description, string references.
+/// `[[examination]]`: what examining an object says where its template names nothing (a name and
+/// description its script gives it): its name and its description, string references. A row is of
+/// every object of a template, or of one placed object (`key@XXYY`, or `pack:key@XXYY`), whose
+/// own page differs from its template's (a portal's by where it leads); a template's row gives a
+/// name, an object's a name or a description or both.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Examination {
-    pub template: u32,
-    pub name: StrRef,
+    pub template: Option<u32>,
+    pub object: Option<String>,
+    pub name: Option<StrRef>,
     pub description: Option<StrRef>,
     pub prov: Prov,
 }
@@ -2315,7 +2319,10 @@ pub const FIELDS: &[(&str, &[&str])] = &[
         &["template", "effects", "behavior", "wears", "prov"],
     ),
     ("book", &["template", "table", "picture", "prov"]),
-    ("examination", &["template", "name", "description", "prov"]),
+    (
+        "examination",
+        &["template", "object", "name", "description", "prov"],
+    ),
     ("start_item", &["template", "count", "prov"]),
     ("item_life", &["template", "lasts", "prov"]),
     (
@@ -3383,14 +3390,36 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             })
         }
         "examination" => {
-            let template = f.req_id("template")?;
+            let (template, object) = match (f.get("template"), f.get("object")) {
+                (Some(_), None) => (Some(f.req_id("template")?), None),
+                (None, Some(_)) => (None, Some(f.req_reference("object")?)),
+                (None, None) => return f.missing("template"),
+                (Some(_), Some(_)) => {
+                    f.bad(
+                        "template, object",
+                        "a row is of a template or of one object",
+                    );
+                    return None;
+                }
+            };
             let name = match f.get("name") {
-                Some(_) => f.strref("name")?,
-                None => return f.missing("name"),
+                Some(_) => Some(f.strref("name")?),
+                None => None,
             };
             let description = f.strref("description");
+            if template.is_some() && name.is_none() {
+                return f.missing("name");
+            }
+            if name.is_none() && description.is_none() {
+                f.bad(
+                    "name, description",
+                    "an object's row gives a name or a description",
+                );
+                return None;
+            }
             Row::Examination(Examination {
                 template,
+                object,
                 name,
                 description,
                 prov: f.req_prov()?,
@@ -5561,6 +5590,17 @@ impl<'a> Fields<'a> {
     }
 
     /// A list of references to placed objects (`key@XXYY`, or `pack:key@XXYY`); missing is wrong.
+    fn req_reference(&mut self, name: &str) -> Option<String> {
+        match self.t.get(name) {
+            Some(_) => self.typed(
+                name,
+                "a placed object (key@XXYY, or pack:key@XXYY from another pack)",
+                |v| v.as_str().filter(|s| is_reference(s)).map(str::to_string),
+            ),
+            None => self.missing(name),
+        }
+    }
+
     fn req_references(&mut self, name: &str) -> Option<Vec<String>> {
         match self.t.get(name) {
             Some(_) => self.typed(

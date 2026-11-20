@@ -3388,6 +3388,73 @@ fn a_placed_object_is_examined_by_the_name_and_page_its_qualities_record_holds()
     );
 }
 
+/// An examination row of one placed object gives that object its own page (a portal's, by where it
+/// leads) over its template's, and its name where it gives one; the template's other objects keep
+/// theirs. A row of an object needs a name or a page and is of a template or an object, not both; an
+/// object no pack places is a problem.
+/// Behaviour: server.examination.object-text-rows
+#[test]
+fn an_examination_row_of_one_object_gives_it_its_own_page() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "[[camp]]",
+        "[[object]]\nkey = \"leads\"\nkind = \"static\"\nid = 0x4077B70000000009\ntemplate = 0x4700115B\n\
+         at = [121.0, 111.0, 250.0]\nprov = { from = \"authored\" }\n\n\
+         [[object]]\nkey = \"other\"\nkind = \"static\"\nid = 0x4077B7000000000A\ntemplate = 0x4700115B\n\
+         at = [122.0, 111.0, 250.0]\nprov = { from = \"authored\" }\n\n[[camp]]",
+    );
+    const ROW: &str = "[[examination]]\nobject = \"leads@77B7\"\n\
+         description = { table = 0x25001B43, string = 0x27B0565A }\nprov = { from = \"authored\" }\n";
+    files.insert("town/server/examinations.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let page = |id: u64| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(id))
+            .map(|o| o.facts.description)
+            .unwrap()
+    };
+    assert_eq!(
+        page(0x4077_B700_0000_0009),
+        Some((0x27B0_565A, 0x2500_1B43)),
+        "its own"
+    );
+    assert_ne!(
+        page(0x4077_B700_0000_000A),
+        Some((0x27B0_565A, 0x2500_1B43)),
+        "another's"
+    );
+    for (from, to) in [
+        (
+            "object = \"leads@77B7\"",
+            "object = \"leads@77B7\"\ntemplate = 0x4700115B",
+        ),
+        (
+            "description = { table = 0x25001B43, string = 0x27B0565A }",
+            "",
+        ),
+        ("object = \"leads@77B7\"", "object = 7"),
+    ] {
+        files.insert(
+            "town/server/examinations.toml".into(),
+            ROW.replacen(from, to, 1),
+        );
+        assert!(read(&files).is_err(), "{to:?}");
+    }
+    files.insert(
+        "town/server/examinations.toml".into(),
+        ROW.replacen("leads@77B7", "nowhere@77B7", 1),
+    );
+    assert!(
+        compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).is_err(),
+        "an object no pack places"
+    );
+}
+
 /// An examination row gives the placed objects of its template the name and page examining them
 /// shows, where the template names none; a template that names itself keeps its own. A row needs a
 /// name, a string reference, and takes nothing else.

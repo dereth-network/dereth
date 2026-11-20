@@ -817,10 +817,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::Quest(q) => {
                 quest_rows.insert(q.id);
             }
-            Row::Examination(e) => {
-                let again = examined
-                    .insert(e.template, (e.name, e.description))
-                    .is_some();
+            Row::Examination(e) if e.object.is_none() => {
+                let (Some(template), Some(name)) = (e.template, e.name) else {
+                    continue;
+                };
+                let again = examined.insert(template, (name, e.description)).is_some();
                 if again {
                     cx.warn(
                         l,
@@ -1625,10 +1626,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Examination(r) => {
-                if cx.template(l, "template", r.template) {
-                    t.items
-                        .names
-                        .insert(r.template, (pair(r.name), r.description.map(pair)));
+                if let (Some(template), Some(name)) = (r.template, r.name) {
+                    if cx.template(l, "template", template) {
+                        t.items
+                            .names
+                            .insert(template, (pair(name), r.description.map(pair)));
+                    }
                 }
             }
             Row::StartItem(r) => {
@@ -2444,6 +2447,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // object has its place in the content pack (and every camp its row in the spawn table).
     for l in &merged.rows {
         match &l.row {
+            Row::Examination(r) if r.object.is_some() => {
+                let name = r.object.as_deref().unwrap_or_default();
+                if let Some(i) = placed_object(&mut cx, &objects_at, l, "object", name) {
+                    let f = &mut t.content.objects[i].facts;
+                    let text = |s: &StrRef| (s.string, s.table);
+                    f.name = r.name.as_ref().map(text).or(f.name);
+                    f.description = r.description.as_ref().map(text).or(f.description);
+                }
+            }
             Row::Sequence(r) if r.objects.iter().any(Option::is_some) => {
                 let mut q = r.sequence.clone();
                 let mut ok = true;

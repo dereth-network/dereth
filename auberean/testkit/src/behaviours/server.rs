@@ -5909,6 +5909,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.examination.object-text-rows",
+        says: "A world's examination row of one placed object gives it its own page, and its name \
+               where it gives one, over its template's, as a portal's page names where it leads.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINATION-OBJECT-ROWS"),
+        station: "yalain-world-db::cpu::database::an_examination_row_of_one_object_gives_it_its_own_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.one-look-waits",
         says: "However often a player asks to examine, one look at what it examines waits for it.",
         since: TOOLING,

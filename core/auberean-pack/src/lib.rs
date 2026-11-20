@@ -268,6 +268,9 @@ pub enum Item {
     /// What examining an object of a template says where its template names nothing, by the
     /// template.
     Examination { template: u32 },
+    /// What examining one placed object says of it, by the object (`key@XXYY`, or
+    /// `pack:key@XXYY`).
+    ObjectExamination { object: String },
     /// What every new character is given as it first enters, by the template.
     StartItem { template: u32 },
     /// How long an item lasts from when it is made, by the template.
@@ -456,6 +459,9 @@ impl Item {
             ["book", template] => Self::Book {
                 template: number(template)?,
             },
+            ["examination", object] if object.contains('@') => Self::ObjectExamination {
+                object: (*object).to_string(),
+            },
             ["examination", template] => Self::Examination {
                 template: number(template)?,
             },
@@ -591,6 +597,7 @@ impl fmt::Display for Item {
             Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
             Self::Book { template } => write!(f, "book {template:#010x}"),
             Self::Examination { template } => write!(f, "examination {template:#010x}"),
+            Self::ObjectExamination { object } => write!(f, "examination {object}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
             Self::ItemLife { template } => write!(f, "item_life {template:#010x}"),
             Self::Interaction { key } => write!(f, "interaction {key}"),

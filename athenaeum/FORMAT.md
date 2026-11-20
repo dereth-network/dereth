@@ -1342,10 +1342,14 @@ What examining an object of a template says, where its template names nothing (a
 script gives it from a table of its own): a placed object's, and an item's. A name or page the
 template holds stands. One row per template.
 
+A row may instead be of one placed object whose own page differs from its template's (a portal's,
+by where it leads): its name, its page or both, over its template's. One row per object.
+
 | field | | meaning |
 |---|---|---|
-| `template` | required | the template |
-| `name` | required | its name, a string reference |
+| `template` | | the template; a row gives this or `object` |
+| `object` | | the placed object, `key@XXYY` (or `pack:key@XXYY` from another pack) |
+| `name` | | its name, a string reference; required for a template's row |
 | `description` | | its page, a string reference; the install's page when left out |
 | `prov` | required | where it came from |
 
