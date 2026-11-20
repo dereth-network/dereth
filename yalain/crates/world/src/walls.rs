@@ -848,6 +848,30 @@ impl Walls {
         self.step_with(template, scale, from, d, None, true)
     }
 
+    /// The height of the floor under the body of a creature of `template` and `scale` at `at`: where
+    /// its body comes to rest falling straight down, as a walker's set over the floor does; at
+    /// `at`'s own height when it is on the floor. None when the walls cannot read its cell or
+    /// nothing is under it within reach.
+    pub fn floor_under(&mut self, template: u32, scale: f32, at: &StoredPosition) -> Option<f32> {
+        self.need(at.cell);
+        if !self.knows(at.cell) {
+            return None;
+        }
+        let start = position(at, 0.0);
+        let body = body_of(
+            &mut self.bodies,
+            &self.walkers,
+            &self.land,
+            &mut self.world,
+            (template, scale),
+            (start, 0.0),
+        );
+        let (landed, moves) = come_down(body, &self.land, &mut self.world, start, 0.0);
+        self.moves += moves;
+        put_away(body, &self.land, &mut self.world);
+        landed.map(|p| p.frame.origin.z)
+    }
+
     /// How high a template flies, at rest and in a fight, if it does.
     #[must_use]
     pub fn hover(&self, template: u32) -> Option<Hover> {
@@ -1056,9 +1080,7 @@ impl Walls {
             return None;
         }
         let heading = math::atan2f(d[0], d[1]).to_degrees().rem_euclid(360.0);
-        let key = (template, scale.to_bits());
-        let walker = self.walkers.get(&template).cloned();
-        let hover = walker.as_ref().and_then(|w| w.flies).map(|h| {
+        let hover = self.walkers.get(&template).and_then(|w| w.flies).map(|h| {
             if fighting {
                 h.fighting
             } else {
@@ -1066,29 +1088,14 @@ impl Walls {
             }
         });
         let flying = hover.is_some();
-        let (land, world) = (&self.land, &mut self.world);
-        let body = self.bodies.entry(key).or_insert_with(|| {
-            let w = walker.unwrap_or_else(|| Walker::of_size(ANY_WALKER.0, ANY_WALKER.1));
-            let config = BodyConfig {
-                spheres: w
-                    .spheres
-                    .iter()
-                    .map(|s| Sphere::new(Vec3::new(s[0], s[1], s[2]), s[3]))
-                    .collect(),
-                step_up: w.step_up,
-                step_down: w.step_down,
-                scale: w.scale * scale,
-                ground: auberean_assets::animation::MotionParams::default(),
-                air: auberean_assets::animation::MotionParams::default(),
-            };
-            let mut b = Body::new(config, position(from, heading), heading);
-            b.is_player = false;
-            let entry = world.insert_body(land, 0, &mut b);
-            if let Some(e) = w.ethereality {
-                world.set_ethereality(entry, e);
-            }
-            b
-        });
+        let body = body_of(
+            &mut self.bodies,
+            &self.walkers,
+            &self.land,
+            &mut self.world,
+            (template, scale),
+            (position(from, heading), heading),
+        );
         let start = position(from, heading);
         let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -1153,10 +1160,7 @@ impl Walls {
                 .unwrap_or(start);
         }
         // A body stands in the world only for its step: it is no wall to the next creature's.
-        if let Some(entry) = body.key() {
-            let nowhere = Position::new(CellId(0), Frame::new(Vec3::ZERO, Quat::IDENTITY));
-            self.world.place(&self.land, entry, nowhere);
-        }
+        put_away(body, &self.land, &mut self.world);
         let moved = flat(&start, &end);
         let mut at = stored(&end);
         at.rotation = stored(&start).rotation;
@@ -1693,6 +1697,21 @@ fn fall(
     start: Position,
     heading: f32,
 ) -> (Option<Position>, u64) {
+    let (landed, moves) = come_down(body, land, world, start, heading);
+    let fell = landed.filter(|at| start.frame.origin.z - at.frame.origin.z > FELL);
+    (fell, moves)
+}
+
+/// Where a body over the floor at `start` comes to rest going straight down, as [`fall`] takes it:
+/// `start` itself when it is on the floor; with the moves it took. None when nothing is under it
+/// within [`FALLS`].
+fn come_down(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    start: Position,
+    heading: f32,
+) -> (Option<Position>, u64) {
     let mut at = start;
     let mut moves = 0;
     while start.frame.origin.z - at.frame.origin.z < FALLS {
@@ -1716,11 +1735,57 @@ fn fall(
         }
         at = next;
         if landed {
-            let fell = start.frame.origin.z - at.frame.origin.z > FELL;
-            return (fell.then_some(at), moves);
+            return (Some(at), moves);
         }
     }
     (None, moves)
+}
+
+/// The body a creature of a template at a scale moves with, made (and put in the world at `at`)
+/// the first time one is asked for.
+fn body_of<'a>(
+    bodies: &'a mut HashMap<(u32, u32), Body>,
+    walkers: &HashMap<u32, Walker>,
+    land: &Land,
+    world: &mut World,
+    (template, scale): (u32, f32),
+    (at, heading): (Position, f32),
+) -> &'a mut Body {
+    bodies
+        .entry((template, scale.to_bits()))
+        .or_insert_with(|| {
+            let w = walkers
+                .get(&template)
+                .cloned()
+                .unwrap_or_else(|| Walker::of_size(ANY_WALKER.0, ANY_WALKER.1));
+            let config = BodyConfig {
+                spheres: w
+                    .spheres
+                    .iter()
+                    .map(|s| Sphere::new(Vec3::new(s[0], s[1], s[2]), s[3]))
+                    .collect(),
+                step_up: w.step_up,
+                step_down: w.step_down,
+                scale: w.scale * scale,
+                ground: auberean_assets::animation::MotionParams::default(),
+                air: auberean_assets::animation::MotionParams::default(),
+            };
+            let mut b = Body::new(config, at, heading);
+            b.is_player = false;
+            let entry = world.insert_body(land, 0, &mut b);
+            if let Some(e) = w.ethereality {
+                world.set_ethereality(entry, e);
+            }
+            b
+        })
+}
+
+/// A body stands in the world only while it moves: it is no wall to the next creature's.
+fn put_away(body: &Body, land: &Land, world: &mut World) {
+    if let Some(entry) = body.key() {
+        let nowhere = Position::new(CellId(0), Frame::new(Vec3::ZERO, Quat::IDENTITY));
+        world.place(land, entry, nowhere);
+    }
 }
 
 /// Carry `body` from `from` by `d` in legs of at most [`FOLLOW_LEG`], each through the air or, where

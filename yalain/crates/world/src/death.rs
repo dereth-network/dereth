@@ -581,20 +581,37 @@ pub const FALL_TOLD_EVERY: f64 = 0.15;
 /// How far over its floor a dead body counts as on it, in meters.
 const ON_THE_FLOOR: f32 = 0.05;
 
-/// A creature that flies has died: it falls to the floor under it, its height in a fight below it
-/// (outdoors, the ground's height there when that is known and lower down).
+/// A creature that flies has died: it falls to the floor under it, where its body comes to rest
+/// going straight down through the walls, inside as outdoors (2017: 130 fliers that died inside
+/// fell a median 0.96 m, their height in a fight, and their corpses lay where walkers' did in the
+/// same cell, a median 0.03 m apart). Where the walls cannot read the cell or find nothing under
+/// it: outdoors the ground's height there, when known and lower down; else its height in a fight
+/// below it.
 fn comes_down<S: Store>(s: &mut Server<S>, id: u64, clock: Clock) {
     let Some(t) = s.things.get(id) else {
         return;
     };
-    let (Some(at), Some(hover)) = (t.at, s.walls.as_ref().and_then(|w| w.hover(t.template))) else {
+    let (template, scale) = (
+        t.template,
+        t.creature.as_ref().map_or(1.0, |c| c.stats.scale),
+    );
+    let (Some(at), Some(hover)) = (t.at, s.walls.as_ref().and_then(|w| w.hover(template))) else {
         return;
     };
-    let ground = (!crate::presence::indoors(at.cell))
-        .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
-        .flatten()
-        .filter(|g| *g < at.origin[2]);
-    let floor = ground.unwrap_or(at.origin[2] - hover.fighting);
+    let read = s
+        .walls
+        .as_mut()
+        .and_then(|w| w.floor_under(template, scale, &at));
+    let ground = || {
+        (!crate::presence::indoors(at.cell))
+            .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
+            .flatten()
+    };
+    let floor = read.unwrap_or_else(|| {
+        ground()
+            .filter(|g| *g < at.origin[2])
+            .unwrap_or(at.origin[2] - hover.fighting)
+    });
     if at.origin[2] - floor <= ON_THE_FLOOR {
         return;
     }

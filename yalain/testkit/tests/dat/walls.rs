@@ -2507,8 +2507,8 @@ fn a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up() {
 }
 
 /// A flyer killed in a fight falls to the floor under it: its place told on the way, lower each
-/// time as anything falls, the last on the floor its fighting height below (a meter down by about
-/// half a second), and its corpse made there, not in the air.
+/// time as anything falls, the last on the floor its fighting height below, where a walker there
+/// stands (a meter down by about half a second), and its corpse made there, not in the air.
 /// Behaviour: server.creatures.a-dead-flyer-falls
 #[test]
 fn a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there() {
@@ -2518,11 +2518,20 @@ fn a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there() {
     let records = records();
     let wasp = walker_of(&records, WASP);
     let walls = h.server.walls.as_mut().expect("the walls");
+    let floor = walls
+        .step(DIGGER, 1.0, &home, [0.0, 0.1])
+        .expect("a walker's step")
+        .at
+        .origin[2];
     walls.walkers.insert(TEST_CREATURE, wasp);
     let up = walls
         .step_fighting(TEST_CREATURE, 1.0, &home, [0.0, 0.1])
         .expect("a step")
         .at;
+    assert!(
+        (up.origin[2] - floor - 1.0).abs() < 0.1,
+        "in a fight, 1 m over the floor at {floor}: {up:?}"
+    );
     if let Some(t) = h.server.things.get_mut(id) {
         t.at = Some(up);
     }
@@ -2551,14 +2560,13 @@ fn a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there() {
         }
         seen = h.bots[b].inbox.len();
     }
-    let floor = up.origin[2] - 1.0;
     assert!(told.len() >= 3, "{told:?}");
     assert!(
         told.windows(2).all(|w| w[1].1 <= w[0].1),
         "only down: {told:?}"
     );
     let (landed, last) = *told.last().expect("told");
-    assert!((last - floor).abs() < 0.01, "on the floor: {told:?}");
+    assert!((last - floor).abs() < 0.05, "on the floor: {told:?}");
     assert!(
         (0.4..0.75).contains(&landed),
         "landed at {landed} s: {told:?}"
@@ -2571,7 +2579,60 @@ fn a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there() {
     });
     let z = corpse.expect("its corpse");
     assert!(
-        (z - floor).abs() < 0.01,
+        (z - last).abs() < 0.01 && (z - floor).abs() < 0.05,
         "the corpse at {z}, the floor at {floor}"
+    );
+}
+
+/// A flyer killed at its height at rest, before it came down to fight, falls the whole way to the
+/// floor under it, where a walker there stands, not just its height in a fight: the walls give the
+/// floor inside.
+/// Behaviour: server.creatures.a-dead-flyer-falls
+#[test]
+fn a_flyer_killed_at_rest_falls_to_the_floor_a_walker_stands_on() {
+    use auberean_protocol::ServerMessage;
+    let home = over_a_floor();
+    let (mut h, b, id) = beetle_at(home);
+    let records = records();
+    let wasp = walker_of(&records, WASP);
+    let walls = h.server.walls.as_mut().expect("the walls");
+    let floor = walls
+        .step(DIGGER, 1.0, &home, [0.0, 0.1])
+        .expect("a walker's step")
+        .at
+        .origin[2];
+    walls.walkers.insert(TEST_CREATURE, wasp);
+    let up = walls
+        .step(TEST_CREATURE, 1.0, &home, [0.0, 0.1])
+        .expect("a step")
+        .at;
+    assert!(
+        (up.origin[2] - floor - 2.0).abs() < 0.1,
+        "at rest, 2 m over the floor at {floor}: {up:?}"
+    );
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.at = Some(up);
+    }
+    let me = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("a player")
+        .character;
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, me, clock);
+    h.run(80);
+    let corpse = h.world_messages(b, from).into_iter().find_map(|m| match m {
+        ServerMessage::CreateObject(c) if c.physics.position.cell == up.cell && c.id != id => {
+            Some(c.physics.position.frame.origin.z)
+        }
+        _ => None,
+    });
+    let z = corpse.expect("its corpse");
+    assert!(
+        (z - floor).abs() < 0.05,
+        "the corpse at {z}, the walker's floor at {floor}"
     );
 }

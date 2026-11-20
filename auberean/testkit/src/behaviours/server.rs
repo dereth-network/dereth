@@ -3097,8 +3097,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.a-dead-flyer-falls",
-        says: "A creature that flies falls to the floor under it as it dies, its place told on the \
-               way as anything falls, and its corpse is made on the floor.",
+        says: "A creature that flies falls to the floor under it as it dies, inside as outdoors and \
+               from whatever height, its place told on the way as anything falls, and its corpse is \
+               made on the floor, where a walker there stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DEAD-FLYER-FALLS"),
         station: "yalain-testkit::dat::walls::a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there",
