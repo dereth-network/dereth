@@ -725,8 +725,16 @@ fn join_refused<S: Store>(s: &Server<S>, world: ConnId, k: u32, now: i64) -> Res
 /// it is told why and nothing changes): it pays the gold its level costs, its kingdom and physics
 /// type change (every client that knows it is told), it is told it joined (and for how much, when
 /// it paid), its ethereality follows, and its channels are sent again a moment later with its
-/// kingdom's. A player who leaves one of the three kingdoms so keeps when it left.
+/// kingdom's. A player who leaves one of the three kingdoms so keeps when it left. A member of an
+/// allegiance restricted to its monarch's kingdom may join no kingdom an oath to it would be refused
+/// for ([`crate::allegiance::loyalty_keeps`]), and is told so.
 pub fn join<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, k: u32, clock: Clock) {
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if crate::allegiance::loyalty_keeps(s, me, k) {
+        let why = progress::text(crate::allegiance::text::LOYALTY);
+        progress::private(net, world, &crate::chat::show_text(SHOWN_AS, why));
+        return;
+    }
     let cost = match join_refused(s, world, k, clock.unix) {
         Ok(cost) => cost,
         Err(why) => {

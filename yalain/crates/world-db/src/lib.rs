@@ -53,7 +53,7 @@
 //!                                [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
-//! <pack>/server/allegiance.toml   [[allegiance_hall]]
+//! <pack>/server/allegiance.toml   [[allegiance_hall]], [[allegiance_oath]]
 //! <pack>/server/vitals.toml       [[away_regen]]
 //! ```
 //!

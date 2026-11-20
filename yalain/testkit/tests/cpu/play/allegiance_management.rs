@@ -241,10 +241,9 @@ fn the_monarch_appoints_and_revokes_officers_by_name() {
     h.ask(m, manage::REVOKE, &[string_arg("Vassalia")], 10);
     assert!(h.texts(m, fm).contains(&(NOTICE, text::REVOKED.0)));
     assert_eq!(officers_flagged(&profiles(&h, v, fv)[0]), vec![mid]);
-    // As many officers as allowed (members not in the world), then one more.
-    let extra: Vec<u64> = (0..u64::from(MOST_OFFICERS))
-        .map(|i| 0x2130_0000_0200_0000 + i)
-        .collect();
+    // Eight officers (members not in the world), then one more.
+    assert_eq!(MOST_OFFICERS, 8);
+    let extra: Vec<u64> = (0..8).map(|i| 0x2130_0000_0200_0000 + i).collect();
     for (i, id) in extra.iter().enumerate() {
         h.server.allegiances.nodes.insert(
             *id,
@@ -632,4 +631,159 @@ fn renaming_the_allegiance_is_the_monarchs_and_fails_leaving_its_name() {
     assert_eq!(rename(&mut h, v), [(REFUSED, text::MONARCH_ONLY.0)]);
     assert_eq!(rename(&mut h, m), [(REFUSED, text::RENAME_FAILED.0)]);
     assert!(!h.server.allegiances.names.contains_key(&mid), "unnamed");
+}
+
+/// The level of a player in the world.
+fn set_level(h: &mut Harness, id: u64, level: i32) {
+    if let Some(q) = h.server.players.values_mut().find(|q| q.character == id) {
+        yalain_world::quals::set_int(&mut q.qualities, 302, level);
+    }
+}
+
+/// Whether the oath was refused for the world's terms, and with which of their texts.
+fn refused_for_terms(h: &Harness, b: usize, from: usize) -> Option<u32> {
+    let answer = h
+        .calls(b, from)
+        .into_iter()
+        .find(|(f, _)| *f == allegiance::function::VASSAL_SWORE)?;
+    if !answer.1.contains(&Value::Int(error::TERMS)) {
+        return None;
+    }
+    h.texts(b, from).into_iter().find_map(|(kind, id)| {
+        (kind == REFUSED
+            && [
+                allegiance::text::TOO_LOW.0,
+                allegiance::text::RANK_TOO_HIGH.0,
+            ]
+            .contains(&id))
+        .then_some(id)
+    })
+}
+
+/// A world that sets no terms for an oath asks no least level and no rank: a player of level 1
+/// swears. One that sets a least level refuses a player below it with the install's text ("You must
+/// be Level %1 to swear Allegiance."), and takes one at it.
+/// Behaviour: server.allegiance.oath-terms
+#[test]
+fn a_least_level_to_swear_asks_nothing_unless_the_world_sets_one() {
+    use yalain_content::allegiance::Oath;
+    let (mut h, _, (v, vid)) = sworn_pair();
+    assert!(h.server.allegiances.member(vid), "no terms: level 1 swears");
+    h.server.content.allegiance_oath = Oath {
+        least_level: Some(5),
+        rank_at_most: None,
+    };
+    let n = h.player_in_world("three", "Novicia");
+    set_level(&mut h, n.1, 4);
+    let f = h.bots[n.0].inbox.len();
+    h.ask(n.0, allegiance::function::SWEAR, &[Arg::LongInt(vid)], 10);
+    assert_eq!(
+        refused_for_terms(&h, n.0, f),
+        Some(allegiance::text::TOO_LOW.0)
+    );
+    assert!(!h.server.allegiances.member(n.1));
+    set_level(&mut h, n.1, 5);
+    swear(&mut h, n, (v, vid));
+    assert!(h.server.allegiances.member(n.1), "at the least level");
+}
+
+/// A world's highest rank to swear up from refuses a vassal above it swearing to a patron of a
+/// higher rank, with the install's text ("Cannot swear: your must have a rank of %1 or lower...");
+/// unset, or with the vassal at it, the oath is taken.
+/// Behaviour: server.allegiance.oath-terms
+#[test]
+fn a_rank_to_swear_up_from_asks_nothing_unless_the_world_sets_one() {
+    use yalain_content::allegiance::Oath;
+    let mut h = Harness::new();
+    let v = h.player_in_world("one", "Vassalia");
+    let p = h.player_in_world("two", "Patronus");
+    // The vassal leads two members away (rank 2); the patron two of rank 2 (rank 3).
+    let away = |i: u64| 0x2130_0000_0300_0000 + i;
+    let mut member = |id: u64, patron: u64, n: f64| {
+        h.server.allegiances.nodes.insert(
+            id,
+            Member {
+                patron,
+                joined: 1.0e9 + n,
+                ..Member::default()
+            },
+        );
+    };
+    for (id, patron) in [
+        (away(0), v.1),
+        (away(1), v.1),
+        (away(2), p.1),
+        (away(3), p.1),
+        (away(4), away(2)),
+        (away(5), away(2)),
+        (away(6), away(3)),
+        (away(7), away(3)),
+    ] {
+        member(
+            id,
+            patron,
+            f64::from(u32::try_from(id & 0xFF).expect("small")),
+        );
+    }
+    member(v.1, 0, 0.0);
+    member(p.1, 0, 0.0);
+    assert_eq!(
+        (
+            h.server.allegiances.rank(v.1),
+            h.server.allegiances.rank(p.1)
+        ),
+        (2, 3)
+    );
+    // Room for one more vassal under the patron.
+    set_level(&mut h, p.1, 30);
+    h.server.content.allegiance_oath = Oath {
+        least_level: None,
+        rank_at_most: Some(1),
+    };
+    let f = h.bots[v.0].inbox.len();
+    h.ask(v.0, allegiance::function::SWEAR, &[Arg::LongInt(p.1)], 10);
+    assert_eq!(
+        refused_for_terms(&h, v.0, f),
+        Some(allegiance::text::RANK_TOO_HIGH.0)
+    );
+    h.server.content.allegiance_oath.rank_at_most = Some(2);
+    swear(&mut h, v, p);
+    assert_eq!(h.server.allegiances.monarch(v.1), Some(p.1), "at the rank");
+}
+
+/// A member of an allegiance restricted to its monarch's kingdom may not join another, the neutral
+/// one included ("Loyalty to your allegiance prevents you from changing your Kingdom."), and keeps
+/// its kingdom; it may join its monarch's. Neutrals let in, it may join the neutral one; lifted,
+/// any.
+/// Behaviour: server.allegiance.kingdom-restriction
+#[test]
+fn a_kingdom_restriction_keeps_its_members_from_changing_kingdom() {
+    use yalain_world::kingdoms::kingdom::{NEUTRAL, ORDER, SHADOW};
+    let (mut h, (m, mid), (v, vid)) = sworn_pair();
+    if let Some(q) = h.server.players.values_mut().find(|q| q.character == mid) {
+        yalain_world::kingdoms::set_kingdom(&mut q.qualities, SHADOW);
+    }
+    let world = yalain_world::social::world_of(&h.server, vid).expect("in the world");
+    let kingdom = |h: &Harness| yalain_world::kingdoms::of(&h.server.players[&world].qualities);
+    let join = |h: &mut Harness, k: u32| {
+        let from = h.bots[v].inbox.len();
+        let clock = h.clock();
+        yalain_world::kingdoms::join(&mut h.server, &mut h.net, world, k, clock);
+        h.run(2);
+        h.texts(v, from)
+            .iter()
+            .any(|(_, id)| *id == allegiance::text::LOYALTY.0)
+    };
+    h.ask(m, manage::RESTRICT, &[Arg::Int(0), Arg::Int(1)], 10);
+    assert!(join(&mut h, ORDER), "kept from another kingdom");
+    assert!(join(&mut h, NEUTRAL), "and from the neutral one");
+    assert_eq!(kingdom(&h), None);
+    assert!(!join(&mut h, SHADOW), "its monarch's");
+    assert_eq!(kingdom(&h), Some(SHADOW));
+    h.ask(m, manage::RESTRICT, &[Arg::Int(1), Arg::Int(1)], 10);
+    assert!(!join(&mut h, NEUTRAL), "neutrals let in");
+    assert!(join(&mut h, ORDER));
+    h.ask(m, manage::RESTRICT, &[Arg::Int(0), Arg::Int(0)], 10);
+    assert!(!join(&mut h, ORDER), "lifted");
+    assert_eq!(kingdom(&h), Some(ORDER));
 }

@@ -1922,6 +1922,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::AwayRegen(r) => {
                 t.content.away_regen.by_vital.insert(r.vital, r.regen);
             }
+            Row::AllegianceOath(r) => t.content.allegiance_oath = r.oath,
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(
                     r.effect,

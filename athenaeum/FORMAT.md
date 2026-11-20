@@ -48,7 +48,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/units.toml           [[treasure_unit]]
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
-<pack>/server/allegiance.toml      [[allegiance_hall]]
+<pack>/server/allegiance.toml      [[allegiance_hall]], [[allegiance_oath]]
 <pack>/server/kingdoms.toml        [[points_bonus]], [[kingdom_join]]
 <pack>/server/vitals.toml          [[away_regen]]
 <pack>/server/popups.toml          [[popup]]
@@ -332,6 +332,20 @@ place's `destination`. How often a monarch may bind again is the wait of the que
 | `stone` | required | the placed binding stone, `key@XXYY` or `pack:key@XXYY`, in no other `[[allegiance_hall]]` row |
 | `place` | required | where Allegiance Recall takes a member: a `[[place]]`, `key` or `pack:key` |
 | `cost` | | the money the monarch pays to bind; 0 when left out |
+| `prov` | required | where it came from |
+
+#### `[[allegiance_oath]]`
+
+What an oath of allegiance asks besides what every oath does. A world has one at most; a world with
+none, or a field left out, asks nothing of it. A vassal under `least_level` is refused ("You must be
+Level … to swear Allegiance."); one above `rank_at_most` swearing to a patron of a higher rank than
+its own is refused ("Cannot swear: your must have a rank of … or lower to swear to someone who has a
+higher rank than you."). Each is asked as the oath is sworn and again as the patron takes it.
+
+| field | | meaning |
+|---|---|---|
+| `least_level` | | the least level a vassal swears at, from 1 |
+| `rank_at_most` | | the highest rank, 1 to 10, from which a vassal swears to a patron of a higher rank |
 | `prov` | required | where it came from |
 
 ### People, quests and the story

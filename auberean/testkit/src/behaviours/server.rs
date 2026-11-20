@@ -669,7 +669,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.allegiance.kingdom-restriction",
         says: "The monarch alone restricts its allegiance to its kingdom, with or without neutrals, and \
                lifts it, told each; an oath from one of another kingdom is refused and the would-be \
-               vassal told which kingdom it would have to join.",
+               vassal told which kingdom it would have to join; a member may join no kingdom an \
+               oath would be refused for, told its loyalty prevents it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-KINGDOM"),
         station: "yalain-testkit::cpu::play::allegiance_management::a_kingdom_restriction_refuses_an_oath_from_another_kingdom",
@@ -734,9 +735,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.oath-terms",
+        says: "A world's terms for an oath ask nothing unless it sets them: a least level to swear \
+               at, and the highest rank from which a vassal swears to a patron of a higher rank, \
+               each refused with the install's own text.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-OATH-TERMS"),
+        station: "yalain-testkit::cpu::play::allegiance_management::a_least_level_to_swear_asks_nothing_unless_the_world_sets_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.officers-appointed",
         says: "The monarch alone appoints and revokes officers by name from among its members, at most \
-               four, told whom and how many of how many; every profile flags them, and an officer may \
+               eight, told whom and how many of how many; every profile flags them, and an officer may \
                set the message of the day.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-APPOINT"),
@@ -789,6 +800,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-RECORDED"),
         station: "yalain-testkit::corpus::social::recorded_profiles_flag_their_officers_and_exports_file_names_by_their_hash",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.allegiance.refusals",
+        says: "An oath that would close a circle, a monarch swearing to its own vassal, is refused as \
+               a circular allegiance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-CIRCULAR"),
+        station: "yalain-testkit::cpu::play::allegiance::an_oath_to_ones_own_vassal_is_refused_as_circular",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.allegiance.rename-refused",

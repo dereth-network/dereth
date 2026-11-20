@@ -29,7 +29,13 @@
 //!
 //! **A kingdom restriction** refuses an oath from one of another kingdom than the monarch's (a
 //! neutral one is let in when the restriction allows neutrals): the would-be vassal is told which
-//! kingdom it would have to join.
+//! kingdom it would have to join. It holds the members too: one may join no kingdom the restriction
+//! would refuse an oath from ("Loyalty to your allegiance prevents you from changing your
+//! Kingdom.").
+//!
+//! **The world's terms for an oath** ([`yalain_content::allegiance::Oath`]): a least level to swear
+//! at, and the highest rank from which a vassal swears to a patron of a higher rank; each refused
+//! with the install's text. A world that sets neither asks neither.
 //!
 //! **Swearing**: the would-be vassal is walked to the would-be patron; the patron is asked; when it
 //! accepts, the patron is told who swore (and of its rank if it rose), the vassal hears the chat
@@ -126,7 +132,8 @@ pub const PROFILE_FACTION: u32 = 1;
 pub const TOP_RANK: u32 = 10;
 
 /// Answers to an oath: done, declined by the patron, the patron has too many vassals, the vassal
-/// has a patron already, an oath that would close a circle.
+/// has a patron already, an oath that would close a circle, a vassal the world's terms for an oath
+/// refuse (its level or its rank).
 pub mod error {
     pub const DONE: u32 = 0;
     /// Of another kingdom than the allegiance's restriction lets in (neutrals not let in, let in).
@@ -135,7 +142,8 @@ pub mod error {
     pub const DECLINED: u32 = 5509;
     pub const TOO_MANY_VASSALS: u32 = 5506;
     pub const HAS_PATRON: u32 = 5507;
-    pub const CIRCLE: u32 = 5508;
+    pub const CIRCLE: u32 = 5505;
+    pub const TERMS: u32 = 5508;
 }
 
 /// Texts: (string id, table).
@@ -153,6 +161,17 @@ pub mod text {
     /// "You cannot swear to (patron) unless you join the (kingdom)", and "... or the (neutral)".
     pub const JOIN_KINGDOM: (u32, u32) = (0xE9BE_3AD1, TABLE);
     pub const JOIN_KINGDOM_OR_NEUTRAL: (u32, u32) = (0x557B_DB59, TABLE);
+    /// "You must be Level %1 to swear Allegiance.": the level.
+    pub const TOO_LOW: (u32, u32) = (0xE35F_25D2, TABLE);
+    pub const LEVEL: u32 = 0x1916_B459;
+    /// "Cannot swear: your must have a rank of %1 or lower to swear to someone who has a higher
+    /// rank than you.": the rank.
+    pub const RANK_TOO_HIGH: (u32, u32) = (0x523C_9DE1, TABLE);
+    pub const RANK: u32 = 0xA506_74B0;
+    /// "Loyalty to your allegiance prevents you from changing your Kingdom."
+    pub const LOYALTY: (u32, u32) = (0x3662_EAB6, 0x2500_000F);
+    /// The kind of a number's variable.
+    pub const NUMBER_KIND: u16 = 2;
     /// Variables: a kingdom, the neutral kingdom.
     pub const KINGDOM: u32 = 0xBEE1_1D49;
     pub const NEUTRAL: u32 = 0x2C6D_BBF4;
@@ -1331,7 +1350,8 @@ fn swore_by(vassal: u64, name: &str, err: u32) -> ServerMessage {
 }
 
 /// Why an oath to a patron cannot be: the vassal has a patron, the patron is under the vassal,
-/// the patron has as many vassals as it may.
+/// the patron has as many vassals as it may, the world's terms refuse the vassal, the patron's
+/// allegiance's kingdom restriction refuses it.
 fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32> {
     let _ = ensure(s);
     if s.allegiances
@@ -1350,6 +1370,9 @@ fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32>
     if s.allegiances.vassals(patron).len() >= most_vassals(level) {
         return Some(error::TOO_MANY_VASSALS);
     }
+    if terms_refuse(s, vassal, patron).is_some() {
+        return Some(error::TERMS);
+    }
     kingdom_needed(s, vassal, patron).map(|k| {
         if k.or_neutral {
             error::KINGDOM_OR_NEUTRAL
@@ -1357,6 +1380,61 @@ fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32>
             error::KINGDOM
         }
     })
+}
+
+/// What the world's terms for an oath refuse a vassal swearing to a patron with: too low a level,
+/// or too high a rank to swear to a patron of a higher one.
+fn terms_refuse<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<TextInfo> {
+    let oath = s.content.allegiance_oath;
+    if oath == yalain_content::allegiance::Oath::default() {
+        return None;
+    }
+    let level = facts(s, vassal).level.cast_signed();
+    if let Some(least) = oath.too_low(level) {
+        let var = progress::word(text::LEVEL, text::NUMBER_KIND, least.cast_unsigned());
+        return Some(progress::text_with(text::TOO_LOW, vec![var]));
+    }
+    let (mine, its) = (
+        s.allegiances.rank(vassal).max(1),
+        s.allegiances.rank(patron).max(1),
+    );
+    oath.rank_too_high(mine, its).map(|most| {
+        let var = progress::word(text::RANK, text::NUMBER_KIND, most);
+        progress::text_with(text::RANK_TOO_HIGH, vec![var])
+    })
+}
+
+/// A would-be vassal is told why the world's terms refuse its oath.
+fn tell_terms<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    vassal: u64,
+    patron: u64,
+) {
+    if let Some(t) = terms_refuse(s, vassal, patron) {
+        show(net, world, REFUSED, t);
+    }
+}
+
+/// Does a member's loyalty keep it from joining a kingdom: its allegiance is restricted to its
+/// monarch's kingdom (or to it and the neutral one), and the kingdom is neither?
+pub fn loyalty_keeps<S: Store>(s: &mut Server<S>, id: u64, kingdom: u32) -> bool {
+    let Some(monarch) = s.allegiances.monarch(id) else {
+        return false;
+    };
+    if !s
+        .allegiances
+        .charters
+        .get(&monarch)
+        .is_some_and(|c| c.restriction.is_some())
+    {
+        return false;
+    }
+    let ours = facts(s, monarch).kingdom;
+    s.allegiances
+        .kingdom_needed(monarch, ours, Some(kingdom))
+        .is_some()
 }
 
 /// The kingdom the vassal would have to join to swear to the patron, when the patron's
@@ -1434,6 +1512,9 @@ pub fn swear<S: Store>(
         if matches!(err, error::KINGDOM | error::KINGDOM_OR_NEUTRAL) {
             tell_kingdom_needed(s, net, world, me, target);
         }
+        if err == error::TERMS {
+            tell_terms(s, net, world, me, target);
+        }
         return;
     }
     social::approach(s, net, world, other, social::Approach::Swear, clock);
@@ -1495,6 +1576,9 @@ pub fn accept<S: Store>(
         progress::private(net, vw, &swore_to(patron, &pname, err));
         if matches!(err, error::KINGDOM | error::KINGDOM_OR_NEUTRAL) {
             tell_kingdom_needed(s, net, vw, vassal, patron);
+        }
+        if err == error::TERMS {
+            tell_terms(s, net, vw, vassal, patron);
         }
         return;
     }

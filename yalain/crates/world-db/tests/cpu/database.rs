@@ -5762,6 +5762,74 @@ fn away_regen_rows_compile_by_vital_and_bad_ones_are_problems() {
     }
 }
 
+/// An oath row compiles to the world's terms for an oath of allegiance: a least level from 1 and a
+/// rank from 1 to 10, either left out asking nothing; a world with no row asks nothing; one row a
+/// world.
+#[test]
+fn allegiance_oath_rows_compile_to_the_worlds_terms_and_bad_ones_are_problems() {
+    use yalain_content::allegiance::Oath;
+    let files = fixture();
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.allegiance_oath,
+        Oath::default(),
+        "no row: nothing asked"
+    );
+    for (fields, oath) in [
+        (
+            "least_level = 5\nrank_at_most = 3",
+            Oath {
+                least_level: Some(5),
+                rank_at_most: Some(3),
+            },
+        ),
+        (
+            "rank_at_most = 10",
+            Oath {
+                least_level: None,
+                rank_at_most: Some(10),
+            },
+        ),
+        ("", Oath::default()),
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/allegiance.toml".into(),
+            format!("[[allegiance_oath]]\n{fields}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(check(&f).is_empty(), "{fields}: {:?}", check(&f));
+        let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+        assert_eq!(t.content.allegiance_oath, oath, "{fields}");
+    }
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/allegiance.toml".into(),
+        "[[allegiance_oath]]\nleast_level = 5\nprov = { from = \"authored\" }\n\
+         [[allegiance_oath]]\nleast_level = 6\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+    for bad in [
+        "least_level = 0",
+        "least_level = -2",
+        "rank_at_most = 0",
+        "rank_at_most = 11",
+        "least_level = \"five\"",
+        "least_rank = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/allegiance.toml".into(),
+            format!("[[allegiance_oath]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_are_problems() {
     use yalain_content::crafts::CraftGate;

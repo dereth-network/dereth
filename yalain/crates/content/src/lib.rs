@@ -26,6 +26,7 @@ use auberean_assets::entity::Entity;
 use auberean_assets::property::PropertyValue;
 use auberean_assets::script::Qualities;
 
+pub mod allegiance;
 pub mod crafts;
 pub mod creature_rows;
 pub mod defenses;
@@ -838,6 +839,9 @@ pub struct ContentPack {
     /// What each vital regains while its character is out of the world. Not part of the text form:
     /// the world database's away regeneration rows fill it.
     pub away_regen: vitals::AwayRegens,
+    /// What an oath of allegiance asks besides what every oath does. Not part of the text form: the
+    /// world database's oath row fills it.
+    pub allegiance_oath: allegiance::Oath,
 }
 
 /// The kind of player conflict a place allows.
@@ -1227,6 +1231,7 @@ impl ContentPack {
             defenses: defenses::DefenseTable::default(),
             hazards: hazards::HazardTable::default(),
             away_regen: vitals::AwayRegens::default(),
+            allegiance_oath: allegiance::Oath::default(),
         })
     }
 

@@ -750,6 +750,7 @@ pub enum Row {
     PointsBonus(PointsBonus),
     KingdomJoin(KingdomJoinRow),
     AwayRegen(AwayRegenRow),
+    AllegianceOath(AllegianceOathRow),
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
@@ -930,6 +931,15 @@ pub struct PointsBonus {
 pub struct KingdomJoinRow {
     pub kingdom: u32,
     pub join: yalain_content::kingdoms::Join,
+    pub prov: Prov,
+}
+
+/// `[[allegiance_oath]]`: what an oath of allegiance asks besides what every oath does: a least
+/// level to swear at, and the highest rank from which a vassal swears to a patron of a higher rank.
+/// Either left out asks nothing. A world has one at most.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllegianceOathRow {
+    pub oath: yalain_content::allegiance::Oath,
     pub prov: Prov,
 }
 
@@ -1592,6 +1602,7 @@ impl Row {
             Self::PointsBonus(_) => "points_bonus",
             Self::KingdomJoin(_) => "kingdom_join",
             Self::AwayRegen(_) => "away_regen",
+            Self::AllegianceOath(_) => "allegiance_oath",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
@@ -1673,6 +1684,7 @@ impl Row {
             Self::PointsBonus(r) => Some(&r.prov),
             Self::KingdomJoin(r) => Some(&r.prov),
             Self::AwayRegen(r) => Some(&r.prov),
+            Self::AllegianceOath(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
@@ -1722,7 +1734,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 75] = [
+pub const KINDS: [&str; 76] = [
     "object",
     "camp",
     "loot",
@@ -1755,6 +1767,7 @@ pub const KINDS: [&str; 75] = [
     "points_bonus",
     "kingdom_join",
     "away_regen",
+    "allegiance_oath",
     "popup",
     "effect_rule",
     "treasure_value",
@@ -1801,7 +1814,7 @@ pub const KINDS: [&str; 75] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 75] = [
+pub const FIELDS: [(&str, &[&str]); 76] = [
     (
         "object",
         &[
@@ -2167,6 +2180,7 @@ pub const FIELDS: [(&str, &[&str]); 75] = [
         ],
     ),
     ("away_regen", &["vital", "every", "points", "prov"]),
+    ("allegiance_oath", &["least_level", "rank_at_most", "prov"]),
     ("popup", &["on", "effect", "prov"]),
     (
         "effect_rule",
@@ -3937,6 +3951,31 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::KingdomJoin(KingdomJoinRow {
                 kingdom,
                 join,
+                prov: f.req_prov()?,
+            })
+        }
+        "allegiance_oath" => {
+            let least_level = match f.int("least_level").map(i32::try_from) {
+                None => None,
+                Some(Ok(l)) if l >= 1 => Some(l),
+                Some(_) => {
+                    f.bad("least_level", "a level from 1");
+                    return None;
+                }
+            };
+            let rank_at_most = match f.int("rank_at_most").map(u32::try_from) {
+                None => None,
+                Some(Ok(r)) if (1..=10).contains(&r) => Some(r),
+                Some(_) => {
+                    f.bad("rank_at_most", "a rank from 1 to 10");
+                    return None;
+                }
+            };
+            Row::AllegianceOath(AllegianceOathRow {
+                oath: yalain_content::allegiance::Oath {
+                    least_level,
+                    rank_at_most,
+                },
                 prov: f.req_prov()?,
             })
         }

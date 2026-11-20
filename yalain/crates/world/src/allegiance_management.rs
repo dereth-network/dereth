@@ -97,8 +97,8 @@ pub const fn carries_words(f: u32) -> bool {
     )
 }
 
-/// The most officers a monarch may appoint.
-pub const MOST_OFFICERS: u32 = 4;
+/// The most officers a monarch may appoint (Turbine, July 2003: monarchs may appoint up to eight).
+pub const MOST_OFFICERS: u32 = 8;
 
 /// The allegiance's kind of text in the chat window.
 pub const ALLEGIANCE: u32 = 0x2_0000;

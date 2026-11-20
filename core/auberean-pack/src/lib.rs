@@ -141,7 +141,8 @@ impl Dialect for Ac2 {
          treasure_family <sort> <order>, item_use <template>, book <template>, \
          start_item <template>, item_life <template>, interaction <key>, recipe <id>, combination <key>, object_states <key>, \
          sequence <key>, concealing <effect> <class|any>, npc_table <name>, \
-         friend_table <table>, creature <template>, away_regen <vital>, or landblock <XXYY>";
+         friend_table <table>, creature <template>, away_regen <vital>, allegiance_oath, \
+         or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -228,6 +229,8 @@ pub enum Item {
     KingdomJoin { kingdom: String },
     /// What a vital regains while its character is out of the world, by the vital's word.
     AwayRegen { vital: String },
+    /// What an oath of allegiance asks besides what every oath does (a world has one).
+    AllegianceOath,
     /// The tip a player is shown once, by the moment it is shown at.
     Popup { on: String },
     /// What the world says of an effect, by the effect's saved state.
@@ -399,6 +402,7 @@ impl Item {
             ["kingdom_join", kingdom] => Self::KingdomJoin {
                 kingdom: symbol(kingdom)?,
             },
+            ["allegiance_oath"] => Self::AllegianceOath,
             ["away_regen", vital] => Self::AwayRegen {
                 vital: symbol(vital)?,
             },
@@ -559,6 +563,7 @@ impl fmt::Display for Item {
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
             Self::KingdomJoin { kingdom } => write!(f, "kingdom_join {kingdom}"),
             Self::AwayRegen { vital } => write!(f, "away_regen {vital}"),
+            Self::AllegianceOath => write!(f, "allegiance_oath"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
             Self::EffectRuleNamed { name } => write!(f, "effect_rule {name}"),

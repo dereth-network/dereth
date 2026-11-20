@@ -778,3 +778,21 @@ fn the_tree_export_comes_out_of_an_allowance_by_its_members() {
         "back in time"
     );
 }
+
+/// An oath that would close a circle (a monarch swearing to its own vassal) is refused as a
+/// circular allegiance, 5505.
+/// Behaviour: server.allegiance.refusals
+#[test]
+fn an_oath_to_ones_own_vassal_is_refused_as_circular() {
+    let (mut h, v, p) = two();
+    sworn(&mut h, v, p);
+    let f = h.bots[p.0].inbox.len();
+    h.ask(p.0, function::SWEAR, &[Arg::LongInt(v.1)], 10);
+    let answer = h
+        .calls(p.0, f)
+        .into_iter()
+        .find(|(f, _)| *f == function::VASSAL_SWORE)
+        .expect("the oath answered");
+    assert!(answer.1.contains(&Value::Int(5505)), "{answer:?}");
+    assert_eq!(h.server.allegiances.monarch(v.1), Some(p.1));
+}
