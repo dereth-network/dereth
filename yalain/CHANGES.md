@@ -39,6 +39,7 @@ what they see, not how it was done.
 - Fixed the admin teleport to map coordinates landing in the wrong place.
 - Effects that raise or lower the heals you receive now work.
 - Outdoors, players and creatures stay in view, and in earshot, as far as the next landblock.
+- Moving while walking to a recruit now cancels the recruitment.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

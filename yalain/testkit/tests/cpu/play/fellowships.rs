@@ -170,6 +170,82 @@ fn a_leader_is_walked_to_a_recruit_out_of_reach_before_it_is_asked() {
     assert!(h.functions(b, fb).contains(&function::REQUEST_RECRUITMENT));
 }
 
+/// A leader walking to its recruit who moves by its own hand once the walk is taken up (its report
+/// carries the walk's stamp) cancels the recruitment: told "Your movement has cancelled the
+/// recruitment.", the walk stopped, the recruit never asked, even once the leader stands beside it.
+/// A report under the walk changes nothing.
+/// Behaviour: server.fellowship.recruit-walk-moved-off
+#[test]
+fn a_leader_moving_by_hand_on_the_walk_cancels_the_recruitment() {
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    beside(&mut h, bid, aid, 12.0);
+    let leader = |h: &Harness| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == aid)
+            .expect("in the world")
+            .0
+    };
+    let fb = h.bots[b].inbox.len();
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 10);
+    let p = &h.server.players[&leader(&h)];
+    let (here, stamp, walk) = (p.position, p.teleport_stamp, p.move_to_stamp);
+    let report_by = |by_hand: bool, dx: f32| {
+        auberean_protocol::ClientMessage::Position(auberean_protocol::physics::ClientPosition {
+            time: 0.0,
+            cell: here.cell,
+            origin: Vec3::new(here.origin[0] + dx, here.origin[1], here.origin[2]),
+            heading_motion: yalain_world::world::IDLE_MOTION,
+            flags: if by_hand {
+                yalain_world::places::MOVED_BY_HAND
+            } else {
+                0
+            },
+            instance_stamp: 1,
+            teleport_stamp: stamp,
+            force_position_stamp: 0,
+            move_to_stamp: walk,
+            jump_velocity: Vec3::ZERO,
+        })
+    };
+    let fa = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &report_by(false, 1.0));
+    h.run(10);
+    assert!(h.texts(a, fa).is_empty(), "under the walk: nothing");
+    h.bots[a].send(true, queue::WEENIE, &report_by(true, 2.0));
+    h.run(10);
+    assert_eq!(h.texts(a, fa), vec![(1, text::MOVEMENT_CANCELLED.0)]);
+    assert!(h
+        .world_messages(a, fa)
+        .iter()
+        .any(|m| matches!(m, ServerMessage::MoveTo(o) if o.action.params.flags == 0x40)));
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == bid)
+        .expect("in the world")
+        .position;
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &report(
+            at.cell,
+            Vec3::new(at.origin[0] - 1.8, at.origin[1], at.origin[2]),
+            0,
+            yalain_world::world::IDLE_MOTION,
+            stamp,
+        ),
+    );
+    h.run(10);
+    assert!(
+        !h.functions(b, fb).contains(&function::REQUEST_RECRUITMENT),
+        "the recruit is never asked"
+    );
+}
+
 /// An asking unanswered for twenty seconds runs out: the recruit is told; a place taken after it
 /// is not given.
 /// Behaviour: server.fellowship.asking-runs-out

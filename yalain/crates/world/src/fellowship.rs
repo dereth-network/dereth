@@ -9,7 +9,8 @@
 //! player who is not one is refused, as is one already in a fellowship, one another leader is
 //! already asking ("Someone else is already trying to recruit %s."), or one too far to walk to;
 //! otherwise the leader is walked to the recruit, told it waits, and the recruit is
-//! asked. Unanswered, the asking runs out after twenty seconds. Accepting: the recruit is told it
+//! asked; the leader moving by its own hand on the way cancels it ("Your movement has cancelled
+//! the recruitment."). Unanswered, the asking runs out after twenty seconds. Accepting: the recruit is told it
 //! joined, sent the whole fellowship and enters the channel; every fellow already in it is sent the
 //! new fellow and told it joined. Declining tells the leader.
 //!
@@ -125,6 +126,7 @@ pub mod text {
     pub const ALREADY_IN: (u32, u32) = (0x7CCB_9E00, TABLE);
     pub const ONLY_PLAYERS: (u32, u32) = (0xDAAB_8624, TABLE);
     pub const NOT_FROM_HERE: (u32, u32) = (0xC6CD_3C60, TABLE);
+    pub const MOVEMENT_CANCELLED: (u32, u32) = (0xF01D_6279, TABLE);
     pub const BAD_NAME: (u32, u32) = (0x455E_192A, TABLE);
     pub const DECLINES: (u32, u32) = (0x6F25_C372, TABLE);
     /// "Your Fellowship is full."
@@ -634,6 +636,17 @@ pub fn recruit<S: Store>(
         return;
     }
     social::approach(s, net, world, other, social::Approach::Recruit, clock);
+}
+
+/// The leader moved by its own hand on its walk to its recruit: it is told the recruitment is
+/// cancelled.
+pub fn recruitment_cancelled(net: &mut ServerNet, world: ConnId) {
+    show(
+        net,
+        world,
+        REFUSED,
+        progress::text(text::MOVEMENT_CANCELLED),
+    );
 }
 
 /// The leader has reached its recruit: it is told it waits, and the recruit is asked.

@@ -1485,6 +1485,7 @@ fn moved<S: Store>(
         crate::item_use::cut_short(s, net, world);
     }
     crate::social::moved(s, net, world, clock);
+    crate::social::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);
     crate::mounts::moved(s, world, clock);
     crate::workshops::moved(s, net, world, clock);
 }

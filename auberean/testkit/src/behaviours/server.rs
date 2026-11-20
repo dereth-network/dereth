@@ -6136,6 +6136,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.recruit-walk-moved-off",
+        says: "A leader walking to its recruit who moves by its own hand once the walk is taken up \
+               cancels the recruitment: told \"Your movement has cancelled the recruitment.\", the \
+               walk stopped and the recruit never asked; a report under the walk changes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECRUIT-MOVED-OFF"),
+        station: "yalain-testkit::cpu::play::fellowships::a_leader_moving_by_hand_on_the_walk_cancels_the_recruitment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.recruited",
         says: "A recruit is walked to when out of reach, then the leader is told it waits and the \
                recruit asked; taking the place tells the recruit it joined (the whole fellowship \

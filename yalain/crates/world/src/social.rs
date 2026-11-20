@@ -3,7 +3,9 @@
 //! **Swearing to a patron, recruiting a fellow and asking for a trade** each walk the asking player
 //! to the other (a movement order toward the other's object: a meter between the bodies, given
 //! up past a distance), and are carried out when the asker reports itself there, with the order
-//! stopped; an asker already in reach is not walked.
+//! stopped; an asker already in reach is not walked. A leader walking to its recruit who moves by
+//! its own hand ends the walk: the recruitment is cancelled, and it is told so in the install's
+//! words. The install has no such words for an oath or a trade, whose walks go on.
 //!
 //! Also the pieces the allegiance, the fellowship and the trade share: a player's world
 //! connection by its character, its name as the world writes it, chat-window texts.
@@ -189,6 +191,33 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
         send_order(s, net, world, order(0, 0.0, STOP));
         carry_out(s, net, world, other, what, clock);
     }
+}
+
+/// A player walking to another has reported moving by its own hand, the walk taken up (its report
+/// carries the walk's stamp), and is not there yet: a leader's walk to its recruit ends, the walk
+/// stopped and the leader told "Your movement has cancelled the recruitment."; an oath's or a
+/// trade's walk goes on.
+pub fn walk_interrupted<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    flags: u32,
+    move_to_stamp: u16,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    if !matches!(p.approaching, Some((_, Approach::Recruit))) {
+        return;
+    }
+    if flags & crate::places::MOVED_BY_HAND == 0 || move_to_stamp != p.move_to_stamp {
+        return;
+    }
+    if let Some(p) = s.players.get_mut(&world) {
+        p.approaching = None;
+    }
+    send_order(s, net, world, order(0, 0.0, STOP));
+    crate::fellowship::recruitment_cancelled(net, world);
 }
 
 fn carry_out<S: Store>(
