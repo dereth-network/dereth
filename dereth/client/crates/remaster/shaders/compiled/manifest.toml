@@ -36,7 +36,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "forest.slang" = "6fdbdf662bdc84a0fd27de22906c8e33f5a931355dc24685a5f8808bc46d2dab"
 "fsr3.slang" = "ffd2014f425b1b795431f2c66457399bf8a6137ba82a21b6e942c5af37e79357"
 "fsr3_passes.slang" = "534c6f0c0f5421284f96e06b056ca47ff548e229759ad5def93956135564dbf7"
-"gbuffer.slang" = "9fa7bf5f037a441379774603c06fc56f8fbf488aa40a2fbe01f17ee4c0ca0b2b"
+"gbuffer.slang" = "778c748bfcc60a368863669cab76d25f1a872b189848424539cc707f0f12044d"
 "gi.slang" = "397f14f2b8ccb78525739cae7a6b1d182feb852f9b1ccb9ae348c18f9b38de6b"
 "gi_trace.slang" = "e5ac0f03fcd462737fd8912abcc1c1ef32e7fbe6c254689a07e3ea428a7ec048"
 "grass.slang" = "b9ac760d3b0fdb67276c7ea2125f0feafec039385ca95ef7ad34c32f9284b26f"
@@ -98,7 +98,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/gbuffer.fs_forward.dxil" = { sha256 = "56ca1a94b01c13ef754af48ffb8b44e83efb877a76dacab298eba05ddf66de9c", bytes = 8476 }
 "dxil/gbuffer.fs_forward_any.dxil" = { sha256 = "c4d89bbb654b0dea2c0fd550da9ce92fa8eda408f133231b3c2f6c29668176b8", bytes = 9032 }
 "dxil/gbuffer.fs_main.dxil" = { sha256 = "2c35fc8933566f77ef8611db0abfa4719caf4861a8110d5472c27de866825094", bytes = 11668 }
-"dxil/gbuffer.vs_main.dxil" = { sha256 = "4facce6b35fc47c05320e913d23ec96222ee969094fbd6a03546eb631b3c35ab", bytes = 12440 }
+"dxil/gbuffer.vs_main.dxil" = { sha256 = "f41f4d65124a979b893c8cf6964cee0e0ad1b4b208ee58c85120e870a02fcb00", bytes = 12652 }
 "dxil/gi.cs_update.dxil" = { sha256 = "a1761589886d4069538ac118ab8636b0eb448cbd151c401b2ed2d2dfd37f3fc4", bytes = 8196 }
 "dxil/gi.fs_blur.dxil" = { sha256 = "f5af8d073dc8eac7b5144977c192c514d2d908bad81f71c66620c0df2e01f940", bytes = 5932 }
 "dxil/gi.fs_probes.dxil" = { sha256 = "9afc59054146345d55729db1daf575c6f2869227ee769acebf5834b180c19640", bytes = 9120 }
@@ -185,7 +185,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/gbuffer.fs_forward.spv" = { sha256 = "850cf595cbf56544d47c5debf538c960a6c2e9cb0364b39bb3e12b1e02bd93ec", bytes = 15848 }
 "spirv/gbuffer.fs_forward_any.spv" = { sha256 = "3b40730ad67a1f451c615c8d1693a24bdabb222c5c5b709f0038003847a5e765", bytes = 17624 }
 "spirv/gbuffer.fs_main.spv" = { sha256 = "dbf60c039179a234bbc0d5c4d0c2bd9c785338ffab5e1bb24d130a70fe6c2630", bytes = 30212 }
-"spirv/gbuffer.vs_main.spv" = { sha256 = "0a994cf9a66717b3e059e4702f4391b79b77e9800067e944f656dd9dc4525da7", bytes = 47556 }
+"spirv/gbuffer.vs_main.spv" = { sha256 = "a8c029f575318cc54e5562b1c93dcf6bfe42d1189964278a4539d0565bc457fa", bytes = 49008 }
 "spirv/gi.cs_update.spv" = { sha256 = "2cea85a110bebfd539bea30d7c3a60d59eed816173d6d718c0fdad527c08da83", bytes = 21232 }
 "spirv/gi.fs_blur.spv" = { sha256 = "700dae84c6f29c1c5d3d28dbb4406ddd0f968b50745ec427ac93317212056ba1", bytes = 8304 }
 "spirv/gi.fs_probes.spv" = { sha256 = "744d4a88006eeb6a97f4784a10372c75b9ba72f7cc78eff557cfc0a92d479823", bytes = 35260 }

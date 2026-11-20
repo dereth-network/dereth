@@ -3,7 +3,8 @@
 //! The remaster on the oldest data: from a room of a dungeon, the doorway ahead shows the rooms
 //! beyond it, at the depth Retail Look draws them, before the body walks through; and from
 //! outdoors, a building's doorway shows its rooms. The October 1999 rooms and building shells
-//! carry an opaque untextured surface in their openings, which neither draws.
+//! carry an opaque untextured surface in their openings, which neither draws. And a fireplace
+//! whose back lies in its room's back wall shows its back, as Retail Look shows it.
 //!
 //! Fixture: the `portal.dat` and `cell.dat` of the October 1999 capture (the `1999-10-09`
 //! folder under `DERETH_TEST_DAT_CAPTURES_DIR`) with the retail dats (`DERETH_TEST_DAT_DIR`)
@@ -112,6 +113,24 @@ fn before_the_training_hall() -> Station {
     }
 }
 
+/// A body in the room with the fireplace (cell `0xC8880112`) by the training hall, facing the
+/// fireplace, where a player's report put it: the fireplace's back is set against the room's
+/// back wall, in the same plane.
+fn before_the_fireplace() -> Station {
+    Station {
+        name: "fireplace-1999",
+        why: "a fireplace whose back lies in its room's back wall, in the October 1999 world",
+        place: Place::Body {
+            cell: 0xC888_0112,
+            origin: Vec3::new(42.512_72, 178.432_7, 34.005),
+            yaw: 28.0,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 3,
+    }
+}
+
 /// From outdoors, the training hall's doorway shows the hall's rooms where Retail Look draws them:
 /// the shell's own opening, an untextured pane, is not drawn over them. Under 1% of the pixels
 /// Retail Look draws are covered by something the remaster draws nearer.
@@ -138,6 +157,40 @@ fn a_buildings_doorway_shows_its_rooms_from_outdoors() {
     assert!(
         share < 0.01,
         "the remaster covers {covered} of the {drawn} pixels Retail Look draws ({:.1}%)",
+        share * 100.0
+    );
+}
+
+/// The fireplace's back shows inside its firebox, as Retail Look shows it, not the room's wall it
+/// stands against: under 2% of the firebox's pixels differ much from Retail Look's.
+#[test]
+fn a_fireplace_shows_its_own_back_against_the_wall_behind_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = october_1999();
+    let station = before_the_fireplace();
+    let size = (1920, 1080);
+    let retail = run(&store, &station, Draw::Retail, size);
+    let remaster = run(&store, &station, Draw::Shadowed, size);
+    // The firebox, behind the fire, in this frame.
+    let (mut inside, mut differs) = (0usize, 0usize);
+    for y in 460..560 {
+        for x in 560..720 {
+            let i = (y * 1920 + x) * 4;
+            let d = (0..3)
+                .map(|c| i32::from(retail.rgba[i + c]).abs_diff(i32::from(remaster.rgba[i + c])))
+                .max()
+                .unwrap_or(0);
+            inside += 1;
+            if d > 60 {
+                differs += 1;
+            }
+        }
+    }
+    #[allow(clippy::cast_precision_loss)] // pixel counts of one frame
+    let share = differs as f64 / inside as f64;
+    assert!(
+        share < 0.02,
+        "{differs} of the firebox's {inside} pixels differ from Retail Look ({:.1}%)",
         share * 100.0
     );
 }

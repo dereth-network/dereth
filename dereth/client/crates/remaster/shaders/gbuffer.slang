@@ -117,6 +117,24 @@ Item item_at(uint i)
     return it;
 }
 
+// How far a room's walls are drawn behind where they stand, along the view, meters: a static set
+// against a wall, its back in the wall's own plane, is drawn in front of it as retail shows it,
+// and nothing farther behind a wall than this shows through it.
+static const float ROOM_WALL_SETBACK = 0.0005;
+
+// `p`, or for a room's walls, the same point pushed `ROOM_WALL_SETBACK` farther from the eye.
+float3 behind_its_statics(Item it, float3 p)
+{
+    if ((it.flags & ITEM_ROOM) == 0)
+    {
+        return p;
+    }
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    float3 d = p - eye;
+    float n = length(d);
+    return n > 1e-4 ? p + d * (ROOM_WALL_SETBACK / n) : p;
+}
+
 [shader("vertex")]
 Varyings vs_main(uint vertex : SV_VertexID
 #ifndef DERETH_DXIL
@@ -212,7 +230,7 @@ Varyings vs_main(uint vertex : SV_VertexID
     float fog = fogged ? fog_factor(push.frame, length(eye.xyz)) : 1.0;
 
     Varyings out;
-    out.position = transform(push.frame, FRAME_VIEW_PROJ, float4(p.xyz, 1.0));
+    out.position = transform(push.frame, FRAME_VIEW_PROJ, float4(behind_its_statics(it, p.xyz), 1.0));
     out.uv = uv + row(push.instances, at + 6).xy;
     bool per_pixel = row(push.frame, FRAME_SCREEN).y > 0.5 && push.lit_always == 0;
     out.light = float4(per_pixel ? emissive : lit, fog);
