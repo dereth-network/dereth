@@ -48,11 +48,23 @@ pub fn third(amount: i32) -> i32 {
 /// ([`crate::combat_perks::between_kingdoms`]).
 #[must_use]
 pub fn hit<S: Store>(s: &Server<S>, attacker: ConnId, target: ConnId, raw: i32) -> i32 {
+    let from = s.players.get(&attacker).map(|p| p.position);
+    hit_from(s, attacker, target, from.as_ref(), raw)
+}
+
+/// [`hit`], struck from a place of the attacker's (a pet's, its owner the attacker).
+#[must_use]
+pub fn hit_from<S: Store>(
+    s: &Server<S>,
+    attacker: ConnId,
+    target: ConnId,
+    from: Option<&yalain_store::StoredPosition>,
+    raw: i32,
+) -> i32 {
     if raw <= 0 {
         return raw;
     }
-    let from = s.players.get(&attacker).map(|p| p.position);
-    let armor = crate::combat::armor_against(s, target, from.as_ref());
+    let armor = crate::combat::armor_against(s, target, from);
     let left = dereth_primitives::num::to_i32((raw as f32 - armor).round()).max(1);
     let by = match (s.players.get(&attacker), s.players.get(&target)) {
         (Some(a), Some(t)) => crate::combat_perks::between_kingdoms(s, a, t),

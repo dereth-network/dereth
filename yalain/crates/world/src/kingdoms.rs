@@ -44,6 +44,13 @@
 //! fight in peace areas (2017: every recorded fight between players, 108 harmful hooks of 108, was
 //! between such players of different kingdoms in a peace area), and its ethereality follows, as a
 //! protection begins and ends too (32 of 34).
+//!
+//! **Who may help whom.** A helpful skill on another player goes as the game's shared check of a
+//! helpful act allows ([`may_help`]): never on a dead player; anyone where the target stands in
+//! peace or where all fight; else only between players of one status, and then of one kingdom,
+//! or, in a controlled area, a player of a kingdom helping a neutral one. A heal alone passes
+//! between players of different statuses, so a player whom kingdoms may fight anywhere can be
+//! healed by any other, and buffed only by those who may be fought anywhere too.
 
 use std::collections::BTreeMap;
 
@@ -341,6 +348,71 @@ pub fn may_harm(target: &Fighter, attacker: &Fighter) -> Result<(), u32> {
         }
     }
     Ok(())
+}
+
+/// Why a helpful act on a player is refused (the client writes the text).
+pub mod help_refusal {
+    /// The target's permissions keep a player's help out; the helper's keep it from helping a
+    /// player.
+    pub const KEPT_OUT: u32 = 21_040;
+    pub const MAY_NOT_HELP: u32 = 21_060;
+    /// "You must be in a Kingdom to use that skill in this location."
+    pub const HELPER_NEUTRAL: u32 = 21_084;
+    /// "You cannot use that skill across Kingdoms in this location."
+    pub const ACROSS_KINGDOMS: u32 = 21_085;
+    /// "You cannot assist that target at this time.": the two hold different statuses.
+    pub const OTHER_STATUS: u32 = 21_086;
+}
+
+/// May one player help another (by the game's shared check of a helpful act, between two
+/// players): itself always; never a dead target; never past permissions that keep a player's help
+/// out (unless the other's let it through); anyone where the target stands in peace or where all
+/// fight; else only one that holds the target's status, and then of its kingdom, or, in a
+/// controlled area, a helper of a kingdom helping a neutral player. A heal goes through where only
+/// the statuses differ: an unflagged player may heal a player whom kingdoms may fight anywhere, not
+/// buff it (Turbine, August 2005: "Non-flagged players can't buff flagged ones").
+///
+/// # Errors
+/// The reason the act is refused ([`help_refusal`], or [`refusal::DEAD`]).
+pub fn may_help(target: &Fighter, helper: &Fighter, heal: bool) -> Result<(), u32> {
+    use permission as pm;
+    if target.id == helper.id {
+        return Ok(());
+    }
+    if target.dead {
+        return Err(refusal::DEAD);
+    }
+    if (pm::PLAYER << 8) & target.deny != 0 {
+        return Err(help_refusal::KEPT_OUT);
+    }
+    if (pm::PLAYER << 12) & helper.deny != 0 {
+        return Err(help_refusal::MAY_NOT_HELP);
+    }
+    if (pm::PLAYER << 8) & target.allow != 0 || (pm::PLAYER << 12) & helper.allow != 0 {
+        return Ok(());
+    }
+    if target.status == 1 || target.status == 4 {
+        return Ok(());
+    }
+    if target.status != helper.status {
+        return if heal {
+            Ok(())
+        } else {
+            Err(help_refusal::OTHER_STATUS)
+        };
+    }
+    if target.kingdom == helper.kingdom {
+        return Ok(());
+    }
+    if target.status == 2 {
+        if helper.kingdom == kingdom::NEUTRAL {
+            return Err(help_refusal::HELPER_NEUTRAL);
+        }
+        if target.kingdom == kingdom::NEUTRAL {
+            return Ok(());
+        }
+    }
+    Err(help_refusal::ACROSS_KINGDOMS)
 }
 
 /// A player's physics type in a kingdom (none: the neutral bit).

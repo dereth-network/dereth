@@ -16,6 +16,7 @@ what they see, not how it was done.
 - World: keyed dungeon caches hold treasure, and now and then a rare.
 - Fixed level-ups ignoring your buffs and vitae, and showing too few skill credits.
 - Fewer monsters play a victory emote, and they finish it before calming down.
+- Buffs and heals on other players follow the kingdom rules, and pets can fight players.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

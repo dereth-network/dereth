@@ -1361,3 +1361,134 @@ fn kingdom_soldier_and_guard_change_hits_between_players_of_two_kingdoms() {
     });
     assert_eq!(hit(&h), 100, "a neutral attacker");
 }
+
+/// Who may help whom is the game's shared check of a helpful act between two players: itself
+/// always; never a dead target; past permissions that keep help out or let it through; anyone
+/// where the target stands in peace or where all fight; else only a player of the target's status,
+/// then of its kingdom, or in a controlled area one of a kingdom helping a neutral player. A heal
+/// alone goes through where only the statuses differ.
+/// Behaviour: server.player-fights.who-may-help
+#[test]
+fn who_may_help_whom_follows_the_games_check_of_a_helpful_act() {
+    use kingdom::{NEUTRAL, ORDER, SHADOW};
+    use kingdoms::help_refusal as no;
+    let buff = |t: Fighter, a: Fighter| kingdoms::may_help(&t, &a, false);
+    let heal = |t: Fighter, a: Fighter| kingdoms::may_help(&t, &a, true);
+    // Peace, and free for all: anyone.
+    assert_eq!(buff(fighter(1, SHADOW, 1), fighter(2, ORDER, 1)), Ok(()));
+    assert_eq!(buff(fighter(1, SHADOW, 4), fighter(2, ORDER, 4)), Ok(()));
+    // A player kingdoms may fight anywhere helps an unflagged one; an unflagged one heals it and
+    // may not buff it.
+    assert_eq!(buff(fighter(1, SHADOW, 1), fighter(2, SHADOW, 5)), Ok(()));
+    assert_eq!(
+        buff(fighter(1, SHADOW, 5), fighter(2, SHADOW, 1)),
+        Err(no::OTHER_STATUS)
+    );
+    assert_eq!(heal(fighter(1, SHADOW, 5), fighter(2, SHADOW, 1)), Ok(()));
+    // Of one status: one kingdom helps its own, not another's, heal or buff.
+    assert_eq!(buff(fighter(1, SHADOW, 5), fighter(2, SHADOW, 5)), Ok(()));
+    assert_eq!(
+        heal(fighter(1, SHADOW, 3), fighter(2, ORDER, 3)),
+        Err(no::ACROSS_KINGDOMS)
+    );
+    assert_eq!(
+        buff(fighter(1, SHADOW, 5), fighter(2, ORDER, 5)),
+        Err(no::ACROSS_KINGDOMS)
+    );
+    // Controlled: a neutral helper may not; a kingdom's player may help a neutral one.
+    assert_eq!(
+        buff(fighter(1, SHADOW, 2), fighter(2, NEUTRAL, 2)),
+        Err(no::HELPER_NEUTRAL)
+    );
+    assert_eq!(buff(fighter(1, NEUTRAL, 2), fighter(2, ORDER, 2)), Ok(()));
+    assert_eq!(
+        buff(fighter(1, SHADOW, 2), fighter(2, ORDER, 2)),
+        Err(no::ACROSS_KINGDOMS)
+    );
+    // Dead; itself.
+    let mut dead = fighter(1, SHADOW, 1);
+    dead.dead = true;
+    assert_eq!(heal(dead, fighter(2, SHADOW, 1)), Err(refusal::DEAD));
+    assert_eq!(buff(fighter(2, ORDER, 3), fighter(2, ORDER, 1)), Ok(()));
+    // Permissions: help kept out by the target's, or the helper's; let through by either.
+    let mut kept = fighter(1, SHADOW, 1);
+    kept.deny = 0x100;
+    assert_eq!(buff(kept, fighter(2, SHADOW, 1)), Err(no::KEPT_OUT));
+    let mut keeps = fighter(2, SHADOW, 1);
+    keeps.deny = 0x1000;
+    assert_eq!(buff(fighter(1, SHADOW, 1), keeps), Err(no::MAY_NOT_HELP));
+    let mut open = fighter(1, SHADOW, 3);
+    open.allow = 0x100;
+    assert_eq!(buff(open, fighter(2, ORDER, 3)), Ok(()));
+}
+
+/// A buff like Ease Suffering but for its heal-only flag.
+const A_BUFF: u32 = 9085;
+
+/// The skills' refusals a client was told of since `from`: their reasons.
+fn refusals(h: &Harness, b: usize, from: usize) -> Vec<Vec<Value>> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::skill_use::function::REFUSED)
+        .map(|(_, v)| v)
+        .collect()
+}
+
+/// A helpful skill aimed at another player is refused, with the reason, where who may help whom
+/// forbids it: a buff on a player kingdoms may fight anywhere from one they may not ("You cannot
+/// assist that target at this time."), where a heal goes through; across kingdoms in a kingdom
+/// against kingdom area, a heal too. Each is used where the check allows it.
+/// Behaviour: server.player-fights.help-refused
+#[test]
+fn a_helpful_skill_on_another_player_the_rule_forbids_is_refused_with_its_reason() {
+    use kingdoms::help_refusal as no;
+    use yalain_testkit::EASE_SUFFERING;
+    let used = |h: &mut Harness, a: usize, me: u64, skill: u32, target: u64| {
+        rested(h, me);
+        let id = u32::try_from(h.bots[a].inbox.len()).expect("few");
+        let from = use_skill(h, a, id, skill, target);
+        h.run(200);
+        refusals(h, a, from)
+    };
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::Peace);
+    let mut def = h.server.skill_table.skills[&EASE_SUFFERING].clone();
+    def.id = A_BUFF;
+    if let Some(u) = def.usage.as_mut() {
+        u.ui_flags &= !yalain_world::skill_use::ui_flag::HEAL_ONLY;
+    }
+    h.server.skill_table.skills.insert(A_BUFF, def);
+    assert!(h.server.skill_table.skills[&EASE_SUFFERING]
+        .usage
+        .as_ref()
+        .is_some_and(yalain_world::skill_use::heals_only));
+    with_player(&mut h, ida, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::ORDER);
+    });
+    with_player(&mut h, idb, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::ORDER);
+        kingdoms::set_permissions(&mut p.qualities, permission::ANYWHERE, 0);
+    });
+    let refused = used(&mut h, a, ida, A_BUFF, idb);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].contains(&Value::Int(no::OTHER_STATUS)),
+        "{refused:?}"
+    );
+    assert_eq!(
+        used(&mut h, a, ida, EASE_SUFFERING, idb),
+        Vec::<Vec<Value>>::new()
+    );
+    // Of one status, the buff is used.
+    with_player(&mut h, ida, |p| {
+        kingdoms::set_permissions(&mut p.qualities, permission::ANYWHERE, 0);
+    });
+    assert_eq!(used(&mut h, a, ida, A_BUFF, idb), Vec::<Vec<Value>>::new());
+
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    let refused = used(&mut h, a, ida, EASE_SUFFERING, idb);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].contains(&Value::Int(no::ACROSS_KINGDOMS)),
+        "{refused:?}"
+    );
+}

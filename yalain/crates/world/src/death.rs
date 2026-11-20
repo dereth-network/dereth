@@ -1530,7 +1530,10 @@ pub fn player_dies<S: Store>(
         return;
     }
     let me = p.character;
-    let by_player = killer.is_some_and(|k| k != me && crate::social::world_of(s, k).is_some());
+    // A pet's kill is its owner's.
+    let by_player = killer
+        .and_then(|k| crate::pets::player_behind(s, k))
+        .is_some_and(|k| k != me && crate::social::world_of(s, k).is_some());
     crate::pk_points::died(s, world, by_player, clock.local.0);
     crate::places::walk_cut_short(s, net, world);
     crate::fellowship::died(s, net, me);

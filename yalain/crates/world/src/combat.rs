@@ -399,6 +399,26 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
     )
 }
 
+/// May a player help another with a skill, a heal or not ([`crate::kingdoms::may_help`])?
+///
+/// # Errors
+/// Why not (the client writes the text).
+pub fn may_help_player<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    other: ConnId,
+    heal: bool,
+) -> Result<(), u32> {
+    let (Some(me), Some(them)) = (s.players.get(&world), s.players.get(&other)) else {
+        return Err(error::TARGET_GONE);
+    };
+    crate::kingdoms::may_help(
+        &crate::kingdoms::fighter(them),
+        &crate::kingdoms::fighter(me),
+        heal,
+    )
+}
+
 /// May a player harm a thing? A pet is as its owner ([`may_attack_player`]), its own owner's
 /// excepted; a creature the world's rows keep players from harming is kept out (as the client's own
 /// check refuses a target whose permissions keep players out); one that holds a kingdom of its own
@@ -1737,9 +1757,12 @@ fn hurt_creature_noticed<S: Store>(
     (damage, noticed): (i32, i64),
     clock: Clock,
 ) {
-    // Its hurter's pets take it on.
+    // Its hurter's pets take it on; a pet a player hurt may fight back.
     if damage > 0 {
         crate::pets::owner_hurt(s, by, id);
+        if s.pets.is_pet(id) && by == damager {
+            crate::pets::hurt_by_player(s, net, id, by);
+        }
     }
     // A player's Facade changes how much of it the creature notices.
     let noticed = s
@@ -2417,15 +2440,20 @@ pub(crate) fn hurt_player<S: Store>(
         .get(&world)
         .and_then(|p| quals::int(&p.qualities, quality::HEALTH));
     let (share, was) = lose_health(s, net, world, damage);
-    let by_player = s.players.values().any(|p| p.character == by);
+    // Another player's hit, or its pet's, is that player's.
+    let behind = crate::pets::player_behind(s, by);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    if by_player && by != p.character {
+    let id = p.character;
+    let behind = behind.filter(|b| *b != id);
+    if behind.is_some() {
         let after = quals::int(&p.qualities, quality::HEALTH).unwrap_or(0);
         crate::pvp::harmed(p, quality::HEALTH, before.unwrap_or(after) - after);
     }
-    let id = p.character;
+    if let Some(b) = behind {
+        crate::pets::player_hurt(s, net, (by, b), id);
+    }
     wounded(s, net, id, share, was);
     after_hurt(s, net, world, by, clock);
     crate::effects::answer_attack(s, net, world, by, clock);

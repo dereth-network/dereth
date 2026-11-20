@@ -1,11 +1,11 @@
 //! Kingdom points won and lost in fights between players.
 //!
 //! **What counts.** Each hit or harm one player does another (the health it takes, told as PK
-//! damage) is kept as that attacker's part in a fight with the player, for [`RECENT`] seconds after
+//! damage; a pet's is its owner's) is kept as that attacker's part in a fight with the player, for [`RECENT`] seconds after
 //! its last harm (the library's own span of a player having taken part in a fight with players
 //! lately).
 //!
-//! **A death at a player's hand** moves points between the dead player and those who harmed it
+//! **A death at a player's hand** (or its pet's) moves points between the dead player and those who harmed it
 //! lately, shared by the harm each did (Turbine, January 2003: points are shared "in the same way
 //! experience is shared by players who aren't in a fellowship and both damage the same creature"; a
 //! player who did no harm gets none). Each one's gain is its share of [`EXCHANGE`] times the chance
@@ -67,7 +67,8 @@ pub fn harmed<S: Store>(s: &mut Server<S>, m: &ServerMessage, player: u64, now: 
     let ServerMessage::DoStory(e) = m else {
         return;
     };
-    let attacker = e.action.attacker;
+    // A pet's harm is its owner's.
+    let attacker = crate::pets::player_behind(s, e.action.attacker).unwrap_or(e.action.attacker);
     if attacker == 0 || attacker == player {
         return;
     }

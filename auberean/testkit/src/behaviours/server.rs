@@ -12141,6 +12141,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.fight-players-their-owner-may-harm",
+        says: "A pet fights a player only where its owner may harm that player: a supporting pet one \
+               its owner hurts, a self-defending one a player that hurts it; its hits are told and \
+               kept as PK damage.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-PVP"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_takes_on_a_player_its_owner_hurts_and_its_hits_are_pk_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.fires-what-makes-a-pet",
         says: "A pet whose skill has no blow and makes another pet fires it at what it takes on, at the \
                skill's own pace, the pet made its owner's and going after the creature; with no row for \
@@ -14132,6 +14142,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.help-refused",
+        says: "A helpful skill aimed at another player is refused, with the reason, where who may \
+               help whom forbids it, and used where it allows it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-HELP-REFUSED"),
+        station: "yalain-testkit::cpu::play::player_fights::a_helpful_skill_on_another_player_the_rule_forbids_is_refused_with_its_reason",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.hit-is-pk-damage",
         says: "A player's attack run swings at another player where who may harm whom allows it; \
                each hit's story takes the target's health and gives the same amount as PK damage, \
@@ -14245,6 +14264,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-WHO"),
         station: "yalain-testkit::cpu::play::player_fights::who_may_harm_whom_follows_the_clients_check_of_a_harmful_act",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.who-may-help",
+        says: "Who may help whom is the game's shared check of a helpful act between two players: \
+               never a dead target; anyone where the target stands in peace or where all fight; \
+               else only a player of the target's status, then of its kingdom, or in a controlled \
+               area one of a kingdom helping a neutral player; a heal alone goes through where \
+               only the statuses differ.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-HELP"),
+        station: "yalain-testkit::cpu::play::player_fights::who_may_help_whom_follows_the_games_check_of_a_helpful_act",
         tier: Tier::Cpu,
     },
     behaviour! {

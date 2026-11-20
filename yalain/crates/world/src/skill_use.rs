@@ -16,7 +16,9 @@
 //! refuses a use for sight).
 //!
 //! **A helpful skill** (a heal, a buff) is aimed at the player the request names, else at its
-//! user. It plays as a special does, its story the skill's behavior on its user or on another;
+//! user. Aimed at another player, it is refused, with the reason, where who may help whom forbids
+//! it ([`crate::kingdoms::may_help`]; a skill that only heals passes where only the two players'
+//! statuses differ). The client asks nothing of it first. It plays as a special does, its story the skill's behavior on its user or on another;
 //! at the skill's hook its effects reach the target ([`crate::effects::apply`]), cast at the
 //! user's rating in the skill. The effects a skill leaves on its user (a combination's link to its
 //! next skill) are put on as the use ends.
@@ -164,6 +166,8 @@ pub mod ui_flag {
     pub const MOVE_TO: u32 = 0x800;
     pub const SELF_TARGETED: u32 = 0x2000;
     pub const IGNORE_RESET: u32 = 0x4_0000;
+    /// It only heals: it may help a player of another status where no other help may.
+    pub const HEAL_ONLY: u32 = 0x10_0000;
 }
 
 /// A hook's flags.
@@ -974,6 +978,12 @@ pub fn helpful(u: &Usage) -> bool {
     u.ui_flags & ui_flag::NON_DAMAGING != 0 && u.valid_targets & 1 != 0
 }
 
+/// Does a skill only heal?
+#[must_use]
+pub fn heals_only(u: &Usage) -> bool {
+    u.ui_flags & ui_flag::HEAL_ONLY != 0
+}
+
 /// Whom a use is aimed at: a skill used on its user alone, at it; a helpful skill at the player
 /// the request names, else at its user (a creature, nothing or itself named); any other at the
 /// other player the request names, else at the thing it names.
@@ -1374,10 +1384,12 @@ fn check<S: Store>(
             }
         }
         Aim::Player(c, other) => {
-            // A hostile skill at another player: never at a fellow when the skill takes only
-            // others (2017: 77 refusals within the fellowship, 74 at a player), then only as who
-            // may harm whom allows.
-            if !helpful(&u) {
+            // A helpful skill at another player: only as who may help whom allows. A hostile
+            // one: never at a fellow when the skill takes only others (2017: 77 refusals within
+            // the fellowship, 74 at a player), then only as who may harm whom allows.
+            if helpful(&u) {
+                combat::may_help_player(s, world, c, heals_only(&u))?;
+            } else {
                 if u.valid_targets & target_bit::NOT_FELLOW != 0 && fellows(s, p.character, other) {
                     return Err(refusal::WITHIN_FELLOWSHIP);
                 }
@@ -2200,7 +2212,8 @@ fn story<S: Store>(
     // As each swing of a run does, it asks again who it may harm: it may have walked or powered up
     // a while. A target dead by now tells its story still, as a miss.
     let allowed = match aim {
-        Aim::Player(c, _) if !helpful(&u) => combat::may_attack_player(s, world, c),
+        Aim::Player(c, _) if helpful(&u) => combat::may_help_player(s, world, c, heals_only(&u)),
+        Aim::Player(c, _) => combat::may_attack_player(s, world, c),
         Aim::Thing(t) => combat::may_attack_thing(s, world, t),
         _ => Ok(()),
     };

@@ -1979,3 +1979,145 @@ fn commanding_presence_sends_pets_after_targets_farther_off() {
     assert!(h.texts(b, from).is_empty(), "no answer");
     assert_eq!(target_of(&h, pet), Some(beetle));
 }
+
+/// Where every test character starts.
+const START_CELL: u32 = 0x0299_0109;
+
+/// A Ranger of the Shadow with its Lasher out, and a player of the Order beside it with health to
+/// spare, where the start's landblock is `here`; returns the harness, the Ranger's client, the
+/// Ranger, its pet, the other's client and the other.
+fn lasher_and_a_stranger(here: yalain_content::Conflict) -> (Harness, usize, u64, u64, usize, u64) {
+    let mut h = Harness::new();
+    h.server
+        .content
+        .conflict
+        .insert((START_CELL >> 16) as u16, here);
+    let (b, me, pet) = with_lasher(&mut h);
+    let (c, other) = h.player_in_world("two", "Babyfare");
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    kingdoms::set_kingdom(&mut player(&mut h, me).qualities, kingdom::SHADOW);
+    let p = player(&mut h, other);
+    kingdoms::set_kingdom(&mut p.qualities, kingdom::ORDER);
+    quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 1_000_000);
+    quals::set_int(&mut p.qualities, quality::HEALTH, 1_000_000);
+    h.run(5);
+    (h, b, me, pet, c, other)
+}
+
+/// A pet's stories at a player since `from` that hurt it: the PK damage each hook told.
+fn pk_hooks(h: &Harness, b: usize, from: usize, pet: u64, other: u64) -> Vec<(i32, i32)> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e.action.hooks.clone()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|k| k.target == other && k.numbers[3] < 0)
+        .map(|k| (-k.numbers[3], k.numbers[5]))
+        .collect()
+}
+
+/// A supporting pet takes on a player its owner hurts where its owner may harm that player, and
+/// strikes it: each hit told as PK damage too, the player's health falling by it as a hit of
+/// another player's does.
+/// Behaviour: server.pets.fight-players-their-owner-may-harm
+#[test]
+fn a_pet_takes_on_a_player_its_owner_hurts_and_its_hits_are_pk_damage() {
+    let (mut h, b, _, pet, c, other) =
+        lasher_and_a_stranger(yalain_content::Conflict::KingdomVsKingdom);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8204_0008, &[Arg::LongInt(other)]),
+    );
+    assert!(
+        h.run_until(2000, |h| !pk_hooks(h, b, from, pet, other).is_empty()),
+        "the pet hurts the player: {:?}",
+        target_of(&h, pet)
+    );
+    assert_eq!(target_of(&h, pet), Some(other));
+    for (hit, pk) in pk_hooks(&h, b, from, pet, other) {
+        assert_eq!(pk, hit, "told as PK damage");
+    }
+    // All it lost was another player's, the pet's hits too (landed by now): kept as such for
+    // heals.
+    h.run(40);
+    let wc = conn_of(&h, other);
+    let p = &h.server.players[&wc];
+    let lost = 1_000_000 - quals::int(&p.qualities, quality::HEALTH).expect("health");
+    assert_eq!(p.pk_lost[0], lost);
+    assert!(
+        !pk_hooks(&h, c, 0, pet, other).is_empty(),
+        "the player sees it"
+    );
+}
+
+/// A self-defending pet fights back a player that hurts it, only where its owner may harm that
+/// player: in a peace area it lets it be.
+/// Behaviour: server.pets.fight-players-their-owner-may-harm
+#[test]
+fn a_self_defending_pet_fights_back_a_player_only_where_its_owner_may_harm_it() {
+    for (here, fights) in [
+        (yalain_content::Conflict::KingdomVsKingdom, true),
+        (yalain_content::Conflict::Peace, false),
+    ] {
+        let (mut h, b, _, pet, _, other) = lasher_and_a_stranger(here);
+        order(
+            &mut h,
+            b,
+            function::MODE,
+            &[Arg::Int(0x4000_0006), Arg::LongInt(pet)],
+        );
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, pet, other, 5, clock);
+        h.run(5);
+        let want = fights.then_some(other);
+        assert_eq!(target_of(&h, pet), want, "{here:?}");
+    }
+}
+
+/// A pet's harm to a player is its owner's in the fight's tally, and its kill of the player moves
+/// kingdom points as its owner's would: two players of equal points trade ten.
+/// Behaviour: server.pets.fight-players-their-owner-may-harm
+#[test]
+fn a_pets_harm_and_kill_of_a_player_move_kingdom_points_as_its_owners() {
+    use yalain_world::pk_points::points_of;
+    let (mut h, b, me, pet, _, other) =
+        lasher_and_a_stranger(yalain_content::Conflict::KingdomVsKingdom);
+    order(
+        &mut h,
+        b,
+        function::MODE,
+        &[Arg::Int(0x4000_0006), Arg::LongInt(pet)],
+    );
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, pet, other, 5, clock);
+    let wc = conn_of(&h, other);
+    assert!(
+        h.run_until(2000, |h| !h.server.players[&wc].harmed_by.is_empty()),
+        "the pet's harm is kept"
+    );
+    let tally: Vec<u64> = h.server.players[&wc].harmed_by.keys().copied().collect();
+    assert_eq!(tally, vec![me], "as its owner's");
+    let before = (
+        points_of(&player(&mut h, me).qualities),
+        points_of(&player(&mut h, other).qualities),
+    );
+    quals::set_int(&mut player(&mut h, other).qualities, quality::HEALTH, 1);
+    assert!(
+        h.run_until(2000, |h| h.server.players[&wc].dying.is_some()),
+        "the pet kills it"
+    );
+    let after = (
+        points_of(&player(&mut h, me).qualities),
+        points_of(&player(&mut h, other).qualities),
+    );
+    assert_eq!(after, (before.0 + 10, before.1 - 10));
+}

@@ -75,6 +75,15 @@
 //! kind pays its attacks' vigor uses only those it can pay for, its vigor coming back at its kind's
 //! rate; with none it can pay for, it waits.
 //!
+//! **Players.** A pet fights a player only as its owner may harm that player
+//! ([`crate::combat::may_attack_player`], its owner standing in for it): a supporting pet one its
+//! owner hurts, a protective one a player that hurts its owner, a self-defending one a player that
+//! hurts it (2017: a pet struck by a player struck back, 69 told as PK damage). It fights one with
+//! its strikes alone, as it fights a creature, and its hit is the pet's at its level less the
+//! player's armor against it, a third of what is left, as a player's hit on another is
+//! ([`crate::pvp`]), told and kept as PK damage, its owner's; so is its harm toward kingdom points,
+//! and its kill of a player ([`crate::pk_points`]). Its skills put nothing on a player.
+//!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
 //! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
 //! as it dies its own, kingdom and all, with the dead bit); its corpse comes a
@@ -1859,8 +1868,13 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             .get(id)
             .and_then(|t| t.creature.as_ref())
             .and_then(|c| c.target)
-            .filter(|t| s.things.get(*t).is_some_and(Thing::alive))
-            .filter(|t| crate::combat::may_attack_thing(s, world, *t).is_ok());
+            .filter(|t| {
+                if s.things.get(*t).is_some_and(Thing::alive) {
+                    crate::combat::may_attack_thing(s, world, *t).is_ok()
+                } else {
+                    player_foe(s, pet, *t).is_some()
+                }
+            });
         current.or_else(|| unbidden(s, pet, &at))
     };
     if let Some(t) = fighting {
@@ -2041,8 +2055,14 @@ fn unbidden_by<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition, mode: u3
         flag::SUPPORT_MASTER => {
             let near_owner =
                 crate::presence::distance(&p.position, at).is_some_and(|d| d <= JOINS_WITHIN);
+            let fit_player = |t: u64| {
+                player_foe(s, pet, t)
+                    .and_then(|c| s.players.get(&c))
+                    .and_then(|q| crate::presence::distance(&q.position, at))
+                    .is_some_and(|d| d <= ASSIST_RANGE)
+            };
             pet.assist
-                .filter(|t| near_owner && fit(*t))
+                .filter(|t| near_owner && (fit(*t) || fit_player(*t)))
                 .into_iter()
                 .collect()
         }
@@ -2093,7 +2113,13 @@ fn unbidden_by<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition, mode: u3
 
 /// Does what stands at `at` see thing `t`?
 fn sees_thing<S: Store>(s: &mut Server<S>, at: &StoredPosition, t: u64) -> bool {
-    let Some(there) = s.things.get(t).and_then(|x| x.at) else {
+    let there = s.things.get(t).and_then(|x| x.at).or_else(|| {
+        s.players
+            .values()
+            .find(|p| p.character == t)
+            .map(|p| p.position)
+    });
+    let Some(there) = there else {
         return false;
     };
     crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), at, &there)
@@ -2157,12 +2183,335 @@ pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
     }
 }
 
+/// The world connection of a player a pet may fight: one in the world, out of portal space and
+/// alive, not its owner, whom its owner may harm ([`crate::combat::may_attack_player`]), when the pet
+/// has a strike to fight it with.
+fn player_foe<S: Store>(s: &Server<S>, pet: &Pet, target: u64) -> Option<ConnId> {
+    if target == pet.owner || player_strikes(s, pet.id).is_empty() {
+        return None;
+    }
+    let owner = conn_of(s, pet.owner)?;
+    let them = conn_of(s, target)?;
+    s.players
+        .get(&them)
+        .filter(|p| p.trip.is_none() && p.dying.is_none() && !crate::combat::is_dead(p))?;
+    crate::combat::may_attack_player(s, owner, them)
+        .is_ok()
+        .then_some(them)
+}
+
+/// The attacks a pet fights a player with: its strikes, never a missile nor one used where it
+/// stands; one whose template names no skills at all strikes as a creature does.
+fn player_strikes<S: Store>(s: &Server<S>, id: u64) -> Vec<Open> {
+    let names_none = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.stats.skills.is_empty());
+    if names_none {
+        return vec![Open {
+            attack: crate::missiles::CREATURE_ATTACKS[0],
+            weight: 1,
+            asks: false,
+        }];
+    }
+    attacks(s, id)
+        .into_iter()
+        .filter(|o| !o.attack.missile && at_itself(s, o.attack.skill).is_none())
+        .collect()
+}
+
+/// A player has hurt another (`by` itself, or a pet of its, `behind` the player it counts as):
+/// the attacking player's supporting pets take on what it hurt, and the hurt player's defending
+/// pets take on a player that hurt it, each as its own fights allow.
+pub fn player_hurt<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (by, behind): (u64, u64),
+    hurt: u64,
+) {
+    owner_hurt(s, behind, hurt);
+    if by != behind {
+        return;
+    }
+    let defenders: Vec<u64> = s
+        .pets
+        .by_id
+        .values()
+        .filter(|p| {
+            p.owner == hurt && p.order == Order::Follow && p.flags & flag::DEFEND_MASTER != 0
+        })
+        .map(|p| p.id)
+        .collect();
+    for id in defenders {
+        defends_against(s, net, id, by);
+    }
+}
+
+/// A player has hurt a pet: a self-defending one, fighting nothing, takes it on, as its own fights
+/// allow.
+pub fn hurt_by_player<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: u64, by: u64) {
+    if s.pets
+        .by_id
+        .get(&pet)
+        .is_some_and(|p| p.order == Order::Follow && p.flags & flag::SELF_DEFENDING != 0)
+    {
+        defends_against(s, net, pet, by);
+    }
+}
+
+/// A pet fighting nothing takes on a player, when it may fight it.
+fn defends_against<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64) {
+    let free = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.target.is_none());
+    let may = s
+        .pets
+        .by_id
+        .get(&id)
+        .is_some_and(|p| player_foe(s, p, player).is_some());
+    if free && may {
+        take_on(s, net, id, player);
+    }
+}
+
+/// A pet fights a player: as it fights a creature ([`fight`]), with its strikes alone. Out of its
+/// sight it closes in and gives up five seconds on with no way to the player; out of reach it
+/// closes in; in reach it strikes when its next attack is due.
+fn fight_player<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    target: u64,
+    clock: Clock,
+) {
+    let Some(there) = s
+        .players
+        .values()
+        .find(|p| p.character == target)
+        .map(|p| p.position)
+    else {
+        return;
+    };
+    let Some(at) = s.things.get(id).and_then(|t| t.at) else {
+        return;
+    };
+    let Some(kind) = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| s.pets.kind_of(p.effect))
+        .cloned()
+    else {
+        return;
+    };
+    let now = clock.local.0;
+    let d = crate::presence::distance(&at, &there).unwrap_or(f32::MAX);
+    if !sees_thing(s, &at, target) {
+        let lost = s
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .is_some_and(|c| {
+                if kind.stays || c.way.no_way {
+                    now - *c.lost_since.get_or_insert(now) >= crate::ai::NO_WAY_GIVE_UP_AFTER
+                } else {
+                    c.lost_since = None;
+                    false
+                }
+            });
+        if lost {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.target = None;
+                c.lost_since = None;
+            }
+            if let Some(p) = s.pets.by_id.get_mut(&id) {
+                p.assist = p.assist.filter(|a| *a != target);
+            }
+            return;
+        }
+        if !kind.stays {
+            let speed = run_speed(s, id);
+            crate::ai::step_toward(s, net, id, &there, speed, 0.0, crate::ai::RUNNING, clock);
+        }
+        return;
+    }
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.lost_since = None;
+    }
+    let open = payable(s, id, &player_strikes(s, id), now);
+    if open.is_empty() {
+        return;
+    }
+    let reach = open
+        .iter()
+        .map(|o| attack_reach(&o.attack))
+        .fold(crate::ai::MELEE_REACH, f32::max);
+    if d > reach {
+        if !kind.stays {
+            let speed = run_speed(s, id);
+            crate::ai::step_toward(
+                s,
+                net,
+                id,
+                &there,
+                speed,
+                reach * 0.8,
+                crate::ai::RUNNING,
+                clock,
+            );
+        }
+        return;
+    }
+    if !kind.stays {
+        crate::ai::face(s, net, id, &there, clock);
+    }
+    let due = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| now >= c.next_attack);
+    if !due {
+        return;
+    }
+    let Some(skill) = pick(s, &open, d) else {
+        return;
+    };
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.next_attack = now + ATTACK_SECONDS;
+    }
+    pay(s, id, skill.skill, now);
+    let lands = strike_player(s, net, id, target, skill, &kind, clock);
+    if kind.ends_on_strike {
+        spent(s, id, lands, clock);
+    }
+}
+
+/// A pet strikes a player in reach: one story with a result for each of its hits. A hit is the
+/// pet's at its level, then as a player's hit on another: the target's armor against the pet off,
+/// a third of what is left, its owner's and the target's kingdom perks; it lands as the blow
+/// reaches the player, told as PK damage too. Returns how long until it lands, in seconds.
+fn strike_player<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    target: u64,
+    skill: AttackSkill,
+    kind: &PetKind,
+    clock: Clock,
+) -> f64 {
+    let (Some(them), Some(owner)) = (
+        conn_of(s, target),
+        s.pets.by_id.get(&id).and_then(|p| conn_of(s, p.owner)),
+    ) else {
+        return 0.0;
+    };
+    let from = s.things.get(id).and_then(|t| t.at);
+    let time_scale = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let harms = harms(s, skill.skill);
+    let mut rolls = Vec::new();
+    for _ in 0..kind.hits.max(1) {
+        let (outcome, raw) = roll_on_player(s, id, kind, harms);
+        let hit = crate::pvp::hit_from(s, owner, them, from.as_ref(), raw);
+        let harm = if outcome.landed() {
+            crate::effects::answer_harm(s, crate::effects::On::Player(them), hit, true)
+        } else {
+            crate::effects::Harm::default()
+        };
+        rolls.push((outcome, harm));
+    }
+    let swing = |(outcome, harm): (Outcome, crate::effects::Harm)| crate::combat::Swing {
+        skill: skill.skill,
+        behavior: skill.behavior,
+        time_scale,
+        target,
+        outcome,
+        damage: harm.left,
+        back: harm.back,
+    };
+    let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing(rolls[0]));
+    if let ServerMessage::DoStory(e) = &mut st {
+        e.action.bits = if strikes_as_basic(skill.skill) {
+            crate::combat::BASIC_SWING
+        } else {
+            crate::missiles::SPECIAL
+        };
+        for r in rolls.iter().skip(1) {
+            e.action.hooks.push(swing(*r).hook());
+        }
+    }
+    crate::combat::pk_harm(s, &mut st, target, clock.local.0);
+    crate::combat::to_all_seeing(s, net, id, &st);
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    let lands = crate::timings::lands(&played, 1, time_scale);
+    for (outcome, harm) in rolls {
+        if outcome.landed() {
+            s.after(
+                clock,
+                lands,
+                crate::Timer::PetStrikeLandsOnPlayer {
+                    pet: id,
+                    target: them,
+                    harm,
+                },
+            );
+        }
+    }
+    lands
+}
+
+/// How a pet's hit on a player comes out, and its damage before the player's armor.
+fn roll_on_player<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    kind: &PetKind,
+    harms: bool,
+) -> (Outcome, i32) {
+    if !harms {
+        return (Outcome::Miss, 0);
+    }
+    if !s.rng.chance(kind.lands) {
+        return (Outcome::Evade, 0);
+    }
+    let level = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map_or(1, |c| c.stats.level);
+    let hit = pet_hit(&mut s.rng, kind, level, 0);
+    let by = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| s.players.values().find(|q| q.character == p.owner))
+        .map_or(1.0, |p| crate::combat_perks::pet_damage(s, p));
+    (
+        Outcome::Hit,
+        dereth_primitives::num::to_i32_f64((f64::from(hit) * by).round()),
+    )
+}
+
+/// The player a hit counts as by: a player itself, or a pet's owner.
+#[must_use]
+pub fn player_behind<S: Store>(s: &Server<S>, by: u64) -> Option<u64> {
+    if s.players.values().any(|p| p.character == by) {
+        return Some(by);
+    }
+    s.pets.by_id.get(&by).map(|p| p.owner)
+}
+
 /// How often a pet attacks, in seconds (2017: the Lasher a median 1.18 s on one target).
 pub const ATTACK_SECONDS: f64 = 1.18;
 
 /// A pet fights its target: within its attacks' reach it attacks, else it closes in (a pet that
 /// stays only turns to it, and waits).
 fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64, clock: Clock) {
+    if s.things.get(target).is_none() {
+        fight_player(s, net, id, target, clock);
+        return;
+    }
     let Some(there) = s.things.get(target).and_then(|t| t.at) else {
         return;
     };
