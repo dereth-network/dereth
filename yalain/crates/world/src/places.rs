@@ -374,6 +374,10 @@ pub const USE_FLAGS_IN_USE: u32 = 956;
 /// The use answer's control flags for an item of the pack with no use, refused.
 pub const USE_FLAGS_PACK: u32 = 316;
 
+/// The use answer's status for an item on the user's own trade offer: "That item is on your trade
+/// offer list."
+pub const USE_STATUS_ON_TRADE_OFFER: u32 = 10_039;
+
 /// The use answer's control flags for another player used: it cannot be (the status is the same
 /// "cannot use").
 pub const USE_FLAGS_A_PLAYER: u32 = 828;
@@ -864,6 +868,12 @@ pub fn use_object<S: Store>(
         let me = p_id(s, world);
         let refused = use_answer(&u, me, None, false, 0.0, ACTIONS_LOCKED);
         send(net, world, BlobKind::PRIVATE, &refused);
+        return;
+    }
+    // An item on its own trade offer is refused at once (2017: 2 of 2 such uses).
+    if s.trades.on_offer(p.character, u.item) {
+        let no = use_refused(&u, 0, Some(USE_FLAGS_PACK), -1.0, USE_STATUS_ON_TRADE_OFFER);
+        send(net, world, BlobKind::PRIVATE, &no);
         return;
     }
     // A chest the world made: walked to, then opened, as a placed one is.

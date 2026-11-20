@@ -597,3 +597,67 @@ fn a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves() {
     assert!(pack(&h, aid).iter().any(|i| i.0 == bow), "nothing moved");
     assert!(!pack(&h, bid).iter().any(|i| i.0 == bow), "nothing moved");
 }
+
+/// The use answers a client was sent since `from`: (status, control flags).
+fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    const USE_DONE: u32 = 0x8216_0021;
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == USE_DONE)
+        .filter_map(|(_, v)| {
+            let Value::Graph(g) = v.first()? else {
+                return None;
+            };
+            g.iter().find_map(|(_, n)| match n {
+                yalain_world::calls::Node::Script { slots, .. } => Some((slots[11].1, slots[17].1)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// An item on its user's own trade offer is not used: the use is refused at once (10039, with the
+/// flags of an item of the pack), the item stays in the pack and on the offer. Taken back off the
+/// offer, it is used.
+/// Behaviour: server.trade.an-offered-item-is-not-used
+#[test]
+fn an_item_on_the_users_trade_offer_is_refused_its_use() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bow = hold(&mut h, aid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(bow, aid)],
+        10,
+    );
+    assert_eq!(
+        use_answers(&h, a, from),
+        [(
+            yalain_world::places::USE_STATUS_ON_TRADE_OFFER,
+            yalain_world::places::USE_FLAGS_PACK
+        )]
+    );
+    assert!(
+        pack(&h, aid).iter().any(|x| x.0 == bow),
+        "still in the pack"
+    );
+    assert!(h.server.trades.on_offer(aid, bow), "still offered");
+    h.ask(a, function::REVOKE, &[Arg::LongInt(bow)], 10);
+    assert!(!h.server.trades.on_offer(aid, bow), "taken back");
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(bow, aid)],
+        10,
+    );
+    assert!(
+        !use_answers(&h, a, from)
+            .iter()
+            .any(|x| x.0 == yalain_world::places::USE_STATUS_ON_TRADE_OFFER),
+        "used"
+    );
+}

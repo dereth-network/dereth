@@ -2062,12 +2062,10 @@ pub fn transmute_all<S: Store>(
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    // Its own viewer's alone, as taking everything is.
-    if open_corpse_of(s, world) != Some(corpse) {
-        s.unhandled
-            .note("turning into money a corpse the player does not have open");
-        return;
-    }
+    // Its own viewer's alone, as taking everything is: one not open turns nothing into money, each
+    // item's move refused as not open, then the answer (2017: 23 of 23 corpses closed before their
+    // transmute came due).
+    let closed = open_corpse_of(s, world) != Some(corpse);
     let contents = s
         .things
         .get(corpse)
@@ -2094,6 +2092,43 @@ pub fn transmute_all<S: Store>(
             worth == 0 || is_quest_item(s, t.template)
         });
         if kept {
+            refused.push(*item);
+            continue;
+        }
+        if closed {
+            let Some(t) = s.things.get(*item) else {
+                continue;
+            };
+            let count = t.quantity.max(1);
+            let m = Move {
+                move_type: move_type::TAKE,
+                item: *item,
+                split_item: *item,
+                quantity: count,
+                quantity_left: count,
+                from: corpse,
+                actual_from: corpse,
+                actual_from_slot: i32::try_from(slot).unwrap_or(0),
+                target: player,
+                actual_target: player,
+                merge_container: player,
+                all_taken: true,
+                auto_merge: true,
+                contain: true,
+                grab: true,
+                unlock: true,
+                check_take: true,
+                hidden: true,
+                no_anim: true,
+                no_move: true,
+                quiet: true,
+                overflow: true,
+                merge: true,
+                status: crate::pack::status::NOT_VIEWER,
+                template: t.template,
+                ..Move::default()
+            };
+            progress::private(net, world, &move_done(&m));
             refused.push(*item);
             continue;
         }
@@ -2150,7 +2185,13 @@ pub fn transmute_all<S: Store>(
     }
     // An item kept back is told by the error, and by the answer's status too when nothing was
     // turned into money.
-    let error = if refused.is_empty() { 0 } else { NOT_FOR_MONEY };
+    let error = if closed {
+        crate::pack::status::NOT_VIEWER
+    } else if refused.is_empty() {
+        0
+    } else {
+        NOT_FOR_MONEY
+    };
     let status = if done.is_empty() { error } else { 0 };
     let mut b = Builder::new();
     let root = b.reserve(TRANSMUTE_DESC);

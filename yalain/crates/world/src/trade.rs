@@ -170,6 +170,13 @@ impl Trades {
     pub fn of(&self, id: u64) -> Option<usize> {
         self.list.iter().position(|t| t.has(id))
     }
+
+    /// Has a player this item on its side of its trade?
+    #[must_use]
+    pub fn on_offer(&self, id: u64, item: u64) -> bool {
+        self.of(id)
+            .is_some_and(|i| self.list[i].items(id).iter().any(|(x, _)| *x == item))
+    }
 }
 
 fn call(f: u32, args: &[Arg]) -> ServerMessage {

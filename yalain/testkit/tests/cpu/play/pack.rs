@@ -1491,3 +1491,116 @@ fn an_item_whose_template_left_stays_kept_unseen_and_comes_back_with_it() {
     assert!(sees_it(&h, from), "shown again");
     assert_eq!(held(&h), items, "the same, in the same number");
 }
+
+/// A take-all whose container is closed before it comes due takes nothing: each item's move
+/// refused as not open (1052), then the answer refused so, every item left and none taken.
+/// Behaviour: server.inventory.take-all-closed-before-it-comes-due
+#[test]
+fn taking_all_from_a_corpse_closed_before_it_comes_due_takes_nothing() {
+    let (mut h, b, me, world) = player();
+    let (corpse, items) = opened_corpse(&mut h, world, me, 2);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
+    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run((pack::TAKE_ALL_SECONDS / STEP).ceil() as usize + 2);
+    let moves = answers(&h, b, from);
+    assert_eq!(
+        moves.iter().map(|m| m[40].1).collect::<Vec<_>>(),
+        [status::NOT_VIEWER; 2],
+        "each item refused"
+    );
+    assert_eq!(
+        took_with_errors(&h, b, from),
+        [(
+            status::NOT_VIEWER,
+            status::NOT_VIEWER,
+            vec![],
+            items.clone()
+        )]
+    );
+    assert!(pack_order(&h, world).is_empty(), "nothing taken");
+    assert_eq!(
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.contents.clone()),
+        Some(items)
+    );
+}
+
+/// Turning into money the items of a corpse not open turns nothing: each item's move refused as
+/// not open (1052), then the answer refused so, nothing earned, every item kept in the corpse.
+/// Behaviour: server.inventory.transmute-needs-the-corpse-open
+#[test]
+fn turning_into_money_a_corpse_not_open_turns_nothing() {
+    use yalain_world::graph::{Builder, Slot};
+    let (mut h, b, me, world) = player();
+    let (corpse, items) = opened_corpse(&mut h, world, me, 2);
+    for i in &items {
+        h.server.things.get_mut(*i).expect("item").value = 5;
+    }
+    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    h.run(2);
+    let mut g = Builder::new();
+    g.object(
+        inventory::TRANSMUTE_DESC,
+        &[
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(1),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Long(corpse),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Long(me),
+        ],
+    );
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        inventory::function::TRANSMUTE_ALL,
+        &[Arg::Object(g.graph())],
+        4,
+    );
+    let moves = answers(&h, b, from);
+    assert_eq!(
+        moves.iter().map(|m| m[40].1).collect::<Vec<_>>(),
+        [status::NOT_VIEWER; 2],
+        "each item refused"
+    );
+    let done = h
+        .calls(b, from)
+        .into_iter()
+        .find(|(f, _)| *f == inventory::function::TRANSMUTE_ALL_DONE)
+        .expect("answered")
+        .1;
+    let Some(Node::Script { slots, .. }) = done.first().and_then(Value::root) else {
+        panic!("an answer object");
+    };
+    assert_eq!(
+        (slots[0].1, slots[7].1, slots[4].1),
+        (status::NOT_VIEWER, status::NOT_VIEWER, 0),
+        "refused as not open, nothing earned"
+    );
+    assert!(
+        !h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == MONEY)),
+        "nothing paid"
+    );
+    assert_eq!(
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.contents.clone()),
+        Some(items)
+    );
+}

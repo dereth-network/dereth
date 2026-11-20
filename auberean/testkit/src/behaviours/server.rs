@@ -7701,6 +7701,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.take-all-closed-before-it-comes-due",
+        says: "A take-all whose container is closed before it comes due takes nothing: each item's move refused as not open (1052), then the answer refused so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-ALL-CLOSED"),
+        station: "yalain-testkit::cpu::play::pack::taking_all_from_a_corpse_closed_before_it_comes_due_takes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.take-all-leaves-what-a-quest-keeps",
         says: "Taking everything leaves each item whose quest keeps its taking from the player, its move \
                answered with the refusal a single take gets, and takes the rest; the answer names the \
@@ -7755,6 +7763,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PACK-BAGS"),
         station: "yalain-testkit::cpu::play::pack::an_item_given_to_a_full_pack_goes_to_the_front_of_the_first_bag",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.transmute-needs-the-corpse-open",
+        says: "Turning into money the items of a corpse not open turns nothing: each item's move refused as not open (1052), then the answer refused so, nothing earned.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-CLOSED"),
+        station: "yalain-testkit::cpu::play::pack::turning_into_money_a_corpse_not_open_turns_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -18899,6 +18915,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-STALE"),
         station: "yalain-testkit::cpu::play::integrity::an_offer_dropped_after_accepting_moves_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.an-offered-item-is-not-used",
+        says: "An item on its user's own trade offer is refused its use at once (10039); taken back off the offer, it is used.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-OFFERED-USE"),
+        station: "yalain-testkit::cpu::play::trading::an_item_on_the_users_trade_offer_is_refused_its_use",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -737,6 +737,8 @@ pub fn take_all<S: Store>(
 /// take of it gets (2017: 17 such items in 5 take-alls, each answered so, the rest taken). Each
 /// item is named from the slot it stands at then, past the items left before it. Then the request
 /// is answered, naming the last refusal; one that took nothing is refused with it (2017: 1 of 1).
+/// A container closed since the request takes nothing: each item's move refused as not open, then
+/// the answer (2017: 2 of 2, 5 items).
 pub fn took_all<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -757,6 +759,7 @@ pub fn took_all<S: Store>(
     let (mut taken, mut left) = (Vec::new(), Vec::new());
     let mut last_error = 0;
     let from = Place::Contents(container);
+    let closed = inv::open_corpse_of(s, world) != Some(container);
     for item in contents {
         // One item, one holder: what has left the container since is not taken.
         if holding::place_of(s, item) != Some(from) {
@@ -797,6 +800,21 @@ pub fn took_all<S: Store>(
             split_quantity: quantity,
             ..Move::default()
         };
+        if closed {
+            let m = Move {
+                from_slot: 0,
+                merge: true,
+                merge_slot: 0,
+                split_quantity: 0,
+                quantity_left: quantity,
+                status: status::NOT_VIEWER,
+                ..m
+            };
+            progress::private(net, world, &move_done(&m));
+            last_error = status::NOT_VIEWER;
+            left.push(item);
+            continue;
+        }
         if let Some(why) = crate::places::take_refused(s, world, template, clock) {
             let m = Move {
                 merge: true,

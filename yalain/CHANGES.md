@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Items on your trade offer can't be used, and closing a corpse stops a Take All.
 - Moving, attacking or dying now interrupts a craft, which then makes and costs nothing.
 - Equipping is refused while riding or swimming, and a robe won't replace two pieces at once.
 - World: heroes regain focus while logged out.
