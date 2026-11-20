@@ -848,6 +848,12 @@ impl Walls {
         self.step_with(template, scale, from, d, None, true)
     }
 
+    /// How high a template flies, at rest and in a fight, if it does.
+    #[must_use]
+    pub fn hover(&self, template: u32) -> Option<Hover> {
+        self.walkers.get(&template).and_then(|w| w.flies)
+    }
+
     /// How high a template flies at rest, if it does.
     #[must_use]
     pub fn hover_at_rest(&self, template: u32) -> Option<f32> {

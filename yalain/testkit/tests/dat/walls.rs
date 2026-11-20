@@ -2505,3 +2505,73 @@ fn a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up() {
         "it gives up the creature it neither sees nor reaches"
     );
 }
+
+/// A flyer killed in a fight falls to the floor under it: its place told on the way, lower each
+/// time as anything falls, the last on the floor its fighting height below (a meter down by about
+/// half a second), and its corpse made there, not in the air.
+/// Behaviour: server.creatures.a-dead-flyer-falls
+#[test]
+fn a_flyer_killed_falls_to_the_floor_and_its_corpse_lies_there() {
+    use auberean_protocol::ServerMessage;
+    let home = over_a_floor();
+    let (mut h, b, id) = beetle_at(home);
+    let records = records();
+    let wasp = walker_of(&records, WASP);
+    let walls = h.server.walls.as_mut().expect("the walls");
+    walls.walkers.insert(TEST_CREATURE, wasp);
+    let up = walls
+        .step_fighting(TEST_CREATURE, 1.0, &home, [0.0, 0.1])
+        .expect("a step")
+        .at;
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.at = Some(up);
+    }
+    let me = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("a player")
+        .character;
+    let from = h.bots[b].inbox.len();
+    let died = h.now.0;
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, me, clock);
+    // Step by step, the heights told and when.
+    let mut told: Vec<(f64, f32)> = Vec::new();
+    let mut seen = from;
+    for _ in 0..80 {
+        h.step();
+        for m in h.world_messages(b, seen) {
+            if let ServerMessage::Position(p) = m {
+                if p.sender.id == id {
+                    told.push((h.now.0 - died, p.origin.z));
+                }
+            }
+        }
+        seen = h.bots[b].inbox.len();
+    }
+    let floor = up.origin[2] - 1.0;
+    assert!(told.len() >= 3, "{told:?}");
+    assert!(
+        told.windows(2).all(|w| w[1].1 <= w[0].1),
+        "only down: {told:?}"
+    );
+    let (landed, last) = *told.last().expect("told");
+    assert!((last - floor).abs() < 0.01, "on the floor: {told:?}");
+    assert!(
+        (0.4..0.75).contains(&landed),
+        "landed at {landed} s: {told:?}"
+    );
+    let corpse = h.world_messages(b, from).into_iter().find_map(|m| match m {
+        ServerMessage::CreateObject(c) if c.physics.position.cell == up.cell && c.id != id => {
+            Some(c.physics.position.frame.origin.z)
+        }
+        _ => None,
+    });
+    let z = corpse.expect("its corpse");
+    assert!(
+        (z - floor).abs() < 0.01,
+        "the corpse at {z}, the floor at {floor}"
+    );
+}

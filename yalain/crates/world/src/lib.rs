@@ -639,6 +639,14 @@ pub enum Timer {
         /// Seconds since the death.
         after: f64,
     },
+    /// A dead flier's fall goes on: where it fell from (its height), the floor it falls to, and
+    /// when it began (world seconds).
+    DeadFalls {
+        id: u64,
+        from: f32,
+        floor: f32,
+        since: f64,
+    },
     /// A thing leaves the world.
     Vanish { id: u64 },
     /// A creature's missile arrives.
@@ -1107,6 +1115,12 @@ impl<S: Store> Server<S> {
                     after,
                 } => death::corpse_appears(self, net, creature, killer, (pose, after), clock),
                 Timer::Vanish { id } => death::vanish(self, net, id),
+                Timer::DeadFalls {
+                    id,
+                    from,
+                    floor,
+                    since,
+                } => death::falling(self, net, id, (from, floor, since), clock),
                 Timer::Missile(f) => missiles::arrives(self, net, f, clock),
                 Timer::PetMissile { pet, target, skill } => {
                     pets::lands(self, net, pet, target, skill, clock);

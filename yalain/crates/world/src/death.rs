@@ -560,7 +560,81 @@ pub(crate) fn falls<S: Store>(
     // It stops where it fell: its place told once more, standing still (2017: 9,676 of 11,062
     // deaths, a median 0.07 s after the death, at the same place).
     crate::ai::stands(s, net, id, clock);
+    comes_down(s, id, clock);
     pose
+}
+
+/// How a dead flier comes down: as anything falls, in meters a second squared, and how often its
+/// place is told on the way (2017: 216 Phyntos wasps fell a median 0.97 m, its height in a fight,
+/// told a median 3 times from 0.14 s to 0.59 s after the death, a free fall's drop at each, the
+/// last on the floor; then the corpse there).
+pub const FALL_GRAVITY: f32 = 9.8;
+pub const FALL_TOLD_EVERY: f64 = 0.15;
+
+/// How far over its floor a dead body counts as on it, in meters.
+const ON_THE_FLOOR: f32 = 0.05;
+
+/// A creature that flies has died: it falls to the floor under it, its height in a fight below it
+/// (outdoors, the ground's height there when that is known and lower down).
+fn comes_down<S: Store>(s: &mut Server<S>, id: u64, clock: Clock) {
+    let Some(t) = s.things.get(id) else {
+        return;
+    };
+    let (Some(at), Some(hover)) = (t.at, s.walls.as_ref().and_then(|w| w.hover(t.template))) else {
+        return;
+    };
+    let ground = (!crate::presence::indoors(at.cell))
+        .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
+        .flatten()
+        .filter(|g| *g < at.origin[2]);
+    let floor = ground.unwrap_or(at.origin[2] - hover.fighting);
+    if at.origin[2] - floor <= ON_THE_FLOOR {
+        return;
+    }
+    s.after(
+        clock,
+        FALL_TOLD_EVERY,
+        Timer::DeadFalls {
+            id,
+            from: at.origin[2],
+            floor,
+            since: clock.local.0,
+        },
+    );
+}
+
+/// A dead flier's fall goes on: it comes down as far as it has fallen by now, never past its
+/// floor, and its place is told; short of the floor, again a moment later.
+pub fn falling<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    (from, floor, since): (f32, f32, f64),
+    clock: Clock,
+) {
+    #[allow(clippy::cast_possible_truncation)]
+    let t = (clock.local.0 - since) as f32;
+    let z = (from - 0.5 * FALL_GRAVITY * t * t).max(floor);
+    let Some(thing) = s.things.get_mut(id) else {
+        return;
+    };
+    let Some(at) = thing.at.as_mut() else {
+        return;
+    };
+    at.origin[2] = z;
+    crate::ai::stands(s, net, id, clock);
+    if z > floor {
+        s.after(
+            clock,
+            FALL_TOLD_EVERY,
+            Timer::DeadFalls {
+                id,
+                from,
+                floor,
+                since,
+            },
+        );
+    }
 }
 
 /// The corpse's object as clients are told of it, from the corpse's own state: its killer and the
