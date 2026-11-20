@@ -2269,6 +2269,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.interrupted-by-a-use-or-death",
+        says: "A skill's use asked while a recipe is made, even one refused, cuts the making short \
+               after the use's answer; a death cuts it short before the death message. Nothing is \
+               made, used up or paid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-INTERRUPTED-USE-DEATH"),
+        station: "yalain-testkit::cpu::play::crafting::a_skills_use_or_a_death_cuts_a_making_short_and_it_pays_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.interrupted-by-moving",
+        says: "Moving or jumping while a recipe is made cuts it short: interrupted (40023) before \
+               its animation is let go, the animation's interruption (91) after, the animation \
+               stopped, nothing made or used up. Turning in place cuts nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-INTERRUPTED-MOVING"),
+        station: "yalain-testkit::cpu::play::crafting::moving_or_jumping_cuts_a_making_short_and_it_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.knife-wears-out",
         says: "Each cut lowers the knife's durability by one at even odds and tells the client; a knife worn \
                to nothing is destroyed through overuse, said so, and leaves the pack.",

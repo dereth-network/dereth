@@ -1512,10 +1512,10 @@ fn killer_name<S: Store>(s: &Server<S>, killer: Option<u64>) -> TextInfo {
     )
 }
 
-/// A player dies: in one tick its death message (the last attacker's name), and for everyone who
-/// sees it, it is dead, wounded, its killer announced, unselectable, stopped if a movement order
-/// still held, in a death pose, playing its death; a creature that killed it may play its victory.
-/// Its corpse is made ten seconds later.
+/// A player dies: in one tick a craft under way cut short, its death message (the last attacker's
+/// name), and for everyone who sees it, it is dead, wounded, its killer announced, unselectable,
+/// stopped if a movement order still held, in a death pose, playing its death; a creature that
+/// killed it may play its victory. Its corpse is made ten seconds later.
 pub fn player_dies<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1537,6 +1537,8 @@ pub fn player_dies<S: Store>(
     // Its quests that fail when it dies fail first (2017: in the death's tick, before its
     // message).
     crate::quests::died(s, net, world, clock);
+    // A craft under way is cut short before the message (2017: 1 of 1).
+    crate::craft::interrupt(s, net, world);
     let name = killer_name(s, killer);
     let said = session::call(
         player_fn::DEATH_MESSAGE,

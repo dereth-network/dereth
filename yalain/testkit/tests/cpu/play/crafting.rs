@@ -4504,3 +4504,144 @@ fn a_recipe_is_refused_to_the_dead_and_in_portal_space() {
     assert_eq!(answer(&h, b, from), Some(error::TOO_BUSY));
     assert_eq!(held(&h, world, IRON), 20);
 }
+
+/// A report of the player's place where it stands, turned to `heading`, with an asked motion, a
+/// jump or neither.
+fn report_here(
+    h: &mut Harness,
+    b: usize,
+    world: yalain_net::ConnId,
+    heading: u8,
+    motion: u32,
+    jump: bool,
+) {
+    let p = &h.server.players[&world];
+    let at = p.position;
+    let mut m = yalain_testkit::play::report(
+        at.cell,
+        auberean_primitives::Vec3::new(at.origin[0], at.origin[1], at.origin[2]),
+        heading,
+        motion,
+        p.teleport_stamp,
+    );
+    if let auberean_protocol::ClientMessage::Position(c) = &mut m {
+        if jump {
+            c.flags |= auberean_protocol::physics::position_flags::JUMP;
+        }
+    }
+    h.bots[b].send(true, queue::WEENIE, &m);
+}
+
+/// Has the player's animation been stopped since `from`?
+fn animation_stopped(h: &Harness, b: usize, from: usize, me: u64, behavior: u32) -> bool {
+    h.world_messages(b, from).iter().any(
+        |m| matches!(m, ServerMessage::StopBehavior(e) if e.sender.id == me && e.action.0 == behavior),
+    )
+}
+
+/// Moving or jumping while a recipe is made cuts it short: answered as interrupted, in the craft's
+/// word before its animation is let go and the animation's after, the animation stopped, nothing
+/// made or used up and nothing more at the making's end. Turning in place cuts nothing, and a
+/// making begun again at once keeps to its own steps.
+/// Behaviour: server.craft.interrupted-by-moving
+#[test]
+fn moving_or_jumping_cuts_a_making_short_and_it_makes_nothing() {
+    const ANIMATION: u32 = 0x4100_00A4;
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let idle = yalain_world::world::IDLE_MOTION;
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 0.5);
+    report_here(&mut h, b, world, 64, idle, false);
+    wait(&mut h, 0.5);
+    assert!(
+        craft_answers(&h, b, from).is_empty(),
+        "turning cuts nothing"
+    );
+    report_here(
+        &mut h,
+        b,
+        world,
+        64,
+        yalain_world::world::motion(127, 255, 127),
+        false,
+    );
+    wait(&mut h, 0.2);
+    assert_eq!(craft_answers(&h, b, from), [error::INTERRUPTED]);
+    assert!(animation_stopped(&h, b, from, me, ANIMATION));
+    report_here(&mut h, b, world, 64, idle, false);
+    wait(&mut h, 0.2);
+    // Begun again at once: the first making's let-go, due in this one's, is not this one's.
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 1.9);
+    report_here(&mut h, b, world, 64, idle, true);
+    wait(&mut h, 0.2);
+    assert_eq!(craft_answers(&h, b, from), [error::INTERRUPTED]);
+    wait(&mut h, 6.0);
+    assert_eq!(
+        craft_answers(&h, b, from),
+        [error::INTERRUPTED],
+        "nothing at its end"
+    );
+    // Past its let-go, the animation's word.
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 3.0);
+    report_here(&mut h, b, world, 64, idle, true);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [error::BEHAVIOR_INTERRUPTED]);
+    assert!(animation_stopped(&h, b, from, me, ANIMATION));
+    assert_eq!(held(&h, world, MINES_SWORD), 0, "nothing made");
+    assert_eq!(held(&h, world, IRON), 20, "nothing used up");
+}
+
+/// A skill's use asked while a recipe is made cuts the making short after the use's own answer,
+/// even a use refused; a death cuts it short before the death message. Nothing is made, used up
+/// or paid.
+/// Behaviour: server.craft.interrupted-by-a-use-or-death
+#[test]
+fn a_skills_use_or_a_death_cuts_a_making_short_and_it_pays_nothing() {
+    const DEATH_MESSAGE: u32 = 0x8207_002B;
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    if let Some(r) = h.server.crafting.recipes.get_mut(&MINES_RECIPE) {
+        r.cost = 500;
+    }
+    let money = |h: &Harness| yalain_world::store::money(&h.server.players[&world].qualities);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 1000);
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 1.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::skill_use::function::USE,
+            &[Arg::Int(1), Arg::Int(0x1234_5678), Arg::LongInt(0)],
+        ),
+    );
+    wait(&mut h, 0.2);
+    let got = calls_of(&h, b, from);
+    let at = |f: u32| got.iter().position(|(x, _)| *x == f);
+    let used = at(yalain_world::skill_use::function::REFUSED).expect("the use answered");
+    let cut = at(function::EXECUTED).expect("the making answered");
+    assert!(used < cut, "the use first");
+    assert_eq!(craft_answers(&h, b, from), [error::INTERRUPTED]);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 3.0);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(4);
+    let got = calls_of(&h, b, from);
+    let at = |f: u32| got.iter().position(|(x, _)| *x == f);
+    assert!(
+        at(function::EXECUTED) < at(DEATH_MESSAGE),
+        "before the death message"
+    );
+    assert_eq!(craft_answers(&h, b, from), [error::BEHAVIOR_INTERRUPTED]);
+    wait(&mut h, 12.0);
+    assert_eq!(craft_answers(&h, b, from), [error::BEHAVIOR_INTERRUPTED]);
+    assert_eq!(held(&h, world, MINES_SWORD), 0, "nothing made");
+    assert_eq!(held(&h, world, IRON), 20, "nothing used up");
+    assert_eq!(money(&h), 1000, "nothing paid");
+}

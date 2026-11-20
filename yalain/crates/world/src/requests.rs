@@ -128,6 +128,9 @@ pub fn call<S: Store>(
         function::ATTACK => {
             crate::follow::stop(s, net, world);
             crate::skill_use::request(s, net, world, &values, clock);
+            // Asked while a craft is under way, it cuts the craft short, whether it goes or is
+            // refused (2017: 2 of 2, the use answered first).
+            crate::craft::interrupt(s, net, world);
             fight_ends_trade(s, net, world);
         }
         crate::combat::function::START_ATTACK => {

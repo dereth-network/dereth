@@ -30,6 +30,14 @@
 //! answer; ingredients used up after the answer. What it asked is asked again as the result comes:
 //! an ingredient gone or the money spent since, and it makes nothing, says why and takes nothing.
 //!
+//! **A making is cut short** when its maker moves or jumps (a report with an asked motion or a
+//! jump; 2017: 8 of 8 makings with one; of 47 with only standing reports, turning in place among
+//! them, none but an attack's and a death's), uses a skill such as an attack (2 of 2) or dies (1 of
+//! 1). The answer says it was interrupted, then its animation stops: in the craft's word before its
+//! animation is let go, in the animation's after (2017: 10 and 3, each on its side of the let-go,
+//! whatever cut it). Nothing is made, used up or paid, and no experience comes (4 of 4 recipes with
+//! a cost charged nothing).
+//!
 //! **Refining** turns two materials into a third, in a workshop. The recipe holds what it takes
 //! and uses up; what it yields it does not hold: a third of the amount taken of each material,
 //! growing with the player's craft skill and what its effects add to that skill, such as a
@@ -83,7 +91,7 @@
 
 use std::collections::HashMap;
 
-use auberean_protocol::physics::Release;
+use auberean_protocol::physics::{Release, Word};
 use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -167,6 +175,10 @@ pub mod error {
     pub const NO_ROOM: u32 = 40_029;
     /// The maker's money is short of the recipe's cost.
     pub const NO_MONEY: u32 = 40_038;
+    /// A making cut short before its animation is let go.
+    pub const INTERRUPTED: u32 = 40_023;
+    /// A making cut short after its animation is let go: the animation's own word for it.
+    pub const BEHAVIOR_INTERRUPTED: u32 = 91;
     /// The recipe's workshop is not at hand (its record is not on the player).
     pub const MISSING_EFFECT: u32 = 40_041;
     /// An item whose least level is above what its slot takes at the spinner.
@@ -2054,6 +2066,8 @@ pub struct Making {
     pub context: u32,
     /// The spinner the player chose (the quality of what it makes).
     pub spinner: u32,
+    /// Its animation has been let go.
+    pub released: bool,
 }
 
 /// From the request to the animation, from it to its release, and from the request to the
@@ -2208,6 +2222,7 @@ pub fn execute<S: Store>(
         slots,
         context,
         spinner: *spinner,
+        released: false,
     });
     let me = p.character;
     let mut b = BehaviorParams {
@@ -2230,6 +2245,7 @@ pub fn execute<S: Store>(
         Timer::Craft {
             world,
             step: Step::Release,
+            context,
         },
     );
     s.after(
@@ -2238,19 +2254,27 @@ pub fn execute<S: Store>(
         Timer::Craft {
             world,
             step: Step::Result,
+            context,
         },
     );
 }
 
-/// A step of a craft, when it is due.
+/// A step of a craft, when it is due: of the making its context names, none once that one was cut
+/// short.
 pub fn step<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     st: Step,
+    context: u32,
     clock: Clock,
 ) {
-    let Some(m) = s.players.get(&world).and_then(|p| p.making.clone()) else {
+    let Some(m) = s
+        .players
+        .get(&world)
+        .and_then(|p| p.making.clone())
+        .filter(|m| m.context == context)
+    else {
         return;
     };
     match st {
@@ -2261,6 +2285,9 @@ pub fn step<S: Store>(
             let Some(p) = s.players.get_mut(&world) else {
                 return;
             };
+            if let Some(m) = p.making.as_mut() {
+                m.released = true;
+            }
             let me = p.character;
             let release = Release {
                 behavior: animation,
@@ -2274,6 +2301,45 @@ pub fn step<S: Store>(
             crate::combat::to_all_seeing(s, net, me, &lets_go);
         }
         Step::Result => result(s, net, world, &m, clock),
+    }
+}
+
+/// A craft under way is cut short: the answer that it was interrupted (the craft's word before
+/// its animation is let go, the animation's after), then its animation stopped for everyone who
+/// sees the player. Nothing is made, used up or paid.
+pub fn interrupt<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let Some(m) = p.making.take() else {
+        return;
+    };
+    let err = if m.released {
+        error::BEHAVIOR_INTERRUPTED
+    } else {
+        error::INTERRUPTED
+    };
+    progress::private(net, world, &executed(err, m.recipe));
+    let Some(animation) = s.crafting.recipes.get(&m.recipe).map(|d| d.animation) else {
+        return;
+    };
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let me = p.character;
+    let stop = ServerMessage::StopBehavior(crate::combat::player_event(p, Word(animation)));
+    crate::combat::to_all_seeing(s, net, me, &stop);
+}
+
+/// The player reported a place: moving or jumping cuts a craft under way short (2017: 8 of 8
+/// makings with such a report; turning in place cuts nothing).
+pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, jumped: bool) {
+    let cut = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.making.is_some() && (jumped || crate::skill_use::moving(p)));
+    if cut {
+        interrupt(s, net, world);
     }
 }
 

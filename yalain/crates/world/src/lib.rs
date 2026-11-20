@@ -720,8 +720,12 @@ pub enum Timer {
     RaisedMoves { world: ConnId },
     /// A player back at its lifestone from a resurrection may move again.
     MovesAgain { world: ConnId },
-    /// The next step of a player's craft.
-    Craft { world: ConnId, step: craft::Step },
+    /// The next step of a player's craft: of the making with this context.
+    Craft {
+        world: ConnId,
+        step: craft::Step,
+        context: u32,
+    },
     /// A player's day of craft experience may be over.
     CraftDay { world: ConnId },
     /// A player's butchery of a corpse is done.
@@ -1186,7 +1190,11 @@ impl<S: Store> Server<S> {
                 Timer::AurasPulseAgain { world } => {
                     effects::auras_pulse_again(self, net, world, clock);
                 }
-                Timer::Craft { world, step } => craft::step(self, net, world, step, clock),
+                Timer::Craft {
+                    world,
+                    step,
+                    context,
+                } => craft::step(self, net, world, step, context, clock),
                 Timer::CraftDay { world } => craft::day_due(self, net, world, clock),
                 Timer::Butcher { world, work } => butchery::done(self, net, world, &work),
                 Timer::Mine { world, work } => mining::done(self, net, world, &work, clock),
