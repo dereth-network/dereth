@@ -51,6 +51,8 @@ pub mod look {
     pub const BINDS: u32 = 0xE9BC_E65B;
     /// The line saying an item is bound to another player.
     pub const BOUND_TO_ANOTHER: u32 = 0x5796_899D;
+    /// A hero's title.
+    pub const HERO_TITLE: u32 = 0x0AB8_F014;
 }
 
 /// The strings of profiles (string ids) and their tables.
@@ -614,13 +616,15 @@ pub fn player(
         quest_rating,
         None,
         None,
+        None,
     )
 }
 
 /// A player's profile, a member of an allegiance's naming it by its rank's title and ending with
 /// its allegiance: the allegiance's name, its monarch (or that it is the monarch), its patron when
 /// that is not the monarch, its rank and rank title, and the title an officer gave it. A fellow's
-/// ends with its fellowship's name, after the allegiance's lines; whoever examines it.
+/// ends with its fellowship's name, after the allegiance's lines; whoever examines it. A hero's
+/// title (its string in [`crate::focus::TITLES`], naming it) is the line after its name.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn member(
@@ -634,6 +638,7 @@ pub fn member(
     quest_rating: u32,
     allegiance: Option<&AllegianceView>,
     fellowship: Option<&str>,
+    hero_title: Option<u32>,
 ) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
@@ -654,6 +659,11 @@ pub fn member(
     };
     p.text(GENERAL, look::VALUE, name_line);
     p.brk(GENERAL);
+    if let Some(title) = hero_title {
+        let t = with_vars(crate::focus::TITLES, title, vec![nested(var::NAME, name())]);
+        p.text(GENERAL, look::HERO_TITLE, t);
+        p.brk(GENERAL);
+    }
     let craft = with_vars(
         line::CRAFTS,
         line::ARMORMASTER,

@@ -212,3 +212,93 @@ pub fn set_hero_kept(qualities: &mut Vec<u8>, hero: bool) {
         quals::set_int(qualities, quality::FOCUS, BASE + own);
     }
 }
+
+/// The string table of heroes' titles.
+pub const TITLES: u32 = 0x2500_0CE8;
+
+/// Each race's classes as a hero's title names them, by the skill that makes one of the class, in
+/// the order they are looked for: the first the hero holds trained is its class (Defenders by either
+/// of two, Drudges by their first attack).
+pub const TITLE_CLASSES: [(u32, &[(u32, &str)]); 5] = [
+    (
+        1,
+        &[
+            (132, "BountyHunter_"),
+            (150, "Defender_"),
+            (148, "Defender_"),
+            (189, "Alchemist_"),
+            (235, "Ranger_"),
+            (68, "Enchanter_"),
+            (116, "Sorcerer_"),
+        ],
+    ),
+    (
+        2,
+        &[
+            (319, "Berserker_"),
+            (355, "Juggernaut_"),
+            (423, "Raider_"),
+            (450, "Tactician_"),
+            (270, "Elementalist_"),
+            (302, "Sage_"),
+        ],
+    ),
+    (
+        4,
+        &[
+            (697, "FeralIntendant_"),
+            (731, "Zealot_"),
+            (769, "HiveKeeper_"),
+            (763, "ClawBearer_"),
+            (642, "Healer_"),
+            (654, "Invoker_"),
+        ],
+    ),
+    (
+        16,
+        &[
+            (1929, "Templar_"),
+            (1868, "Mentalist_"),
+            (1544, "Hieromancer_"),
+        ],
+    ),
+    (8, &[(2112, "Drudge_")]),
+];
+
+/// A hero's title, its string in [`TITLES`]: the token `ID_`, its class, its kingdom (`Neutral`,
+/// `Shadow`, `Order`, `Dominion`) and its rank, 1 to level 50, one more each ten levels past it, 11 at
+/// the highest level (2017: 4,479 examinations of heroes, every title so, a Ranger of no kingdom
+/// at level 48 `ID_Ranger_Neutral1`). None for one who is no hero, or holds no class.
+#[must_use]
+pub fn hero_title<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Option<u32> {
+    if !is_hero(&p.qualities) {
+        return None;
+    }
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = crate::skills::held(&starting, &p.play.skills);
+    let trained = |id: u32| {
+        skills
+            .iter()
+            .any(|h| h.skill == id && h.mask & crate::skills::mask::TRAINED != 0)
+    };
+    let (_, classes) = TITLE_CLASSES.iter().find(|(race, _)| *race == p.race)?;
+    let class = classes.iter().find(|(id, _)| trained(*id))?.1;
+    let kingdom = match crate::kingdoms::of(&p.qualities) {
+        None => "Neutral",
+        Some(1) => "Shadow",
+        Some(2) => "Order",
+        Some(4) => "Dominion",
+        Some(_) => return None,
+    };
+    let level = crate::examine::level_of(&p.qualities);
+    let rank = if level <= 50 {
+        1
+    } else if level >= s.levels.max_level() {
+        11
+    } else {
+        (level - 50) / 10 + 1
+    };
+    Some(auberean_assets::strings::token(&format!(
+        "ID_{class}{kingdom}{rank}"
+    )))
+}

@@ -563,6 +563,7 @@ fn profile_bytes<S: Store>(
             q.play.quest_rating,
             q.character,
         );
+        let title = crate::focus::hero_title(s, q);
         let allegiance = crate::allegiance::view(s, id);
         let fellowship = s
             .fellowships
@@ -579,6 +580,7 @@ fn profile_bytes<S: Store>(
             rating,
             allegiance.as_ref(),
             fellowship.as_deref(),
+            title,
         )
     } else if let Some(t) = s.things.get(req.object) {
         // An item in another player's pack is seen by no one until it is offered.

@@ -6282,6 +6282,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.focus.a-heros-title",
+        says: "Examining a hero shows its title after its name: its class (by the class skill it holds), \
+               its kingdom and its rank (1 to level 50, one more each ten levels, 11 at the highest), \
+               drawn as a hero's title and naming it; one who is no hero, or of no class, shows none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-TITLE"),
+        station: "yalain-testkit::cpu::play::focus::examining_a_hero_shows_its_title_after_its_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.focus.a-magroot-gives-35",
         says: "The Magroot is a hero's, used up as it is eaten, and its use puts on an instant change \
                of 35 to its eater's focus alone.",

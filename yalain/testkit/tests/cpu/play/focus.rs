@@ -463,3 +463,125 @@ fn a_fellowship_shares_a_kills_focus_within_100_m_without_the_group_factor() {
         }
     }
 }
+
+/// The profile `by`'s client is sent examining `of`, packed.
+fn examination(h: &mut Harness, by: usize, of: u64) -> Vec<u8> {
+    use auberean_script::args::Arg;
+    use auberean_script::native_object::NativeObject;
+    use yalain_world::profile;
+    let mut req = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        req.extend(w.to_le_bytes());
+    }
+    req.extend(of.to_le_bytes());
+    req.extend(0x203u32.to_le_bytes());
+    let mut b = yalain_world::graph::Builder::new();
+    b.native(
+        profile::REQUEST_TYPE,
+        NativeObject::Packed {
+            ty: profile::REQUEST_TYPE.into(),
+            bytes: req,
+        },
+    );
+    let from = h.bots[by].inbox.len();
+    h.bots[by].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(b.graph())],
+        ),
+    );
+    h.run(30);
+    h.world_messages(by, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                let v = yalain_world::calls::values(&c.args?.0).ok()?;
+                match v[0].root() {
+                    Some(Node::Native { bytes, .. }) => Some(bytes.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("an examination")
+}
+
+/// Where a word first stands in packed bytes.
+fn word_at(bytes: &[u8], word: u32) -> Option<usize> {
+    bytes.windows(4).position(|w| w == word.to_le_bytes())
+}
+
+/// Examining a hero shows its title right after its name: the token of its class, its kingdom and
+/// its rank in the heroes' titles (a human Ranger of no kingdom at level 1: `ID_Ranger_Neutral1`,
+/// `0xEFB69EB0`, as 2017 sent it), drawn as a hero's title and naming it. Its rank grows each ten levels past 50 and is 11 at the
+/// highest level; a hero of no class, and one who is no hero, show none.
+/// Behaviour: server.focus.a-heros-title
+#[test]
+fn examining_a_hero_shows_its_title_after_its_name() {
+    use yalain_world::profile;
+    use yalain_world::state::SkillState;
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (_, hero) = h.player_in_world("two", "Kestrel");
+    let set = |h: &mut Harness, f: &dyn Fn(&mut yalain_world::world::Player)| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == hero)
+            .expect("in the world");
+        f(p);
+    };
+    let title_of = |h: &mut Harness| {
+        let bytes = examination(h, a, hero);
+        word_at(&bytes, profile::look::HERO_TITLE).map(|at| {
+            assert_eq!(
+                word_at(&bytes[at..], focus::TITLES),
+                Some(8),
+                "in the heroes' titles"
+            );
+            assert!(
+                word_at(&bytes, profile::line::PLAYER_NAME).is_some_and(|n| n < at),
+                "after the name"
+            );
+            assert!(
+                word_at(&bytes, profile::race_line(1, 0x1000)).is_none_or(|r| r > at),
+                "before the race"
+            );
+            u32::from_le_bytes(bytes[at + 4..at + 8].try_into().expect("a word"))
+        })
+    };
+    // A table of a hundred levels.
+    h.server.levels = yalain_world::levels::LevelTable {
+        levels: vec![yalain_world::levels::Level::default(); 100],
+    };
+    let ranger = SkillState {
+        skill: 235,
+        granted: 0,
+        mask: 1,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    };
+    set(&mut h, &|p| p.play.skills.push(ranger));
+    assert_eq!(title_of(&mut h), None, "a Ranger who is no hero");
+    set(&mut h, &|p| {
+        quals::set_bool(&mut p.qualities, focus::HERO, true)
+    });
+    assert_eq!(title_of(&mut h), Some(0xEFB6_9EB0), "ID_Ranger_Neutral1");
+    set(&mut h, &|p| p.play.skills.clear());
+    assert_eq!(title_of(&mut h), None, "a hero of no class");
+    set(&mut h, &|p| p.play.skills.push(ranger));
+    set(&mut h, &|p| {
+        quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 65);
+    });
+    assert_eq!(title_of(&mut h), Some(0xEFB6_9EBC), "ID_Ranger_Neutral2");
+    let top = h.server.levels.max_level();
+    set(&mut h, &|p| {
+        quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, top);
+    });
+    assert_eq!(title_of(&mut h), Some(0x67B6_9EB1), "ID_Ranger_Neutral11");
+}
