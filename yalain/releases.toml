@@ -52,4 +52,4 @@ notes = "Serves world database v0.38.0: fetch it with yalain world fetch before 
 [[release]]
 version = "0.7.0"
 upgrades_from = "0.6.1"
-notes = "Serves world database v0.39.0: fetch it with yalain world fetch before the new program starts."
+notes = "Serves world database v0.40.0: fetch it with yalain world fetch before the new program starts."

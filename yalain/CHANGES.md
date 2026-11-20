@@ -25,6 +25,12 @@ what they see, not how it was done.
 - World: monarchs can bind their allegiance's recall at the halls' binding stones.
 - World: treasure above level 50 hits and protects as retail's did; enchanted gear is worth more.
 - World: keyed dungeon caches hold treasure, and now and then a rare.
+- World: the skills that heal another player's vitae work.
+- World: Fickle Fate puts a random effect on you and your nearby fellows.
+- World: camps replace their dead on 2017's timing.
+- World: rabbits no longer play a victory over players they kill.
+- World: examining altars, quest stones, portals, shards and vaults shows their names and pages.
+- World: portals allow recall and summon as they did in 2017.
 - Fixed level-ups ignoring your buffs and vitae, and showing too few skill credits.
 - Fewer monsters play a victory emote, and they finish it before calming down.
 - Buffs and heals on other players follow the kingdom rules, and pets can fight players.
