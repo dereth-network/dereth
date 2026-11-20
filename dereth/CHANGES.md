@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed data a world had removed staying in your copy after the world updated.
 - Remaster: Launch-era doorways show the room inside instead of solid blue.
 - Remaster: furniture set against a wall no longer flickers into it.
 - Fixed a stall of a second or two right after a world's data patch.

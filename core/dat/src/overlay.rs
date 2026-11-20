@@ -1225,6 +1225,39 @@ impl OverlayWriter {
         Ok(())
     }
 
+    /// The ids of the records the overlay holds.
+    pub fn record_ids(&self) -> impl Iterator<Item = DataId> + '_ {
+        self.manifest.hashes.keys().map(|&k| DataId(k))
+    }
+
+    /// Lift the overlay's deletion of `id` under `mask`, so the base's records it hid are read
+    /// again: for a deletion a newer overlay of the world no longer makes. Answers whether the
+    /// overlay made it.
+    pub fn lift_tombstone(&mut self, id: u32, mask: u32) -> bool {
+        let before = self.tombstones.len();
+        self.tombstones.retain(|t| !(t.id == id && t.mask == mask));
+        let lifted = self.tombstones.len() != before;
+        self.dirty |= lifted;
+        lifted
+    }
+
+    /// Take the overlay's own copy of `id` out, leaving no tombstone, so the base's record (where
+    /// it has one) is read again: for a record a newer overlay of the world no longer holds.
+    /// Answers whether the overlay held it.
+    ///
+    /// # Errors
+    /// The writer's errors.
+    pub fn forget(&mut self, id: DataId) -> Result<bool, DatError> {
+        if is_reserved(id) {
+            return Ok(false);
+        }
+        let held = self.writer.delete_data(id, 0)?;
+        if self.manifest.hashes.remove(&id.raw()).is_some() || held {
+            self.dirty = true;
+        }
+        Ok(held)
+    }
+
     /// Delete `id` (or, with a `mask`, its whole family) in revision `iteration`: the overlay's
     /// own copies go, and a tombstone hides the base's. Answers how many of the overlay's own
     /// records went.

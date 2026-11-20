@@ -758,6 +758,7 @@ impl DddPatcher {
             return;
         }
         self.unchecked.clear();
+        self.forget_dropped(m);
         self.note(format!(
             "0xF7EC the world {:?} names {} file(s), {} record(s) and {} deletion(s)",
             m.world_key,
@@ -1383,6 +1384,78 @@ impl DddPatcher {
         }
     }
 
+    /// A newer overlay of the world holds only what its manifest `m` names: each record the
+    /// client kept from an older one, in a file the manifest names, that it no longer names is
+    /// taken out of the client's copy, so the base's record (where there is one) is read again;
+    /// and each deletion it no longer makes is lifted, so the base's records it hid are read
+    /// again.
+    fn forget_dropped(&mut self, m: &DddOverlayManifest) {
+        let named: Vec<(DatTarget, Vec<(u32, u32)>)> = m
+            .files
+            .iter()
+            .filter_map(|f| {
+                let t = target_from_wire(f.dat_file_type, f.dat_file_id)?;
+                Some((t, f.tombstones.iter().map(|x| (x.id, x.mask)).collect()))
+            })
+            .collect();
+        let mut dropped = 0usize;
+        let mut lifted = 0usize;
+        for (t, deletions) in named {
+            if !self.target.as_ref().is_some_and(|d| d.dir.holds(t)) {
+                continue;
+            }
+            let (stale, old_deletions): (Vec<DataId>, Vec<(u32, u32)>) = match self.writer(t) {
+                Ok(w) => (
+                    w.record_ids().collect(),
+                    w.tombstones().iter().map(|x| (x.id, x.mask)).collect(),
+                ),
+                Err(_) => continue,
+            };
+            let stale: Vec<DataId> = stale
+                .into_iter()
+                .filter(|id| !self.expected.contains_key(&(t, id.raw())))
+                .collect();
+            let unmade: Vec<(u32, u32)> = old_deletions
+                .into_iter()
+                .filter(|d| !deletions.contains(d))
+                .collect();
+            if stale.is_empty() && unmade.is_empty() {
+                continue;
+            }
+            let date = entry_date(crate::platform::clock::system_unix_time());
+            let Ok(w) = self.writer(t) else {
+                continue;
+            };
+            let mut failed = None;
+            for id in &stale {
+                if let Err(e) = w.forget(*id) {
+                    failed = Some(e);
+                    break;
+                }
+                dropped += 1;
+            }
+            for (id, mask) in unmade {
+                lifted += usize::from(w.lift_tombstone(id, mask));
+            }
+            if let Err(e) = w.flush(date) {
+                failed.get_or_insert(e);
+            }
+            // What the world reads changed: the file is reopened at the patch's end.
+            self.changed.insert(t);
+            if let Some(e) = failed {
+                tracing::warn!(
+                    "DDD {}: the records the world's overlay no longer holds were not all taken out: {e}",
+                    self.name_of(t)
+                );
+            }
+        }
+        if dropped > 0 || lifted > 0 {
+            self.note(format!(
+                "the world's overlay no longer holds {dropped} record(s) and {lifted} deletion(s)                  this client kept; they are taken out"
+            ));
+        }
+    }
+
     /// Open the file's overlay writer, once.
     fn writer(&mut self, target: DatTarget) -> Result<&mut OverlayWriter, DatError> {
         if !self.writers.contains_key(&target) {
@@ -1760,6 +1833,175 @@ mod tests {
     }
 
     /// Behaviour: none (the overlay extension's base check: a base is known by its records).
+    /// Behaviour: none (a world's overlay changing between two sessions)
+    /// A client that kept two records of an older overlay of the world, given the manifest of a
+    /// newer one that holds only one of them, takes the other out of its copy, so the base's own
+    /// record is read again, and the file is reopened at the patch's end.
+    #[test]
+    fn a_record_a_newer_overlay_no_longer_holds_is_taken_out_of_the_clients_copy() {
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("ddd-overlay-drops").expect("scratch directory");
+        let dir = scratch.path().to_path_buf();
+        let base = language_file(&dir.join("base"), [0x2100_0001, 0x2100_0002], 1);
+        let overlay = OverlayDir::new(&dir.join("overlay")).expect("an overlay folder");
+        let (kept, dropped) = (DataId(0x2100_0002), DataId(0x2100_0003));
+        let kept_hash = {
+            let mut w = overlay
+                .writer(
+                    DatTarget::Local,
+                    &base,
+                    "client_local_English.dat",
+                    "a world",
+                    1,
+                )
+                .expect("the older overlay");
+            for id in [kept, dropped] {
+                w.save(&base, id, b"older", 1, 2, 1).expect("a record");
+            }
+            w.add_iteration(2, 1).expect("its revision");
+            w.flush(1).expect("flushed");
+            w.hash_of(kept).expect("the kept record's hash")
+        };
+        let newer = DddOverlayManifest {
+            world_key: "a world".into(),
+            total_bytes: 0,
+            files: vec![dereth_protocol::admin::OverlayFileManifest {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                base_name: "client_local_English.dat".into(),
+                base_fingerprint: dereth_dat::overlay::fingerprint(&base),
+                base_records: None,
+                base_iterations: 1,
+                exact_iterations: false,
+                revisions: vec![2],
+                records: vec![dereth_protocol::admin::OverlayRecord {
+                    id: kept.raw(),
+                    iteration: 2,
+                    size: 5,
+                    sha256: kept_hash,
+                }],
+                tombstones: Vec::new(),
+            }],
+        };
+        let mut patcher = DddPatcher::new(Some(OverlayTarget::with_bases(
+            overlay.clone(),
+            [(DatTarget::Local, base.clone())],
+            "a world",
+        )));
+        patcher.on_manifest(&newer);
+        assert_eq!(patcher.refused(), None);
+        assert!(
+            patcher.changed.contains(&DatTarget::Local),
+            "the file is reopened"
+        );
+        drop(patcher);
+        let w = overlay
+            .writer(
+                DatTarget::Local,
+                &base,
+                "client_local_English.dat",
+                "a world",
+                1,
+            )
+            .expect("the overlay");
+        let held: Vec<DataId> = w.record_ids().collect();
+        assert_eq!(
+            held,
+            [kept],
+            "the dropped record is gone, the kept one stays"
+        );
+        drop(w);
+        let layered = base.layered(std::sync::Arc::new(
+            overlay
+                .layer_over(DatTarget::Local, &base, Some("a world"))
+                .expect("the layer opens")
+                .expect("a layer"),
+        ));
+        assert_eq!(
+            layered.read(DataId(0x2100_0003)).ok(),
+            None,
+            "the base never held 0x21000003, and the overlay no longer does"
+        );
+        assert_eq!(
+            layered.read(kept).expect("the kept record"),
+            b"older",
+            "the newer overlay's record stays"
+        );
+        drop(scratch);
+    }
+
+    /// Behaviour: none (a world's overlay changing between two sessions)
+    /// A base record an older overlay of the world deleted reads again once the manifest of a
+    /// newer one no longer makes that deletion.
+    #[test]
+    fn a_deletion_a_newer_overlay_no_longer_makes_is_lifted() {
+        let scratch = dereth_dat::testing::ScratchDir::new("ddd-overlay-undelete")
+            .expect("scratch directory");
+        let dir = scratch.path().to_path_buf();
+        let base = language_file(&dir.join("base"), [0x2100_0001, 0x2100_0002], 1);
+        let overlay = OverlayDir::new(&dir.join("overlay")).expect("an overlay folder");
+        let hidden = DataId(0x2100_0001);
+        {
+            let mut w = overlay
+                .writer(
+                    DatTarget::Local,
+                    &base,
+                    "client_local_English.dat",
+                    "a world",
+                    1,
+                )
+                .expect("the older overlay");
+            w.tombstone(hidden, 0, 2).expect("deleted");
+            w.add_iteration(2, 1).expect("its revision");
+            w.flush(1).expect("flushed");
+        }
+        let read = |overlay: &OverlayDir| {
+            base.layered(std::sync::Arc::new(
+                overlay
+                    .layer_over(DatTarget::Local, &base, Some("a world"))
+                    .expect("the layer opens")
+                    .expect("a layer"),
+            ))
+            .read(hidden)
+            .ok()
+        };
+        assert_eq!(read(&overlay), None, "the older overlay hides it");
+        let newer = DddOverlayManifest {
+            world_key: "a world".into(),
+            total_bytes: 0,
+            files: vec![dereth_protocol::admin::OverlayFileManifest {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                base_name: "client_local_English.dat".into(),
+                base_fingerprint: dereth_dat::overlay::fingerprint(&base),
+                base_records: None,
+                base_iterations: 1,
+                exact_iterations: false,
+                revisions: vec![2],
+                records: Vec::new(),
+                tombstones: Vec::new(),
+            }],
+        };
+        let mut patcher = DddPatcher::new(Some(OverlayTarget::with_bases(
+            overlay.clone(),
+            [(DatTarget::Local, base.clone())],
+            "a world",
+        )));
+        patcher.on_manifest(&newer);
+        assert_eq!(patcher.refused(), None);
+        assert!(
+            patcher.changed.contains(&DatTarget::Local),
+            "the file is reopened"
+        );
+        drop(patcher);
+        assert_eq!(
+            read(&overlay).as_deref(),
+            Some(&0x2100_0001u32.to_le_bytes()[..]),
+            "the base's record reads again"
+        );
+        drop(scratch);
+    }
+
     #[test]
     fn a_manifest_naming_the_bases_records_is_taken_over_a_file_laid_out_otherwise() {
         let scratch =
