@@ -33,8 +33,8 @@ enum Corpse {
     Plain,
 }
 
-/// The test world with a camp of `population` beetles back a second after each death, its corpse
-/// named as `corpse` says, the corpse profile's row if `row`, the server's draws seeded.
+/// The test world with a camp of `population` beetles back a second after each body leaves, its
+/// corpse named as `corpse` says, the corpse profile's row if `row`, the server's draws seeded.
 fn camp_world(population: u32, corpse: Corpse, row: bool, seed: u64) -> Harness {
     let mut h = Harness::new();
     h.add_creatures(population);
@@ -130,7 +130,8 @@ fn rounds(h: &mut Harness, rounds: usize) -> BTreeMap<u64, Vec<u32>> {
                     .collect()
             });
         }
-        run_for(h, 3.5);
+        // The bodies leave, and the camp's period runs from then.
+        run_for(h, 5.5);
     }
     seen
 }

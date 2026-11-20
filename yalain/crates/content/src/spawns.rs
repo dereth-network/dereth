@@ -25,7 +25,7 @@ pub struct Camp {
     pub radius: f32,
     /// How many creatures it keeps alive.
     pub population: u32,
-    /// Seconds between a death and the creature that replaces it.
+    /// Seconds between a dead creature's body leaving the world and the creature that replaces it.
     pub regen: f64,
     /// The templates it makes, each with its weight.
     pub templates: Vec<(u32, u32)>,

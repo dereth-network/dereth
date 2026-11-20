@@ -250,7 +250,7 @@ A spawn camp, in its landblock's file.
 | `radius` | | outdoors, how far from its middle a creature appears (m) |
 | `spots` | | indoors, the points creatures appear at: `{ cell, at }` |
 | `population` | required | how many it keeps alive |
-| `regen` | required | seconds from a death to its replacement |
+| `regen` | required | seconds from a dead creature's body leaving the world (some five seconds after the death) to its replacement |
 | `spawns` | | what it makes: `{ template, weight }`; an item's template (one with a value, no creature) it keeps lying at its place, a new one `regen` seconds after the last is taken; a chest's template it keeps standing there, anyone's to open, a new one `regen` seconds after the last is gone (one of a kind that goes once closed: a prospector's corpse that comes back now and then, with a long `regen`) |
 | `profile`, `profile_name` | | the generator profile it stands for |
 | `parent` | | a master camp (`key`, `key@XXYY`, or `pack:key`): this camp keeps its creatures only while the master keeps one; as the master's last dies they leave the world at once, with no fall and no corpse, and the camp fills again, all at once, when the master makes another. A master camp keeps no master of its own |
@@ -1133,7 +1133,7 @@ A device creatures come to attack while it stands, and what it leaves once it ha
 enough: a portal transit or a portal bore an item's use sets down. A creature of the device's
 template, however it comes into the world (a `[[death_spawn]]` an item's use names, a camp), fights
 no one, and keeps the row's attackers about it as a camp keeps its creatures: its `population` at
-once, each one killed replaced `regen` seconds after its death. Each appears `radius` meters from
+once, each one killed replaced `regen` seconds after its body leaves the world. Each appears `radius` meters from
 the device, in a direction picked at random, and goes at it, turning from it only to a player that
 hurts it. Once the device has stood `holds` seconds it goes, with no fall and no corpse, and `then`
 stands where it stood: a portal leading where its template names, anyone's to use as a placed one

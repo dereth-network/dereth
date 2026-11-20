@@ -21,7 +21,7 @@ const TREASURE_2: u32 = 0x4700_210A;
 const ELSEWHERE: u32 = 0x4700_2225;
 
 /// The test world with a camp of `population` beetles that come back `regen` seconds after each
-/// death, the treasure's template, the rows given, the server's draws seeded.
+/// body leaves, the treasure's template, the rows given, the server's draws seeded.
 fn camp_world(population: u32, regen: f64, rows: Vec<DeathTreasure>, seed: u64) -> Harness {
     let mut h = Harness::new();
     h.add_creatures(population);
@@ -100,7 +100,8 @@ fn rounds(h: &mut Harness, rounds: usize) -> (BTreeMap<u64, Vec<(u32, u32)>>, us
         died += kill_all(h);
         run_for(h, 2.5);
         note_corpses(h, &mut seen);
-        run_for(h, 3.5);
+        // The bodies leave, and the camp's period runs from then.
+        run_for(h, 5.5);
     }
     (seen, died)
 }
@@ -257,7 +258,8 @@ fn left_for(h: &mut Harness, by: u64) -> usize {
         .iter()
         .filter(|(t, _)| *t == TREASURE)
         .count();
-    run_for(h, 3.5);
+    // The body leaves, and the camp's period runs from then.
+    run_for(h, 5.5);
     held
 }
 

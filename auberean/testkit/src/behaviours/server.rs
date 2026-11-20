@@ -1060,6 +1060,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.camps.period-from-the-body-leaving",
+        says: "A camp's replacement for a creature killed comes the camp's period after the dead \
+               body leaves the world, not after the death.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CAMP-PERIOD-FROM-LEAVE"),
+        station: "yalain-testkit::cpu::operator::idle_world::a_camps_replacement_comes_its_period_after_the_dead_body_leaves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.banned-names-from-the-operator",
         says: "A server given a list of banned words refuses a new character whose name holds \
                one, its letters matched in small letters with spaces and marks between them \

@@ -424,6 +424,21 @@ fn a_row_breaking_the_schema_is_a_problem_at_its_file_and_line() {
     );
 }
 
+/// An outdoor camp with no generator period is derived by the outdoor rule (180 s from the body's
+/// leaving), a listed rule as the median one is.
+#[test]
+fn a_camp_regenerated_by_the_outdoor_rule_is_a_listed_derivation() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "rule = \"camp-regen-median\"",
+        "rule = \"camp-regen-outdoor\"",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
 #[test]
 fn references_and_provenance_are_checked() {
     let mut files = fixture();

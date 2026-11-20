@@ -4,7 +4,7 @@
 //!
 //! **Attacked.** From the moment a device comes into the world it keeps creatures of its row's
 //! spawns about it, as a camp keeps its own: its `population` at once, each one killed replaced
-//! `regen` seconds after its death, each appearing `radius` meters from it and going at it. The
+//! `regen` seconds after its body leaves the world, each appearing `radius` meters from it and going at it. The
 //! device itself fights no one.
 //!
 //! **Held.** Once it has stood its `holds` seconds the device goes, and what its row names stands in
@@ -26,7 +26,8 @@ pub struct Defense {
     pub spawns: Vec<(u32, u32)>,
     /// How many it keeps alive at once.
     pub population: u32,
-    /// Seconds from a death to its replacement (none: the device's template's generator period).
+    /// Seconds from a dead attacker's body leaving the world to its replacement (none: the device's
+    /// template's generator period).
     pub regen: Option<f64>,
     /// How far from the device each appears, in meters.
     pub radius: f32,

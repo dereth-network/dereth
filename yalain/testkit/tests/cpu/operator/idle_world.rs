@@ -167,6 +167,41 @@ fn a_camp_far_from_every_player_replaces_its_dead_when_due_with_the_body_still_l
     assert!(h.now.0 - now < 2.0 + 2.0 * yalain_world::spawn::STEP_SECONDS + 1e-9);
 }
 
+/// A camp's period runs from when its dead creature's body leaves the world, not from the death:
+/// the replacement comes its period after the body has gone.
+/// Behaviour: server.camps.period-from-the-body-leaving
+#[test]
+fn a_camps_replacement_comes_its_period_after_the_dead_body_leaves() {
+    let mut h = yalain_testkit::Harness::new();
+    h.add_creatures(1);
+    h.server.spawns.camps[0].regen = 20.0;
+    let (_, me) = h.player_in_world("one", "Elara");
+    h.run(20);
+    let dead = h.server.camps[0].alive[0];
+    let died = h.now.0;
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, dead, me, clock);
+    assert!(
+        h.run_until(400, |h| h.server.things.get(dead).is_none()),
+        "the body leaves"
+    );
+    let left = h.now.0;
+    assert!(
+        left - died > 4.0,
+        "a few seconds after the death: {}",
+        left - died
+    );
+    assert!(
+        h.run_until(800, |h| h.server.camps[0].alive.len() == 1),
+        "a new beetle"
+    );
+    let after = h.now.0 - left;
+    assert!(
+        (20.0..20.0 + yalain_world::spawn::STEP_SECONDS + 0.1).contains(&after),
+        "replaced {after} s after the body left"
+    );
+}
+
 /// The creatures near a player who comes into the world wake and act, and the one beside the start
 /// goes after the player as it does; those far away sleep on.
 /// Behaviour: server.creatures.asleep-where-no-player-is-near

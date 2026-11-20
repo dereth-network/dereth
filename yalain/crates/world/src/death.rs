@@ -330,8 +330,16 @@ pub fn creature_dies<S: Store>(
     }
     crate::talk::dies(s, net, id, killer);
     let pose = falls(s, net, id, clock);
+    let after = corpse_after(s, id, pose);
+    // Its camp's period runs from when its body leaves the world (2017: 373 of 1,638 timed
+    // replacements came exactly 180.0 s after the body left, over 152 landblocks).
+    let leaves = if no_corpse {
+        NO_CORPSE_LEAVES_AFTER
+    } else {
+        after + LEAVES_AFTER
+    };
     if let Some(i) = camp {
-        crate::spawn::died(s, i, id, clock.local.0);
+        crate::spawn::died(s, i, id, clock.local.0 + leaves);
         crate::spawn::master_lost(s, net, i);
     }
     if no_corpse {
@@ -339,7 +347,6 @@ pub fn creature_dies<S: Store>(
         s.after(clock, NO_CORPSE_LEAVES_AFTER, Timer::Vanish { id });
         return;
     }
-    let after = corpse_after(s, id, pose);
     s.after(
         clock,
         after,

@@ -283,7 +283,8 @@ fn a_guarded_object_is_refused_while_its_camps_creature_lives_and_works_once_it_
         p.play.quests.clear();
     }
 
-    run_for(&mut h, 60.0);
+    // Its period runs from when its body leaves, a few seconds after the death.
+    run_for(&mut h, 66.0);
     assert!(keeper(&h).is_some(), "the keeper back");
     let from = send_use(&mut h, b, me);
     assert_eq!(told(&h, b, from), [REFUSED.0], "guarded again");

@@ -1,8 +1,8 @@
 //! The world's step: camps keep their creatures alive, creatures act, corpses go.
 //!
 //! **Camps.** Each camp of the spawn table keeps its population alive: at the first step every camp
-//! is filled; when one of its creatures dies, a replacement appears after the camp's period (at the
-//! operator's respawn rate: [`crate::rates`]).
+//! is filled; when one of its creatures dies, a replacement appears the camp's period after its body
+//! leaves the world (at the operator's respawn rate: [`crate::rates`]).
 //! Outdoors a creature appears at a point drawn inside the camp's radius (on the ground, when the
 //! host knows the land); indoors at one of the camp's spots. A creature's greatest health is its
 //! template's, varied a little each time one appears.
@@ -702,19 +702,20 @@ fn stand<S: Store>(
     id
 }
 
-/// A camp's period: how long after a death or a taking its replacement is due, at the operator's
-/// respawn rate ([`crate::rates`]).
+/// A camp's period: how long after a body leaves or a taking its replacement is due, at the
+/// operator's respawn rate ([`crate::rates`]).
 fn period<S: Store>(s: &Server<S>, camp: usize) -> f64 {
     let regen = s.spawns.camps.get(camp).map_or(0.0, |c| c.regen);
     crate::rates::period(s.cfg.rates.respawn, regen)
 }
 
-/// A camp's creature has died: a replacement is due after the camp's period.
-pub fn died<S: Store>(s: &mut Server<S>, camp: usize, id: u64, now: f64) {
+/// A camp's creature has died: a replacement is due the camp's period after `leaves`, when its
+/// body leaves the world.
+pub fn died<S: Store>(s: &mut Server<S>, camp: usize, id: u64, leaves: f64) {
     let regen = period(s, camp);
     if let Some(state) = s.camps.get_mut(camp) {
         state.alive.retain(|x| *x != id);
-        state.due.push(now + regen);
+        state.due.push(leaves + regen);
         if let Some(t) = state.earliest() {
             s.camp_watch.due.push(Reverse(DueAt(t, camp)));
         }
