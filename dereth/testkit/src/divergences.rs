@@ -501,6 +501,14 @@ pub static DIVERGENCES: &[Divergence] = &[
               did can have them.",
     },
     Divergence {
+        id: "CD-larger-receive-buffer",
+        title: "A larger network receive buffer",
+        change: "The client asks for a 4 MiB receive buffer, where the final client asked for \
+                 128 KiB.",
+        why: "A world update's first messages arrive together and overflowed the smaller \
+              buffer, so a large update fell back to its slowest form.",
+    },
+    Divergence {
         id: "CD-mac-command-key",
         title: "On a Mac, Command works as Control",
         change: "On a Mac either Command key reaches the client as Control, and the key pages name \

@@ -699,6 +699,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "net.socket.the-receive-buffer-asked-for-is-four-mebibytes",
+        says: "The client asks its network stack for a 4 MiB receive buffer, settling on the \
+               largest size the stack grants up to that.",
+        since: THIS_CLIENT,
+        divergence: "CD-larger-receive-buffer",
+        evidence: Evidence::Private("AC-EVID-RECEIVE-BUFFER-4-MIB"),
+        station: "dereth-client-net::lib::socket::tests::the_receive_buffer_search_asks_for_4_mib",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "objects.ordered-replies.every-recorded-reply-reaches-a-consumer",
         says: "Every kind of ordered reply this client has a receiver for is carried by the recordings and is \
                handed to that receiver, and between them the receivers take the great majority of the ordered \

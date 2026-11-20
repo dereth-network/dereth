@@ -25,8 +25,16 @@ use crate::NetError;
 /// passed an explicit `-h host:port`, so every test configuration must be explicit.
 pub const DEFAULT_SERVER_PORT: u16 = 0x1C88;
 
-/// The `SO_RCVBUF` the binary search aims for: 128 KiB.
-pub const RCVBUF_TARGET: i32 = 0x2_0000;
+/// The `SO_RCVBUF` the binary search aims for: 4 MiB, where the final client aimed for 128 KiB
+/// (`CD-larger-receive-buffer`).
+///
+/// A server that sends a world's overlay lists every record in two messages just ahead of the
+/// patch, a burst of hundreds of KB that overflows 128 KiB, and the resends take long enough for
+/// the patch to fall back to its slowest form.
+pub const RCVBUF_TARGET: i32 = 0x40_0000;
+
+/// What the final client's search aimed for: 128 KiB.
+pub const RETAIL_RCVBUF_TARGET: i32 = 0x2_0000;
 
 /// The modulus in `compute_unique_port_sequence`: 64007.
 pub const UNIQUE_PORT_MODULUS: u32 = 0xFA07;
@@ -247,7 +255,7 @@ pub fn compute_unique_port_sequence(addr: Ipv4Addr) -> Vec<u16> {
 ///
 /// ```text
 /// getsockopt(SO_RCVBUF, &cur)
-/// hi = 0x20000
+/// hi = RCVBUF_TARGET                    // the final client's was 0x20000
 /// while (cur < hi) {
 ///     mid = (cur + hi + 1) / 2          // round-half-up
 ///     setsockopt(SO_RCVBUF, mid); getsockopt(SO_RCVBUF, &got)
@@ -338,7 +346,7 @@ impl NetSocket {
             })));
         }
 
-        // The SO_RCVBUF binary search, capped at 128 KiB.
+        // The SO_RCVBUF binary search, capped at 4 MiB.
         let current = i32::try_from(socket.recv_buffer_size()?).unwrap_or(0);
         let rcvbuf = rcvbuf_binary_search(current, |mid| {
             let want = usize::try_from(mid).unwrap_or(0);
@@ -605,13 +613,13 @@ mod tests {
         assert_eq!(seq.len(), 252);
     }
 
-    /// The binary search settles on 128 KiB when the stack is generous, and on the largest granted
-    /// value when it is not.
+    /// The binary search settles on its target when the stack is generous, and on the largest
+    /// granted value when it is not.
     ///
     /// Oracle: the client's receive-buffer search, which halves the interval between the last
     /// refused and the last granted size, rounding `mid` half up.
     #[test]
-    fn rcvbuf_search_finds_128k_or_the_largest_granted() {
+    fn rcvbuf_search_finds_its_target_or_the_largest_granted() {
         // A generous stack grants exactly what is asked.
         let mut calls = 0;
         let got = rcvbuf_binary_search(8192, |mid| {
@@ -619,8 +627,7 @@ mod tests {
             mid
         });
         assert_eq!(got, RCVBUF_TARGET);
-        assert_eq!(got, 131_072);
-        assert!(calls <= 18, "a binary search over 2^17, not a linear walk");
+        assert!(calls <= 23, "a binary search over 2^22, not a linear walk");
 
         // A stack capped at 40000 grants at most that.
         let got = rcvbuf_binary_search(8192, |mid| mid.min(40_000));
@@ -644,17 +651,37 @@ mod tests {
     /// settle one short. Pinned so a "simplification" fails here rather than in a capture.
     #[test]
     fn the_midpoint_rounds_half_up() {
-        let mut cur = 131_071;
+        let mut cur = RCVBUF_TARGET - 1;
         let hi = RCVBUF_TARGET;
         let mid = (cur + hi + 1) / 2;
         assert_eq!(mid, RCVBUF_TARGET);
         cur = mid;
         assert_eq!(cur, hi, "the loop terminates");
         assert_eq!(
-            (131_071 + hi) / 2,
-            131_071,
+            (RCVBUF_TARGET - 1 + hi) / 2,
+            RCVBUF_TARGET - 1,
             "the naive midpoint does not move"
         );
+    }
+
+    /// Behaviour: net.socket.the-receive-buffer-asked-for-is-four-mebibytes
+    #[test]
+    fn the_receive_buffer_search_asks_for_4_mib() {
+        // A stack that grants whatever is asked: the largest size asked for is 4 MiB, which is
+        // 32 times the final client's 128 KiB, and the search ends there.
+        let mut asked = Vec::new();
+        let got = rcvbuf_binary_search(8192, |mid| {
+            asked.push(mid);
+            mid
+        });
+        assert_eq!(asked.iter().max(), Some(&4_194_304));
+        assert_eq!(got, 4_194_304);
+        assert_eq!(RCVBUF_TARGET, 32 * RETAIL_RCVBUF_TARGET);
+
+        // A stack capped below it, as a Linux stack at its default limit is (it reports twice
+        // the 212,992 bytes it allows), settles on what it grants.
+        let got = rcvbuf_binary_search(8192, |mid| mid.min(425_984));
+        assert_eq!(got, 425_984);
     }
 
     /// `WSAECONNRESET` (10054) from `recv_from` ends the loop without erroring, and so does
