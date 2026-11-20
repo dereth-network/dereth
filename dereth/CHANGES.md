@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+
+## 0.4.20 (2026-11-20)
 - Navigator: opens doors that only a lever works, by using the lever.
 - Navigator: drops off a ledge when nothing else gets there, if the fall won't hurt.
 - Fixed the Navigator's turns swinging back and forth at low frame rates.
