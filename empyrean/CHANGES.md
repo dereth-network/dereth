@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Relay: the character screen shows ac1999's news again.
 - Falling now hurts as it did in retail, by your own jump.
 
 ## 0.3.16 (2026-11-20)

@@ -699,3 +699,21 @@ fn the_worlds_count_of_players_is_held_apart_as_the_line_it_would_be() {
         "any other line passes"
     );
 }
+
+/// The character screen's news as ac1999 sends it now, its world's name and then a changelog of
+/// 18,380 bytes, longer than 16 KiB: read whole, for Dereth's character screen.
+#[test]
+fn news_longer_than_16_kib_reaches_the_character_screen_whole() {
+    let line = "- Restored a portal, and fixed several vendors that refused to buy.\r\n";
+    let text: String = line.repeat(18_380 / line.len() + 1)[..18_380].to_owned();
+    let mut w = Writer::new();
+    w.u32(0xF65A);
+    // As ac1999 writes it: each string's u16 byte count is the wire's only bound.
+    codec::write_string(&mut w, "AC1999", usize::from(u16::MAX) - 1).unwrap();
+    codec::write_string(&mut w, &text, usize::from(u16::MAX) - 1).unwrap();
+    let out = Down::default().message(&w.into_inner());
+    match out.as_slice() {
+        [Out::News(news)] => assert_eq!(news.text, text),
+        other => panic!("the news, not {other:?}"),
+    }
+}

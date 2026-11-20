@@ -14,7 +14,9 @@ pub mod social;
 /// Decoder resource limits, not an advertised account capacity or name policy.
 pub const MAX_CHARACTERS: usize = 64;
 pub(crate) const MAX_NAME: usize = 255;
-pub(crate) const MAX_NEWS: usize = 16 * 1024;
+/// The longest text a 1999 string carries: its u16 byte count includes the terminator. ac1999's
+/// character screen news is a changelog that grows every day.
+pub(crate) const MAX_NEWS: usize = u16::MAX as usize - 1;
 const ACCOUNT_MARKER: u32 = 0xBEEF_BEEF;
 
 pub(crate) fn invalid(field: &'static str) -> MessageError {

@@ -30,8 +30,9 @@ are not checked, as the client does not check them.
 The decoder consumes the whole message and refuses truncation, embedded NULs,
 missing terminators, nonzero string padding or roster reserved fields, nonordinal roster slots,
 zero or duplicate ids, and trailing bytes. Resource policy limits rosters to 64
-rows, names and the unused news prefix to 255 encoded bytes, and news to 16 KiB.
-These are bounded compatibility policies, not historical account/name limits.
+rows and names and the unused news prefix to 255 encoded bytes. The news and other long text
+take what the string's byte count allows, 65,534 bytes: ac1999's news is a changelog that grows
+every day. These are bounded compatibility policies, not historical account/name limits.
 
 Roster rows preserve order and deletion timers. The relay sends them as the later character list
 and the news as the later screen message, and names the world itself. ac1999 does not advertise slot
