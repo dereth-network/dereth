@@ -5428,6 +5428,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.vitae-healing-rows",
+        says: "A world gives the effects of Ease Memories and Calm Vitae 1 to 8 whole points of \
+               vitae, drawn evenly each time, to the player they are put on alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-VITAE-HEALING-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_vitae_healing_rows_draw_one_to_eight_points_for_both_skills",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.effects.vitae-restore",
         says: "An effect a world's rule says gives vitae back raises its player's vitae by its \
                points, never above full, what is still to earn worked out again; with the fellows, \

@@ -231,15 +231,14 @@ fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
         return;
     }
     assert_eq!(
-        t.effect_rules.vitae_restores,
-        std::collections::BTreeMap::from([(
-            yalain_testkit::CRYSTALABRA_CURE,
-            VitaeRestore {
-                points: 2.0,
-                most: None,
-                fellows: true
-            }
-        )])
+        t.effect_rules
+            .vitae_restores
+            .get(&yalain_testkit::CRYSTALABRA_CURE),
+        Some(&VitaeRestore {
+            points: 2.0,
+            most: None,
+            fellows: true
+        })
     );
     let quest = t
         .quests
@@ -309,6 +308,26 @@ fn the_worlds_fickle_fate_picks_its_fourteen_outcomes_evenly_within_20_m() {
         "even weights: {:?}",
         pick.effects
     );
+}
+
+/// A world's vitae-healing rows give the effects of the two skills that heal another's vitae
+/// (Ease Memories' and Calm Vitae's) 1 to 8 whole points, drawn, to their player alone.
+/// Behaviour: server.effects.vitae-healing-rows
+#[test]
+fn the_worlds_vitae_healing_rows_draw_one_to_eight_points_for_both_skills() {
+    use yalain_world::effect_defs::VitaeRestore;
+    let t = &compiled().tables;
+    for effect in [0x7000_0837, 0x7000_08EA] {
+        assert_eq!(
+            t.effect_rules.vitae_restores.get(&effect),
+            Some(&VitaeRestore {
+                points: 1.0,
+                most: Some(8.0),
+                fellows: false
+            }),
+            "{effect:08X}"
+        );
+    }
 }
 
 /// A world's mine and map region rows hold the test world's, entry for entry: each mining skill's
