@@ -3562,7 +3562,8 @@ fn every_record_kind_has_its_fields_and_is_read() {
 }
 
 /// An effect rule row may pick one of a list of effects by weight, for its player and its
-/// fellows; a pick names at least one effect, each with a whole weight above 0, and nothing else.
+/// fellows, within a reach in whole meters; a pick names at least one effect, each with a whole
+/// weight above 0, a reach above 0 only with the fellows, and nothing else.
 /// Behaviour: server.effects.pick-rows
 #[test]
 fn an_effect_rule_row_may_pick_one_of_its_effects_by_weight() {
@@ -3570,7 +3571,7 @@ fn an_effect_rule_row_may_pick_one_of_its_effects_by_weight() {
     files.insert(
         "town/server/effects.toml".into(),
         "[[effect_rule]]\neffect = 0x70001EC7\npick = { effects = [{ effect = 0x70001EC8, weight = 1 }, \
-         { effect = 0x70001EC9, weight = 9 }], fellows = true }\nprov = { from = \"authored\" }\n"
+         { effect = 0x70001EC9, weight = 9 }], fellows = true, reach = 20 }\nprov = { from = \"authored\" }\n"
             .into(),
     );
     assert_eq!(check(&files), Vec::new());
@@ -3580,6 +3581,7 @@ fn an_effect_rule_row_may_pick_one_of_its_effects_by_weight() {
         Some(&yalain_content::effect_rules::Pick {
             effects: vec![(0x7000_1EC8, 1), (0x7000_1EC9, 9)],
             fellows: true,
+            reach: Some(20),
         })
     );
     for pick in [
@@ -3589,6 +3591,9 @@ fn an_effect_rule_row_may_pick_one_of_its_effects_by_weight() {
         "{ effects = [{ effect = 0x70001EC8, weight = 1, chance = 1 }] }",
         "{ effects = [{ effect = 0x70001EC8, weight = 1 }], fellows = 1 }",
         "{ effects = [{ effect = 0x70001EC8, weight = 1 }], share = 1 }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1 }], fellows = true, reach = 0 }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1 }], fellows = true, reach = 2.5 }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1 }], reach = 20 }",
         "0x70001EC8",
     ] {
         files.insert(

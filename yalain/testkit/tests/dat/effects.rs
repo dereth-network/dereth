@@ -4308,6 +4308,7 @@ fn fickle_fate_and_its_fourteen_outcomes_read_as_the_data_defines_them() {
             yalain_world::effect_defs::Pick {
                 effects: outcomes.iter().map(|s| (*s, 1)).collect(),
                 fellows: true,
+                reach: Some(20),
             },
         )]),
         ..yalain_world::effect_defs::EffectRules::default()

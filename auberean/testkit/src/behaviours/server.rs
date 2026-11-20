@@ -5215,10 +5215,19 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.effects.pick-rows",
         says: "A world's effect rule may pick one of a list of effects by whole weights above 0, for its player \
-               and its fellows.",
+               and its fellows within a reach in whole meters.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PICK-ROWS"),
         station: "yalain-world-db::cpu::database::an_effect_rule_row_may_pick_one_of_its_effects_by_weight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.pick-within-its-reach",
+        says: "An effect that picks with a reach puts its drawn effect only on the fellows within that many \
+               meters of its player and out of portal space.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PICK-REACH"),
+        station: "yalain-testkit::cpu::play::picked_effects::a_picking_effect_with_a_reach_puts_its_draw_only_on_fellows_within_it",
         tier: Tier::Cpu,
     },
     behaviour! {

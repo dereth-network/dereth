@@ -7113,13 +7113,14 @@ impl<'a> Fields<'a> {
         read
     }
 
-    /// `{ effects = [{ effect, weight }], fellows }`: at least one effect (a saved state) with a
-    /// whole weight above 0, and whether its player's fellows have the drawn effect too.
+    /// `{ effects = [{ effect, weight }], fellows, reach }`: at least one effect (a saved state)
+    /// with a whole weight above 0, whether its player's fellows have the drawn effect too, and how
+    /// near its player, in whole meters above 0, they must be (only with the fellows).
     fn pick(&mut self) -> Option<yalain_content::effect_rules::Pick> {
         let v = self.get("pick")?;
         let read = v.as_table().and_then(|t| {
             if t.keys()
-                .any(|k| !["effects", "fellows"].contains(&k.as_str()))
+                .any(|k| !["effects", "fellows", "reach"].contains(&k.as_str()))
             {
                 return None;
             }
@@ -7142,12 +7143,20 @@ impl<'a> Fields<'a> {
                 Some(b) => b.as_bool()?,
                 None => false,
             };
-            (!effects.is_empty()).then_some(yalain_content::effect_rules::Pick { effects, fellows })
+            let reach = match t.get("reach") {
+                Some(r) => Some(as_u32(r).filter(|r| *r > 0 && fellows)?),
+                None => None,
+            };
+            (!effects.is_empty()).then_some(yalain_content::effect_rules::Pick {
+                effects,
+                fellows,
+                reach,
+            })
         });
         if read.is_none() {
             self.bad(
                 "pick",
-                "{ effects = [{ effect, weight }], fellows }: at least one effect, each a saved state with a whole weight above 0, and whether its player's fellows have the drawn one too",
+                "{ effects = [{ effect, weight }], fellows, reach }: at least one effect, each a saved state with a whole weight above 0, whether its player's fellows have the drawn one too, and how near in whole meters above 0 they must be (only with the fellows)",
             );
         }
         read

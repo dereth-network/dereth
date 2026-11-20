@@ -1075,7 +1075,8 @@ pub fn apply_on<S: Store>(
             true
         }
         // One effect drawn by weight comes on in its place, at the spellcraft it was cast at, on
-        // its player and its fellows alike; its own appearance plays on its player.
+        // its player and its fellows alike (within its reach of the player, out of portal space,
+        // where it has one); its own appearance plays on its player.
         (Kind::Pick(pick), On::Player(world)) => {
             let Some(drawn) = pick.drawn(|n| {
                 #[allow(clippy::cast_possible_truncation)]
@@ -1089,7 +1090,22 @@ pub fn apply_on<S: Store>(
             }
             let mut to = vec![world];
             if pick.fellows {
-                to.extend(crate::fellowship::fellows_in_world(s, world));
+                let near = |f: &ConnId| {
+                    pick.reach.is_none_or(|reach| {
+                        let (Some(me), Some(them)) = (s.players.get(&world), s.players.get(f))
+                        else {
+                            return false;
+                        };
+                        them.trip.is_none()
+                            && crate::presence::distance(&me.position, &them.position)
+                                .is_some_and(|d| f64::from(d) <= f64::from(reach))
+                    })
+                };
+                let fellows: Vec<ConnId> = crate::fellowship::fellows_in_world(s, world)
+                    .into_iter()
+                    .filter(near)
+                    .collect();
+                to.extend(fellows);
             }
             let mut did = false;
             for w in to {

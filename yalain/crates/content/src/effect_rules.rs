@@ -54,6 +54,9 @@ pub struct Pick {
     /// Each effect and its weight, above 0; at least one.
     pub effects: Vec<(u32, u32)>,
     pub fellows: bool,
+    /// How far from its player, in whole meters above 0, a fellow it reaches may be (one in portal
+    /// space is never reached); none, every fellow in the world.
+    pub reach: Option<u32>,
 }
 
 impl Pick {
