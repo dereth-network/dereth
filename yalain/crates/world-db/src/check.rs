@@ -403,12 +403,6 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                             .into(),
                     ));
                 }
-                if (r.recall || r.summon) && r.to.is_none() {
-                    problems.push(at(
-                        "recall, summon: only a portal (an object with `to`) is recalled or summoned to"
-                            .into(),
-                    ));
-                }
                 if r.requires.is_some() && r.kind == crate::rows::ObjectKind::Npc {
                     problems.push(at(
                         "requires: a person is talked to; only a static object keeps a quest gate"

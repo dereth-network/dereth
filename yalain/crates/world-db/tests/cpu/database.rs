@@ -959,6 +959,10 @@ fn a_camp_may_name_its_creatures_and_a_kill_may_name_the_camp() {
     );
 }
 
+/// A portal's row gives the flags of what may be recalled or summoned to it, compiled for the
+/// server, a portal leading nowhere in this world included (its examination says them); a place's
+/// name compiles to the place.
+/// Behaviour: server.examination.portal-recall-line
 #[test]
 fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
@@ -992,17 +996,24 @@ fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
     assert_eq!(gate(&t), Some(0x3));
     let inn = t.places_by_name.get("human_recall_town_01").expect("named");
     assert_eq!((inn.cell, inn.origin), (0x77B8_0003, [1.18, 53.42, 183.82]));
-    // Flags on an object that leads nowhere are a problem.
-    let mut bad = fixture();
+    // A portal the world gives no destination keeps its flags: its examination says them.
+    let mut nowhere = fixture();
     edit(
-        &mut bad,
+        &mut nowhere,
         "town/server/landblocks/77B7.toml",
-        "key = \"sign\"",
-        "key = \"sign\"\nrecall = true",
+        "[[camp]]",
+        "[[object]]\nkey = \"nowhere\"\nkind = \"static\"\nid = 0x4077B70000000009\ntemplate = 0x4700115B\n\
+         at = [121.0, 111.0, 250.0]\nrecall = true\nprov = { from = \"authored\" }\n\n[[camp]]",
     );
-    assert!(check(&bad)
+    assert_eq!(check(&nowhere), Vec::new());
+    let t = compile(&merge(&read(&nowhere).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let flags = t
+        .content
+        .objects
         .iter()
-        .any(|p| p.to_string().contains("recall, summon: only a portal")));
+        .find(|o| o.object == Some(0x4077_B700_0000_0009))
+        .map(|o| (o.destination.is_some(), o.facts.portal));
+    assert_eq!(flags, Some((false, 0x1)));
 }
 
 #[test]
