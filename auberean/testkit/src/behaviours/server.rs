@@ -5096,6 +5096,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.raise-for-good",
+        says: "An effect with no duration that adds to health's or vigor's own level adds the same to the \
+               player's greatest of that vital for good, told as the greatest alone, with no record and \
+               its current vital as it was; a level-up then raises that greatest by its step.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RAISE-FOR-GOOD"),
+        station: "yalain-testkit::cpu::play::raised_for_good::an_effect_raising_vigors_own_level_adds_to_the_greatest_for_good_with_no_record",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.raise-for-good-kept-record-added",
+        says: "A character kept with a record of such an effect comes back with it added to its greatest, \
+               in its description, and the record gone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RAISE-FOR-GOOD-KEPT"),
+        station: "yalain-testkit::cpu::play::raised_for_good::a_kept_record_of_a_raise_comes_back_added_to_the_greatest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.raise-for-good-read",
+        says: "Master of Doctrine reads as a raise of greatest vigor by 50 for good; an effect that lasts, \
+               such as Courage, raises nothing for good.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RAISE-FOR-GOOD-READ"),
+        station: "yalain-testkit::dat::effects::master_of_doctrine_reads_as_a_raise_of_vigors_greatest_for_good",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.read-from-their-definitions",
         says: "Effects read from their saved states with the library's names, by the package each \
                derives from: an instant change to vitals and its amount by spellcraft, changes to \

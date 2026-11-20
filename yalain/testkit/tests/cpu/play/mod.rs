@@ -100,6 +100,7 @@ mod puzzles;
 mod quest_fail_flags;
 mod quest_uses;
 mod quests;
+mod raised_for_good;
 mod ratings;
 mod recalls;
 mod recipe_lines;

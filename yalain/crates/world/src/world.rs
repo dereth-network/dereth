@@ -579,9 +579,13 @@ pub fn enter<S: Store>(
         conflict,
     };
     p.admin.cloaked = p.admin_character && p.play.cloaked;
+    // A record of an effect that raises a vital's level for good, kept before such raises were
+    // added to the greatest, is added now, the record gone.
+    let raised =
+        crate::effects::raised_for_good_on_entry(&s.effect_table, &mut p.play, &mut p.qualities);
     // What its vitals regained while it was away is in its description.
     let was_away = time_away(&p.play, net.game_time(clock.local));
-    let qualities = if crate::regen::while_away(s, &mut p, was_away) {
+    let qualities = if crate::regen::while_away(s, &mut p, was_away) || raised {
         Qualities::read(&mut Reader::new(&p.qualities)).unwrap_or_default()
     } else {
         qualities

@@ -9,8 +9,9 @@
 //! once; a teleport is no record, its player sent to its place when its time is up; a
 //! combination looks at the target's effects and adds what it adds; a chain of other effects puts
 //! each on at once, in its order, as each does itself (its own appearance, if it names one, played
-//! first); any other effect that lasts is added as a record. A player's ids count on from the last
-//! one it was given, across its sessions.
+//! first); an effect that raises a vital's own level ([`raises_for_good`]) adds it to the
+//! player's greatest of that vital for good, with no record; any other effect that lasts is added
+//! as a record. A player's ids count on from the last one it was given, across its sessions.
 //!
 //! **A record** stays on its own clock: a new one never replaces or refreshes an older one, each
 //! running out at its cast time plus its timeout, when its client is told it is gone, up to the
@@ -954,6 +955,16 @@ pub fn apply_on<S: Store>(
     if warded(s, on, &def) {
         return false;
     }
+    if let On::Player(world) = on {
+        let raises = raises_for_good(&def, cast.spellcraft);
+        if !raises.is_empty() {
+            raise_for_good(s, net, world, &raises);
+            if def.fx != 0 {
+                show_fx(s, net, world, def.fx);
+            }
+            return true;
+        }
+    }
     match (&def.kind, on) {
         (Kind::InstantVital { flags, change }, On::Player(world)) => {
             let amount =
@@ -1170,6 +1181,89 @@ pub fn apply_on<S: Store>(
             true
         }
     }
+}
+
+/// The quality of a vital's own level a change names (type 4), and the greatest it is held in:
+/// health's and vigor's.
+const RAISED_LEVELS: [(u32, u32); 2] = [
+    (0x4_0100, quality::HEALTH_MAX),
+    (0x4_0101, quality::VIGOR_MAX),
+];
+
+/// What an effect with no duration adds to a vital's own level, by the greatest it is held in:
+/// each change that adds to health's or vigor's level, a whole number. Such an effect raises the
+/// greatest for good, as the vital's level is what each level-up builds on; its other changes (to
+/// the greatest the level makes) follow from that and count for nothing more. None for any other
+/// effect (2017: the one such effect, a quest's +50 vigor, came on the greatest itself in 3 of 3
+/// completions, with no record, and stayed through every later level-up; no other greatest of
+/// health or vigor changed outside a level-up).
+#[must_use]
+pub fn raises_for_good(def: &EffectDef, spellcraft: f32) -> Vec<(u32, i32)> {
+    if !def.duration.is_empty() {
+        return Vec::new();
+    }
+    def.numeric_changes(spellcraft)
+        .into_iter()
+        .filter(|(_, flags, _)| {
+            flags & crate::effect_defs::numeric::ADD != 0
+                && flags
+                    & (crate::effect_defs::numeric::MULTIPLY
+                        | crate::effect_defs::numeric::OVERRIDE)
+                    == 0
+        })
+        .filter_map(|(stat, _, m)| {
+            RAISED_LEVELS
+                .iter()
+                .find(|(level, _)| *level == stat)
+                .map(|(_, greatest)| (*greatest, dereth_primitives::num::to_i32(m)))
+        })
+        .collect()
+}
+
+/// Add to a player's greatest vitals for good, each sent; its current vitals stay as they are.
+fn raise_for_good<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    raises: &[(u32, i32)],
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    for &(greatest, by) in raises {
+        let now = quals::int(&p.qualities, greatest)
+            .unwrap_or(100)
+            .saturating_add(by);
+        quals::set_int(&mut p.qualities, greatest, now);
+        progress::send_int(net, world, greatest, now);
+    }
+    crate::world::keep_player(s, world);
+}
+
+/// A character's records of effects that raise a vital's level for good, as it comes back (kept
+/// as records before they were added to the greatest): each added to its greatest and the record
+/// dropped. Whether any was.
+pub fn raised_for_good_on_entry(
+    table: &EffectTable,
+    play: &mut crate::state::PlayState,
+    qualities: &mut Vec<u8>,
+) -> bool {
+    let mut any = false;
+    play.effects.retain(|e| {
+        let raises = table
+            .get(e.state)
+            .map(|d| raises_for_good(d, e.spellcraft))
+            .unwrap_or_default();
+        for &(greatest, by) in &raises {
+            let now = quals::int(qualities, greatest)
+                .unwrap_or(100)
+                .saturating_add(by);
+            quals::set_int(qualities, greatest, now);
+        }
+        any |= !raises.is_empty();
+        raises.is_empty()
+    });
+    any
 }
 
 /// The effects a chain of them puts on, in its order: a chain held in it by its own (each chain

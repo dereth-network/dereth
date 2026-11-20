@@ -4084,3 +4084,23 @@ fn the_vitae_healing_skills_read_as_helpful_skills_for_others_alone() {
         );
     }
 }
+
+/// The training hall's quest reward reads as a raise for good: Master of Doctrine adds 50 to
+/// vigor's own level and its greatest, with no duration, so it raises the greatest by 50; Courage,
+/// which lasts, raises nothing for good.
+/// Behaviour: server.effects.raise-for-good-read
+#[test]
+fn master_of_doctrine_reads_as_a_raise_of_vigors_greatest_for_good() {
+    use yalain_world::player::quality;
+    let t = Portal::open().effects(&[0x6F00_1F85, 0x7000_0717, 0x6F00_1DF7]);
+    for state in [0x6F00_1F85, 0x7000_0717] {
+        let d = t.get(state).expect("Master of Doctrine");
+        assert_eq!(
+            yalain_world::effects::raises_for_good(d, 1.0),
+            [(quality::VIGOR_MAX, 50)],
+            "{state:08X}"
+        );
+    }
+    let courage = t.get(0x6F00_1DF7).expect("Courage");
+    assert!(yalain_world::effects::raises_for_good(courage, 1.0).is_empty());
+}
