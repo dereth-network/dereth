@@ -3907,7 +3907,8 @@ fn victories(h: &yalain_testkit::Harness, b: usize, from: usize, creature: u64) 
 
 /// A creature that kills a player plays its victory over it about half the time when its behavior
 /// table names one, whether its look has a clip for it (a Burun's) or not (a Grutt's): 70 to 130
-/// of 200 deaths each. Never when it has no table (the test beetle's own look).
+/// of 200 deaths each. Never when it has no table (the test beetle's own look), nor when its
+/// template sets an AI subclass.
 /// Behaviour: server.creatures.victory-over-a-dead-player
 #[test]
 fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
@@ -3961,5 +3962,105 @@ fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
             (70..=130).contains(&played),
             "{template:08X}: {played} of 200"
         );
+    }
+    let c = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+        .expect("the beetle");
+    c.stats.sub_class = Some(8);
+    assert_eq!(deaths(&mut h, 200), 0, "a creature with a subclass");
+}
+
+/// A creature takes its peace once its victory over the player it killed has played out: with a
+/// Burun's look, whose clip for it runs 1.2 s, its peace comes then and not before; with a Grutt's
+/// look, which has no clip for it, at once. Over a death it plays no victory over, at once too
+/// (at the world's next step).
+/// Behaviour: server.creatures.victory-before-peace
+#[test]
+fn a_creature_takes_its_peace_when_its_victory_ends() {
+    use yalain_testkit::STEP;
+    use yalain_world::player::quality::HEALTH;
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.timings = Some(yalain_world::timings::Timings::new(
+        p.dat.clone(),
+        p.ctx.clone(),
+    ));
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(20);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE)
+        .map(|t| t.id)
+        .expect("the camp's beetle");
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let peace = |h: &yalain_testkit::Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, auberean_protocol::ServerMessage::DoMode(e)
+                if e.sender.id == beetle && e.action.0 == 0x4000_0001)
+        })
+    };
+    for (template, clip) in [(BURUN, Some(1.208)), (GRUTT, None)] {
+        let look = p.described(template).expect("a creature").description.look;
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.description.look = look;
+        t.drawn_as = None;
+        let lasts =
+            yalain_world::timings::thing_length(&h.server, beetle, yalain_world::ai::VICTORY);
+        assert_eq!(
+            lasts.map(|l| (l * 1000.0).round() / 1000.0),
+            clip,
+            "{template:08X}'s clip"
+        );
+        let (mut over, mut none) = (0, 0);
+        for _ in 0..40 {
+            let p = h.server.players.get_mut(&world).expect("in the world");
+            let health = yalain_world::quals::int(&p.qualities, HEALTH).expect("its health");
+            p.dying = None;
+            yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
+            // It is fighting the player when the player dies.
+            let c = h
+                .server
+                .things
+                .get_mut(beetle)
+                .and_then(|t| t.creature.as_mut())
+                .expect("the beetle");
+            c.mode = yalain_world::things::Mode::Chasing;
+            c.target = Some(me);
+            let from = h.bots[b].inbox.len();
+            let clock = h.clock();
+            yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+            let mut after = None;
+            for step in 1..=200 {
+                h.step();
+                if peace(&h, from) {
+                    after = Some(f64::from(step) * STEP);
+                    break;
+                }
+            }
+            let after = after.expect("it takes its peace");
+            let played = victories(&h, b, from, beetle) > 0;
+            let due = if played { lasts.unwrap_or(0.0) } else { 0.0 };
+            // At the world's first step after it is due, and on the wire.
+            assert!(
+                after >= due && after <= due + yalain_world::spawn::STEP_SECONDS + 3.0 * STEP,
+                "{template:08X}: peace {after} s after a death, its victory played: {played}"
+            );
+            if played {
+                over += 1;
+            } else {
+                none += 1;
+            }
+            let p = h.server.players.get_mut(&world).expect("in the world");
+            yalain_world::quals::set_int(&mut p.qualities, HEALTH, health);
+            h.run(100);
+        }
+        assert!(over > 0 && none > 0, "{template:08X}: {over} and {none}");
     }
 }

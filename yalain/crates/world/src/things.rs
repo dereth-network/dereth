@@ -126,6 +126,9 @@ pub struct Creature {
     /// The players (character ids) within its perception at its last step, for a creature that
     /// marks those that come within it.
     pub in_sight: Vec<u64>,
+    /// Until when (world seconds) it plays its victory over a player it killed: it keeps its
+    /// fighting mode till then.
+    pub victory_until: Option<f64>,
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.

@@ -396,22 +396,39 @@ pub const ARRIVED: f32 = 0.5;
 pub const IDLE_BEHAVIORS: [u32; 2] = [0x4100_001B, 0x4100_001C];
 pub const FIRST_IDLE_SHARE: f32 = 0.44;
 
-/// The behavior a creature plays over a player it has killed, and the chance it does when its
-/// behavior table names it (Turbine, July 2003: "about half of the time", never over a pet; 2017:
-/// within three seconds of the death, a median 0.6 s, after 29 of the 221 deaths of a recorded
-/// player to a creature, 29 of the 46 to kinds that played it at all). The table decides, not the
-/// look's clips: 2017 sent it for three kinds whose looks have no clip for it, 12 of its 100 sends.
+/// The behavior a creature plays over a player it has killed, and the chance it does when it may
+/// (Turbine, July 2003: "about half of the time", never over a pet). Only a creature whose template
+/// sets no AI subclass plays it, when its behavior table names it (2017: within three seconds of
+/// the death, a median 0.6 s, after 30 of the 71 deaths of a recorded player to creatures with
+/// none, and after none of the 150 to creatures with one). The table decides, not the look's
+/// clips: 2017 sent it for three kinds whose looks have no clip for it, 12 of its 100 sends.
 pub const VICTORY: u32 = 0x4100_006F;
 pub const VICTORY_CHANCE: f32 = 0.5;
 
-/// A creature has killed a player: about half the time, when its behavior table names one, it
-/// plays its victory for all who see it. A pet, or a creature whose table has none, plays nothing.
-pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
-    if !s.things.get(id).is_some_and(crate::things::Thing::alive) || s.pets.is_pet(id) {
+/// A creature has killed a player: about half the time, when its template sets no AI subclass and
+/// its behavior table names one, it plays its victory for all who see it. It keeps its fighting
+/// mode, doing nothing else, until its look's clip for the victory ends, and only then turns to
+/// another or gives up (2017: its peace came within 0.1 s of the clip's end in 20 of 20, 1.3 s
+/// after a Burun Scout's victory began, 4.2 s after a Shreth's, at once after a Grutt's, whose look
+/// has no clip for it). A pet plays nothing.
+pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
+    let Some(c) = s
+        .things
+        .get(id)
+        .filter(|t| t.alive())
+        .and_then(|t| t.creature.as_ref())
+    else {
+        return;
+    };
+    if c.stats.sub_class.is_some() || s.pets.is_pet(id) {
         return;
     }
     if !crate::timings::thing_names(s, id, VICTORY) || !s.rng.chance(VICTORY_CHANCE) {
         return;
+    }
+    let lasts = crate::timings::thing_length(s, id, VICTORY).unwrap_or(0.0);
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.victory_until = Some(now + lasts);
     }
     s.next_context = s.next_context.wrapping_add(1);
     let m =
@@ -426,6 +443,15 @@ pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
             },
         });
     crate::combat::to_all_seeing(s, net, id, &m);
+}
+
+/// Is a creature still playing its victory?
+fn plays_victory<S: Store>(s: &Server<S>, id: u64, now: f64) -> bool {
+    s.things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.victory_until)
+        .is_some_and(|until| now < until)
 }
 
 /// How long a creature at rest goes between its idle behaviors on average, in seconds (2017: 1,213
@@ -789,6 +815,11 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     })
             });
             let far_from_home = too_far(&at, leash.as_ref());
+            let gone = player.is_none_or(|(_, _, gone)| gone);
+            // Over a player it killed, it plays out its victory before anything else.
+            if gone && plays_victory(s, id, now) {
+                return;
+            }
             let Some((conn, place, gone)) = player else {
                 give_up_or_turn(s, net, id, &at, perception, now);
                 return;

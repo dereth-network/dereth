@@ -587,6 +587,7 @@ pub fn make<S: Store>(
         patrol,
         actions: 0,
         in_sight: Vec::new(),
+        victory_until: None,
     });
     s.things.insert(t);
     crate::arms::arm(s, id);

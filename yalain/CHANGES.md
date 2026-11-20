@@ -14,6 +14,7 @@ what they see, not how it was done.
 - World: treasure above level 50 hits and protects as retail's did; enchanted gear is worth more.
 - World: keyed dungeon caches hold treasure, and now and then a rare.
 - Fixed level-ups ignoring your buffs and vitae, and showing too few skill credits.
+- Fewer monsters play a victory emote, and they finish it before calming down.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

@@ -1648,7 +1648,7 @@ pub fn player_dies<S: Store>(
     crate::pets::owner_dies(s, net, id, clock);
     // A creature that killed it may play its victory over it.
     if let Some(k) = killer {
-        crate::ai::victory(s, net, k);
+        crate::ai::victory(s, net, k, clock.local.0);
     }
     s.after(clock, PLAYER_CORPSE_AFTER, Timer::PlayerCorpse { world });
 }

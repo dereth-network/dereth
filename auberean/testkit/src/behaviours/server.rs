@@ -4029,10 +4029,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.victory-before-peace",
+        says: "A creature playing its victory over a player it killed keeps its fighting mode until \
+               its look's clip for the victory ends, and only then takes its peace; one whose look \
+               has no clip for it, or that played none, takes its peace at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY-PEACE"),
+        station: "yalain-testkit::dat::effects::a_creature_takes_its_peace_when_its_victory_ends",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.victory-over-a-dead-player",
         says: "A creature that kills a player plays its victory over it, for all who see the \
-               creature, about half the time when its behavior table names one, whether or not its \
-               look has a clip for it; a creature whose table has none never does.",
+               creature, about half the time when its template sets no AI subclass and its \
+               behavior table names one, whether or not its look has a clip for it; a creature with \
+               a subclass, or whose table has none, never does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY"),
         station: "yalain-testkit::dat::effects::a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time",

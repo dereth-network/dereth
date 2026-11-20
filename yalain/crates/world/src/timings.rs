@@ -241,6 +241,16 @@ pub fn of_thing<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Timeline {
         .unwrap_or_else(unknown)
 }
 
+/// How long a creature's or a pet's behavior plays in the stance it fights in, at time scale 1, in
+/// seconds; `None` when its look has no clip for it, or the install does not say.
+#[must_use]
+pub fn thing_length<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Option<f64> {
+    let mode = crate::arms::stance(s, id);
+    let t = s.timings.as_ref()?;
+    let played = t.timeline(&thing_plays(s, t, id)?, mode, behavior)?;
+    Some(ends(&played, 1.0))
+}
+
 /// Does a creature's or a pet's behavior table name a behavior in the stance it fights in, whether
 /// or not its look has a clip for it? Not when the install does not say.
 #[must_use]
