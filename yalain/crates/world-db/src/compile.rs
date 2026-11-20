@@ -1946,6 +1946,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 t.content.away_regen.by_vital.insert(r.vital, r.regen);
             }
             Row::AllegianceOath(r) => t.content.allegiance_oath = r.oath,
+            Row::Consignments(r) => t.content.consignments = r.consignments,
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(
                     r.effect,

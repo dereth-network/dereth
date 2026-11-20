@@ -5900,6 +5900,62 @@ fn allegiance_oath_rows_compile_to_the_worlds_terms_and_bad_ones_are_problems() 
     }
 }
 
+/// A consignments row compiles to how many consignments a player holds at a broker, from 0; a
+/// world with no row, or the number left out, sets none; one row a world.
+#[test]
+fn consignments_rows_compile_to_the_number_a_player_holds_at_a_broker_and_bad_ones_are_problems() {
+    use yalain_content::consignments::Consignments;
+    let files = fixture();
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.consignments,
+        Consignments::default(),
+        "no row: none set"
+    );
+    for (fields, at_a_broker) in [
+        ("at_a_broker = 3", Some(3)),
+        ("at_a_broker = 0", Some(0)),
+        ("", None),
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/stores.toml".into(),
+            format!("[[consignments]]\n{fields}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(check(&f).is_empty(), "{fields}: {:?}", check(&f));
+        let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+        assert_eq!(
+            t.content.consignments,
+            Consignments { at_a_broker },
+            "{fields}"
+        );
+    }
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/stores.toml".into(),
+        "[[consignments]]\nat_a_broker = 3\nprov = { from = \"authored\" }\n\
+         [[consignments]]\nat_a_broker = 4\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+    for bad in [
+        "at_a_broker = -1",
+        "at_a_broker = \"three\"",
+        "per_broker = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/stores.toml".into(),
+            format!("[[consignments]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_are_problems() {
     use yalain_content::crafts::CraftGate;

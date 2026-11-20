@@ -333,6 +333,17 @@ fn the_worlds_corpse_finds_give_mining_bands_lodestones_and_tesserae_from_level_
     assert_eq!(tesserae.items().collect::<Vec<_>>(), [0x4700_052F]);
 }
 
+/// A world's players hold three consignments at each broker. A world older than the row holds a
+/// player to the brokers' own limit for an account alone.
+/// Behaviour: server.market.a-character-holds-so-many-consignments
+#[test]
+fn the_worlds_players_hold_three_consignments_at_each_broker() {
+    let Some(at_a_broker) = compiled().tables.content.consignments.at_a_broker else {
+        return;
+    };
+    assert_eq!(at_a_broker, 3);
+}
+
 /// A world's kingdom joins ask level 10 at every kingdom's shrines; the neutral one charges nothing
 /// to level 20, then 15,000, 75,000 and 500,000 gold from levels 21, 31 and 41; the other three
 /// refuse a player sworn to another kingdom and wait two weeks after it left one. A world older than

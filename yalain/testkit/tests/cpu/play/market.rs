@@ -57,6 +57,7 @@ fn world() -> Harness {
         Broker {
             catalog: CATALOG,
             location: (0x0D3C_90C4, 0x2500_0CE6),
+            ..Broker::default()
         },
     );
     h.server
@@ -1146,11 +1147,25 @@ fn an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe() {
     assert_eq!(sold(&mut h, a, ida, by_recipe), (1_000, refused, false));
 }
 
+/// The most a player holds at a broker in these tests, as a world's consignments row sets it.
+const AT_A_BROKER: u32 = 3;
+
 /// A character with as many gems as it may hold put up with the broker, one at a time from a stack:
 /// its client, its connection, the stack and the sale request.
 fn at_the_most(h: &mut Harness) -> (usize, yalain_net::ConnId, u64, [Arg; 5]) {
-    use yalain_world::market::MOST_CONSIGNMENTS;
+    h.server.content.consignments.at_a_broker = Some(AT_A_BROKER);
     let (a, ida) = h.player_in_world("one", "Seller");
+    let (w, gem, sell) = with_gems(h, ida);
+    for _ in 0..AT_A_BROKER {
+        h.ask(a, function::SELL, &sell, 2);
+    }
+    assert_eq!(h.server.market.list.len(), AT_A_BROKER as usize);
+    (a, w, gem, sell)
+}
+
+/// A character at the broker with a stack of gems and money: its connection, the stack and the sale
+/// request of one gem.
+fn with_gems(h: &mut Harness, ida: u64) -> (yalain_net::ConnId, u64, [Arg; 5]) {
     at_the_broker(h, ida);
     money(h, ida, 100_000);
     let mut stacks = Props::default();
@@ -1174,27 +1189,37 @@ fn at_the_most(h: &mut Harness) -> (usize, yalain_net::ConnId, u64, [Arg; 5]) {
         Arg::LongInt(gem),
         Arg::LongInt(BROKER),
     ];
-    for _ in 0..MOST_CONSIGNMENTS {
-        h.ask(a, function::SELL, &sell, 2);
-    }
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS);
-    (a, w, gem, sell)
+    (w, gem, sell)
 }
 
-/// A character at the most consignments it may hold is refused in the client's own words ("The
-/// maximum number of consignments for your player has been reached.") and nothing is taken; one
-/// collected makes room again.
+/// A character holding at a broker as many consignments as the world lets a player hold there is
+/// refused another in the client's own words ("The maximum number of consignments for your player
+/// has been reached.") and nothing is taken; one collected makes room again. Its consignments with
+/// another broker don't count here.
 /// Behaviour: server.market.a-character-holds-so-many-consignments
 #[test]
 fn a_character_at_its_most_consignments_is_refused_and_told() {
-    use yalain_world::market::{AT_THE_MOST, MOST_CONSIGNMENTS};
+    use yalain_world::market::AT_THE_MOST;
     use yalain_world::store;
+    let most = AT_A_BROKER as usize;
     let mut h = world();
     let (a, w, _, sell) = at_the_most(&mut h);
+    // Others at another broker's catalog.
+    for c in &mut h.server.market.list {
+        c.catalog = CATALOG + 1;
+    }
+    for _ in 0..AT_A_BROKER {
+        h.ask(a, function::SELL, &sell, 2);
+    }
+    assert_eq!(
+        h.server.market.list.len(),
+        2 * most,
+        "another broker's don't count"
+    );
     let left = yalain_world::store::money(&h.server.players[&w].qualities);
     let from = h.bots[a].inbox.len();
     h.ask(a, function::SELL, &sell, 5);
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "no more");
+    assert_eq!(h.server.market.list.len(), 2 * most, "no more");
     assert_eq!(
         store::money(&h.server.players[&w].qualities),
         left,
@@ -1202,21 +1227,113 @@ fn a_character_at_its_most_consignments_is_refused_and_told() {
     );
     assert_eq!(last_error(&h, a, from), Some(AT_THE_MOST));
     assert!(h.texts(a, from).is_empty(), "the client's words alone");
-    let sale = h.server.market.list[0].sale;
+    let sale = h
+        .server
+        .market
+        .list
+        .iter()
+        .find(|c| c.catalog == CATALOG)
+        .expect("one here")
+        .sale;
     let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
     h.ask(a, function::COLLECT, &collect, 5);
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS - 1);
+    assert_eq!(h.server.market.list.len(), 2 * most - 1);
     h.ask(a, function::SELL, &sell, 2);
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
+    assert_eq!(h.server.market.list.len(), 2 * most, "room again");
 }
 
-/// Expired consignments left uncollected count toward a character's most: with all of them expired
-/// it is refused another, and they stay with the broker, whole, however long they wait. It may still
-/// restock one, which goes on sale again, and collecting one makes room.
+/// An effect of extra consignments a player holds lets it hold as many more at each broker as its
+/// spellcraft (a permit's one to four), and no more.
+/// Behaviour: server.market.extra-consignments-by-an-effect
+#[test]
+fn an_effect_of_extra_consignments_lets_a_player_hold_more_at_a_broker() {
+    use yalain_world::market::AT_THE_MOST;
+    const PERMIT: u32 = 0x6F00_249C;
+    let mut h = world();
+    let (a, w, _, sell) = at_the_most(&mut h);
+    h.server.effect_table.effects.insert(
+        PERMIT,
+        yalain_world::effect_defs::EffectDef {
+            kind: yalain_world::effect_defs::Kind::ExtraConsignments,
+            ..yalain_testkit::plain_effect(PERMIT)
+        },
+    );
+    let cast = h.net.game_time(h.now);
+    let p = h.server.players.get_mut(&w).expect("in the world");
+    let eid = yalain_world::effects::next_eid(p);
+    p.play.effects.push(yalain_world::state::EffectState {
+        eid,
+        state: PERMIT,
+        cast,
+        timeout: f32::MAX,
+        caster: 0,
+        spellcraft: 2.0,
+        pk: false,
+        acting: 0,
+        skill: 0,
+        item: 0,
+        flags: 0,
+        categories: 1,
+    });
+    for _ in 0..3 {
+        h.ask(a, function::SELL, &sell, 2);
+    }
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::SELL, &sell, 5);
+    assert_eq!(
+        h.server.market.list.len(),
+        AT_A_BROKER as usize + 2,
+        "two more, and no more"
+    );
+    assert_eq!(last_error(&h, a, from), Some(AT_THE_MOST));
+}
+
+/// An account's characters together hold at a broker as many consignments as the broker's records
+/// allow one account (the install's seven): one more is refused in the client's words for an
+/// account, however few the character holds itself. Without the world's own number, the account's
+/// limit alone holds.
+/// Behaviour: server.market.an-account-holds-so-many-at-a-broker
+#[test]
+fn an_accounts_characters_together_hold_the_brokers_most_for_an_account() {
+    use yalain_world::market::ACCOUNT_AT_THE_MOST;
+    let mut h = world();
+    if let Some(b) = h.server.brokers.get_mut(&BROKER_TEMPLATE) {
+        b.account_most = Some(7);
+    }
+    let b = h.at_character_list("one");
+    let other = h.create_character(b, "one", "Other");
+    let seller = h.create_character(b, "one", "Seller");
+    h.enter_world(b, "one", seller);
+    let (_, _, sell) = with_gems(&mut h, seller);
+    h.server.market.loaded = true;
+    h.server.market.list = (101..=106)
+        .map(|n| yalain_world::market::Consignment {
+            owner: other,
+            ..sale_row(n)
+        })
+        .collect();
+    h.ask(b, function::SELL, &sell, 2);
+    assert_eq!(h.server.market.list.len(), 7, "the seventh");
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::SELL, &sell, 5);
+    assert_eq!(h.server.market.list.len(), 7, "no eighth");
+    assert_eq!(last_error(&h, b, from), Some(ACCOUNT_AT_THE_MOST));
+    // Another account's consignments there don't count toward this one's.
+    for c in &mut h.server.market.list {
+        c.owner = 0x5000_0000_0000_0001;
+    }
+    h.ask(b, function::SELL, &sell, 2);
+    assert_eq!(h.server.market.list.len(), 8);
+}
+
+/// Expired consignments left uncollected count toward a character's most at a broker: with all of
+/// them expired it is refused another there, and they stay with the broker, whole, however long they
+/// wait. It may still restock one, which goes on sale again, and collecting one makes room.
 /// Behaviour: server.market.expired-consignments-count-toward-the-most
 #[test]
 fn expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_broker() {
-    use yalain_world::market::{AT_THE_MOST, EXPIRY_LOOK, MOST_CONSIGNMENTS};
+    use yalain_world::market::{AT_THE_MOST, EXPIRY_LOOK};
+    let most = AT_A_BROKER as usize;
     let mut h = world();
     let (a, w, gem, sell) = at_the_most(&mut h);
     let now = h.server.game_now;
@@ -1230,7 +1347,7 @@ fn expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_brok
     }
     let now = h.server.game_now;
     assert!(h.server.market.list.iter().all(|c| c.expired(now)));
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "all kept");
+    assert_eq!(h.server.market.list.len(), most, "all kept");
     assert!(
         h.server.market.list.iter().all(|c| h
             .server
@@ -1242,14 +1359,14 @@ fn expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_brok
     let from = h.bots[a].inbox.len();
     h.ask(a, function::SELL, &sell, 5);
     assert_eq!(last_error(&h, a, from), Some(AT_THE_MOST));
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "no more");
+    assert_eq!(h.server.market.list.len(), most, "no more");
     // A restock is not another consignment.
     let sale = h.server.market.list[0].sale;
     restock(&mut h, a, sale, 1, gem);
     let c = h.server.market.list[0];
     assert_eq!(c.offered, 2, "restocked");
     assert!(c.on_sale(h.server.game_now), "on sale again");
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS);
+    assert_eq!(h.server.market.list.len(), most);
     // Collected, an expired one comes back and makes room.
     let gems = |h: &Harness| -> u32 {
         h.server.players[&w]
@@ -1264,10 +1381,10 @@ fn expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_brok
     let sale = h.server.market.list[1].sale;
     let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
     h.ask(a, function::COLLECT, &collect, 5);
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS - 1);
+    assert_eq!(h.server.market.list.len(), most - 1);
     assert_eq!(gems(&h), held + 1, "back in the pack");
     h.ask(a, function::SELL, &sell, 2);
-    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
+    assert_eq!(h.server.market.list.len(), most, "room again");
 }
 
 /// A store's page comes out of a connection's allowance, by the sales it shows and the listing read
@@ -1954,6 +2071,7 @@ fn a_player_entering_has_one_reminder_per_broker_however_its_sales_lie() {
         Broker {
             catalog: CATALOG,
             location: (0x0D3C_90C4, 0x2500_0CE6),
+            ..Broker::default()
         },
     );
     let (a, ida) = h.player_in_world("one", "Seller");

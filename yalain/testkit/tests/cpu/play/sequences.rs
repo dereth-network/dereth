@@ -112,6 +112,7 @@ fn fixture(h: &mut Harness) {
         Broker {
             catalog: 0x6F00_1503,
             location: (0x0D3C_90C4, 0x2500_0CE6),
+            account_most: None,
         },
     );
     for t in [LOOT, IRON, MINES_SWORD] {

@@ -17,7 +17,8 @@
 //! recall, which is its skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one
 //! of a list of named places, or to its allegiance's hall; a taunt, which changes a creature's mind
 //! about its caster once ([`crate::ai`]), by the share its data gives at the cast's spellcraft;
-//! a resurrection, which offers a dead player a return ([`crate::resurrections`]).
+//! a resurrection, which offers a dead player a return ([`crate::resurrections`]); extra
+//! consignments at each broker, as many as its spellcraft, while its player holds it.
 //! Where a world's rules say what an effect does that its own data doesn't, the rule's kind: among
 //! them a skill trained for good ([`crate::skills::trained_for_good`]).
 //!
@@ -380,6 +381,9 @@ pub enum Kind {
     /// Pushes its target, once: its speed at a spellcraft, and the ways it goes (its flags'
     /// [`impulse_way`] bits).
     Impulse { speed: Scale, ways: u32 },
+    /// Held by its player, it lets it hold more consignments at each broker: as many more as its
+    /// spellcraft ([`crate::market`]).
+    ExtraConsignments,
     /// Anything else (kept as a record only).
     Other,
 }
@@ -963,6 +967,8 @@ impl EffectDef {
                 targets: word("m_uiAuraFlags").unwrap_or(0),
                 range: range_sq.max(0.0).sqrt(),
             })
+        } else if is("Eff_SetSales") {
+            Kind::ExtraConsignments
         } else {
             Kind::Other
         };

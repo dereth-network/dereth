@@ -1217,7 +1217,8 @@ pub fn implements(p: &Portal, catalog: &Catalog) -> Result<BTreeMap<u32, u32>, S
 }
 
 /// The brokers among the world's placed objects: each template whose properties name a store
-/// group (its catalog) and where it stands.
+/// group (its catalog) and where it stands, with the most consignments the group's record allows an
+/// account (the install's: 7 at each of its 47).
 pub fn brokers(
     p: &Portal,
     content: &yalain_content::ContentPack,
@@ -1244,10 +1245,25 @@ pub fn brokers(
         };
         out.insert(
             o.template,
-            yalain_world::market::Broker { catalog, location },
+            yalain_world::market::Broker {
+                catalog,
+                location,
+                account_most: account_most(p, catalog),
+            },
         );
     }
     out
+}
+
+/// The most consignments a store group's record allows one account, when it holds a number.
+fn account_most(p: &Portal, group: u32) -> Option<u32> {
+    let lib = library(p).ok()?;
+    let g = state_graph(p, lib, group)?;
+    let nav = yalain_world::start::Nav::new(lib, &g);
+    let root = nav.object(g.root()?).ok()?;
+    nav.field(root, "m_iMaxAccountSales")
+        .ok()
+        .filter(|n| *n > 0)
 }
 
 /// The icon a look gives (its visual descriptions' icon layers).
@@ -1747,6 +1763,29 @@ mod tests {
             .filter(|e| of(e.id))
             .filter_map(|e| tally.get(&u64::from(e.offset)).copied())
             .collect()
+    }
+
+    /// Each broker's store group allows one account seven consignments, as its record says, and
+    /// the effect that gives extra consignments reads as such.
+    /// Behaviour: server.market.an-account-holds-so-many-at-a-broker
+    #[test]
+    fn the_brokers_groups_allow_an_account_seven_and_the_permits_effect_gives_extra() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        for group in [0x6F00_12DF, 0x6F00_1503, 0x6F00_1672] {
+            assert_eq!(account_most(&p, group), Some(7), "{group:#x}");
+        }
+        assert_eq!(account_most(&p, 0x6F00_249C), None, "not a store group");
+        let t = effect_table(
+            &p,
+            &[0x6F00_249C],
+            &yalain_world::effect_defs::EffectRules::default(),
+        )
+        .expect("the effects");
+        assert!(matches!(
+            t.get(0x6F00_249C).map(|d| &d.kind),
+            Some(yalain_world::effect_defs::Kind::ExtraConsignments)
+        ));
     }
 
     /// The ground answers the water's surface over any block from the region, a block no camp

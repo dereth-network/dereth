@@ -24,7 +24,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/landblocks/XXYY.toml [[object]], [[camp]] and [[clearing]] rows standing in landblock XXYY
 <pack>/server/places.toml          [[place]]
 <pack>/server/loot.toml            [[loot]]
-<pack>/server/stores.toml          [[keeper]], [[store]], [[sale]]
+<pack>/server/stores.toml          [[keeper]], [[store]], [[sale]], [[consignments]]
 <pack>/server/quests/QQQQQQQQ.toml [[quest]], [[step]] of one quest
 <pack>/server/gives/TTTTTTTT.toml  [[give]] of one template given to
 <pack>/server/talk/TTTTTTTT.toml   [[talk]] of one template
@@ -150,6 +150,7 @@ Every row sets one **item**, named by its key:
 | `pet_limit 0xSKILL` | the summoning skill |
 | `defense 0xTEMPLATE` | the device's template |
 | `treasure_rules` | the world's one row |
+| `consignments` | the world's one row |
 | `treasure_sort SORT` | the sort: `weapon`, `armor`, `shield` or `jewelry` |
 | `treasure_word SORT 0xWORD` | the sort and the word's string |
 | `treasure_look 0xTEMPLATE` | the template |
@@ -567,6 +568,20 @@ itself, are the store template's in the install.
 | `icon` | | `{ layer, picture, color }` |
 | `product`, `cost`, `currency` | † | what it sells, for how much of what |
 | `name`, `name_text` | † | its name |
+| `prov` | required | where it came from |
+
+#### `[[consignments]]`
+
+How many consignments a player holds at one broker: on sale, expired, or sold and not yet
+collected. A world has one at most. A player at that many is refused another there ("Cannot add
+consignment. The maximum number of consignments for your player has been reached."); its effects of
+extra consignments add to it. A world with none, or with `at_a_broker` left out, holds a player to
+nothing of its own; each broker's own limit for an account, which the install sets, holds either
+way.
+
+| field | | meaning |
+|---|---|---|
+| `at_a_broker` | | how many a player holds at one broker, from 0 |
 | `prov` | required | where it came from |
 
 ### Loot and treasure

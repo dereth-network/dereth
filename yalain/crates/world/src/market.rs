@@ -26,9 +26,13 @@
 //! player entering the world is reminded of its consignments, one reminder per broker.
 //!
 //! **What may not be sold**: an item attuned to its holder, and one bound by use in combat: refused,
-//! nothing taken and nothing moved. Nor anything by a character holding [`MOST_CONSIGNMENTS`] already,
-//! on sale, expired or sold and not yet collected, which is told so in the client's own words; it
-//! may still restock one, and collecting one makes room.
+//! nothing taken and nothing moved. Nor anything at a broker where the character holds as many
+//! consignments as the world lets a player hold there, on sale, expired or sold and not yet
+//! collected, its effects of extra consignments added (Turbine, January 2005: three at each broker,
+//! a permit from the Merchant Guild Officer one to four more); nor where its account's characters
+//! hold as many together as the broker's own records allow an account (the install's, seven at every
+//! broker). Each is told so in the client's own words, for the player and for the account; it may
+//! still restock one, and collecting one makes room.
 //!
 //! **A page** shows as many sales as a storekeeper's and names the whole listing's size; the client
 //! turns the pages as it does a storekeeper's (2017: no page of any store showed more than 7 of 510
@@ -142,14 +146,12 @@ pub const EXPIRY_LOOK: f64 = 60.0;
 /// A consignment's flag: expired.
 const FLAG_EXPIRED: u32 = 1;
 
-/// The most consignments a character holds at once: on sale, expired or sold, until collected. The
-/// client has words for a character's maximum, so the 2017 servers had one; its number was never
-/// recorded (the recordings hold two characters' consignments, the most of one 2, and the client
-/// lists every consignment it is sent in one list), so this is ours.
-pub const MOST_CONSIGNMENTS: usize = 100;
-/// The refusal of a sale by a character at that maximum, which the client words "Cannot add
-/// consignment. The maximum number of consignments for your player has been reached."
+/// The refusal of a sale by a character at its most consignments at a broker, which the client words
+/// "Cannot add consignment. The maximum number of consignments for your player has been reached."
 pub const AT_THE_MOST: u32 = 45_020;
+/// The refusal of a sale where the character's account holds the broker's most for an account: "Cannot
+/// add consignment. The maximum number of consignments for your account has been reached."
+pub const ACCOUNT_AT_THE_MOST: u32 = 45_019;
 /// A connection's rows of pages, at once and each second (18 recorded asks, none of more than 13).
 pub const PAGE_ROWS_HELD: f64 = 2000.0;
 pub const PAGE_ROWS_A_SECOND: f64 = 1000.0;
@@ -162,11 +164,13 @@ const RECORD_VERSION: u8 = 2;
 /// The most of one stack a player sale offers.
 pub const MOST_STACK: u32 = 50;
 
-/// A broker: the catalog it shows (a store group) and where it stands (a string reference).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A broker: the catalog it shows (a store group), where it stands (a string reference), and how
+/// many consignments its catalog's records allow one account (none: no limit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Broker {
     pub catalog: u32,
     pub location: (u32, u32),
+    pub account_most: Option<u32>,
 }
 
 /// One consignment: the sale, its owner and broker, the store it sells in, the item, its price,
@@ -762,6 +766,56 @@ pub fn look_for_expired<S: Store>(s: &mut Server<S>, net: &mut ServerNet) {
     }
 }
 
+/// How many consignments a player holds at a broker: the world's number, and as many more as the
+/// spellcraft of each effect of extra consignments it holds; none when the world sets none.
+#[must_use]
+pub fn most_at_a_broker<S: Store>(s: &Server<S>, world: ConnId) -> Option<u32> {
+    let base = s.content.consignments.at_a_broker?;
+    let extra: f32 = s.players.get(&world).map_or(0.0, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| {
+                s.effect_table
+                    .get(e.state)
+                    .is_some_and(|d| matches!(d.kind, crate::effect_defs::Kind::ExtraConsignments))
+            })
+            .map(|e| e.spellcraft.max(0.0))
+            .sum()
+    });
+    Some(base.saturating_add(u32::try_from(dereth_primitives::num::to_i32(extra)).unwrap_or(0)))
+}
+
+/// Why a player may not put up another consignment at a broker, if it may not: it holds there as
+/// many as it may, or its account's characters hold together as many as the broker allows one
+/// account.
+fn at_the_most<S: Store>(s: &mut Server<S>, world: ConnId, me: u64, br: &Broker) -> Option<u32> {
+    let here: Vec<u64> = s
+        .market
+        .list
+        .iter()
+        .filter(|c| c.catalog == br.catalog)
+        .map(|c| c.owner)
+        .collect();
+    let mine = here.iter().filter(|o| **o == me).count();
+    if most_at_a_broker(s, world).is_some_and(|most| mine >= most as usize) {
+        return Some(AT_THE_MOST);
+    }
+    let most = br.account_most?;
+    let account_of =
+        |s: &mut Server<S>, c: u64| s.store.character(c).ok().flatten().map(|c| c.account);
+    let account = account_of(s, me)?;
+    let mut owners: Vec<u64> = here.clone();
+    owners.sort_unstable();
+    owners.dedup();
+    let ours: Vec<u64> = owners
+        .into_iter()
+        .filter(|o| *o == me || account_of(s, *o) == Some(account))
+        .collect();
+    let held = here.iter().filter(|o| ours.contains(o)).count();
+    (held >= most as usize).then_some(ACCOUNT_AT_THE_MOST)
+}
+
 fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
     let i = crate::presence::content_by_id(&s.content.objects, keeper)?;
     broker(s, s.content.objects[i].template)
@@ -1080,8 +1134,8 @@ pub fn sell<S: Store>(
     }
     // Every consignment counts until it is collected, an expired one too, so what a character
     // leaves with brokers is bounded and nothing of it is ever taken away.
-    if s.market.list.iter().filter(|c| c.owner == me).count() >= MOST_CONSIGNMENTS {
-        let m = call(store::function::REQUEST_DONE, &[Arg::Int(AT_THE_MOST)]);
+    if let Some(why) = at_the_most(s, world, me, &br) {
+        let m = call(store::function::REQUEST_DONE, &[Arg::Int(why)]);
         progress::private(net, world, &m);
         return;
     }
@@ -1105,7 +1159,10 @@ pub fn sell<S: Store>(
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let charge = ((f64::from(quantity) * f64::from(price) * CHARGE).ceil() as u32).max(1);
-    let money = store::money(&p.qualities);
+    let money = s
+        .players
+        .get(&world)
+        .map_or(0, |p| store::money(&p.qualities));
     if price <= 0.0 || money < charge || holding::place_of(s, item) != Some(Place::Pack(me)) {
         return;
     }

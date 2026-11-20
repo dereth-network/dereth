@@ -751,6 +751,7 @@ pub enum Row {
     KingdomJoin(KingdomJoinRow),
     AwayRegen(AwayRegenRow),
     AllegianceOath(AllegianceOathRow),
+    Consignments(ConsignmentsRow),
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
@@ -932,6 +933,14 @@ pub struct PointsBonus {
 pub struct KingdomJoinRow {
     pub kingdom: u32,
     pub join: yalain_content::kingdoms::Join,
+    pub prov: Prov,
+}
+
+/// `[[consignments]]`: how many consignments a player holds at one broker, on sale, expired or sold
+/// and not yet collected, before its effects of extra consignments add any. A world has one at most.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConsignmentsRow {
+    pub consignments: yalain_content::consignments::Consignments,
     pub prov: Prov,
 }
 
@@ -1614,6 +1623,7 @@ impl Row {
             Self::KingdomJoin(_) => "kingdom_join",
             Self::AwayRegen(_) => "away_regen",
             Self::AllegianceOath(_) => "allegiance_oath",
+            Self::Consignments(_) => "consignments",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
@@ -1697,6 +1707,7 @@ impl Row {
             Self::KingdomJoin(r) => Some(&r.prov),
             Self::AwayRegen(r) => Some(&r.prov),
             Self::AllegianceOath(r) => Some(&r.prov),
+            Self::Consignments(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
@@ -1747,7 +1758,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 77] = [
+pub const KINDS: [&str; 78] = [
     "object",
     "camp",
     "loot",
@@ -1781,6 +1792,7 @@ pub const KINDS: [&str; 77] = [
     "kingdom_join",
     "away_regen",
     "allegiance_oath",
+    "consignments",
     "popup",
     "effect_rule",
     "treasure_value",
@@ -1828,7 +1840,7 @@ pub const KINDS: [&str; 77] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 77] = [
+pub const FIELDS: [(&str, &[&str]); 78] = [
     (
         "object",
         &[
@@ -2195,6 +2207,7 @@ pub const FIELDS: [(&str, &[&str]); 77] = [
     ),
     ("away_regen", &["vital", "every", "points", "prov"]),
     ("allegiance_oath", &["least_level", "rank_at_most", "prov"]),
+    ("consignments", &["at_a_broker", "prov"]),
     ("popup", &["on", "effect", "prov"]),
     (
         "effect_rule",
@@ -4005,6 +4018,20 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     least_level,
                     rank_at_most,
                 },
+                prov: f.req_prov()?,
+            })
+        }
+        "consignments" => {
+            let at_a_broker = match f.int("at_a_broker").map(u32::try_from) {
+                None => None,
+                Some(Ok(n)) => Some(n),
+                Some(_) => {
+                    f.bad("at_a_broker", "a number from 0");
+                    return None;
+                }
+            };
+            Row::Consignments(ConsignmentsRow {
+                consignments: yalain_content::consignments::Consignments { at_a_broker },
                 prov: f.req_prov()?,
             })
         }

@@ -27,6 +27,7 @@ use auberean_assets::property::PropertyValue;
 use auberean_assets::script::Qualities;
 
 pub mod allegiance;
+pub mod consignments;
 pub mod crafts;
 pub mod creature_rows;
 pub mod defenses;
@@ -842,6 +843,9 @@ pub struct ContentPack {
     /// What an oath of allegiance asks besides what every oath does. Not part of the text form: the
     /// world database's oath row fills it.
     pub allegiance_oath: allegiance::Oath,
+    /// How many consignments a player holds at one broker. Not part of the text form: the world
+    /// database's consignments row fills it.
+    pub consignments: consignments::Consignments,
 }
 
 /// The kind of player conflict a place allows.
@@ -1232,6 +1236,7 @@ impl ContentPack {
             hazards: hazards::HazardTable::default(),
             away_regen: vitals::AwayRegens::default(),
             allegiance_oath: allegiance::Oath::default(),
+            consignments: consignments::Consignments::default(),
         })
     }
 

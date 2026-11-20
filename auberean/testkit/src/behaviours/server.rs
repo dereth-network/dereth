@@ -9468,11 +9468,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.a-character-holds-so-many-consignments",
-        says: "A character holding the most consignments it may is refused another in the client's \
-               own words for a character's maximum (45020) and nothing is taken; one collected makes \
-               room again.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST"),
+        says: "A character holding at a broker as many consignments as the world lets a player hold \
+               there is refused another in the client's own words for a player's maximum (45020) and \
+               nothing is taken; one collected makes room again, and its consignments with another \
+               broker don't count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-AT-A-BROKER"),
         station: "yalain-testkit::cpu::play::market::a_character_at_its_most_consignments_is_refused_and_told",
         tier: Tier::Cpu,
     },
@@ -9585,6 +9586,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.an-account-holds-so-many-at-a-broker",
+        says: "An account's characters together hold at a broker as many consignments as the \
+               broker's own records allow one account; another is refused in the client's words for \
+               an account's maximum (45019), and another account's consignments don't count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-ACCOUNT"),
+        station: "yalain-testkit::cpu::play::market::an_accounts_characters_together_hold_the_brokers_most_for_an_account",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.an-attuned-item-is-not-sold",
         says: "An item attuned to its holder, by its template or a recipe, is refused its sale \
                (45009), nothing taken and the item kept. Our choice: an attunable template's item \
@@ -9637,13 +9648,22 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.expired-consignments-count-toward-the-most",
-        says: "Expired consignments left uncollected count toward a character's most consignments: \
-               with that many it is refused another, and they stay with their broker, whole, however \
-               long they wait; it may still restock one, and collecting one makes room. This \
-               server's own: the recordings hold no character near a maximum.",
+        says: "Expired consignments left uncollected count toward a character's most at a broker: \
+               with that many it is refused another there, and they stay with their broker, whole, \
+               however long they wait; it may still restock one, and collecting one makes room. \
+               This server's own: the recordings hold no character near a maximum.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST-EXPIRED"),
         station: "yalain-testkit::cpu::play::market::expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_broker",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.extra-consignments-by-an-effect",
+        says: "An effect of extra consignments a player holds lets it hold as many more at each \
+               broker as its spellcraft.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-EXTRA"),
+        station: "yalain-testkit::cpu::play::market::an_effect_of_extra_consignments_lets_a_player_hold_more_at_a_broker",
         tier: Tier::Cpu,
     },
     behaviour! {

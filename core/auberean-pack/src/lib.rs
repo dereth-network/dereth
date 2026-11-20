@@ -141,7 +141,7 @@ impl Dialect for Ac2 {
          treasure_family <sort> <order>, item_use <template>, book <template>, \
          start_item <template>, item_life <template>, interaction <key>, recipe <id>, combination <key>, object_states <key>, \
          sequence <key>, concealing <effect> <class|any>, npc_table <name>, \
-         friend_table <table>, creature <template>, away_regen <vital>, allegiance_oath, \
+         friend_table <table>, creature <template>, away_regen <vital>, allegiance_oath, consignments, \
          or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
@@ -231,6 +231,8 @@ pub enum Item {
     AwayRegen { vital: String },
     /// What an oath of allegiance asks besides what every oath does (a world has one).
     AllegianceOath,
+    /// How many consignments a player holds at a broker (a world has one).
+    Consignments,
     /// The tip a player is shown once, by the moment it is shown at.
     Popup { on: String },
     /// What the world says of an effect, by the effect's saved state.
@@ -406,6 +408,7 @@ impl Item {
                 kingdom: symbol(kingdom)?,
             },
             ["allegiance_oath"] => Self::AllegianceOath,
+            ["consignments"] => Self::Consignments,
             ["away_regen", vital] => Self::AwayRegen {
                 vital: symbol(vital)?,
             },
@@ -570,6 +573,7 @@ impl fmt::Display for Item {
             Self::KingdomJoin { kingdom } => write!(f, "kingdom_join {kingdom}"),
             Self::AwayRegen { vital } => write!(f, "away_regen {vital}"),
             Self::AllegianceOath => write!(f, "allegiance_oath"),
+            Self::Consignments => write!(f, "consignments"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
             Self::EffectRuleNamed { name } => write!(f, "effect_rule {name}"),
