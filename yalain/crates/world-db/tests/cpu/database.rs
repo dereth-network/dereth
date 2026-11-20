@@ -3289,6 +3289,76 @@ fn an_effect_rule_row_may_name_what_an_immunity_leaves_as_it_ends() {
     }
 }
 
+/// An examination row gives the placed objects of its template the name and page examining them
+/// shows, where the template names none; a template that names itself keeps its own. A row needs a
+/// name, a string reference, and takes nothing else.
+/// Behaviour: server.examination.template-text-rows
+#[test]
+fn an_examination_row_names_the_objects_of_a_template_that_names_none() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/examinations.toml".into(),
+        "[[examination]]\ntemplate = 0x4700115B\nname = { table = 0x25001AAE, string = 0xA8607CEC }\n\
+         description = { table = 0x25001AAE, string = 0x6C459364 }\nprov = { from = \"authored\" }\n\n\
+         [[examination]]\ntemplate = 0x47009999\nname = { table = 0x25001AAF, string = 0xA8607CEC }\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "[[camp]]",
+        "[[object]]\nkey = \"named\"\nkind = \"static\"\nid = 0x4077B70000000009\ntemplate = 0x47009999\n\
+         at = [121.0, 111.0, 250.0]\nprov = { from = \"authored\" }\n\n[[camp]]",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let mut install = Fake::new();
+    install.entities.insert(
+        0x4700_9999,
+        entity(
+            CLASS,
+            0x0F00,
+            vec![
+                (LOOK, PropertyValue::DataFile(DataId(0x4700_0001))),
+                (NAME, name(0xA860_7CEC, 0x2500_0857)),
+            ],
+        ),
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    let facts = |id: u64| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(id))
+            .map(|o| (o.facts.name, o.facts.description))
+            .unwrap()
+    };
+    assert_eq!(
+        facts(0x4077_B700_0000_0001),
+        (
+            Some((0xA860_7CEC, 0x2500_1AAE)),
+            Some((0x6C45_9364, 0x2500_1AAE))
+        ),
+        "the row's, its template naming none"
+    );
+    assert_eq!(
+        facts(0x4077_B700_0000_0009),
+        (Some((0xA860_7CEC, 0x2500_0857)), None),
+        "its template's own"
+    );
+    for row in [
+        "template = 0x4700115B",
+        "template = 0x4700115B\nname = 0xA8607CEC",
+        "template = 0x4700115B\nname = { table = 1, string = 2 }\npage = 3",
+    ] {
+        files.insert(
+            "town/server/examinations.toml".into(),
+            format!("[[examination]]\n{row}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&files).is_err(), "{row}");
+    }
+}
+
 /// Behaviour: server.effects.vitae-restore
 #[test]
 fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {

@@ -508,6 +508,8 @@ pub struct Server<S: Store> {
     pub person_packages: std::collections::HashSet<u32>,
     /// The script packages of the world's lifestones.
     pub lifestone_packages: std::collections::HashSet<u32>,
+    /// The script packages of the world's teaching stones.
+    pub teaching_stone_packages: std::collections::HashSet<u32>,
     /// The script packages of the knives (the butchery tools' class and those derived from it).
     pub knife_packages: std::collections::HashSet<u32>,
     /// The portal storms of crowded landblocks.
@@ -970,6 +972,7 @@ impl<S: Store> Server<S> {
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
             lifestone_packages: std::collections::HashSet::new(),
+            teaching_stone_packages: std::collections::HashSet::new(),
             knife_packages: std::collections::HashSet::new(),
             storms,
             shrine_packages: std::collections::HashSet::new(),

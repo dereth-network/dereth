@@ -110,9 +110,16 @@ pub const HELD_ANSWERED: [(&str, u32, u32); 3] = [
 ];
 
 /// The teaching stones' script package (the training hall's signs: "Movement", "Quest Panel", ...),
-/// and the call that has the client examine an object.
+/// the script library's class every teaching stone derives from (the training hall's, a vault's
+/// door's, a map's), and the call that has the client examine an object.
 pub const TEACHING_STONE: u32 = 0x1352;
+pub const TEACHING_STONE_CLASS: &str = "TeachingStoneTemplate";
 pub const FORCE_EXAMINE: u32 = 0x8212_0026;
+
+/// Is a script package a teaching stone's: the training hall's own, or one deriving from it?
+pub fn is_teaching_stone<S: Store>(s: &Server<S>, package: u32) -> bool {
+    package == TEACHING_STONE || s.teaching_stone_packages.contains(&package)
+}
 
 /// The script library's lifestone: whatever derives from it is one (2017 answered a use of the
 /// human's, the Lugian's, the Tumerok's and the plain one alike: bound, with the same text and
@@ -957,9 +964,10 @@ pub fn use_object<S: Store>(
         return;
     };
     let o = &s.content.objects[i];
-    if o.description.package == TEACHING_STONE {
+    if is_teaching_stone(s, o.description.package) {
         // A teaching stone shows its page: the client is told to examine it, and the use is
-        // answered, wherever the player stands (2017: 14 of 15 uses, no walk).
+        // answered, wherever the player stands (2017: 14 of 15 uses, no walk; the Arwic vault's
+        // stone, of a class of its own, 1 of 1).
         let me = p_id(s, world);
         let examine = call(FORCE_EXAMINE, &[Arg::LongInt(u.item)]);
         send(net, world, BlobKind::PRIVATE, &examine);

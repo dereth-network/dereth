@@ -553,6 +553,92 @@ fn an_object_for_monarchs_alone_says_so_when_examined() {
     assert_eq!(got[recorded.len()..], [0, 0x4000_0006, 0x20, 0x22][..]);
 }
 
+/// A teaching stone of a class of its own (the Arwic vault's), its name and page given by the
+/// world's rows, is examined as 2017's was word for word: its plain name, a break, its page and a
+/// break, on the general tab.
+/// Behaviour: server.examination.teaching-stone-of-its-own
+#[test]
+fn a_vault_teaching_stone_is_examined_as_2017s_was_word_for_word() {
+    const STONE: u64 = 0x4085_AC00_0000_0001;
+    const TABLE: u32 = 0x2500_1AAE;
+    let mut h = Harness::new();
+    h.server.teaching_stone_packages.insert(0x13A0);
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![yalain_content::ContentObject {
+            object: Some(STONE),
+            template: 0x4700_2E4D,
+            description: yalain_content::Description {
+                name_text: None,
+                package: 0x13A0,
+                look: 0x1F00_0ED5,
+                enter_fx: 0,
+                scale: None,
+                name: None,
+                numbers: [0; 6],
+                source: "authored for a test".into(),
+            },
+            cell: 0x0299_0109,
+            origin: [61.0, 241.0, -44.6],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            kind: yalain_content::Kind::Static,
+            label: String::new(),
+            placed: "authored for a test".into(),
+            destination: None,
+            facts: yalain_content::Facts {
+                name: Some((0xA860_7CEC, TABLE)),
+                description: Some((0x6C45_9364, TABLE)),
+                ..yalain_content::Facts::default()
+            },
+            walks: None,
+            gate: None,
+        }],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(STONE, 0x3FF)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let recorded: [u32; 23] = [
+        0x4000_0002,
+        0,
+        0x0000_0001,
+        0x4085_AC00,
+        0x3FF,
+        4,
+        0x4000_0004,
+        0x02,
+        0xBE5B_6513,
+        0xA860_7CEC,
+        TABLE,
+        0,
+        0x4000_0006,
+        0x02,
+        0x4000_0004,
+        0x02,
+        0x33BE_4035,
+        0x6C45_9364,
+        TABLE,
+        0,
+        0x4000_0006,
+        0x02,
+        0x02,
+    ];
+    let got: Vec<u32> = got[0]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    assert_eq!(got, recorded);
+}
+
 /// A player's profile names the quest rating its completed quests have added.
 /// Behaviour: server.examination.player-quest-rating
 #[test]

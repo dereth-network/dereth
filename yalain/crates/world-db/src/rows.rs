@@ -766,6 +766,7 @@ pub enum Row {
     MapRegion(MapRegion),
     ItemUse(ItemUse),
     Book(Book),
+    Examination(Examination),
     StartItem(StartItem),
     ItemLife(ItemLife),
     Interaction(Interaction),
@@ -1325,6 +1326,16 @@ pub struct Book {
     pub prov: Prov,
 }
 
+/// `[[examination]]`: what examining an object of a template says where its template names nothing
+/// (a name and description its script gives it): its name and its description, string references.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Examination {
+    pub template: u32,
+    pub name: StrRef,
+    pub description: Option<StrRef>,
+    pub prov: Prov,
+}
+
 /// `[[start_item]]`: an item every new character is given as it first enters, and how many.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StartItem {
@@ -1618,6 +1629,7 @@ impl Row {
             Self::MapRegion(_) => "map_region",
             Self::ItemUse(_) => "item_use",
             Self::Book(_) => "book",
+            Self::Examination(_) => "examination",
             Self::StartItem(_) => "start_item",
             Self::ItemLife(_) => "item_life",
             Self::Interaction(_) => "interaction",
@@ -1700,6 +1712,7 @@ impl Row {
             Self::MapRegion(r) => Some(&r.prov),
             Self::ItemUse(r) => Some(&r.prov),
             Self::Book(r) => Some(&r.prov),
+            Self::Examination(r) => Some(&r.prov),
             Self::StartItem(r) => Some(&r.prov),
             Self::ItemLife(r) => Some(&r.prov),
             Self::Interaction(r) => Some(&r.prov),
@@ -1734,7 +1747,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 76] = [
+pub const KINDS: [&str; 77] = [
     "object",
     "camp",
     "loot",
@@ -1783,6 +1796,7 @@ pub const KINDS: [&str; 76] = [
     "map_region",
     "item_use",
     "book",
+    "examination",
     "start_item",
     "item_life",
     "interaction",
@@ -1814,7 +1828,7 @@ pub const KINDS: [&str; 76] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 76] = [
+pub const FIELDS: [(&str, &[&str]); 77] = [
     (
         "object",
         &[
@@ -2282,6 +2296,7 @@ pub const FIELDS: [(&str, &[&str]); 76] = [
         &["template", "effects", "behavior", "wears", "prov"],
     ),
     ("book", &["template", "table", "picture", "prov"]),
+    ("examination", &["template", "name", "description", "prov"]),
     ("start_item", &["template", "count", "prov"]),
     ("item_life", &["template", "lasts", "prov"]),
     (
@@ -3344,6 +3359,20 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::Book(Book {
                 template,
                 shows,
+                prov: f.req_prov()?,
+            })
+        }
+        "examination" => {
+            let template = f.req_id("template")?;
+            let name = match f.get("name") {
+                Some(_) => f.strref("name")?,
+                None => return f.missing("name"),
+            };
+            let description = f.strref("description");
+            Row::Examination(Examination {
+                template,
+                name,
+                description,
                 prov: f.req_prov()?,
             })
         }

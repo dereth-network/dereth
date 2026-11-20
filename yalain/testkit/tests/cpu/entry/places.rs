@@ -148,6 +148,41 @@ fn a_portal_takes_the_player_through_portal_space_to_its_destination() {
     );
 }
 
+/// A teaching stone of a class of its own (a vault's) shows its page when used: the client is told
+/// to examine it, then the use is answered; an object of a class that is no teaching stone is not.
+/// Behaviour: server.places.teaching-stone-of-its-own-shown
+#[test]
+fn a_teaching_stone_of_a_class_of_its_own_is_shown_when_used() {
+    let mut h = Harness::new();
+    let mut stone = object(STONE, 0x4700_2E4D, [60.0, 241.0, -44.6], None);
+    stone.description.package = 0x13A0;
+    h.server.content = ContentPack {
+        objects: vec![stone],
+        ..ContentPack::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let used = |h: &mut Harness| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::USE, &[use_of(STONE, ida)]),
+        );
+        h.run(10);
+        calls(h, a, from)
+    };
+    assert!(
+        !used(&mut h).contains(&yalain_world::places::FORCE_EXAMINE),
+        "not known as a teaching stone"
+    );
+    h.server.teaching_stone_packages.insert(0x13A0);
+    assert_eq!(
+        used(&mut h),
+        [yalain_world::places::FORCE_EXAMINE, trip::USE_DONE]
+    );
+}
+
 /// Using a lifestone binds the player where it stands: the lifestone and the player play their
 /// binding and the use is answered. The lifestone recall (a weapon in hand) then powers up for its
 /// time, tells its story, and takes the player through portal space to the place and heading it

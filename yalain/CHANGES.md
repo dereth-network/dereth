@@ -25,6 +25,8 @@ what they see, not how it was done.
 - Monarchs can appoint eight officers, and a kingdom restriction keeps members in its kingdom.
 - Leveling up or using a Tessera while untraining a skill no longer hides the untraining.
 - Fixed flying creatures' corpses staying in the air.
+- Using a teaching stone at a vault or elsewhere now shows its page.
+- Worlds can now give examine text to objects whose template has none.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

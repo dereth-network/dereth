@@ -263,6 +263,9 @@ pub enum Item {
     ItemUse { template: u32 },
     /// What a book, card or person shows when used, by the template.
     Book { template: u32 },
+    /// What examining an object of a template says where its template names nothing, by the
+    /// template.
+    Examination { template: u32 },
     /// What every new character is given as it first enters, by the template.
     StartItem { template: u32 },
     /// How long an item lasts from when it is made, by the template.
@@ -450,6 +453,9 @@ impl Item {
             ["book", template] => Self::Book {
                 template: number(template)?,
             },
+            ["examination", template] => Self::Examination {
+                template: number(template)?,
+            },
             ["start_item", template] => Self::StartItem {
                 template: number(template)?,
             },
@@ -580,6 +586,7 @@ impl fmt::Display for Item {
             Self::MapRegion { region } => write!(f, "map_region {region}"),
             Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
             Self::Book { template } => write!(f, "book {template:#010x}"),
+            Self::Examination { template } => write!(f, "examination {template:#010x}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
             Self::ItemLife { template } => write!(f, "item_life {template:#010x}"),
             Self::Interaction { key } => write!(f, "interaction {key}"),

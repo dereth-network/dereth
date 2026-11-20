@@ -128,6 +128,7 @@ pub struct PlacedKinds {
     pub walk_in: HashSet<u32>,
     pub persons: HashSet<u32>,
     pub lifestones: HashSet<u32>,
+    pub teaching_stones: HashSet<u32>,
     pub shrines: HashSet<u32>,
     pub cannot_use: HashSet<u32>,
     pub doors: HashMap<u32, crate::usable::doors::Kind>,
@@ -480,6 +481,7 @@ impl<S: Store> Server<S> {
             self.walk_in_packages.extend(k.walk_in);
             self.person_packages.extend(k.persons);
             self.lifestone_packages.extend(k.lifestones);
+            self.teaching_stone_packages.extend(k.teaching_stones);
             self.shrine_packages.extend(k.shrines);
             self.cannot_use_packages.extend(k.cannot_use);
             self.doors.packages.extend(k.doors);

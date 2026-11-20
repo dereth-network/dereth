@@ -158,6 +158,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Book(r) => Item::Book {
             template: r.template,
         },
+        Row::Examination(r) => Item::Examination {
+            template: r.template,
+        },
         Row::StartItem(r) => Item::StartItem {
             template: r.template,
         },
@@ -267,6 +270,7 @@ fn value(row: &Row) -> String {
         Row::Clearing(x) => x.prov = crate::rows::Prov::default(),
         Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
         Row::Book(x) => x.prov = crate::rows::Prov::default(),
+        Row::Examination(x) => x.prov = crate::rows::Prov::default(),
         Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
         Row::ItemLife(x) => x.prov = crate::rows::Prov::default(),
         Row::Interaction(x) => x.prov = crate::rows::Prov::default(),

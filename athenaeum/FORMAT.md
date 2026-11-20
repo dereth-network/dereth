@@ -58,6 +58,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[item_life]], [[interaction]]
+<pack>/server/examinations.toml    [[examination]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]], [[wanting]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
 ```
@@ -1316,6 +1317,18 @@ What an item or a person of a template shows when used, where its template names
 |---|---|---|
 | `template` | required | the template |
 | `table`, `picture` | one of them | the string table of a book's pages, or a picture shown with no page controls |
+| `prov` | required | where it came from |
+
+#### `[[examination]]`
+
+What examining an object of a template says, where its template names nothing (a name and a page its
+script gives it from a table of its own). One row per template.
+
+| field | | meaning |
+|---|---|---|
+| `template` | required | the template |
+| `name` | required | its name, a string reference |
+| `description` | | its page, a string reference |
 | `prov` | required | where it came from |
 
 #### `[[start_item]]`

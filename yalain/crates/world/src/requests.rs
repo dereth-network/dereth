@@ -680,11 +680,13 @@ fn profile_bytes<S: Store>(
                         quest,
                     )
                 } else {
-                    // An object for monarchs alone goes by its plain name (2017: 14 of 14).
+                    // An object for monarchs alone goes by its plain name (2017: 14 of 14), and so
+                    // does a teaching stone (2017: every profile of the fifteen kinds examined).
                     let monarchs = s
                         .catalog
                         .get(o.template)
                         .is_some_and(|t| t.props.flag("Usage_MonarchOnly"));
+                    let teaching = crate::places::is_teaching_stone(s, o.description.package);
                     let plain = || {
                         f.name.map_or_else(
                             || profile::literal(""),
@@ -692,7 +694,7 @@ fn profile_bytes<S: Store>(
                         )
                     };
                     let name = named.unwrap_or_else(|| {
-                        if monarchs {
+                        if monarchs || teaching {
                             plain()
                         } else {
                             profile::item_name(f)

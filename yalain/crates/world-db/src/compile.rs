@@ -808,11 +808,25 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
     let mut starts: Vec<(u32, u32)> = Vec::new();
     let mut quest_rows: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    // What examining an object of a template says where its template names nothing, known before
+    // the objects are placed.
+    let mut examined: BTreeMap<u32, (StrRef, Option<StrRef>)> = BTreeMap::new();
     for l in &merged.rows {
         match &l.row {
             Row::Camp(c) => *camp_keys.entry(c.key.as_str()).or_default() += 1,
             Row::Quest(q) => {
                 quest_rows.insert(q.id);
+            }
+            Row::Examination(e) => {
+                let again = examined
+                    .insert(e.template, (e.name, e.description))
+                    .is_some();
+                if again {
+                    cx.warn(
+                        l,
+                        "template: another examination row names it; the last stands",
+                    );
+                }
             }
             _ => {}
         }
@@ -945,7 +959,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     destination,
                     facts: {
                         let f = facts(o.template, &entity, &ids);
+                        let shown = examined.get(&o.template);
+                        let text = |r: &StrRef| (r.string, r.table);
                         yalain_content::Facts {
+                            name: f.name.or_else(|| shown.map(|(n, _)| text(n))),
+                            description: f
+                                .description
+                                .or_else(|| shown.and_then(|(_, d)| d.as_ref().map(text))),
                             portal: portal_flags(o.recall, o.summon),
                             min_level: o.min_level.or(f.min_level),
                             hero: o.hero,
@@ -1601,6 +1621,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if cx.template(l, "template", r.template) {
                     t.items.books.insert(r.template, r.shows);
                 }
+            }
+            Row::Examination(r) => {
+                cx.template(l, "template", r.template);
             }
             Row::StartItem(r) => {
                 if cx.template(l, "template", r.template) {

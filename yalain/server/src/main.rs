@@ -899,6 +899,7 @@ struct Play {
     item_classes: yalain_world::gives::ItemClasses,
     persons: std::collections::HashSet<u32>,
     lifestones: std::collections::HashSet<u32>,
+    teaching_stones: std::collections::HashSet<u32>,
     knives: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
@@ -1137,6 +1138,7 @@ fn run<S: Store>(
     server.item_classes = play.item_classes;
     server.person_packages = play.persons;
     server.lifestone_packages = play.lifestones;
+    server.teaching_stone_packages = play.teaching_stones;
     server.knife_packages = play.knives;
     server.shrine_packages = play.shrines;
     server.shrine_kingdoms = play.shrine_kingdoms;
@@ -2254,6 +2256,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             data::packages_deriving_from(portal, &content, &yalain_world::places::PERSONS)?;
         let lifestones =
             data::packages_deriving_from(portal, &content, &[yalain_world::places::LIFESTONE])?;
+        let teaching_stones = data::packages_deriving_from(
+            portal,
+            &content,
+            &[yalain_world::places::TEACHING_STONE_CLASS],
+        )?;
         let knives = data::library_packages_from(portal, yalain_world::butchery::TOOL_CLASS)?;
         let shrines = data::packages_deriving_from(
             portal,
@@ -2369,6 +2376,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             item_classes,
             persons,
             lifestones,
+            teaching_stones,
             knives,
             shrines,
             shrine_kingdoms,
@@ -2447,6 +2455,7 @@ fn reload_world(
             walk_in: p.walk_in,
             persons: p.persons,
             lifestones: p.lifestones,
+            teaching_stones: p.teaching_stones,
             shrines: p.shrines,
             cannot_use: p.cannot_use,
             doors: p.doors,

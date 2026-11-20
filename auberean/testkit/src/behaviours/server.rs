@@ -5836,6 +5836,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.teaching-stone-of-its-own",
+        says: "A teaching stone of a class of its own is examined by its plain name, a break, its page and \
+               a break on the general tab, as the Arwic vault's was in 2017 word for word.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TEACHING-STONE-EXAMINED"),
+        station: "yalain-testkit::cpu::entry::examine::a_vault_teaching_stone_is_examined_as_2017s_was_word_for_word",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.template-text-rows",
+        says: "A world's examination row gives the placed objects of a template whose own data names nothing \
+               the name and page examining them shows; a template that names itself keeps its own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINATION-ROWS"),
+        station: "yalain-world-db::cpu::database::an_examination_row_names_the_objects_of_a_template_that_names_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.a-non-hero-stops-at-level-fifty",
         says: "A character that is no hero rises no further than level 50, and at level 50 gains no \
                experience: nothing is counted, told or passed up to its patron, though what an \
@@ -13798,6 +13816,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SUMMONED-PORTAL"),
         station: "yalain-testkit::cpu::play::summoned_portals::summon_portal_opens_a_portal_ahead_of_its_summoner_that_goes_after_thirty_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.teaching-stone-of-its-own-shown",
+        says: "Any teaching stone, the training hall's or one of a class deriving from it, shows its page \
+               when used: the client is told to examine it, then the use is answered.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TEACHING-STONE-USED"),
+        station: "yalain-testkit::cpu::entry::places::a_teaching_stone_of_a_class_of_its_own_is_shown_when_used",
         tier: Tier::Cpu,
     },
     behaviour! {
