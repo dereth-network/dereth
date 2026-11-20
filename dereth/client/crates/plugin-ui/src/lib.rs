@@ -155,12 +155,14 @@ pub enum Input {
         node: String,
         value: bool,
     },
-    /// A list's row chosen, from 1.
+    /// A list's row chosen, from 1; and the column the pointer chose it in, from 1, when it did
+    /// (none for a tab, or a row the pad's focus chose).
     Select {
         plugin: String,
         window: String,
         node: String,
         row: i64,
+        column: Option<i64>,
     },
     Close {
         plugin: String,

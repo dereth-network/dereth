@@ -77,7 +77,7 @@ chat 5 XP this session: 11 in 1 gains, 1,173 per hour. Watched in all: 11.
 chat 0 Dealt 36, taken 3, 1 kills.
 chat 5 [combat_enemy] Critical hit! Sparring Golem grazes your foot for 3 points of bludgeoning damage!
 chat 5 [combat_self] You stab Sparring Golem for 5 points of piercing damage!
-chat 0 [Nav] Pointing at Holtburg (42.2N 33.8E).
+chat 0 [Nav] Destination: Holtburg (42.2N 33.8E).
 …
 window network.dereth.trackers hud open=false
   hud #hud anchor="top_right"
@@ -118,7 +118,7 @@ true`). `plugin console <id>` prints what a plugin printed, and the errors it me
 | [Trackers](samples/trackers.md) | fight; `/track xp`; `/track mana` | damage dealt and taken by creature and element, crits, evades and kills in its window and its HUD; experience and luminance per hour; each worn item's mana and time left |
 | [ID Notices](samples/id-notices.md) | open a corpse or chest; walk near a portal; set the value in its window; `/idn watch drudge`, then walk near one | `[ID]` lines for valuable items, rares, named spells and scrolls you do not know; portals, players and the drudge coming into view, the drudge with a toast |
 | [Inventory](samples/inventory.md) | log in two characters in turn; `/inv find ring` on the second; appraise a ring; `/inv stack` | both characters' rings listed with where each is; a line of what the ring is; partial stacks merged |
-| [Navigator](samples/navigator.md) | type `holt` in Where to?, pick Holtburg, **Go**; `/nav travel portal Drudge Hideout` | the town found as you type, an arrow and markers toward it, the distance on a HUD, and the character going there; a journey into the dungeon through its portal, drawn on the map and radar |
+| [Navigator](samples/navigator.md) | type `holt` in Where to?, pick Holtburg, **Go**; `/nav travel portal Drudge Hideout` | the town found as you type, marked in the world and on the map, and the character going there; a journey into the dungeon through its portal, drawn on the map and radar |
 | [Auto-login](samples/autologin.md) | pick your character in its window, log out | the character entered again as soon as the character list is up |
 | [Follow](samples/follow.md) | two clients: **Lead** in one, pick the leader and **Follow** in the other | the second character following the first |
 

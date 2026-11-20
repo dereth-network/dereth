@@ -196,6 +196,7 @@ fn the_pad_moves_through_a_plugin_window_turns_its_tabs_and_cancels_it() {
             window: "main".into(),
             node: "pages".into(),
             row: 2,
+            column: None,
         }]
     );
     // The pad's cancel is the window's close: the plugin hears it, and closes it.

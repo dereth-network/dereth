@@ -50,6 +50,7 @@ fn select(run: &mut PluginRun, node: &str, row: i64) {
             dereth_plugin_host::UiInput::Select {
                 node: node.into(),
                 rows: vec![row],
+                column: None,
             },
         )
         .unwrap_or_else(|e| panic!("{node}: {e}"));

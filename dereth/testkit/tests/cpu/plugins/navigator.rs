@@ -1,8 +1,8 @@
-//! The Navigator sample, in the manner of GoArrow: places searched by name and type from what the
-//! client learned of the world (its places, its portal knowledge) and the player's own places; the
-//! character's coordinates and an arrow that follows an object; coordinates seen in chat; and the
-//! route finder's ways to a place with and without portals and recalls. Each runs the sample from
-//! `dereth/plugins/navigator` in a scripted world.
+//! The Navigator sample, in the vein of GoArrow: places searched by name and type from what the
+//! client learned of the world (its places, its portal knowledge) and the player's own places, in
+//! one list with the coordinates seen in chat and the spots picked on the map; a destination that
+//! may follow an object; and the route finder's ways to a place with and without portals and
+//! recalls. Each runs the sample from `dereth/plugins/navigator` in a scripted world.
 
 use dereth_client_net::client_session::SessionEvent;
 use dereth_plugin_api::Value;
@@ -18,12 +18,13 @@ dereth_testkit::scenarios! {
     scenario_the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest => the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon => the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon ["plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon"],
     scenario_the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked => the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked ["plugins.samples.the-navigator-lists-coordinates-seen-in-chat-and-points-at-the-one-picked"],
-    scenario_the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked => the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked ["plugins.samples.the-navigator-finds-each-way-to-a-place-and-goes-the-one-picked"],
-    scenario_the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is => the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is ["plugins.samples.the-navigators-arrow-follows-the-selected-object-and-its-hud-shows-where-the-character-is"],
-    scenario_the_navigator_points_where_the_player_clicks_on_the_map => the_navigator_points_where_the_player_clicks_on_the_map ["plugins.samples.the-navigator-points-where-the-player-clicks-on-the-map"],
+    scenario_the_navigator_says_each_way_to_a_place_in_chat_and_goes_the_best => the_navigator_says_each_way_to_a_place_in_chat_and_goes_the_best ["plugins.samples.the-navigator-says-each-way-to-a-place-in-chat-and-goes-the-best"],
+    scenario_the_navigators_destination_follows_the_selected_object_and_the_window_shows_where_the_character_is => the_navigators_destination_follows_the_selected_object_and_the_window_shows_where_the_character_is ["plugins.samples.the-navigators-destination-follows-the-selected-object-and-the-window-shows-where-the-character-is"],
+    scenario_the_navigator_takes_a_spot_picked_on_the_map_by_a_right_or_double_click => the_navigator_takes_a_spot_picked_on_the_map_by_a_right_or_double_click ["plugins.samples.the-navigator-takes-a-spot-picked-on-the-map-by-a-right-or-double-click"],
     scenario_the_navigator_brings_no_places_of_its_own => the_navigator_brings_no_places_of_its_own ["plugins.samples.the-navigator-brings-no-places-of-its-own"],
     scenario_the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared => the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared ["plugins.samples.the-navigator-stops-going-to-a-target-it-was-pointed-away-from-or-cleared"],
-    scenario_the_navigators_hud_is_up_while_it_has_a_target => the_navigators_hud_is_up_while_it_has_a_target ["plugins.samples.the-navigators-hud-is-up-while-it-has-a-target"],
+    scenario_the_navigators_buttons_are_up_only_when_they_can_act => the_navigators_buttons_are_up_only_when_they_can_act ["plugins.samples.the-navigators-buttons-are-up-only-when-they-can-act"],
+    scenario_the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them => the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them ["plugins.samples.the-navigators-one-list-holds-saved-chat-and-map-places-under-its-filter-and-deletes-them"],
     scenario_the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload => the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload ["plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload"],
     scenario_the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys => the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys ["plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys"],
     scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight => a_route_walks_round_a_wall_to_a_waypoint_out_of_sight ["plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight"],
@@ -76,6 +77,15 @@ fn portals() -> Vec<ScriptedPortal> {
             refuses: false,
         },
     ]
+}
+
+/// The line of the window's dump for the node `id`.
+fn node_line(dump: &str, id: &str) -> String {
+    dump.lines()
+        .filter(|l| !l.trim_start().starts_with("window "))
+        .find(|l| l.contains(&format!(" #{id} ")) || l.trim_end().ends_with(&format!(" #{id}")))
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn printed_since(run: &PluginRun, from: usize) -> Vec<String> {
@@ -137,16 +147,14 @@ fn the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest() {
     run.type_line("/nav nearest lifestone");
     assert!(
         run.overlays().contains("label=\"Life Stone\""),
-        "the arrow points at the lifestone the client learned:\n{}",
+        "the lifestone the client learned is the destination, marked:\n{}",
         run.overlays()
     );
     run.type_line("/nav nearest dungeon");
-    let overlays = run.overlays();
     assert!(
-        overlays.contains("arrow network.dereth.navigator")
-            && overlays.contains("label=\"Drudge Hideout\"")
-            && overlays.contains("distance=12.0"),
-        "the arrow points at the dungeon's entrance:\n{overlays}"
+        node_line(&run.ui_dump(), "to").contains("Destination: Drudge Hideout (42.2N 33.9E)"),
+        "the dungeon, by its entrance:\n{}",
+        run.ui_dump()
     );
     run.type_line("/nav go");
     run.advance(8.0);
@@ -192,10 +200,11 @@ fn the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon() {
     run.type_line("/nav save Camp");
     run.place_player(42.3, 33.8);
     run.type_line("/nav camp");
-    let overlays = run.overlays();
     assert!(
-        overlays.contains("label=\"Camp\"") && overlays.contains("distance=24.0"),
-        "the saved place, 24 m south:\n{overlays}"
+        run.overlays().contains("label=\"Camp\"")
+            && node_line(&run.ui_dump(), "to").contains("Destination: Camp (42.2N 33.8E)"),
+        "the saved place, where it was saved:\n{}",
+        run.ui_dump()
     );
 
     // Into the dungeon by its portal, then a place saved there by its cell.
@@ -255,7 +264,7 @@ fn on_channel(channel: u32, who: &str, text: &str) -> SessionEvent {
 }
 
 /// Every pair of coordinates heard in chat lands in the window's list, newest first, with who said
-/// it; picking one points the arrow at it, and `/nav last` points at the newest.
+/// it, typed "chat"; picking one makes it the destination, and `/nav last` makes the newest it.
 fn the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked() {
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
@@ -268,57 +277,39 @@ fn the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked() {
     run.server_says(&[on_channel(0x0100_0000, "Bob", "nothing to see here")]);
     run.server_says(&[on_channel(0x0100_0000, "Bob", "drudges at 41.9N 34.1E")]);
     run.type_line("/nav");
-    let dump = run.ui_dump();
-    let bob = dump
-        .find("41.9N 34.1E")
-        .expect("Bob's coordinates are listed");
-    let alice = dump
-        .find("42.3N 33.8E")
-        .expect("Alice's coordinates are listed");
-    assert!(bob < alice, "newest first:\n{dump}");
+    run.set(ID, "main.filter", Value::from("Chat"));
+    let results = node_line(&run.ui_dump(), "results");
     assert!(
-        dump.contains("Alice") && dump.contains("Bob"),
-        "who said them:\n{dump}"
+        results.contains(r#"[["Bob: 41.9N 34.1E","chat","41.9N 34.1E","X"],["Alice: 42.3N 33.8E","chat","42.3N 33.8E","X"]]"#),
+        "newest first, with who said them:\n{results}"
     );
-
-    run.host()
-        .ui_input(
-            ID,
-            "main",
-            dereth_plugin_host::UiInput::Select {
-                node: "chat".into(),
-                rows: vec![2],
-            },
-        )
-        .expect("the chat list takes a pick");
+    run.choose(ID, "main.results", vec![2]);
     run.frame();
     assert!(
-        run.ui_dump()
-            .contains("To: 42.3N 33.8E (42.3N 33.8E), 24 m N"),
-        "picked, to go to or point at:\n{}",
+        node_line(&run.ui_dump(), "to").contains("Destination: Alice: 42.3N 33.8E (42.3N 33.8E)"),
+        "picked, the destination:\n{}",
         run.ui_dump()
     );
-    run.click(ID, "main.point");
-    let overlays = run.overlays();
     assert!(
-        overlays.contains("label=\"42.3N 33.8E\"") && overlays.contains("distance=24.0"),
-        "Point puts the arrow on Alice's place, picked second in the list:\n{overlays}"
+        run.overlays().contains("label=\"Alice: 42.3N 33.8E\""),
+        "marked:\n{}",
+        run.overlays()
     );
     run.type_line("/nav last");
     assert!(
-        run.overlays().contains("label=\"41.9N 34.1E\""),
-        "/nav last points at the newest:\n{}",
-        run.overlays()
+        node_line(&run.ui_dump(), "to").contains("Destination: 41.9N 34.1E"),
+        "/nav last makes the newest the destination:\n{}",
+        run.ui_dump()
     );
     note_asserted(
         "plugins.samples.the-navigator-lists-coordinates-seen-in-chat-and-points-at-the-one-picked",
     );
 }
 
-/// `/nav routes` asks the client for each way to the target: the best, through a portal, and on
-/// foot without it, each said with its legs and listed on the Route page with the legs of the one
-/// picked; going the best way tells each leg as it begins and arrives through the portal.
-fn the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked() {
+/// `/nav routes` asks the client for each way to the destination: the best, through a portal, and
+/// on foot without it, each said in chat with its legs; Go goes the best way, telling each leg as
+/// it begins, and arrives through the portal.
+fn the_navigator_says_each_way_to_a_place_in_chat_and_goes_the_best() {
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
     run.scripted_portals(&portals(), Vec::new());
@@ -344,13 +335,8 @@ fn the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked() {
         !lines.iter().any(|l| l.starts_with("[Nav] No recalls")),
         "a way the same as one before is said once: {lines:?}"
     );
-    let dump = run.ui_dump();
-    assert!(
-        dump.contains("portal Portal to Arwic") && dump.contains("33.6N 56.8E"),
-        "the Route page lists the best way's legs:\n{dump}"
-    );
-
-    run.click(ID, "main.route_go");
+    run.type_line("/nav");
+    run.click(ID, "main.go");
     run.advance(10.0);
     let lines = run.printed();
     assert!(
@@ -366,13 +352,15 @@ fn the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked() {
         "at Arwic: {ns} {ew}"
     );
     note_asserted(
-        "plugins.samples.the-navigator-finds-each-way-to-a-place-and-goes-the-one-picked",
+        "plugins.samples.the-navigator-says-each-way-to-a-place-in-chat-and-goes-the-best",
     );
 }
 
-/// The HUD shows the character's own coordinates; `/nav sel` puts the arrow and a world marker on
-/// the selected object, and the HUD's distance follows the object as it moves.
-fn the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is() {
+/// The window shows where the character is, by the Name box; `/nav sel` makes the selected object
+/// the destination, marked in the world on the object (no arrow), which the marker follows as it
+/// moves.
+fn the_navigators_destination_follows_the_selected_object_and_the_window_shows_where_the_character_is(
+) {
     const GUARD: u32 = 0x7000_0201;
     let mut run = navigator();
     run.scripted_world(
@@ -387,51 +375,49 @@ fn the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_
     );
     run.advance(0.5);
     assert!(
-        run.ui_dump().contains("Here: 42.2N 33.8E"),
-        "the HUD shows where the character is:\n{}",
+        node_line(&run.ui_dump(), "here").contains("42.2N 33.8E"),
+        "the window shows where the character is:\n{}",
         run.ui_dump()
     );
     run.select(GUARD);
     run.type_line("/nav sel");
     run.advance(0.5);
-    let arrow = |run: &PluginRun| {
+    let marker = |run: &PluginRun| {
         run.overlays()
             .lines()
-            .find(|l| l.starts_with("arrow network.dereth.navigator"))
+            .find(|l| l.starts_with("world network.dereth.navigator"))
             .map(str::to_owned)
             .unwrap_or_default()
     };
-    let line = arrow(&run);
     assert!(
-        line.contains("label=\"Town Guard\"")
-            && line.contains("object=0x70000201")
-            && line.contains("distance=12.0"),
-        "the arrow is on the object:\n{}",
+        marker(&run).contains("label=\"Town Guard\"") && marker(&run).contains("0x70000201"),
+        "the marker is on the object:\n{}",
         run.overlays()
     );
     assert!(
-        run.ui_dump().contains("Town Guard: 12 m N"),
+        !run.overlays().contains("arrow network.dereth.navigator"),
+        "and no arrow:\n{}",
+        run.overlays()
+    );
+    assert!(
+        node_line(&run.ui_dump(), "to").contains("Destination: Town Guard (following it)"),
         "{}",
         run.ui_dump()
     );
     run.move_object(GUARD, 42.3, 33.8);
     run.advance(0.5);
     assert!(
-        arrow(&run).contains("distance=24.0"),
-        "the arrow follows the object:\n{}",
+        marker(&run).contains("0x70000201"),
+        "the marker stays on the object as it moves:\n{}",
         run.overlays()
     );
-    assert!(
-        run.ui_dump().contains("Town Guard: 24 m N"),
-        "the distance follows the object:\n{}",
-        run.ui_dump()
-    );
-    note_asserted("plugins.samples.the-navigators-arrow-follows-the-selected-object-and-its-hud-shows-where-the-character-is");
+    note_asserted("plugins.samples.the-navigators-destination-follows-the-selected-object-and-the-window-shows-where-the-character-is");
 }
 
-/// A left click on the game's map points the arrow at the spot clicked, with a marker in the world
-/// and one on the map there; a right click leaves the target as it was.
-fn the_navigator_points_where_the_player_clicks_on_the_map() {
+/// A spot on the game's map picked with a right click, or with two left clicks there in a row,
+/// is the destination, with a marker in the world and one on the map; a single left click (the
+/// map's own, for dragging it) leaves the destination as it was.
+fn the_navigator_takes_a_spot_picked_on_the_map_by_a_right_or_double_click() {
     use dereth_client_contract::panels::map::{MapButton, MapClick};
     let click = |ns, ew, button| MapClick {
         ns,
@@ -444,40 +430,39 @@ fn the_navigator_points_where_the_player_clicks_on_the_map() {
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
     run.advance(0.5);
-    run.map_click(&click(42.3, 33.8, MapButton::Left));
+    run.map_click(&click(41.0, 30.0, MapButton::Left));
+    run.advance(0.5);
+    assert!(
+        !run.overlays().contains("network.dereth.navigator"),
+        "a single left click picks nothing:\n{}",
+        run.overlays()
+    );
+    run.map_click(&click(42.3, 33.8, MapButton::Right));
     run.advance(0.5);
     let overlays = run.overlays();
     assert!(
-        overlays.contains("arrow network.dereth.navigator")
-            && overlays.contains("label=\"42.3N 33.8E\"")
-            && overlays.contains("turn=0 distance=24.0")
+        overlays.contains("label=\"42.3N 33.8E\"")
             && overlays.contains("world network.dereth.navigator")
-            && overlays.contains("map network.dereth.navigator"),
-        "the arrow and the markers are on the spot clicked, 24 m north:\n{overlays}"
+            && overlays.contains("map network.dereth.navigator")
+            && !overlays.contains("arrow network.dereth.navigator"),
+        "a right click: the markers are on the spot:\n{overlays}"
     );
+    run.map_click(&click(42.1, 33.9, MapButton::Left));
+    run.map_click(&click(42.1, 33.9, MapButton::Left));
+    run.advance(0.5);
     assert!(
-        run.ui_dump().contains("42.3N 33.8E: 24 m N"),
-        "the HUD says how far:\n{}",
+        node_line(&run.ui_dump(), "to").contains("Destination: 42.1N 33.9E"),
+        "a double click there: {}",
         run.ui_dump()
     );
-    run.map_click(&click(41.0, 30.0, MapButton::Right));
-    run.advance(0.5);
-    let overlays = run.overlays();
-    assert!(
-        overlays.contains("label=\"42.3N 33.8E\"") && !overlays.contains("41.0N"),
-        "a right click leaves the target as it was:\n{overlays}"
+    note_asserted(
+        "plugins.samples.the-navigator-takes-a-spot-picked-on-the-map-by-a-right-or-double-click",
     );
-    note_asserted("plugins.samples.the-navigator-points-where-the-player-clicks-on-the-map");
 }
 
 /// The character's start moved `east` and `north` meters, as map coordinates `(ns, ew)`.
 fn off(east: f64, north: f64) -> (f64, f64) {
     (42.2 + north / 240.0, 33.8 + east / 240.0)
-}
-
-/// Whether the Navigator's HUD is up.
-fn hud_up(run: &mut PluginRun) -> bool {
-    run.host().window(ID, "hud").is_some_and(|w| w.open)
 }
 
 /// The package holds the Navigator's code and its manifest and nothing else: no list of places
@@ -620,35 +605,65 @@ fn the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared() {
     );
 }
 
-/// The HUD comes up when the player points the Navigator at something, the window open or not,
-/// and goes when the target is cleared with the window closed; with the window open it stays.
-fn the_navigators_hud_is_up_while_it_has_a_target() {
+/// Stop is up only while the Navigator is going somewhere, Clear only while it has a destination,
+/// and Dungeon Map only indoors: outdoors it is down, saying so when the pointer rests on it.
+fn the_navigators_buttons_are_up_only_when_they_can_act() {
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
     run.advance(0.5);
-    assert!(!hud_up(&mut run), "no target, no HUD");
-    run.type_line("/nav 42.3N 33.8E");
+    run.type_line("/nav");
     run.advance(0.5);
-    assert!(hud_up(&mut run), "a target from the command line");
+    let button = |run: &PluginRun, id: &str| node_line(&run.ui_dump(), id);
     assert!(
-        run.ui_dump().contains("42.3N 33.8E: 24 m N"),
+        button(&run, "stop").contains("enabled=false"),
         "{}",
         run.ui_dump()
     );
-    run.type_line("/nav clear");
-    assert!(!hud_up(&mut run), "cleared with the window closed");
-    run.type_line("/nav");
-    assert!(hud_up(&mut run), "with the window");
+    assert!(
+        button(&run, "clear").contains("enabled=false"),
+        "{}",
+        run.ui_dump()
+    );
+    let dungeon = button(&run, "dungeon");
+    assert!(
+        dungeon.contains("enabled=false") && dungeon.contains("tooltip=\"You're outdoors\""),
+        "outdoors: {dungeon}"
+    );
+    run.type_line("/nav 42.2N 34.0E");
+    assert!(
+        button(&run, "clear").contains("enabled=true"),
+        "{}",
+        run.ui_dump()
+    );
+    assert!(
+        button(&run, "stop").contains("enabled=false"),
+        "{}",
+        run.ui_dump()
+    );
+    run.click(ID, "main.go");
+    run.advance(0.5);
+    assert!(
+        button(&run, "stop").contains("enabled=true"),
+        "going: {}",
+        run.ui_dump()
+    );
+    run.click(ID, "main.stop");
+    assert!(
+        button(&run, "stop").contains("enabled=false"),
+        "stopped: {}",
+        run.ui_dump()
+    );
     run.click(ID, "main.clear");
     assert!(
-        hud_up(&mut run),
-        "cleared with the window open, it stays up"
+        button(&run, "clear").contains("enabled=false"),
+        "cleared: {}",
+        run.ui_dump()
     );
-    note_asserted("plugins.samples.the-navigators-hud-is-up-while-it-has-a-target");
+    note_asserted("plugins.samples.the-navigators-buttons-are-up-only-when-they-can-act");
 }
 
-/// The target, the spots clicked on the map and the coordinates seen in chat are kept for the
-/// world: after the plugin reloads, the arrow is on the target again and the lists hold them.
+/// The destination, the spots picked on the map and the coordinates seen in chat are kept for the
+/// world: after the plugin reloads, the destination is marked again and the list holds them.
 fn the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload() {
     use dereth_client_contract::panels::map::{MapButton, MapClick};
     let mut run = navigator();
@@ -658,7 +673,7 @@ fn the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reloa
     run.map_click(&MapClick {
         ns: 42.0,
         ew: 33.5,
-        button: MapButton::Left,
+        button: MapButton::Right,
         ctrl: false,
         shift: false,
         alt: false,
@@ -669,15 +684,15 @@ fn the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reloa
     run.advance(1.0);
     let overlays = run.overlays();
     assert!(
-        overlays.contains("arrow network.dereth.navigator")
+        overlays.contains("world network.dereth.navigator")
             && overlays.contains("label=\"42.3N 33.8E\""),
-        "the arrow on the target again:\n{overlays}"
+        "the destination marked again:\n{overlays}"
     );
     run.type_line("/nav");
     let dump = run.ui_dump();
     assert!(
         dump.contains("41.9N 34.1E") && dump.contains("Alice") && dump.contains("42.0N 33.5E"),
-        "the chat's coordinates and the map click kept:\n{dump}"
+        "the chat's coordinates and the map's spot kept:\n{dump}"
     );
     note_asserted(
         "plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload",
@@ -898,4 +913,75 @@ fn the_navigator_says_what_it_knows_before_a_search() {
     );
     assert!(said[0].starts_with("[Nav] Knows 2 portals ("), "{said:?}");
     note_asserted("plugins.samples.the-navigator-says-what-it-knows-before-a-search");
+}
+
+/// The window's one list, seven places tall, holds the places found, the player's saved places, the coordinates seen
+/// in chat and the spots picked on the map; the Filter shows one of those alone. A saved place, a
+/// line of chat and a spot on the map carry a mark in the list's narrow last column, and a click
+/// there deletes the entry (forgets the saved place); a click elsewhere on the row picks it.
+fn the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them() {
+    use dereth_client_contract::panels::map::{MapButton, MapClick};
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    run.server_says(&[on_channel(0x800, "Alice", "camp at 41.9N, 34.1E")]);
+    run.map_click(&MapClick {
+        ns: 42.0,
+        ew: 33.5,
+        button: MapButton::Right,
+        ctrl: false,
+        shift: false,
+        alt: false,
+    });
+    run.type_line("/nav save Home");
+    run.type_line("/nav clear");
+    run.type_line("/nav");
+    let results = node_line(&run.ui_dump(), "results");
+    assert!(
+        results.contains(r#"["42.0N 33.5E","map","42.0N 33.5E","X"]"#)
+            && results.contains(r#"["Alice: 41.9N 34.1E","chat","41.9N 34.1E","X"]"#)
+            && results.contains(r#"["Home","saved","42.2N 33.8E","X"]"#),
+        "all in one list, each deletable:\n{results}"
+    );
+    let layout = run.layout_dump();
+    assert!(
+        layout
+            .lines()
+            .any(|l| l.trim_start().starts_with("list #results") && l.ends_with(" rows=7")),
+        "the list shows seven places:
+{layout}"
+    );
+    for (filter, only) in [("Saved", "Home"), ("Chat", "Alice"), ("Map", "42.0N 33.5E")] {
+        run.set(ID, "main.filter", Value::from(filter));
+        let results = node_line(&run.ui_dump(), "results");
+        assert_eq!(
+            results.matches("\"X\"").count(),
+            1,
+            "{filter} alone: {results}"
+        );
+        assert!(results.contains(only), "{filter}: {results}");
+    }
+    // A click on a row away from the mark picks it; on the mark, deletes it.
+    run.set(ID, "main.filter", Value::from("Everything"));
+    run.click_cell(ID, "main.results", 1, 1);
+    assert!(
+        node_line(&run.ui_dump(), "to").contains("Destination: 42.0N 33.5E"),
+        "{}",
+        run.ui_dump()
+    );
+    run.click_cell(ID, "main.results", 1, 4);
+    let results = node_line(&run.ui_dump(), "results");
+    assert!(
+        !results.contains("42.0N 33.5E"),
+        "the map's spot deleted: {results}"
+    );
+    run.set(ID, "main.filter", Value::from("Saved"));
+    run.click_cell(ID, "main.results", 1, 4);
+    let from = run.printed().len();
+    run.type_line("/nav find saved");
+    assert!(
+        !printed_since(&run, from).iter().any(|l| l.contains("Home")),
+        "the saved place forgotten"
+    );
+    note_asserted("plugins.samples.the-navigators-one-list-holds-saved-chat-and-map-places-under-its-filter-and-deletes-them");
 }

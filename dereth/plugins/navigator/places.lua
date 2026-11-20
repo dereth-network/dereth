@@ -40,6 +40,29 @@ function P.show(p)
 	return string.format("cell 0x%08X (%.1f, %.1f, %.1f)", p.cell or 0, p.x or 0, p.y or 0, p.z or 0)
 end
 
+-- A place in the list's narrow Where column: its coordinates outdoors; indoors the landblock its
+-- cell is in (which dungeon or building), the name saying which place there.
+function P.short(p)
+	if p == nil then
+		return ""
+	end
+	if p.ns ~= nil then
+		return P.show(p)
+	end
+	return string.format("in 0x%04X", P.landblock(p.cell))
+end
+
+-- A place in a line of its own: its coordinates outdoors, its whole cell indoors.
+function P.long(p)
+	if p == nil then
+		return "nowhere"
+	end
+	if p.ns ~= nil then
+		return P.show(p)
+	end
+	return string.format("in cell 0x%08X", p.cell or 0)
+end
+
 -- A place (an object's or the character's position, say) kept to the form that names it: map
 -- coordinates outdoors, the cell and offset indoors.
 function P.plain(p)

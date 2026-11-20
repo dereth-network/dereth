@@ -1074,6 +1074,7 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
             dereth_plugin_host::UiInput::Select {
                 node: "plugins".into(),
                 rows: vec![i64::try_from(row).expect("small")],
+                column: None,
             },
         )
         .expect("chosen");
@@ -1100,8 +1101,8 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
     note_asserted("plugins.load.a-found-plugin-is-listed-off-until-the-player-ticks-it");
 }
 
-/// The Navigator sample: `/nav holtburg`'s neighbour by coordinates puts up the arrow, a world
-/// marker and a map marker on the place; `/nav go` walks there; the HUD names the distance.
+/// The Navigator sample: `/nav` with coordinates makes them the destination, a world marker and
+/// a map marker on the place and no arrow, the window naming it; `/nav go` walks there.
 fn the_navigator_points_at_a_place_and_walks_there() {
     let mut run = PluginRun::new();
     run.load(read_package(&samples().join("navigator")));
@@ -1110,15 +1111,15 @@ fn the_navigator_points_at_a_place_and_walks_there() {
     run.advance(0.5);
     let overlays = run.overlays();
     assert!(
-        overlays.contains("arrow network.dereth.navigator")
-            && overlays.contains("turn=90 distance=24.0")
-            && overlays.contains("world network.dereth.navigator")
-            && overlays.contains("map network.dereth.navigator"),
-        "the arrow and the markers are up:\n{overlays}"
+        overlays.contains("world network.dereth.navigator")
+            && overlays.contains("map network.dereth.navigator")
+            && !overlays.contains("arrow network.dereth.navigator"),
+        "the markers are up, and no arrow:\n{overlays}"
     );
     assert!(
-        run.ui_dump().contains("24 m E"),
-        "the HUD names the distance and direction:\n{}",
+        run.ui_dump()
+            .contains("Destination: 42.2N 33.9E (42.2N 33.9E)"),
+        "the window names the destination:\n{}",
         run.ui_dump()
     );
     run.type_line("/nav go");

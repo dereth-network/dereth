@@ -232,6 +232,50 @@ fn a_long_list_scrolls_and_a_row_scrolled_into_sight_is_the_one_chosen() {
     );
 }
 
+/// A click on a list's row says the column it landed in: the first at the row's left, the last
+/// at its right (its narrow delete column, say).
+#[test]
+fn a_click_on_a_rows_column_says_which_column_it_was() {
+    let columns = Value::List(vec![
+        Value::from("Name"),
+        Value::map().with("title", "Type").with("width", 12_i64),
+        Value::map().with("title", "").with("width", 2_i64),
+    ]);
+    let rows = Value::List(vec![Value::List(vec![
+        Value::from("Home"),
+        Value::from("saved"),
+        Value::from("X"),
+    ])]);
+    let views = [view(
+        window(
+            "main",
+            vec![node("list")
+                .with("id", "places")
+                .with("columns", columns)
+                .with("rows", rows)
+                .with("width", 40_i64)],
+        ),
+        1,
+    )];
+    let mut h = Harness::new();
+    h.frame(&views);
+    h.frame(&views);
+    let row = controls(&h).first().copied().expect("the row is noted");
+    let column_at = |h: &mut Harness, x: f32| {
+        let out = h.click(&views, x, row.y + row.h / 2.0);
+        match out.first() {
+            Some(Input::Select { column, .. }) => *column,
+            other => panic!("a row is chosen: {other:?}"),
+        }
+    };
+    assert_eq!(column_at(&mut h, row.x + 4.0), Some(1), "the name");
+    assert_eq!(
+        column_at(&mut h, row.x + row.w - 4.0),
+        Some(3),
+        "the delete column"
+    );
+}
+
 /// A choice opens its list of options on a click, and a click on an option chooses that
 /// option: not the next one after the value, as a cycling button would.
 #[test]

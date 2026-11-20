@@ -321,6 +321,7 @@ impl Views {
             (Binding::Select, "select") | (Binding::Tabs, "change") => input(UiInput::Select {
                 node,
                 rows: vec![index()? + 1],
+                column: None,
             }),
             _ => return None,
         })

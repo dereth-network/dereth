@@ -95,7 +95,11 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("chat.line", "text, kind, window, prefix"),
     ("ui.clicked", "window, id"),
     ("ui.changed", "window, id, value"),
-    ("ui.selected", "window, id, rows"),
+    (
+        "ui.selected",
+        "window, id, rows, column (the column the pointer chose the row in, from 1; nil for a \
+         tab or the pad)",
+    ),
     ("ui.closed", "window"),
     ("ui.opened", "window"),
     ("ui.resized", "window, width, height"),

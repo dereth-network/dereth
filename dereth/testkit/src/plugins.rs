@@ -2667,7 +2667,20 @@ impl PluginRun {
 
     /// The player chooses rows of a list (from 1), or a tab of a `tabs` node, `window.node`.
     pub fn choose(&mut self, plugin: &str, path: &str, rows: Vec<i64>) {
-        self.input(plugin, path, |node| UiInput::Select { node, rows });
+        self.input(plugin, path, |node| UiInput::Select {
+            node,
+            rows,
+            column: None,
+        });
+    }
+
+    /// The player clicks row `row` of a list in its column `column` (both from 1), `window.node`.
+    pub fn click_cell(&mut self, plugin: &str, path: &str, row: i64, column: i64) {
+        self.input(plugin, path, |node| UiInput::Select {
+            node,
+            rows: vec![row],
+            column: Some(column),
+        });
     }
 
     /// The player answers the host's question, by its id: `yes` or no, with the line `pick`

@@ -351,7 +351,7 @@ it last said.
 |---|---|
 | `ui.clicked` `{ window, id }` | a button was clicked |
 | `ui.changed` `{ window, id, value }` | a toggle was flipped, a number stepped, a choice picked or a slider moved; its `value` is already the new one |
-| `ui.selected` `{ window, id, rows }` | rows of a list were selected, or a tab chosen |
+| `ui.selected` `{ window, id, rows, column }` | rows of a list were selected (`column`, from 1, the column the pointer chose in), or a tab chosen |
 | `ui.closed` `{ window }` | the player closed the window, from its close box or the plugin bar |
 | `ui.opened` `{ window }` | the player opened the window from the plugin bar |
 | `ui.resized` `{ window, width, height }` | the player resized a resizable window (cells and lines) |

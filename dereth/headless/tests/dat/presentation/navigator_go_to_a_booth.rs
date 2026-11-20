@@ -46,7 +46,7 @@ fn the_navigators_go_to_a_shopkeeper_in_a_booth_walks_to_his_window_and_arrives(
     assert_eq!(
         said,
         [
-            "Pointing at Shopkeeper Renald the Elder (following it).",
+            "Destination: Shopkeeper Renald the Elder (following it).",
             "Going by Shopkeeper Renald the Elder: walk (about 6 s).",
             "Arrived at Shopkeeper Renald the Elder.",
         ],

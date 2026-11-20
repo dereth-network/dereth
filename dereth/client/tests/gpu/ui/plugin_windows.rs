@@ -762,6 +762,7 @@ fn the_tanks_window_is_drawn_on_its_pages_under_each_interface_and_scrolls_on_a_
                         dereth_plugin_host::UiInput::Select {
                             node: "pages".into(),
                             rows: vec![at],
+                            column: None,
                         },
                     )
                     .expect("the page is chosen");
@@ -977,4 +978,71 @@ fn unlocked_a_plugins_hud_is_dragged_where_the_player_puts_it_and_kept() {
             "{interface:?}: kept for the character where it stands"
         );
     }
+}
+
+/// Not a claim: draws a plugin package's main window under Horizon on a display of 1600 by 1000,
+/// for a person to look at: the package in the folder `DERETH_NAV_SHOT_PLUGIN` names (the
+/// Navigator's, before and after a change), the picture under `DERETH_TEST_PLUGIN_WINDOWS_DIR` as
+/// `<DERETH_NAV_SHOT_NAME>.png`. The fixture has no character in the world, so the package is
+/// loaded at any screen.
+/// Behaviour: none (an instrument: a picture for a person, nothing asserted)
+#[test]
+#[ignore = "instrument: set DERETH_NAV_SHOT_PLUGIN and DERETH_TEST_PLUGIN_WINDOWS_DIR; run with --ignored"]
+fn draw_a_plugin_packages_window_under_horizon_for_a_person_to_look_at() {
+    let Some(dir) = std::env::var_os("DERETH_NAV_SHOT_PLUGIN") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let mut files: std::collections::BTreeMap<String, Vec<u8>> = std::collections::BTreeMap::new();
+    for entry in std::fs::read_dir(&dir).expect("the package's folder") {
+        let path = entry.expect("an entry").path();
+        if path.is_file() {
+            let name = path
+                .file_name()
+                .expect("a name")
+                .to_string_lossy()
+                .into_owned();
+            files.insert(name, std::fs::read(&path).expect("the file"));
+        }
+    }
+    // Active at any screen: the fixture is before the world.
+    if let Some(m) = files.get_mut("plugin.toml") {
+        let text = String::from_utf8_lossy(m).into_owned();
+        let at = text.find("\n[").unwrap_or(text.len());
+        *m = format!(
+            "{}\ncontexts = [\"pregame\", \"world\"]\n{}",
+            &text[..at],
+            &text[at..]
+        )
+        .into_bytes();
+    }
+    let package = Package {
+        origin: "shot".into(),
+        files,
+    };
+    let config = HostConfig::new(
+        "dereth-desktop",
+        vec![
+            HostCapability::Core,
+            HostCapability::UiWindow,
+            HostCapability::UiHud,
+        ],
+    );
+    let mut host = PluginHost::new(
+        config,
+        Box::new(dereth_plugin_lua::LuauEngine::dereth()),
+        Box::new(StaticSource {
+            packages: vec![package],
+        }),
+        Box::new(MemoryStorage::default()),
+    );
+    host.load_all();
+    let _gpu = gpu_lock();
+    let mut app = gameplay_at(host, false, (1600, 1000));
+    choose(&mut app, Interface::Horizon);
+    for _ in 0..30 {
+        app.frame();
+    }
+    let name = std::env::var("DERETH_NAV_SHOT_NAME").unwrap_or_else(|_| String::from("navigator"));
+    capture(&mut app, &name);
 }

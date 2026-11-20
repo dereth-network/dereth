@@ -1190,6 +1190,7 @@ impl PluginUi {
                         window,
                         node: node_name,
                         row: i64::try_from(selected).unwrap_or(0) + 1,
+                        column: None,
                     });
                 }
                 if let (Some(page), Some(pl)) = (n.children.get(chosen), l.children.get(chosen)) {
@@ -1636,11 +1637,18 @@ impl PluginUi {
                 p.text_in(&style.colour(colour), cellr, Align::Left, &shown);
             }
             if over && ctx.input.clicked(&row) {
+                // The column under the pointer, the room before the next one its own.
+                let mx = ctx.input.mouse.0;
+                let column = (0..cells.len())
+                    .rev()
+                    .find(|&c| mx >= col_x(c))
+                    .map(|c| i64::try_from(c).unwrap_or(0) + 1);
                 self.inputs.push(Input::Select {
                     plugin: view.plugin.clone(),
                     window: view.window.clone(),
                     node: n.id.clone().unwrap_or_default(),
                     row: i64::try_from(i).unwrap_or(0) + 1,
+                    column,
                 });
             }
         }

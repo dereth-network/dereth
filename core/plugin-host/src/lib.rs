@@ -240,10 +240,12 @@ pub enum UiInput {
         node: String,
         value: Value,
     },
-    /// A list's selected rows, from 1.
+    /// A list's selected rows, from 1; and the column the pointer chose them in, from 1, when
+    /// it did.
     Select {
         node: String,
         rows: Vec<i64>,
+        column: Option<i64>,
     },
     Close,
     /// A resizable window given a new size, in character cells and lines.
@@ -1335,7 +1337,7 @@ impl PluginHost {
     /// The player's input on the plugin panel.
     fn panel_input(&mut self, input: UiInput) -> Result<(), String> {
         match input {
-            UiInput::Select { node, rows } if node == "plugins" => {
+            UiInput::Select { node, rows, .. } if node == "plugins" => {
                 let list = self.panel_rows();
                 self.panel_chosen = rows
                     .first()
@@ -1436,7 +1438,7 @@ impl PluginHost {
                 }
                 Event::new("ui.changed", base.with("id", node).with("value", value))
             }
-            UiInput::Select { node, rows } => {
+            UiInput::Select { node, rows, column } => {
                 let first = rows.first().copied().map_or(Value::Nil, Value::Int);
                 win.tree
                     .set_prop(&node, "selected", first)
@@ -1444,10 +1446,12 @@ impl PluginHost {
                 win.revision += 1;
                 Event::new(
                     "ui.selected",
-                    base.with("id", node).with(
-                        "rows",
-                        Value::List(rows.into_iter().map(Value::Int).collect()),
-                    ),
+                    base.with("id", node)
+                        .with(
+                            "rows",
+                            Value::List(rows.into_iter().map(Value::Int).collect()),
+                        )
+                        .with("column", column.map_or(Value::Nil, Value::Int)),
                 )
             }
             UiInput::Close => {

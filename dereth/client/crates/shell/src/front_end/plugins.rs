@@ -235,12 +235,14 @@ pub(super) fn deliver(host: &mut PluginHost, input: dereth_plugin_ui::Input) {
             window,
             node,
             row,
+            column,
         } => (
             plugin,
             window,
             UiInput::Select {
                 node,
                 rows: vec![row],
+                column,
             },
         ),
         Input::Close { plugin, window } => (plugin, window, UiInput::Close),

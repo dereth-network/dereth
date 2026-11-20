@@ -55,7 +55,7 @@ source.
 | [Looter](samples/looter.md) | loots a corpse or chest by a loot profile |
 | [Trackers](samples/trackers.md) | damage dealt and taken, kills, and the corpses around |
 | [ID Notices](samples/id-notices.md) | appraises what drops and reports what matters |
-| [Navigator](samples/navigator.md) | finds a place as you type, points the way and goes there, through portals and by recalls too |
+| [Navigator](samples/navigator.md) | finds a place as you type, marks it and goes there, through portals and by recalls too |
 | [Auto-login](samples/autologin.md) | enters the world as a chosen character |
 | [Follow](samples/follow.md) | one client leads, the player's other clients follow |
 | [Buffbot](samples/buffbot.md) | buffs players who ask by tell, and keeps its own buffs up |

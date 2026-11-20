@@ -61,6 +61,7 @@ fn select(run: &mut PluginRun, plugin: &str, node: &str, row: i64) {
             dereth_plugin_host::UiInput::Select {
                 node: node.into(),
                 rows: vec![row],
+                column: None,
             },
         )
         .unwrap_or_else(|e| panic!("{plugin} {node}: {e}"));
@@ -721,9 +722,11 @@ fn the_looter_waits_while_the_tank_runs() {
 const NAV: &str = "network.dereth.navigator";
 
 /// Typing in "Where to?" lists the places as typed (by name, by type, coordinates: a town the
-/// game's data names, here); a result
-/// picked shows where it is; Point puts the arrow on it and Go travels there, the status line
-/// telling the journey; saved places and spots clicked on the map have tabs of their own.
+/// game's data names, here), each with its type and where it is; the one picked is the
+/// destination, "Destination: Name (where)", marked in the world and never with an arrow, and Go
+/// travels there, the status line telling the journey. A place saved by the window's Name and Save
+/// is in the same list, under the Saved filter, with its delete mark; a spot right-clicked on the
+/// game's map is under the Map filter.
 fn the_navigator_finds_a_place_as_it_is_typed_and_goes_there() {
     use dereth_client_contract::panels::map::{MapButton, MapClick};
     let mut run = PluginRun::new();
@@ -740,29 +743,28 @@ fn the_navigator_finds_a_place_as_it_is_typed_and_goes_there() {
     run.set(NAV, "main.search", Value::from("holt"));
     let dump = run.ui_dump();
     assert!(
-        node_line(&dump, "results").contains(r#"["Holtburg","town","42.2N 33.8E","0 m"]"#),
-        "found as typed:\n{dump}"
+        node_line(&dump, "results").contains(r#"["Holtburg","town","42.2N 33.8E",""]"#),
+        "found as typed, nothing to delete:\n{dump}"
     );
     run.set(NAV, "main.search", Value::from("42.2N 33.9E"));
     let dump = run.ui_dump();
     assert!(
-        node_line(&dump, "results")
-            .contains(r#"[["42.2N 33.9E","coordinates","42.2N 33.9E","24 m"]]"#),
+        node_line(&dump, "results").contains(r#"[["42.2N 33.9E","coordinates","42.2N 33.9E",""]]"#),
         "coordinates typed:\n{dump}"
     );
     select(&mut run, NAV, "results", 1);
     assert!(
-        node_line(&run.ui_dump(), "to").contains("To: 42.2N 33.9E (42.2N 33.9E), 24 m E"),
+        node_line(&run.ui_dump(), "to").contains("Destination: 42.2N 33.9E (42.2N 33.9E)"),
         "{}",
         run.ui_dump()
     );
+    let overlays = run.overlays();
     assert!(
-        !run.overlays().contains("arrow network.dereth.navigator"),
-        "picked, not yet pointed at:\n{}",
-        run.overlays()
+        overlays.contains("world network.dereth.navigator")
+            && !overlays.contains("arrow network.dereth.navigator"),
+        "the destination marked in the world, with no arrow:\n{overlays}"
     );
     run.click(NAV, "main.go");
-    assert!(run.overlays().contains("arrow network.dereth.navigator"));
     run.advance(10.0);
     let (ns, ew, _) = run.player_place().expect("placed");
     assert!(
@@ -774,27 +776,31 @@ fn the_navigator_finds_a_place_as_it_is_typed_and_goes_there() {
         "{}",
         run.ui_dump()
     );
-    // Saved places: kept by the window's Save here, and listed on their page.
+    // A place saved by the window's Name and Save: in the list under the Saved filter, deletable.
+    run.set(NAV, "main.search", Value::from(""));
     run.set(NAV, "main.save_name", Value::from("Camp"));
     run.click(NAV, "main.save");
+    run.set(NAV, "main.filter", Value::from("Saved"));
     assert!(
-        node_line(&run.ui_dump(), "saved").contains("Camp"),
+        node_line(&run.ui_dump(), "results").contains(r#"["Camp","saved","42.2N 33.9E","X"]"#),
         "{}",
         run.ui_dump()
     );
-    // A spot clicked on the game's map: pointed at, and kept on its page.
+    // A spot right-clicked on the game's map: the destination, and under the Map filter.
     run.map_click(&MapClick {
         ns: 42.3,
         ew: 33.8,
-        button: MapButton::Left,
+        button: MapButton::Right,
         ctrl: false,
         shift: false,
         alt: false,
     });
+    run.set(NAV, "main.filter", Value::from("Map"));
+    let dump = run.ui_dump();
     assert!(
-        node_line(&run.ui_dump(), "clicks").contains("42.3N 33.8E"),
-        "{}",
-        run.ui_dump()
+        node_line(&dump, "results").contains(r#"["42.3N 33.8E","map","42.3N 33.8E","X"]"#)
+            && node_line(&dump, "to").contains("Destination: 42.3N 33.8E"),
+        "{dump}"
     );
     // Stop, by the window, as /nav stop.
     run.click(NAV, "main.stop");

@@ -83,7 +83,7 @@ are not changes.
 | `chat.line` | `line` (its place among this frame's lines, for `chat.hide`), `text`, `kind`, `type` (the line's type number, which `kind` names), `window`, `prefix` |
 | `ui.clicked` | `window`, `id` |
 | `ui.changed` | `window`, `id`, `value` |
-| `ui.selected` | `window`, `id`, `rows` (the selected rows, from 1) |
+| `ui.selected` | `window`, `id`, `rows` (the selected rows, from 1), `column` (the list's column the pointer chose the row in, from 1; nil for a tab, or a row the pad chose) |
 | `ui.closed` | `window`: the player closed it, from its close box or the plugin bar |
 | `ui.opened` | `window`: the player opened it from the plugin bar |
 | `ui.resized` | `window`, `width`, `height`: the player let go of a resizable window's edge, corner or grip at this size, in character cells and lines, within the bounds the window declares |

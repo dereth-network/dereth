@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Navigator: a simpler window, with one list of places and a Dungeon Map button.
 - Plugins: a journey a shut door stops now says which door and why.
 - Fixed the Navigator running into a closed door before opening it.
 

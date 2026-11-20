@@ -1680,9 +1680,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "plugins.samples.the-navigator-finds-a-place-as-it-is-typed-and-goes-there",
         says: "The Navigator sample's Where to? box lists places as they are typed (by name, by \
-               type, coordinates); a place picked shows where it is, Point puts the arrow on it and \
-               Go travels there, its status line telling the journey; saved places and spots \
-               clicked on the map have tabs of their own, and Stop stops.",
+               type, coordinates), each with its type and where it is; the one picked is the \
+               destination, named on the window's Destination line and marked in the world, and Go \
+               travels there, its status line telling the journey; a place saved by the window's \
+               Name and Save is in the same list under the Saved filter, a spot right-clicked on \
+               the map under the Map filter, and Stop stops.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-WINDOW-NAVIGATOR"),
@@ -1690,23 +1692,11 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.samples.the-navigator-finds-each-way-to-a-place-and-goes-the-one-picked",
-        says: "The Navigator sample asks the client for each way to its target (the best one, then \
-               without recalls, without portals and on foot, a way the same as one before said \
-               once), lists them with the legs of the one picked, and going the way picked tells \
-               each leg as it begins until it arrives.",
-        since: THIS_CLIENT,
-        divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-ROUTES"),
-        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
         says: "The Navigator sample finds places by a part of their name and by type, nearest \
                first: the towns of its list, the portals the client knows and the dungeons they \
-               lead into, and the lifestones and portals the character has seen; it points at the \
-               nearest of a type, and goes into a dungeon through its portal.",
+               lead into, and the lifestones and portals the character has seen; it makes the \
+               nearest of a type the destination, and goes into a dungeon through its portal.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-PLACES"),
@@ -1715,8 +1705,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload",
-        says: "The Navigator sample keeps its target, the spots clicked on the map and the coordinates seen in \
-               chat for the world, so a reload puts them back.",
+        says: "The Navigator sample keeps its destination, the spots picked on the map and the \
+               coordinates seen in chat for the world, so a reload puts them back.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-KEPT-STATE"),
@@ -1726,8 +1716,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon",
         says: "The Navigator sample keeps the places the player saves by name for the world, \
-               outdoors by their coordinates and in a dungeon by their cell, points at one from \
-               elsewhere, says where the character is, and forgets one when told.",
+               outdoors by their coordinates and in a dungeon by their cell, makes one the \
+               destination from elsewhere, says where the character is, and forgets one when told.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-SAVED"),
@@ -1736,9 +1726,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.samples.the-navigator-lists-coordinates-seen-in-chat-and-points-at-the-one-picked",
-        says: "The Navigator sample lists the coordinates heard in chat, newest first with who \
-               said them, and points its arrow at the one the player picks, or at the newest when \
-               told.",
+        says: "The Navigator sample lists the coordinates heard in chat in its one list, newest \
+               first with who said them, and makes the one the player picks the destination, or the \
+               newest when told.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-CHAT"),
@@ -1747,10 +1737,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.samples.the-navigator-maps-the-dungeon-floor-around-the-character",
-        says: "The Navigator sample, in a dungeon with the game's data, reads the dungeon's rooms \
-               a few at a time and draws on its Map page the outline of the floors at the \
-               character's level around it, and dim the levels just above and below, with the \
-               character's dot, within a canvas's limit.",
+        says: "The Navigator sample, in a dungeon with the game's data, opens its Dungeon Map in a \
+               window of its own, reads the dungeon's rooms a few at a time and draws the outline \
+               of the floors at the character's level around it, and dim the levels just above and \
+               below, with the character's dot, within a canvas's limit.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP"),
@@ -1759,8 +1749,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.samples.the-navigator-points-at-a-place-and-walks-there",
-        says: "The Navigator sample points at coordinates typed to it with an arrow, a world marker and a \
-               map marker, shows the distance and direction on its HUD, and walks there when \
+        says: "The Navigator sample makes coordinates typed to it the destination, with a world \
+               marker and a map marker and no arrow, names it on its window, and walks there when \
                asked.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
@@ -1769,14 +1759,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.samples.the-navigator-points-where-the-player-clicks-on-the-map",
-        says: "A left click on the game's map points the Navigator sample's arrow at the place \
-               clicked, with its markers there, as GoArrow's click on its map did; other buttons \
-               leave the target as it was.",
+        id: "plugins.samples.the-navigator-says-each-way-to-a-place-in-chat-and-goes-the-best",
+        says: "The Navigator sample asks the client for each way to its destination (the best one, \
+               then without recalls, without portals and on foot, a way the same as one before said \
+               once) and says each in chat with its legs; Go goes the best way, telling each leg as \
+               it begins until it arrives.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP-CLICK"),
-        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_points_where_the_player_clicks_on_the_map",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-ROUTES"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_says_each_way_to_a_place_in_chat_and_goes_the_best",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1793,12 +1784,23 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.samples.the-navigator-stops-going-to-a-target-it-was-pointed-away-from-or-cleared",
-        says: "Going to a target, the Navigator sample stops the character when the player points it \
-               somewhere else or clears it.",
+        says: "Going to a destination, the Navigator sample stops the character when the player \
+               gives it another or clears it.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-STOP-ON-RETARGET"),
         station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-navigator-takes-a-spot-picked-on-the-map-by-a-right-or-double-click",
+        says: "A spot on the game's map picked with a right click, or two left clicks there in a \
+               row, is the Navigator sample's destination, with its markers there; a single left \
+               click, the map's own for dragging it, leaves the destination as it was.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP-CLICK"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_takes_a_spot_picked_on_the_map_by_a_right_or_double_click",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1812,24 +1814,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.samples.the-navigators-arrow-follows-the-selected-object-and-its-hud-shows-where-the-character-is",
-        says: "The Navigator sample's HUD shows the character's own coordinates, and its arrow, \
-               put on the selected object, follows the object as it moves, the HUD's distance with \
-               it.",
+        id: "plugins.samples.the-navigators-buttons-are-up-only-when-they-can-act",
+        says: "The Navigator sample's Stop is up only while it is going somewhere and Clear only \
+               while it has a destination; Dungeon Map is up only indoors, and outdoors says so \
+               when the pointer rests on it.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-FOLLOW"),
-        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-BUTTONS"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_buttons_are_up_only_when_they_can_act",
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.samples.the-navigators-hud-is-up-while-it-has-a-target",
-        says: "The Navigator sample's HUD comes up when the player points it at something, with its window \
-               open or not, and goes when the target is cleared with the window closed.",
+        id: "plugins.samples.the-navigators-destination-follows-the-selected-object-and-the-window-shows-where-the-character-is",
+        says: "The Navigator sample's window shows where the character is, by its Name box; the \
+               selected object made the destination is marked in the world, the marker following \
+               the object as it moves, and no arrow is drawn.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-HUD-WITH-TARGET"),
-        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_hud_is_up_while_it_has_a_target",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-FOLLOW"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_destination_follows_the_selected_object_and_the_window_shows_where_the_character_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-navigators-one-list-holds-saved-chat-and-map-places-under-its-filter-and-deletes-them",
+        says: "The Navigator sample's one list, seven places tall, holds the places found, the \
+               player's saved places, the coordinates seen in chat and the spots picked on the map, \
+               its Filter showing one of those alone; a saved place, a line of chat and a spot on \
+               the map carry a mark in the list's narrow last column, a click on which deletes it, \
+               and a click elsewhere on the row picks it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-ONE-LIST"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them",
         tier: Tier::Cpu,
     },
     behaviour! {

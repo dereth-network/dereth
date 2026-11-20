@@ -73,15 +73,15 @@ The Tank asks a [Buffbot](guide/samples/buffbot.md) for buffs too, which VTank l
 
 | feature | | in Dereth |
 |---|---|---|
-| The arrow on a place or an object, with its distance and direction | done | [Navigator](guide/samples/navigator.md) |
+| The arrow on a place or an object, with its distance and direction | done | [Navigator](guide/samples/navigator.md): the destination marked in the world and on the map, following an object, without an arrow |
 | The character's coordinates (its cell in a dungeon) | done | [Navigator](guide/samples/navigator.md) |
 | Places searched by name and type: towns, dungeons, portals, lifestones | done | [Navigator](guide/samples/navigator.md): the towns, landmarks and houses the game's data names, the portals, lifestones, shops and people the client has seen or the server publishes, and the places portals send to, in place of GoArrow's database |
-| The route finder: portals, the character's recalls and walking | done | [Navigator](guide/samples/navigator.md), Ways |
-| Saved places | done | [Navigator](guide/samples/navigator.md), Saved |
-| Coordinates seen in chat | done | [Navigator](guide/samples/navigator.md), From chat |
-| A click on the map points at the spot | done | [Navigator](guide/samples/navigator.md), Map clicks |
+| The route finder: portals, the character's recalls and walking | done | [Navigator](guide/samples/navigator.md), `/nav routes` |
+| Saved places | done | [Navigator](guide/samples/navigator.md), the Saved filter |
+| Coordinates seen in chat | done | [Navigator](guide/samples/navigator.md), the Chat filter |
+| A click on the map points at the spot | done | [Navigator](guide/samples/navigator.md): a right or double click, the Map filter |
 | The target marked on the map | done | [Navigator](guide/samples/navigator.md) |
-| Dungeon maps | done | [Navigator](guide/samples/navigator.md), Dungeon |
+| Dungeon maps | done | [Navigator](guide/samples/navigator.md), Dungeon Map |
 
 The Navigator also goes there ([Navigator](guide/samples/navigator.md), Go): the journey walked,
 through portals and by the character's recalls, where GoArrow only points.

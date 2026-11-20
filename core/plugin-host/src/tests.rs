@@ -1076,6 +1076,7 @@ fn choose(h: &mut Harness, row: i64) {
             UiInput::Select {
                 node: "plugins".into(),
                 rows: vec![row],
+                column: None,
             },
         )
         .expect("chosen");
@@ -1550,6 +1551,7 @@ fn a_faulted_plugins_error_is_shown_in_the_panel_as_its_own_words() {
             UiInput::Select {
                 node: "plugins".into(),
                 rows: vec![1],
+                column: None,
             },
         )
         .expect("select");
@@ -2456,6 +2458,7 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it_and_the_host_remembers
             UiInput::Select {
                 node: "plugins".into(),
                 rows: vec![3],
+                column: None,
             },
         )
         .expect("chosen");

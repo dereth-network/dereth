@@ -13,7 +13,7 @@ use dereth_headless::{parse, run};
 /// way north, where the game's data puts Holtburg (the middle of the town's buildings).
 ///
 /// Falsified by a client that carries journeys out only in a scripted run: the journey is never
-/// begun, and the Navigator says nothing after pointing.
+/// begun, and the Navigator says nothing after naming the destination.
 #[test]
 fn the_navigators_go_walks_the_character_to_its_target_in_a_players_own_session() {
     dereth_client_sdk::dat::testing::require_dats();
@@ -48,7 +48,7 @@ fn the_navigators_go_walks_the_character_to_its_target_in_a_players_own_session(
     assert_eq!(
         said,
         [
-            "Pointing at Holtburg (42.4N 33.8E).",
+            "Destination: Holtburg (42.4N 33.8E).",
             "Going by Holtburg: walk (about 12 s).",
             "Arrived at Holtburg.",
         ],

@@ -219,16 +219,13 @@ fn the_navigator_maps_the_dungeon_floor_around_the_character() {
         run.moves()
     );
     run.type_line("/nav");
-    run.host()
-        .ui_input(
-            ID,
-            "main",
-            dereth_plugin_host::UiInput::Select {
-                node: "pages".into(),
-                rows: vec![5],
-            },
-        )
-        .expect("the Dungeon page");
+    run.advance(0.5);
+    // Indoors, the Dungeon Map button is up, and opens the map in a window of its own.
+    run.click(ID, "main.dungeon");
+    assert!(
+        run.host().window(ID, "dungeon").is_some_and(|w| w.open),
+        "the dungeon map's window"
+    );
     run.advance(20.0);
     let dump = run.ui_dump();
     let canvas = dump

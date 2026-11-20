@@ -3,7 +3,7 @@ name = "Navigator"
 version = "0.5.0"
 api = "0.7"
 entry = "main.lua"
-description = "Points the way, in the manner of GoArrow: one Where to? search for the places this world has shown you by name and type (dungeons, where portals send, portals, lifestones, shops, people, houses, recalls, places of your own, coordinates), Go to travel there through portals and recalls or on foot, Point for the arrow alone; an arrow HUD with your coordinates and the way; saved places, coordinates seen in chat and spots clicked on the map; the ways to a place, a map of the dungeon you are in with the way and the creatures on it, and VTank routes walked round what stands in the way."
+description = "Navigator helps you get from point A to point B; it is an autonomous navigation plugin in the vein of GoArrow for Decal."
 authors = ["Dereth"]
 license = "MIT"
 
@@ -13,4 +13,4 @@ license = "MIT"
 
 [capabilities]
 required = ["ui.window"]
-optional = ["ui.hud", "overlay.arrow", "overlay.world", "overlay.map", "map.clicks", "nav.moveto", "nav.journey", "nav.path", "game.data"]
+optional = ["overlay.world", "overlay.map", "map.clicks", "nav.moveto", "nav.journey", "nav.path", "game.data"]
