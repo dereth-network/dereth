@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: Launch-era doorways show the room inside instead of solid blue.
 - Navigator: a simpler window, with one list of places and a Dungeon Map button.
 - Fixed the Navigator walking into portals on its way that it wasn't taking.
 - Plugins: a journey a shut door stops now says which door and why.

@@ -1,9 +1,9 @@
 //! Behaviour: none (experimental)
 //!
-//! The remaster indoors on the oldest data: from a room of a dungeon, the doorway ahead shows the
-//! rooms beyond it, at the depth Retail Look draws them, before the body walks through. The
-//! October 1999 rooms carry an opaque black surface in their openings, which a room's walls
-//! leave out.
+//! The remaster on the oldest data: from a room of a dungeon, the doorway ahead shows the rooms
+//! beyond it, at the depth Retail Look draws them, before the body walks through; and from
+//! outdoors, a building's doorway shows its rooms. The October 1999 rooms and building shells
+//! carry an opaque untextured surface in their openings, which neither draws.
 //!
 //! Fixture: the `portal.dat` and `cell.dat` of the October 1999 capture (the `1999-10-09`
 //! folder under `DERETH_TEST_DAT_CAPTURES_DIR`) with the retail dats (`DERETH_TEST_DAT_DIR`)
@@ -88,6 +88,56 @@ fn the_rooms_beyond_a_doorway_draw_before_the_body_walks_through() {
     assert!(
         share < 0.01,
         "the remaster hides {:.1}% of the {beyond} pixels beyond the doorway",
+        share * 100.0
+    );
+}
+
+/// The camera outdoors before the training hall's doorway (block `0xC888`), looking south through
+/// the doorway into the hall, where a player's report put it.
+fn before_the_training_hall() -> Station {
+    Station {
+        name: "training-hall-doorway-1999",
+        why: "a building's doorway of the October 1999 world, seen from outdoors",
+        place: Place::Free {
+            block: 0xC888,
+            x: 60.05,
+            y: 143.82,
+            eye: 1.9,
+            yaw: -3.161_148_5,
+            pitch: 0.0,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 3,
+    }
+}
+
+/// From outdoors, the training hall's doorway shows the hall's rooms where Retail Look draws them:
+/// the shell's own opening, an untextured pane, is not drawn over them. Under 1% of the pixels
+/// Retail Look draws are covered by something the remaster draws nearer.
+#[test]
+fn a_buildings_doorway_shows_its_rooms_from_outdoors() {
+    let _gpu = crate::common::gpu_lock();
+    let store = october_1999();
+    let station = before_the_training_hall();
+    let size = (960, 540);
+    let retail = run(&store, &station, Draw::Retail, size);
+    let remaster = run(&store, &station, Draw::Pixel, size);
+    let mut drawn = 0usize;
+    let mut covered = 0usize;
+    for (r, m) in retail.depth.iter().zip(&remaster.remaster_depth) {
+        if *r < 1.0 {
+            drawn += 1;
+            if *m < r - 0.002 {
+                covered += 1;
+            }
+        }
+    }
+    #[allow(clippy::cast_precision_loss)] // pixel counts of one frame
+    let share = covered as f64 / drawn.max(1) as f64;
+    assert!(
+        share < 0.01,
+        "the remaster covers {covered} of the {drawn} pixels Retail Look draws ({:.1}%)",
         share * 100.0
     );
 }

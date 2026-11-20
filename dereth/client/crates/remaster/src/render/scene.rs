@@ -402,11 +402,11 @@ pub struct GpuScene {
     pub turn: u8,
 }
 
-/// Whether an item's subset is drawn: a room's walls leave out every surface that draws no
-/// picture, as retail draws a room. Some rooms' openings carry an opaque filler of such a surface,
-/// which would hide the room beyond.
+/// Whether an item's subset is drawn: a room's walls and a building's shell leave out every
+/// surface that draws no picture, as retail draws them. Some rooms' and shells' openings carry an
+/// opaque filler of such a surface, which would hide what lies beyond.
 const fn subset_drawn(m: &MaterialGpu, flags: u32) -> bool {
-    flags & ITEM_ROOM == 0 || !m.untextured
+    flags & (ITEM_ROOM | ITEM_BUILDING) == 0 || !m.untextured
 }
 
 /// The item's material, flags and bucket for a subset with material `m`.
