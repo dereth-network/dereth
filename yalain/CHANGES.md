@@ -6,6 +6,13 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- World: heroes regain focus while logged out.
+- World: lifestones stand where the wiki and players' maps of the time show them.
+- World: any creature can leave a lodestone or a Tessera, by your level.
+- World: joining a kingdom needs level 10, and the war and peace shrines work.
+- World: monarchs can bind their allegiance's recall at the halls' binding stones.
+- World: treasure above level 50 hits and protects as retail's did; enchanted gear is worth more.
+- World: keyed dungeon caches hold treasure, and now and then a rare.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.
