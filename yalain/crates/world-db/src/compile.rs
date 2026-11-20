@@ -958,7 +958,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     placed: prov_text(&o.prov),
                     destination,
                     facts: {
-                        let f = facts(o.template, &entity, &ids);
+                        let f = facts(o.template, &entity, &ids).named_by_qualities(
+                            qualities(yalain_content::qualities_id(o.template)).as_ref(),
+                        );
                         let shown = examined.get(&o.template);
                         let text = |r: &StrRef| (r.string, r.table);
                         yalain_content::Facts {
@@ -1623,7 +1625,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Examination(r) => {
-                cx.template(l, "template", r.template);
+                if cx.template(l, "template", r.template) {
+                    t.items
+                        .names
+                        .insert(r.template, (pair(r.name), r.description.map(pair)));
+                }
             }
             Row::StartItem(r) => {
                 if cx.template(l, "template", r.template) {

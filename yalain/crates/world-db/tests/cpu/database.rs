@@ -116,6 +116,8 @@ struct Fake {
     setup_pay: yalain_content::quests::CompletionPay,
     /// What the quest's setup says fails it.
     fails: FailsOn,
+    /// The templates' qualities records, by record.
+    qualities: HashMap<u32, Qualities>,
 }
 
 impl Fake {
@@ -206,6 +208,7 @@ impl Fake {
             setup_xp: 0,
             setup_pay: yalain_content::quests::CompletionPay::default(),
             fails: FailsOn::default(),
+            qualities: HashMap::new(),
         }
     }
 }
@@ -215,8 +218,8 @@ impl Install for Fake {
         self.entities.get(&id).cloned()
     }
 
-    fn qualities(&self, _id: u32) -> Option<Qualities> {
-        None
+    fn qualities(&self, id: u32) -> Option<Qualities> {
+        self.qualities.get(&id).cloned()
     }
 
     fn fact_ids(&self) -> FactIds {
@@ -3302,6 +3305,87 @@ fn an_effect_rule_row_may_name_what_an_immunity_leaves_as_it_ends() {
         );
         assert!(read(&files).is_err(), "{then}");
     }
+}
+
+/// A placed object whose template's entities name nothing is examined by the name and page its
+/// template's qualities record holds; an examination row fills only what neither names, and its
+/// name and page are the items' of its template too.
+/// Behaviour: server.examination.qualities-names
+#[test]
+fn a_placed_object_is_examined_by_the_name_and_page_its_qualities_record_holds() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/examinations.toml".into(),
+        "[[examination]]\ntemplate = 0x4700115B\nname = { table = 0x25001AAE, string = 0xA8607CEC }\n\
+         description = { table = 0x25001AAE, string = 0x6C459364 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let text = |token: u32, table: u32| StringInfo {
+        token,
+        table: DataId(table),
+        ..StringInfo::default()
+    };
+    let mut install = Fake::new();
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    let examined = |t: &yalain_world_db::compile::Tables| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(0x4077_B700_0000_0001))
+            .map(|o| (o.facts.name, o.facts.description))
+            .unwrap()
+    };
+    assert_eq!(
+        examined(&t),
+        (
+            Some((0xA860_7CEC, 0x2500_1AAE)),
+            Some((0x6C45_9364, 0x2500_1AAE))
+        ),
+        "the row's, the install naming nothing"
+    );
+    assert_eq!(
+        t.items.names.get(&0x4700_115B),
+        Some(&((0xA860_7CEC, 0x2500_1AAE), Some((0x6C45_9364, 0x2500_1AAE)))),
+        "the items' of the template too"
+    );
+    // Its qualities record names it and holds its page: those stand.
+    install.qualities.insert(
+        yalain_content::qualities_id(0x4700_115B),
+        Qualities {
+            string_infos: vec![
+                (0x10B, text(0xA860_7CEC, 0x2500_19D9)),
+                (0x102, text(0x6C45_9364, 0x2500_19D9)),
+            ],
+            ..Qualities::default()
+        },
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        examined(&t),
+        (
+            Some((0xA860_7CEC, 0x2500_19D9)),
+            Some((0x6C45_9364, 0x2500_19D9))
+        ),
+        "the qualities record's"
+    );
+    // A page alone in the record: the row names it, the record's page stands.
+    install.qualities.insert(
+        yalain_content::qualities_id(0x4700_115B),
+        Qualities {
+            string_infos: vec![(0x102, text(0x6C45_9364, 0x2500_19D9))],
+            ..Qualities::default()
+        },
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        examined(&t),
+        (
+            Some((0xA860_7CEC, 0x2500_1AAE)),
+            Some((0x6C45_9364, 0x2500_19D9))
+        ),
+        "the row's name, the record's page"
+    );
 }
 
 /// An examination row gives the placed objects of its template the name and page examining them

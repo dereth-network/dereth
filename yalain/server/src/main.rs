@@ -2162,6 +2162,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
         catalog.bodies = data::bodies(portal, &catalog);
         catalog.implements = data::implements(portal, &catalog)?;
+        // What items of templates that name nothing are called, as the world's rows say.
+        catalog.name_unnamed(&item_rows.names);
         data::resolve_ingredient_classes(portal, &mut craft, &catalog)?;
         // The effects workshops put on players nearby and the recipes need, read with the rest.
         states.extend(craft.recipes.values().filter_map(|r| r.required_effect));

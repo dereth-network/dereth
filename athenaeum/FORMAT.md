@@ -1339,13 +1339,14 @@ What an item or a person of a template shows when used, where its template names
 #### `[[examination]]`
 
 What examining an object of a template says, where its template names nothing (a name and a page its
-script gives it from a table of its own). One row per template.
+script gives it from a table of its own): a placed object's, and an item's. A name or page the
+template holds stands. One row per template.
 
 | field | | meaning |
 |---|---|---|
 | `template` | required | the template |
 | `name` | required | its name, a string reference |
-| `description` | | its page, a string reference |
+| `description` | | its page, a string reference; the install's page when left out |
 | `prov` | required | where it came from |
 
 #### `[[start_item]]`

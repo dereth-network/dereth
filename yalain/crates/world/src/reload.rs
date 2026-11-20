@@ -375,6 +375,8 @@ impl<S: Store> Server<S> {
         catalog.icon_tables.extend(t.catalog.icon_tables);
         catalog.bodies.extend(t.catalog.bodies);
         catalog.implements.extend(t.catalog.implements);
+        // What items of templates that name nothing are called, as the world's rows now say.
+        catalog.name_unnamed(&t.items.names);
         let changed = catalog != self.catalog;
         r.note(table::TEMPLATES, changed, true);
         self.catalog = catalog;

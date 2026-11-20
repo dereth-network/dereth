@@ -402,6 +402,26 @@ impl Catalog {
         self.templates.insert(t.id, t);
     }
 
+    /// Give the templates that name nothing the names and pages a world's rows give them, the
+    /// properties an item is examined by and the facts anything else is: what a template names
+    /// itself stands.
+    pub fn name_unnamed(&mut self, names: &BTreeMap<u32, item_rows::NameAndPage>) {
+        for (id, (name, page)) in names {
+            let Some(t) = self.templates.get_mut(id) else {
+                continue;
+            };
+            for (key, text) in [("Name", Some(*name)), ("Description", *page)] {
+                if let Some((string, table)) = text {
+                    t.props
+                        .values
+                        .entry(key.to_string())
+                        .or_insert(Prop::Str(string, table));
+                }
+            }
+            t.facts = t.facts.named_by(&t.props);
+        }
+    }
+
     /// The name of a generator profile's value.
     #[must_use]
     pub fn profile_name(&self, value: u32) -> Option<&str> {
@@ -680,16 +700,23 @@ pub fn facts(template: u32, entity: &dyn Fn(u32) -> Option<Entity>, ids: &FactId
 }
 
 impl Facts {
-    /// With the name its properties hold where its chain of entities says none: some item templates
-    /// keep theirs only in their qualities record.
+    /// With the name and page its properties hold where its chain of entities says none: some
+    /// templates keep theirs only in their qualities record.
     #[must_use]
     pub fn named_by(mut self, props: &Props) -> Self {
-        if self.name.is_none() {
-            if let Some(Prop::Str(string, table)) = props.get("Name") {
-                self.name = Some((*string, *table));
-            }
-        }
+        let text = |name: &str| match props.get(name) {
+            Some(Prop::Str(string, table)) => Some((*string, *table)),
+            _ => None,
+        };
+        self.name = self.name.or_else(|| text("Name"));
+        self.description = self.description.or_else(|| text("Description"));
         self
+    }
+
+    /// With the name and page its qualities record holds where its chain of entities says none.
+    #[must_use]
+    pub fn named_by_qualities(self, q: Option<&Qualities>) -> Self {
+        self.named_by(&Props::default().with_places_of(q))
     }
 }
 

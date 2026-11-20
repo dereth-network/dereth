@@ -88,6 +88,9 @@ pub enum On {
     Class(u32),
 }
 
+/// A name and a page, string references (string id, table).
+pub type NameAndPage = ((u32, u32), Option<(u32, u32)>);
+
 /// The world database's item rows.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ItemRows {
@@ -99,6 +102,9 @@ pub struct ItemRows {
     pub start_items: BTreeMap<u32, u32>,
     /// How long items of some templates last from when each is made, in seconds, by template.
     pub lives: BTreeMap<u32, u32>,
+    /// What objects of templates that name nothing are called, by template: a name and a page,
+    /// string references (string id, table).
+    pub names: BTreeMap<u32, NameAndPage>,
     /// What items used on others make, in the rows' order.
     pub interactions: Vec<Interaction>,
     /// The states objects of some templates hold, in the rows' order.

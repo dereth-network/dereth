@@ -346,3 +346,84 @@ fn a_reload_that_changes_the_conflict_where_a_player_stands_tells_it_at_once() {
     h.run(5);
     assert!(statuses(&h, b, from).is_empty());
 }
+
+/// A reload whose rows name the items of a template that names nothing has them examined by that
+/// name and page; a template that names itself keeps its own.
+/// Behaviour: server.examination.template-text-rows-items
+#[test]
+fn a_reload_names_the_items_of_a_template_naming_nothing_by_its_examination_row() {
+    use auberean_script::native_object::NativeObject;
+    use yalain_content::{Prop, Props};
+    const PIECE: u32 = 0x4700_0608;
+    const NAMED: u32 = 0x4700_0609;
+    const ROW: (u32, u32) = (0xA860_7CEC, 0x2500_1995);
+    const PAGE: (u32, u32) = (0x6C45_9364, 0x2500_1995);
+    const OWN: (u32, u32) = (0xA860_7CEC, 0x2500_7001);
+    let (mut h, b, me) = world();
+    let mut own = Props::default();
+    own.set("Name", Prop::Str(OWN.0, OWN.1));
+    h.server
+        .catalog
+        .insert(test_template(PIECE, 0x0F3F, Props::default()));
+    h.server.catalog.insert(test_template(NAMED, 0x0F3F, own));
+    // Examining a held item: the profile's bytes.
+    let examined = |h: &mut Harness, item: u64| -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for w in [0x4000_0002u32, 0] {
+            bytes.extend(w.to_le_bytes());
+        }
+        bytes.extend(item.to_le_bytes());
+        bytes.extend(0x3FFu32.to_le_bytes());
+        let mut g = Builder::new();
+        g.native(154, NativeObject::Packed { ty: 154, bytes });
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                yalain_world::requests::function::EXAMINE,
+                &[Arg::Object(g.graph())],
+            ),
+        );
+        h.run(10);
+        h.world_messages(b, from)
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::PlayerCall(c)
+                    if c.function.0 == yalain_world::profile::EXAMINATION_PROFILE =>
+                {
+                    let v = calls::values(&c.args?.0).ok()?;
+                    match v[0].root() {
+                        Some(Node::Native { bytes, .. }) => Some(bytes.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .expect("a profile")
+    };
+    let shows = |bytes: &[u8], (string, table): (u32, u32)| {
+        let mut want = string.to_le_bytes().to_vec();
+        want.extend(table.to_le_bytes());
+        bytes.windows(8).any(|w| w == want)
+    };
+    let piece = h.arm(b, me, PIECE);
+    assert!(!shows(&examined(&mut h, piece), ROW), "nameless before");
+
+    let mut t = tables_of(&h);
+    t.items.names.insert(PIECE, (ROW, Some(PAGE)));
+    t.items.names.insert(NAMED, (ROW, None));
+    let r = reload(&mut h, t);
+    assert!(r.applied.contains(&table::ITEMS), "{:?}", r.applied);
+    let seen = examined(&mut h, piece);
+    assert!(
+        shows(&seen, ROW) && shows(&seen, PAGE),
+        "the row's name and page"
+    );
+    let named = h.arm(b, me, NAMED);
+    let seen = examined(&mut h, named);
+    assert!(
+        shows(&seen, OWN) && !shows(&seen, ROW),
+        "its template's own name"
+    );
+}

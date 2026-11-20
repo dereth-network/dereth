@@ -5935,6 +5935,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.qualities-names",
+        says: "A placed object whose template's entities name nothing is examined by the name and page its \
+               template's qualities record holds; an examination row gives only what neither names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINATION-QUALITIES"),
+        station: "yalain-world-db::cpu::database::a_placed_object_is_examined_by_the_name_and_page_its_qualities_record_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.skills-needed-listed",
         says: "An item that takes a skill or Arcane Lore to use lists them under its requirements: \
                each skill by name, then the Arcane Lore needed.",
@@ -5959,6 +5968,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINATION-ROWS"),
         station: "yalain-world-db::cpu::database::an_examination_row_names_the_objects_of_a_template_that_names_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.template-text-rows-items",
+        says: "A world's examination row names the items of a template whose own data names nothing as well, \
+               taken up on a reload; a template that names itself keeps its own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINATION-ITEM-ROWS"),
+        station: "yalain-testkit::cpu::operator::reload::a_reload_names_the_items_of_a_template_naming_nothing_by_its_examination_row",
         tier: Tier::Cpu,
     },
     behaviour! {
