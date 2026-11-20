@@ -406,12 +406,15 @@ pub const VICTORY: u32 = 0x4100_006F;
 pub const VICTORY_CHANCE: f32 = 0.5;
 
 /// A creature has killed a player: about half the time, when its template sets no AI subclass and
-/// its behavior table names one, it plays its victory for all who see it. It keeps its fighting
-/// mode, doing nothing else, until its look's clip for the victory ends, and only then turns to
-/// another or gives up (2017: its peace came within 0.1 s of the clip's end in 20 of 20, 1.3 s
-/// after a Burun Scout's victory began, 4.2 s after a Shreth's, at once after a Grutt's, whose look
-/// has no clip for it). A pet plays nothing.
-pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
+/// its behavior table names one, it plays its victory for all who see it, as the attack it killed
+/// with ends (at once when that has ended: 2017, a creature's victory began a median 0.06 s after
+/// its killing attack's cycle ended, 15 of its melee kills within 0.16 s of it, a median 0.6 s
+/// after the death). It keeps its fighting mode, doing nothing else, until its look's clip for the
+/// victory ends, and only then turns to another or gives up (2017: its peace came within 0.1 s of
+/// the clip's end in 20 of 20, 1.3 s after a Burun Scout's victory began, 4.2 s after a Shreth's,
+/// at once after a Grutt's, whose look has no clip for it). A pet plays nothing.
+pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
+    let now = clock.local.0;
     let Some(c) = s
         .things
         .get(id)
@@ -427,8 +430,34 @@ pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f
         return;
     }
     let lasts = crate::timings::thing_length(s, id, VICTORY).unwrap_or(0.0);
+    // Its swing's cycle ends where its next attack less the pause after a cycle is due.
+    let starts = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map_or(now, |c| {
+            (c.next_attack - crate::timings::THING_PAUSE).max(now)
+        });
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-        c.victory_until = Some(now + lasts);
+        c.victory_until = Some(starts + lasts);
+    }
+    if starts > now {
+        s.after(clock, starts - now, crate::Timer::Victory { id });
+        return;
+    }
+    victory_plays(s, net, id);
+}
+
+/// A creature's victory plays, for all who see it, when it is still alive and holds its victory.
+pub fn victory_plays<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    if !s
+        .things
+        .get(id)
+        .filter(|t| t.alive())
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.victory_until.is_some())
+    {
+        return;
     }
     s.next_context = s.next_context.wrapping_add(1);
     let m =

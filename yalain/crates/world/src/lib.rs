@@ -649,6 +649,8 @@ pub enum Timer {
         floor: f32,
         since: f64,
     },
+    /// A creature's victory over a player it killed begins, its killing attack over.
+    Victory { id: u64 },
     /// A thing leaves the world.
     Vanish { id: u64 },
     /// A creature's missile arrives.
@@ -1118,6 +1120,7 @@ impl<S: Store> Server<S> {
                     after,
                 } => death::corpse_appears(self, net, creature, killer, (pose, after), clock),
                 Timer::Vanish { id } => death::vanish(self, net, id),
+                Timer::Victory { id } => ai::victory_plays(self, net, id),
                 Timer::DeadFalls {
                     id,
                     from,

@@ -4065,6 +4065,93 @@ fn a_creature_takes_its_peace_when_its_victory_ends() {
     }
 }
 
+/// A creature's victory begins as the attack it killed with ends, not at the death: with its swing
+/// 0.8 s from its end as the player dies, the victory is told 0.8 s on, and its peace comes as the
+/// victory's clip (a Burun's 1.2 s) ends after that.
+/// Behaviour: server.creatures.victory-over-a-dead-player
+#[test]
+fn a_creatures_victory_begins_as_its_killing_swing_ends() {
+    use yalain_testkit::STEP;
+    use yalain_world::player::quality::HEALTH;
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.timings = Some(yalain_world::timings::Timings::new(
+        p.dat.clone(),
+        p.ctx.clone(),
+    ));
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(20);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE)
+        .map(|t| t.id)
+        .expect("the camp's beetle");
+    let look = p.described(BURUN).expect("a creature").description.look;
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.description.look = look;
+    t.drawn_as = None;
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let peace = |h: &yalain_testkit::Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, auberean_protocol::ServerMessage::DoMode(e)
+                if e.sender.id == beetle && e.action.0 == 0x4000_0001)
+        })
+    };
+    let mut seen = 0;
+    for _ in 0..40 {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        let health = yalain_world::quals::int(&p.qualities, HEALTH).expect("its health");
+        p.dying = None;
+        yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
+        let now = h.now.0;
+        let c = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+            .expect("the beetle");
+        c.mode = yalain_world::things::Mode::Chasing;
+        c.target = Some(me);
+        c.next_attack = now + 0.8 + yalain_world::timings::THING_PAUSE;
+        let from = h.bots[b].inbox.len();
+        let clock = h.clock();
+        yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+        let (mut told, mut calm) = (None, None);
+        for step in 1..=200 {
+            h.step();
+            let at = f64::from(step) * STEP;
+            if told.is_none() && victories(&h, b, from, beetle) > 0 {
+                told = Some(at);
+            }
+            if peace(&h, from) {
+                calm = Some(at);
+                break;
+            }
+        }
+        if let Some(told) = told {
+            seen += 1;
+            assert!(
+                (0.8..=0.8 + 3.0 * STEP).contains(&told),
+                "the victory at {told} s"
+            );
+            let calm = calm.expect("its peace");
+            assert!(
+                (0.8 + 1.208..=0.8 + 1.208 + yalain_world::spawn::STEP_SECONDS + 3.0 * STEP)
+                    .contains(&calm),
+                "its peace at {calm} s"
+            );
+        }
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        yalain_world::quals::set_int(&mut p.qualities, HEALTH, health);
+        h.run(100);
+    }
+    assert!(seen > 0, "a victory played");
+}
+
 /// The vitae-healing skills read as the data defines them: Ease Memories and Calm Vitae take other
 /// players alone, do no damage and are not marked harmful, so they are helpful skills; each puts
 /// on its own effect, costs 650 and 520 vigor and recovers in 10 s, within 40 m.

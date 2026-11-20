@@ -4122,8 +4122,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.creatures.victory-over-a-dead-player",
         says: "A creature that kills a player plays its victory over it, for all who see the \
                creature, about half the time when its template sets no AI subclass and its \
-               behavior table names one, whether or not its look has a clip for it; a creature with \
-               a subclass, or whose table has none, never does.",
+               behavior table names one, whether or not its look has a clip for it, beginning as \
+               its killing attack ends; a creature with a subclass, or whose table has none, \
+               never does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY"),
         station: "yalain-testkit::dat::effects::a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time",
