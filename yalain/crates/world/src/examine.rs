@@ -43,7 +43,7 @@ pub struct Vitals {
     pub max_health: u32,
     pub vigor: u32,
     pub max_vigor: u32,
-    /// Player-killer damage taken, to health and to vigor.
+    /// What other players took of its health and of its vigor, as told: less than nothing.
     pub pk_damage: u32,
     pub pk_vigor_loss: u32,
 }

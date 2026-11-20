@@ -392,6 +392,49 @@ fn a_fellows_changed_health_goes_to_every_fellow_and_nothing_unchanged_does() {
     let _ = fb;
 }
 
+/// A fellow's health update carries what other players took of its health, less than nothing; a
+/// change of that alone is sent too.
+/// Behaviour: server.fellowship.updates
+#[test]
+fn a_fellows_health_update_carries_what_other_players_took() {
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    let t = h.now.0;
+    h.run_to(yalain_net::LocalTime(t + 16.0));
+    let health_told = |h: &mut Harness, pk: i32, health: i32| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == bid)
+            .expect("in the world");
+        {
+            use yalain_world::regen::rate::{COMBAT_HEALTH, PEACE_HEALTH};
+            yalain_world::quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
+            yalain_world::quals::set_float(&mut p.qualities, COMBAT_HEALTH, 0.0);
+        }
+        yalain_world::quals::set_int(&mut p.qualities, 258, health);
+        p.pk_lost = [pk, 0];
+        let from = h.bots[a].inbox.len();
+        let t = h.now.0;
+        h.run_to(yalain_net::LocalTime(t + 7.6));
+        h.run(5);
+        h.calls(a, from)
+            .into_iter()
+            .find(|(f, _)| *f == function::HEALTH)
+            .map(|(_, v)| v)
+    };
+    let v = health_told(&mut h, 30, 60).expect("health sent");
+    assert_eq!(
+        v[..2],
+        [Value::Int((-30i32).cast_unsigned()), Value::Int(60)],
+        "{v:?}"
+    );
+    let v = health_told(&mut h, 0, 60).expect("its part alone changed");
+    assert_eq!(v[..2], [Value::Int(0), Value::Int(60)], "{v:?}");
+}
+
 /// A fellow's changes seen at one look go out in 2017's order: greatest health, health, greatest
 /// vigor, vigor, then its place.
 /// Behaviour: server.fellowship.updates-in-order

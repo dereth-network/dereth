@@ -246,9 +246,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
             if c >= m || (cur == quality::HEALTH && c <= 0) {
                 continue;
             }
+            // At full power, what other players took left as it is ([`crate::pvp`]).
             let g = gain(m, if active { combat } else { peace }, dt, fills_in);
-            // What other players took comes back at a third ([`crate::pvp`]).
-            let g = crate::pvp::healed(p, cur, (c, m), g);
             if g <= 0 {
                 continue;
             }

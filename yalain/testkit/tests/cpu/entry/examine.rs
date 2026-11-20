@@ -51,6 +51,55 @@ fn selecting_a_player_is_answered_with_its_vitals() {
     assert_eq!(words, [0x4000_0001, 100, 0, 100, 100, 0, 100]);
 }
 
+/// A selected player's information carries what other players took of its health and vigor, less
+/// than nothing, beside its health and vigor; at full health (its greatest having fallen) it still
+/// holds it, as a minute's regaining leaves it.
+/// Behaviour: server.selection.the-pk-part
+#[test]
+fn a_selected_players_information_carries_what_other_players_took() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (_, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let selected = |h: &mut Harness| -> Vec<i32> {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SET_SELECTION, &[Arg::LongInt(idb)]),
+        );
+        let values = h
+            .wait_for(a, from, |m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == answered::SELECTION_INFO => {
+                    c.args.as_ref().and_then(|x| calls::values(&x.0).ok())
+                }
+                _ => None,
+            })
+            .expect("answered");
+        let Some(Node::Native { ty: 171, bytes }) = values[0].root() else {
+            panic!("a selection's information: {values:?}")
+        };
+        bytes
+            .chunks(4)
+            .map(|c| i32::from_le_bytes(c.try_into().expect("words")))
+            .collect()
+    };
+    for p in h.server.players.values_mut().filter(|p| p.character == idb) {
+        yalain_world::quals::set_int(&mut p.qualities, 258, 70);
+        p.pk_lost = [23, 5];
+    }
+    assert_eq!(selected(&mut h)[..6], [0x4000_0001, 70, -23, 100, 100, -5]);
+    for p in h.server.players.values_mut().filter(|p| p.character == idb) {
+        yalain_world::quals::set_int(&mut p.qualities, 258, 100);
+    }
+    h.run(1200);
+    assert_eq!(
+        selected(&mut h)[..3],
+        [0x4000_0001, 100, -23],
+        "at full health"
+    );
+}
+
 /// Selecting a person whose template names no health or vigor is answered with a person's own
 /// numbers, so the meters under its name show full rather than empty; a template that names them
 /// keeps them.

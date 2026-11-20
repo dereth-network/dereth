@@ -1142,7 +1142,10 @@ fn another_players_harm_and_vigor_taken_are_a_third() {
 
 /// A heal restores what no player took first, at full power, then what other players took at a
 /// third: at 900 of 1,000 with 60 of the loss another player's, a heal of 70 restores 40 and 10;
-/// another of 30 restores 10; peace regeneration at a third the same way; a death clears it.
+/// another of 30 restores 10. Peace regeneration restores at full power whatever other players
+/// took, and leaves their part; so at full health a part can still be held, and a heal there
+/// clears it as a third of the heal allows, restoring nothing past the greatest. A death clears
+/// it.
 /// Behaviour: server.player-fights.heals-of-players-damage
 #[test]
 fn heals_restore_damage_another_player_did_at_a_third() {
@@ -1183,7 +1186,19 @@ fn heals_restore_damage_another_player_did_at_a_third() {
     };
     let full = step(&mut h, [0, 0]);
     assert!(full > 3, "{full}");
-    assert_eq!(step(&mut h, [500, 0]), full / 3);
+    assert_eq!(step(&mut h, [500, 0]), full, "at full power");
+    assert_eq!(h.server.players[&wb].pk_lost, [500, 0], "the part left");
+
+    // At full health, a part still held: a heal clears a third of itself of it, past nothing.
+    with_player(&mut h, idb, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 1000);
+        p.pk_lost = [50, 0];
+    });
+    instant(&mut h, idb, 0x6F00_7C07, vital::HEALTH, 90.0, (ida, false));
+    assert_eq!(
+        (health(&h), h.server.players[&wb].pk_lost),
+        (Some(1000), [20, 0])
+    );
 
     let clock = h.clock();
     yalain_world::death::player_dies(&mut h.server, &mut h.net, wb, Some(ida), clock);

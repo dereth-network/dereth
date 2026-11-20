@@ -8,10 +8,14 @@
 //! player's specials on another did 16 to 62 where the same skills did 661 to 948 on creatures,
 //! about a third of what armor alone would leave and with a third of its spread.
 //!
-//! **Heals.** A player keeps how much of the health and the vigor it has lost another player took.
-//! A heal (a skill's, a potion's, regeneration) restores the rest of what it lost first, at full
-//! power, and then that part at a third: a third of what is left of the heal, rounded down, no
-//! more than that part. Death clears it.
+//! **Heals.** A player keeps how much of the health and the vigor it has lost another player took,
+//! and it is shown with them. A heal (a skill's, a potion's) restores the rest of what it lost
+//! first, at full power, and then that part at a third: a third of what is left of the heal,
+//! rounded down, no more than that part, and never past the greatest. Regeneration restores at
+//! full power and leaves the part, which so outlives full health until a heal or death clears it
+//! (2017: a player regained 1.01 a second holding 50 of such harm, 0.98 holding none; its 50 held
+//! through 27 s of regaining, and a heal of 193 at 41 short of full cleared all 50; another held 23
+//! at full health some 85 minutes).
 
 use yalain_net::ConnId;
 use yalain_store::Store;
@@ -88,8 +92,8 @@ pub fn healed(p: &mut Player, cur: u32, (now, greatest): (i32, i32), amount: i32
         return amount;
     };
     let lost = (greatest - now).max(0);
-    let theirs = p.pk_lost[i].clamp(0, lost);
-    let rest = lost - theirs;
+    let theirs = p.pk_lost[i].max(0);
+    let rest = (lost - theirs).max(0);
     let full = amount.min(rest);
     let on_theirs =
         dereth_primitives::num::to_i32_f64((f64::from(amount - full) / DIVIDED_BY).floor())

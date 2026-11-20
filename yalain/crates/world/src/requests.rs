@@ -249,7 +249,11 @@ fn with_skills_greatest<S: Store>(s: &Server<S>, p: &crate::world::Player, v: Vi
 #[must_use]
 pub fn vitals_of<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<Vitals> {
     if let Some(p) = crate::presence::player_for(s, viewer, id).and_then(|w| s.players.get(&w)) {
-        return Vitals::of_qualities(&p.qualities).map(|v| with_skills_greatest(s, p, v));
+        return Vitals::of_qualities(&p.qualities).map(|v| Vitals {
+            pk_damage: crate::fellowship::pk_told(p.pk_lost[0]),
+            pk_vigor_loss: crate::fellowship::pk_told(p.pk_lost[1]),
+            ..with_skills_greatest(s, p, v)
+        });
     }
     if let Some(t) = s.things.get(id) {
         // A creature, or a dye plant (2017: its health and vigor, 102 of 102 selections).

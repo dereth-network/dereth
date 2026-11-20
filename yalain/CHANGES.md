@@ -28,6 +28,7 @@ what they see, not how it was done.
 - Using a teaching stone at a vault or elsewhere now shows its page.
 - Worlds can now give examine text to objects whose template has none.
 - Pets follow you to a new target, and a creature's kin join its fight with a pet.
+- Selected players and fellows now show the damage other players did them.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

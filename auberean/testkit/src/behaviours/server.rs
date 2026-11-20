@@ -6110,7 +6110,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.fellowship.updates",
         says: "A fellow's changed health, vigor, their greatest, level and cell go to every \
                fellow, itself included, at a look every three and a half to seven and a half \
-               seconds; nothing unchanged is sent.",
+               seconds, health and vigor with what other players took of them; nothing \
+               unchanged is sent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-UPDATES"),
         station: "yalain-testkit::cpu::play::fellowships::a_fellows_changed_health_goes_to_every_fellow_and_nothing_unchanged_does",
@@ -14277,8 +14278,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.player-fights.heals-of-players-damage",
-        says: "A heal or regeneration restores what no player took first, at full power, then what other \
-               players took at a third; a death clears what other players took.",
+        says: "A heal restores what no player took first, at full power, then what other players \
+               took at a third, never past the greatest; regeneration restores at full power and \
+               leaves what other players took, which so outlives full health until a heal or a \
+               death clears it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-HEALS"),
         station: "yalain-testkit::cpu::play::player_fights::heals_restore_damage_another_player_did_at_a_third",
@@ -17476,6 +17479,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-HELD"),
         station: "yalain-testkit::cpu::entry::examine::an_item_in_another_players_pack_answers_only_once_offered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.selection.the-pk-part",
+        says: "A selected player's information carries what other players took of its health and \
+               vigor, less than nothing, and still holds it at full health.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-PART-SHOWN"),
+        station: "yalain-testkit::cpu::entry::examine::a_selected_players_information_carries_what_other_players_took",
         tier: Tier::Cpu,
     },
     behaviour! {

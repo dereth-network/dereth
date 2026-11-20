@@ -137,6 +137,9 @@ pub mod text {
 pub struct Vitals {
     pub health: u32,
     pub vigor: u32,
+    /// What other players took of its health and of its vigor, as it is told: less than nothing.
+    pub pk_health: u32,
+    pub pk_vigor: u32,
     pub max_health: u32,
     pub max_vigor: u32,
     pub level: u32,
@@ -352,6 +355,8 @@ fn vitals_now<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
     Some(Vitals {
         health: int(quality::HEALTH),
         vigor: int(quality::VIGOR),
+        pk_health: pk_told(p.pk_lost[0]),
+        pk_vigor: pk_told(p.pk_lost[1]),
         max_health: crate::effects::own_greatest(s, p, quality::HEALTH_MAX)
             .max(0)
             .cast_unsigned(),
@@ -365,6 +370,14 @@ fn vitals_now<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
     })
 }
 
+/// What other players took of a vital, as a fellow's update and a selection's information tell it:
+/// less than nothing (2017: 17 of 44,720 fellows' health updates and 4 of 73,701 selections carried
+/// it, from -23 to -90).
+#[must_use]
+pub fn pk_told(lost: i32) -> u32 {
+    lost.max(0).wrapping_neg().cast_unsigned()
+}
+
 /// A fellow's record: when it joined, its level, its vitals as last sent, its name.
 fn fellow_record(b: &mut Builder, f: &Fellow, name: &str) -> u32 {
     let me = b.reserve(FELLOW.0);
@@ -374,10 +387,10 @@ fn fellow_record(b: &mut Builder, f: &Fellow, name: &str) -> u32 {
             Slot::Int(f.sent.max_health),
             Slot::Tagged(if f.sent.cell == 0 { tag::INT } else { 4 }, f.sent.cell),
             Slot::Int(f.sent.health),
-            Slot::Int(0),
+            Slot::Int(f.sent.pk_health),
             Slot::Int(f.sent.max_vigor),
             Slot::Int(f.sent.vigor),
-            Slot::Int(0),
+            Slot::Int(f.sent.pk_vigor),
         ],
     );
     let n = b.native(TEXT, NativeObject::TextInfo(name_text(name)));
@@ -881,10 +894,14 @@ pub fn tick<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: LocalTime) 
                     &[Arg::Int(now.max_health), Arg::LongInt(*id)],
                 ));
             }
-            if now.health != was.health {
+            if now.health != was.health || now.pk_health != was.pk_health {
                 out.push(call(
                     function::HEALTH,
-                    &[Arg::Int(0), Arg::Int(now.health), Arg::LongInt(*id)],
+                    &[
+                        Arg::Int(now.pk_health),
+                        Arg::Int(now.health),
+                        Arg::LongInt(*id),
+                    ],
                 ));
             }
             if now.max_vigor != was.max_vigor {
@@ -893,10 +910,14 @@ pub fn tick<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: LocalTime) 
                     &[Arg::Int(now.max_vigor), Arg::LongInt(*id)],
                 ));
             }
-            if now.vigor != was.vigor {
+            if now.vigor != was.vigor || now.pk_vigor != was.pk_vigor {
                 out.push(call(
                     function::VIGOR,
-                    &[Arg::Int(0), Arg::Int(now.vigor), Arg::LongInt(*id)],
+                    &[
+                        Arg::Int(now.pk_vigor),
+                        Arg::Int(now.vigor),
+                        Arg::LongInt(*id),
+                    ],
                 ));
             }
             if now.cell != was.cell {
