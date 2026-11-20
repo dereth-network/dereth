@@ -5793,6 +5793,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.architect-pages-as-2017",
+        says: "An architect's page goes on with its town's building project from its own table: none under \
+               way, and none of the donations of any kind still needed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARCHITECT-PAGES"),
+        station: "yalain-testkit::cpu::entry::examine::an_architects_page_says_no_building_project_is_under_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.chance-to-hit-is-the-landing-chance",
         says: "Examining a creature shows the chance the player's basic attack lands on it: its \
                accuracy against the creature's evasion by the landing curve, in whole percent, \
@@ -5887,6 +5896,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-AGAIN"),
         station: "yalain-testkit::cpu::entry::examine::an_examined_item_is_sent_again_when_it_changes_until_a_later_stop",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.mine-pages-as-2017",
+        says: "A mine goes by its plain name, and its page goes on with its stats' heading and what its use \
+               requires: the quest its template asks to be under way, or that only its summoner may use it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MINE-PAGES"),
+        station: "yalain-testkit::cpu::entry::examine::a_mines_page_says_its_stats_heading_and_what_its_use_requires",
         tier: Tier::Cpu,
     },
     behaviour! {

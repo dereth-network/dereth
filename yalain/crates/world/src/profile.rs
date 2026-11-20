@@ -75,6 +75,10 @@ pub mod line {
     pub const RECALL_SUMMON_PORTAL: u32 = 0xD94A_AC63;
     pub const LIFESTONE_RECALL: u32 = 0x0453_EA93;
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
+    /// "Mine Stats:", the heading of a mine's stats.
+    pub const MINE_STATS: u32 = 0x2F07_1F34;
+    /// "Must be item's creator.": an object only who summoned it may use.
+    pub const SUMMONER_ONLY: u32 = 0x8370_EF38;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
     pub const IN_AN_ALLEGIANCE: u32 = 0x9D7D_54C6;
     pub const IN_A_KINGDOM: u32 = 0xF2F5_0D95;
@@ -1027,7 +1031,18 @@ pub const fn quest_line(status: u32) -> u32 {
 /// A placed object's requirements, as 2017's pages laid them out: its least level, its kingdom, for
 /// heroes alone, its quest. Whether there is such a section.
 pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -> bool {
-    if f.min_level.is_none() && f.kingdom.is_none() && !f.hero && quest.is_none() {
+    requirement_lines_of(p, f, quest, false)
+}
+
+/// A placed object's requirements, the last of them that only who summoned it may use it.
+pub fn requirement_lines_of(
+    p: &mut Profile,
+    f: &Facts,
+    quest: Option<QuestLine>,
+    summoner_only: bool,
+) -> bool {
+    if f.min_level.is_none() && f.kingdom.is_none() && !f.hero && quest.is_none() && !summoner_only
+    {
         return false;
     }
     p.brk(REQUIREMENTS);
@@ -1094,7 +1109,63 @@ pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -
         );
         p.brk(REQUIREMENTS);
     }
+    if summoner_only {
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::VALUE,
+            string(line::TABLE, line::SUMMONER_ONLY),
+        );
+        p.brk(REQUIREMENTS);
+    }
     true
+}
+
+/// A mine's stats: their heading on the stats tab, and none under it (2017: every mine's page).
+pub fn mine_lines(p: &mut Profile) {
+    p.text(STATS, look::LABEL, string(line::TABLE, line::MINE_STATS));
+    p.brk(STATS);
+}
+
+/// The strings of an architect's page in its own table: its town's building project, and the
+/// donations still needed by kind, each with its value.
+pub mod architect_line {
+    pub const PROJECT: u32 = 0x61AC_061E;
+    pub const STILL_NEEDED: u32 = 0x5CD4_8C82;
+    /// "Gold Donations: ", then lesser, intermediate and complex materials, mined and refined
+    /// traits.
+    pub const NEEDED: [u32; 6] = [
+        0x9C58_0A9A,
+        0x6588_0EA2,
+        0xDA18_1EB2,
+        0x6C58_14A2,
+        0x8C44_9E82,
+        0xCC85_F9C0,
+    ];
+    /// "None".
+    pub const NONE: u32 = 0x68A0_7CED;
+    /// The look of the heading of what is still needed.
+    pub const HEADING: u32 = 0x7C78_01D4;
+}
+
+/// What an architect's page says of its town's building project, from its own table: none under
+/// way, and nothing of any kind still needed (2017: 32 of 32 examinations of the 4 architects).
+pub fn architect_lines(p: &mut Profile, table: u32) {
+    use architect_line as a;
+    p.brk(GENERAL);
+    p.text(GENERAL, look::LABEL, string(table, a::PROJECT));
+    p.text(GENERAL, look::VALUE, string(table, a::NONE));
+    p.brk(GENERAL);
+    p.brk(GENERAL);
+    p.text(GENERAL, a::HEADING, string(table, a::STILL_NEEDED));
+    p.brk(GENERAL);
+    for kind in a::NEEDED {
+        p.text(GENERAL, look::LABEL, string(table, kind));
+        p.text(GENERAL, look::VALUE, string(table, a::NONE));
+        p.brk(GENERAL);
+    }
+    p.brk(GENERAL);
 }
 
 /// An item's name composed of its template's name with no prefix or suffix.

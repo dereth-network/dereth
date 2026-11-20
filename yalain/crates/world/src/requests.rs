@@ -633,12 +633,24 @@ fn profile_bytes<S: Store>(
             | crate::things::Kind::Node
             | crate::things::Kind::Portal
             | crate::things::Kind::Placed => {
-                // A name its row gave it as text, else its template's (or its row's reference).
-                let name = match t.description.name_text.as_deref() {
-                    Some(text) => profile::item_named(profile::literal(text)),
-                    None => profile::item_name(&t.facts),
-                };
-                profile::npc(req.asked, name, &t.facts)
+                // A mine goes by its plain name, and says what it is and who may use it.
+                if is_mine(s, t.template) {
+                    let name = t.facts.name.map_or_else(
+                        || profile::literal(""),
+                        |(sid, table)| profile::string(table, sid),
+                    );
+                    let mut p = profile::npc(req.asked, name, &t.facts);
+                    mine_lines(s, &mut p, t.template, &t.facts, None);
+                    p
+                } else {
+                    // A name its row gave it as text, else its template's (or its row's
+                    // reference).
+                    let name = match t.description.name_text.as_deref() {
+                        Some(text) => profile::item_named(profile::literal(text)),
+                        None => profile::item_name(&t.facts),
+                    };
+                    profile::npc(req.asked, name, &t.facts)
+                }
             }
         }
     } else if let Some(i) = crate::presence::content_by_id(&s.content.objects, req.object) {
@@ -657,14 +669,23 @@ fn profile_bytes<S: Store>(
                 examine::content_vitals(o).unwrap_or_default(),
                 crate::combat::shown_chance(s, world, crate::ratings::Rater::Template(o.template)),
             ),
-            yalain_content::Kind::Npc => profile::npc(
-                req.asked,
-                named.unwrap_or_else(|| {
-                    f.name
-                        .map_or_else(|| profile::literal(""), |(sid, t)| profile::string(t, sid))
-                }),
-                f,
-            ),
+            yalain_content::Kind::Npc => {
+                let mut p = profile::npc(
+                    req.asked,
+                    named.unwrap_or_else(|| {
+                        f.name.map_or_else(
+                            || profile::literal(""),
+                            |(sid, t)| profile::string(t, sid),
+                        )
+                    }),
+                    f,
+                );
+                if is_mine(s, o.template) {
+                    mine_lines(s, &mut p, o.template, f, None);
+                }
+                architect_lines(s, &mut p, o);
+                p
+            }
             yalain_content::Kind::Static => {
                 let lifestone = crate::places::is_lifestone(s, o.description.package);
                 let quest = o.gate.and_then(|g| {
@@ -698,9 +719,12 @@ fn profile_bytes<S: Store>(
                     }
                     if monarchs {
                         profile::monarch_lines(&mut p);
+                    } else if is_mine(s, o.template) {
+                        mine_lines(s, &mut p, o.template, f, quest);
                     } else {
                         profile::requirement_lines(&mut p, f, quest);
                     }
+                    architect_lines(s, &mut p, o);
                     p
                 }
             }
@@ -712,6 +736,60 @@ fn profile_bytes<S: Store>(
     };
     let answered = req.answered(examine::PEACE_MODE, examine::NO_ACCURACY);
     Some(profile.packed(&answered))
+}
+
+/// A quest's status while it is under way, as a template's asking for it says it.
+const QUEST_UNDER_WAY: u32 = 0x1000_0000;
+
+/// Is a template a mine's (one that holds a material to mine)?
+fn is_mine<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.catalog
+        .get(template)
+        .is_some_and(|t| t.props.word("Mine_Object").is_some())
+}
+
+/// A mine's page after its name and page: its stats' heading, then what its use requires: the
+/// quest its row or its template asks to be under way, or that only who summoned it may use it
+/// (2017: 41 examinations of quest mines, 128 of summoned nodes and 24 of a vein its hidden
+/// quest keeps, all so; a template's quest is shown of mines alone).
+fn mine_lines<S: Store>(
+    s: &Server<S>,
+    p: &mut profile::Profile,
+    template: u32,
+    f: &yalain_content::Facts,
+    gate: Option<profile::QuestLine>,
+) {
+    let Some(props) = s.catalog.get(template).map(|t| &t.props) else {
+        return;
+    };
+    profile::mine_lines(p);
+    let quest = gate.or_else(|| {
+        let id = props.word("Usage_RequiredQuest")?;
+        let status = props
+            .word("Usage_RequiredQuestStatus")
+            .unwrap_or(QUEST_UNDER_WAY);
+        let def = s.quests.quest(id)?;
+        Some(if def.hidden {
+            profile::QuestLine::Hidden
+        } else {
+            profile::QuestLine::Named(profile::quest_line(status), def.name.clone())
+        })
+    });
+    profile::requirement_lines_of(p, f, quest, props.flag("Usage_SummonerOnly"));
+}
+
+/// An architect's page goes on with its town's building project, from the table its name is in.
+fn architect_lines<S: Store>(
+    s: &Server<S>,
+    p: &mut profile::Profile,
+    o: &yalain_content::ContentObject,
+) {
+    if !s.architect_packages.contains(&o.description.package) {
+        return;
+    }
+    if let Some((_, table)) = o.facts.name {
+        profile::architect_lines(p, table);
+    }
 }
 
 /// A door's lock as its page says it: locked, unlocked by its key since it last closed, or none

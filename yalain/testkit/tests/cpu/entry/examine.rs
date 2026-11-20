@@ -2290,3 +2290,215 @@ fn a_doors_page_says_its_lock_and_a_chests_its_contents_and_lock() {
     );
     assert_eq!(page_end(&got[4]), chest(line::NO_LOCK), "no lock");
 }
+
+/// A profile's lines after its request, each as text: a text line's tab, look and string (with
+/// its variables' strings), a break's tab, a tab's tab and count.
+fn profile_lines(bytes: &[u8]) -> Vec<String> {
+    use auberean_script::native_object::{TextInfo, VariableValue};
+    use auberean_script::wire::In;
+    fn text(t: &TextInfo) -> String {
+        let vars: Vec<String> = t
+            .variables
+            .iter()
+            .filter_map(|v| match &v.value {
+                VariableValue::Nested(n) => Some(format!("{:08X}={}", v.id, text(n))),
+                _ => None,
+            })
+            .collect();
+        let own = format!("{:08X}@{:08X}", t.string_id, t.table);
+        if vars.is_empty() {
+            own
+        } else {
+            format!("{own}[{}]", vars.join(","))
+        }
+    }
+    let mut r = In::new(&bytes[20..]);
+    let n = r.u32().expect("a count");
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let (ty, order) = (r.u32().expect("a kind"), r.u32().expect("a tab"));
+        out.push(match ty {
+            0x4000_0004 => {
+                let look = r.u32().expect("a look");
+                let t = TextInfo::unpack(&mut r).expect("a text");
+                format!("T{order} {look:08X} {}", text(&t))
+            }
+            0x4000_0006 => format!("break {order}"),
+            0x4000_0007 => format!("tab{order}:{}", r.u32().expect("a count")),
+            other => panic!("a line of kind {other:08X}"),
+        });
+    }
+    out
+}
+
+/// Examine an object with every tab asked: its profile's lines.
+fn examined_lines(h: &mut Harness, a: usize, object: u64) -> Vec<String> {
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(object, 0x3FF)]),
+    );
+    h.run(30);
+    profile_lines(profile_nodes(h, a, from).last().expect("a profile"))
+}
+
+/// A mine's page goes on after its description with its stats' heading, on the stats tab with
+/// nothing under it, then what its use requires: the quest its template asks to be under way; or,
+/// of a node only its summoner may mine, that it must be its creator's, its name plain (2017: the
+/// world's quest mines, 34 of 34 examinations, and the summoned nodes, 158 of 158, word for word).
+/// Behaviour: server.examination.mine-pages-as-2017
+#[test]
+fn a_mines_page_says_its_stats_heading_and_what_its_use_requires() {
+    use yalain_content::{Prop, Props};
+    const MINE: u32 = 0x4700_0B3B;
+    const NODE: u32 = 0x4700_0C98;
+    const QUEST: u32 = 0x4000_018B;
+    let mut h = Harness::new();
+    let mut mine = Props::default();
+    mine.set("Mine_Object", Prop::Word(0x4700_1631))
+        .set("Usage_RequiredQuest", Prop::Word(QUEST))
+        .set("Usage_RequiredQuestStatus", Prop::Word(0x1000_0000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(MINE, 0x03A0, mine));
+    let mut node = Props::default();
+    node.set("Mine_Object", Prop::Word(0x4700_10C1))
+        .set("CraftSkill", Prop::Word(0x6F00_069C))
+        .set("Usage_SummonerOnly", Prop::Bool(true));
+    let mut t = yalain_testkit::test_template(NODE, 0x1BFC, node);
+    t.facts.name = Some((0xA860_7CEC, 0x2500_1BB2));
+    t.facts.description = Some((0x6C45_9364, 0x2500_1BB2));
+    h.server.catalog.insert(t);
+    h.server
+        .quests
+        .quests
+        .push(yalain_content::quests::QuestDef {
+            duration_by_calendar: false,
+            id: QUEST,
+            name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_16BB),
+            description: (0x6C45_9364, 0x2500_16BB),
+            icon: 0,
+            play_fx: true,
+            journals: Vec::new(),
+            challenge: 0,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: true,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            ranges: Vec::new(),
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+            cancel_wait: None,
+        });
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![placed(
+            1,
+            MINE,
+            0x03A0,
+            None,
+            Facts {
+                name: Some((0xA860_7CEC, 0x2500_1BB6)),
+                description: Some((0x6C45_9364, 0x2500_1BB6)),
+                ..Facts::default()
+            },
+        )],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in")
+        .position;
+    let vein = yalain_world::mining::vein(&mut h.server, NODE, at).expect("a node");
+    let recorded = |s: &str| s.split(" | ").map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        examined_lines(&mut h, a, 0x400D_FA00_0000_0101),
+        recorded(
+            "T2 BE5B6513 A8607CEC@25001BB6 | break 2 | T2 33BE4035 6C459364@25001BB6 | break 2 | \
+             T8 33BE4035 2F071F34@25000011 | break 8 | break 32 | T32 33BE4035 4F39B658@25000011 | break 32 | \
+             tab32:0 | T32 BE5B6513 DB7C0ACC@25000011[23562D3A=A8607CEC@250016BB] | break 32"
+        ),
+        "a quest mine"
+    );
+    assert_eq!(
+        examined_lines(&mut h, a, vein),
+        recorded(
+            "T2 BE5B6513 A8607CEC@25001BB2 | break 2 | T2 33BE4035 6C459364@25001BB2 | break 2 | \
+             T8 33BE4035 2F071F34@25000011 | break 8 | break 32 | T32 33BE4035 4F39B658@25000011 | break 32 | \
+             tab32:0 | tab32:0 | T32 BE5B6513 8370EF38@25000011 | break 32"
+        ),
+        "a summoned node"
+    );
+}
+
+/// An architect's page goes on after its description with its town's building project from its
+/// own table: none under way, and none of the donations of any kind still needed (2017: 32 of 32
+/// examinations of the 4 architects, word for word).
+/// Behaviour: server.examination.architect-pages-as-2017
+#[test]
+fn an_architects_page_says_no_building_project_is_under_way() {
+    const ARCHITECT: u32 = 0x284E;
+    let mut h = Harness::new();
+    h.server.architect_packages.insert(ARCHITECT);
+    let mut o = placed(
+        1,
+        0x4700_3367,
+        ARCHITECT,
+        None,
+        Facts {
+            name: Some((0x3FF6_2B5B, 0x2500_13BB)),
+            description: Some((0x6C45_9364, 0x2500_13BB)),
+            ..Facts::default()
+        },
+    );
+    o.kind = yalain_content::Kind::Npc;
+    o.object = None;
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![o],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let id = yalain_world::presence::content_id(&h.server.content.objects, 0);
+    let mut recorded: Vec<String> = [
+        "T2 BE5B6513 3FF62B5B@250013BB",
+        "break 2",
+        "T2 33BE4035 6C459364@250013BB",
+        "break 2",
+        "break 2",
+        "T2 33BE4035 61AC061E@250013BB",
+        "T2 BE5B6513 68A07CED@250013BB",
+        "break 2",
+        "break 2",
+        "T2 7C7801D4 5CD48C82@250013BB",
+        "break 2",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    for kind in [
+        "9C580A9A", "65880EA2", "DA181EB2", "6C5814A2", "8C449E82", "CC85F9C0",
+    ] {
+        recorded.push(format!("T2 33BE4035 {kind}@250013BB"));
+        recorded.push("T2 BE5B6513 68A07CED@250013BB".into());
+        recorded.push("break 2".into());
+    }
+    recorded.push("break 2".into());
+    assert_eq!(examined_lines(&mut h, a, id), recorded);
+}

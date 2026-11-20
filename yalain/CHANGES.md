@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Examining a mine shows what it requires, and an architect its building project.
 - You can't craft for five seconds after using a skill.
 - Spellbinding an item with nothing it can take now says why.
 - Transmute All now waits for your pick-up animation, unless you jump or attack.

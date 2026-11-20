@@ -114,6 +114,8 @@ pub const HELD_ANSWERED: [(&str, u32, u32); 3] = [
 /// door's, a map's), and the call that has the client examine an object.
 pub const TEACHING_STONE: u32 = 0x1352;
 pub const TEACHING_STONE_CLASS: &str = "TeachingStoneTemplate";
+/// The script library's class every town's architect derives from.
+pub const ARCHITECT_CLASS: &str = "ArchitectTemplate";
 pub const FORCE_EXAMINE: u32 = 0x8212_0026;
 
 /// Is a script package a teaching stone's: the training hall's own, or one deriving from it?
