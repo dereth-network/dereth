@@ -10,10 +10,11 @@
 //! taking behavior, the item leaves the corpse, and once the behavior is through (1.8 s) the item
 //! is contained by the player and the move is answered: into a stack it can join where there is
 //! one, into a place of its own where the pack has room, and otherwise it stays where it is and the
-//! taker is told. **Turning a corpse's items into money**:
+//! taker is told. **Turning a corpse's items into money**: the player plays its picking-up
+//! behavior, and when that is through (or cut short by a jump or an attack; at once in the air)
 //! each item is contained and moved, the money goes up by its value, the item is destroyed in the
 //! pack; then the answer with the money earned, each item's object destroyed, and the pack's
-//! contents again.
+//! contents again. Asked while something else is under way, it is refused as busy.
 //!
 //! **Items given** (a quest's reward, a purchase) are contained, made in the pack and the move
 //! answered as a gift (or as a purchase) of the server.
@@ -2039,12 +2040,19 @@ fn joined_stack<S: Store>(
     crate::world::keep_player(s, world);
 }
 
-/// A player turns everything in a corpse into money.
+/// A player asks to turn everything in a corpse into money: refused as busy while something else
+/// is under way, another transmute among them (2017: 51 of 51 asked before the first's answer);
+/// else it plays its picking-up behavior, and the items turn into money as the behavior's clip on
+/// its body ends (2017, 1,293 transmutes with neither jump nor attack meanwhile: 99.5% within
+/// 0.15 s of it, a human's 1.78 s, a Lugian's 1.49, a Tumerok's 1.88), or at once when it is in
+/// the air (849 of 849 asked within a jump's time of one). A corpse not open turns nothing at once
+/// ([`transmute_now`]).
 pub fn transmute_all<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     v: &[crate::calls::Value],
+    clock: Clock,
 ) {
     // The request's description: its container is its slots 8 and 9.
     let corpse = v.iter().find_map(|x| match x.root() {
@@ -2059,6 +2067,98 @@ pub fn transmute_all<S: Store>(
             .note("turning into money a container the world does not have");
         return;
     };
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    if crate::places::actions_locked(s, world) {
+        let busy = transmute_done(
+            (0, crate::pack::status::ACTIONS_LOCKED),
+            0,
+            corpse,
+            None,
+            player,
+        );
+        progress::private(net, world, &busy);
+        return;
+    }
+    if open_corpse_of(s, world) != Some(corpse) {
+        transmute_now(s, net, world, corpse);
+        return;
+    }
+    crate::pack::play_taking(s, net, world);
+    let aloft = s
+        .players
+        .get(&world)
+        .is_some_and(|p| crate::airborne::in_the_air(p, clock.local.0));
+    if aloft {
+        transmute_now(s, net, world, corpse);
+        return;
+    }
+    let seconds = crate::pack::pick_up_seconds(s, world);
+    s.after(clock, seconds, Timer::Transmute { world, corpse });
+}
+
+/// A transmute under way is cut short by its player's jump or attack: its items turn into money
+/// then (2017: 56 of 56 jumps, answered a median 0.17 s after the jump's report; 1,036 attacks).
+pub fn transmute_cut_short<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(i) = s
+        .timers
+        .iter()
+        .position(|(_, t)| matches!(t, Timer::Transmute { world: w, .. } if *w == world))
+    else {
+        return;
+    };
+    let (_, timer) = s.timers.remove(i);
+    if let Timer::Transmute { corpse, .. } = timer {
+        transmute_now(s, net, world, corpse);
+    }
+}
+
+/// A transmute's answer: its error and status, the money earned, the corpse, the lists of the
+/// items turned into money and of those kept (none: a refusal, which names neither), the player.
+fn transmute_done(
+    (error, status): (u32, u32),
+    earned: u32,
+    corpse: u64,
+    lists: Option<(&[u64], &[u64])>,
+    player: u64,
+) -> ServerMessage {
+    let mut b = Builder::new();
+    let root = b.reserve(TRANSMUTE_DESC);
+    let ids = |v: &[u64]| list(Elem::Long, v.iter().map(|i| Item::Long(*i)).collect());
+    let (done_list, refused_list) = match lists {
+        Some((done, refused)) => (
+            Some(b.native(LONG_LIST, ids(done))),
+            Some(b.native(LONG_LIST, ids(refused))),
+        ),
+        None => (None, None),
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    b.fill(
+        root,
+        &[
+            Slot::Int(error),
+            Slot::Int(0),
+            Slot::Ref(done_list),
+            Slot::Int(1),
+            Slot::Int(earned),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(status),
+            Slot::Tagged(tag::LONG, corpse as u32),
+            Slot::Tagged(tag::HIGH, (corpse >> 32) as u32),
+            Slot::Ref(refused_list),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Tagged(tag::LONG, player as u32),
+            Slot::Tagged(tag::HIGH, (player >> 32) as u32),
+        ],
+    );
+    session::call(function::TRANSMUTE_ALL_DONE, &[Arg::Object(b.graph())]).expect("packs")
+}
+
+/// A corpse's items turn into money, now.
+pub fn transmute_now<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -2193,39 +2293,13 @@ pub fn transmute_all<S: Store>(
         NOT_FOR_MONEY
     };
     let status = if done.is_empty() { error } else { 0 };
-    let mut b = Builder::new();
-    let root = b.reserve(TRANSMUTE_DESC);
-    let done_list = b.native(
-        LONG_LIST,
-        list(Elem::Long, done.iter().map(|i| Item::Long(*i)).collect()),
+    let answer = transmute_done(
+        (error, status),
+        earned,
+        corpse,
+        Some((&done, &refused)),
+        player,
     );
-    let refused_list = b.native(
-        LONG_LIST,
-        list(Elem::Long, refused.iter().map(|i| Item::Long(*i)).collect()),
-    );
-    #[allow(clippy::cast_possible_truncation)]
-    b.fill(
-        root,
-        &[
-            Slot::Int(error),
-            Slot::Int(0),
-            Slot::Ref(Some(done_list)),
-            Slot::Int(1),
-            Slot::Int(earned),
-            Slot::Int(0),
-            Slot::Int(0),
-            Slot::Int(status),
-            Slot::Tagged(tag::LONG, corpse as u32),
-            Slot::Tagged(tag::HIGH, (corpse >> 32) as u32),
-            Slot::Ref(Some(refused_list)),
-            Slot::Int(0),
-            Slot::Int(0),
-            Slot::Tagged(tag::LONG, player as u32),
-            Slot::Tagged(tag::HIGH, (player >> 32) as u32),
-        ],
-    );
-    let answer =
-        session::call(function::TRANSMUTE_ALL_DONE, &[Arg::Object(b.graph())]).expect("packs");
     progress::private(net, world, &answer);
     // Each item turned into money is let go of (its holder none) before it is gone (2017: 1,718
     // of the transmutes' destroyed items).

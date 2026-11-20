@@ -633,6 +633,8 @@ pub enum Timer {
     Take { world: ConnId, item: u64, from: u64 },
     /// A player's taking of everything in a container is through.
     TakeAll { world: ConnId, container: u64 },
+    /// A player's turning of a corpse's items into money comes due.
+    Transmute { world: ConnId, corpse: u64 },
     /// A dead creature's corpse appears.
     Corpse {
         creature: u64,
@@ -1112,6 +1114,9 @@ impl<S: Store> Server<S> {
                 }
                 Timer::TakeAll { world, container } => {
                     pack::took_all(self, net, world, container, clock);
+                }
+                Timer::Transmute { world, corpse } => {
+                    inventory::transmute_now(self, net, world, corpse);
                 }
                 Timer::Corpse {
                     creature,

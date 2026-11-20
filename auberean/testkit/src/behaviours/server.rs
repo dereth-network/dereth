@@ -7958,11 +7958,41 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.transmute-cut-short",
+        says: "A jump or an attack cuts a transmute or a take-all under way short: it is carried out \
+               then; one asked in the air is carried out at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-CUT-SHORT"),
+        station: "yalain-testkit::cpu::play::pack::a_jump_turns_a_corpse_into_money_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.transmute-needs-the-corpse-open",
-        says: "Turning into money the items of a corpse not open turns nothing: each item's move refused as not open (1052), then the answer refused so, nothing earned.",
+        says: "Turning into money the items of a corpse not open, or closed before the transmute comes \
+               due, turns nothing: each item's move refused as not open (1052), then the answer refused \
+               so, nothing earned, then the pack's contents.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-CLOSED"),
         station: "yalain-testkit::cpu::play::pack::turning_into_money_a_corpse_not_open_turns_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.transmute-refused-while-busy",
+        says: "A transmute asked while another is under way is refused as busy (1029) at once, naming \
+               neither list; the first goes on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-BUSY"),
+        station: "yalain-testkit::cpu::play::pack::a_second_transmute_while_the_first_is_under_way_is_refused_as_busy",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.transmute-waits-for-its-behavior",
+        says: "Turning a corpse into money or taking everything from it plays the picking-up behavior, \
+               and the items turn into money or come into the pack when its clip on the player's body \
+               ends: a human's 1.79 s, a Lugian's 1.46, a Tumerok's 1.88.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-TIMING"),
+        station: "yalain-testkit::cpu::play::pack::turning_a_corpse_into_money_waits_for_the_picking_up_behavior",
         tier: Tier::Cpu,
     },
     behaviour! {

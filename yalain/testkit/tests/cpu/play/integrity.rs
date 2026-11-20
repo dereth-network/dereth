@@ -198,6 +198,9 @@ fn a_corpse_another_player_has_open_is_not_closed_by_a_stranger() {
     );
 }
 
+/// Steps that see a transmute's picking-up behavior through (two seconds).
+const TRANSMUTED: usize = 40;
+
 /// The request to turn a corpse into money, as the client packs it.
 fn transmute_request(corpse: u64) -> Arg {
     use yalain_world::graph::{Builder, Slot};
@@ -226,12 +229,12 @@ fn a_corpse_the_player_has_not_open_is_not_turned_into_money() {
         .insert(yalain_testkit::test_template(TEST_ITEM, 0x1067, props));
     let (c, _) = corpse(&mut h, ida, 2);
     let f = inventory::function::TRANSMUTE_ALL;
-    h.ask(b, f, &[transmute_request(c)], 5);
+    h.ask(b, f, &[transmute_request(c)], TRANSMUTED);
     assert_eq!(money(&h, idb), 0, "not open to it");
     h.ask(a, USE, &[use_of(c, ida)], 5);
-    h.ask(b, f, &[transmute_request(c)], 5);
+    h.ask(b, f, &[transmute_request(c)], TRANSMUTED);
     assert_eq!(money(&h, idb), 0, "open to another");
-    h.ask(a, f, &[transmute_request(c)], 5);
+    h.ask(a, f, &[transmute_request(c)], TRANSMUTED);
     assert_eq!(money(&h, ida), 50, "its viewer's");
 }
 
@@ -387,7 +390,7 @@ fn a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room() {
         a,
         inventory::function::TRANSMUTE_ALL,
         &[transmute_request(c)],
-        5,
+        TRANSMUTED,
     );
     assert_eq!(money(&h, ida), 50);
     let moves: Vec<(u32, u32)> = h

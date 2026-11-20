@@ -1985,7 +1985,7 @@ fn turning_a_corpses_items_into_money_pays_their_value() {
         queue::WEENIE,
         &server_call(TRANSMUTE_ALL, &[Arg::Object(g.graph())]),
     );
-    h.run(20);
+    h.run(TRANSMUTED);
     assert!(
         calls_of(&h, b, from)
             .iter()
@@ -2338,6 +2338,9 @@ fn an_open_corpse_closes_when_its_opener_walks_away() {
     );
 }
 
+/// Steps that see a transmute's picking-up behavior through (two seconds).
+const TRANSMUTED: usize = 40;
+
 /// Ask to turn a corpse's items into money; returns the answer's values.
 fn transmute(h: &mut Harness, b: usize, me: u64, corpse: u64) -> Vec<Value> {
     let from = h.bots[b].inbox.len();
@@ -2365,7 +2368,7 @@ fn transmute(h: &mut Harness, b: usize, me: u64, corpse: u64) -> Vec<Value> {
         queue::WEENIE,
         &server_call(TRANSMUTE_ALL, &[Arg::Object(g.graph())]),
     );
-    h.run(20);
+    h.run(TRANSMUTED);
     calls_of(h, b, from)
         .into_iter()
         .find(|(f, _)| *f == TRANSMUTE_ALL_DONE)

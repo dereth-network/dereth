@@ -818,7 +818,8 @@ fn answer(
 }
 
 /// Is a player's earlier action still being carried out, so that a use is refused: in portal
-/// space, dead, walking to an earlier use's object, taking an item (or everything), or using one?
+/// space, dead, walking to an earlier use's object, taking an item (or everything), turning a
+/// corpse's items into money, or using one?
 #[must_use]
 pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
     let Some(p) = s.players.get(&world) else {
@@ -833,6 +834,7 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
         || s.timers.iter().any(|(_, t)| {
             matches!(t, Timer::Take { world: w, .. }
                 | Timer::TakeAll { world: w, .. }
+                | Timer::Transmute { world: w, .. }
                 | Timer::PickUp { world: w, .. }
                 | Timer::Butcher { world: w, .. }
                 | Timer::Mine { world: w, .. }

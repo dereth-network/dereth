@@ -126,6 +126,9 @@ pub fn call<S: Store>(
             crate::places::use_object(s, net, world, &values, clock);
         }
         function::ATTACK => {
+            // An attack cuts a transmute or a take-all under way short: carried out first.
+            crate::inventory::transmute_cut_short(s, net, world);
+            crate::pack::take_all_cut_short(s, net, world, clock);
             crate::follow::stop(s, net, world);
             crate::skill_use::request(s, net, world, &values, clock);
             // Asked while a craft is under way, it cuts the craft short, whether it goes or is
@@ -188,7 +191,7 @@ pub fn call<S: Store>(
         crate::pack::function::TAKE_ALL => crate::pack::take_all(s, net, world, &values, clock),
         crate::inventory::function::TRANSMUTE_ALL => {
             crate::skill_use::cut_by_transmute(s, net, world, clock);
-            crate::inventory::transmute_all(s, net, world, &values);
+            crate::inventory::transmute_all(s, net, world, &values, clock);
         }
         crate::store::function::NEXT_SALES => {
             crate::store::turn_page(s, net, world, true, clock.local);

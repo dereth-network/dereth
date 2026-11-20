@@ -1481,8 +1481,11 @@ fn moved<S: Store>(
     crate::skill_use::moved(s, net, world, clock);
     crate::craft::moved(s, net, world, jumped);
     if jumped {
-        // An item's use under way is cut short by a jump.
+        // An item's use under way is cut short by a jump; a transmute or a take-all is carried
+        // out.
         crate::item_use::cut_short(s, net, world);
+        crate::inventory::transmute_cut_short(s, net, world);
+        crate::pack::take_all_cut_short(s, net, world, clock);
     }
     crate::social::moved(s, net, world, clock);
     crate::social::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);

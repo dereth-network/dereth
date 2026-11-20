@@ -303,7 +303,7 @@ fn an_item_taken_with_the_rest_moved_and_traded_is_named_as_its_template_draws_i
         b,
         yalain_world::pack::function::TAKE_ALL,
         &[take_all_request(corpse, me)],
-        5 + steps(yalain_world::pack::TAKE_ALL_SECONDS),
+        5 + steps(yalain_world::pack::PICK_UP_SECONDS),
     );
     assert_eq!(
         answered(&h, b, from),

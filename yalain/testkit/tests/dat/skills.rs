@@ -2757,6 +2757,127 @@ mod timings {
         assert_eq!(yalain_world::ai::harm_noticed(&t, 1076, 10_000), 10_350);
         assert_eq!(yalain_world::ai::harm_noticed(&t, 122, 10_000), 10_000);
     }
+
+    /// What the picking-up behavior picks up moves as its clip on its user's body ends, which
+    /// differs by race: a human's 1.792 s, a Lugian's 1.458, a Tumerok's 1.875. A transmute's items
+    /// turn into money then, and a take-all's come into the pack (2017, from the behavior to the
+    /// answer with neither jump nor attack meanwhile: transmutes 1.78, 1.49 and 1.88 s; take-alls
+    /// 1.81, 1.56 and 1.89 s).
+    /// Behaviour: server.inventory.transmute-waits-for-its-behavior
+    #[test]
+    fn transmutes_and_take_alls_wait_for_the_picking_up_clip_on_their_users_body() {
+        use auberean_protocol::types::VisualDesc;
+        use yalain_world::graph::{tag, Builder, Slot};
+        use yalain_world::things::{Corpse, Kind, Thing};
+        use yalain_world::{inventory, pack};
+        #[allow(clippy::cast_possible_truncation)]
+        let long = |v: u64| {
+            [
+                Slot::Tagged(tag::LONG, v as u32),
+                Slot::Tagged(tag::HIGH, (v >> 32) as u32),
+            ]
+        };
+        let p = Portal::open();
+        for take_all in [false, true] {
+            for (look, clip) in [
+                (HUMAN_MALE, 1.791_67),
+                (HUMAN_FEMALE, 1.791_67),
+                (LUGIAN_MALE, 1.458_33),
+                (TUMEROK_MALE, 1.875),
+            ] {
+                let mut h = yalain_testkit::Harness::new();
+                h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+                h.server.catalog = yalain_testkit::test_catalog();
+                let (b, me) = h.player_in_world("one", "Elara");
+                let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+                h.server.players.get_mut(&world).expect("in").look = VisualDesc {
+                    bits: VisualDesc::PARENT,
+                    parent: look,
+                    ..VisualDesc::default()
+                };
+                let t = h
+                    .server
+                    .catalog
+                    .get(yalain_testkit::TEST_ITEM)
+                    .cloned()
+                    .expect("template");
+                let id = h.server.things.new_id();
+                let mut corpse = Thing::of(id, &t, Kind::Corpse);
+                corpse.at = Some(h.server.players[&world].position);
+                let item = inventory::make_item(&mut h.server, yalain_testkit::TEST_ITEM, 1, 0)
+                    .expect("made");
+                let it = h.server.things.get_mut(item).expect("item");
+                it.container = Some(id);
+                it.value = 5;
+                corpse.corpse = Some(Corpse {
+                    killer: me,
+                    contents: vec![item],
+                    killer_level: 1,
+                    expires: 1.0e12,
+                    ..Default::default()
+                });
+                h.server.things.insert(corpse);
+                inventory::open(&mut h.server, &mut h.net, world, id);
+                h.run(2);
+                let mut g = Builder::new();
+                let (ask, done) = if take_all {
+                    let mut slots = vec![Slot::Int(0), Slot::Int(0), Slot::Int(1)];
+                    slots.extend([Slot::Int(0), Slot::Int(0), Slot::Int(0)]);
+                    slots.extend(long(id));
+                    slots.extend([Slot::Ref(None), Slot::Int(0), Slot::Int(0), Slot::Ref(None)]);
+                    slots.extend(long(me));
+                    g.object(pack::TAKE_ALL_DESC, &slots);
+                    (pack::function::TAKE_ALL, pack::function::TAKE_ALL_DONE)
+                } else {
+                    g.object(
+                        inventory::TRANSMUTE_DESC,
+                        &[
+                            Slot::Int(0),
+                            Slot::Int(0),
+                            Slot::Ref(None),
+                            Slot::Int(1),
+                            Slot::Int(0),
+                            Slot::Int(0),
+                            Slot::Int(0),
+                            Slot::Int(0),
+                            Slot::Long(id),
+                            Slot::Ref(None),
+                            Slot::Int(0),
+                            Slot::Int(0),
+                            Slot::Long(me),
+                        ],
+                    );
+                    (
+                        inventory::function::TRANSMUTE_ALL,
+                        inventory::function::TRANSMUTE_ALL_DONE,
+                    )
+                };
+                let from = h.bots[b].inbox.len();
+                let answered =
+                    |h: &yalain_testkit::Harness| h.calls(b, from).iter().any(|(f, _)| *f == done);
+                h.bots[b].send(
+                    true,
+                    auberean_protocol::queue::WEENIE,
+                    &yalain_testkit::play::server_call(
+                        ask,
+                        &[auberean_script::args::Arg::Object(g.graph())],
+                    ),
+                );
+                h.step();
+                let asked = h.now.0;
+                while !answered(&h) {
+                    assert!(h.now.0 < asked + 3.0, "{look:08X}: answered");
+                    h.step();
+                }
+                let took = h.now.0 - asked;
+                // Seen by the client within the world's next step after.
+                assert!(
+                    took >= clip && took < clip + 0.2,
+                    "{look:08X}, take-all {take_all}: {took:.2} s, its clip {clip}"
+                );
+            }
+        }
+    }
 }
 
 /// The skills whose definitions cost focus read with their lines, from rating 1 to the skill's

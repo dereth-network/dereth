@@ -87,9 +87,19 @@ pub const TAKE_ALL_DESC_SLOTS: usize = 14;
 pub const TAKING: u32 = 0x4100_0020;
 pub const TAKE_ALL_SCRIPT: u32 = 0x5700_0008;
 
-/// How long after the picking-up behavior the items come into the pack, in seconds (2017: the
-/// median of 142 take-alls, from the behavior to the first item's move).
-pub const TAKE_ALL_SECONDS: f64 = 1.72;
+/// How long the picking-up behavior plays before what it picks up moves, in seconds, where the
+/// install doesn't time the player's body: a human's clip, 1.79 s.
+pub const PICK_UP_SECONDS: f64 = 1.79;
+
+/// How long the picking-up behavior plays on a player's body before what it picks up moves: the
+/// clip's length (2017, from the behavior to the answer of take-alls with neither jump nor attack
+/// meanwhile: humans 1.81 s, Lugians 1.56, Tumerok 1.89, 73 take-alls, 96% within 0.15 s of the
+/// clip's end; the clips are 1.792, 1.458 and 1.875 s), else [`PICK_UP_SECONDS`].
+#[must_use]
+pub fn pick_up_seconds<S: Store>(s: &Server<S>, world: ConnId) -> f64 {
+    crate::timings::of_players_body(s, world, TAKING)
+        .map_or(PICK_UP_SECONDS, |t| f64::from(t.period))
+}
 
 fn reorganize_done(m: &Move) -> ServerMessage {
     session::call(function::REORGANIZE_DONE, &[move_graph(m)]).expect("a move packs")
@@ -670,7 +680,8 @@ pub fn take_all_done(
 
 /// A player asks to take everything out of a container: refused unless it has the container open
 /// and nothing else under way; else it plays its picking-up behavior, and the rest when that is
-/// through.
+/// through ([`pick_up_seconds`]), when a jump or an attack cuts it short, or at once when the
+/// player is in the air (2017: 11 of 11 asked within a jump's time of one).
 pub fn take_all<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -701,6 +712,43 @@ pub fn take_all<S: Store>(
         progress::private(net, world, &done);
         return;
     }
+    play_taking(s, net, world);
+    let aloft = s
+        .players
+        .get(&world)
+        .is_some_and(|p| crate::airborne::in_the_air(p, clock.local.0));
+    if aloft {
+        took_all(s, net, world, container, clock);
+        return;
+    }
+    let seconds = pick_up_seconds(s, world);
+    s.after(clock, seconds, Timer::TakeAll { world, container });
+}
+
+/// A take-all under way is cut short by its player's jump or attack: everything is taken then
+/// (2017: 1 jump and 57 attacks).
+pub fn take_all_cut_short<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let Some(i) = s
+        .timers
+        .iter()
+        .position(|(_, t)| matches!(t, Timer::TakeAll { world: w, .. } if *w == world))
+    else {
+        return;
+    };
+    let (_, timer) = s.timers.remove(i);
+    if let Timer::TakeAll { container, .. } = timer {
+        took_all(s, net, world, container, clock);
+    }
+}
+
+/// A player plays its picking-up behavior with the effect script of taking everything, for all
+/// who see it: as it takes everything from a container, or turns it into money.
+pub(crate) fn play_taking<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {
@@ -726,8 +774,8 @@ pub fn take_all<S: Store>(
         },
         action: b,
     });
+    let player = p.character;
     crate::combat::to_all_seeing(s, net, player, &behave);
-    s.after(clock, TAKE_ALL_SECONDS, Timer::TakeAll { world, container });
 }
 
 /// The picking-up behavior is through: each item of the container comes into the pack in the

@@ -731,7 +731,7 @@ fn taking_all_from_an_open_corpse_brings_every_item_into_the_pack_in_its_order()
         "a second refused at once"
     );
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    h.run((pack::TAKE_ALL_SECONDS / STEP).ceil() as usize);
+    h.run((pack::PICK_UP_SECONDS / STEP).ceil() as usize);
     let moves = answers(&h, b, from);
     assert_eq!(moves.len(), 2, "each item answered");
     for m in &moves {
@@ -873,7 +873,7 @@ fn took_with_errors(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, Vec<u6
 fn take_all_through(h: &mut Harness, b: usize, me: u64, corpse: u64) {
     h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    h.run((pack::TAKE_ALL_SECONDS / STEP).ceil() as usize + 2);
+    h.run((pack::PICK_UP_SECONDS / STEP).ceil() as usize + 2);
 }
 
 /// A take-all takes no item whose quest keeps its taking from the player, as a single take would
@@ -1503,7 +1503,7 @@ fn taking_all_from_a_corpse_closed_before_it_comes_due_takes_nothing() {
     h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
     inventory::close(&mut h.server, &mut h.net, world, corpse);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    h.run((pack::TAKE_ALL_SECONDS / STEP).ceil() as usize + 2);
+    h.run((pack::PICK_UP_SECONDS / STEP).ceil() as usize + 2);
     let moves = answers(&h, b, from);
     assert_eq!(
         moves.iter().map(|m| m[40].1).collect::<Vec<_>>(),
@@ -1603,4 +1603,245 @@ fn turning_into_money_a_corpse_not_open_turns_nothing() {
             .map(|c| c.contents.clone()),
         Some(items)
     );
+}
+
+/// The client's request to turn `corpse`'s items into money, as the 2017 clients sent it.
+fn transmute_request(corpse: u64, me: u64) -> Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut g = Builder::new();
+    g.object(
+        inventory::TRANSMUTE_DESC,
+        &[
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(1),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Long(corpse),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Long(me),
+        ],
+    );
+    Arg::Object(g.graph())
+}
+
+/// Each transmute answered since `from`: its error, status and money earned.
+fn transmuted(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, u32)> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == inventory::function::TRANSMUTE_ALL_DONE)
+        .map(|(_, v)| match v.first().and_then(Value::root) {
+            Some(Node::Script { slots, .. }) => (slots[0].1, slots[7].1, slots[4].1),
+            _ => panic!("an answer object"),
+        })
+        .collect()
+}
+
+/// A corpse of two items worth 5 each, opened by a player; the harness, the player's bot, its
+/// character, its connection and the corpse.
+fn worth_ten() -> (Harness, usize, u64, ConnId, u64) {
+    let (mut h, b, me, world) = player();
+    let (corpse, items) = opened_corpse(&mut h, world, me, 2);
+    for i in &items {
+        h.server.things.get_mut(*i).expect("item").value = 5;
+    }
+    (h, b, me, world, corpse)
+}
+
+/// Ask to turn the corpse into money, and let what is answered at once arrive.
+fn ask_transmute(h: &mut Harness, b: usize, me: u64, corpse: u64) {
+    h.ask(
+        b,
+        inventory::function::TRANSMUTE_ALL,
+        &[transmute_request(corpse, me)],
+        3,
+    );
+}
+
+/// Step past a transmute's picking-up behavior.
+fn through(h: &mut Harness) {
+    let t = h.now.0 + pack::PICK_UP_SECONDS + 0.2;
+    while h.now.0 < t {
+        h.step();
+    }
+}
+
+/// The client reports its player where it stands, jumping upward at 6.26 m/s.
+fn jumps(h: &mut Harness, b: usize, world: ConnId) {
+    use auberean_primitives::Vec3;
+    use auberean_protocol::physics::position_flags;
+    use auberean_protocol::ClientMessage;
+    let p = &h.server.players[&world];
+    let at = p.position;
+    let mut m = yalain_testkit::play::report(
+        at.cell,
+        Vec3::new(at.origin[0], at.origin[1], at.origin[2]),
+        0,
+        yalain_world::world::IDLE_MOTION,
+        p.teleport_stamp,
+    );
+    if let ClientMessage::Position(c) = &mut m {
+        c.flags |= position_flags::JUMP;
+        c.jump_velocity = Vec3::new(0.0, 0.0, 6.26);
+    }
+    h.bots[b].send(true, auberean_protocol::queue::WEENIE, &m);
+}
+
+/// A corpse turned into money plays the player's picking-up behavior first, and its items turn
+/// into money when that is through (where the install doesn't time the body, a human's 1.79 s),
+/// not before.
+/// Behaviour: server.inventory.transmute-waits-for-its-behavior
+#[test]
+fn turning_a_corpse_into_money_waits_for_the_picking_up_behavior() {
+    let (mut h, b, me, _, corpse) = worth_ten();
+    let from = h.bots[b].inbox.len();
+    let asked = h.now.0;
+    ask_transmute(&mut h, b, me, corpse);
+    assert!(
+        h.world_messages(b, from).iter().any(|m| matches!(
+            m,
+            ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == pack::TAKING
+        )),
+        "the picking-up behavior"
+    );
+    while h.now.0 < asked + pack::PICK_UP_SECONDS - 0.1 {
+        h.step();
+        assert!(
+            transmuted(&h, b, from).is_empty(),
+            "not before it is through"
+        );
+    }
+    through(&mut h);
+    assert_eq!(
+        transmuted(&h, b, from),
+        [(0, 0, 10)],
+        "then turned into money"
+    );
+}
+
+/// A jump cuts a transmute under way short, and its items turn into money then; one asked in the
+/// air turns them at once.
+/// Behaviour: server.inventory.transmute-cut-short
+#[test]
+fn a_jump_turns_a_corpse_into_money_at_once() {
+    let (mut h, b, me, world, corpse) = worth_ten();
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    h.run(4);
+    assert!(transmuted(&h, b, from).is_empty(), "under way");
+    jumps(&mut h, b, world);
+    h.run(3);
+    assert_eq!(transmuted(&h, b, from), [(0, 0, 10)], "at the jump");
+
+    let (mut h, b, me, world, corpse) = worth_ten();
+    jumps(&mut h, b, world);
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    assert_eq!(transmuted(&h, b, from), [(0, 0, 10)], "in the air");
+}
+
+/// An attack asked while a transmute is under way cuts it short: its items turn into money then.
+/// Behaviour: server.inventory.transmute-cut-short
+#[test]
+fn an_attack_turns_a_corpse_into_money_at_once() {
+    let (mut h, b, me, _, corpse) = worth_ten();
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    h.run(4);
+    assert!(transmuted(&h, b, from).is_empty(), "under way");
+    h.ask(
+        b,
+        yalain_world::skill_use::function::USE,
+        &[Arg::Int(1), Arg::Int(0), Arg::LongInt(me)],
+        3,
+    );
+    assert_eq!(transmuted(&h, b, from), [(0, 0, 10)], "at the attack");
+}
+
+/// A second transmute asked while the first is under way is refused as busy (1029) at once,
+/// naming neither list; the first goes on and is answered when it is through.
+/// Behaviour: server.inventory.transmute-refused-while-busy
+#[test]
+fn a_second_transmute_while_the_first_is_under_way_is_refused_as_busy() {
+    let (mut h, b, me, _, corpse) = worth_ten();
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    h.run(4);
+    ask_transmute(&mut h, b, me, corpse);
+    assert_eq!(
+        transmuted(&h, b, from),
+        [(0, status::ACTIONS_LOCKED, 0)],
+        "refused at once"
+    );
+    through(&mut h);
+    assert_eq!(
+        transmuted(&h, b, from),
+        [(0, status::ACTIONS_LOCKED, 0), (0, 0, 10)],
+        "the first through"
+    );
+}
+
+/// A corpse closed before its transmute comes due turns nothing: each item's move refused as not
+/// open (1052), then the answer refused so, then the pack's contents.
+/// Behaviour: server.inventory.transmute-needs-the-corpse-open
+#[test]
+fn a_corpse_closed_before_its_transmute_comes_due_turns_nothing() {
+    let (mut h, b, me, world, corpse) = worth_ten();
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    h.run(4);
+    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    through(&mut h);
+    assert_eq!(
+        answers(&h, b, from)
+            .iter()
+            .map(|m| m[40].1)
+            .collect::<Vec<_>>(),
+        [status::NOT_VIEWER; 2],
+        "each item refused"
+    );
+    assert_eq!(
+        transmuted(&h, b, from),
+        [(status::NOT_VIEWER, status::NOT_VIEWER, 0)],
+        "refused as not open"
+    );
+    let calls: Vec<u32> = h.calls(b, from).into_iter().map(|(f, _)| f).collect();
+    let answer = calls
+        .iter()
+        .position(|f| *f == inventory::function::TRANSMUTE_ALL_DONE)
+        .expect("answered");
+    assert_eq!(
+        calls.get(answer + 1),
+        Some(&inventory::function::RESET_CONTENTS),
+        "then the pack: {calls:08X?}"
+    );
+}
+
+/// A take-all under way is cut short by a jump: everything is taken then; one asked in the air
+/// takes it at once.
+/// Behaviour: server.inventory.transmute-cut-short
+#[test]
+fn a_jump_takes_everything_from_a_corpse_at_once() {
+    let (mut h, b, me, world) = player();
+    let (corpse, _) = opened_corpse(&mut h, world, me, 2);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
+    assert!(took(&h, b, from).is_empty(), "under way");
+    jumps(&mut h, b, world);
+    h.run(3);
+    assert_eq!(took(&h, b, from), [(0, 2, 0)], "at the jump");
+
+    let (mut h, b, me, world) = player();
+    let (corpse, _) = opened_corpse(&mut h, world, me, 2);
+    jumps(&mut h, b, world);
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 3);
+    assert_eq!(took(&h, b, from), [(0, 2, 0)], "in the air");
 }

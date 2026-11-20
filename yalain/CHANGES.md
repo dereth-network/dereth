@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Spellbinding an item with nothing it can take now says why.
+- Transmute All now waits for your pick-up animation, unless you jump or attack.
 - Examining signs, doors, lifestones and shrines now shows their names and descriptions.
 - Recalls now take as long as each race's own animation.
 - Consignments are now limited at each broker: three a player, seven an account.
