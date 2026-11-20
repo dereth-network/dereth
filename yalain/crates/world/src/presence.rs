@@ -7,9 +7,11 @@
 //! once the client has drawn its scene. An object is made for it each time it comes into view,
 //! players both ways: a client never draws an object made in an interior cell it does not hold,
 //! so nothing is made there before the player's cell sees it. The server keeps telling a client
-//! of an object it was told of while the object stays in the player's landblock (indoors) or
-//! within three land cells (outdoors). Nothing is sent as an object leaves that: the client lets
-//! it go itself; the server only stops telling it of the object. An object leaving the world is
+//! of an object it was told of while the object stays in the player's landblock (indoors) or, both
+//! outdoors, in its landblock or one beside it (2017: of 1,683,310 places of others told a client
+//! outdoors, 97% were within three land cells and 99.9% within the landblocks beside its player's,
+//! as far as fifteen cells; what it says reaches as far). Nothing is sent as an object leaves that:
+//! the client lets it go itself; the server only stops telling it of the object. An object leaving the world is
 //! sent away: a player that leaves is seen to leave by every client that holds it.
 //!
 //! **Movement.** A player's place, its head turns and what it looks at reach every client whose
@@ -43,7 +45,7 @@ pub const fn indoors(cell: u32) -> bool {
     cell & 0xFFFF >= FIRST_INTERIOR_CELL
 }
 
-/// How far the view reaches outdoors, in land cells each way.
+/// How far from its player an object is made for a client outdoors, in land cells each way.
 pub const VIEW_CELLS: i64 = 3;
 
 /// A land cell's side, in meters.
@@ -59,11 +61,24 @@ pub fn land_cell(cell: u32, origin: [f32; 3]) -> (i64, i64) {
     (at(cell >> 24, origin[0]), at(cell >> 16 & 0xFF, origin[1]))
 }
 
-/// Is an object at a place near enough to a player at another for its client to be told of it:
-/// in one landblock when either is indoors, within three land cells outdoors? An object the
-/// client was told of is kept while this holds; [`in_sight`] decides when it is made.
+/// Does a client keep an object it was told of at a place, its player at another: in one landblock
+/// when either is indoors, both outdoors in the player's landblock or one beside it? Every client
+/// that keeps an object is told of its movements and its sayings; [`in_sight`] decides when it is
+/// made.
 #[must_use]
-pub fn in_view(viewer: &StoredPosition, cell: u32, origin: [f32; 3]) -> bool {
+pub fn in_view(viewer: &StoredPosition, cell: u32, _origin: [f32; 3]) -> bool {
+    if indoors(viewer.cell) || indoors(cell) {
+        return viewer.cell >> 16 == cell >> 16;
+    }
+    let block = |c: u32| (i64::from(c >> 24), i64::from(c >> 16 & 0xFF));
+    let ((ax, ay), (bx, by)) = (block(viewer.cell), block(cell));
+    (ax - bx).abs() <= 1 && (ay - by).abs() <= 1
+}
+
+/// Is an object at a place near enough to a player at another to be made for its client: in one
+/// landblock when either is indoors, within three land cells outdoors?
+#[must_use]
+pub fn in_reach_to_make(viewer: &StoredPosition, cell: u32, origin: [f32; 3]) -> bool {
     if indoors(viewer.cell) || indoors(cell) {
         return viewer.cell >> 16 == cell >> 16;
     }
@@ -73,7 +88,7 @@ pub fn in_view(viewer: &StoredPosition, cell: u32, origin: [f32; 3]) -> bool {
 }
 
 /// May an object at a place (a player, an object of the world, a thing the world has made) be
-/// made for a player now? As [`in_view`], except that indoors it is made only once the player's
+/// made for a player now? As [`in_reach_to_make`], except that indoors it is made only once the player's
 /// client holds its cell: the player's own cell, or (its scene drawn) a cell its own cell sees,
 /// when the host knows what each cell sees (else any cell of the place, once the scene is drawn).
 /// An object made in an interior cell the client has not loaded is never drawn by it (selectable,
@@ -86,7 +101,7 @@ pub fn in_sight(
     cell: u32,
     origin: [f32; 3],
 ) -> bool {
-    if !in_view(&viewer.position, cell, origin) {
+    if !in_reach_to_make(&viewer.position, cell, origin) {
         return false;
     }
     if !indoors(cell) || cell == viewer.position.cell {

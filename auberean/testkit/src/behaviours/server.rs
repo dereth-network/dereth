@@ -1354,6 +1354,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.say-reaches-the-landblocks-beside",
+        says: "Outdoors a client keeps an object it was made, and is told its movements and sayings, \
+               while the object is in its player's landblock or one beside it, though objects are made \
+               only within three land cells; two landblocks off it is let go and hears nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIEW-KEEP"),
+        station: "yalain-testkit::cpu::entry::chat::outdoors_a_saying_reaches_as_far_as_the_landblocks_beside_the_hearers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.speaker-note-as-recorded",
         says: "The note a world attaches to a line it says is what the recorded clients attach: \
                its version, a zero word, its flags and the speaker's meta letters, in each of the \

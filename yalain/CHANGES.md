@@ -38,6 +38,7 @@ what they see, not how it was done.
 - A camp's period now runs from when the dead creature's body leaves, as in retail.
 - Fixed the admin teleport to map coordinates landing in the wrong place.
 - Effects that raise or lower the heals you receive now work.
+- Outdoors, players and creatures stay in view, and in earshot, as far as the next landblock.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

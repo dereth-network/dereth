@@ -91,6 +91,54 @@ fn a_saying_reaches_the_speaker_and_the_players_within_hearing() {
     assert_eq!(words, sent.args, "the words as the client sent them");
 }
 
+/// Outdoors a saying reaches every client that still keeps the speaker: one made within three land
+/// cells keeps it, and hears it, as far as the landblock beside its own (here fifteen cells, 300 m,
+/// off), and neither once the speaker's landblock is two away.
+/// Behaviour: server.chat.say-reaches-the-landblocks-beside
+#[test]
+fn outdoors_a_saying_reaches_as_far_as_the_landblocks_beside_the_hearers() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let conn = |h: &Harness, id: u64| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == id)
+            .expect("in the world")
+            .0
+    };
+    let place = |h: &mut Harness, id: u64, cell: u32, x: f32, y: f32| {
+        let w = conn(h, id);
+        let p = h.server.players.get_mut(&w).expect("in");
+        p.position.cell = cell;
+        p.position.origin = [x, y, 130.0];
+        yalain_world::presence::refresh(&mut h.server, &mut h.net, w);
+    };
+    place(&mut h, ida, 0x75B9_0001, 10.0, 10.0);
+    place(&mut h, idb, 0x75B9_0002, 10.0, 30.0);
+    h.run(5);
+    let knows = |h: &Harness| h.server.players[&conn(h, idb)].known.contains_key(&ida);
+    assert!(knows(&h), "made within three land cells");
+    let say = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal("Well met.")]),
+        );
+        h.run(30);
+        heard(h, b, from, ida)
+    };
+    place(&mut h, idb, 0x76B9_0039, 150.0, 10.0);
+    assert!(knows(&h), "kept in the landblock beside");
+    assert_eq!(say(&mut h), 1, "heard fifteen cells off");
+    place(&mut h, idb, 0x77B9_0001, 10.0, 10.0);
+    assert!(!knows(&h), "let go two landblocks off");
+    assert_eq!(say(&mut h), 0, "not heard there");
+}
+
 fn calls_of(h: &Harness, b: usize, from: usize, f: u32) -> Vec<Vec<Value>> {
     h.world_messages(b, from)
         .into_iter()
