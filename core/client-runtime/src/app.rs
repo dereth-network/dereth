@@ -1565,8 +1565,9 @@ fn nav_portals(
 }
 
 /// The world's objects as `--nav-proof` obstacles: every door, open when its body is ethereal,
-/// every other solid body, and every creature (which the driver keeps only while it stands or
-/// ambles near the route).
+/// every portal (which the driver keeps off unless the walk starts or ends at it), every other
+/// solid body, and every creature (which the driver keeps only while it stands or ambles near the
+/// route).
 fn nav_obstacles(
     world: &dereth_client_model::world::World,
     character: &crate::character::Character,
@@ -1574,6 +1575,8 @@ fn nav_obstacles(
     use dereth_navigation::{Obstacle, ObstacleKind};
     /// `ObjectDescriptionFlag` bit 12: the object is a door.
     const DOOR: u32 = 0x0000_1000;
+    /// `ObjectDescriptionFlag` bit 18: the object is a portal.
+    const PORTAL: u32 = 0x0004_0000;
     let mut out = Vec::new();
     for (id, _) in world.tables.physics.iter() {
         if world.player == Some(id) {
@@ -1589,11 +1592,14 @@ fn nav_obstacles(
         };
         let creature = w.pwd.obj_type & dereth_rules::weenie::item_type::CREATURE != 0;
         let door = w.pwd.bitfield & DOOR != 0;
+        let portal = w.pwd.bitfield & PORTAL != 0;
         let open = o.state.is_ethereal();
-        if open && !door {
+        if open && !door && !portal {
             continue;
         }
-        let kind = if creature {
+        let kind = if portal {
+            ObstacleKind::Portal
+        } else if creature {
             ObstacleKind::Creature
         } else if door {
             ObstacleKind::Door(crate::travel::door_state(open, w.pwd.useability))

@@ -1049,6 +1049,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-walk-keeps-off-a-portal-it-is-not-taking",
+        says: "A walk keeps off every portal in sight that it is not taking, a metre further than \
+               a solid object of the same size, and plans round one that comes in sight by its \
+               way; a portal the body stands at, or one a walk of the journey goes to, is no \
+               obstacle.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PORTAL-ON-THE-WAY"),
+        station: "dereth-client-runtime::lib::travel::tests::a_walk_keeps_off_a_portal_it_is_not_taking_and_not_one_it_starts_or_ends_at",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-walk-meeting-a-closed-door-opens-it-at-once",
         says: "A walk whose route passes a closed door uses the door as soon as it is within \
                1.5 meters of the door's place on its level, also where the route's point before \

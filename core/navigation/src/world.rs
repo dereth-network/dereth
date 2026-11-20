@@ -91,7 +91,17 @@ pub enum ObstacleKind {
     /// A creature standing or ambling about: the route goes round it where it can, and through
     /// where it cannot, since the creature will move.
     Creature,
+    /// A portal the walk is not taking: never passed, and kept [`PORTAL_CLEARANCE`] metres further
+    /// off than a solid object, since touching it takes the body away.
+    Portal,
 }
+
+/// How much further than a solid object's a portal the walk is not taking is kept off, metres:
+/// room for the body's steering to swing without touching it.
+pub const PORTAL_CLEARANCE: f32 = 1.0;
+
+/// How far a portal whose body has no collision shapes is kept off, metres from its place.
+const PORTAL_BODY: f32 = 1.0;
 
 /// An object that is not baked into the world: a door, a chest, a creature, anything the server
 /// places.
@@ -660,7 +670,9 @@ impl<S: NavSource> NavWorld<S> {
             }
             let gate = match o.kind {
                 ObstacleKind::Door(DoorState::Open) => continue,
-                ObstacleKind::Solid | ObstacleKind::Door(DoorState::Locked) => Gate::Blocked,
+                ObstacleKind::Solid
+                | ObstacleKind::Door(DoorState::Locked)
+                | ObstacleKind::Portal => Gate::Blocked,
                 ObstacleKind::Creature => Gate::Penalty(self.config.creature_cost),
                 ObstacleKind::Door(DoorState::Closed | DoorState::Unknown) => {
                     let idx = u16::try_from(ids.len()).unwrap_or(u16::MAX);
@@ -670,7 +682,22 @@ impl<S: NavSource> NavWorld<S> {
             };
             let mut frame = o.position.frame;
             frame.origin = region.to_region(&o.position);
-            let shapes: Vec<Shape> = object_shapes(&o.setup, &frame, o.scale, FLOOR_Z, |_| {});
+            let mut shapes: Vec<Shape> = object_shapes(&o.setup, &frame, o.scale, FLOOR_Z, |_| {});
+            let clear = if o.kind == ObstacleKind::Portal {
+                if shapes.is_empty() {
+                    shapes.push(Shape::Sphere {
+                        center: Vec3::new(
+                            frame.origin.x,
+                            frame.origin.y,
+                            frame.origin.z + PORTAL_BODY,
+                        ),
+                        radius: PORTAL_BODY,
+                    });
+                }
+                clear + PORTAL_CLEARANCE
+            } else {
+                clear
+            };
             for shape in &shapes {
                 let (min, max) = shape.bounds();
                 let x0 = floor_to_i32((min.x - clear) / s);

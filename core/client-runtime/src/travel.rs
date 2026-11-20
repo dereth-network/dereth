@@ -595,6 +595,10 @@ const UNWALKABLE: &str = "no walk reaches";
 /// The most portals one trip learns no walk reaches before it gives up.
 const MAX_UNWALKABLE: usize = 4;
 
+/// How near a portal the body stands, or a walk ends, metres, for the walk not to keep off it: the
+/// body did not go through it (it was refused, or not touched), or the walk goes to it.
+const PORTAL_KEPT_NEAR: f32 = 6.0;
+
 /// What a journey fails with when its walk has no route and a door on the way would not open.
 const DOOR_SHUT: &str = "door_shut";
 
@@ -1249,6 +1253,9 @@ pub struct Travel {
     obstacles: Vec<WorldObstacle>,
     /// Every creature seen this frame, for the log.
     creatures_seen: Vec<(String, Vec3)>,
+    /// Where the body last stood, as the objects were last set: a portal it stands at is not kept
+    /// off.
+    body_at: Option<Position>,
     /// Where each creature was, and when, to tell standing from running.
     creature_track: HashMap<u32, (Vec3, f64, f32)>,
     now: f64,
@@ -1304,6 +1311,7 @@ impl Travel {
             magic_since: None,
             obstacles: Vec::new(),
             creatures_seen: Vec::new(),
+            body_at: None,
             creature_track: HashMap::new(),
             now: 0.0,
             wall: 0.0,
@@ -1455,19 +1463,64 @@ impl Travel {
 
     /// Hand the planning the objects in the world, when they have changed since it was last
     /// handed them.
+    /// Whether the walk keeps off `o`: anything but a portal, and a portal only where neither the
+    /// body (where it stood as the objects were last set) nor where a walk of the journey goes is
+    /// within [`PORTAL_KEPT_NEAR`] of it. A portal the journey takes, or one the body stands at,
+    /// is no obstacle.
+    fn kept_off(&self, o: &WorldObstacle) -> bool {
+        if o.obstacle.kind != ObstacleKind::Portal {
+            return true;
+        }
+        let q = global(&o.obstacle.position);
+        let near = |p: &Position| {
+            let g = global(p);
+            hypotf(g.x - q.x, g.y - q.y) < PORTAL_KEPT_NEAR && (g.z - q.z).abs() < 3.0
+        };
+        if self.body_at.as_ref().is_some_and(near) {
+            return false;
+        }
+        let Some(t) = self.trip.as_ref() else {
+            return true;
+        };
+        let approach = match &t.step {
+            Some(Step::Approach { portal }) => Some(*portal),
+            _ => None,
+        };
+        let taken = t
+            .journey
+            .iter()
+            .flat_map(|j| &j.legs)
+            .filter_map(|l| match l {
+                Leg::Portal { edge } => Some(edge.from),
+                _ => None,
+            });
+        !t.walking
+            .map(|(_, to)| to)
+            .into_iter()
+            .chain(t.goal)
+            .chain(approach)
+            .chain(taken)
+            .any(|p| near(&p))
+    }
+
     fn send_obstacles(&mut self) {
+        let kept: Vec<Obstacle> = self
+            .obstacles
+            .iter()
+            .filter(|o| self.kept_off(o))
+            .map(|o| o.obstacle.clone())
+            .collect();
         let Some(planning) = self.planning.as_mut() else {
             return;
         };
-        let now: Vec<(u32, ObstacleKind, u32, [i32; 3])> = self
-            .obstacles
+        let now: Vec<(u32, ObstacleKind, u32, [i32; 3])> = kept
             .iter()
             .map(|o| {
-                let v = o.obstacle.position.frame.origin;
+                let v = o.position.frame.origin;
                 (
-                    o.obstacle.id.0,
-                    o.obstacle.kind,
-                    o.obstacle.position.cell.0,
+                    o.id.0,
+                    o.kind,
+                    o.position.cell.0,
                     [to_i32(v.x * 4.0), to_i32(v.y * 4.0), to_i32(v.z * 4.0)],
                 )
             })
@@ -1476,9 +1529,7 @@ impl Travel {
             return;
         }
         self.obstacles_sent = now;
-        planning.ask(Job::Obstacles(
-            self.obstacles.iter().map(|o| o.obstacle.clone()).collect(),
-        ));
+        planning.ask(Job::Obstacles(kept));
     }
 
     fn store_path(&self, name: &str) -> Option<PathBuf> {
@@ -1662,6 +1713,9 @@ impl Travel {
     /// within reach of the body at `at`.
     pub fn set_obstacles(&mut self, list: Vec<WorldObstacle>, at: Option<&Position>) {
         let now = self.now;
+        if at.is_some() {
+            self.body_at = at.copied();
+        }
         let locked = self
             .trip
             .as_ref()
@@ -1718,6 +1772,7 @@ impl Travel {
         self.creature_track = seen.into_iter().collect();
         // A new obstacle in the way of the route ahead, or a door that has closed on it, sends the
         // body round by a new route before it walks into it.
+        let kept_off: Vec<bool> = kept.iter().map(|o| self.kept_off(o)).collect();
         if let Some(t) = self.trip.as_mut().filter(|t| t.route_dirty.is_none()) {
             if let Some(f) = t.follower.as_ref() {
                 let next = f.next_waypoint().saturating_sub(1);
@@ -1729,8 +1784,8 @@ impl Travel {
                     .flatten()
                     .map(global)
                     .collect();
-                for o in &kept {
-                    let blocks = o.obstacle.kind != ObstacleKind::Door(DoorState::Open);
+                for (o, off) in kept.iter().zip(&kept_off) {
+                    let blocks = o.obstacle.kind != ObstacleKind::Door(DoorState::Open) && *off;
                     let known = self.obstacles.iter().any(|k| {
                         k.obstacle.id == o.obstacle.id && k.obstacle.kind == o.obstacle.kind
                     });
@@ -2814,6 +2869,9 @@ impl Travel {
                 _ => None,
             });
         let id = self.job();
+        // The portals the walk keeps off as it starts from here, toward where it goes.
+        self.body_at = Some(*here);
+        self.send_obstacles();
         let Some(planning) = self.planning.as_mut() else {
             self.end(out, Some(here), Some("no_route"));
             return;
@@ -4712,6 +4770,57 @@ mod tests {
                 Ok((through_the_door(), true))
             }
         }
+    }
+
+    /// A walk keeps off the portals it is not taking: of three in sight, the one beside its way is
+    /// handed to the planning as an obstacle; the one the body stands at (it did not take the
+    /// body) and the one the walk goes to are not.
+    ///
+    /// Behaviour: plugins.nav.a-walk-keeps-off-a-portal-it-is-not-taking
+    #[test]
+    fn a_walk_keeps_off_a_portal_it_is_not_taking_and_not_one_it_starts_or_ends_at() {
+        use at_a_door::at;
+        let mut travel = Travel::new(StoreFiles::default());
+        travel.planning = Some(Planning::held());
+        let mut trip = Trip::new(
+            1,
+            Purpose::Go,
+            TravelTarget::Place(at(30.0)),
+            TravelAllow::default(),
+            0.0,
+            0.0,
+        );
+        trip.walking = Some((1, at(30.0)));
+        travel.trip = Some(trip);
+        let portal = |id: u32, x: f32| WorldObstacle {
+            obstacle: Obstacle {
+                id: ObjectId(id),
+                position: at(x),
+                setup: Arc::new(SetupGeometry::default()),
+                scale: 1.0,
+                kind: ObstacleKind::Portal,
+            },
+            name: String::from("Portal"),
+        };
+        let sent = |t: &Travel| match t.planning.as_ref().and_then(Planning::last_asked) {
+            Some(Job::Obstacles(o)) => o.iter().map(|o| o.id.0).collect::<Vec<_>>(),
+            other => panic!("the objects were not handed on: {other:?}"),
+        };
+        travel.set_obstacles(
+            vec![portal(1, 15.0), portal(2, 2.0), portal(3, 31.0)],
+            Some(&at(0.0)),
+        );
+        assert_eq!(sent(&travel), vec![1], "the one beside the way only");
+        // Walked on past the first: the body now stands at it, and it is no longer kept off.
+        travel.set_obstacles(
+            vec![portal(1, 15.0), portal(2, 2.0), portal(3, 31.0)],
+            Some(&at(14.0)),
+        );
+        assert_eq!(
+            sent(&travel),
+            vec![2],
+            "the one left behind is kept off now"
+        );
     }
 
     /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so

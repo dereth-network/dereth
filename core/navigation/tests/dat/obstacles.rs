@@ -397,6 +397,78 @@ fn a_creature_standing_in_the_way_is_walked_round_when_the_route_knows_it() {
     );
 }
 
+/// A portal standing in the middle of a long straight leg on Holtburg's streets, which the walk is
+/// not taking, is walked round with a metre more to spare than a solid post of the same size:
+/// touching it would take the body away.
+#[test]
+fn a_portal_the_walk_is_not_taking_is_walked_round_further_off_than_a_solid() {
+    let mut d = outdoors(0xA9B4, 1);
+    let ground = |d: &Dungeon, x: f32, y: f32| {
+        let z = d
+            .nav
+            .source()
+            .land
+            .ground_height(dereth_primitives::LandblockId(0xA9B4), x, y)
+            .expect("terrain");
+        let mut c = dereth_primitives::CellId(0xA9B4_0001);
+        let mut o = Vec3::new(x, y, z);
+        assert!(dereth_physics::landdefs::adjust_to_outside(&mut c, &mut o));
+        Position::new(c, Frame::new(o, Quat::IDENTITY))
+    };
+    let (from, to) = (ground(&d, 20.0, 20.0), ground(&d, 170.0, 170.0));
+    let route = d.nav.plan(&from, &to).expect("a route");
+    let (a, b) = route
+        .waypoints
+        .windows(2)
+        .map(|w| (w[0].position, w[1].position))
+        .find(|(a, b)| dereth_navigation::global_distance(a, b) > 12.0)
+        .expect("a long straight leg");
+    let (ga, gb) = (dereth_navigation::global(&a), dereth_navigation::global(&b));
+    let middle = ground(
+        &d,
+        (ga.x + gb.x) * 0.5 - f32::from(0xA9_u8) * 192.0,
+        (ga.y + gb.y) * 0.5 - f32::from(0xB4_u8) * 192.0,
+    );
+    // A body a metre round, as a portal's touch reaches.
+    let setup = Arc::new(SetupGeometry {
+        cyl_spheres: vec![CylSphere {
+            low_pt: Vec3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+            height: 2.0,
+        }],
+        ..SetupGeometry::default()
+    });
+    let nearest = |d: &mut Dungeon, kind: ObstacleKind| {
+        let id = ObjectId(0x7A00_0042);
+        d.nav.set_obstacle(Obstacle {
+            id,
+            position: middle,
+            setup: Arc::clone(&setup),
+            scale: 1.0,
+            kind,
+        });
+        let round = d.nav.plan(&a, &b).expect("a way round");
+        d.nav.remove_obstacle(id);
+        let m = dereth_navigation::global(&middle);
+        round
+            .legs
+            .iter()
+            .flatten()
+            .map(|q| {
+                let g = dereth_navigation::global(q);
+                dereth_primitives::num::math::hypotf(g.x - m.x, g.y - m.y)
+            })
+            .fold(f32::MAX, f32::min)
+    };
+    let solid = nearest(&mut d, ObstacleKind::Solid);
+    let portal = nearest(&mut d, ObstacleKind::Portal);
+    assert!(solid > 1.0, "the solid post is walked round: {solid:.2} m");
+    assert!(
+        portal >= solid + 0.75,
+        "the portal is kept a metre further off: {portal:.2} m against {solid:.2} m"
+    );
+}
+
 /// Holtburg's scriveners' shop, upstairs and down, with its twelve people standing where the
 /// world database puts them: cell, place, heading (a rotation about the vertical) and body.
 const SCRIVENERS: [(u32, f32, f32, f32, f32, f32, u32); 12] = [
