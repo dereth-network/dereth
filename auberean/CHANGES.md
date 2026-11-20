@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.10 (2026-11-20)
 - New players now start with the keys the game installed, like X to examine.
 - Windows: the taskbar now names the client Auberean.
 - Fixed buffs showing years left.
