@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.
 - New characters start with classic examination on.
 - Fixed players still following someone after they die.
