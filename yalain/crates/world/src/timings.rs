@@ -222,6 +222,17 @@ pub fn of_player<S: Store>(s: &Server<S>, world: ConnId, behavior: u32) -> Timel
         .unwrap_or_else(unknown)
 }
 
+/// What a player's body itself plays for a behavior, in its combat mode now (not what it holds):
+/// none when the install does not say.
+#[must_use]
+pub fn of_players_body<S: Store>(s: &Server<S>, world: ConnId, behavior: u32) -> Option<Timeline> {
+    let p = s.players.get(&world)?;
+    let mode = crate::skill_use::player_mode(s, p.character);
+    let t = s.timings.as_ref()?;
+    t.timeline(&t.plays_of(&p.look)?.body_only()?, mode, behavior)
+        .filter(|tl| tl.period > 0.0)
+}
+
 /// The look a thing is drawn with: its own, else its template's.
 fn thing_plays<S: Store>(s: &Server<S>, t: &Timings, id: u64) -> Option<Plays> {
     let thing = s.things.get(id)?;

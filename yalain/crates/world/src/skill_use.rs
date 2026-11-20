@@ -211,8 +211,15 @@ pub const STORY_AFTER: f64 = 0.134;
 pub const POWERUP_SCALE: f64 = 1.268;
 /// From a recall's story into portal space, in portal space, and out of it to the use's end
 /// (2017's humans: 2.48, 1.52, 0.18 s); a recall that fails says so 0.70 s after its story and ends
-/// 0.60 s later.
+/// 0.60 s later. The first is where the install doesn't time its user's body ([`recall_to_portal`]).
 pub const RECALL_TO_PORTAL: f64 = 2.48;
+/// A recall to a place its user keeps enters portal space this long after its story's hook, one to
+/// a named place or the allegiance's hall this long after its story's cycle ends (2017: medians of
+/// 0.05 s and 0.06 to 0.07 s, for humans, Lugians and Tumerok alike).
+pub const PORTAL_AFTER_HOOK: f64 = 0.05;
+pub const PORTAL_AFTER_CYCLE: f64 = 0.07;
+/// How much sooner than its cycles a held power-up's story comes (2017: 0.21 to 0.27 s by race).
+pub const POWERUP_LEAD: f64 = 0.23;
 pub const RECALL_IN_PORTAL: f64 = 1.52;
 pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
@@ -749,6 +756,47 @@ pub fn recall_of<S: Store>(s: &Server<S>, skill: u32) -> Option<(Recall, u32)> {
             }) => Some((r.clone(), name.map_or(0, |(_, table)| table))),
             _ => None,
         })
+}
+
+/// How long a skill's power-up runs before its story. A recall's, held for as many cycles as its
+/// definition's seconds, runs that many of the cycles its user's body plays it in, less
+/// [`POWERUP_LEAD`] (2017, 714 recalls of 10: humans' 1.292 s cycles, Lugians' 1.333, Tumerok's
+/// 1.208, each race's story 0.21 to 0.27 s short of ten). Any other, or one the install doesn't
+/// time, its definition's time over [`POWERUP_SCALE`].
+#[must_use]
+pub fn powerup_length<S: Store>(s: &Server<S>, world: ConnId, skill: u32, u: &Usage) -> f64 {
+    let held = u.powerup > 1.0;
+    let cycles = f64::from(dereth_primitives::num::to_i32(u.powerup).max(0));
+    let played = (held && is_recall(s, skill))
+        .then(|| crate::timings::of_players_body(s, world, u.powerup_behavior))
+        .flatten();
+    match played {
+        Some(t) => (cycles * f64::from(t.period) - POWERUP_LEAD).max(0.0),
+        None => f64::from(u.powerup) * POWERUP_SCALE,
+    }
+}
+
+/// How long after its story a recall enters portal space: at its story's hook on its user's body,
+/// for a recall to a place its user keeps, else at the story's cycle's end, over the story's time
+/// scale (2017, 744 recalls: humans 2.39 and 2.62 s, Lugians 0.64 and 1.25, Tumerok 0.70 and 1.39,
+/// as their clips are 2.476 s to the hook of 2.667, 0.636 of 1.25 and 0.699 of 1.417). Where the
+/// install doesn't time it, [`RECALL_TO_PORTAL`].
+#[must_use]
+pub fn recall_to_portal<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    recall: &Recall,
+    behavior: u32,
+    ts: f32,
+) -> f64 {
+    let Some(t) = crate::timings::of_players_body(s, world, behavior) else {
+        return RECALL_TO_PORTAL;
+    };
+    let ts = f64::from(ts.max(0.01));
+    match recall {
+        Recall::Link(_) if !t.hooks.is_empty() => f64::from(t.hook(1)) / ts + PORTAL_AFTER_HOOK,
+        _ => f64::from(t.period) / ts + PORTAL_AFTER_CYCLE,
+    }
 }
 
 /// Is this skill a recall?
@@ -1538,7 +1586,7 @@ pub fn starts<S: Store>(
         to_all_seeing(s, net, me, &order);
     }
     let story_in = if u.powerup > 0.0 {
-        f64::from(u.powerup) * POWERUP_SCALE
+        powerup_length(s, world, r.skill, &u)
     } else {
         STORY_AFTER
     };
@@ -1763,9 +1811,16 @@ pub fn slot<S: Store>(
                 let plays = ServerMessage::PlayBehavior(player_event(p, b));
                 to_all_seeing(s, net, me, &plays);
             }
+            let length = s
+                .players
+                .get(&world)
+                .and_then(|p| p.using.as_ref())
+                .map_or(f64::from(time) * POWERUP_SCALE, |x| {
+                    powerup_length(s, world, x.req.skill, &x.usage)
+                });
             s.after(
                 clock,
-                f64::from(time) * POWERUP_SCALE,
+                length,
                 Timer::Skill {
                     world,
                     serial,
@@ -2364,7 +2419,7 @@ fn story<S: Store>(
     if let Some((recall, _)) = recall_of(s, r.skill) {
         let bound = !recall_places(s, world, &recall).is_empty();
         let wait = if bound {
-            RECALL_TO_PORTAL
+            recall_to_portal(s, world, &recall, behavior, ts)
         } else {
             RECALL_FAILS_AFTER
         };

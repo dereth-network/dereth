@@ -2406,6 +2406,220 @@ mod timings {
         assert!(close(swing.hook(1), 0.7043));
     }
 
+    /// A recall's power-up and its last stretch follow its user's race, as the install's clips
+    /// time them: ten cycles of its body's power-up (a human's 1.292 s, a Lugian's 1.333, a
+    /// Tumerok's 1.208), a little short; then portal space at its story's hook for Lifestone Recall
+    /// (2.476, 0.636, 0.699 s), at its story's end for a city's (2.667, 1.25, 1.417 s), over the
+    /// story's time scale (2017, 744 recalls: power-ups 12.69, 13.07, 11.87 s; last stretches 2.39,
+    /// 0.64, 0.70 and 2.62, 1.25, 1.39 s at time scales near 1.05).
+    /// Behaviour: server.timings.a-recall-follows-its-users-race
+    #[test]
+    fn a_recalls_power_up_and_way_to_portal_space_follow_its_users_race() {
+        use auberean_protocol::types::VisualDesc;
+        use yalain_world::effect_defs::Recall;
+        use yalain_world::skill_use::{
+            powerup_length, recall_to_portal, LIFESTONE_RECALL, PORTAL_AFTER_CYCLE,
+            PORTAL_AFTER_HOOK, POWERUP_LEAD,
+        };
+        const RECALL_STORY: u32 = 0x4100_00D5;
+        let p = Portal::open();
+        let mut h = yalain_testkit::Harness::new();
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        h.server.skill_table = p.skills();
+        let usage = h.server.skill_table.skills[&LIFESTONE_RECALL]
+            .usage
+            .clone()
+            .expect("the recall's use");
+        let states: Vec<u32> = usage
+            .user_effects
+            .iter()
+            .chain(&usage.target_effects)
+            .copied()
+            .collect();
+        h.server.effect_table = p.effects(&states);
+        let (_, me) = h.player_in_world("one", "Elara");
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        let near = |a: f64, b: f64| (a - b).abs() < 0.002;
+        for (look, cycle, hook, end) in [
+            (HUMAN_MALE, 1.291_667, 2.475_835, 2.666_67),
+            (HUMAN_FEMALE, 1.291_667, 2.475_835, 2.666_67),
+            (LUGIAN_MALE, 1.333_333, 0.635_594, 1.25),
+            (TUMEROK_MALE, 1.208_333, 0.698_998, 1.416_67),
+        ] {
+            h.server.players.get_mut(&world).expect("in").look = VisualDesc {
+                bits: VisualDesc::PARENT,
+                parent: look,
+                ..VisualDesc::default()
+            };
+            let up = powerup_length(&h.server, world, LIFESTONE_RECALL, &usage);
+            assert!(near(up, 10.0 * cycle - POWERUP_LEAD), "{look:08X}: {up}");
+            let link = recall_to_portal(&h.server, world, &Recall::Link(0), RECALL_STORY, 1.05);
+            assert!(
+                near(link, hook / 1.05 + PORTAL_AFTER_HOOK),
+                "{look:08X}: {link}"
+            );
+            let named = Recall::Named {
+                names: Vec::new(),
+                told: true,
+            };
+            let city = recall_to_portal(&h.server, world, &named, RECALL_STORY, 1.05);
+            assert!(
+                near(city, end / 1.05 + PORTAL_AFTER_CYCLE),
+                "{look:08X}: {city}"
+            );
+            let hall = recall_to_portal(&h.server, world, &Recall::Allegiance, RECALL_STORY, 1.05);
+            assert!(near(hall, city), "{look:08X}");
+        }
+    }
+
+    /// A Tumerok's Lifestone Recall, used, tells its story ten of its body's power-up cycles after
+    /// it began, less a little (11.85 s, where a human's took 12.69), and enters portal space at its
+    /// story's hook over the story's time scale.
+    /// Behaviour: server.timings.a-recall-follows-its-users-race
+    #[test]
+    fn a_tumeroks_lifestone_recall_tells_its_story_and_leaves_by_its_own_clips() {
+        use auberean_protocol::types::VisualDesc;
+        use auberean_protocol::{queue, ServerMessage};
+        use auberean_script::args::Arg;
+        use yalain_world::skill_use::{LIFESTONE_RECALL, PORTAL_AFTER_HOOK, POWERUP_LEAD};
+        let p = Portal::open();
+        let mut h = yalain_testkit::Harness::new();
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        h.arm(b, me, 0x4700_051C);
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        {
+            let pl = h.server.players.get_mut(&world).expect("in");
+            pl.look = VisualDesc {
+                bits: VisualDesc::PARENT,
+                parent: TUMEROK_MALE,
+                ..VisualDesc::default()
+            };
+            let at = pl.position;
+            pl.places.push((yalain_world::places::kind::LIFESTONE, at));
+        }
+        h.all_hold(LIFESTONE_RECALL);
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                yalain_world::skill_use::function::USE,
+                &[Arg::Int(1), Arg::Int(LIFESTONE_RECALL), Arg::LongInt(0)],
+            ),
+        );
+        let began = h.now.0;
+        let told = |h: &yalain_testkit::Harness| {
+            h.world_messages(b, 0).iter().any(|m| {
+                matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == LIFESTONE_RECALL)
+            })
+        };
+        assert!(h.run_until(2000, |h| told(h)), "its story");
+        let story_at = h.now.0;
+        let up = story_at - began;
+        assert!((up - (10.0 * 1.208_333 - POWERUP_LEAD)).abs() < 0.2, "{up}");
+        let ts = h.server.players[&world]
+            .using
+            .as_ref()
+            .map_or(1.0, |x| f64::from(x.time_scale));
+        assert!(
+            h.run_until(2000, |h| h.server.players[&world].trip.is_some()),
+            "portal space"
+        );
+        let last = h.now.0 - story_at;
+        assert!(
+            (last - (0.698_998 / ts + PORTAL_AFTER_HOOK)).abs() < 0.1,
+            "{last}"
+        );
+    }
+
+    /// A Tumerok's Lifestone Recall asked inside a run of attacks waits for the run's next swing,
+    /// then powers up for ten of its body's power-up cycles, less a little, as one asked at rest.
+    /// Behaviour: server.timings.a-recall-follows-its-users-race
+    #[test]
+    fn a_tumeroks_recall_asked_inside_a_run_powers_up_by_its_own_clips() {
+        use auberean_protocol::types::VisualDesc;
+        use auberean_protocol::{queue, ServerMessage};
+        use auberean_script::args::Arg;
+        use yalain_world::skill_use::{LIFESTONE_RECALL, POWERUP_LEAD};
+        const POWER_UP: u32 = 0x4100_00BF;
+        let p = Portal::open();
+        let mut h = yalain_testkit::Harness::new();
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        h.add_creatures(1);
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+        h.run(10);
+        h.arm(b, me, 0x4700_051C);
+        let beetle = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.template == yalain_testkit::TEST_CREATURE)
+            .map(|t| t.id)
+            .expect("the camp's beetle");
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+        }
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        {
+            let pl = h.server.players.get_mut(&world).expect("in");
+            pl.look = VisualDesc {
+                bits: VisualDesc::PARENT,
+                parent: TUMEROK_MALE,
+                ..VisualDesc::default()
+            };
+            let at = pl.position;
+            pl.places.push((yalain_world::places::kind::LIFESTONE, at));
+        }
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &yalain_testkit::play::server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+        );
+        let swings = |h: &yalain_testkit::Harness| {
+            h.world_messages(b, 0)
+                .iter()
+                .filter(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me))
+                .count()
+        };
+        assert!(h.run_until(4000, |h| swings(h) >= 2), "the run's swings");
+        assert!(h.server.players[&world].attacking.is_some(), "in a run");
+        h.all_hold(LIFESTONE_RECALL);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                yalain_world::skill_use::function::USE,
+                &[Arg::Int(13), Arg::Int(LIFESTONE_RECALL), Arg::LongInt(0)],
+            ),
+        );
+        let powers_up = |h: &yalain_testkit::Harness| {
+            h.world_messages(b, from).iter().any(|m| {
+                matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == POWER_UP)
+            })
+        };
+        assert!(h.run_until(4000, |h| powers_up(h)), "its power-up");
+        let began = h.now.0;
+        let told = |h: &yalain_testkit::Harness| {
+            h.world_messages(b, from).iter().any(|m| {
+                matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == LIFESTONE_RECALL)
+            })
+        };
+        assert!(h.run_until(4000, |h| told(h)), "its story");
+        let up = h.now.0 - began;
+        assert!((up - (10.0 * 1.208_333 - POWERUP_LEAD)).abs() < 0.2, "{up}");
+    }
+
     /// A behavior a body's table has no combination for plays nothing: the server takes a cycle it
     /// knows in its place.
     /// Behaviour: server.timings.blows-land-at-their-clips-hooks

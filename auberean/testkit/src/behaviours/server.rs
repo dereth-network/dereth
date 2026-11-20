@@ -18998,6 +18998,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.timings.a-recall-follows-its-users-race",
+        says: "A recall's power-up lasts its held cycles of its user's body's power-up clip, a \
+               little short, and it enters portal space at its story's hook (a recall to a place its \
+               user keeps) or at its story's end (a named place, the allegiance's hall), over the \
+               story's time scale: so each race's recall takes its own time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECALL-RACE"),
+        station: "yalain-testkit::dat::skills::timings::a_recalls_power_up_and_way_to_portal_space_follow_its_users_race",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.timings.blows-land-at-their-clips-hooks",
         says: "What a body plays for a behavior, in its stance, is its clip's cycle: a story's hook \
                numbered n lands at the clip's n-th story hook over the time scale, or at the \
