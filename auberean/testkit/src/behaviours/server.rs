@@ -13700,6 +13700,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.map-coordinates",
+        says: "Map coordinates name the middle of the land cell there, as the client turns them \
+               into a place: cells 20 m across, eight to a landblock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAP-COORDINATES"),
+        station: "yalain-testkit::cpu::entry::places::map_coordinates_name_the_middle_of_their_land_cell",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.map-lifestones-walk-through",
         says: "The 84 lifestones a players' map of 2002 to 2004 shows where no 2017 recording came near \
                stand each more than 500 m from every lifestone recorded, on the land above the water and on \

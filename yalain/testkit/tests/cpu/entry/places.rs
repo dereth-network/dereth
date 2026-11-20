@@ -1990,3 +1990,35 @@ fn a_placed_things_name_text_is_told_as_its_name() {
         auberean_protocol::text::StringInfo::literal("Old Tom")
     );
 }
+
+/// Map coordinates name a place as the client turns them into one: the middle of the land cell
+/// there, cells 20 m across and eight to a landblock, so always inside its landblock. 36.4N 3.5E
+/// is the cell at the north-west corner of landblock 0x84AD; the coordinates the client shows for
+/// any land cell name that cell again.
+/// Behaviour: server.places.map-coordinates
+#[test]
+fn map_coordinates_name_the_middle_of_their_land_cell() {
+    let h = yalain_testkit::Harness::new();
+    let at = yalain_world::places::of_map_coords(&h.server, 3.5, 36.4).expect("on the land");
+    assert_eq!(
+        (at.cell, at.origin[0], at.origin[1]),
+        (0x84AD_0008, 10.0, 150.0)
+    );
+    for cell in [
+        0x0000_0001,
+        0x84AD_0040,
+        0x6FA9_0012,
+        0x7F7F_0025,
+        0xFEFE_0040,
+    ] {
+        let (east, north) =
+            auberean_primitives::land::map_coords(cell, (255 * 8, 255 * 8)).expect("a land cell");
+        let at = yalain_world::places::of_map_coords(&h.server, east, north).expect("on the land");
+        assert_eq!(at.cell, cell, "{east} {north}");
+        assert!(
+            (0.0..160.0).contains(&at.origin[0]) && (0.0..160.0).contains(&at.origin[1]),
+            "{at:?}"
+        );
+    }
+    assert!(yalain_world::places::of_map_coords(&h.server, 101.0, 0.0).is_none());
+}

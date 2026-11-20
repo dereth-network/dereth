@@ -147,37 +147,10 @@ fn coordinate(w: &str) -> Option<f32> {
     Some(n.parse::<f32>().ok().filter(|v| v.is_finite())? * sign)
 }
 
-/// The land's size in land cells, and a land cell's in meters.
-const LAND: (i32, i32) = (255 * 8, 255 * 8);
-const LAND_CELL: f32 = 24.0;
-
 /// A map's latitude and longitude as a place on the land, standing on the ground where the server
-/// holds the ground: the land's map runs from -100 to 100 each way.
+/// holds the ground ([`places::of_map_coords`]).
 fn of_map<S: Store>(cx: &Cx<'_, S>, lat: f32, long: f32) -> Option<StoredPosition> {
-    #[allow(clippy::cast_precision_loss)]
-    let along = |c: f32, size: i32| (c / 100.0 + 1.0) * size as f32 * 0.5;
-    let (x, y) = (along(long, LAND.0), along(lat, LAND.1));
-    let (cx_, cy) = (
-        dereth_primitives::num::floor_to_i32(x),
-        dereth_primitives::num::floor_to_i32(y),
-    );
-    let cell = auberean_primitives::land::cell_at(cx_, cy, LAND);
-    if cell == 0 {
-        return None;
-    }
-    // Each landblock holds eight land cells across.
-    let within = |at: f32| at.rem_euclid(8.0) * LAND_CELL;
-    let (ox, oy) = (within(x), within(y));
-    let z =
-        cx.s.ground
-            .as_ref()
-            .and_then(|g| g.height(cell, [ox, oy, 0.0]))
-            .unwrap_or(0.0);
-    Some(StoredPosition {
-        cell,
-        origin: [ox, oy, z],
-        rotation: rotation_of_degrees(0.0),
-    })
+    places::of_map_coords(cx.s, long, lat)
 }
 
 /// Where an object is, by its id.

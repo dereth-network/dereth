@@ -2293,6 +2293,32 @@ pub fn beside(cell: u32, target: [f32; 3], from: &StoredPosition) -> StoredPosit
     }
 }
 
+/// The place map coordinates (east, north) name, as the client turns them into a place: the
+/// middle of the land cell there (each 20 m across, eight to a landblock), standing on the ground
+/// where the server holds the ground; none off the land.
+#[must_use]
+pub fn of_map_coords<S: Store>(s: &Server<S>, east: f32, north: f32) -> Option<StoredPosition> {
+    let mut p = dereth_primitives::Position::new(
+        dereth_primitives::CellId(0),
+        dereth_primitives::Frame::new(
+            dereth_primitives::Vec3::ZERO,
+            dereth_primitives::Quat::IDENTITY,
+        ),
+    );
+    if !auberean_physics::geom::position::set_from_map_coords(&mut p, east, north) {
+        return None;
+    }
+    let mut at = StoredPosition {
+        cell: p.cell.0,
+        origin: [p.frame.origin.x, p.frame.origin.y, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    if let Some(z) = s.ground.as_ref().and_then(|g| g.height(at.cell, at.origin)) {
+        at.origin[2] = z;
+    }
+    Some(at)
+}
+
 /// [`beside`], on the ground there: outdoors at the land's height where it lands (when the ground
 /// is known), else at the target's own height.
 #[must_use]
