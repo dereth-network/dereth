@@ -986,6 +986,11 @@ pub struct App<S: Shell> {
     pub bulk: Option<crate::bulk_patch::BulkDownload>,
     /// Whether this exchange's `0xF7E6` asked for the patch as a stream (CD-bulk-patch).
     pub bulk_asked: bool,
+    /// How long a frame may spend applying the patch stream's records
+    /// ([`crate::bulk_patch::FRAME_SHARE`]).
+    pub patch_share: std::time::Duration,
+    /// The clock [`Self::patch_share`] is measured by.
+    pub patch_clock: crate::bulk_patch::WorkClock,
     /// The shared asset cache's DDD patch state, and the writers it patches through.
     ///
     /// Aimed at [`crate::config::Config::dat_dir`], which in a normal run is the retail

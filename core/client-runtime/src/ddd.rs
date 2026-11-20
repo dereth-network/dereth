@@ -902,6 +902,12 @@ impl DddPatcher {
         self.phase
     }
 
+    /// Whether the world's manifest (`0xF7EC`) has been taken this exchange.
+    #[must_use]
+    pub fn manifest_seen(&self) -> bool {
+        self.manifest_seen
+    }
+
     /// Downloads promised and not yet delivered.
     #[must_use]
     pub fn pending(&self) -> usize {
@@ -942,6 +948,8 @@ impl DddPatcher {
     pub fn on_interrogation(&mut self) {
         self.phase = DddPhase::InterrogationReceved;
         self.asked_again = false;
+        // Each exchange's manifest is its own.
+        self.manifest_seen = false;
     }
 
     /// Answer whether this `QualifiedDataID` needs a `0xF7E3` sent
@@ -1451,7 +1459,7 @@ impl DddPatcher {
         }
         if dropped > 0 || lifted > 0 {
             self.note(format!(
-                "the world's overlay no longer holds {dropped} record(s) and {lifted} deletion(s)                  this client kept; they are taken out"
+                "the world's overlay no longer holds {dropped} record(s) and {lifted} deletion(s) this client kept; they are taken out"
             ));
         }
     }

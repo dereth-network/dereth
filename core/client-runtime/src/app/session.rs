@@ -1029,29 +1029,43 @@ impl<S: Shell> App<S> {
         }
     }
 
-    /// CD-bulk-patch: the records the patch stream has brought since the last frame, up to a frame's
-    /// worth, as the `0xF7E2` events they stand for. Once a stream has ended and every record it
-    /// brought is applied, one that broke, or ended with records still pending, is declined, and
-    /// the server sends what is pending as `0xF7E2`s.
+    /// CD-bulk-patch: apply the records the patch stream has brought, as the `0xF7E2`s they stand
+    /// for, for as long as this frame's share of them lasts ([`App::patch_share`], by
+    /// [`App::patch_clock`]), so the screens go on drawing the patch's progress while it is
+    /// written. They wait for the world's manifest and its `0xF7E7`: the server sends both ahead of
+    /// its offer, but the manifest is large and can come after the stream has begun, and a record
+    /// saved before it would be kept for a world the client had not yet been told of. Once a
+    /// stream has ended and every record it brought is applied, one that broke, or ended with
+    /// records still pending, is declined, and the server sends what is pending as `0xF7E2`s.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn take_bulk_records(
-        &mut self,
-    ) -> Vec<dereth_client_net::client_session::SessionEvent> {
-        use dereth_client_net::client_session::{DddEvent, SessionEvent};
-        /// The record bytes a frame applies at most.
-        const FRAME_BYTES: usize = 32 << 20;
+    pub(super) fn apply_bulk_records(&mut self) {
+        use dereth_client_contract::pregame::DddEvent as UiDdd;
         let Some(download) = self.bulk.as_mut() else {
-            return Vec::new();
+            return;
         };
-        let records = download.drain(FRAME_BYTES);
-        if !records.is_empty() {
-            return records
-                .into_iter()
-                .map(|d| SessionEvent::Ddd(DddEvent::Data(d)))
-                .collect();
+        let ready = (self.ddd.manifest_seen() || self.ddd.refusal().is_some())
+            && self.ddd.phase() == crate::ddd::DddPhase::Patching;
+        if !ready {
+            return;
+        }
+        let began = self.patch_clock.now();
+        while let Some(m) = download.next_record() {
+            let (outcome, action) = self.ddd.on_data(&m);
+            if action.send_end {
+                if let Some(link) = self.link.as_mut() {
+                    link.net.session.send_ddd_end();
+                }
+            }
+            tracing::debug!("DDD applied {outcome:?}");
+            self.pending_ddd.push(UiDdd::DataDownloaded {
+                bytes: m.data.len() as u64,
+            });
+            if self.patch_clock.now().saturating_sub(began) >= self.patch_share {
+                return;
+            }
         }
         let Some(end) = download.ended().cloned() else {
-            return Vec::new();
+            return;
         };
         let (n, bytes, secs) = download.progress();
         self.bulk = None;
@@ -1077,7 +1091,6 @@ impl<S: Shell> App<S> {
                 link.net.session.send_ddd_bulk_decline(&pending);
             }
         }
-        Vec::new()
     }
 
     /// End the session over `refusal`, the world's data the client did not take: the server is

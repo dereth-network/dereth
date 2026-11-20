@@ -104,10 +104,10 @@ impl DiskFolder {
 ///
 /// # Errors
 /// [`DatError::RetailDatRefused`] inside a read-only install, and I/O errors.
-pub(crate) fn open_disk_mut(path: &Path) -> Result<File, DatError> {
+pub(crate) fn open_disk_mut(path: &Path) -> Result<DiskFile, DatError> {
     refuse_protected(path)?;
     crate::store::shared::forget(path);
-    Ok(OpenOptions::new().read(true).write(true).open(path)?)
+    DiskFile::new(OpenOptions::new().read(true).write(true).open(path)?)
 }
 
 /// Make the container at `path` on disk, empty, in place of any there is. As
@@ -115,15 +115,104 @@ pub(crate) fn open_disk_mut(path: &Path) -> Result<File, DatError> {
 ///
 /// # Errors
 /// As [`open_disk_mut`].
-pub(crate) fn create_disk(path: &Path) -> Result<File, DatError> {
+pub(crate) fn create_disk(path: &Path) -> Result<DiskFile, DatError> {
     refuse_protected(path)?;
     crate::store::shared::forget(path);
-    Ok(OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?)
+    DiskFile::new(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?,
+    )
+}
+
+/// A container on disk open for writing, as [`File`]'s own storage is, with the parts of it the
+/// writer has read kept in memory: a write goes to the file at once, as before, and to any page
+/// it holds, so what it reads back is what the file holds. The writer reads the same directory
+/// nodes and free-list links over and over (a dozen nodes and their blocks for each record it
+/// saves), and each read on its own was a seek and a read of a few bytes.
+#[derive(Debug)]
+pub(crate) struct DiskFile {
+    file: File,
+    /// The file's length as this handle has made it.
+    len: u64,
+    pages: std::collections::HashMap<u64, Box<[u8]>>,
+}
+
+impl DiskFile {
+    /// The bytes of one page.
+    const PAGE: usize = 4096;
+    /// The pages held at most (32 MiB); when it is full, they are let go of together.
+    const MOST: usize = 8192;
+
+    fn new(file: File) -> Result<Self, DatError> {
+        let len = file.metadata()?.len();
+        Ok(Self {
+            file,
+            len,
+            pages: std::collections::HashMap::new(),
+        })
+    }
+
+    /// The page holding offset `n * PAGE`, read in when it is not held.
+    fn page(&mut self, n: u64) -> io::Result<&[u8]> {
+        if !self.pages.contains_key(&n) {
+            if self.pages.len() >= Self::MOST {
+                self.pages.clear();
+            }
+            let mut b = vec![0u8; Self::PAGE].into_boxed_slice();
+            let at = n * Self::PAGE as u64;
+            if at < self.len {
+                let have =
+                    usize::try_from((self.len - at).min(Self::PAGE as u64)).unwrap_or(Self::PAGE);
+                self.file.seek(SeekFrom::Start(at))?;
+                self.file.read_exact(&mut b[..have])?;
+            }
+            self.pages.insert(n, b);
+        }
+        Ok(self.pages.get(&n).map_or(&[][..], |p| &p[..]))
+    }
+}
+
+impl DatStorageMut for DiskFile {
+    fn read_exact_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        if offset.saturating_add(buf.len() as u64) > self.len {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        let page = Self::PAGE as u64;
+        let mut done = 0;
+        while done < buf.len() {
+            let at = offset + done as u64;
+            #[allow(clippy::cast_possible_truncation)] // Below `PAGE`.
+            let within = (at % page) as usize;
+            let take = (buf.len() - done).min(Self::PAGE - within);
+            let p = self.page(at / page)?;
+            buf[done..done + take].copy_from_slice(&p[within..within + take]);
+            done += take;
+        }
+        Ok(())
+    }
+
+    fn write_all_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+        self.file.seek(SeekFrom::Start(offset))?;
+        self.file.write_all(buf)?;
+        self.len = self.len.max(offset + buf.len() as u64);
+        let page = Self::PAGE as u64;
+        let mut done = 0;
+        while done < buf.len() {
+            let at = offset + done as u64;
+            #[allow(clippy::cast_possible_truncation)] // Below `PAGE`.
+            let within = (at % page) as usize;
+            let take = (buf.len() - done).min(Self::PAGE - within);
+            if let Some(p) = self.pages.get_mut(&(at / page)) {
+                p[within..within + take].copy_from_slice(&buf[done..done + take]);
+            }
+            done += take;
+        }
+        Ok(())
+    }
 }
 
 /// Refuse to write anything inside a read-only install.
@@ -325,5 +414,48 @@ mod tests {
             io::ErrorKind::NotFound
         );
         assert!(folder.open_mut("a.dat").is_err());
+    }
+
+    #[test]
+    fn a_disk_container_reads_back_every_write_through_the_pages_it_holds_and_the_file_has_them() {
+        let dir = std::env::temp_dir().join(format!("dereth-disk-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.dat");
+        let mut w = create_disk(&path).unwrap();
+        let edge = DiskFile::PAGE as u64;
+        // Across a page's edge, read once so both pages are held, then written over.
+        w.write_all_at(edge - 3, b"abcdef").unwrap();
+        let mut buf = [0u8; 6];
+        w.read_exact_at(edge - 3, &mut buf).unwrap();
+        assert_eq!(&buf, b"abcdef");
+        w.write_all_at(edge - 1, b"XY").unwrap();
+        w.read_exact_at(edge - 3, &mut buf).unwrap();
+        assert_eq!(&buf, b"abXYef", "a write to a page it holds is read back");
+        // A held page past the old end, then a write into it that makes the file longer.
+        w.write_all_at(3 * edge + 10, b"z").unwrap();
+        let mut gap = [9u8; 4];
+        w.read_exact_at(3 * edge, &mut gap).unwrap();
+        assert_eq!(gap, [0; 4], "the gap reads as zeros");
+        w.write_all_at(3 * edge + 1, b"q").unwrap();
+        w.read_exact_at(3 * edge, &mut gap).unwrap();
+        assert_eq!(gap, [0, b'q', 0, 0]);
+        assert_eq!(
+            w.read_exact_at(3 * edge + 10, &mut [0u8; 2])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        // Another handle reads the file as written: nothing waits in memory.
+        let disk = std::fs::read(&path).unwrap();
+        let at = usize::try_from(edge).unwrap();
+        assert_eq!(&disk[at - 3..at + 3], b"abXYef");
+        assert_eq!(&disk[3 * at..3 * at + 2], &[0, b'q']);
+        assert_eq!(disk.len(), 3 * at + 11);
+        drop(w);
+        let mut again = open_disk_mut(&path).unwrap();
+        again.read_exact_at(edge - 3, &mut buf).unwrap();
+        assert_eq!(&buf, b"abXYef", "reopened");
+        drop(again);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -10,6 +10,42 @@
 //! or ends with records still pending is declined (`0xF7EE`) with those records, which the server
 //! then sends as `0xF7E2`s. Any other server never offers one, and the patch is retail's.
 
+/// How long a frame may spend applying the stream's records: the rest of the frame draws the
+/// screens and keeps the session's messages moving, so the progress shows and the server's
+/// messages are answered while the patch is written. A frame that may apply any applies at least
+/// one.
+pub const FRAME_SHARE: std::time::Duration = std::time::Duration::from_millis(8);
+
+/// The clock a frame's share of the stream is measured by: the time since some fixed moment.
+/// The client's reads the machine's clock; a test's moves as the test says.
+pub struct WorkClock(Box<dyn FnMut() -> std::time::Duration + Send>);
+
+impl WorkClock {
+    /// A clock that reads `now`.
+    pub fn new(now: impl FnMut() -> std::time::Duration + Send + 'static) -> Self {
+        Self(Box::new(now))
+    }
+
+    /// The time since the clock's fixed moment.
+    pub fn now(&mut self) -> std::time::Duration {
+        (self.0)()
+    }
+}
+
+impl Default for WorkClock {
+    /// The machine's clock.
+    fn default() -> Self {
+        let start = web_time::Instant::now();
+        Self::new(move || start.elapsed())
+    }
+}
+
+impl std::fmt::Debug for WorkClock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WorkClock")
+    }
+}
+
 /// What the client does with an offered stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OfferChoice {
@@ -223,6 +259,11 @@ mod stream {
                 }
             }
             out
+        }
+
+        /// The next record that has arrived, if one has.
+        pub fn next_record(&mut self) -> Option<Box<DddData>> {
+            self.drain(1).pop()
         }
 
         /// Wait for a record or the stream's end to drain, `guard` at most (a guard against a

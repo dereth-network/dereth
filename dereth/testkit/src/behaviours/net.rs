@@ -443,6 +443,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "net.dat-patch.a-bulk-stream-is-applied-a-frame-share-at-a-time",
+        says: "A frame applies a patch stream's records only for its share of the frame, by the clock                it is given, and at least one, each told to the patch screen, so the client keeps                drawing the patch's progress while it is written.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-FRAME-SHARE"),
+        station: "dereth-client-runtime::lib::app::tests::bulk_patch::a_streamed_patch_is_applied_a_frames_share_at_a_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "net.dat-patch.a-bulk-stream-nobody-answers-fails-so-the-patch-falls-back",
         says: "A patch stream whose port is refused, or that a firewall keeps from opening, fails at \
                once, so the patch comes the old way.",
@@ -460,6 +469,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-BULK-PATCH-DROPPED"),
         station: "dereth-client-runtime::lib::bulk_patch::stream::tests::a_stream_dropped_by_the_client_stops_its_reader_and_closes_the_connection",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-waits-for-the-manifest",
+        says: "A patch stream's records that arrive before the world's manifest wait for it, and are                applied once it is in: the patch completes with every record in the world's overlay                and nothing refused, and the next login answers with the revision recorded.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-WAITS-FOR-MANIFEST"),
+        station: "dereth-client-runtime::lib::app::tests::bulk_patch::a_streamed_patch_whose_manifest_comes_after_the_stream_waits_for_it_and_is_kept",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "net.dat-patch.a-deletion-the-manifest-names-hides-that-record-alone",

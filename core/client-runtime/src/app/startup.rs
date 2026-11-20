@@ -368,6 +368,8 @@ impl<S: Shell> App<S> {
             #[cfg(not(target_arch = "wasm32"))]
             bulk: None,
             bulk_asked: false,
+            patch_share: crate::bulk_patch::FRAME_SHARE,
+            patch_clock: crate::bulk_patch::WorkClock::default(),
             ddd,
             ddd_invalidation: None,
             store_generation: 0,

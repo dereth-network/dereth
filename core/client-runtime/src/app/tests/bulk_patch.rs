@@ -464,8 +464,8 @@ fn a_stream_that_breaks_is_declined_with_what_is_pending_and_the_patch_completes
     // Frames, each applying what the stream brought, until it is done with.
     while app.bulk.is_some() {
         assert!(app.bulk.as_mut().unwrap().wait(GUARD), "the stream ends");
-        let events = app.take_bulk_records();
-        app.process_logon_event_queue(&mut NullShell, events);
+        app.apply_bulk_records();
+        app.process_logon_event_queue(&mut NullShell, Vec::new());
     }
     let out = sent(&mut app);
     let named: Vec<(u32, u32, u32)> = declines(&out).into_iter().flat_map(|d| d.pending).collect();
@@ -504,4 +504,197 @@ fn a_stream_that_breaks_is_declined_with_what_is_pending_and_the_patch_completes
             d.resource_id
         );
     }
+}
+
+/// A stand-in stream server at a port of its own: on the client's hello it sends each of
+/// `records` and the stream's end.
+fn serve(records: &[DddData]) -> (u16, std::thread::JoinHandle<[u8; 24]>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let frames: Vec<Vec<u8>> = records
+        .iter()
+        .map(|d| {
+            let body = write_body(d).unwrap();
+            let mut f = u32::try_from(body.len()).unwrap().to_le_bytes().to_vec();
+            f.extend_from_slice(&body);
+            f
+        })
+        .collect();
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let mut hello = [0u8; 24];
+        s.read_exact(&mut hello).unwrap();
+        for f in &frames {
+            s.write_all(f).unwrap();
+        }
+        s.write_all(&0u32.to_le_bytes()).unwrap();
+        hello
+    });
+    (port, server)
+}
+
+fn offer_of(port: u16, records: &[DddData]) -> DddBulkOffer {
+    DddBulkOffer {
+        port: u32::from(port),
+        token: [5; 16],
+        records: u32::try_from(records.len()).unwrap(),
+        bytes: records.iter().map(|d| d.data.len() as u64).sum(),
+    }
+}
+
+/// Wait until the stream has read every one of `bytes`, [`GUARD`] at most.
+fn all_read(app: &App<NullShell>, bytes: usize) {
+    let since = std::time::Instant::now();
+    while app.bulk.as_ref().is_some_and(|b| b.queued() < bytes) {
+        assert!(since.elapsed() < GUARD, "the stream brings its records");
+        std::thread::yield_now();
+    }
+}
+
+/// The records the patch screen was told of since the last look.
+fn downloaded(app: &mut App<NullShell>) -> usize {
+    use dereth_client_contract::pregame::DddEvent;
+    std::mem::take(&mut app.pending_ddd)
+        .iter()
+        .filter(|e| matches!(e, DddEvent::DataDownloaded { .. }))
+        .count()
+}
+
+/// The portal's iterations in a client's answer.
+fn portal_iterations(a: &DddInterrogationResponse) -> i32 {
+    a.iters_with_keys
+        .iter()
+        .chain(&a.iters_without_keys)
+        .find(|l| l.dat_file_type == 0 && l.dat_file_id == 1)
+        .map(|l| l.iterations.iterations)
+        .expect("the portal's iterations")
+}
+
+/// Behaviour: net.dat-patch.a-bulk-stream-waits-for-the-manifest
+/// The stream's records that arrive before the world's manifest are not applied: they wait,
+/// however many frames go by, and are applied once it is in. The patch then completes with every
+/// record in the world's overlay and nothing refused, and the client's next login answers with the
+/// revision recorded, so it is not sent the patch again.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_streamed_patch_whose_manifest_comes_after_the_stream_waits_for_it_and_is_kept() {
+    let store = retail_store();
+    let scratch = dereth_dat::testing::ScratchDir::new("bulk-late-manifest").expect("scratch");
+    let (manifest, begin, records) = world(&store, 40);
+    let (port, server) = serve(&records);
+    let settings = scratch.path().join("settings");
+    std::fs::create_dir_all(&settings).unwrap();
+    let folder = scratch.path().join("overlay");
+    let mut app = app(&store, &settings, folder.clone(), true);
+    let mut state = DddState::default();
+    frame(&mut app, &mut state, &[blob(&DddInterrogation::default())]);
+    let first = answer(&sent(&mut app));
+    // The begin and the offer come; the manifest, sent ahead of them, is still on its way.
+    frame(&mut app, &mut state, &[blob(&begin)]);
+    frame(&mut app, &mut state, &[blob(&offer_of(port, &records))]);
+    assert!(app.bulk.is_some(), "the stream is open");
+    server.join().unwrap();
+    all_read(&app, records.iter().map(|d| d.data.len()).sum());
+    for _ in 0..5 {
+        app.apply_bulk_records();
+        app.process_logon_event_queue(&mut NullShell, Vec::new());
+        assert_eq!(
+            downloaded(&mut app),
+            0,
+            "nothing is applied before the manifest"
+        );
+    }
+
+    frame(&mut app, &mut state, &[blob(&manifest)]);
+    let mut applied = 0;
+    while app.bulk.is_some() {
+        app.apply_bulk_records();
+        app.process_logon_event_queue(&mut NullShell, Vec::new());
+        applied += downloaded(&mut app);
+    }
+    assert_eq!(applied, records.len());
+    assert!(
+        sent(&mut app)
+            .iter()
+            .any(|b| opcode(b) == DddEndDdd::OPCODE.0),
+        "the client ends the patch"
+    );
+    frame(&mut app, &mut state, &[blob(&DddEndDdd)]);
+    assert!(app.host_state().patch_finished);
+    assert_eq!(app.world_refused(), None, "{:?}", app.ddd().notices());
+    for d in &records {
+        assert_eq!(
+            app.store.read_portal(DataId(d.resource_id)).unwrap(),
+            d.data,
+            "{:#010X}",
+            d.resource_id
+        );
+    }
+    drop(app);
+
+    // The next login: the revision is the client's, so the server has nothing to send.
+    let settings = scratch.path().join("settings-again");
+    std::fs::create_dir_all(&settings).unwrap();
+    let mut again = self::app(&store, &settings, folder, true);
+    let mut state = DddState::default();
+    frame(
+        &mut again,
+        &mut state,
+        &[blob(&DddInterrogation::default())],
+    );
+    let next = answer(&sent(&mut again));
+    assert_eq!(
+        portal_iterations(&next),
+        portal_iterations(&first) + 1,
+        "the revision is recorded"
+    );
+}
+
+/// Behaviour: net.dat-patch.a-bulk-stream-is-applied-a-frame-share-at-a-time
+/// A frame applies the stream's records only for its share of the frame, by the clock it is
+/// given, and at least one: with every record already read and a clock that moves a millisecond
+/// at each look, a 3 ms share applies three records a frame, each told to the patch screen, until
+/// none are left.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_streamed_patch_is_applied_a_frames_share_at_a_time() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let store = retail_store();
+    let scratch = dereth_dat::testing::ScratchDir::new("bulk-frame-share").expect("scratch");
+    let (manifest, begin, records) = world(&store, 10);
+    let (port, server) = serve(&records);
+    let settings = scratch.path().join("settings");
+    std::fs::create_dir_all(&settings).unwrap();
+    let mut app = app(&store, &settings, scratch.path().join("overlay"), true);
+    let ticks = Arc::new(AtomicU64::new(0));
+    let clock = Arc::clone(&ticks);
+    app.patch_clock = crate::bulk_patch::WorkClock::new(move || {
+        Duration::from_millis(clock.fetch_add(1, Ordering::Relaxed))
+    });
+    app.patch_share = Duration::from_millis(3);
+    let mut state = DddState::default();
+    frame(&mut app, &mut state, &[blob(&DddInterrogation::default())]);
+    frame(&mut app, &mut state, &[blob(&manifest), blob(&begin)]);
+    let _ = downloaded(&mut app);
+    frame(&mut app, &mut state, &[blob(&offer_of(port, &records))]);
+    server.join().unwrap();
+    all_read(&app, records.iter().map(|d| d.data.len()).sum());
+    let mut per_frame = Vec::new();
+    while app.bulk.is_some() {
+        app.apply_bulk_records();
+        app.process_logon_event_queue(&mut NullShell, Vec::new());
+        per_frame.push(downloaded(&mut app));
+    }
+    assert_eq!(
+        per_frame,
+        [3, 3, 3, 1],
+        "three a frame, the last frame what is left"
+    );
+    assert_eq!(app.ddd().pending(), 0, "every record is applied");
 }
