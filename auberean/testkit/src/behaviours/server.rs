@@ -5038,6 +5038,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.fickle-fate-rows",
+        says: "A world's Fickle Fate picks one of its fourteen outcomes, each as likely, for its user and the \
+               fellows within its skills' 20 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FICKLE-FATE-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_fickle_fate_picks_its_fourteen_outcomes_evenly_within_20_m",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.effects.harm-over-time-kills",
         says: "A change over time a creature put on a player kills it when it takes the last of its \
                health, the creature its killer.",

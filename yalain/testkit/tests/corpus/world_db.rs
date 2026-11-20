@@ -288,6 +288,29 @@ fn the_worlds_teaching_stones_named_by_their_scripts_have_their_name_and_page() 
     }
 }
 
+/// The world's Fickle Fate picks among its fourteen outcomes, each as likely as another, for its
+/// user and the fellows within 20 m, the range its skills hold in the install.
+/// Behaviour: server.effects.fickle-fate-rows
+#[test]
+fn the_worlds_fickle_fate_picks_its_fourteen_outcomes_evenly_within_20_m() {
+    let t = &compiled().tables;
+    let pick = t
+        .effect_rules
+        .picks
+        .get(&0x7000_1EC7)
+        .expect("Fickle Fate's row");
+    assert!(pick.fellows);
+    assert_eq!(pick.reach, Some(20));
+    let mut outcomes: Vec<u32> = pick.effects.iter().map(|(e, _)| *e).collect();
+    outcomes.sort_unstable();
+    assert_eq!(outcomes, (0x7000_1EC8..=0x7000_1ED5).collect::<Vec<_>>());
+    assert!(
+        pick.effects.iter().all(|(_, w)| *w == pick.effects[0].1),
+        "even weights: {:?}",
+        pick.effects
+    );
+}
+
 /// A world's mine and map region rows hold the test world's, entry for entry: each mining skill's
 /// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
 /// effects, and what each mining tool yields unmade.
