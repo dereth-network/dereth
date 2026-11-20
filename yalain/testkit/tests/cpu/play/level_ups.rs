@@ -84,8 +84,8 @@ fn level_up_text(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
 
 /// A player at level 2 with greatest health 180 (50 above the level's 130) and vigor 150, hurt, at
 /// 50 vitae and with Courage's 30 more health, reaches level 3: its greatest health rises by the
-/// step to 210 and vigor to 200, and it is filled to 135 health (half of 210, and Courage's 30)
-/// and 100 vigor, below the greatest it holds, as the text tells 30 and 50 gained.
+/// step to 210 and vigor to 200, and it is filled to 120 health (half of 210 and Courage's 30
+/// together) and 100 vigor, below the greatest it holds, as the text tells 30 and 50 gained.
 /// Behaviour: server.experience.level-up-fills-to-the-greatest
 #[test]
 fn a_level_up_raises_the_greatest_by_its_step_and_fills_to_the_greatest_with_vitae_and_effects() {
@@ -122,13 +122,13 @@ fn a_level_up_raises_the_greatest_by_its_step_and_fills_to_the_greatest_with_vit
     let held = |k: u32| quals::int(&p.qualities, k);
     assert_eq!(held(quality::HEALTH_MAX), Some(210), "greatest health");
     assert_eq!(held(quality::VIGOR_MAX), Some(200), "greatest vigor");
-    assert_eq!(held(quality::HEALTH), Some(135), "health");
+    assert_eq!(held(quality::HEALTH), Some(120), "health");
     assert_eq!(held(quality::VIGOR), Some(100), "vigor");
     let sent = ints(&h, b, from);
     for want in [
         (quality::HEALTH_MAX, 210),
         (quality::VIGOR_MAX, 200),
-        (quality::HEALTH, 135),
+        (quality::HEALTH, 120),
         (quality::VIGOR, 100),
     ] {
         assert!(sent.contains(&want), "{want:?} sent: {sent:?}");

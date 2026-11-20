@@ -17563,9 +17563,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.regen.vitae-lowers-the-greatest",
-        says: "A player's greatest health and vigor before its effects are its own times its \
-               vitae as a share, a whole number: it regains no higher, a tap of vitae lowers what \
-               stands above, and a resurrection's three quarters are of it.",
+        says: "A player's greatest health and vigor are its own, with its effects' raises, times \
+               its vitae as a share, a whole number: it regains no higher, a tap of vitae lowers \
+               what stands above, and a resurrection's three quarters are of it without its \
+               effects.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VITAE-GREATEST"),
         station: "yalain-testkit::cpu::play::regeneration::under_vitae_health_and_vigor_come_back_only_to_their_greatest_times_the_vitae",

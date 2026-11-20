@@ -886,17 +886,30 @@ pub fn vitals_within_their_greatest<S: Store>(
     }
 }
 
-/// A player's greatest health or vigor with its effects (the client counts them the same way).
+/// A player's greatest of a vital with its effects (the client counts them the same way). The
+/// effects change the vital's own quality: health's and vigor's greatest is that changed quality
+/// with what the skills add, times the vitae, so the vitae takes its share of an effect's raise
+/// too and an effect's factor leaves the skills' part alone. Focus's is its own greatest with the
+/// effects' change on top.
 #[must_use]
 pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
-    // Focus's greatest is a base of 100 and the character's own focus quality above it.
-    let base = own_greatest(s, p, max_quality);
     let (add, mult) = modifier(&s.effect_table, &p.play.effects, 0x4_0000 | max_quality);
     if add == 0.0 && (mult - 1.0).abs() < f32::EPSILON {
-        return base;
+        return own_greatest(s, p, max_quality);
+    }
+    if !matches!(max_quality, quality::HEALTH_MAX | quality::VIGOR_MAX) {
+        // Focus's greatest is a base of 100 and the character's own focus quality above it.
+        #[allow(clippy::cast_precision_loss)]
+        let base = own_greatest(s, p, max_quality) as f32;
+        return dereth_primitives::num::to_i32((base + add) * mult);
     }
     #[allow(clippy::cast_precision_loss)]
-    dereth_primitives::num::to_i32((base as f32 + add) * mult)
+    let own = quals::int(&p.qualities, max_quality).unwrap_or(100) as f32;
+    let changed = dereth_primitives::num::to_i32((own + add) * mult);
+    let vitae = quals::float(&p.qualities, crate::death::vitae_q::VITAE).unwrap_or(100.0);
+    #[allow(clippy::cast_precision_loss)]
+    let sum = (changed + added_by_skills(s, p, max_quality)) as f32;
+    dereth_primitives::num::to_i32(sum * (vitae * 0.01)).max(1)
 }
 
 /// The damage a player's effects add to its hits.

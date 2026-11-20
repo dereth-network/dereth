@@ -391,7 +391,8 @@ fn under_vitae(h: &mut Harness, world: ConnId, vitae: f32, vitals: [(u32, i32); 
 
 /// Under vitae a player's greatest health and vigor are its own times the vitae's share, a whole
 /// number, and it regains no higher: at 95 vitae, health of 975 stops at 926 and vigor of 1,420
-/// at 1,349. Its effects add on top: with Courage's 30 more health it stops at 956.
+/// at 1,349. Its effects raise the greatest before the vitae takes its share: with Courage's 30
+/// more health it stops at 954, the vitae's share of 1,005, not 956.
 /// Behaviour: server.regen.vitae-lowers-the-greatest
 #[test]
 fn under_vitae_health_and_vigor_come_back_only_to_their_greatest_times_the_vitae() {
@@ -427,8 +428,8 @@ fn under_vitae_health_and_vigor_come_back_only_to_their_greatest_times_the_vitae
         .max();
     assert_eq!(
         top,
-        Some(956),
-        "the effect's 30 on top of the lowered greatest"
+        Some(954),
+        "the effect's 30 inside the lowered greatest"
     );
 }
 
