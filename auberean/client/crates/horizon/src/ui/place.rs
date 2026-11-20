@@ -1,24 +1,34 @@
 //! Where a window opens the first time: the place its window asks for, moved as little as it
-//! takes to keep clear of the HUD's elements as the default layout puts them (the target bar, the
-//! status row and the conflict lamp, the minimap and its place line, the pets, the party list's
-//! rows, the log window, the hotbar with its attack and Dismount buttons, the parameter bar and the
-//! menu bar), and then of the windows already open where it can. A window too large to clear the
-//! HUD stands where it covers the least of it.
+//! takes to keep clear of the HUD's elements where the player's HUD layout puts them and at the
+//! sizes it gives them (the target bar, the status row and the conflict lamp, the minimap and its
+//! place line, the pets, the party list's rows, the log window as large as the player made it, the
+//! hotbar with its attack button, the Dismount button, the parameter bar and the menu bar), and
+//! then of the windows already open where it can. A window too large to clear the HUD stands where
+//! it covers the least of it.
 
 use dereth_ui_kit::paint::Painter;
 
 use crate::draw::Rect;
 use crate::state::GameState;
+use crate::ui::layout::element as e;
 use crate::ui::{chat, hotbar, hud, minimap, party, pets};
 
 /// How far a window keeps from the HUD's elements and the screen's edges, in layout units.
 pub const GAP: f32 = 8.0;
 
-/// What the HUD's elements cover at the default layout on a screen of `screen` pixels, at `k`
-/// pixels a layout unit, for the game as `state` has it: the party list as many rows as it shows,
-/// the pets' panel only with pets, the rest whether drawn yet or not.
+/// What the HUD's elements cover on a screen of `screen` pixels, at `k` pixels a layout unit, for
+/// the game as `state` has it: the party list as many rows as it shows, the pets' panel only with
+/// pets, the rest whether drawn yet or not. `chat` is the log window, its entry's room included,
+/// where it stands before the layout places it; `placed` takes a rectangle of the element named
+/// as it draws at its default place to where the layout shows it.
 #[must_use]
-pub fn hud(screen: (f32, f32), k: f32, state: &GameState) -> Vec<Rect> {
+pub fn hud(
+    screen: (f32, f32),
+    k: f32,
+    state: &GameState,
+    chat: Rect,
+    placed: impl Fn(&str, Rect) -> Rect,
+) -> Vec<Rect> {
     let span = |a: Rect, b: Rect| {
         let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
         Rect::new(
@@ -41,20 +51,24 @@ pub fn hud(screen: (f32, f32), k: f32, state: &GameState) -> Vec<Rect> {
         span(number, hotbar::attack_rect(screen, k)),
     );
     let mut out = vec![
-        target,
-        effects,
-        party::lamp_rect(screen, k),
-        span(m.map, m.place),
-        chat::Chat::rect(screen, k),
-        span(bar, pets::dismount_rect(screen, k)),
-        gauges,
-        hud::menu_rect(screen, k),
+        placed(e::TARGET, target),
+        placed(e::STATUS, effects),
+        placed(e::LAMP, party::lamp_rect(screen, k)),
+        placed(e::MINIMAP, span(m.map, m.place)),
+        placed(e::CHAT, chat),
+        placed(e::HOTBAR, bar),
+        placed(e::DISMOUNT, pets::dismount_rect(screen, k)),
+        placed(e::PARAMETER, gauges),
+        placed(e::MENU, hud::menu_rect(screen, k)),
     ];
     let fellows = party::rows(state).len();
     if fellows > 0 {
-        out.push(span(party::row_rect(k, 0), party::row_rect(k, fellows - 1)));
+        out.push(placed(
+            e::PARTY,
+            span(party::row_rect(k, 0), party::row_rect(k, fellows - 1)),
+        ));
     }
-    out.extend(pets::PetsPanel::layout(state, screen, k).map(|l| l.panel));
+    out.extend(pets::PetsPanel::layout(state, screen, k).map(|l| placed(e::PETS, l.panel)));
     out
 }
 
@@ -62,6 +76,15 @@ std::thread_local! {
     /// The windows open as the interface draws the next one on this thread, which a window
     /// opening keeps clear of where it can once it is clear of the HUD.
     static OPEN: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// What the HUD's elements cover as the interface drew them this frame ([`hud`]), while the
+    /// windows are drawn after them.
+    static HUD: std::cell::RefCell<Option<Vec<Rect>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What the HUD's elements cover as drawn this frame is `rects`; none: as the default layout
+/// puts them, the log window at its default size.
+pub fn set_hud(rects: Option<Vec<Rect>>) {
+    HUD.with(|h| *h.borrow_mut() = rects);
 }
 
 /// The windows open as the next window is drawn are `rects`.
@@ -88,11 +111,14 @@ pub fn clear(
 ) -> (f32, f32) {
     let k = p.scale;
     let open = OPEN.with(|o| o.borrow().clone());
+    let kept = HUD
+        .with(|h| h.borrow().clone())
+        .unwrap_or_else(|| hud(p.screen, k, state, chat::Chat::rect(p.screen, k), |_, r| r));
     clear_of(
         p.screen,
         (size.0 * k, size.1 * k),
         wanted,
-        &hud(p.screen, k, state),
+        &kept,
         &open,
         GAP * k,
     )

@@ -1,5 +1,5 @@
 //! The windows' stacking: a window opened comes to the front over the one it was opened from (the
-//! windows of things among themselves too), a press brings a window to the front, a window opens where it keeps clear of the HUD, and where
+//! windows of things among themselves too), a press brings a window to the front, a window opens where it keeps clear of the HUD as the player has it, and where
 //! a window lies over another it is backed enough to read.
 //!
 //! Behaviour: none (this client's own interface, not a behaviour of the retail client)
@@ -10,6 +10,7 @@ use auberean_horizon::draw::Rect;
 use auberean_horizon::keys::Keyed;
 use auberean_horizon::state::GameState;
 use auberean_horizon::ui::goods::Window as Things;
+use auberean_horizon::ui::layout::{element, Edge, Edges, Placement};
 use auberean_horizon::ui::stack::{Window, OVER_WINDOW};
 
 use crate::play::fit::{full_hud, meet, on};
@@ -223,6 +224,124 @@ fn each_window_opens_clear_of_the_huds_elements() {
             }
         }
     }
+}
+
+/// The window key `key` opens, drawn after the frames it takes to open on `h` for `s`: where it
+/// shows.
+fn opened(h: &mut Harness, s: &GameState, key: Keyed) -> Rect {
+    h.frame(s);
+    h.ui.keyed(key, s);
+    h.frame(s);
+    h.frame(s);
+    match key {
+        Keyed::Skills => h.ui.skills.rect(),
+        Keyed::Examine => h.ui.examine.rect(),
+        Keyed::Social => h.ui.social.rect(),
+        Keyed::Map => h.ui.map.rect(),
+        Keyed::Journal => h.ui.journal.rect(),
+        Keyed::Crafting => h.ui.crafting.rect(),
+        _ => h.ui.goods.rects().first().copied(),
+    }
+    .unwrap_or_else(|| panic!("{key:?} opened"))
+}
+
+/// Where HUD element `name` was outlined this frame.
+fn outline(h: &Harness, name: &str) -> Rect {
+    h.ui.layout
+        .outlines
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("{name} outlined"))
+}
+
+#[test]
+fn each_window_opens_clear_of_the_chat_as_large_as_the_player_made_it() {
+    // Made larger from its corner the chat keeps its top, so it is moved up a little in the HUD
+    // layout too, to stand where a window opens.
+    let up = Placement {
+        dy: -40.0,
+        ..Placement::default()
+    };
+    let keys = [
+        Keyed::Skills,
+        Keyed::Inventory,
+        Keyed::Examine,
+        Keyed::Map,
+        Keyed::Journal,
+        Keyed::Social,
+        Keyed::Crafting,
+    ];
+    for screen in [(1920.0, 1080.0), (1280.0, 960.0)] {
+        let s = full_hud();
+        let mut first = on(screen, None);
+        first.frame(&s);
+        let small = outline(&first, element::CHAT);
+        for key in keys {
+            let mut h = on(screen, None);
+            h.ui.settings.own.chat_size = Some((1200.0, 300.0));
+            h.ui.layout.placements.insert(element::CHAT.to_owned(), up);
+            let r = opened(&mut h, &s, key);
+            let chat = outline(&h, element::CHAT);
+            assert!(
+                chat.w > small.w,
+                "the chat made larger: {chat:?} on {screen:?}"
+            );
+            assert!(
+                !meet(&r, &chat),
+                "{key:?}'s window {r:?} over the chat {chat:?} on {screen:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_window_opens_clear_of_the_effects_where_the_hud_layout_put_them() {
+    let step = 1.5;
+    let (w, h) = auberean_horizon::scale::smallest_window(step);
+    #[allow(clippy::cast_precision_loss)]
+    let screen = (w as f32, h as f32);
+    let s = full_hud();
+    let effects_at = |across, down| Placement {
+        dx: 0.0,
+        dy: 0.0,
+        scale: 1.0,
+        edges: Some(Edges { across, down }),
+    };
+    // At the default layout the skill window keeps clear of the effects.
+    let mut h = on(screen, Some(step));
+    let at_first = opened(&mut h, &s, Keyed::Skills);
+    let were = outline(&h, element::STATUS);
+    assert!(!meet(&at_first, &were), "{at_first:?} clear of {were:?}");
+    // Moved to the bottom left, the skill window opens where they were.
+    let mut h = on(screen, Some(step));
+    h.ui.layout.placements.insert(
+        element::STATUS.to_owned(),
+        effects_at(Edge::Start, Edge::End),
+    );
+    let away = opened(&mut h, &s, Keyed::Skills);
+    let now = outline(&h, element::STATUS);
+    assert!(
+        meet(&away, &were),
+        "{away:?} where the effects were, {were:?}"
+    );
+    assert!(
+        !meet(&away, &now),
+        "{away:?} clear of the effects moved, {now:?}"
+    );
+    // Moved down the right edge to where it would open, it opens clear of them.
+    let mut h = on(screen, Some(step));
+    h.ui.layout.placements.insert(
+        element::STATUS.to_owned(),
+        effects_at(Edge::End, Edge::Middle),
+    );
+    let r = opened(&mut h, &s, Keyed::Skills);
+    let now = outline(&h, element::STATUS);
+    assert!(
+        meet(&away, &now),
+        "{away:?} meets the effects moved, {now:?}"
+    );
+    assert!(!meet(&r, &now), "{r:?} clear of the effects moved, {now:?}");
 }
 
 #[test]

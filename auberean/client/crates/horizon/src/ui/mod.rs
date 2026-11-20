@@ -535,7 +535,17 @@ impl HorizonUi {
             let drawn = self.plugins.frame(&mut p, &mut ctx, &mut out.requests);
             self.covers.extend(drawn);
             let below = self.plugins.rects().to_vec();
+            // A window opening keeps clear of the HUD as the player's layout has it.
+            let placed = &self.layout;
+            place::set_hud(Some(place::hud(
+                screen,
+                k,
+                state,
+                self.chat.window(screen, k),
+                |name, r| placed.map_rect(name, r, k),
+            )));
             self.stacked(&mut p, &mut ctx, state, question, below, &mut out);
+            place::set_hud(None);
             // Follow set on the map is kept with Horizon's own settings.
             if let Some(on) = self.map.take_follow_set() {
                 self.settings.own.map_follow = on;

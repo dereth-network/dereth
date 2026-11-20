@@ -410,6 +410,8 @@ pub struct Chat {
     /// Horizon's own settings were changed since this was last asked: where a window was put or
     /// how large it was made.
     kept: bool,
+    /// The window as last drawn, its entry's room included, before the HUD layout placed it.
+    drawn: Option<Rect>,
 }
 
 impl Default for Chat {
@@ -419,6 +421,7 @@ impl Default for Chat {
             mode: kind::SAY,
             heard: 0,
             kept: false,
+            drawn: None,
         }
     }
 }
@@ -536,8 +539,24 @@ impl Chat {
         };
         let mut asked = Vec::new();
         let shown = self.log.frame(p, ctx, &game, home, &mut asked);
+        // The lines reach the window's foot, the entry's room included.
+        let lines = self.log.dock;
+        self.drawn = Some(Rect::new(
+            shown.x,
+            shown.y,
+            shown.w,
+            lines.bottom() - shown.y,
+        ));
         self.carry_out(asked, own, out);
         shown
+    }
+
+    /// Where the window was last drawn, as large as the player made it and its entry's room
+    /// included, before the HUD layout placed it; never drawn, where it stands at its default size
+    /// ([`Self::rect`]).
+    #[must_use]
+    pub fn window(&self, screen: (f32, f32), k: f32) -> Rect {
+        self.drawn.unwrap_or_else(|| Self::rect(screen, k))
     }
 
     /// Where the HUD layout put the window just drawn: `place` maps a rect as it was drawn to
