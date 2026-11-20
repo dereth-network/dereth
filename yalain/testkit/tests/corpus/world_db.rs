@@ -36432,3 +36432,194 @@ fn the_wikis_lifestone_no_recording_reached_stands_on_open_land_reached_and_boun
         "bound where it stands"
     );
 }
+
+/// A name and a page, string references (string id, table), when shown.
+type Shown = (Option<(u32, u32)>, Option<(u32, u32)>);
+
+/// The name and page a profile's general tab shows: the name its first line gives (inside an item's
+/// composed name when it is one), and its page, the first description among its lines.
+fn name_and_page(bytes: &[u8], request_len: usize) -> Shown {
+    use auberean_script::native_object::{TextInfo, VariableValue};
+    use auberean_script::wire::In;
+    use yalain_world::profile::{item_line, line, var};
+    let mut texts = Vec::new();
+    let Some(rest) = bytes.get(request_len..) else {
+        return (None, None);
+    };
+    let mut r = In::new(rest);
+    let n = r.u32().unwrap_or(0);
+    for _ in 0..n {
+        let (Ok(ty), Ok(order)) = (r.u32(), r.u32()) else {
+            break;
+        };
+        let read = match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => r.u32().and(r.u32()).is_ok(),
+            0x4000_0004 => {
+                let t = r.u32().ok().and_then(|_| TextInfo::unpack(&mut r).ok());
+                if order == 2 {
+                    texts.extend(t.clone());
+                }
+                t.is_some()
+            }
+            0x4000_0005 | 0x4000_0007 => r.u32().is_ok(),
+            0x4000_0006 => true,
+            0x4000_0008 | 0x4000_000A => r.u32().and(r.u32()).and(r.u32()).is_ok(),
+            0x4000_0009 => r.u32().is_ok_and(|k| (0..k * 3).all(|_| r.u32().is_ok())),
+            _ => false,
+        };
+        if !read {
+            break;
+        }
+    }
+    let leaf = |t: &TextInfo| -> Option<(u32, u32)> {
+        if t.table == line::ITEM_NAMES {
+            return t.variables.iter().find_map(|v| match &v.value {
+                VariableValue::Nested(n) if v.id == var::NAME && n.table != 0 => {
+                    Some((n.string_id, n.table))
+                }
+                _ => None,
+            });
+        }
+        (t.table != 0).then_some((t.string_id, t.table))
+    };
+    let name = texts.first().and_then(leaf);
+    let page = texts
+        .iter()
+        .skip(1)
+        .find(|t| t.string_id == item_line::DESCRIPTION)
+        .map(|t| (t.string_id, t.table));
+    (name, page)
+}
+
+/// Every 2017 examination of a placed object whose template's entities name nothing (its name and
+/// page held in its qualities record, or given by the world's examination rows where the install
+/// names nothing) shows the name and page this server's examination of it shows. Told apart: an
+/// object its own row names from another table, whose page 2017 gave from that table.
+/// Behaviour: server.examination.self-naming-as-2017
+#[test]
+fn objects_named_only_outside_their_entities_are_examined_by_the_name_and_page_2017_showed() {
+    use auberean_script::args::Arg;
+    use auberean_script::native_object::NativeObject;
+    use auberean_testkit::captures::{self, carrier};
+    use yalain_world::calls::Node;
+    use yalain_world::profile;
+    use yalain_world_db::compile::Install as _;
+    let t = &compiled().tables;
+    let install = dat_install();
+    let ids = install.fact_ids();
+    let entity = |id: u32| install.entity(id);
+    let unnamed: std::collections::HashMap<u64, usize> = t
+        .content
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            yalain_content::facts(o.template, &entity, &ids)
+                .name
+                .is_none()
+        })
+        .filter_map(|(i, o)| Some((o.object?, i)))
+        .collect();
+    let native = |args: &[u8]| -> Option<Vec<u8>> {
+        let v = yalain_world::calls::values(args).ok()?;
+        match v.first()?.root() {
+            Some(Node::Native { bytes, .. }) => Some(bytes.clone()),
+            _ => None,
+        }
+    };
+    let index = auberean_testkit::data::require_capture_index();
+    let mut recorded: Vec<(usize, Vec<u8>)> = Vec::new();
+    captures::messages(&index, &[carrier::TO_PLAYER], &[2017], |m| {
+        let Some(call) = m.script_call() else { return };
+        if call.function != profile::EXAMINATION_PROFILE {
+            return;
+        }
+        let Some(bytes) = native(&call.args) else {
+            return;
+        };
+        let req = profile::read_request(&bytes);
+        if req.kind == profile::request::OBJECT {
+            if let Some(&i) = unnamed.get(&req.object) {
+                recorded.push((i, bytes));
+            }
+        }
+    })
+    .expect("the capture index reads");
+    let (mut h, b, _) = served(t);
+    // The kinds whose examinations are laid out apart: lifestones and teaching stones.
+    let portal = yalain_testkit::authored::Portal::open();
+    let examined: std::collections::BTreeSet<u32> = recorded
+        .iter()
+        .map(|(i, _)| t.content.objects[*i].template)
+        .collect();
+    for template in examined {
+        let package = portal.template(template).description.package;
+        if portal.derives(template, &[yalain_world::places::LIFESTONE]) {
+            h.server.lifestone_packages.insert(package);
+        }
+        if portal.derives(template, &[yalain_world::places::TEACHING_STONE_CLASS]) {
+            h.server.teaching_stone_packages.insert(package);
+        }
+    }
+    let mut tally: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let mut wrong = Vec::new();
+    for (i, theirs) in &recorded {
+        let o = &t.content.objects[*i];
+        let request = &theirs[..20];
+        let mut g = yalain_world::graph::Builder::new();
+        g.native(
+            154,
+            NativeObject::Packed {
+                ty: 154,
+                bytes: request.to_vec(),
+            },
+        );
+        let from = h.bots[b].inbox.len();
+        h.ask(
+            b,
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(g.graph())],
+            3,
+        );
+        let ours = h
+            .world_messages(b, from)
+            .into_iter()
+            .rev()
+            .find_map(|m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                    native(&c.args?.0)
+                }
+                _ => None,
+            })
+            .expect("a profile");
+        let (seen, shown) = (name_and_page(theirs, 20), name_and_page(&ours, 20));
+        let what = if seen == shown {
+            "as 2017"
+        } else if o
+            .description
+            .name
+            .is_some_and(|(_, table)| seen.1.is_some_and(|p| p.1 == table))
+        {
+            "named by its own row from another table, its page that table's"
+        } else {
+            wrong.push(format!(
+                "{:08X} {:016X}: 2017 {seen:X?}, here {shown:X?}",
+                o.template,
+                o.object.unwrap_or(0)
+            ));
+            "different"
+        };
+        *tally.entry(what).or_default() += 1;
+    }
+    println!("{tally:#?}");
+    assert!(
+        wrong.is_empty(),
+        "{} of {}: {wrong:#?}",
+        wrong.len(),
+        recorded.len()
+    );
+    assert!(
+        tally.get("as 2017").copied().unwrap_or(0) > 900,
+        "{tally:?}"
+    );
+}

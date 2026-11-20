@@ -6036,6 +6036,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.self-naming-as-2017",
+        says: "Every 2017 examination of a placed object whose template's entities name nothing shows the \
+               name and page this server's examination of it shows, from its qualities record or the world's \
+               examination rows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SELF-NAMING-2017"),
+        station: "yalain-testkit::corpus::world_db::objects_named_only_outside_their_entities_are_examined_by_the_name_and_page_2017_showed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.examination.skills-needed-listed",
         says: "An item that takes a skill or Arcane Lore to use lists them under its requirements: \
                each skill by name, then the Arcane Lore needed.",
