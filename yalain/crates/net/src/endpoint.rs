@@ -8,8 +8,9 @@
 //!
 //! - the **client** sends its clock request and an echo request every six half-second intervals;
 //! - the **server** sends its clock with its first data and at each multiple of
-//!   [`SERVER_TIME_SYNC_INTERVALS`] of its interval, on the next packet it sends, and answers each
-//!   echo request at once with an acknowledgement;
+//!   [`SERVER_TIME_SYNC_INTERVALS`] of its interval, on the next packet it sends (an
+//!   acknowledgement as readily as data), with the game time at that send, and answers each echo
+//!   request at once with an acknowledgement;
 //! - the **server** sends its large messages at a pace ([`crate::pace`]).
 //!
 //! Sans-IO: the caller passes the time and sends the datagrams [`Endpoint::tick`] returns.
@@ -87,6 +88,9 @@ pub struct Endpoint {
     held: bool,
     /// Server: the clock has been sent once.
     time_sync_sent: bool,
+    /// Server: the clock is due and has not gone yet: the large messages it was to ride could not
+    /// be sent, so it goes on the next packet that is.
+    time_sync_waiting: bool,
     ack_now: bool,
     /// The highest sequence the peer has acknowledged: by its acknowledgement, or by asking for
     /// the one after it again (it has everything before the first it asks for).
@@ -140,6 +144,7 @@ impl Endpoint {
             clock_base: now,
             held: false,
             time_sync_sent: false,
+            time_sync_waiting: false,
             ack_now: false,
             peer_acked: 1,
             last_message_seq: 1,
@@ -344,11 +349,14 @@ impl Endpoint {
                 sections.push((PacketFlags::ECHO_REQUEST, 0f32.to_le_bytes().to_vec()));
             }
             Role::Server
-                if !self.time_sync_sent
+                if self.time_sync_waiting
+                    || !self.time_sync_sent
                     || reaches_a_multiple(before, self.flow.cur_local_interval) =>
             {
                 // A world's first data is often only the large message it is sent as it enters,
-                // which goes by the pace: the clock rides its first packet, as the first data.
+                // which goes by the pace: the clock rides its first packet, as the first data. When
+                // the pace cannot send now, the clock is taken back below and decided again on the
+                // next run, so an acknowledgement sent meanwhile carries it.
                 if sections.is_empty() && self.unsent_blobs == 0 && !self.pace.is_empty() {
                     self.pace.carry(
                         PacketFlags::TIME_SYNC,
@@ -358,6 +366,7 @@ impl Endpoint {
                     sections.push((PacketFlags::TIME_SYNC, 0f64.to_le_bytes().to_vec()));
                 }
                 self.time_sync_sent = true;
+                self.time_sync_waiting = false;
             }
             _ => {}
         }
@@ -398,6 +407,9 @@ impl Endpoint {
                 self.last_message_seq = last.seq_id;
             }
             out.extend(paced);
+        }
+        if !self.pace.take_carried().is_empty() {
+            self.time_sync_waiting = true;
         }
         if self.flush_num != 0 {
             self.flow.flush_sent_packets(self.flush_num);

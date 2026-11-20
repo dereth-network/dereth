@@ -101,7 +101,8 @@ pub struct Pace {
     spent: usize,
     /// The interval `spent` counts.
     interval: Option<u16>,
-    /// Sections that go on the next packet this sends.
+    /// Sections for the first packet this sends now; taken back when it can send none
+    /// ([`Self::take_carried`]).
     carried: Vec<(u32, Vec<u8>)>,
 }
 
@@ -173,6 +174,12 @@ impl Pace {
     /// sent as it enters is the only data going, rides that message's first packet.
     pub fn carry(&mut self, mask: u32, data: Vec<u8>) {
         self.carried.push((mask, data));
+    }
+
+    /// Take back the carried sections [`Self::send`] could not send (the window was full or the
+    /// budget spent): they wait for the next packet the connection sends, not for this.
+    pub fn take_carried(&mut self) -> Vec<(u32, Vec<u8>)> {
+        std::mem::take(&mut self.carried)
     }
 
     /// The connection is in interval `interval`: a new one starts its budget again.

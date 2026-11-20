@@ -181,16 +181,12 @@ fn the_server_sends_its_clock_with_its_first_data_and_at_each_fortieth_interval(
     assert_eq!(clocks(&sent), [2, 40, 80, 120]);
 }
 
-/// A world whose first data is a message long enough to go by the pace sends its clock on the
-/// first packet after the server switch, ahead of the message, not after it.
-/// Behaviour: server.net.world-clock-on-its-first-data
-#[test]
-fn a_worlds_clock_goes_first_after_its_switch_even_ahead_of_a_paced_message() {
-    let (mut net, player) = services();
-    let login = logged_in(&mut net, player);
+/// The player logs in and enters the world: its world login at 1.0 s, its answer at 1.05 s.
+fn in_the_world(net: &mut ServerNet, player: SocketAddr) -> ConnId {
+    let login = logged_in(net, player);
     let referral = net.refer(login, at(0.2)).expect("a referral");
     net.tick(at(0.2));
-    sent_to(&mut net, player);
+    sent_to(net, player);
     net.on_datagram(
         Port::WORLD_EVEN,
         player,
@@ -200,14 +196,76 @@ fn a_worlds_clock_goes_first_after_its_switch_even_ahead_of_a_paced_message() {
         ),
         at(1.0),
     );
-    let cookie = the_cookie(&sent_to(&mut net, player)[0]);
+    let cookie = the_cookie(&sent_to(net, player)[0]);
     net.on_datagram(
         Port::WORLD_ODD,
         player,
         &request(PacketFlags::CONNECT_RESPONSE, cookie.to_le_bytes().to_vec()),
         at(1.05),
     );
-    let world = joined(&mut net).expect("in the world");
+    joined(net).expect("in the world")
+}
+
+fn game_time(p: &ParsedPacket) -> f64 {
+    let b: [u8; 8] = p.optional[&PacketFlags::TIME_SYNC][..8]
+        .try_into()
+        .expect("eight bytes");
+    f64::from_le_bytes(b)
+}
+
+/// A world sent a message too long for its window, whose client acknowledges none of it: the
+/// message stops when the window is full, and the clock due at interval 40 does not wait for it.
+/// It goes on the next packet sent, the server's acknowledgement, with the game time it is sent
+/// at, not the time it came due.
+/// Behaviour: server.net.clock-rides-the-next-packet-sent
+#[test]
+fn a_clock_due_while_the_window_is_full_rides_the_next_acknowledgement_with_its_send_time() {
+    let (mut net, player) = services();
+    let world = in_the_world(&mut net, player);
+    sent_to(&mut net, player);
+    net.send(world, 5, BlobKind::PRIVATE, vec![0x55; 2_000_000]);
+    let mut sent = Vec::new();
+    for k in 0..100u32 {
+        let t = 1.05 + f64::from(k) * 0.25;
+        net.tick(at(t));
+        sent.extend(
+            net.take_datagrams()
+                .into_iter()
+                .filter(|d| d.to == player && d.from == Port::WORLD_ODD)
+                .map(|d| (t, ParsedPacket::parse(&d.bytes).expect("a packet"))),
+        );
+    }
+    let (t, clock) = sent
+        .iter()
+        .filter(|(_, p)| p.optional.contains_key(&PacketFlags::TIME_SYNC))
+        .nth(1)
+        .expect("the clock after the first");
+    let interval = clock.header.interval;
+    assert!(interval > 40, "it waited for a packet to go: {interval}");
+    assert!(
+        !sent
+            .iter()
+            .any(|(_, p)| (40..=interval).contains(&p.header.interval) && !p.fragments.is_empty()),
+        "the window is full: no part of the message goes from when the clock is due"
+    );
+    assert!(
+        clock.optional.contains_key(&PacketFlags::ACK_SEQUENCE) && clock.fragments.is_empty(),
+        "it rides the acknowledgement"
+    );
+    assert!(
+        (game_time(clock) - t).abs() < 1e-6,
+        "the game time it is sent at, {t}, not {}",
+        game_time(clock)
+    );
+}
+
+/// A world whose first data is a message long enough to go by the pace sends its clock on the
+/// first packet after the server switch, ahead of the message, not after it.
+/// Behaviour: server.net.world-clock-on-its-first-data
+#[test]
+fn a_worlds_clock_goes_first_after_its_switch_even_ahead_of_a_paced_message() {
+    let (mut net, player) = services();
+    let world = in_the_world(&mut net, player);
     net.send(world, 5, BlobKind::PRIVATE, vec![0x44; 70_000]);
     net.tick(at(1.05));
     let sent = sent_to(&mut net, player);

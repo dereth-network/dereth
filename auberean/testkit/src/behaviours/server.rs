@@ -9613,6 +9613,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.clock-rides-the-next-packet-sent",
+        says: "A server connection's clock that comes due while its large message cannot be sent \
+               (the window is full, or the interval's budget spent) does not wait for it: it goes \
+               on the next packet sent, an acknowledgement as readily as data, with the game time \
+               it is sent at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIME-SYNC-RIDES-NEXT"),
+        station: "yalain-net::cpu::intervals::a_clock_due_while_the_window_is_full_rides_the_next_acknowledgement_with_its_send_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.cookies-and-seeds-from-the-hosts-source",
         says: "Every cookie and checksum seed the server sends a client, a login's handshake, a \
                referral and the world's handshake, is taken from the random source its host gave \
