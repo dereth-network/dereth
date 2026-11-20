@@ -6331,6 +6331,7 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     rows.safe_passage.clear();
     rows.effects.clear();
     rows.aligned.clear();
+    rows.no_victory.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =
@@ -6347,6 +6348,26 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
         (5, 5, 6, 14, 1)
     );
     assert_eq!(*rows, yalain_testkit::test_creature_rows());
+}
+
+/// **Rabbits play no victory**: the world's creatures that never play their victory are every
+/// template of the rabbits' kind (AI superclass 0x1E), whose 12 kills of 2017's recorded players
+/// played none, and no other.
+/// Behaviour: server.creatures.victory-none-by-row
+#[test]
+fn the_worlds_creatures_with_no_victory_are_every_template_of_the_rabbits_kind() {
+    use yalain_content::props::creature_property::SUPER_CLASS;
+    let rows = &compiled().tables.creatures;
+    let portal = yalain_testkit::authored::Portal::open();
+    let rabbits: std::collections::BTreeSet<u32> = portal
+        .every_template_props()
+        .into_iter()
+        .filter(|(_, p)| p.word(SUPER_CLASS) == Some(0x1E))
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(rabbits.len(), 22);
+    assert!(rabbits.contains(&0x4700_29B9) && rabbits.contains(&0x4700_29BC));
+    assert_eq!(rows.no_victory, rabbits);
 }
 
 /// **The marked alone are shot**: the world's 14 marking guards each put on the mark, whose row makes
