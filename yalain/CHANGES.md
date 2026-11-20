@@ -37,6 +37,7 @@ what they see, not how it was done.
 - Death Hardiness, Anatomy, Prospector and the miners' perks now work.
 - A camp's period now runs from when the dead creature's body leaves, as in retail.
 - Fixed the admin teleport to map coordinates landing in the wrong place.
+- Effects that raise or lower the heals you receive now work.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

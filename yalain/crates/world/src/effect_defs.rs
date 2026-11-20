@@ -369,6 +369,9 @@ pub enum Kind {
     /// Puts one of these effects on in its place, once, drawn by weight: on its player and, where
     /// it reaches them, the player's fellows in the world.
     Pick(Pick),
+    /// Held, it multiplies each heal of one vital ([`vital`]'s health or vigor bit) its holder
+    /// receives from an effect, by the factor at the record's spellcraft.
+    HealScale { vital: u32, factor: Scale },
     /// Grants its player one complete reset of this kind of its skills, once.
     Reset(Reset),
     /// Finishes its player's untraining under way at once, once.
@@ -389,6 +392,51 @@ pub enum Kind {
     ExtraConsignments,
     /// Anything else (kept as a record only).
     Other,
+}
+
+/// The hook an effect's script answers each vital change an incoming effect brings with, and the
+/// calls in it that read a heal's change to its holder's health or vigor and scale it.
+const VITAL_HOOK: &str = "CheckApplyEffectVitals";
+const TARGET_HEALTH_CHANGE: u32 = 0x01E1_0034;
+const TARGET_VIGOR_CHANGE: u32 = 0x01E1_0017;
+const SCALED: u32 = 0x014D_008B;
+
+/// The vital whose heals an effect's script scales as they come to its holder: its own vital hook
+/// (or the nearest of its bases') reads the incoming change to health or vigor and scales it.
+fn heal_scaled(lib: &Library, package: u32) -> Option<u32> {
+    let mut at = lib.export_of(package);
+    let mut guard = 0;
+    while let Some(i) = at {
+        let p = lib.packages.get(i)?;
+        if let Some(f) = p.functions.iter().find(|f| f.name == VITAL_HOOK) {
+            let start = (f.offset? / 4) as usize;
+            let end = (start + (f.size / 4) as usize).min(lib.code.len());
+            let mut called = Vec::new();
+            for at in start..end {
+                if matches!(lib.code[at] & 0xFF, 0x0B | 0x4F | 0x51 | 0x53) {
+                    if let Some(id) = lib.code.get(at + 1) {
+                        called.push(id & 0x7FFF_FFFF);
+                    }
+                }
+            }
+            if !called.contains(&SCALED) {
+                return None;
+            }
+            return if called.contains(&TARGET_HEALTH_CHANGE) {
+                Some(vital::HEALTH)
+            } else if called.contains(&TARGET_VIGOR_CHANGE) {
+                Some(vital::VIGOR)
+            } else {
+                None
+            };
+        }
+        at = p.parent;
+        guard += 1;
+        if guard > lib.packages.len() {
+            return None;
+        }
+    }
+    None
 }
 
 /// The ways an impulse pushes its target, by its effect's flags: along the target's facing,
@@ -974,6 +1022,21 @@ impl EffectDef {
             })
         } else if is("Eff_SetSales") {
             Kind::ExtraConsignments
+        } else if let Some(v) = heal_scaled(lib, o.package_id()) {
+            // Its factor runs from its least to its most by spellcraft, held at the ends.
+            let n = |name: &str| nav.number(o, name).ok();
+            match (
+                n("m_fMinSpellcraft"),
+                n("m_fMaxSpellcraft"),
+                n("m_fMinMod"),
+                n("m_fMaxMod"),
+            ) {
+                (Some(least_at), Some(most_at), Some(least), Some(most)) => Kind::HealScale {
+                    vital: v,
+                    factor: Scale(vec![(least_at, least), (most_at, most)]),
+                },
+                _ => Kind::Other,
+            }
         } else {
             Kind::Other
         };

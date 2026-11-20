@@ -979,6 +979,7 @@ pub fn apply_on<S: Store>(
                 show_fx_on(s, net, on, def.fx);
             }
             if flags & vital::HEALTH != 0 {
+                let amount = heal_scaled(s, on, vital::HEALTH, amount);
                 creature_health(s, net, id, amount, cast.caster, clock);
             }
             true
@@ -1799,6 +1800,8 @@ fn heal<S: Store>(
         (vital::FOCUS, quality::FOCUS, quality::FOCUS_MAX),
     ] {
         if flags & bit != 0 {
+            // A heal that comes with an effect is what its target holds that scales heals makes it.
+            let amount = heal_scaled(s, On::Player(world), bit, amount);
             change_vital(
                 s,
                 net,
@@ -1908,6 +1911,7 @@ fn change_by<S: Store>(
         On::Player(world) => heal(s, net, world, def, (bits, amount), cast, clock),
         On::Creature(id) => {
             if bits & vital::HEALTH != 0 {
+                let amount = heal_scaled(s, on, vital::HEALTH, amount);
                 creature_health(s, net, id, amount, cast.caster, clock);
             }
         }
@@ -1997,6 +2001,30 @@ pub(crate) fn creature_health<S: Store>(
 /// (49,170 of 49,170).
 fn harm_by_player(me: u64, amount: i32, (caster, pk): (u64, bool)) -> bool {
     pk && amount < 0 && caster != me
+}
+
+/// What a heal of a vital (health or vigor) that comes to its holder with an effect (not a change
+/// over time it holds, nor regeneration) comes to after the records it holds that scale such
+/// heals: each top record of its class in turn multiplies it by its factor at the record's
+/// spellcraft, a whole number dropping what is past the point (as the library's own scaling does:
+/// a heal of 100 under ×1.2 is 120, under ×0.5 then ×0.9, 45).
+#[must_use]
+pub fn heal_scaled<S: Store>(s: &Server<S>, on: On, which: u32, amount: i32) -> i32 {
+    let mut out = amount;
+    for e in applying(&s.effect_table, records_of(s, on)) {
+        if let Some(Kind::HealScale { vital, factor }) =
+            s.effect_table.get(e.state).map(|d| &d.kind)
+        {
+            if *vital == which && out > 0 {
+                let by = factor.at(e.spellcraft).unwrap_or(1.0);
+                // A heal is above nothing, so dropping the rest is rounding down.
+                #[allow(clippy::cast_precision_loss)]
+                let scaled = dereth_primitives::num::floor_to_i32(out as f32 * by);
+                out = scaled;
+            }
+        }
+    }
+    out
 }
 
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the

@@ -5018,6 +5018,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.heal-scales",
+        says: "An effect whose script scales the heals its holder receives multiplies each heal of its vital \
+               (health or vigor) that comes with an effect by its factor at the record's spellcraft, held \
+               at its ends, the rest past the point dropped; changes over time and regeneration it leaves \
+               alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HEAL-SCALES"),
+        station: "yalain-testkit::cpu::play::heal_scales::a_held_heal_scaling_multiplies_the_heals_its_holder_receives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.heal-scales-read",
+        says: "The install's effects that scale heals received read with their vital and their factor by \
+               spellcraft: Fickle Fate's four, Blighting Gaze, the Corruptor's Touch and the Archon's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HEAL-SCALES-READ"),
+        station: "yalain-testkit::dat::effects::the_effects_that_scale_heals_read_with_their_vital_and_factor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.held-back-rises-count-for-nothing",
         says: "While a player holds an effect that holds back a quality's rises, the rise any other \
                effect gives that quality (an amount added, a factor above 1) counts for nothing, but \

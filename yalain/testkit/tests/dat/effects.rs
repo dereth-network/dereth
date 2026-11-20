@@ -4154,3 +4154,48 @@ fn fickle_fate_and_its_fourteen_outcomes_read_as_the_data_defines_them() {
         "each outcome read"
     );
 }
+
+/// The install's effects whose scripts scale the heals their holder receives read as heal scalings,
+/// each with its vital and its factor by spellcraft from its own record: Fickle Fate's four (health
+/// and vigor, ×1.2 to ×1.5 up and ×0.5 to ×0.8 down over spellcraft 1 to 10), Blighting Gaze's
+/// (health, ×0.9 to ×0.5 over 1 to 150), the Corruptor's Touch (×0.9 to ×0.5 over 1 to 50) and
+/// the Archon's (×1.05); an ordinary buff reads as none.
+/// Behaviour: server.effects.heal-scales-read
+#[test]
+fn the_effects_that_scale_heals_read_with_their_vital_and_factor() {
+    use yalain_world::effect_defs::vital;
+    let states = [
+        0x7000_1ED0,
+        0x7000_1ECF,
+        0x7000_1ED4,
+        0x7000_1ED3,
+        0x7000_1F27,
+        0x7000_1FAA,
+        0x7000_1D84,
+        0x6F00_1DF7,
+    ];
+    let t = Portal::open().effects(&states);
+    let read = |state: u32| match t.get(state).map(|d| &d.kind) {
+        Some(Kind::HealScale { vital, factor }) => {
+            Some((*vital, factor.at(1.0)?, factor.at(1000.0)?))
+        }
+        _ => None,
+    };
+    let near = |got: Option<(u32, f32, f32)>, want: (u32, f32, f32)| {
+        got.is_some_and(|g| {
+            g.0 == want.0 && (g.1 - want.1).abs() < 1e-4 && (g.2 - want.2).abs() < 1e-4
+        })
+    };
+    for (state, want) in [
+        (0x7000_1ED0, (vital::HEALTH, 1.2, 1.5)),
+        (0x7000_1ECF, (vital::HEALTH, 0.5, 0.8)),
+        (0x7000_1ED4, (vital::VIGOR, 1.2, 1.5)),
+        (0x7000_1ED3, (vital::VIGOR, 0.5, 0.8)),
+        (0x7000_1F27, (vital::HEALTH, 0.9, 0.5)),
+        (0x7000_1FAA, (vital::HEALTH, 0.9, 0.5)),
+        (0x7000_1D84, (vital::HEALTH, 1.05, 1.05)),
+    ] {
+        assert!(near(read(state), want), "{state:08X}: {:?}", read(state));
+    }
+    assert_eq!(read(0x6F00_1DF7), None, "Courage scales no heals");
+}
