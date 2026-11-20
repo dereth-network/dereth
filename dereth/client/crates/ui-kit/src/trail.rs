@@ -5,12 +5,17 @@
 //! arrow reach the world as bands ([`WorldBand`]) and the ring as a ground mark ([`GroundMark`]),
 //! which the world renderer draws there.
 //!
+//! A plugin's paths are drawn the same way ([`path_band`]): a glow like the wisp, a ribbon, dashes
+//! or a picture of the plugin's own.
+//!
 //! The wisp and the motes are drawn from the art's pictures where the host has them (a strip that
 //! repeats along the wisp, and one mote, each in its own colours); where it has not, from a glow
 //! and a soft dot drawn here.
 
 use dereth_primitives::{TextureData, TextureFormat};
-use dereth_ui_overlay::{BandPoint, GroundMark, OverlaySpace, OverlayTexture, WorldBand};
+use dereth_ui_overlay::{
+    BandPoint, GroundMark, OverlaySpace, OverlayTexture, PathLook, PathStyle, WorldBand,
+};
 
 use crate::selection;
 
@@ -24,6 +29,18 @@ pub const WISP_TEXTURE: OverlayTexture = OverlayTexture {
 pub const GOAL_TEXTURE: OverlayTexture = OverlayTexture {
     space: OverlaySpace::Local,
     key: 0x474F_414C,
+};
+
+/// A ribbon path's texture: flat across, soft at its edges.
+pub const RIBBON_TEXTURE: OverlayTexture = OverlayTexture {
+    space: OverlaySpace::Local,
+    key: 0x5249_4242,
+};
+
+/// A dashed path's texture: one dash along it, then its gap.
+pub const DASH_TEXTURE: OverlayTexture = OverlayTexture {
+    space: OverlaySpace::Local,
+    key: 0x4441_5348,
 };
 
 /// A mote's texture, among the interface's own.
@@ -122,6 +139,23 @@ pub fn glow() -> TextureData {
     })
 }
 
+/// A ribbon: full across its middle, soft to nothing at its edges.
+#[must_use]
+pub fn ribbon() -> TextureData {
+    drawn(|_, y| ((0.5 - (y - 0.5).abs()) / 0.15).clamp(0.0, 1.0))
+}
+
+/// A dash: from the picture's left to past its middle along it, rounded at its ends and soft at
+/// its edges, then nothing.
+#[must_use]
+pub fn dash() -> TextureData {
+    drawn(|x, y| {
+        let across = ((0.5 - (y - 0.5).abs()) / 0.15).clamp(0.0, 1.0);
+        let along = ((x - 0.05) / 0.06).clamp(0.0, 1.0) * ((0.6 - x) / 0.06).clamp(0.0, 1.0);
+        across * along
+    })
+}
+
 /// A mote where the host has no art: a soft dot in [`WISP_COLOUR`].
 #[must_use]
 pub fn mote() -> TextureData {
@@ -161,16 +195,29 @@ fn tinted(colour: u32, strength: f32) -> u32 {
     a << 24 | (colour & 0x00FF_FFFF)
 }
 
+/// The built-in journey trail's style: a glow at the middle of the body, [`WISP_HALF_WIDTH`]
+/// to each side at its widest, in its picture's own colours, moving away from the body at
+/// [`WISP_DRIFT`] and fading over [`WISP_FADE`] metres.
+#[must_use]
+pub fn wisp_style() -> PathStyle {
+    PathStyle {
+        look: PathLook::Glow,
+        width: 2.0 * WISP_HALF_WIDTH,
+        height: None,
+        color: 0x00FF_FFFF,
+        glow: 0.9,
+        fade: WISP_FADE,
+        drift: WISP_DRIFT,
+        reach: 30.0,
+        from_player: true,
+    }
+}
+
 /// The wisp through `line` (places `step` metres apart, the first where the character stands)
 /// for a body `height` metres tall, at `time` seconds, its picture `aspect` times as long as it is
-/// high and `between(a, b, f)` the place `f` of the way from `a` to `b`: leaving the body at
-/// [`WISP_HEIGHT`] of its height, thin where it leaves it, widest a little way out, then thinning
-/// and fading to nothing over [`WISP_FADE`] metres, and out over the last [`WISP_END_FADE`]
-/// metres where the line ends sooner; all of it at `strength` (0 to 1), which a trail coming in
-/// or going out passes. Its picture repeats along
-/// it, as long a repeat as the picture is long across the wisp's widest, and moves along it at
-/// [`WISP_DRIFT`]; the wisp rises and falls a little and its strength shimmers a little, drifting
-/// forward too.
+/// high and `between(a, b, f)` the place `f` of the way from `a` to `b`: the built-in journey
+/// trail, a path in [`wisp_style`] at `strength` (0 to 1), which a trail coming in or going
+/// out passes.
 #[must_use]
 pub fn wisp<P: Copy>(
     line: &[P],
@@ -181,55 +228,150 @@ pub fn wisp<P: Copy>(
     strength: f32,
     between: impl Fn(&P, &P, f32) -> P,
 ) -> WorldBand<P> {
+    path_band(
+        line,
+        step,
+        &wisp_style(),
+        height,
+        time,
+        WISP_TEXTURE,
+        aspect,
+        strength,
+        between,
+    )
+}
+
+/// How long one dash and the gap after it are along a path, metres.
+pub const DASH_LENGTH: f32 = 1.2;
+
+/// The texture a path of `look` is drawn with; `None` for a picture of the plugin's own.
+#[must_use]
+pub fn look_texture(look: &PathLook) -> Option<OverlayTexture> {
+    match look {
+        PathLook::Glow => Some(WISP_TEXTURE),
+        PathLook::Ribbon => Some(RIBBON_TEXTURE),
+        PathLook::Dashes => Some(DASH_TEXTURE),
+        PathLook::Image(_) => None,
+    }
+}
+
+/// A path through `line` (places `step` metres apart, the first where it starts) drawn in `style`
+/// with `texture` at `strength` (0 to 1, as it comes in or goes out), for a body `body` metres
+/// tall, at `time` seconds; `aspect` is a picture's width over its height, and `between(a, b, f)`
+/// the place `f` of the way from `a` to `b`.
+///
+/// - A glow leaves its start thin and widens over the first 0.8 m, thins and fades along it,
+///   rises and falls a little and shimmers a little; its picture repeats along it, as long a
+///   repeat as the picture is across its widest, moving along it at the style's drift.
+/// - A ribbon is as wide as its style says all along, after the first half metre.
+/// - Dashes, and a picture, repeat along it ([`DASH_LENGTH`], or the picture's width over its
+///   height times the path's width), moving along it at the style's drift.
+///
+/// Each fades to nothing over the style's fade (with a fade of 0 it does not), and out over its
+/// last [`WISP_END_FADE`] metres. It is held the style's height over the ground, or at [`WISP_HEIGHT`] of the body.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn path_band<P: Copy>(
+    line: &[P],
+    step: f32,
+    style: &PathStyle,
+    body: f32,
+    time: f64,
+    texture: OverlayTexture,
+    aspect: f32,
+    strength: f32,
+    between: impl Fn(&P, &P, f32) -> P,
+) -> WorldBand<P> {
     use dereth_primitives::num::math::{powf, sinf};
     #[allow(clippy::cast_possible_truncation)]
     let t = (time % 3600.0) as f32;
     #[allow(clippy::cast_precision_loss)]
     let end = step * line.len().saturating_sub(1) as f32;
+    let height = style.height.unwrap_or(body * WISP_HEIGHT);
+    let half = style.width * 0.5;
+    let glow = style.look == PathLook::Glow;
+    // The length one repeat of a dash or a picture takes along the path.
+    let tile = match &style.look {
+        PathLook::Dashes => Some(DASH_LENGTH),
+        PathLook::Image(_) | PathLook::Glow => Some((style.width * aspect).max(0.05)),
+        PathLook::Ribbon => None,
+    };
     let point = |at: P, s: f32, u: f32| {
-        let left = (1.0 - s / WISP_FADE).clamp(0.0, 1.0);
+        let left = if style.fade > 0.0 {
+            (1.0 - s / style.fade).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         let ending = ((end - s) / WISP_END_FADE).clamp(0.0, 1.0);
-        let start = (s / 0.8).clamp(0.0, 1.0);
-        let shimmer = 0.85 + 0.15 * sinf(s * 2.3 - t * 3.1) * sinf(s * 0.9 + t * 1.1 + 1.0);
-        BandPoint {
-            at,
-            lift: height * WISP_HEIGHT + 0.05 * sinf(s * 1.1 - t * 1.7) * start,
-            half_width: 0.015 + (WISP_HALF_WIDTH - 0.015) * start * powf(left, 0.6),
-            tint: tinted(
-                0x00FF_FFFF,
-                0.9 * strength * start.max(0.25) * powf(left, 1.2) * ending * shimmer,
-            ),
-            u,
+        if glow {
+            let start = (s / 0.8).clamp(0.0, 1.0);
+            let shimmer = 0.85 + 0.15 * sinf(s * 2.3 - t * 3.1) * sinf(s * 0.9 + t * 1.1 + 1.0);
+            BandPoint {
+                at,
+                lift: height + 0.05 * sinf(s * 1.1 - t * 1.7) * start,
+                half_width: 0.015 + (half - 0.015).max(0.0) * start * powf(left, 0.6),
+                tint: tinted(
+                    style.color,
+                    style.glow * strength * start.max(0.25) * powf(left, 1.2) * ending * shimmer,
+                ),
+                u,
+            }
+        } else {
+            let start = (s / 0.5).clamp(0.0, 1.0);
+            BandPoint {
+                at,
+                lift: height,
+                half_width: half,
+                tint: tinted(
+                    style.color,
+                    style.glow * strength * start.max(0.3) * left * ending,
+                ),
+                u,
+            }
         }
     };
-    // The picture repeats along the wisp: each repeat's `u` runs 0 to 1, so where one ends and the
-    // next begins the wisp has two points in one place, the first ending the repeat, the second
+    let Some(tile) = tile else {
+        let points = line
+            .iter()
+            .enumerate()
+            .map(|(i, &at)| {
+                #[allow(clippy::cast_precision_loss)]
+                let s = step * i as f32;
+                point(at, s, 0.5)
+            })
+            .collect();
+        return WorldBand { points, texture };
+    };
+    // Repeated along it: each repeat's picture runs `u` 0 to 1, so where one ends and the next
+    // begins the path has two points in one place, the first ending the repeat and the second
     // beginning the next.
-    let tile = (2.0 * WISP_HALF_WIDTH * aspect).max(0.05);
-    let offset = WISP_DRIFT * t;
+    let offset = style.drift * t;
     let along = |s: f32| (s - offset) / tile;
     let mut points = Vec::with_capacity(line.len() * 2);
     for (i, &at) in line.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
-        let (s, s_next) = (step * i as f32, step * (i + 1) as f32);
+        let s = step * i as f32;
         let u = along(s);
         points.push(point(at, s, u - u.floor()));
         let Some(&next) = line.get(i + 1) else {
             break;
         };
-        let mut k = u.floor() + 1.0;
-        while k <= along(s_next).floor() {
+        // The next point's `u` as that point works it out, so a repeat ending on it is not lost
+        // to rounding.
+        #[allow(clippy::cast_precision_loss)]
+        let s_next = step * (i + 1) as f32;
+        let (k0, k1) = (u.floor(), along(s_next).floor());
+        let mut k = k0 + 1.0;
+        while k <= k1 {
             let sb = k * tile + offset;
-            let at_b = between(&at, &next, ((sb - s) / (s_next - s)).clamp(0.0, 1.0));
+            let f = ((sb - s) / (s_next - s)).clamp(0.0, 1.0);
+            let at_b = between(&at, &next, f);
             points.push(point(at_b, sb, 1.0));
             points.push(point(at_b, sb, 0.0));
             k += 1.0;
         }
     }
-    WorldBand {
-        points,
-        texture: WISP_TEXTURE,
-    }
+    WorldBand { points, texture }
 }
 
 /// The motes drifting off the wisp through `line` (as for [`wisp`]) at `time` seconds: [`MOTES`]
@@ -321,10 +463,12 @@ pub fn goal_arrow<P: Copy>(at: P, time: f64) -> WorldBand<P> {
 /// Every picture the journey is drawn with, drawn here, as the textures they go under: the wisp's
 /// glow and the mote stand in for the art's until the host has it.
 #[must_use]
-pub fn pictures() -> [(OverlayTexture, TextureData); 4] {
+pub fn pictures() -> [(OverlayTexture, TextureData); 6] {
     [
         (WISP_TEXTURE, glow()),
         (MOTE_TEXTURE, mote()),
+        (RIBBON_TEXTURE, ribbon()),
+        (DASH_TEXTURE, dash()),
         (GOAL_TEXTURE, selection::drawn()),
         (ARROW_TEXTURE, arrow()),
     ]
@@ -509,6 +653,55 @@ mod tests {
         }
         let later = motes(&line(), 0.4, 1.8, 1.0, 1.0, lerp);
         assert_ne!(m[0].points[0].at, later[0].points[0].at, "drifting");
+    }
+
+    /// Dashes repeat along the path, each repeat's `u` running 0 to 1 and its ends doubled in one
+    /// place; a whole repeat's drift later they stand where they stood.
+    #[test]
+    fn dashes_repeat_along_a_path_and_drift_along_it() {
+        let line: Vec<f32> = (0..=25).map(|i| i as f32 * 0.4).collect(); // 10 m
+        let style = PathStyle {
+            look: PathLook::Dashes,
+            fade: 0.0,
+            ..wisp_style()
+        };
+        let lerp = |a: &f32, b: &f32, f: f32| a + (b - a) * f;
+        let band = path_band(&line, 0.4, &style, 1.8, 0.0, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let ends: Vec<f32> = band
+            .points
+            .windows(2)
+            .filter(|w| (w[0].at - w[1].at).abs() < 1e-5 && w[0].u == 1.0 && w[1].u == 0.0)
+            .map(|w| w[0].at)
+            .collect();
+        assert_eq!(ends.len(), 8, "a repeat every 1.2 m along 10 m: {ends:?}");
+        assert!((ends[1] - ends[0] - DASH_LENGTH).abs() < 1e-4);
+        assert!(band.points.iter().all(|p| (0.0..=1.0).contains(&p.u)));
+        let moving = PathStyle {
+            drift: 1.2,
+            ..style.clone()
+        };
+        let later = path_band(&line, 0.4, &moving, 1.8, 0.5, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let moved: Vec<f32> = later
+            .points
+            .iter()
+            .filter(|p| p.u == 1.0)
+            .map(|p| p.at)
+            .collect();
+        assert!(
+            moved.iter().any(|a| (a - (ends[0] + 0.6)).abs() < 1e-3),
+            "half a second at 1.2 m/s moves each end 0.6 m on: {moved:?}"
+        );
+        let round = path_band(&line, 0.4, &moving, 1.8, 1.0, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let b = round
+            .points
+            .iter()
+            .find(|p| p.u == 1.0)
+            .expect("a repeat ends")
+            .at;
+        assert!(
+            (b - ends[0]).abs() < 1e-3,
+            "a whole repeat later, where it was: {b}"
+        );
     }
 
     #[test]

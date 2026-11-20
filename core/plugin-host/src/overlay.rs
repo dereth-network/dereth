@@ -18,10 +18,14 @@ use dereth_client_runtime::frame_hook::Places;
 use dereth_plugin_api::{CallError, HostCapability, Value};
 use dereth_primitives::{ObjectId, Position};
 
+use dereth_client_contract::overlay::{PathLook, PathStyle};
+
 use crate::places;
 
 /// The most markers one plugin may keep.
 pub const MAX_MARKERS: usize = 256;
+/// The most paths (`draw.path`) one plugin keeps at a time, among its markers.
+pub const MAX_PATHS: usize = 16;
 /// The most points one map marker may hold.
 pub const MAX_POINTS: usize = 4_096;
 
@@ -111,6 +115,9 @@ pub enum ShapeKind {
     Square,
     /// Its label, floating at its height.
     Text,
+    /// A path through its points, drawn in the world in its style: kept by the host, which starts
+    /// it at the character, holds it over the ground and moves it as time passes.
+    Path,
     /// A journey's way ahead, from the character on through its path's places, a short step
     /// apart. The host draws a shown journey with it; it is not a shape a plugin names.
     Trail,
@@ -121,11 +128,12 @@ pub enum ShapeKind {
 
 impl ShapeKind {
     /// Every shape, as a plugin names it.
-    pub const ALL: [(Self, &'static str); 4] = [
+    pub const ALL: [(Self, &'static str); 5] = [
         (Self::Line, "line"),
         (Self::Ring, "ring"),
         (Self::Square, "square"),
         (Self::Text, "text"),
+        (Self::Path, "path"),
     ];
 
     #[must_use]
@@ -206,6 +214,8 @@ pub struct Marker {
     pub nametags: Option<Nametags>,
     /// Drawn over the world even where something stands in front of it.
     pub on_top: bool,
+    /// A path's style.
+    pub style: Option<PathStyle>,
 }
 
 fn bad(msg: impl Into<String>) -> CallError {
@@ -251,6 +261,14 @@ impl Marker {
                     "color",
                     "expires",
                     "on_top",
+                    "points",
+                    "look",
+                    "image",
+                    "glow",
+                    "fade",
+                    "drift",
+                    "reach",
+                    "from_player",
                 ],
                 Kind::Nametags => &[
                     "players", "monsters", "npcs", "portals", "within", "limit", "health", "color",
@@ -309,7 +327,7 @@ impl Marker {
                     .iter()
                     .find(|(_, n)| *n == s)
                     .map(|(k, _)| *k)
-                    .ok_or_else(|| bad("a shape is line, ring, square or text"))?,
+                    .ok_or_else(|| bad("a shape is line, ring, square, text or path"))?,
             ),
             (Kind::Shape, None) => return Err(bad("a shape names its shape")),
             _ => None,
@@ -333,6 +351,11 @@ impl Marker {
         if shape == Some(ShapeKind::Line) && to.is_none() {
             return Err(bad("a line needs to_object or to_position"));
         }
+        let path = shape == Some(ShapeKind::Path);
+        if path && points.len() < 2 {
+            return Err(bad("a path needs two or more points"));
+        }
+        let style = if path { Some(path_style(v)?) } else { None };
         let nametags = (kind == Kind::Nametags).then(|| Nametags {
             players: v.get("players").as_bool().unwrap_or(false),
             monsters: v.get("monsters").as_bool().unwrap_or(false),
@@ -353,7 +376,7 @@ impl Marker {
         });
         match kind {
             Kind::Map if points.is_empty() => return Err(bad("a map marker needs points")),
-            Kind::World | Kind::Radar | Kind::Arrow | Kind::Shape if anchor.is_none() => {
+            Kind::World | Kind::Radar | Kind::Arrow | Kind::Shape if anchor.is_none() && !path => {
                 return Err(bad(format!(
                     "a {} marker needs an object or a position",
                     kind.name()
@@ -394,8 +417,97 @@ impl Marker {
                 Value::Nil => false,
                 b => b.as_bool().ok_or_else(|| bad("on_top is true or false"))?,
             },
+            style,
         })
     }
+}
+
+/// A path's style from a plugin's table, each measure defaulting by its look: a glow at the
+/// middle of the body, in its picture's own colours, moving along at 0.8 m/s and fading over 24
+/// metres; a ribbon, dashes or a picture on the
+/// ground in the marker blue, the dashes and the picture moving along it.
+///
+/// # Errors
+/// A look not known, a picture look with no picture, or a measure out of its range.
+fn path_style(v: &Value) -> Result<PathStyle, CallError> {
+    let look = match (v.get("look"), v.get("image")) {
+        (Value::Nil, Value::Nil) => PathLook::Glow,
+        (Value::Nil, i) => PathLook::Image(
+            i.as_str()
+                .ok_or_else(|| bad("a path's image is the name of one of the plugin's pictures"))?
+                .to_owned(),
+        ),
+        (l, i) => match (l.as_str(), i) {
+            (Some("glow"), Value::Nil) => PathLook::Glow,
+            (Some("ribbon"), Value::Nil) => PathLook::Ribbon,
+            (Some("dashes"), Value::Nil) => PathLook::Dashes,
+            (Some("image"), Value::Str(name)) => PathLook::Image(name.clone()),
+            (Some("image"), _) => return Err(bad("an image path names its image")),
+            (Some("glow" | "ribbon" | "dashes"), _) => {
+                return Err(bad("only an image path has an image"))
+            }
+            _ => return Err(bad("a path's look is glow, ribbon, dashes or image")),
+        },
+    };
+    let glow = look == PathLook::Glow;
+    let number = |k: &str, d: f64, lo: f64, hi: f64| -> Result<f32, CallError> {
+        let n = match v.get(k) {
+            Value::Nil => d,
+            x => x
+                .as_f64()
+                .filter(|n| n.is_finite() && (lo..=hi).contains(n))
+                .ok_or_else(|| bad(format!("a path's {k} is a number from {lo} to {hi}")))?,
+        };
+        #[allow(clippy::cast_possible_truncation)] // LINT-OK: a measure within its range
+        Ok(n as f32)
+    };
+    let width = number(
+        "width",
+        match look {
+            PathLook::Glow => 0.48,
+            PathLook::Ribbon => 0.4,
+            PathLook::Dashes => 0.3,
+            PathLook::Image(_) => 0.5,
+        },
+        0.02,
+        5.0,
+    )?;
+    let height = match v.get("height") {
+        Value::Nil if glow => None,
+        Value::Nil => Some(0.05),
+        _ => Some(number("height", 0.0, 0.0, 20.0)?),
+    };
+    // A glow is drawn in its picture's own colours: white leaves them as they are.
+    let color = match v.get("color") {
+        Value::Nil if glow => 0xFF_FF_FF,
+        c => color(c, Kind::Shape)?,
+    };
+    Ok(PathStyle {
+        width,
+        height,
+        color,
+        glow: number("glow", if glow { 0.9 } else { 0.85 }, 0.0, 1.0)?,
+        fade: number("fade", if glow { 24.0 } else { 30.0 }, 0.0, 500.0)?,
+        drift: number(
+            "drift",
+            match look {
+                PathLook::Dashes => 1.2,
+                PathLook::Image(_) => 1.0,
+                PathLook::Glow => 0.8,
+                PathLook::Ribbon => 0.0,
+            },
+            -20.0,
+            20.0,
+        )?,
+        reach: number("reach", 30.0, 1.0, 200.0)?,
+        from_player: match v.get("from_player") {
+            Value::Nil => true,
+            b => b
+                .as_bool()
+                .ok_or_else(|| bad("from_player is true or false"))?,
+        },
+        look,
+    })
 }
 
 /// The points around a ring, and the corners of a square, in order and closed.
@@ -427,6 +539,8 @@ pub struct OverlayView {
     pub on_top: bool,
     /// A nametag's layer's range, in metres, over the end of which it fades.
     pub reach: Option<f64>,
+    /// A path's style.
+    pub style: Option<PathStyle>,
 }
 
 /// `p` moved by `dx`, `dy`, `dz` metres in its own cell's frame.
@@ -510,9 +624,23 @@ impl Overlays {
                     _ => None,
                 };
                 let at = place(m.anchor);
-                let path = match (m.kind, &at) {
-                    (Kind::Shape, Some(a)) => outline(m, a, place(m.to).as_ref()),
+                let path = match (m.kind, &at, &m.style) {
+                    (Kind::Shape, _, Some(style)) => crate::trail::path_ahead(
+                        style
+                            .from_player
+                            .then(|| places.player())
+                            .flatten()
+                            .as_ref(),
+                        &m.points,
+                        style.reach,
+                    ),
+                    (Kind::Shape, Some(a), None) => outline(m, a, place(m.to).as_ref()),
                     _ => Vec::new(),
+                };
+                let at = if m.style.is_some() {
+                    path.first().copied()
+                } else {
+                    at
                 };
                 let at = if m.shape == Some(ShapeKind::Text) {
                     at.map(|a| moved(&a, 0.0, 0.0, m.height))
@@ -524,17 +652,23 @@ impl Overlays {
                     id,
                     kind: m.kind,
                     label: m.label.clone(),
-                    color: m.color,
+                    color: m.style.as_ref().map_or(m.color, |s| s.color),
                     icon: m.icon,
                     object,
                     at,
-                    points: m.points.clone(),
+                    // A path's own points are the plugin's; what is drawn is its path.
+                    points: if m.style.is_some() {
+                        Vec::new()
+                    } else {
+                        m.points.clone()
+                    },
                     line: m.line,
                     shape: m.shape,
                     path,
                     width: m.width,
                     on_top: m.on_top,
                     reach: None,
+                    style: m.style.clone(),
                 });
             }
         }
@@ -588,6 +722,22 @@ impl Overlays {
                 if let (Some(a), Some(b)) = (v.path.first(), v.path.get(1)) {
                     let _ = write!(out, " span={:.1}", places::distance(a, b));
                 }
+            }
+            if let Some(style) = &v.style {
+                let look = match &style.look {
+                    PathLook::Glow => "glow".to_owned(),
+                    PathLook::Ribbon => "ribbon".to_owned(),
+                    PathLook::Dashes => "dashes".to_owned(),
+                    PathLook::Image(name) => format!("image:{name}"),
+                };
+                let height = style
+                    .height
+                    .map_or_else(|| "body".to_owned(), |h| format!("{h:.2}"));
+                let _ = write!(
+                    out,
+                    " look={look} width={:.2} height={height} reach={:.0}",
+                    style.width, style.reach
+                );
             }
             if v.on_top {
                 out.push_str(" on_top");

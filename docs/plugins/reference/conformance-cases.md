@@ -8,7 +8,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 |---|---|
 | [Core](#core) | 25 |
 | [UI](#ui) | 16 |
-| [Overlay](#overlay) | 6 |
+| [Overlay](#overlay) | 9 |
 | [Nav](#nav) | 18 |
 | [Pregame](#pregame) | 3 |
 | [Peers](#peers) | 1 |
@@ -73,8 +73,11 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`depth`](../conformance/overlay/depth/) | A shape, a world marker or a nametags layer may ask to stay on top of whatever stands in front of it, and a nametags layer labels only its nearest objects, nearest first and as many as its limit. | a scripted world |
 | [`journey`](../conformance/overlay/journey/) | The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, the portal ahead on the map and radar, and a wisp along the way ahead as far as the portal. | a scripted world |
 | [`journey-hidden`](../conformance/overlay/journey-hidden/) | A journey asked for with show = false is not drawn, and nav.show_journey hides a drawn one; it answers false for a plugin with no journey. | a scripted world |
+| [`journey-own-path`](../conformance/overlay/journey-own-path/) | A plugin that draws its own path while its journey runs has it drawn in place of the host's own trail, the two cross-fading over half a second. | a scripted world |
 | [`map-click`](../conformance/overlay/map-click/) | A press on the game's map reaches the plugin listening with the place under the pointer, the button and the modifiers held, and is no gesture; the place is one the markers take, and a press off the world is not heard. | a scripted world |
 | [`markers`](../conformance/overlay/markers/) | A plugin's markers are kept with what they mark and resolved to where it is each frame; a marker goes when removed or when its time is up, and the arrow's turn and distance are from the character. | a scripted world |
+| [`path`](../conformance/overlay/path/) | A plugin draws a path in the world: kept by the host, which starts it at the character and draws it a short step apart as far as its reach, in its look; a path of one point, a look not known, a picture the plugin does not have and a seventeenth path are refused. | a scripted world |
+| [`path-replaced`](../conformance/overlay/path-replaced/) | A plugin that replaces its path has the two cross-fade over half a second: a quarter of a second in, the old is half gone and the new half in. | a scripted world |
 | [`shapes`](../conformance/overlay/shapes/) | A plugin draws lines, rings, squares and floating text in the world, each resolved every frame to an outline in the world where its object or place is, and the nametags layer labels each object of the kinds it names within its range. | a scripted world |
 
 ## Nav

@@ -27,6 +27,9 @@ pub(crate) struct PluginSurface {
     question: Option<dereth_client_runtime::dialogs::HostQuestion>,
     /// Whether the pictures a journey is laid on the ground with are uploaded.
     trail_uploaded: bool,
+    /// The plugins' own pictures uploaded for their paths, by hash: each picture's width over its
+    /// height, or `None` for one that would not decode.
+    path_pictures: std::collections::BTreeMap<u64, Option<f32>>,
     /// The art's wisp picture's width over its height, once the host's art is in and its trail
     /// pictures uploaded in place of the ones drawn here; `None` until then.
     trail_art: Option<f32>,
@@ -713,13 +716,18 @@ impl<H: Host> ClientShell<H> {
     }
 
     /// The plugins' marks in the world: a world marker's dot and a shape's outline, drawn by the
-    /// world against its depth under whichever interface is shown; and a shown journey's trail and
-    /// its end, laid on the ground.
+    /// world against its depth under whichever interface is shown; the plugins' paths and a shown
+    /// journey's trail, drawn through the world; and the journey's end, marked as a selection is.
     pub(super) fn plugin_world_marks(&mut self, cx: &mut Cx<'_, H>) {
+        use dereth_client_contract::overlay::{OverlaySpace, OverlayTexture, PathLook};
         use dereth_plugin_host::overlay::{Kind, ShapeKind};
         use dereth_ui_kit::trail;
         let mut marks = Vec::new();
         let (mut trails, mut goals, mut time) = (Vec::new(), Vec::new(), 0.0);
+        // The plugins' paths: each line, its style, and its picture (its texture and width over
+        // height); and the pictures new this frame, decoded, to upload.
+        let mut paths = Vec::new();
+        let mut new_pictures = Vec::new();
         let host = cx
             .frame_hook()
             .and_then(|h| h.as_any().downcast_ref::<PluginHook>())
@@ -758,6 +766,48 @@ impl<H: Host> ClientShell<H> {
                     Kind::Shape if m.shape == Some(ShapeKind::Goal) => {
                         goals.extend(m.at);
                     }
+                    Kind::Shape if m.shape == Some(ShapeKind::Path) => {
+                        let Some(style) = &m.style else { continue };
+                        let picture = match &style.look {
+                            PathLook::Image(name) => {
+                                let Some((bytes, hash)) = host.image(&m.plugin, name) else {
+                                    continue;
+                                };
+                                let aspect = match self.plugins.path_pictures.get(&hash) {
+                                    Some(known) => *known,
+                                    None => {
+                                        let decoded = dereth_ui_kit::pieces::decode_png(bytes).ok();
+                                        #[allow(clippy::cast_precision_loss)] // within 1,024
+                                        let aspect = decoded
+                                            .as_ref()
+                                            .filter(|i| i.width > 0 && i.height > 0)
+                                            .map(|i| i.width as f32 / i.height as f32);
+                                        self.plugins.path_pictures.insert(hash, aspect);
+                                        new_pictures.extend(decoded.map(|i| (hash, i)));
+                                        aspect
+                                    }
+                                };
+                                let Some(aspect) = aspect else { continue };
+                                let texture = OverlayTexture {
+                                    space: OverlaySpace::Local,
+                                    key: hash,
+                                };
+                                (texture, aspect)
+                            }
+                            look => (
+                                trail::look_texture(look).unwrap_or(trail::WISP_TEXTURE),
+                                1.0,
+                            ),
+                        };
+                        // How strongly it is drawn, coming in or going out: its colour's top byte,
+                        // none there meaning fully.
+                        let strength = match m.color >> 24 {
+                            0 => 1.0,
+                            #[allow(clippy::cast_precision_loss)] // 1 to 255
+                            a => a as f32 / 255.0,
+                        };
+                        paths.push((m.path.clone(), style.clone(), picture, strength));
+                    }
                     Kind::Shape if m.shape != Some(ShapeKind::Text) => {
                         marks.extend(mark(&m.path, m.color, m.width, m.on_top));
                     }
@@ -778,7 +828,7 @@ impl<H: Host> ClientShell<H> {
             })
             .filter(|h| *h > 0.1)
             .unwrap_or(trail::BODY_HEIGHT);
-        let wanted = !trails.is_empty() || !goals.is_empty();
+        let wanted = !trails.is_empty() || !goals.is_empty() || !paths.is_empty();
         if wanted && !self.plugins.trail_uploaded {
             self.plugins.trail_uploaded = true;
             for (texture, picture) in trail::pictures() {
@@ -837,6 +887,37 @@ impl<H: Host> ClientShell<H> {
         bands.extend(trails.iter().flat_map(|(line, strength)| {
             trail::motes(line, step, height, time, *strength, between)
         }));
+        // The plugins' paths: a glow in the wisp's own picture, at that picture's shape.
+        bands.extend(
+            paths
+                .iter()
+                .map(|(line, style, (texture, shape), strength)| {
+                    let shape = if *texture == trail::WISP_TEXTURE {
+                        aspect
+                    } else {
+                        *shape
+                    };
+                    trail::path_band(
+                        line, step, style, height, time, *texture, shape, *strength, between,
+                    )
+                }),
+        );
+        for (hash, image) in new_pictures {
+            let picture = dereth_primitives::TextureData {
+                width: image.width,
+                height: image.height,
+                format: dereth_primitives::TextureFormat::Bgra8,
+                levels: vec![image.bgra],
+            };
+            let key = OverlayTexture {
+                space: OverlaySpace::Local,
+                key: hash,
+            };
+            if let Err(e) = present.overlay_upload(key, &picture) {
+                self.plugins.path_pictures.remove(&hash);
+                tracing::warn!("a plugin's path picture: {e}");
+            }
+        }
         bands.extend(goals.iter().map(|g| trail::goal_arrow(*g, time)));
         let ground: Vec<_> = goals.iter().map(|g| trail::goal_ring(*g, time)).collect();
         present.set_ground_marks(&ground);

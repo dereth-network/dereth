@@ -76,6 +76,40 @@ answers a handle with `:remove()`, and goes when the plugin unloads. The host re
 every frame to its outline in the world (a line's two ends, a ring's 32 segments, a square's
 corners), where its object is now; a shape on an object out of sight is not drawn.
 
+### Paths
+
+`draw.path` hands the host a **path** to draw through the world, once: its points (places, two to
+4,096) and a style. The host keeps it, holds it over the ground and the floors, draws it from the
+character on, and moves it as time passes; the plugin speaks again only when the way changes
+(`:remove()` the old path and draw the new one).
+
+```lua
+local way = draw.path{ points = route, look = "glow" }           -- the wisp the Navigator draws
+draw.path{ points = patrol, look = "dashes", color = "#FFD700", from_player = false }
+draw.path{ points = route, image = "pics/footsteps.png", width = 0.6, drift = 0.8 }
+way:remove()
+```
+
+| field | what | default |
+|---|---|---|
+| `points` | the places it goes through, in order | (needed) |
+| `look` | `glow` (the faint wisp the host draws a journey's way with, which thins and fades), `ribbon` (a flat band), `dashes` (dashes moving along it) or `image` | `glow`, or `image` with an `image` |
+| `image` | one of the plugin's own pictures (a PNG of its package, at most 1,024 pixels a side), repeated along the path with its width across it | |
+| `width` | metres across at its widest, 0.02 to 5 | 0.48 a glow, 0.4 a ribbon, 0.3 dashes, 0.5 a picture |
+| `height` | metres over the ground or the floor, 0 to 20 | the middle of the character's body for a glow, 0.05 otherwise |
+| `color` | `"#RRGGBB"` or `0xRRGGBB`, multiplying its picture's own colours | white for a glow (the wisp's own colours), otherwise the shapes' colour |
+| `glow` | how strongly it is drawn at its strongest, 0 to 1 | 0.9 a glow, 0.85 otherwise |
+| `fade` | metres along over which it fades to nothing, 0 for none | 24 a glow, 30 otherwise |
+| `drift` | metres a second its picture moves along it, backward when less than 0 | 0.8 a glow, 1.2 dashes, 1 a picture, 0 a ribbon |
+| `reach` | metres along it that are drawn, 1 to 200 | 30 |
+| `from_player` | whether it starts at the character, from the part of it nearest the character on | `true` |
+
+Like any shape it counts toward the plugin's 256 markers, and a plugin keeps at most 16 paths. A path
+ends where a step between two of its points is longer than 30 metres (a portal's jump). A path of one
+point, a look not known, or a picture the plugin does not have is refused. The conformance driver lists
+a path with its look, width, height and reach (`shape=path path=… look=glow width=0.48 height=body
+reach=30`).
+
 The **nametags** layer (one a plugin; a new one replaces the old) labels every object of the kinds
 it names (`players`, `monsters`, `npcs` with vendors, `portals`) within `within` metres (35 by
 default, 250 at most), the nearest first and at most `limit` of them (20 by default, 100 at most),

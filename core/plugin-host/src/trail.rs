@@ -213,6 +213,44 @@ pub fn between(a: &Position, b: &Position, f: f32) -> Position {
     )
 }
 
+/// A plugin's path as it is drawn this frame: from `player` (where the character stands, when
+/// the path starts there) on along `points` from the leg of them nearest the character, or along
+/// all of `points` without one; ending before the first step longer than [`TRAIL_JUMP`] and at
+/// most `reach` metres along; as places [`TRAIL_STEP`] metres apart.
+#[must_use]
+pub fn path_ahead(player: Option<&Position>, points: &[Position], reach: f32) -> Vec<Position> {
+    let Some(here) = player else {
+        let Some((first, rest)) = points.split_first() else {
+            return Vec::new();
+        };
+        return resampled(&cut(first, rest, reach));
+    };
+    // The leg the character is nearest: it goes on from that leg's far end.
+    let h = global(here);
+    let nearest = points
+        .windows(2)
+        .enumerate()
+        .map(|(i, w)| {
+            let (a, b) = (global(&w[0]), global(&w[1]));
+            let (dx, dy) = (b.x - a.x, b.y - a.y);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((h.x - a.x) * dx + (h.y - a.y) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (px, py) = (a.x + dx * t, a.y + dy * t);
+            (i, (px - h.x) * (px - h.x) + (py - h.y) * (py - h.y))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or(0, |(i, _)| i);
+    resampled(&cut(
+        here,
+        &points[(nearest + 1).min(points.len())..],
+        reach,
+    ))
+}
+
 /// How long `line` is along the ground, metres.
 #[must_use]
 pub fn length(line: &[Position]) -> f32 {
@@ -350,6 +388,26 @@ mod tests {
             length(&before),
             length(&after)
         );
+    }
+
+    #[test]
+    fn a_path_starts_at_the_character_goes_on_from_its_nearest_leg_and_ends_at_its_reach() {
+        let points: Vec<Position> = (0..10)
+            .map(|i| at(0xA9B4_0001, 10.0, 10.0 + 10.0 * i as f32))
+            .collect();
+        // Standing beside the third leg (25 m up the path), 2 m off it.
+        let here = at(0xA9B4_0001, 12.0, 35.0);
+        let line = path_ahead(Some(&here), &points, 20.0);
+        assert_eq!(line.first(), Some(&here));
+        let second = global(&line[1]);
+        assert!(
+            second.y > 35.0,
+            "on from the nearest leg, not back along it: {second:?}"
+        );
+        assert!((length(&line) - 20.0).abs() < 0.5, "{}", length(&line));
+        let whole = path_ahead(None, &points, 200.0);
+        assert_eq!(whole.first(), points.first());
+        assert!((length(&whole) - 90.0).abs() < 0.5);
     }
 
     #[test]

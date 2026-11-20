@@ -1103,6 +1103,28 @@ impl Call<'_, '_> {
                 crate::overlay::MAX_MARKERS
             )));
         }
+        if let Some(style) = &m.style {
+            let paths = self
+                .slot
+                .markers
+                .values()
+                .filter(|k| k.style.is_some())
+                .count();
+            if paths >= crate::overlay::MAX_PATHS {
+                return Err(CallError::Failed(format!(
+                    "a plugin may keep at most {} paths",
+                    crate::overlay::MAX_PATHS
+                )));
+            }
+            if let dereth_client_contract::overlay::PathLook::Image(name) = &style.look {
+                if !self.slot.pictures.kept.contains_key(name) {
+                    return Err(CallError::BadArgs(format!(
+                        "the plugin has no picture {name:?} (a PNG of its package, at most {} pixels a side)",
+                        crate::pictures::MAX_SIDE
+                    )));
+                }
+            }
+        }
         self.shared.next_marker += 1;
         let id = self.shared.next_marker;
         self.slot.markers.insert(id, m);
@@ -2372,7 +2394,8 @@ fn trip_value(t: &dereth_client_runtime::travel::TripView) -> Value {
         )
         .with("leg", i64::try_from(t.leg).unwrap_or(0) + 1)
         .with("goal", place(&t.goal))
-        .with("route", Value::List(t.route.iter().map(place).collect()));
+        .with("route", Value::List(t.route.iter().map(place).collect()))
+        .with("way", Value::List(t.way.iter().map(place).collect()));
     if let Some(target) = &t.target {
         v = v.with("target", place(target));
     }

@@ -156,6 +156,7 @@ dereth_testkit::scenarios! {
     scenario_a_plugin_reads_the_characters_fellowship_titles_augmentations_bars_and_options => a_plugin_reads_the_characters_fellowship_titles_augmentations_bars_and_options ["plugins.character.a-plugin-reads-the-characters-fellowship-titles-augmentations-bars-and-options"],
     scenario_utilitybelts_additions_to_the_expression_language_evaluate_as_documented => utilitybelts_additions_to_the_expression_language_evaluate_as_documented ["plugins.automation.utilitybelts-additions-to-the-expression-language-evaluate-as-documented"],
     scenario_a_plugin_draws_lines_rings_squares_text_and_nametags_in_the_world => a_plugin_draws_lines_rings_squares_text_and_nametags_in_the_world ["plugins.overlay.a-plugin-draws-lines-rings-squares-text-and-nametags-in-the-world"],
+    scenario_a_plugin_draws_a_kept_path_in_the_world => a_plugin_draws_a_kept_path_in_the_world ["plugins.overlay.a-plugin-draws-a-kept-path-in-the-world"],
     scenario_a_canvas_and_a_chart_draw_what_a_plugin_gives_them => a_canvas_and_a_chart_draw_what_a_plugin_gives_them ["plugins.ui.a-canvas-and-a-chart-draw-what-a-plugin-gives-them"],
     scenario_text_inputs_sliders_rich_list_cells_tooltips_and_toasts_work_as_declared => text_inputs_sliders_rich_list_cells_tooltips_and_toasts_work_as_declared ["plugins.ui.text-inputs-sliders-rich-list-cells-tooltips-and-toasts-work-as-declared"],
     scenario_a_hotkey_runs_its_plugins_command_as_a_gesture => a_hotkey_runs_its_plugins_command_as_a_gesture ["plugins.ui.a-hotkey-runs-its-plugins-command-as-a-gesture"],
@@ -2714,6 +2715,13 @@ fn utilitybelts_additions_to_the_expression_language_evaluate_as_documented() {
     note_asserted(
         "plugins.automation.utilitybelts-additions-to-the-expression-language-evaluate-as-documented",
     );
+}
+
+fn a_plugin_draws_a_kept_path_in_the_world() {
+    assert_case("overlay", "path");
+    assert_case("overlay", "journey-own-path");
+    assert_case("overlay", "path-replaced");
+    note_asserted("plugins.overlay.a-plugin-draws-a-kept-path-in-the-world");
 }
 
 fn a_plugin_draws_lines_rings_squares_text_and_nametags_in_the_world() {

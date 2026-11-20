@@ -1,0 +1,12 @@
+says = "A plugin that replaces its path has the two cross-fade over half a second: a quarter of a second in, the old is half gone and the new half in."
+[scenario]
+world = "scripted"
+seconds = 1.25
+[[step]]
+after = 1.0
+say = "/replace"
+[expect]
+status = "running"
+overlays = """shape conformance.path-replaced #2 color=#77FFFFFF at=42.20N 33.80E shape=path path=62 span=0.4 look=glow width=0.48 height=body reach=30
+shape conformance.path-replaced #1 color=#88FFFFFF at=42.20N 33.80E shape=path path=62 span=0.4 look=glow width=0.48 height=body reach=30
+"""

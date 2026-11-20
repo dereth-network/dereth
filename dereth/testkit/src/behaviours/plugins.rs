@@ -1270,6 +1270,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.overlay.a-plugin-draws-a-kept-path-in-the-world",
+        says: "A plugin hands the host a path once, its points and a style (a glow, a ribbon, \
+               dashes or a picture of its own; its width, height, colour, strength, fade, drift \
+               and reach): the host keeps it, starts it at the character and draws it a short \
+               step apart, held over the ground, as far as its reach. A path of one point, a look \
+               not known, a picture the plugin does not have and more than sixteen paths are \
+               refused; the host's own journey trail steps aside for a plugin that draws a path, \
+               and a path removed goes out where it was over half a second as one drawn comes in.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-OVERLAY-PATH"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_plugin_draws_a_kept_path_in_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.overlay.a-plugin-draws-lines-rings-squares-text-and-nametags-in-the-world",
         says: "A plugin draws lines, rings, squares and floating text in the world, each resolved \
                every frame to an outline where its object or place is, and the nametags layer \

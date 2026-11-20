@@ -1,0 +1,6 @@
+id = "conformance.path-replaced"
+name = "Conformance: a path replaced"
+version = "0.1.0"
+api = "0.7"
+[capabilities]
+required = ["overlay.world"]

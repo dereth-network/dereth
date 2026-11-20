@@ -427,8 +427,11 @@ api.markers = {
 -- World drawing: lines, rings, squares and floating text in the 3-D view (`overlay.world`).
 -- `draw.line{ object|position, to_object|to_position, color, width, height }`,
 -- `draw.ring{ object|position, radius, … }`, `draw.square{ object|position, radius, … }`,
--- `draw.text{ object|position, label, height, color }`; each answers a handle with `:remove()`.
--- What stands in front of a shape hides it unless it says `on_top = true`.
+-- `draw.text{ object|position, label, height, color }`,
+-- `draw.path{ points, look, image, width, height, color, glow, fade, drift, reach, from_player }`
+-- (kept by the host, which draws it from the character on and moves it as time passes); each
+-- answers a handle with `:remove()`. What stands in front of a shape hides it unless it says
+-- `on_top = true`.
 local function shape(name)
 	return function(t)
 		local f = marker_fields(t)
@@ -442,6 +445,7 @@ api.draw = {
 	ring = shape("ring"),
 	square = shape("square"),
 	text = shape("text"),
+	path = shape("path"),
 	clear = function()
 		hostcall("overlay.clear", "shape")
 	end,

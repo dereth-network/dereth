@@ -168,6 +168,43 @@ pub struct GroundMark<P> {
     pub turn: f32,
 }
 
+/// How a path drawn in the world looks (see [`PathStyle`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathLook {
+    /// A faint glow that thins and fades along the path and shimmers a little.
+    Glow,
+    /// A flat band, soft at its edges.
+    Ribbon,
+    /// Short dashes along the path, moving along it.
+    Dashes,
+    /// A picture of the plugin's own, by its name in the plugin's pictures, repeated along the
+    /// path with its width across it.
+    Image(String),
+}
+
+/// How a path is drawn in the world: its look, and the measures it is drawn to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathStyle {
+    pub look: PathLook,
+    /// How wide it is at its widest, metres.
+    pub width: f32,
+    /// How high over the ground or the floor it is held, metres; `None` for the middle of the
+    /// character's body.
+    pub height: Option<f32>,
+    /// Its colour, `0xRRGGBB`.
+    pub color: u32,
+    /// How strongly it is drawn at its strongest, 0 to 1.
+    pub glow: f32,
+    /// How far along it has faded away, metres; 0 for no fading.
+    pub fade: f32,
+    /// How fast its pattern moves along it, metres a second (backward when less than 0).
+    pub drift: f32,
+    /// How far ahead along it is drawn, metres.
+    pub reach: f32,
+    /// Whether it starts at the character, what lies behind the character left out.
+    pub from_player: bool,
+}
+
 /// One point of a [`WorldBand`]: the place it is over, and how it is drawn there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BandPoint<P> {

@@ -378,6 +378,79 @@ local function teller(id)
 	}
 end
 
+-- The way ahead, drawn in the world while a journey of ours runs (with `overlay.world`): a faint
+-- glow from the character along the journey's way still to walk. The host keeps the path, starts
+-- it at the character, moves it, and cross-fades it with the one it replaces; it is handed over
+-- again only when the way changes, not as the character passes its corners.
+local trail = nil -- the path drawn: `{ handle, keys }`, the keys of the route's places
+local TRAIL_EVERY = 0.5 -- how often the route is looked at, seconds
+
+local function place_key(p)
+	return string.format("%s %.2f %.2f %.2f %.3f %.3f", tostring(p.cell or ""), p.x or 0, p.y or 0,
+		p.z or 0, p.ns or 0, p.ew or 0)
+end
+
+local function clear_trail()
+	if trail ~= nil then
+		trail.handle:remove()
+		trail = nil
+	end
+end
+
+-- Draw `route` (the way still to walk), unless it is the end of the way drawn already.
+local function draw_trail(route)
+	if route == nil or #route == 0 then
+		clear_trail()
+		return
+	end
+	local keys = {}
+	for i, p in ipairs(route) do
+		keys[i] = place_key(p)
+	end
+	if trail ~= nil then
+		local skip = #trail.keys - #keys
+		local same = skip >= 0
+		for i = 1, #keys do
+			if not same then
+				break
+			end
+			same = trail.keys[skip + i] == keys[i]
+		end
+		if same then
+			return
+		end
+	end
+	clear_trail()
+	local points = {}
+	for _, p in ipairs(route) do
+		table.insert(points, p)
+	end
+	if #points < 2 then
+		table.insert(points, 1, game.player.position)
+	end
+	local ok, handle = pcall(draw.path, { points = points, look = "glow" })
+	if ok then
+		trail = { handle = handle, keys = keys }
+	end
+end
+
+-- Keep run `id`'s way drawn while it is the latest and its journey lasts.
+local function follow_trail(id)
+	if not (host.has("overlay.world") and host.has("nav.journey")) then
+		return
+	end
+	task.spawn(function()
+		while id == run and moving do
+			local j = nav.journey()
+			draw_trail(j and j.way)
+			task.sleep(TRAIL_EVERY * 1000)
+		end
+		if id == run or trail ~= nil then
+			clear_trail()
+		end
+	end)
+end
+
 -- Walk to `to` with no journey to follow: along the client's walking route there when it plans
 -- one (round walls and through doors), corner by corner, else straight at it.
 local function walk_to(to, name)
@@ -422,6 +495,7 @@ local function go(opts)
 		local id = start()
 		set_status("Going to " .. t.name .. "...")
 		R.go(to, t.name, opts, teller(id))
+		follow_trail(id)
 		return
 	end
 	if not host.has("nav.moveto") then
@@ -824,6 +898,7 @@ commands.add("nav", "get from point A to point B: /nav <place | coordinates | fi
 			local id = start()
 			set_status("Going to " .. name .. "...")
 			R.go(to, name, nil, teller(id))
+			follow_trail(id)
 		end
 	elseif verb == "route" and words[2] then
 		local text = files.data(words[2]) or files.data("routes/" .. words[2])

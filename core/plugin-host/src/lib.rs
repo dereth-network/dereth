@@ -494,6 +494,10 @@ pub struct PluginHost {
     trail_drawn: Option<trail::Drawn>,
     /// The journey trail going out, replaced or ended: its line as last drawn, and since when.
     trail_going: Option<(Vec<dereth_primitives::Position>, f64)>,
+    /// The plugins' paths drawn last frame, and since when (frame time) each has been coming in.
+    paths_drawn: Vec<(overlay::OverlayView, f64)>,
+    /// The plugins' paths removed, going out where they were last drawn, and since when.
+    paths_going: Vec<(overlay::OverlayView, f64)>,
     /// Whether the policy changed since plugins last heard it.
     policy_changed: bool,
     /// The part of the session the last frame was in; none before the first frame.
@@ -586,6 +590,8 @@ impl PluginHost {
             overlays: Overlays::default(),
             trail_drawn: None,
             trail_going: None,
+            paths_drawn: Vec::new(),
+            paths_going: Vec::new(),
             policy_changed: false,
             context: None,
             toasts: None,
@@ -2622,6 +2628,7 @@ impl PluginHost {
                             width: 1,
                             on_top: m.on_top,
                             reach: Some(n.within),
+                            style: None,
                         },
                     ));
                 }
@@ -2633,6 +2640,7 @@ impl PluginHost {
         }
         self.journey_overlays(frame);
         self.journey_trail(frame);
+        self.fade_paths(frame.local_time);
     }
 
     /// The way a shown journey goes next, drawn in the world (with `overlay.world`): the way
@@ -2662,11 +2670,20 @@ impl PluginHost {
             });
         // A trail along the way drawn last, walked on, carries on; anything else is new, and the
         // one drawn last goes out.
+        // A plugin that draws its own path for its journey draws the way itself: the host's
+        // trail goes out, and only the journey's end is marked.
+        let own_path = current.as_ref().is_some_and(|(plugin, ..)| {
+            self.plugins.iter().any(|s| {
+                s.state.manifest.id.as_str() == plugin
+                    && s.state.markers.values().any(|m| m.style.is_some())
+            })
+        });
         let last = self.trail_drawn.take();
         let (since, goes) = trail::carried(
             last.as_ref(),
             current
                 .as_ref()
+                .filter(|_| !own_path)
                 .map(|(_, trip, _, way, ..)| (*trip, way.as_slice())),
             now,
         );
@@ -2703,11 +2720,12 @@ impl PluginHost {
                 width: 2,
                 on_top: false,
                 reach: None,
+                style: None,
             }
         };
         let mut out = Vec::new();
         if let Some((plugin, trip, line, way, here, goal)) = current {
-            if line.len() > 1 {
+            if line.len() > 1 && !own_path {
                 out.push(view(
                     &plugin,
                     -100,
@@ -2737,12 +2755,14 @@ impl PluginHost {
                     JOURNEY,
                 ));
             }
-            self.trail_drawn = Some(trail::Drawn {
-                trip,
-                way,
-                line,
-                since,
-            });
+            if !own_path {
+                self.trail_drawn = Some(trail::Drawn {
+                    trip,
+                    way,
+                    line,
+                    since,
+                });
+            }
         } else if let Some((going, from)) = &self.trail_going {
             // The journey is over, or no longer shown: its trail goes out where it was.
             let left = 1.0 - (now - from) / trail::CROSS_FADE;
@@ -2767,6 +2787,52 @@ impl PluginHost {
             self.trail_going = None;
         }
         self.overlays.markers.extend(out);
+    }
+
+    /// The plugins' paths come in and go out over [`trail::CROSS_FADE`] seconds: one new this
+    /// frame (a plugin drawing the way again after its route changed) comes in, and one removed
+    /// goes out where it was last drawn, so a plugin that replaces a path has the two cross-fade.
+    /// How strongly each is drawn is the top byte of its colour, none there meaning fully.
+    fn fade_paths(&mut self, now: f64) {
+        let fraction = |s: f64| -> u32 {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 1 to 254
+            let a = (s.clamp(0.0, 1.0) * 255.0).round().clamp(1.0, 254.0) as u32;
+            a << 24
+        };
+        let same = |a: &overlay::OverlayView, b: &overlay::OverlayView| {
+            a.plugin == b.plugin && a.id == b.id
+        };
+        let mut drawn = Vec::new();
+        for v in self
+            .overlays
+            .markers
+            .iter_mut()
+            .filter(|v| v.style.is_some())
+        {
+            let since = self
+                .paths_drawn
+                .iter()
+                .find(|(d, _)| same(d, v))
+                .map_or(now, |(_, since)| *since);
+            drawn.push((v.clone(), since));
+            let s = (now - since) / trail::CROSS_FADE;
+            if s < 1.0 {
+                v.color = fraction(s) | (v.color & 0x00FF_FFFF);
+            }
+        }
+        for (gone, _) in std::mem::take(&mut self.paths_drawn) {
+            if !drawn.iter().any(|(d, _)| same(d, &gone)) {
+                self.paths_going.push((gone, now));
+            }
+        }
+        self.paths_drawn = drawn;
+        self.paths_going
+            .retain(|(_, from)| now - from < trail::CROSS_FADE);
+        for (v, from) in &self.paths_going {
+            let mut v = v.clone();
+            v.color = fraction(1.0 - (now - from) / trail::CROSS_FADE) | (v.color & 0x00FF_FFFF);
+            self.overlays.markers.push(v);
+        }
     }
 
     /// The shown journey's way this frame, where the host draws it: its plugin, its trip, the way
@@ -2851,6 +2917,7 @@ impl PluginHost {
                 width: 2,
                 on_top: false,
                 reach: None,
+                style: None,
             }
         };
         let label = |leg: &TravelLeg| match leg {

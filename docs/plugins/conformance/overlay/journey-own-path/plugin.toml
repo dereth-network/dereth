@@ -1,0 +1,10 @@
+id = "conformance.journey-own-path"
+name = "Conformance: a journey's own path"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Travels where you ask."
+
+[capabilities]
+required = ["nav.journey", "overlay.world"]

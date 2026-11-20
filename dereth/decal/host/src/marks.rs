@@ -209,6 +209,7 @@ mod tests {
             width: 1,
             on_top: false,
             reach: None,
+            style: None,
         }
     }
 
