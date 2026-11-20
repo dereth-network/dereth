@@ -36623,3 +36623,212 @@ fn objects_named_only_outside_their_entities_are_examined_by_the_name_and_page_2
         "{tally:?}"
     );
 }
+
+/// A profile's lines after its request, each as text: its kind, its tab and what it holds.
+fn profile_lines(bytes: &[u8], request_len: usize) -> Vec<String> {
+    use auberean_script::native_object::{TextInfo, VariableValue};
+    use auberean_script::wire::In;
+    fn text(t: &TextInfo) -> String {
+        if t.has_literal != 0 {
+            let words = t.literal.as_deref().unwrap_or(&[]);
+            return format!("'{}'", String::from_utf16_lossy(words));
+        }
+        let vars: Vec<String> = t
+            .variables
+            .iter()
+            .map(|v| match &v.value {
+                VariableValue::Nested(n) => format!("{:X}={}", v.id, text(n)),
+                other => format!("{:X}={other:X?}", v.id),
+            })
+            .collect();
+        format!("{:X}@{:X}[{}]", t.string_id, t.table, vars.join(","))
+    }
+    let mut out = Vec::new();
+    let Some(rest) = bytes.get(request_len..) else {
+        return out;
+    };
+    let mut r = In::new(rest);
+    let n = r.u32().unwrap_or(0);
+    for _ in 0..n {
+        let (Ok(ty), Ok(order)) = (r.u32(), r.u32()) else {
+            out.push("unread".into());
+            break;
+        };
+        let line = match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                format!("{ty:X}/{order} {:X?} {:X?}", r.u32().ok(), r.u32().ok())
+            }
+            0x4000_0004 => {
+                let look = r.u32().unwrap_or(0);
+                let t = TextInfo::unpack(&mut r).ok();
+                format!(
+                    "text/{order} {look:X} {}",
+                    t.as_ref().map(text).unwrap_or_default()
+                )
+            }
+            0x4000_0005 | 0x4000_0007 => format!("{ty:X}/{order} {:X?}", r.u32().ok()),
+            0x4000_0006 => format!("break/{order}"),
+            0x4000_0008 | 0x4000_000A => format!(
+                "{ty:X}/{order} {:X?} {:X?} {:X?}",
+                r.u32().ok(),
+                r.u32().ok(),
+                r.u32().ok()
+            ),
+            0x4000_0009 => {
+                let k = r.u32().unwrap_or(0);
+                let v: Vec<u32> = (0..k * 3).filter_map(|_| r.u32().ok()).collect();
+                format!("icon/{order} {v:X?}")
+            }
+            other => {
+                out.push(format!("unknown {other:X}"));
+                break;
+            }
+        };
+        out.push(line);
+    }
+    out
+}
+
+/// Every 2017 examination of an object the world places, asked of this server: its whole profile
+/// as 2017 sent it, line for line, for at least 3,665 of the 3,947 (3,672; 336 before the names,
+/// locks and breaks below were laid out as 2017's, 1,205 before portals, shards and vaults took
+/// their pages from the world's rows of each object, 3,607 before a portal with no destination was
+/// examined as a place, 3,640 before portals' rows took the recall flags 2017 said). Names are plain but a door's or a lifestone's its script composes; doors
+/// say their lock, chests their contents and lock; a portal's or a lifestone's page ends at its
+/// description when it has no requirements, and a portal door's says nothing of recalling; a
+/// portal, a shard or a vault, with a destination or not, says what may be recalled to it and
+/// shows the page its object's row gives. What differs is the object's own: a lock this world
+/// doesn't hold, a faction shrine's rank and the effect its script lists, a portal's quest the
+/// world doesn't hold. Every door, chest, sign and lifestone kind matches in most of
+/// its examinations, and the portals, shards and vaults in at least nine in ten.
+/// Behaviour: server.examination.placed-profiles-as-2017
+#[test]
+fn placed_objects_are_examined_line_for_line_as_2017() {
+    use auberean_script::args::Arg;
+    use auberean_script::native_object::NativeObject;
+    use auberean_testkit::captures::{self, carrier};
+    use yalain_world::calls::Node;
+    use yalain_world::profile;
+    use yalain_world::usable::{chests, doors};
+    let t = &compiled().tables;
+    let placed: std::collections::HashMap<u64, usize> = t
+        .content
+        .objects
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| Some((o.object?, i)))
+        .collect();
+    let native = |args: &[u8]| -> Option<Vec<u8>> {
+        let v = yalain_world::calls::values(args).ok()?;
+        match v.first()?.root() {
+            Some(Node::Native { bytes, .. }) => Some(bytes.clone()),
+            _ => None,
+        }
+    };
+    let index = auberean_testkit::data::require_capture_index();
+    let mut recorded: Vec<(usize, Vec<u8>)> = Vec::new();
+    captures::messages(&index, &[carrier::TO_PLAYER], &[2017], |m| {
+        let Some(call) = m.script_call() else { return };
+        if call.function != profile::EXAMINATION_PROFILE {
+            return;
+        }
+        let Some(bytes) = native(&call.args) else {
+            return;
+        };
+        let req = profile::read_request(&bytes);
+        if req.kind == profile::request::OBJECT {
+            if let Some(&i) = placed.get(&req.object) {
+                recorded.push((i, bytes));
+            }
+        }
+    })
+    .expect("the capture index reads");
+    // The world as the server reads it at start: the examined templates, their kinds by package.
+    let (mut h, b, _) = served(t);
+    h.server.locks = t.locks.clone();
+    let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
+    let examined: std::collections::BTreeSet<u32> = recorded
+        .iter()
+        .map(|(i, _)| t.content.objects[*i].template)
+        .collect();
+    for template in &examined {
+        let tpl = portal.template(*template);
+        let package = tpl.description.package;
+        h.server.catalog.insert(tpl);
+        if portal.derives(*template, &[doors::PACKAGE]) {
+            let kind = doors::Kind::of_package(&lib.package_name(package));
+            h.server.doors.packages.insert(package, kind);
+        }
+        if portal.derives(*template, &[chests::PACKAGE]) {
+            h.server.chests.packages.insert(package);
+        }
+        if portal.derives(*template, &[yalain_world::usable::vaults::PORTAL_DOOR]) {
+            h.server.portal_door_packages.insert(package);
+        }
+        if portal.derives(*template, &[yalain_world::usable::portals::PACKAGE]) {
+            h.server.portal_packages.insert(package);
+        }
+        if portal.derives(*template, &[yalain_world::places::LIFESTONE]) {
+            h.server.lifestone_packages.insert(package);
+        }
+        if portal.derives(*template, &[yalain_world::places::TEACHING_STONE_CLASS]) {
+            h.server.teaching_stone_packages.insert(package);
+        }
+    }
+    let mut by: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+    for (i, theirs) in &recorded {
+        let o = &t.content.objects[*i];
+        let mut g = yalain_world::graph::Builder::new();
+        g.native(
+            154,
+            NativeObject::Packed {
+                ty: 154,
+                bytes: theirs[..20].to_vec(),
+            },
+        );
+        let from = h.bots[b].inbox.len();
+        h.ask(
+            b,
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(g.graph())],
+            3,
+        );
+        let ours = h
+            .world_messages(b, from)
+            .into_iter()
+            .rev()
+            .find_map(|m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                    native(&c.args?.0)
+                }
+                _ => None,
+            })
+            .expect("a profile");
+        let kind = lib.package_name(portal.template(o.template).description.package);
+        let e = by.entry(kind).or_default();
+        e.0 += 1;
+        e.1 += usize::from(profile_lines(theirs, 20) == profile_lines(&ours, 20));
+    }
+    println!("{by:#?}");
+    let same: usize = by.values().map(|v| v.1).sum();
+    assert!(same >= 3665, "{same} of {} as 2017", recorded.len());
+    let places = ["Portal_", "GenericPortal", "Shard", "Vault"];
+    let (n, s) = by
+        .iter()
+        .filter(|(k, _)| places.iter().any(|p| k.contains(p)))
+        .fold((0, 0), |a, (_, v)| (a.0 + v.0, a.1 + v.1));
+    assert!(
+        s * 10 >= n * 9,
+        "portals, shards and vaults: {s} of {n} as 2017"
+    );
+    for (kind, (n, s)) in &by {
+        let laid_out = ["Door", "Chest", "Sign", "Lifestone"]
+            .iter()
+            .any(|k| kind.contains(k))
+            && kind != "LifestoneTemplate";
+        if laid_out {
+            assert!(s * 4 >= n * 3, "{kind}: {s} of {n} as 2017");
+        }
+    }
+}

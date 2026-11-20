@@ -5999,6 +5999,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.placed-profiles-as-2017",
+        says: "Every 2017 examination of an object the world places is answered with its whole \
+               profile line for line, but what is the object's own: a lock this world doesn't hold, \
+               a faction shrine's rank and its effect, a portal's destination or quest the world \
+               doesn't hold.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-PROFILES-2017"),
+        station: "yalain-testkit::corpus::world_db::placed_objects_are_examined_line_for_line_as_2017",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.examination.player-profile",
         says: "Examining a player is answered with its profile: the request repeated, then its \
                name, its first craft title, its race and sex, its level, its kingdom, its health \
