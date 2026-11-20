@@ -3726,6 +3726,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.kin-join-against-pets",
+        says: "Resting kin near a creature that goes after a pet may join its fight as against a \
+               player, going at the pet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KIN-JOIN-PETS"),
+        station: "yalain-testkit::cpu::play::pets::resting_kin_join_a_creatures_fight_with_a_pet",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.look-reads-near-players-only",
         says: "A creature's look for a player reads the state only of players near it, however many \
                are in the world. Our choice.",
@@ -12675,7 +12684,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.pets.supports-its-owner",
         says: "A supporting pet takes on what its owner hurts, from its owner's first hit, and \
-               strikes it; the creature it strikes fights the pet.",
+               strikes it; the creature it strikes fights the pet; one fighting another turns to \
+               its owner's new target about two times in three.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ASSIST"),
         station: "yalain-testkit::cpu::play::pets::a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet",

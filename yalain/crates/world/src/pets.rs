@@ -54,7 +54,8 @@
 //! **Behavior**, by the pet's mode (a new pet supports its owner): every three seconds a pet not
 //! fighting plans its way to three meters from where its owner then stands (so it trails a running
 //! owner), and one more than 100 m away is put beside its owner; a supporting pet takes on what its
-//! owner attacks, a protective one what goes after its owner, a self-defending one what strikes
+//! owner attacks (and, fighting another, turns to it about two times in three), a protective one
+//! what goes after its owner, a self-defending one what strikes
 //! it, each only a creature it sees ([`crate::ai::sees`]). A pet that goes into a fight while still
 //! on its way to its owner is told its kind's own speed as it does. In a fight it closes to its
 //! attacks' reach and attacks about once a second, with one of its attacks that reach its target,
@@ -2171,17 +2172,42 @@ fn attack_reach(a: &AttackSkill) -> f32 {
 }
 
 /// The owner of a pet hurt a creature: its supporting pets take it on (2017: they joined at the
-/// owner's first hit that took health, in that same tick, 422 of 677 timed).
+/// owner's first hit that took health, in that same tick, 422 of 677 timed); one fighting another
+/// turns to it now and then ([`FOLLOWS_OWNER`]).
 pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
     if s.pets.is_pet(creature) {
         return;
     }
+    let mut turned = Vec::new();
     for p in s.pets.by_id.values_mut() {
         if p.owner == owner && p.order == Order::Follow {
+            if p.assist != Some(creature) && p.flags & flag::SUPPORT_MASTER != 0 {
+                turned.push(p.id);
+            }
             p.assist = Some(creature);
         }
     }
+    // A supporting pet fighting another than what its owner now hurts may turn to it.
+    for id in turned {
+        let fights_another = s
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.mode == Mode::Chasing && c.target.is_some_and(|t| t != creature));
+        if fights_another && s.rng.chance(FOLLOWS_OWNER) {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.target = Some(creature);
+                c.lost_since = None;
+            }
+        }
+    }
 }
+
+/// The chance a supporting pet turns from the creature it fights to another its owner turns to and
+/// hurts (2017: of the recorded players' own pets fighting a creature still alive 8 s on, those
+/// whose mode supports their owner went next at the owner's new one within 8 s 53 times of 79, a
+/// median 2.0 s after the owner's first attack on it).
+pub const FOLLOWS_OWNER: f32 = 0.67;
 
 /// The world connection of a player a pet may fight: one in the world, out of portal space and
 /// alive, not its owner, whom its owner may harm ([`crate::combat::may_attack_player`]), when the pet

@@ -2121,3 +2121,102 @@ fn a_pets_harm_and_kill_of_a_player_move_kingdom_points_as_its_owners() {
     );
     assert_eq!(after, (before.0 + 10, before.1 - 10));
 }
+
+/// Two beetles of the camp, near each other, at rest, of a friend table whose kin join fights.
+fn kin_beetles(h: &mut Harness) -> (u64, u64) {
+    h.add_creatures(2);
+    h.run(10);
+    let ids: Vec<u64> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == yalain_testkit::TEST_CREATURE && t.alive())
+        .map(|t| t.id)
+        .collect();
+    let at = h
+        .server
+        .things
+        .get(ids[0])
+        .and_then(|t| t.at)
+        .expect("placed");
+    for (i, id) in ids.iter().enumerate() {
+        if let Some(t) = h.server.things.get_mut(*id) {
+            let mut here = at;
+            #[allow(clippy::cast_precision_loss)]
+            let off = i as f32 * 3.0;
+            here.origin[0] += off;
+            t.at = Some(here);
+            if let Some(c) = t.creature.as_mut() {
+                c.stats.attacks_first = false;
+                c.stats.friend_table = Some(0x09);
+            }
+        }
+    }
+    (ids[0], ids[1])
+}
+
+/// A creature that goes after a pet calls its kin as it would against a player: resting kin near it
+/// join, going at the pet (of 40 such fights, at least one kin joins; at the table's chance of
+/// about one in two, none joining has no real chance).
+/// Behaviour: server.creatures.kin-join-against-pets
+#[test]
+fn resting_kin_join_a_creatures_fight_with_a_pet() {
+    let mut h = Harness::new();
+    let (_, _, pet) = with_lasher(&mut h);
+    let (first, kin) = kin_beetles(&mut h);
+    let mut joined = 0;
+    for _ in 0..40 {
+        for id in [first, kin] {
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(id)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.mode = yalain_world::things::Mode::Idle;
+                c.target = None;
+                c.joining = None;
+            }
+        }
+        let clock = h.clock();
+        yalain_world::ai::go_after(&mut h.server, &mut h.net, first, pet, clock);
+        h.run(40);
+        if target_of(&h, kin) == Some(pet) {
+            joined += 1;
+        }
+    }
+    assert!(joined > 0, "kin join against the pet: {joined} of 40");
+    assert!(joined < 40, "not every time: {joined} of 40");
+}
+
+/// A supporting pet fighting a creature turns to another its owner hurts about two times in three;
+/// one that only defends itself and its owner never does.
+/// Behaviour: server.pets.supports-its-owner
+#[test]
+fn a_supporting_pet_turns_to_its_owners_new_target_about_two_times_in_three() {
+    let mut h = Harness::new();
+    let (_, me, pet) = with_lasher(&mut h);
+    let (a, b) = kin_beetles(&mut h);
+    let trial = |h: &mut Harness, flags: u32| {
+        if let Some(p) = h.server.pets.by_id.get_mut(&pet) {
+            p.flags = flags;
+            p.assist = Some(a);
+        }
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(pet)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.mode = yalain_world::things::Mode::Chasing;
+            c.target = Some(a);
+        }
+        pets::owner_hurt(&mut h.server, me, b);
+        target_of(h, pet) == Some(b)
+    };
+    let supporting = (0..300).filter(|_| trial(&mut h, 0x448)).count();
+    assert!((160..=240).contains(&supporting), "{supporting} of 300");
+    let defending = (0..100).filter(|_| trial(&mut h, 0x454)).count();
+    assert_eq!(defending, 0, "a pet that does not support its owner");
+}

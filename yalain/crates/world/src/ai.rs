@@ -738,7 +738,10 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                             && q.trip.is_none()
                             && regard_of(s, Some(id), class, q) != Some(Regard::Spares)
                     });
-                    if here && takes_on_again(s, id, &at, perception, p) {
+                    // Its kin's fight may be with a pet: it goes at the pet, while it lives.
+                    let pet = s.pets.is_pet(p)
+                        && s.things.get(p).is_some_and(crate::things::Thing::alive);
+                    if (here || pet) && takes_on_again(s, id, &at, perception, p) {
                         engage(s, net, id, p, clock);
                         return;
                     }
@@ -1450,8 +1453,9 @@ fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, cloc
     }
 }
 
-/// Resting creatures of a creature's friend table near it may join its fight with a player, about
-/// a second later.
+/// Resting creatures of a creature's friend table near it may join its fight with a player or a
+/// pet, about a second later (2017: of resting kin within 10 m, 91 of 228 joined a fight begun at a
+/// character, 10 of 23 one begun at a pet, these going first at the pet 6 times of 8).
 fn call_kin<S: Store>(s: &mut Server<S>, id: u64, player: u64, now: f64) {
     let Some((at, table)) = s
         .things
