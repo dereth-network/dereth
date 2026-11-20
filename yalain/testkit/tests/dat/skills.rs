@@ -2303,6 +2303,8 @@ mod timings {
     const HUMAN_FEMALE: u32 = 0x1F00_0024;
     const LUGIAN_MALE: u32 = 0x1F00_0025;
     const TUMEROK_MALE: u32 = 0x1F00_0026;
+    const EMPYREAN_MALE: u32 = 0x1F00_062C;
+    const EMPYREAN_FEMALE: u32 = 0x1F00_0631;
 
     /// Stances.
     const ONE_HANDED: u32 = 0x4100_000A;
@@ -2408,10 +2410,13 @@ mod timings {
 
     /// A recall's power-up and its last stretch follow its user's race, as the install's clips
     /// time them: ten cycles of its body's power-up (a human's 1.292 s, a Lugian's 1.333, a
-    /// Tumerok's 1.208), a little short; then portal space at its story's hook for Lifestone Recall
-    /// (2.476, 0.636, 0.699 s), at its story's end for a city's (2.667, 1.25, 1.417 s), over the
-    /// story's time scale (2017, 744 recalls: power-ups 12.69, 13.07, 11.87 s; last stretches 2.39,
-    /// 0.64, 0.70 and 2.62, 1.25, 1.39 s at time scales near 1.05).
+    /// Tumerok's 1.208, an Empyrean's 0.967), a little short; then portal space at its story's hook
+    /// for Lifestone Recall (2.476, 0.636, 0.699 s), at its story's end for a city's (2.667, 1.25,
+    /// 1.417 s), over the story's time scale (2017, 744 recalls: power-ups 12.69, 13.07, 11.87 s;
+    /// last stretches 2.39, 0.64, 0.70 and 2.62, 1.25, 1.39 s at time scales near 1.05). An
+    /// Empyrean's story has no hook, so every recall of theirs leaves at its end, a male's at 0.967
+    /// s and a female's at 1.667 (2017, 3 recalls: power-ups 9.57 to 9.60 s; last stretches 0.90 and
+    /// 0.93 s for a male at time scales 1.09 and 1.18, 1.58 s for a female at 1.06).
     /// Behaviour: server.timings.a-recall-follows-its-users-race
     #[test]
     fn a_recalls_power_up_and_way_to_portal_space_follow_its_users_race() {
@@ -2441,10 +2446,12 @@ mod timings {
         let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
         let near = |a: f64, b: f64| (a - b).abs() < 0.002;
         for (look, cycle, hook, end) in [
-            (HUMAN_MALE, 1.291_667, 2.475_835, 2.666_67),
-            (HUMAN_FEMALE, 1.291_667, 2.475_835, 2.666_67),
-            (LUGIAN_MALE, 1.333_333, 0.635_594, 1.25),
-            (TUMEROK_MALE, 1.208_333, 0.698_998, 1.416_67),
+            (HUMAN_MALE, 1.291_667, Some(2.475_835), 2.666_67),
+            (HUMAN_FEMALE, 1.291_667, Some(2.475_835), 2.666_67),
+            (LUGIAN_MALE, 1.333_333, Some(0.635_594), 1.25),
+            (TUMEROK_MALE, 1.208_333, Some(0.698_998), 1.416_67),
+            (EMPYREAN_MALE, 0.966_667, None, 0.966_667),
+            (EMPYREAN_FEMALE, 0.966_667, None, 1.666_667),
         ] {
             h.server.players.get_mut(&world).expect("in").look = VisualDesc {
                 bits: VisualDesc::PARENT,
@@ -2454,10 +2461,10 @@ mod timings {
             let up = powerup_length(&h.server, world, LIFESTONE_RECALL, &usage);
             assert!(near(up, 10.0 * cycle - POWERUP_LEAD), "{look:08X}: {up}");
             let link = recall_to_portal(&h.server, world, &Recall::Link(0), RECALL_STORY, 1.05);
-            assert!(
-                near(link, hook / 1.05 + PORTAL_AFTER_HOOK),
-                "{look:08X}: {link}"
-            );
+            let left = hook.map_or(end / 1.05 + PORTAL_AFTER_CYCLE, |hook| {
+                hook / 1.05 + PORTAL_AFTER_HOOK
+            });
+            assert!(near(link, left), "{look:08X}: {link}");
             let named = Recall::Named {
                 names: Vec::new(),
                 told: true,
