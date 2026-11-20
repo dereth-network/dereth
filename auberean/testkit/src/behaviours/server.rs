@@ -18116,6 +18116,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.untraining-shown-in-every-repository",
+        says: "Every skill repository sent while an untraining is under way names its skill and the \
+               experience to earn, a level-up's among them, since the client takes each repository \
+               whole; once it is over or cancelled, none does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAINING-IN-REPOSITORY"),
+        station: "yalain-testkit::cpu::play::untraining::a_level_up_during_an_untraining_sends_the_repository_naming_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.unused-on-failure-read",
         says: "Whether a use whose effect fails leaves a skill unused is what its definition \
                says: the summonings', walls' and decoys' and Allegiance Recall's say so; every \

@@ -15,7 +15,7 @@
 //! at its next award as a hero.
 //!
 //! **A level-up** sends the level, the skill repository with a credit more (and from level 45 the
-//! level's hero skill credits), the greatest health and vigor each raised by the level's step on
+//! level's hero skill credits, and any untraining under way), the greatest health and vigor each raised by the level's step on
 //! what the player held, "Congratulations! You are now level %1..." (the unspent experience, the
 //! health and vigor gained, the level, the skill credits the player now holds), health and vigor
 //! filled to the greatest the player now has with its skills, perks, vitae and effects (2017 sent
@@ -478,7 +478,12 @@ pub fn level_up<S: Store>(
     private(
         net,
         world,
-        &crate::skills::repository_untraining(p.play.credits, p.play.hero_credits, &tables, None),
+        &crate::skills::repository_untraining(
+            p.play.credits,
+            p.play.hero_credits,
+            &tables,
+            p.untraining.map(|u| (u.skill, u.xp)),
+        ),
     );
     send_int(net, world, quality::HEALTH_MAX, health);
     send_int(net, world, quality::VIGOR_MAX, vigor);

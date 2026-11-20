@@ -1389,11 +1389,12 @@ pub fn with_fast_learner<S: Store>(s: &Server<S>, world: ConnId, xp: u64) -> u64
     }
 }
 
-/// A player's repository update: its credits and tables, its skills left out (the client keeps the
-/// ones it has).
+/// A player's repository update: its credits and tables, and the untraining under way (the client
+/// takes each repository whole, so one that named none would show the untraining over); its skills
+/// left out (the client keeps the ones it has).
 #[must_use]
 pub fn repository_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> ServerMessage {
-    repository_of_untraining(s, p, None)
+    repository_of_untraining(s, p, p.untraining.map(|u| (u.skill, u.xp)))
 }
 
 /// The hero skill credits a player has had: those it holds and those its trained hero skills

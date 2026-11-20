@@ -186,6 +186,61 @@ fn a_skill_with_experience_in_it_is_untrained_once_that_much_is_earned_again() {
     assert_eq!(h.server.players[&world].play.credits, 1 + COST);
 }
 
+/// A level-up while an untraining is under way sends the repository naming it still, with its
+/// experience to earn, so the client goes on showing it, as any other repository sent then does;
+/// once it is untrained, a level-up's repository names none.
+/// Behaviour: server.skills.untraining-shown-in-every-repository
+#[test]
+fn a_level_up_during_an_untraining_sends_the_repository_naming_it() {
+    use yalain_world::levels::{Level, LevelTable};
+    use yalain_world::skills::repository_untraining;
+    let (mut h, b, world) = trained(500);
+    h.server.levels = LevelTable {
+        levels: (1..=4)
+            .map(|l: u64| Level {
+                xp: l * 1_000_000,
+                health: 100,
+                vigor: 100,
+                skill_credits: 1,
+                hero_credits: 0,
+                hero_credit_cap: 0,
+                armor_cap: 0,
+                shield_cap: 0,
+            })
+            .collect(),
+    };
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).expect("in").qualities,
+        302,
+        2,
+    );
+    ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    let from = h.bots[b].inbox.len();
+    progress::level_up(&mut h.server, &mut h.net, world, 2, 3);
+    h.run(2);
+    let shown = repository_untraining(2, 0, &Default::default(), Some((SKILL, 500)));
+    assert!(
+        h.world_messages(b, from).contains(&shown),
+        "the repository names the untraining"
+    );
+    assert_eq!(
+        yalain_world::skills::repository_of(&h.server, &h.server.players[&world]),
+        shown,
+        "as every repository then does (a Tessera's, a skill granted)"
+    );
+    progress::award(&mut h.server, &mut h.net, world, 500, Award::Step);
+    h.run(2);
+    assert!(!holds(&h, world), "untrained");
+    let from = h.bots[b].inbox.len();
+    progress::level_up(&mut h.server, &mut h.net, world, 3, 4);
+    h.run(2);
+    let none = repository_untraining(1 + COST + 2, 0, &Default::default(), None);
+    assert!(
+        h.world_messages(b, from).contains(&none),
+        "none once untrained"
+    );
+}
+
 /// An untraining under way, cancelled: the repository names none, the player is told, the skill
 /// is kept, and later awards leave it.
 /// Behaviour: server.skills.untrain-cancelled

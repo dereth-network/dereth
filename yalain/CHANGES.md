@@ -23,6 +23,7 @@ what they see, not how it was done.
 - Worlds can now give back a random amount of vitae.
 - Master of Doctrine's bonus now raises your maximum vigor itself, with no lasting effect.
 - Monarchs can appoint eight officers, and a kingdom restriction keeps members in its kingdom.
+- Leveling up or using a Tessera while untraining a skill no longer hides the untraining.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.
