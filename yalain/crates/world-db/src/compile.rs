@@ -1736,6 +1736,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     if let Some(seconds) = r.aligned_for {
                         t.creatures.aligned.insert(r.template, seconds);
                     }
+                    if r.no_victory {
+                        t.creatures.no_victory.insert(r.template);
+                    }
                 }
             }
             Row::Defense(r) => {

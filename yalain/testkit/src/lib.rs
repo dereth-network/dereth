@@ -2320,6 +2320,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
             })
             .collect(),
         only_hated: [MARKED_ONLY].into_iter().collect(),
+        no_victory: std::collections::BTreeSet::new(),
         fights: std::collections::BTreeMap::new(),
         kept_out: std::collections::BTreeMap::new(),
         aligned: std::collections::BTreeMap::new(),

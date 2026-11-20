@@ -834,7 +834,8 @@ pub struct FriendTable {
 /// gap between its shots times its shot's time scale and its windup before a missile leaves at the
 /// creatures' median time scale, in seconds; the effect it puts on a player that comes within its
 /// perception, with its lines for that by race; whether it takes on only the players it hates;
-/// whether players may not harm it, with the line a player's attack on it is told.
+/// whether players may not harm it, with the line a player's attack on it is told; whether it never
+/// plays its victory over a player it kills.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Creature {
     pub template: u32,
@@ -842,6 +843,7 @@ pub struct Creature {
     pub marks: Option<yalain_content::creature_rows::Mark>,
     pub only_hated: bool,
     pub players_kept_out: bool,
+    pub no_victory: bool,
     pub kept_out_line: Option<StrRef>,
     /// How long, in seconds, one holds the kingdom its template names after it appears.
     pub aligned_for: Option<f64>,
@@ -2431,6 +2433,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "players_kept_out",
             "kept_out_line",
             "aligned_for",
+            "no_victory",
             "prov",
         ],
     ),
@@ -4562,15 +4565,20 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let aligned_for = f.float("aligned_for");
             let ok = aligned_for.is_none_or(|t| t > 0.0);
             let aligned_for = f.held("aligned_for", aligned_for, ok, "above 0")?;
+            let no_victory = match f.t.get("no_victory") {
+                Some(_) => f.bool("no_victory")?,
+                None => false,
+            };
             if rhythm.is_none()
                 && marks.is_none()
                 && !only_hated
                 && !players_kept_out
                 && aligned_for.is_none()
+                && !no_victory
             {
                 f.bad(
-                    "shot_gap, windup, marks, only_hated, players_kept_out, aligned_for",
-                    "a creature's row gives its rhythm, a mark, only_hated, players_kept_out or aligned_for",
+                    "shot_gap, windup, marks, only_hated, players_kept_out, aligned_for, no_victory",
+                    "a creature's row gives its rhythm, a mark, only_hated, players_kept_out, aligned_for or no_victory",
                 );
                 return None;
             }
@@ -4582,6 +4590,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 players_kept_out,
                 kept_out_line,
                 aligned_for,
+                no_victory,
                 prov: f.req_prov()?,
             })
         }

@@ -4129,6 +4129,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.victory-none-by-row",
+        says: "A creature whose template's row says it never plays its victory plays none over a \
+               player it kills, even when its behavior table names one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY-NONE"),
+        station: "yalain-testkit::dat::effects::a_creature_whose_row_says_so_never_plays_its_victory",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.victory-over-a-dead-player",
         says: "A creature that kills a player plays its victory over it, for all who see the \
                creature, about half the time when its template sets no AI subclass and its \

@@ -7404,6 +7404,29 @@ fn a_creatures_row_reads_how_long_its_creatures_hold_their_kingdom() {
     }
 }
 
+/// A creature's row may say its creatures never play their victory: the template is kept; false, or
+/// anything not true or false, is refused, and a row giving only that is a row.
+#[test]
+fn a_creatures_row_reads_that_its_creatures_never_play_their_victory() {
+    const ROW: &str =
+        "[[creature]]\ntemplate = 0x47002224\nno_victory = true\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.creatures.no_victory.iter().copied().collect::<Vec<_>>(),
+        [0x4700_2224]
+    );
+    for no in ["no_victory = false", "no_victory = 1"] {
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROW.replacen("no_victory = true", no, 1),
+        );
+        assert!(read(&files).is_err(), "{no}");
+    }
+}
+
 /// A friend table's row may give the tables its creatures fight with or without its first attacks,
 /// and a creature's row that players may not harm it, with the line their attack is told; a friend
 /// table's row giving neither, tables that are no numbers and a line without the creatures kept from

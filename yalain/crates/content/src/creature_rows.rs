@@ -134,6 +134,8 @@ pub struct CreatureRows {
     pub marks: BTreeMap<u32, Mark>,
     /// The templates whose creatures take on only a player a concealing effect makes them hate.
     pub only_hated: BTreeSet<u32>,
+    /// The templates whose creatures never play their victory over a player they kill.
+    pub no_victory: BTreeSet<u32>,
     /// The friend tables whose creatures the creatures of a friend table take on, by the table.
     pub fights: BTreeMap<u32, BTreeSet<u32>>,
     /// The templates whose creatures players may not harm, with the line a player's attack on one

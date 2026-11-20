@@ -398,21 +398,23 @@ pub const FIRST_IDLE_SHARE: f32 = 0.44;
 
 /// The behavior a creature plays over a player it has killed, and the chance it does when it may
 /// (Turbine, July 2003: "about half of the time", never over a pet). Only a creature whose template
-/// sets no AI subclass plays it, when its behavior table names it (2017: within three seconds of
-/// the death, a median 0.6 s, after 30 of the 71 deaths of a recorded player to creatures with
-/// none, and after none of the 150 to creatures with one). The table decides, not the look's
-/// clips: 2017 sent it for three kinds whose looks have no clip for it, 12 of its 100 sends.
+/// sets no AI subclass plays it, when its behavior table names it and its template's row doesn't
+/// say it never does (2017: within three seconds of the death, a median 0.6 s, after 30 of the 71
+/// deaths of a recorded player to creatures with none, and after none of the 150 to creatures with
+/// one; the rabbits, whose tables name it, after none of their 12). The table decides, not the
+/// look's clips: 2017 sent it for three kinds whose looks have no clip for it, 12 of its 100 sends.
 pub const VICTORY: u32 = 0x4100_006F;
 pub const VICTORY_CHANCE: f32 = 0.5;
 
-/// A creature has killed a player: about half the time, when its template sets no AI subclass and
-/// its behavior table names one, it plays its victory for all who see it, as the attack it killed
-/// with ends (at once when that has ended: 2017, a creature's victory began a median 0.06 s after
-/// its killing attack's cycle ended, 15 of its melee kills within 0.16 s of it, a median 0.6 s
-/// after the death). It keeps its fighting mode, doing nothing else, until its look's clip for the
-/// victory ends, and only then turns to another or gives up (2017: its peace came within 0.1 s of
-/// the clip's end in 20 of 20, 1.3 s after a Burun Scout's victory began, 4.2 s after a Shreth's,
-/// at once after a Grutt's, whose look has no clip for it). A pet plays nothing.
+/// A creature has killed a player: about half the time, when its template sets no AI subclass, its
+/// behavior table names one and its template's row doesn't rule it out, it plays its victory for
+/// all who see it, as the attack it killed with ends (at once when that has ended: 2017, a
+/// creature's victory began a median 0.06 s after its killing attack's cycle ended, 15 of its melee
+/// kills within 0.16 s of it, a median 0.6 s after the death). It keeps its fighting mode, doing
+/// nothing else, until its look's clip for the victory ends, and only then turns to another or
+/// gives up (2017: its peace came within 0.1 s of the clip's end in 20 of 20, 1.3 s after a Burun
+/// Scout's victory began, 4.2 s after a Shreth's, at once after a Grutt's, whose look has no clip
+/// for it). A pet plays nothing.
 pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
     let now = clock.local.0;
     let Some(c) = s
@@ -423,7 +425,7 @@ pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock:
     else {
         return;
     };
-    if c.stats.sub_class.is_some() || s.pets.is_pet(id) {
+    if c.stats.sub_class.is_some() || s.pets.is_pet(id) || never_victorious(s, id) {
         return;
     }
     if !crate::timings::thing_names(s, id, VICTORY) || !s.rng.chance(VICTORY_CHANCE) {
@@ -472,6 +474,13 @@ pub fn victory_plays<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) 
             },
         });
     crate::combat::to_all_seeing(s, net, id, &m);
+}
+
+/// Does a creature never play its victory (its template's row says so)?
+fn never_victorious<S: Store>(s: &Server<S>, id: u64) -> bool {
+    s.things
+        .get(id)
+        .is_some_and(|t| s.creature_rows.no_victory.contains(&t.template))
 }
 
 /// Is a creature still playing its victory?

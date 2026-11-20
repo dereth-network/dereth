@@ -35,6 +35,7 @@ fn no_creature_rows(rows: &CreatureRows) -> bool {
         && rows.only_hated.is_empty()
         && rows.kept_out.is_empty()
         && rows.aligned.is_empty()
+        && rows.no_victory.is_empty()
 }
 
 /// The fields of `[[friend_table]]` and `[[creature]]` no row of a world that has some of that
@@ -61,6 +62,10 @@ pub fn fields_missing(rows: &CreatureRows) -> Vec<&'static str> {
         (
             "[[creature]] aligned_for",
             creatures && rows.aligned.is_empty(),
+        ),
+        (
+            "[[creature]] no_victory",
+            creatures && rows.no_victory.is_empty(),
         ),
     ]
     .into_iter()

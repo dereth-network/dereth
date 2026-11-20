@@ -3973,6 +3973,69 @@ fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
     assert_eq!(deaths(&mut h, 200), 0, "a creature with a subclass");
 }
 
+/// A Brown Rabbit Destroyer's look: its behavior table names the victory (2017: no rabbit played it
+/// over any of the 12 recorded players it killed).
+const RABBIT: u32 = 0x4700_29B9;
+
+/// A creature whose template's row says it never plays its victory plays none over the players it
+/// kills, though its behavior table names one (a rabbit's look); with a row for another template, it
+/// plays it about half the time, 70 to 130 of 200 deaths.
+/// Behaviour: server.creatures.victory-none-by-row
+#[test]
+fn a_creature_whose_row_says_so_never_plays_its_victory() {
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.timings = Some(yalain_world::timings::Timings::new(
+        p.dat.clone(),
+        p.ctx.clone(),
+    ));
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(20);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE)
+        .map(|t| t.id)
+        .expect("the camp's beetle");
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let deaths = |h: &mut yalain_testkit::Harness, n: usize| {
+        let from = h.bots[b].inbox.len();
+        for _ in 0..n {
+            if let Some(p) = h.server.players.get_mut(&world) {
+                p.dying = None;
+            }
+            let clock = h.clock();
+            yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+            h.run(1);
+        }
+        victories(h, b, from, beetle)
+    };
+    let look = p.described(RABBIT).expect("a creature").description.look;
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.description.look = look;
+    t.drawn_as = None;
+    assert!(yalain_world::timings::thing_names(
+        &h.server,
+        beetle,
+        yalain_world::ai::VICTORY
+    ));
+    h.server.creature_rows.no_victory.insert(RABBIT);
+    let played = deaths(&mut h, 200);
+    assert!(
+        (70..=130).contains(&played),
+        "another's row: {played} of 200"
+    );
+    h.run(20);
+    h.server
+        .creature_rows
+        .no_victory
+        .insert(yalain_testkit::TEST_CREATURE);
+    assert_eq!(deaths(&mut h, 200), 0, "its own row");
+}
+
 /// A creature takes its peace once its victory over the player it killed has played out: with a
 /// Burun's look, whose clip for it runs 1.2 s, its peace comes then and not before; with a Grutt's
 /// look, which has no clip for it, at once. Over a death it plays no victory over, at once too

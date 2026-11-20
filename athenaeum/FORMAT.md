@@ -1078,8 +1078,8 @@ What the world says of the creatures of a friend table. A row gives at least one
 #### `[[creature]]`
 
 What the world says of the creatures of a template: its shooting rhythm, the mark it puts on the
-players it sees, whether it takes on only the players it hates, and whether players may harm it. A
-row gives at least one of these.
+players it sees, whether it takes on only the players it hates, whether players may harm it, how
+long it holds its kingdom, and whether it plays its victory. A row gives at least one of these.
 
 | field | | meaning |
 |---|---|---|
@@ -1091,6 +1091,7 @@ row gives at least one of these.
 | `players_kept_out` | | true: players and their pets may not harm it; an attack on it is refused |
 | `kept_out_line` | | with `players_kept_out`: the line a player's attack on it is told, a string reference `{ table, string }` |
 | `aligned_for` | | seconds above 0 that one of its creatures holds the kingdom its template names (its faction) from its first moment, shown as its own: players of that kingdom may not harm it meanwhile, as a player of the same kingdom is refused; then it holds none, and every client that knows it is told it anew. A template that names no kingdom holds none |
+| `no_victory` | | true: its creatures never play their victory over a player they kill |
 | `prov` | required | where it came from |
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`
