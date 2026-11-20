@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Remaster: Launch-era doorways show the room inside instead of solid blue.
 - Remaster: furniture set against a wall no longer flickers into it.
+- Fixed a stall of a second or two right after a world's data patch.
 - Navigator: a simpler window, with one list of places and a Dungeon Map button.
 - Fixed the Navigator walking into portals on its way that it wasn't taking.
 - Plugins: a journey a shut door stops now says which door and why.

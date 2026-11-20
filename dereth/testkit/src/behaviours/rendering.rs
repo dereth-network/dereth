@@ -702,6 +702,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "rendering.objects.a-worlds-overlay-is-weighed-a-step-at-a-time",
+        says: "The client weighs a world's overlay against the other era's look, the models and                rooms its records may reach, a few milliseconds a frame like the rest of that                work, so a large patch never stalls one frame.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-IDENTITY-OVERLAY-STEPS"),
+        station: "dereth-client::dat::rendering::object_look::a_worlds_overlay_is_weighed_a_step_at_a_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.objects.an-interior-room-draws-from-the-other-eras-record-where-it-is-the-same-room",
         says: "With another era's object mode, an interior room is drawn from that era's own record \
                of it, with that era's paint, where that era has the same room in the same place; \

@@ -1099,20 +1099,14 @@ impl ObjectIdentity {
     /// their textures, pictures and palettes), a setup with such a part, and a room it changes or
     /// whose environment or surfaces it changes. Answers how many verdicts were withdrawn.
     pub fn pin_to_world(&mut self, portal: &DatFile, cell: &DatFile) -> usize {
+        run_to_end(self.pin_to_world_paced(portal, cell, &Pace::unlimited()))
+    }
+
+    /// [`Self::pin_to_world`], a step at a time: an overlay can hold tens of thousands of records,
+    /// and each model and room it may reach is read.
+    async fn pin_to_world_paced(&mut self, portal: &DatFile, cell: &DatFile, pace: &Pace) -> usize {
         let before = self.same.len() + self.rooms.len();
-        let touched = |f: &DatFile| -> HashSet<u32> {
-            let Some(layer) = f.layer() else {
-                return HashSet::new();
-            };
-            let mut t: HashSet<u32> = layer.records().map(|(id, _)| id.0).collect();
-            t.extend(
-                f.base_entries()
-                    .filter(|(id, _)| layer.hides(*id))
-                    .map(|(id, _)| id.0),
-            );
-            t
-        };
-        let t = touched(portal);
+        let t = touched(portal, pace).await;
         if !t.is_empty() {
             let mut surface_reaches: HashMap<u32, bool> = HashMap::new();
             let mut reaches_surface = |s: u32| -> bool {
@@ -1139,7 +1133,10 @@ impl ObjectIdentity {
                 .filter(|id| id >> 24 == 0x01)
                 .collect();
             let mut gone: HashSet<u32> = t.clone();
-            for g in gfx {
+            for (n, g) in gfx.into_iter().enumerate() {
+                if n % READS_PER_TICK == 0 {
+                    pace.tick().await;
+                }
                 if gone.contains(&g) {
                     continue;
                 }
@@ -1155,7 +1152,10 @@ impl ObjectIdentity {
                 .copied()
                 .filter(|id| id >> 24 == 0x02)
                 .collect();
-            for su in setups {
+            for (n, su) in setups.into_iter().enumerate() {
+                if n % READS_PER_TICK == 0 {
+                    pace.tick().await;
+                }
                 let reaches = get::<Setup>(portal, su)
                     .is_some_and(|s| s.parts.iter().any(|p| gone.contains(&p.0)));
                 if reaches {
@@ -1174,7 +1174,10 @@ impl ObjectIdentity {
                 .any(|id| matches!(id >> 24, 0x0D | 0x08 | 0x05 | 0x06 | 0x04))
             {
                 let rooms: Vec<u32> = self.rooms.iter().copied().collect();
-                for r in rooms {
+                for (n, r) in rooms.into_iter().enumerate() {
+                    if n % READS_PER_TICK == 0 {
+                        pace.tick().await;
+                    }
                     let reaches = get::<EnvCell>(cell, r).is_some_and(|c| {
                         gone.contains(&c.environment.0)
                             || c.surfaces.iter().any(|s| reaches_surface(s.0))
@@ -1185,7 +1188,7 @@ impl ObjectIdentity {
                 }
             }
         }
-        let c = touched(cell);
+        let c = touched(cell, pace).await;
         self.rooms.retain(|r| !c.contains(r));
         before - (self.same.len() + self.rooms.len())
     }
@@ -1528,6 +1531,32 @@ const HASH_CHUNK: usize = 1 << 18;
 /// How many directory entries one unit of fingerprinting covers.
 const ENTRIES_PER_TICK: usize = 4096;
 
+/// How many records one unit of pinning reads and decodes.
+const READS_PER_TICK: usize = 64;
+
+/// The ids `f`'s overlay changes: the records it holds and those it hides.
+async fn touched(f: &DatFile, pace: &Pace) -> HashSet<u32> {
+    let Some(layer) = f.layer() else {
+        return HashSet::new();
+    };
+    let mut t: HashSet<u32> = HashSet::new();
+    for (n, (id, _)) in layer.records().enumerate() {
+        if n % ENTRIES_PER_TICK == 0 {
+            pace.tick().await;
+        }
+        t.insert(id.0);
+    }
+    for (n, (id, _)) in f.base_entries().enumerate() {
+        if n % ENTRIES_PER_TICK == 0 {
+            pace.tick().await;
+        }
+        if layer.hides(id) {
+            t.insert(id.0);
+        }
+    }
+    t
+}
+
 /// How many rooms one unit of writing the cache file sorts into their landblocks.
 const ROOMS_PER_TICK: usize = 65_536;
 
@@ -1820,7 +1849,9 @@ impl IdentityBuild {
                 cells: interiors.as_ref().map(|i| (&cell, i.cell())),
             };
             let (mut identity, source) = load_or_build(files, cache.as_deref(), &p).await;
-            let pinned = identity.pin_to_world(world.portal(), world.cell());
+            let pinned = identity
+                .pin_to_world_paced(world.portal(), world.cell(), &p)
+                .await;
             if pinned > 0 {
                 tracing::info!(
                     "object identity: {pinned} verdict(s) keep the world's own look, which its \

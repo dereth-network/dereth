@@ -1064,3 +1064,50 @@ fn a_remodelled_creature_draws_the_other_eras_remodel_where_it_rests_as_the_worl
     );
     assert!(identity.remodel(DataId(0x0200_03CC)).is_none());
 }
+
+/// Behaviour: rendering.objects.a-worlds-overlay-is-weighed-a-step-at-a-time
+/// A world's overlay, laid over the files after a patch, can hold tens of thousands of records,
+/// and each model and room it may reach is read to keep the world's own look there. That is
+/// worked a step at a time like the rest: built a unit at a time, the end-of-retail world with an
+/// overlay of 12,288 records takes at least one step for every 4,096 of them more than the same
+/// world without one, rather than weighing the whole overlay in a single step.
+#[test]
+fn a_worlds_overlay_is_weighed_a_step_at_a_time() {
+    use dereth_client_runtime::object_identity::{Budget, IdentityBuild};
+    use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+    const WORLD: &str = "a patched world";
+    const RECORDS: u32 = 12_288;
+    let scratch = dereth_dat::testing::ScratchDir::new("identity-overlay").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let plain = end_of_retail_world();
+    let portal = plain.portal().base();
+    let revision = dereth_dat::decompose::revision_over(&portal);
+    let mut w = OverlayWriter::open_or_create(
+        &dir.container(dereth_dat::ModernDat::Portal),
+        &portal,
+        "client_portal.dat",
+        WORLD,
+        1,
+    )
+    .expect("the portal overlay");
+    for n in 0..RECORDS {
+        w.save(&portal, DataId(0x0600_E000 + n), &[0u8; 64], 1, revision, 1)
+            .expect("added");
+    }
+    w.add_iteration(revision, 1).expect("the revision");
+    w.flush(1).expect("flushed");
+    drop(w);
+    let patched = end_of_retail_world()
+        .with_overlay(&dir, Some(WORLD))
+        .expect("the overlay over the world");
+    let steps = |world: &RetailDatStore| {
+        let mut build = IdentityBuild::for_store(world, None).expect("the other era is beside");
+        finish(&mut build, Budget::Units(1));
+        build.steps()
+    };
+    let (without, with) = (steps(&plain), steps(&patched));
+    assert!(
+        with >= without + u64::from(RECORDS / 4096),
+        "{with} steps with the overlay, {without} without"
+    );
+}
