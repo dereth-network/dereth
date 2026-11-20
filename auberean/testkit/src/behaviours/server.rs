@@ -637,8 +637,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.allegiance.broken",
-        says: "Breaking with a patron tells the player whom it broke with and sends it its profile \
-               as it now stands; the patron left with no vassal is sent the empty profile.",
+        says: "Breaking with a patron, or a patron with a vassal, tells each side who broke with \
+               whom and sends each its profile as it now stands; one left with no vassal is sent \
+               the empty profile.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-BREAK"),
         station: "yalain-testkit::cpu::play::allegiance::breaking_with_a_patron_tells_whom_and_empties_both_profiles",
@@ -6024,6 +6025,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.dismissed",
+        says: "A fellow the leader dismisses is told it was dismissed, the leader that it dismissed \
+               it, the others that it was dismissed; dismissing itself, or one not of the \
+               fellowship, is refused with the reason.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SOCIAL-NOTICES"),
+        station: "yalain-testkit::cpu::play::fellowships::a_fellow_dismissed_is_told_so_and_so_are_the_leader_and_the_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.killing-blow-told",
         says: "A creature's kill goes to the player that did it the most damage, a pet's damage \
                counted as its owner's; a fellow of the killer whose blow killed the creature is \
@@ -6061,6 +6072,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-NAME-LONG"),
         station: "yalain-testkit::cpu::entry::long_lines::a_fellowship_name_past_the_chat_entrys_length_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.recruit-refused",
+        says: "A leader whose fellowship holds nine is refused another recruit as full, and one \
+               asking a player another leader is asking is refused so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-RECRUIT-REFUSED"),
+        station: "yalain-testkit::cpu::play::fellowships::a_full_fellowship_or_a_player_already_asked_refuses_a_recruit",
         tier: Tier::Cpu,
     },
     behaviour! {

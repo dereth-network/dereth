@@ -43,8 +43,10 @@
 //! each gets its profile; every other member in the world is sent its profile again, with the
 //! allegiance's new size. A patron declining tells the vassal so.
 //!
-//! **Breaking** with a patron: told whom it broke with, the profile as it now stands, the
-//! monarch gone from the player's object.
+//! **Breaking** with a patron, or a patron with a vassal: each told who broke with whom ("You have
+//! broken your allegiance to your patron %s.", "Your vassal %s has broken allegiance with you.";
+//! "You have broken allegiance with your vassal %s.", "Your patron %s has broken allegiance with
+//! you."), the profile as it now stands, the monarch gone from the player's object.
 //!
 //! **Ranks**: a member with no vassals is of rank 1; one with vassals is of its highest vassal's
 //! rank, one more when two or more vassals hold it, ten at most. A rank's title is by species,
@@ -154,6 +156,11 @@ pub mod text {
     pub const AWAY_EARNED: (u32, u32) = (0x59E9_6AF2, TABLE);
     pub const VASSAL_EARNED: (u32, u32) = (0x2198_159E, TABLE);
     pub const BROKEN: (u32, u32) = (0xFBEE_DF8F, TABLE);
+    /// "You have broken allegiance with your vassal %s.", "Your patron %s has broken allegiance
+    /// with you.", "Your vassal %s has broken allegiance with you.": a vassal, a patron, a vassal.
+    pub const BROKEN_WITH_VASSAL: (u32, u32) = (0x9392_A16B, TABLE);
+    pub const PATRON_BROKE: (u32, u32) = (0x9D96_D24B, TABLE);
+    pub const VASSAL_BROKE: (u32, u32) = (0xF5EA_ACAF, TABLE);
     /// A member as "title name".
     pub const TITLED: (u32, u32) = (0x6780_74F5, TABLE);
     /// The rank titles' table.
@@ -1694,24 +1701,38 @@ pub fn break_with<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
             .note("an allegiance broken with someone not patron nor vassal");
         return;
     };
-    let pname = facts(s, patron).name;
+    let (pname, vname) = (facts(s, patron).name, facts(s, vassal).name);
     unlink(s, vassal);
     keep(s);
     if let Some(vw) = world_of(s, vassal) {
-        if vassal == me {
-            show(
-                net,
-                vw,
-                NOTICE,
-                progress::text_with(text::BROKEN, vec![name_var(text::PATRON, &pname)]),
-            );
-        }
+        let told = if vassal == me {
+            text::BROKEN
+        } else {
+            text::PATRON_BROKE
+        };
+        show(
+            net,
+            vw,
+            NOTICE,
+            progress::text_with(told, vec![name_var(text::PATRON, &pname)]),
+        );
         let m = profile(s, vassal);
         progress::private(net, vw, &m);
         let monarch = s.allegiances.monarch(vassal).unwrap_or(0);
         monarch_on(s, net, vassal, monarch);
     }
     if let Some(pw) = world_of(s, patron) {
+        let told = if patron == me {
+            text::BROKEN_WITH_VASSAL
+        } else {
+            text::VASSAL_BROKE
+        };
+        show(
+            net,
+            pw,
+            NOTICE,
+            progress::text_with(told, vec![name_var(text::VASSAL, &vname)]),
+        );
         let m = profile(s, patron);
         progress::private(net, pw, &m);
         if !s.allegiances.member(patron) {

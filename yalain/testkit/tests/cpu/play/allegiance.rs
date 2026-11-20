@@ -374,6 +374,34 @@ fn breaking_with_a_patron_tells_whom_and_empties_both_profiles() {
     }
 }
 
+/// Each side of a broken allegiance is told who broke with whom: the vassal breaking, it that it
+/// broke with its patron and the patron that its vassal broke with it; the patron breaking, it that
+/// it broke with its vassal and the vassal that its patron broke with it.
+/// Behaviour: server.allegiance.broken
+#[test]
+fn both_sides_of_a_broken_allegiance_are_told_who_broke_it() {
+    for vassal_breaks in [true, false] {
+        let (mut h, a, b) = two();
+        let (va, vid) = a;
+        let (pa, pid) = b;
+        sworn(&mut h, a, b);
+        let (fv, fp) = (h.bots[va].inbox.len(), h.bots[pa].inbox.len());
+        if vassal_breaks {
+            h.ask(va, function::BREAK, &[Arg::LongInt(pid)], 10);
+        } else {
+            h.ask(pa, function::BREAK, &[Arg::LongInt(vid)], 10);
+        }
+        let (to_vassal, to_patron) = if vassal_breaks {
+            (text::BROKEN.0, text::VASSAL_BROKE.0)
+        } else {
+            (text::PATRON_BROKE.0, text::BROKEN_WITH_VASSAL.0)
+        };
+        assert!(h.texts(va, fv).contains(&(8, to_vassal)), "{vassal_breaks}");
+        assert!(h.texts(pa, fp).contains(&(8, to_patron)), "{vassal_breaks}");
+        assert!(h.server.allegiances.monarch(vid).is_none());
+    }
+}
+
 /// A member entering the world again hears its allegiance's chat room twice before its profile,
 /// which names its patron; one in no allegiance hears no room.
 /// Behaviour: server.allegiance.at-entry

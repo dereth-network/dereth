@@ -226,6 +226,87 @@ fn leaving_and_disbanding_clear_the_fellows_and_tell_them() {
     assert!(h.server.fellowships.list.is_empty());
 }
 
+/// A fellow the leader dismisses is cleared of the fellowship and told it was dismissed; the leader
+/// is told it dismissed it, every other fellow that it was dismissed, and no one that it left. The
+/// leader dismissing itself, or one not of its fellowship, is refused with the reason.
+/// Behaviour: server.fellowship.dismissed
+#[test]
+fn a_fellow_dismissed_is_told_so_and_so_are_the_leader_and_the_others() {
+    use yalain_world::social::REFUSED;
+    let (mut h, [(a, aid), (b, bid), (c, cid)]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    join(&mut h, (a, aid), (c, cid));
+    let (fa, fb, fc) = (
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    );
+    h.ask(a, function::DISMISS, &[Arg::LongInt(bid)], 10);
+    assert!(h.functions(b, fb).contains(&function::CLEAR_FELLOWSHIP));
+    assert!(h.texts(b, fb).contains(&(8, text::YOU_DISMISSED.0)));
+    assert!(h.texts(a, fa).contains(&(8, text::YOU_DISMISS.0)));
+    assert!(h.texts(c, fc).contains(&(8, text::HAS_BEEN_DISMISSED.0)));
+    for (x, from) in [(a, fa), (b, fb), (c, fc)] {
+        let t = h.texts(x, from);
+        assert!(
+            !t.contains(&(8, text::HAS_LEFT.0)) && !t.contains(&(8, text::YOU_LEAVE.0)),
+            "{t:x?}"
+        );
+    }
+    assert!(h.server.fellowships.of(bid).is_none());
+    let fa = h.bots[a].inbox.len();
+    h.ask(a, function::DISMISS, &[Arg::LongInt(aid)], 10);
+    h.ask(a, function::DISMISS, &[Arg::LongInt(bid)], 10);
+    assert_eq!(
+        h.texts(a, fa),
+        vec![
+            (REFUSED, text::NOT_YOURSELF.0),
+            (REFUSED, text::ONLY_MEMBERS.0)
+        ]
+    );
+    assert!(h.server.fellowships.of(cid).is_some(), "the rest stay");
+}
+
+/// A leader whose fellowship holds nine is refused another ("Your Fellowship is full."); one asking
+/// a player another leader is asking is refused ("Someone else is already trying to recruit %s.").
+/// Behaviour: server.fellowship.recruit-refused
+#[test]
+fn a_full_fellowship_or_a_player_already_asked_refuses_a_recruit() {
+    use yalain_world::social::REFUSED;
+    let (mut h, [(a, aid), (b, bid), (_, cid)]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    let i = h.server.fellowships.of(aid).expect("made");
+    // Another leader's asking of the third.
+    h.server
+        .fellowships
+        .asking
+        .push(yalain_world::fellowship::Asking {
+            leader: bid,
+            recruit: cid,
+            until: f64::INFINITY,
+        });
+    let fa = h.bots[a].inbox.len();
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(cid)], 10);
+    assert_eq!(
+        h.texts(a, fa),
+        vec![(REFUSED, text::SOMEONE_ELSE_RECRUITING.0)]
+    );
+    h.server.fellowships.asking.clear();
+    // Nine in it.
+    let first = h.server.fellowships.list[i].fellows[0].clone();
+    for k in 0..7 {
+        let mut f = first.clone();
+        f.id = 0x2130_0000_0300_0000 + k;
+        h.server.fellowships.list[i].fellows.push(f);
+    }
+    let fa = h.bots[a].inbox.len();
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(cid)], 10);
+    assert_eq!(h.texts(a, fa), vec![(REFUSED, text::FULL.0)]);
+    assert!(h.server.fellowships.asking.is_empty(), "no one asked");
+}
+
 /// The packed examination of a player another player asks for.
 fn examination(h: &mut Harness, by: usize, of: u64) -> Vec<u8> {
     let mut req = Vec::new();

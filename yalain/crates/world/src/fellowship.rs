@@ -5,15 +5,19 @@
 //! fellowship's chat channel, is sent the fellowship (itself its leader and only fellow) and told it
 //! made it. A name with anything else is refused.
 //!
-//! **Recruiting**: a player who is not one is refused, as is one already in a fellowship or too
-//! far to walk to; otherwise the leader is walked to the recruit, told it waits, and the recruit is
+//! **Recruiting**: a leader whose fellowship holds nine is refused ("Your Fellowship is full."); a
+//! player who is not one is refused, as is one already in a fellowship, one another leader is
+//! already asking ("Someone else is already trying to recruit %s."), or one too far to walk to;
+//! otherwise the leader is walked to the recruit, told it waits, and the recruit is
 //! asked. Unanswered, the asking runs out after twenty seconds. Accepting: the recruit is told it
 //! joined, sent the whole fellowship and enters the channel; every fellow already in it is sent the
 //! new fellow and told it joined. Declining tells the leader.
 //!
-//! **Leaving** (or leaving the world, or being dismissed): the one leaving is cleared of the
-//! fellowship, told it left and leaves the channel; every other fellow is told it left. A leader
-//! leaving leaves the fellowship to its oldest fellow (each client works this out itself).
+//! **Leaving** (or leaving the world): the one leaving is cleared of the fellowship, told it left
+//! and leaves the channel; every other fellow is told it left. **Dismissed** by the leader (never
+//! itself, only a fellow): the same, told it was dismissed; the leader that it dismissed it, every
+//! other fellow that it was dismissed. A leader leaving leaves the fellowship to its oldest fellow
+//! (each client works this out itself).
 //! **Disbanding**: every fellow is cleared of it and told.
 //!
 //! **Loot**: how a fellowship was made says whose a kill's corpse is ([`crate::death::may_loot`]).
@@ -123,6 +127,18 @@ pub mod text {
     pub const NOT_FROM_HERE: (u32, u32) = (0xC6CD_3C60, TABLE);
     pub const BAD_NAME: (u32, u32) = (0x455E_192A, TABLE);
     pub const DECLINES: (u32, u32) = (0x6F25_C372, TABLE);
+    /// "Your Fellowship is full."
+    pub const FULL: (u32, u32) = (0x4AB6_B80E, TABLE);
+    /// "Someone else is already trying to recruit %s.": a name.
+    pub const SOMEONE_ELSE_RECRUITING: (u32, u32) = (0x1A43_0139, TABLE);
+    /// "You have been dismissed from your Fellowship.", "%s has been dismissed from your
+    /// Fellowship.", "You dismiss %s from your Fellowship.": a name.
+    pub const YOU_DISMISSED: (u32, u32) = (0x3ABF_B311, TABLE);
+    pub const HAS_BEEN_DISMISSED: (u32, u32) = (0xD02C_56C5, TABLE);
+    pub const YOU_DISMISS: (u32, u32) = (0xD93F_AA1A, TABLE);
+    /// "You cannot dismiss yourself.", "You can only dismiss members of your Fellowship."
+    pub const NOT_YOURSELF: (u32, u32) = (0xA9D7_B1D6, TABLE);
+    pub const ONLY_MEMBERS: (u32, u32) = (0x1623_21C3, TABLE);
     /// The channel's lines, naming the channel.
     pub const CHANNEL_ENTERED: (u32, u32) = (0x6B5B_5AAD, 0x2500_0002);
     pub const CHANNEL_EXITED: (u32, u32) = (0x34C2_844D, 0x2500_0002);
@@ -574,7 +590,11 @@ pub fn recruit<S: Store>(
     let Some(i) = s.fellowships.of(me) else {
         return;
     };
-    if s.fellowships.list[i].leader != me || s.fellowships.list[i].fellows.len() >= MOST {
+    if s.fellowships.list[i].leader != me {
+        return;
+    }
+    if s.fellowships.list[i].fellows.len() >= MOST {
+        show(net, world, REFUSED, progress::text(text::FULL));
         return;
     }
     let Some(other) = crate::presence::player_for(s, world, target) else {
@@ -588,6 +608,24 @@ pub fn recruit<S: Store>(
             world,
             REFUSED,
             progress::text_with(text::ALREADY_IN, vec![name_var(text::NAME, &name)]),
+        );
+        return;
+    }
+    // One another leader is asking (this one asking again asks again, at the questions' pace).
+    if s.fellowships
+        .asking
+        .iter()
+        .any(|a| a.recruit == target && a.leader != me)
+    {
+        let name = social::name_of(s, other);
+        show(
+            net,
+            world,
+            REFUSED,
+            progress::text_with(
+                text::SOMEONE_ELSE_RECRUITING,
+                vec![name_var(text::NAME, &name)],
+            ),
         );
         return;
     }
@@ -758,15 +796,26 @@ pub fn decline<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     );
 }
 
-/// A fellow leaves (by asking, by being dismissed, or by leaving the world): cleared and told; the
-/// others told it left; the oldest fellow leads when the leader left.
+/// A fellow leaves (by asking, or by leaving the world): cleared and told; the others told it left;
+/// the oldest fellow leads when the leader left.
 pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    goes(s, net, id, None);
+}
+
+/// A fellow goes, having left or been dismissed by the leader (`dismissed_by`): cleared and told
+/// which; the others told it left, or was dismissed (the leader that it dismissed it).
+fn goes<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, dismissed_by: Option<u64>) {
     let Some(i) = s.fellowships.of(id) else {
         return;
     };
     let name = fellow_name(s, id);
     send_to(s, net, id, &call(function::CLEAR_FELLOWSHIP, &[]));
-    show_to(s, net, id, NOTICE, progress::text(text::YOU_LEAVE));
+    let gone = if dismissed_by.is_some() {
+        text::YOU_DISMISSED
+    } else {
+        text::YOU_LEAVE
+    };
+    show_to(s, net, id, NOTICE, progress::text(gone));
     show_to(s, net, id, NOTICE, channel(text::CHANNEL_EXITED));
     let f = &mut s.fellowships.list[i];
     f.fellows.retain(|x| x.id != id);
@@ -788,12 +837,17 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     let cleared = call(function::CLEAR_FELLOW, &[Arg::LongInt(id)]);
     for o in others {
         send_to(s, net, o, &cleared);
+        let t = match dismissed_by {
+            Some(leader) if leader == o => text::YOU_DISMISS,
+            Some(_) => text::HAS_BEEN_DISMISSED,
+            None => text::HAS_LEFT,
+        };
         show_to(
             s,
             net,
             o,
             NOTICE,
-            progress::text_with(text::HAS_LEFT, vec![name_var(text::NAME, &name)]),
+            progress::text_with(t, vec![name_var(text::NAME, &name)]),
         );
     }
 }
@@ -805,7 +859,7 @@ pub fn leave_request<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
     }
 }
 
-/// The leader sends a fellow out.
+/// The leader sends a fellow out: refused when it names itself, or one not of its fellowship.
 pub fn dismiss<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     let target = id_of(v);
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
@@ -814,8 +868,15 @@ pub fn dismiss<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     let Some(i) = s.fellowships.of(me) else {
         return;
     };
-    if s.fellowships.list[i].leader == me && target != me && s.fellowships.list[i].has(target) {
-        leave(s, net, target);
+    if s.fellowships.list[i].leader != me {
+        return;
+    }
+    if target == me {
+        show(net, world, REFUSED, progress::text(text::NOT_YOURSELF));
+    } else if !s.fellowships.list[i].has(target) {
+        show(net, world, REFUSED, progress::text(text::ONLY_MEMBERS));
+    } else {
+        goes(s, net, target, Some(me));
     }
 }
 
