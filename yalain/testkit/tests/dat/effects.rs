@@ -4104,3 +4104,53 @@ fn master_of_doctrine_reads_as_a_raise_of_vigors_greatest_for_good() {
     let courage = t.get(0x6F00_1DF7).expect("Courage");
     assert!(yalain_world::effects::raises_for_good(courage, 1.0).is_empty());
 }
+
+/// Fickle Fate reads as the install defines it: each of its 22 skills puts on one effect of its
+/// own, which does nothing by its own data and lasts no time; its 14 outcomes (armor, damage,
+/// experience, health, vigor and their heals, up or down) each last 900 s up and 300 s down. With
+/// a rule picking among the outcomes, the skills' effect picks, and every outcome is read.
+/// Behaviour: server.effects.fickle-fate-read
+#[test]
+fn fickle_fate_and_its_fourteen_outcomes_read_as_the_data_defines_them() {
+    const FICKLE_FATE: u32 = 0x7000_1EC7;
+    let p = Portal::open();
+    let skills = p.skills();
+    let users: Vec<_> = skills
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .filter(|u| u.user_effects.contains(&FICKLE_FATE))
+        .collect();
+    assert_eq!(users.len(), 22, "one skill a class");
+    let outcomes: Vec<u32> = (0x7000_1EC8..=0x7000_1ED5).collect();
+    let t = p.effects(&[FICKLE_FATE]);
+    let fate = t.get(FICKLE_FATE).expect("its effect");
+    assert!(fate.duration.is_empty(), "it happens once");
+    assert!(matches!(fate.kind, Kind::Other), "{:?}", fate.kind);
+    let t = p.effects(&outcomes);
+    let mut lasts: Vec<f32> = outcomes
+        .iter()
+        .map(|s| t.get(*s).and_then(|d| d.duration.at(1.0)).unwrap_or(0.0))
+        .collect();
+    lasts.sort_by(f32::total_cmp);
+    assert_eq!(lasts, [[300.0; 7], [900.0; 7]].concat(), "7 down, 7 up");
+    let rules = yalain_world::effect_defs::EffectRules {
+        picks: std::collections::BTreeMap::from([(
+            FICKLE_FATE,
+            yalain_world::effect_defs::Pick {
+                effects: outcomes.iter().map(|s| (*s, 1)).collect(),
+                fellows: true,
+            },
+        )]),
+        ..yalain_world::effect_defs::EffectRules::default()
+    };
+    let t = p.effects_ruled(&[FICKLE_FATE], &rules);
+    assert!(matches!(
+        t.get(FICKLE_FATE).map(|d| &d.kind),
+        Some(Kind::Pick(_))
+    ));
+    assert!(
+        outcomes.iter().all(|s| t.get(*s).is_some()),
+        "each outcome read"
+    );
+}

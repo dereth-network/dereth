@@ -1060,6 +1060,29 @@ pub fn apply_on<S: Store>(
             }
             true
         }
+        // One effect drawn by weight comes on in its place, at the spellcraft it was cast at, on
+        // its player and its fellows alike; its own appearance plays on its player.
+        (Kind::Pick(pick), On::Player(world)) => {
+            let Some(drawn) = pick.drawn(|n| {
+                #[allow(clippy::cast_possible_truncation)]
+                let r = s.rng.below(n as usize) as u32;
+                r
+            }) else {
+                return false;
+            };
+            if def.fx != 0 {
+                show_fx(s, net, world, def.fx);
+            }
+            let mut to = vec![world];
+            if pick.fellows {
+                to.extend(crate::fellowship::fellows_in_world(s, world));
+            }
+            let mut did = false;
+            for w in to {
+                did |= apply_on(s, net, On::Player(w), drawn, cast, clock);
+            }
+            did
+        }
         (Kind::Reset(kind), On::Player(world)) => {
             crate::skills::grant_reset(s, net, world, *kind);
             true
@@ -1142,6 +1165,7 @@ pub fn apply_on<S: Store>(
         | (
             Kind::VitaeTap(_)
             | Kind::VitaeRestore(_)
+            | Kind::Pick(_)
             | Kind::Reset(_)
             | Kind::Untrains
             | Kind::GrantSkill(_)
@@ -3169,6 +3193,7 @@ pub fn toggled_on<S: Store>(
             | Kind::Taunt(_)
             | Kind::VitaeTap(_)
             | Kind::VitaeRestore(_)
+            | Kind::Pick(_)
             | Kind::Reset(_)
             | Kind::Untrains
             | Kind::GrantSkill(_)

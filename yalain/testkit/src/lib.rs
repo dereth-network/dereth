@@ -2786,6 +2786,7 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
         places_named: std::collections::BTreeMap::new(),
         dispels: std::collections::BTreeMap::new(),
         holds_back: std::collections::BTreeMap::new(),
+        picks: std::collections::BTreeMap::new(),
     };
     for (short, long, classes) in TEST_IMMUNITIES {
         rules.immunities.insert(short, long);

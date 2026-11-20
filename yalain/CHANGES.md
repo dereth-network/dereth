@@ -30,6 +30,7 @@ what they see, not how it was done.
 - Worlds can now give examine text to objects whose template has none.
 - Pets follow you to a new target, and a creature's kin join its fight with a pet.
 - Selected players and fellows now show the damage other players did them.
+- Worlds can now have an effect put on one of a list of effects at random.
 
 ## 0.6.1 (2026-11-20)
 - Fixed dying players still running at what they attacked.

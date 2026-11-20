@@ -128,7 +128,7 @@ fn listed(gaps: &[String]) -> String {
 /// section's first table names exactly the fields the server reads of its kind.
 #[test]
 fn the_format_reference_names_every_kind_and_every_field_the_server_reads() {
-    let gaps = field_gaps(REFERENCE, &KINDS, &FIELDS, &TIER_FIELDS);
+    let gaps = field_gaps(REFERENCE, KINDS, FIELDS, &TIER_FIELDS);
     assert!(
         gaps.is_empty(),
         "the format reference's kinds and fields: {}",
@@ -140,7 +140,7 @@ fn the_format_reference_names_every_kind_and_every_field_the_server_reads() {
 /// file takes.
 #[test]
 fn the_format_reference_says_where_each_kind_is_written() {
-    let gaps = file_gaps(REFERENCE, &KINDS);
+    let gaps = file_gaps(REFERENCE, KINDS);
     assert!(
         gaps.is_empty(),
         "the format reference's files: {}",

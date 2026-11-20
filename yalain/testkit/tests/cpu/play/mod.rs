@@ -91,6 +91,7 @@ mod people_routes;
 mod pet_kinds;
 mod pet_skills;
 mod pets;
+mod picked_effects;
 mod placings;
 mod plant_care;
 mod player_fights;

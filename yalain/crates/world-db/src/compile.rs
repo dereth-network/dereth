@@ -1803,6 +1803,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(h) = &r.holds_back {
                     t.effect_rules.holds_back.insert(effect, h.clone());
                 }
+                if let Some(p) = &r.pick {
+                    t.effect_rules.picks.insert(effect, p.clone());
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;

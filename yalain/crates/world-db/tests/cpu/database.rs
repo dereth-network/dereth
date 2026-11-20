@@ -3359,6 +3359,71 @@ fn an_examination_row_names_the_objects_of_a_template_that_names_none() {
     }
 }
 
+/// The reader's record kinds and their fields name the same kinds, each once, and
+/// the reader knows every one: a row of each kind is never refused as no record kind.
+#[test]
+fn every_record_kind_has_its_fields_and_is_read() {
+    use yalain_world_db::rows::{FIELDS, KINDS};
+    let mut seen = std::collections::BTreeSet::new();
+    assert!(KINDS.iter().all(|k| seen.insert(*k)), "each once");
+    let fields: std::collections::BTreeSet<&str> = FIELDS.iter().map(|(k, _)| *k).collect();
+    assert_eq!(fields.len(), FIELDS.len(), "fields named once each");
+    assert_eq!(fields, seen, "the same kinds");
+    for kind in KINDS {
+        let mut files = fixture();
+        files.insert(
+            "town/server/kinds.toml".into(),
+            format!("[[{kind}]]\nprov = {{ from = \"authored\" }}\n"),
+        );
+        if let Err(problems) = read(&files) {
+            assert!(
+                !format!("{problems:?}").contains("is not a record kind"),
+                "{kind}: {problems:?}"
+            );
+        }
+    }
+}
+
+/// An effect rule row may pick one of a list of effects by weight, for its player and its
+/// fellows; a pick names at least one effect, each with a whole weight above 0, and nothing else.
+/// Behaviour: server.effects.pick-rows
+#[test]
+fn an_effect_rule_row_may_pick_one_of_its_effects_by_weight() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x70001EC7\npick = { effects = [{ effect = 0x70001EC8, weight = 1 }, \
+         { effect = 0x70001EC9, weight = 9 }], fellows = true }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules.picks.get(&0x7000_1EC7),
+        Some(&yalain_content::effect_rules::Pick {
+            effects: vec![(0x7000_1EC8, 1), (0x7000_1EC9, 9)],
+            fellows: true,
+        })
+    );
+    for pick in [
+        "{ effects = [] }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 0 }] }",
+        "{ effects = [{ effect = 0x70001EC8 }] }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1, chance = 1 }] }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1 }], fellows = 1 }",
+        "{ effects = [{ effect = 0x70001EC8, weight = 1 }], share = 1 }",
+        "0x70001EC8",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x70001EC7\npick = {pick}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{pick}");
+    }
+}
+
 /// Behaviour: server.effects.vitae-restore
 #[test]
 fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {

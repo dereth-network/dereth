@@ -1018,6 +1018,8 @@ pub struct EffectRule {
     pub dispels: Vec<u32>,
     /// The rises in a quality it holds back while its player holds it.
     pub holds_back: Option<yalain_content::effect_rules::HoldBack>,
+    /// The effects one of which it puts on in its place, drawn by weight, and to whom.
+    pub pick: Option<yalain_content::effect_rules::Pick>,
     pub prov: Prov,
 }
 
@@ -1757,8 +1759,9 @@ impl Row {
     }
 }
 
-/// The record kinds, as their tables are written.
-pub const KINDS: [&str; 78] = [
+/// The record kinds, as their tables are written (a slice, so a kind added on two branches at
+/// once leaves no count to settle).
+pub const KINDS: &[&str] = &[
     "object",
     "camp",
     "loot",
@@ -1840,7 +1843,7 @@ pub const KINDS: [&str; 78] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 78] = [
+pub const FIELDS: &[(&str, &[&str])] = &[
     (
         "object",
         &[
@@ -2229,6 +2232,7 @@ pub const FIELDS: [(&str, &[&str]); 78] = [
             "name_text",
             "dispels",
             "holds_back",
+            "pick",
             "prov",
         ],
     ),
@@ -4131,8 +4135,13 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 Some(_) => Some(f.holds_back()?),
                 None => None,
             };
+            let pick = match f.get("pick") {
+                Some(_) => Some(f.pick()?),
+                None => None,
+            };
             let places = f.placing()?;
             let others = ward.is_some()
+                || pick.is_some()
                 || vitae_share.is_some()
                 || vitae_restore.is_some()
                 || then.is_some()
@@ -4144,10 +4153,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 || holds_back.is_some();
             if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, holds_back, places",
+                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, holds_back, pick, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
                      a reset it grants, the untraining it finishes, a skill it trains, an item it \
-                     gives, the effects it dispels, the rises it holds back or what it places",
+                     gives, the effects it dispels, the rises it holds back, the effects it picks \
+                     among or what it places",
                 );
                 return None;
             }
@@ -4171,6 +4181,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 places,
                 dispels,
                 holds_back,
+                pick,
                 prov: f.req_prov()?,
             })
         }
@@ -7048,6 +7059,46 @@ impl<'a> Fields<'a> {
             self.bad(
                 "holds_back",
                 "{ quality, except }: the quality whose rises it holds back (type << 16 | quality, above 0) and the effects it spares, by their saved states",
+            );
+        }
+        read
+    }
+
+    /// `{ effects = [{ effect, weight }], fellows }`: at least one effect (a saved state) with a
+    /// whole weight above 0, and whether its player's fellows have the drawn effect too.
+    fn pick(&mut self) -> Option<yalain_content::effect_rules::Pick> {
+        let v = self.get("pick")?;
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["effects", "fellows"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let effects = t
+                .get("effects")?
+                .as_array()?
+                .iter()
+                .map(|e| {
+                    let e = e.as_table()?;
+                    if e.keys()
+                        .any(|k| !["effect", "weight"].contains(&k.as_str()))
+                    {
+                        return None;
+                    }
+                    let weight = as_u32(e.get("weight")?)?;
+                    (weight > 0).then_some((as_u32(e.get("effect")?)?, weight))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let fellows = match t.get("fellows") {
+                Some(b) => b.as_bool()?,
+                None => false,
+            };
+            (!effects.is_empty()).then_some(yalain_content::effect_rules::Pick { effects, fellows })
+        });
+        if read.is_none() {
+            self.bad(
+                "pick",
+                "{ effects = [{ effect, weight }], fellows }: at least one effect, each a saved state with a whole weight above 0, and whether its player's fellows have the drawn one too",
             );
         }
         read

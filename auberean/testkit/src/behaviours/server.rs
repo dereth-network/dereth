@@ -4968,6 +4968,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.fickle-fate-read",
+        says: "Fickle Fate's 22 skills each put on its one effect, which does nothing by its own data; its \
+               14 outcomes last 900 s up and 300 s down; a rule picking among them makes it pick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FICKLE-FATE-READ"),
+        station: "yalain-testkit::dat::effects::fickle_fate_and_its_fourteen_outcomes_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.harm-over-time-kills",
         says: "A change over time a creature put on a player kills it when it takes the last of its \
                health, the creature its killer.",
@@ -5102,6 +5111,33 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-OWN-HARM"),
         station: "yalain-testkit::cpu::play::player_fights::a_players_own_harm_kills_it_with_no_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.pick-by-weight",
+        says: "An effect that picks draws among its list by the weights the world's rule gives them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PICK-BY-WEIGHT"),
+        station: "yalain-testkit::cpu::play::picked_effects::a_picking_effect_draws_by_its_weights",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.pick-one-of-a-list",
+        says: "An effect a world's rule says picks puts one effect of its list on in its place, with no record \
+               of its own, on its player and, with the fellows, each fellow in the world alike, at the \
+               spellcraft it was cast at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PICK-ONE-OF-A-LIST"),
+        station: "yalain-testkit::cpu::play::picked_effects::a_picking_effect_puts_one_drawn_effect_on_its_player_and_fellows_at_its_spellcraft",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.pick-rows",
+        says: "A world's effect rule may pick one of a list of effects by whole weights above 0, for its player \
+               and its fellows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PICK-ROWS"),
+        station: "yalain-world-db::cpu::database::an_effect_rule_row_may_pick_one_of_its_effects_by_weight",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -46,6 +46,35 @@ impl VitaeRestore {
     }
 }
 
+/// What an effect puts on in its place: one of these effects (saved states), drawn by their weights,
+/// on its player and, where it reaches them, the player's fellows in the world, all at the
+/// spellcraft it was cast at.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Pick {
+    /// Each effect and its weight, above 0; at least one.
+    pub effects: Vec<(u32, u32)>,
+    pub fellows: bool,
+}
+
+impl Pick {
+    /// The effect a draw `roll(n)`, below `n`, picks by the weights.
+    #[must_use]
+    pub fn drawn(&self, roll: impl FnOnce(u32) -> u32) -> Option<u32> {
+        let total: u32 = self.effects.iter().map(|(_, w)| *w).sum();
+        if total == 0 {
+            return None;
+        }
+        let mut at = roll(total).min(total - 1);
+        for &(effect, weight) in &self.effects {
+            if at < weight {
+                return Some(effect);
+            }
+            at -= weight;
+        }
+        None
+    }
+}
+
 /// Which of its skills a complete reset gives a player back: those bought with skill credits, or
 /// its hero skills.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -127,4 +156,6 @@ pub struct EffectRules {
     pub dispels: BTreeMap<u32, Vec<u32>>,
     /// The effects that hold back the rises other effects give a quality while they are held.
     pub holds_back: BTreeMap<u32, HoldBack>,
+    /// The effects that put one of a list of effects on in their place, drawn by weight.
+    pub picks: BTreeMap<u32, Pick>,
 }

@@ -190,7 +190,7 @@ mod watcher_flag {
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
 pub use yalain_content::effect_rules::{
-    EffectRules, Grant, HoldBack, Placing, Reset, VitaeRestore, Ward,
+    EffectRules, Grant, HoldBack, Pick, Placing, Reset, VitaeRestore, Ward,
 };
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
@@ -366,6 +366,9 @@ pub enum Kind {
     /// Gives back these points of vitae, once, never above full: to its player and, where it
     /// reaches them, the player's fellows in the world.
     VitaeRestore(VitaeRestore),
+    /// Puts one of these effects on in its place, once, drawn by weight: on its player and, where
+    /// it reaches them, the player's fellows in the world.
+    Pick(Pick),
     /// Grants its player one complete reset of this kind of its skills, once.
     Reset(Reset),
     /// Finishes its player's untraining under way at once, once.
@@ -450,6 +453,7 @@ impl EffectDef {
                     | Kind::VitalTransfer { .. }
                     | Kind::VitaeTap(_)
                     | Kind::VitaeRestore(_)
+                    | Kind::Pick(_)
                     | Kind::Reset(_)
                     | Kind::Untrains
                     | Kind::GrantSkill(_)
@@ -479,6 +483,7 @@ impl EffectDef {
             Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
             Kind::Immunity { then } | Kind::Applies(then) => vec![*then],
             Kind::Instants(list) => list.clone(),
+            Kind::Pick(p) => p.effects.iter().map(|(e, _)| *e).collect(),
             _ => Vec::new(),
         }
     }
@@ -1074,6 +1079,9 @@ impl EffectTable {
                 }
                 if let Some(restore) = rules.vitae_restores.get(&s) {
                     d.kind = Kind::VitaeRestore(*restore);
+                }
+                if let Some(pick) = rules.picks.get(&s) {
+                    d.kind = Kind::Pick(pick.clone());
                 }
                 if let Some(reset) = rules.resets.get(&s) {
                     d.kind = Kind::Reset(*reset);
