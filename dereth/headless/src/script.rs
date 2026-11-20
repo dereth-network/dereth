@@ -171,6 +171,9 @@ pub enum Command {
     Dump(Dump),
     /// `snapshot` -- `GameSnapshot::from_view` over the HUD's view, as text.
     Snapshot,
+    /// `near [<n>]` -- the `n` objects nearest the player (20 when not given), nearest first:
+    /// each one's id, distance, kind and name.
+    Near(usize),
     /// `world <landblock>` -- load a world offline, with a body, at the middle of the landblock
     /// (a 16-bit id, `0x` hex or decimal). Needs `--world`.
     World(u16),
@@ -496,6 +499,12 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
         ("position", []) => Ok(Command::Position),
         ("position", _) => Err(err(n, "position takes no arguments")),
         ("snapshot", []) => Ok(Command::Snapshot),
+        ("near", []) => Ok(Command::Near(20)),
+        ("near", [count]) => count
+            .parse()
+            .map(Command::Near)
+            .map_err(|_| err(n, format!("near takes a count, not {count:?}"))),
+        ("near", _) => Err(err(n, "near takes at most a count")),
         ("snapshot", _) => Err(err(n, "snapshot takes no arguments")),
         ("quit", []) => Ok(Command::Quit),
         ("quit", _) => Err(err(n, "quit takes no arguments")),
@@ -871,5 +880,28 @@ quit
             1
         );
         assert_eq!(parse("begin").expect_err("no action").line, 1);
+    }
+
+    #[test]
+    fn near_takes_an_optional_count() {
+        assert_eq!(
+            parse(
+                "near
+near 5
+"
+            )
+            .expect("parses"),
+            vec![Command::Near(20), Command::Near(5)]
+        );
+        assert!(parse(
+            "near five
+"
+        )
+        .is_err());
+        assert!(parse(
+            "near 1 2
+"
+        )
+        .is_err());
     }
 }

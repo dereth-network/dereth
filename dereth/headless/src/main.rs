@@ -87,6 +87,9 @@ Script: one command per line, `#` starts a comment.
   formula <spell>                 a spell's components for this account, as request research takes them
   dump events | dump steps        the last frame's event log, or only its steps
   snapshot                        a summary of the game view
+  near [<n>]                      the n objects nearest the player (20 by default), nearest
+                                  first: id, distance, kind (player, vendor, portal, lifestone,
+                                  creature or object) and name
   world <landblock>               load a world offline with a body (needs --world)
   position                        where the body stands
   quit                            stop and shut the client down

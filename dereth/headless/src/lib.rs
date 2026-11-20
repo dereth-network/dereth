@@ -57,6 +57,7 @@
 pub mod capture;
 pub mod daemon;
 pub mod dialogs;
+pub mod near;
 pub mod plugins;
 pub mod published;
 pub mod run;

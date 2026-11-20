@@ -428,6 +428,7 @@ impl<'a> Run<'a> {
                 Command::Formula(spell) => self.formula(*spell),
                 Command::Dump(what) => self.dump(*what),
                 Command::Snapshot => self.snapshot(),
+                Command::Near(n) => self.near(*n),
                 Command::World(block) => self.world(*block),
                 Command::Position => self.position(),
                 Command::Plugin(c) => self.plugin(c),
@@ -1071,6 +1072,40 @@ impl<'a> Run<'a> {
         };
         for line in FrameEvents::text(&events).lines() {
             self.line(line)?;
+        }
+        Ok(())
+    }
+
+    /// `near`: the radar's objects nearest the player, a line each.
+    fn near(&mut self, n: usize) -> Result<(), RunError> {
+        let snap = self.app.hud().snapshot(self.app.objects());
+        let world = &self.app.objects().world;
+        // What stands in the world: not the player, nor what is carried or worn.
+        let objects: Vec<crate::near::Nearby> = snap
+            .radar_objects()
+            .iter()
+            .filter(|r| !r.is_self)
+            .filter_map(|r| {
+                let w = world.weenie(r.id)?;
+                let held = |o: Option<ObjectId>| o.is_some_and(|o| o.0 != 0);
+                if held(w.pwd.container_id) || held(w.pwd.wielder_id) {
+                    return None;
+                }
+                Some(crate::near::Nearby {
+                    id: r.id,
+                    offset: r.player_space,
+                    flags: r.bitfield,
+                    creature: w.is_creature(),
+                    name: w
+                        .object_name(dereth_client_sdk::model::weenie::NameType::Singular)
+                        .to_string(),
+                })
+            })
+            .collect();
+        let rows = crate::near::rows(&objects, n);
+        self.line(format!("near {} of {}", rows.len(), objects.len()))?;
+        for row in rows {
+            self.line(format!("near {row}"))?;
         }
         Ok(())
     }
