@@ -1151,6 +1151,14 @@ mod imp {
             SceneRenderer::set_ground_markers(self, markers);
         }
 
+        fn set_ground_marks(&mut self, marks: &[dereth_client_contract::overlay::GroundMark]) {
+            SceneRenderer::set_ground_marks(self, marks);
+        }
+
+        fn set_world_bands(&mut self, bands: &[dereth_client_contract::overlay::WorldBand]) {
+            SceneRenderer::set_world_bands(self, bands);
+        }
+
         fn preview_ensure(
             &mut self,
             id: PreviewId,

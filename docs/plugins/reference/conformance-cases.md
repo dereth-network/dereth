@@ -71,7 +71,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | case | proves | runs in |
 |---|---|---|
 | [`depth`](../conformance/overlay/depth/) | A shape, a world marker or a nametags layer may ask to stay on top of whatever stands in front of it, and a nametags layer labels only its nearest objects, nearest first and as many as its limit. | a scripted world |
-| [`journey`](../conformance/overlay/journey/) | The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, and the portal ahead on the map and radar. | a scripted world |
+| [`journey`](../conformance/overlay/journey/) | The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, the portal ahead on the map and radar, and a wisp along the way ahead as far as the portal. | a scripted world |
 | [`journey-hidden`](../conformance/overlay/journey-hidden/) | A journey asked for with show = false is not drawn, and nav.show_journey hides a drawn one; it answers false for a plugin with no journey. | a scripted world |
 | [`map-click`](../conformance/overlay/map-click/) | A press on the game's map reaches the plugin listening with the place under the pointer, the button and the modifiers held, and is no gesture; the place is one the markers take, and a press off the world is not heard. | a scripted world |
 | [`markers`](../conformance/overlay/markers/) | A plugin's markers are kept with what they mark and resolved to where it is each frame; a marker goes when removed or when its time is up, and the arrow's turn and distance are from the character. | a scripted world |

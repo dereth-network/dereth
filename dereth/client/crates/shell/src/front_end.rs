@@ -2618,7 +2618,7 @@ impl<H: Host> Shell for ClientShell<H> {
         }
         let (front, services) = self.front_and_services();
         front.compose(cx, services);
-        Self::plugin_world_marks(cx);
+        self.plugin_world_marks(cx);
     }
 
     /// Ending the frame with `true` is three things in one call: **the 2D UI overlay**,

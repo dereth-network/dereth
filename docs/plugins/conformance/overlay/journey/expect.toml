@@ -1,4 +1,4 @@
-says = "The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, and the portal ahead on the map and radar."
+says = "The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, the portal ahead on the map and radar, and a wisp along the way ahead as far as the portal."
 [scenario]
 world = "scripted"
 seconds = 1.5
@@ -20,4 +20,5 @@ overlays = """arrow conformance.journey-drawn #-1 label="Walk" color=#40C0FF at=
 map conformance.journey-drawn #-2 label="Journey" color=#40C0FF line=[42.20N 33.82E, 42.20N 33.90E, 0x019E0114 10.0 -40.0 0.0, 0x019E0120 20.0 -40.0 0.0]
 map conformance.journey-drawn #-3 label="Portal: Drudge Hideout" color=#40C0FF at=42.20N 33.90E points=[42.20N 33.90E]
 radar conformance.journey-drawn #-4 label="Portal: Drudge Hideout" color=#40C0FF at=42.20N 33.90E
+shape conformance.journey-drawn #-100 color=#40C0FF at=42.20N 33.82E shape=trail path=52 span=0.4
 """

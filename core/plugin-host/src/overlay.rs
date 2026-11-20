@@ -111,6 +111,12 @@ pub enum ShapeKind {
     Square,
     /// Its label, floating at its height.
     Text,
+    /// A journey's way ahead, from the character on through its path's places, a short step
+    /// apart. The host draws a shown journey with it; it is not a shape a plugin names.
+    Trail,
+    /// Where a journey ends, at its anchor. The host draws a shown journey's end with it; it is
+    /// not a shape a plugin names.
+    Goal,
 }
 
 impl ShapeKind {
@@ -124,10 +130,14 @@ impl ShapeKind {
 
     #[must_use]
     pub fn name(self) -> &'static str {
-        Self::ALL
-            .iter()
-            .find(|(s, _)| *s == self)
-            .map_or("", |(_, n)| n)
+        match self {
+            Self::Trail => "trail",
+            Self::Goal => "goal",
+            _ => Self::ALL
+                .iter()
+                .find(|(s, _)| *s == self)
+                .map_or("", |(_, n)| n),
+        }
     }
 }
 
@@ -467,6 +477,8 @@ fn outline(m: &Marker, at: &Position, to: Option<&Position>) -> Vec<Position> {
 pub struct Overlays {
     pub player: Option<Position>,
     pub markers: Vec<OverlayView>,
+    /// The frame's time, seconds, for what a renderer moves as time passes (a journey's trail).
+    pub time: f64,
 }
 
 impl Overlays {
@@ -480,6 +492,7 @@ impl Overlays {
         let mut out = Self {
             player: places.player(),
             markers: Vec::new(),
+            time: 0.0,
         };
         for (plugin, ms) in markers {
             for (&id, m) in ms {

@@ -88,6 +88,10 @@ mod imp {
         /// The picture a front end asked to lay on the ground, and the pipeline state it is drawn
         /// with, built on first use. See [`Self::set_ground_markers`].
         ground_markers: Vec<dereth_client_contract::overlay::GroundMarker>,
+        /// The ground marks asked for (see [`Self::set_ground_marks`]).
+        ground_marks: Vec<dereth_client_contract::overlay::GroundMark>,
+        /// The bands asked for (see [`Self::set_world_bands`]).
+        world_bands: Vec<dereth_client_contract::overlay::WorldBand>,
         marker_pipeline: Option<PipelineKey>,
         /// The object identity verdicts the application worked out for its store, once it has
         /// them ([`Self::offer_object_identity`]): every world loaded after draws the other era's
@@ -301,6 +305,8 @@ mod imp {
                 overlay_textures: std::collections::BTreeMap::new(),
                 overlay_pipelines: None,
                 ground_markers: Vec::new(),
+                ground_marks: Vec::new(),
+                world_bands: Vec::new(),
                 marker_pipeline: None,
                 object_identity: None,
                 #[cfg(feature = "remaster")]
@@ -986,6 +992,34 @@ mod imp {
                         )?;
                     }
                 }
+                // The ground marks at places, over the markers, in the order asked for.
+                let marks: Vec<_> = self
+                    .ground_marks
+                    .iter()
+                    .filter_map(|m| Some((*m, self.overlay_textures.get(&m.texture).copied()?)))
+                    .collect();
+                if !marks.is_empty() {
+                    let key = self.marker_pipeline();
+                    let (world, gpu) = (self.world.as_ref().expect("checked above"), &mut self.gpu);
+                    dereth_render::camera::view_distance_override::with(
+                        self.view_distance,
+                        || world.draw_ground_marks(ws, gpu, &marks, &key),
+                    )?;
+                }
+                // The bands, over the marks, in the order asked for.
+                if !self.world_bands.is_empty() {
+                    let key = self.marker_pipeline();
+                    let bands: Vec<_> = self
+                        .world_bands
+                        .iter()
+                        .filter_map(|b| Some((b, self.overlay_textures.get(&b.texture).copied()?)))
+                        .collect();
+                    let (world, gpu) = (self.world.as_ref().expect("checked above"), &mut self.gpu);
+                    dereth_render::camera::view_distance_override::with(
+                        self.view_distance,
+                        || world.draw_world_bands(ws, gpu, &bands, &key),
+                    )?;
+                }
                 return Ok(());
             }
             let Some(scene) = &self.scene else {
@@ -1358,6 +1392,20 @@ mod imp {
             markers: &[dereth_client_contract::overlay::GroundMarker],
         ) {
             self.ground_markers = markers.to_vec();
+        }
+
+        /// Lay `marks` on the ground at their places from the next drawn frame on, over the ground
+        /// markers and in that order, until the next call; none takes them away. Their textures
+        /// are ones the front end uploaded to the overlay; one not resident is not drawn.
+        pub fn set_ground_marks(&mut self, marks: &[dereth_client_contract::overlay::GroundMark]) {
+            self.ground_marks = marks.to_vec();
+        }
+
+        /// Draw `bands` in the world from the next drawn frame on, over the ground marks and in
+        /// that order, until the next call; none takes them away. Their textures are ones the front
+        /// end uploaded to the overlay; one not resident is not drawn.
+        pub fn set_world_bands(&mut self, bands: &[dereth_client_contract::overlay::WorldBand]) {
+            self.world_bands = bands.to_vec();
         }
 
         /// The ground marker's pipeline state: the overlay's image state, but tested against the

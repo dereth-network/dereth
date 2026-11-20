@@ -396,6 +396,17 @@ pub trait Presentation: std::fmt::Debug {
     fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
         let _ = markers;
     }
+    /// Lay `marks` on the ground at their places for the frames until the next call, over the
+    /// ground markers, a later one over an earlier one; none takes them away. A presentation with
+    /// no world draws nothing.
+    fn set_ground_marks(&mut self, marks: &[dereth_client_contract::overlay::GroundMark]) {
+        let _ = marks;
+    }
+    /// Draw `bands` in the world for the frames until the next call, over the ground marks, in
+    /// that order; none takes them away. A presentation with no world draws nothing.
+    fn set_world_bands(&mut self, bands: &[dereth_client_contract::overlay::WorldBand]) {
+        let _ = bands;
+    }
 
     // ---------------------------------------------------------------------------------------
     // the preview spaces -- small 3D scenes a UI draws into its overlay
@@ -543,6 +554,8 @@ pub struct NullPresentation {
     texture_filtering: u32,
     counts: NullPresentationCounts,
     ground_markers: Vec<dereth_client_contract::overlay::GroundMarker>,
+    ground_marks: Vec<dereth_client_contract::overlay::GroundMark>,
+    world_bands: Vec<dereth_client_contract::overlay::WorldBand>,
     /// Told when this presentation is dropped.
     #[cfg(test)]
     pub(crate) drop_log: Option<std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>>,
@@ -566,6 +579,8 @@ impl NullPresentation {
             texture_filtering: 0,
             counts: NullPresentationCounts::default(),
             ground_markers: Vec::new(),
+            ground_marks: Vec::new(),
+            world_bands: Vec::new(),
             #[cfg(test)]
             drop_log: None,
         }
@@ -586,6 +601,18 @@ impl NullPresentation {
     #[must_use]
     pub fn ground_markers(&self) -> &[dereth_client_contract::overlay::GroundMarker] {
         &self.ground_markers
+    }
+
+    /// The ground marks last asked for, as a world would draw them.
+    #[must_use]
+    pub fn ground_marks(&self) -> &[dereth_client_contract::overlay::GroundMark] {
+        &self.ground_marks
+    }
+
+    /// The bands last asked for, as a world would draw them.
+    #[must_use]
+    pub fn world_bands(&self) -> &[dereth_client_contract::overlay::WorldBand] {
+        &self.world_bands
     }
 }
 
@@ -655,6 +682,12 @@ impl Presentation for NullPresentation {
     }
     fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
         self.ground_markers = markers.to_vec();
+    }
+    fn set_ground_marks(&mut self, marks: &[dereth_client_contract::overlay::GroundMark]) {
+        self.ground_marks = marks.to_vec();
+    }
+    fn set_world_bands(&mut self, bands: &[dereth_client_contract::overlay::WorldBand]) {
+        self.world_bands = bands.to_vec();
     }
 
     fn preview_ensure(

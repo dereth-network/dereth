@@ -242,6 +242,12 @@ impl Presentation for SimPresentation {
     fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
         self.device.set_ground_markers(markers);
     }
+    fn set_ground_marks(&mut self, marks: &[dereth_client_contract::overlay::GroundMark]) {
+        self.device.set_ground_marks(marks);
+    }
+    fn set_world_bands(&mut self, bands: &[dereth_client_contract::overlay::WorldBand]) {
+        self.device.set_world_bands(bands);
+    }
 
     fn preview_ensure(
         &mut self,

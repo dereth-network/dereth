@@ -21,6 +21,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed the Navigator walking into portals on its way that it wasn't taking.
 - Plugins: a journey a shut door stops now says which door and why.
 - Fixed the Navigator running into a closed door before opening it.
+- Navigator: a faint wisp shows the way ahead while you travel.
 
 ## 0.4.20 (2026-11-20)
 - Navigator: opens doors that only a lever works, by using the lever.

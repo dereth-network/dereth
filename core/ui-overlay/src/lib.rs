@@ -145,6 +145,56 @@ pub enum OverlayItem {
     Preview { space: PreviewSpace, rect: Viewport },
 }
 
+/// A picture laid on the ground at a place and drawn with the world, as a [`GroundMarker`] is:
+/// on the terrain there outdoors, following its shape, or level with the place on a floor indoors;
+/// hidden where something stands in front of it, and under the overlay. A front end that wants
+/// one asks for it each frame. `P` is the game's own name for a place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroundMark<P> {
+    /// Where its centre lies.
+    pub at: P,
+    /// How far it reaches from its centre to each side, in metres.
+    pub radius: f32,
+    /// The picture, an overlay texture the front end has uploaded, and the part of it to lay
+    /// down: `[left, top, right, bottom]` in texture coordinates; the picture's top points north
+    /// before it is turned.
+    pub texture: OverlayTexture,
+    pub uv: [f32; 4],
+    /// The colour the picture is multiplied by, packed `0xAARRGGBB`.
+    pub tint: u32,
+    /// How far it is turned about its centre, in radians, counter-clockwise seen from above, as a
+    /// [`GroundMarker`] is turned: a picture turned by minus a heading's angle has its top toward
+    /// that heading.
+    pub turn: f32,
+}
+
+/// One point of a [`WorldBand`]: the place it is over, and how it is drawn there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BandPoint<P> {
+    /// The place under it.
+    pub at: P,
+    /// How far over the ground or the floor under `at` it is held, metres.
+    pub lift: f32,
+    /// How far it reaches to each side of its line, metres.
+    pub half_width: f32,
+    /// The colour its picture is multiplied by there, packed `0xAARRGGBB`.
+    pub tint: u32,
+    /// How far along its picture it is there (the picture's `u`).
+    pub u: f32,
+}
+
+/// A band drawn in the world through a line of points, turned about its line to face the camera:
+/// held over the ground under each point as a [`GroundMark`] lies on it (on the terrain outdoors,
+/// or its place's own height on a floor indoors), with its picture's `v` running from one edge
+/// to the other and its `u` along it. Drawn with the world, hidden where something stands in
+/// front of it, written into no depth. A front end that wants one asks for it each frame.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldBand<P> {
+    pub points: Vec<BandPoint<P>>,
+    /// The picture, an overlay texture the front end has uploaded.
+    pub texture: OverlayTexture,
+}
+
 /// A picture laid on the ground under a world object and drawn with the world: on the terrain
 /// or the floor under it, hidden where something stands in front of it, and under the overlay.
 /// A front end that wants one asks for it each frame; asking for none takes it away. `O` is the

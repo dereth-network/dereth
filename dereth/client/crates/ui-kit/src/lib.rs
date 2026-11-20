@@ -37,6 +37,7 @@ pub mod palette;
 pub mod pieces;
 pub mod resample;
 pub mod selection;
+pub mod trail;
 pub mod widgets;
 
 /// A time or a small fraction of one, narrowed for drawing arithmetic.

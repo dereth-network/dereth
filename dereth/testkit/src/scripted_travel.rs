@@ -639,6 +639,21 @@ impl ScriptedTravel {
                         Leg::Drop { drop } => Some(drop.land),
                     })
                     .collect(),
+                way: {
+                    // The walks still to go, to where the route next leaves the ground.
+                    let mut way = Vec::new();
+                    for l in t.journey.legs.iter().skip(t.leg) {
+                        match l {
+                            Leg::Walk { to } => way.push(*to),
+                            Leg::Portal { edge } => {
+                                way.push(edge.from);
+                                break;
+                            }
+                            _ => break,
+                        }
+                    }
+                    way
+                },
                 goal: t.goal,
             }),
         };

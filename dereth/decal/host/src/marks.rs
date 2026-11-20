@@ -218,6 +218,7 @@ mod tests {
             &Overlays {
                 player: None,
                 markers,
+                time: 0.0,
             },
             &mut ops,
         );

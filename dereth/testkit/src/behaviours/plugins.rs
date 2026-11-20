@@ -1251,7 +1251,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.overlay.a-journey-is-drawn-until-the-plugin-hides-it",
-        says: "The host draws a plugin's journey while it runs, an arrow to where the leg goes, the way on the map and the portals ahead on the map and radar, until the plugin hides it.",
+        says: "The host draws a plugin's journey while it runs, an arrow to where the leg goes, the way on the map, the portals ahead on the map and radar, and a wisp in the world along the way ahead as far as where the leg goes (with the selection's marker where the journey ends once it is near), until the plugin hides it.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-OVERLAY-JOURNEY"),

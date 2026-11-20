@@ -25,6 +25,11 @@ pub(crate) struct PluginSurface {
     pub(crate) layer: super::plugin_layer::LayerHost,
     /// The client's own question this frame, for the layer to ask (Horizon asks it itself).
     question: Option<dereth_client_runtime::dialogs::HostQuestion>,
+    /// Whether the pictures a journey is laid on the ground with are uploaded.
+    trail_uploaded: bool,
+    /// The art's wisp picture's width over its height, once the host's art is in and its trail
+    /// pictures uploaded in place of the ones drawn here; `None` until then.
+    trail_art: Option<f32>,
 }
 
 /// One window event, offered to the plugins' layer before the modern or the classic interface
@@ -708,10 +713,13 @@ impl<H: Host> ClientShell<H> {
     }
 
     /// The plugins' marks in the world: a world marker's dot and a shape's outline, drawn by the
-    /// world against its depth under whichever interface is shown.
-    pub(super) fn plugin_world_marks(cx: &mut Cx<'_, H>) {
+    /// world against its depth under whichever interface is shown; and a shown journey's trail and
+    /// its end, laid on the ground.
+    pub(super) fn plugin_world_marks(&mut self, cx: &mut Cx<'_, H>) {
         use dereth_plugin_host::overlay::{Kind, ShapeKind};
+        use dereth_ui_kit::trail;
         let mut marks = Vec::new();
+        let (mut trails, mut goals, mut time) = (Vec::new(), Vec::new(), 0.0);
         let host = cx
             .frame_hook()
             .and_then(|h| h.as_any().downcast_ref::<PluginHook>())
@@ -729,12 +737,26 @@ impl<H: Host> ClientShell<H> {
                     on_top,
                 })
             };
+            time = host.overlays().time;
             for m in &host.overlays().markers {
                 match m.kind {
                     Kind::World => {
                         let Some(mut at) = m.at else { continue };
                         at.frame.origin.z += 2.0;
                         marks.extend(mark(&[at], m.color, 6, m.on_top));
+                    }
+                    Kind::Shape if m.shape == Some(ShapeKind::Trail) => {
+                        // How strongly it is drawn, coming in or going out: its colour's top byte,
+                        // none there meaning fully.
+                        let strength = match m.color >> 24 {
+                            0 => 1.0,
+                            #[allow(clippy::cast_precision_loss)] // 1 to 255
+                            a => a as f32 / 255.0,
+                        };
+                        trails.push((m.path.clone(), strength));
+                    }
+                    Kind::Shape if m.shape == Some(ShapeKind::Goal) => {
+                        goals.extend(m.at);
                     }
                     Kind::Shape if m.shape != Some(ShapeKind::Text) => {
                         marks.extend(mark(&m.path, m.color, m.width, m.on_top));
@@ -744,6 +766,81 @@ impl<H: Host> ClientShell<H> {
             }
         }
         cx.present_mut().set_world_marks(marks);
+        let (present, ws) = cx.present_with_world();
+        // The wisp leaves the body at its middle: the player's height, as its setup and scale
+        // stand it.
+        let height = ws
+            .and_then(|ws| ws.objects.get(&ws.player_object?))
+            .and_then(|o| {
+                let driver = o.sim.driver.borrow();
+                let parts = &driver.part_array;
+                parts.setup.as_ref().map(|s| s.height * parts.scale.z)
+            })
+            .filter(|h| *h > 0.1)
+            .unwrap_or(trail::BODY_HEIGHT);
+        let wanted = !trails.is_empty() || !goals.is_empty();
+        if wanted && !self.plugins.trail_uploaded {
+            self.plugins.trail_uploaded = true;
+            for (texture, picture) in trail::pictures() {
+                if let Err(e) = present.overlay_upload(texture, &picture) {
+                    self.plugins.trail_uploaded = false;
+                    tracing::warn!("a journey's trail: {e}");
+                }
+            }
+        }
+        // The art's wisp and mote, in place of the ones drawn here, once the host has the art.
+        if wanted && self.plugins.trail_art.is_none() {
+            if let crate::platform::host::HorizonArt::Ready(art) = H::horizon_art() {
+                let mut aspect = 1.0;
+                for (name, texture) in [
+                    (dereth_horizon::pieces::TRAIL, trail::WISP_TEXTURE),
+                    (dereth_horizon::pieces::MOTE, trail::MOTE_TEXTURE),
+                ] {
+                    let Some(image) = art
+                        .get(name)
+                        .and_then(|b| dereth_ui_kit::pieces::decode_png(b).ok())
+                    else {
+                        tracing::warn!(
+                            "a journey's trail: the art's {name} is missing or unreadable"
+                        );
+                        continue;
+                    };
+                    #[allow(clippy::cast_precision_loss)] // a picture's sides
+                    let shape = image.width as f32 / image.height.max(1) as f32;
+                    let picture = dereth_primitives::TextureData {
+                        width: image.width,
+                        height: image.height,
+                        format: dereth_primitives::TextureFormat::Bgra8,
+                        levels: vec![image.bgra],
+                    };
+                    let _ = present.overlay_release(texture);
+                    match present.overlay_upload(texture, &picture) {
+                        Ok(()) if texture == trail::WISP_TEXTURE => aspect = shape,
+                        Ok(()) => {}
+                        Err(e) => tracing::warn!("a journey's trail: {name}: {e}"),
+                    }
+                }
+                self.plugins.trail_art = Some(aspect);
+            }
+        }
+        let aspect = self.plugins.trail_art.unwrap_or(1.0);
+        let (step, between) = (
+            dereth_plugin_host::trail::TRAIL_STEP,
+            dereth_plugin_host::trail::between,
+        );
+        let mut bands: Vec<_> = trails
+            .iter()
+            .map(|(line, strength)| {
+                trail::wisp(line, step, height, time, aspect, *strength, between)
+            })
+            .collect();
+        bands.extend(trails.iter().flat_map(|(line, strength)| {
+            trail::motes(line, step, height, time, *strength, between)
+        }));
+        bands.extend(goals.iter().map(|g| trail::goal_arrow(*g, time)));
+        let ground: Vec<_> = goals.iter().map(|g| trail::goal_ring(*g, time)).collect();
+        present.set_ground_marks(&ground);
+        present.set_world_bands(&bands);
     }
 }
 

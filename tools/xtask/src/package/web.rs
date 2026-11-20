@@ -117,6 +117,8 @@ pub const FILES: &[&str] = &[
     "pkg/horizon/font-5.png",
     "pkg/horizon/fonts.json",
     "pkg/horizon/manifest.json",
+    "pkg/horizon/mote-0.png",
+    "pkg/horizon/trail-0.png",
     "pkg-auberean/auberean_web.js",
     "pkg-auberean/auberean_web_bg.wasm",
     "pkg-front/dereth_web_front.js",

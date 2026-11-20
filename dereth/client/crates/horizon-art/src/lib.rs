@@ -5,8 +5,9 @@
 //! size in layout units and says where it sits in each scale's atlas. Where a piece is in the
 //! manifest the interface draws it; where it is not, the interface draws plainly in its place.
 //!
-//! The art is a set of files ([`FILES`]): the manifest and the atlases, and the interface's fonts
-//! as glyph pages with their table ([`FontTable`]). The host hands them to the interface as
+//! The art is a set of files ([`FILES`]): the manifest and the atlases, the interface's fonts
+//! as glyph pages with their table ([`FontTable`]), and the two pictures a journey's way ahead is
+//! drawn with ([`TRAIL`], [`MOTE`]), which stand alone because the wisp repeats its own along it. The host hands them to the interface as
 //! [`Pieces`]. A desktop client carries them built in ([`Pieces::built_in`]); the browser's module
 //! does not, and its page fetches them from beside the module instead.
 //!
@@ -50,7 +51,16 @@ files!(
     "font-3.png",
     "font-4.png",
     "font-5.png",
+    "trail-0.png",
+    "mote-0.png",
 );
+
+/// The picture a journey's wisp is drawn with: a strip that repeats along it end to end, light in
+/// its own colours with its brightness its alpha. Not in the atlases: it repeats.
+pub const TRAIL: &str = "trail-0.png";
+
+/// The picture a mote drifting off the wisp is drawn with, as [`TRAIL`] is.
+pub const MOTE: &str = "mote-0.png";
 
 /// The interface's art as a host hands it over: each of [`FILES`] by its name.
 #[derive(Clone, Default)]

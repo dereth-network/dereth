@@ -374,6 +374,11 @@ pub struct TripView {
     pub target: Option<Position>,
     /// The way still to go: the rest of the walk being followed, then each later leg's end.
     pub route: Vec<Position>,
+    /// The way still to walk, as one line: from the corner of the walk being followed that the
+    /// character has passed last, through the rest of it and each walk after it, to where the
+    /// route next leaves the ground (a portal, a recall, a hand-back, a drop) or ends. Walking on
+    /// along it drops its corners from the front; a new plan replaces it.
+    pub way: Vec<Position>,
     /// The goal.
     pub goal: Position,
 }
@@ -1415,6 +1420,30 @@ impl Travel {
                 Leg::HandBack { hand_back } => hand_back.at,
                 Leg::Drop { drop } => drop.stand,
             });
+        // The way still to walk: from the corner passed last, on through each walk, to where the
+        // route next leaves the ground.
+        let mut way = Vec::new();
+        if let Some(f) = t.follower.as_ref() {
+            let behind = f.next_waypoint().saturating_sub(1);
+            way.extend(f.path().waypoints.iter().skip(behind).map(|w| w.position));
+        }
+        if let Some(Step::Approach { portal }) = &t.step {
+            if way.is_empty() {
+                way.push(*portal);
+            }
+        }
+        if let Some(j) = t.journey.as_ref() {
+            for l in j.legs.iter().skip(t.leg) {
+                match l {
+                    Leg::Walk { to } => way.push(*to),
+                    Leg::Portal { edge } => {
+                        way.push(edge.from);
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+        }
         let mut shown = t.leg;
         if let Some(j) = t.journey.as_ref() {
             route.extend(j.legs.iter().skip(t.leg).filter_map(|l| match l {
@@ -1436,6 +1465,7 @@ impl Travel {
             leg: shown,
             target,
             route,
+            way,
             goal,
         })
     }

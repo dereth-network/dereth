@@ -103,6 +103,7 @@ pub mod shown;
 pub mod slot;
 pub use dereth_plugin_package::source;
 pub mod storage;
+pub mod trail;
 pub mod usdfile;
 
 use std::collections::{BTreeSet, VecDeque};
@@ -488,6 +489,11 @@ pub struct PluginHost {
     files: Box<dyn PluginFiles>,
     /// Every marker, resolved at the last frame.
     overlays: Overlays,
+    /// The journey trail as last drawn: its trip, the way it was drawn along, its line and since
+    /// when (frame time) it has been coming in.
+    trail_drawn: Option<trail::Drawn>,
+    /// The journey trail going out, replaced or ended: its line as last drawn, and since when.
+    trail_going: Option<(Vec<dereth_primitives::Position>, f64)>,
     /// Whether the policy changed since plugins last heard it.
     policy_changed: bool,
     /// The part of the session the last frame was in; none before the first frame.
@@ -578,6 +584,8 @@ impl PluginHost {
             net: Box::new(NoNet::default()),
             files: Box::new(NoFiles),
             overlays: Overlays::default(),
+            trail_drawn: None,
+            trail_going: None,
             policy_changed: false,
             context: None,
             toasts: None,
@@ -2624,6 +2632,181 @@ impl PluginHost {
             }
         }
         self.journey_overlays(frame);
+        self.journey_trail(frame);
+    }
+
+    /// The way a shown journey goes next, drawn in the world (with `overlay.world`): the way
+    /// still to walk from where the character stands, through each walk to where the route next
+    /// leaves the ground, at most [`trail::TRAIL_LENGTH`] metres, as places [`trail::TRAIL_STEP`]
+    /// metres apart; and, once the journey's end is within [`trail::GOAL_SIGHT`] metres, its place.
+    /// A trail along a new way (a new plan, a new journey) comes in over [`trail::CROSS_FADE`]
+    /// seconds while the one it replaces goes out, as does a trail whose journey ends: how strongly
+    /// each is drawn is the top byte of its colour, none there meaning fully.
+    fn journey_trail(&mut self, frame: &HookFrame<'_>) {
+        /// The colour a journey is drawn in.
+        const JOURNEY: u32 = 0x40_C0_FF;
+        let now = frame.local_time;
+        self.overlays.time = now;
+        // The trail this frame, where there is one: the trip, the way, the line, the goal.
+        let current = self
+            .journey_way(frame)
+            .map(|(plugin, trip, way, here, goal)| {
+                (
+                    plugin,
+                    trip,
+                    trail::resampled(&trail::ahead(&here, &way)),
+                    way,
+                    here,
+                    goal,
+                )
+            });
+        // A trail along the way drawn last, walked on, carries on; anything else is new, and the
+        // one drawn last goes out.
+        let last = self.trail_drawn.take();
+        let (since, goes) = trail::carried(
+            last.as_ref(),
+            current
+                .as_ref()
+                .map(|(_, trip, _, way, ..)| (*trip, way.as_slice())),
+            now,
+        );
+        if let (true, Some(d)) = (goes, last) {
+            self.trail_going = Some((d.line, now));
+        }
+        let strength = |s: f64| -> u32 {
+            if s >= 1.0 {
+                JOURNEY
+            } else {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 1 to 254
+                let a = (s.clamp(0.0, 1.0) * 255.0).round().clamp(1.0, 254.0) as u32;
+                a << 24 | JOURNEY
+            }
+        };
+        let view = |plugin: &str,
+                    id: i64,
+                    shape: overlay::ShapeKind,
+                    path: Vec<dereth_primitives::Position>,
+                    color: u32| {
+            overlay::OverlayView {
+                plugin: plugin.to_owned(),
+                id,
+                kind: overlay::Kind::Shape,
+                label: String::new(),
+                color,
+                icon: None,
+                object: None,
+                at: path.first().copied(),
+                points: Vec::new(),
+                line: false,
+                shape: Some(shape),
+                path,
+                width: 2,
+                on_top: false,
+                reach: None,
+            }
+        };
+        let mut out = Vec::new();
+        if let Some((plugin, trip, line, way, here, goal)) = current {
+            if line.len() > 1 {
+                out.push(view(
+                    &plugin,
+                    -100,
+                    overlay::ShapeKind::Trail,
+                    line.clone(),
+                    strength((now - since) / trail::CROSS_FADE),
+                ));
+            }
+            if let Some((going, from)) = &self.trail_going {
+                let left = 1.0 - (now - from) / trail::CROSS_FADE;
+                if left > 0.0 && going.len() > 1 {
+                    out.push(view(
+                        &plugin,
+                        -102,
+                        overlay::ShapeKind::Trail,
+                        going.clone(),
+                        strength(left),
+                    ));
+                }
+            }
+            if dereth_navigation::global_distance(&goal, &here) <= trail::GOAL_SIGHT {
+                out.push(view(
+                    &plugin,
+                    -101,
+                    overlay::ShapeKind::Goal,
+                    vec![goal],
+                    JOURNEY,
+                ));
+            }
+            self.trail_drawn = Some(trail::Drawn {
+                trip,
+                way,
+                line,
+                since,
+            });
+        } else if let Some((going, from)) = &self.trail_going {
+            // The journey is over, or no longer shown: its trail goes out where it was.
+            let left = 1.0 - (now - from) / trail::CROSS_FADE;
+            if let (true, Some((plugin, _))) = (
+                left > 0.0 && going.len() > 1,
+                self.shared.nav.shown_journey(),
+            ) {
+                out.push(view(
+                    plugin,
+                    -102,
+                    overlay::ShapeKind::Trail,
+                    going.clone(),
+                    strength(left),
+                ));
+            }
+        }
+        if self
+            .trail_going
+            .as_ref()
+            .is_some_and(|(_, from)| now - from >= trail::CROSS_FADE)
+        {
+            self.trail_going = None;
+        }
+        self.overlays.markers.extend(out);
+    }
+
+    /// The shown journey's way this frame, where the host draws it: its plugin, its trip, the way
+    /// still to walk, where the character stands and the journey's end. `None` without
+    /// `overlay.world`, without a shown journey of a running plugin, or where the character is not
+    /// known.
+    fn journey_way(
+        &self,
+        frame: &HookFrame<'_>,
+    ) -> Option<(
+        String,
+        u64,
+        Vec<dereth_primitives::Position>,
+        dereth_primitives::Position,
+        dereth_primitives::Position,
+    )> {
+        if !self
+            .config
+            .capabilities
+            .contains(&overlay::Kind::World.capability())
+        {
+            return None;
+        }
+        let (plugin, travel) = self.shared.nav.shown_journey()?;
+        let trip = frame.travel.trip.as_ref().filter(|t| t.id == travel)?;
+        if !self.plugins.iter().any(|s| {
+            s.state.manifest.id.as_str() == plugin
+                && s.state.status == Status::Running
+                && s.state.active
+        }) {
+            return None;
+        }
+        let here = frame.places.player()?;
+        Some((
+            plugin.to_owned(),
+            trip.id,
+            trip.way.clone(),
+            here,
+            trip.goal,
+        ))
     }
 
     /// The journey a plugin shows, drawn as its markers: an arrow to where the leg being carried

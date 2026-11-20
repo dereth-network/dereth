@@ -107,4 +107,6 @@ nametag <plugin> #<id> label="Drudge Skulker" color=#FFFFFF object=0x… at=42.2
 ```
 
 (`path` is how many points the outline has, `span` the metres between its first two; a mark drawn
-on top ends its line with `on_top`.)
+on top ends its line with `on_top`.) A journey the host draws lists its way ahead as one `shape=trail`
+(its places a short step apart from the character) and its end as `shape=goal`; a plugin draws
+neither itself.
