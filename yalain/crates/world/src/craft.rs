@@ -51,7 +51,8 @@
 //! the enchantments the install marks bindable are taken (those on the item and those it gives its
 //! wearer): a minor recipe binds one of them at random, a major one each of them into a totem of its
 //! own, as the recipes' own text says. Each totem holds one enchantment and asks of what it goes on
-//! the item's own least level and Arcane Lore (2017: 41 totems, one enchantment each). An item with
+//! a least level five below the item's (none from an item at level 5 or below) and the item's own
+//! Arcane Lore (2017: 41 totems, one enchantment each). An item with
 //! nothing bindable is refused. The totem of each sort is the world's `[[spellbinding]]` row's.
 //!
 //! **Dyeing** gives a piece of armor the color of a dye plant: three of its appearance modifiers
@@ -153,6 +154,9 @@ pub mod raised_text {
     pub const TEXT: (u32, u32) = (0x903D_FFF9, 0x2500_000C);
     pub const SKILL: u32 = 0x23AF_C5F3;
     pub const RATING: u32 = 0x1916_B459;
+    /// "You need more experience to raise %1.", the craft skill's name its variable, shown as an
+    /// error.
+    pub const SHORT: (u32, u32) = (0xD848_9F51, 0x2500_000C);
 }
 
 /// Why an ingredient or a craft is refused (the client writes the reason).
@@ -192,6 +196,12 @@ pub mod error {
     pub const LACKS_FLAG: [(u32, u32); 3] = [(1, 40_030), (2, 40_034), (4, 40_032)];
     /// A craft flag a slot refuses is there: by the flag 1, 2 and 4.
     pub const HAS_FLAG: [(u32, u32); 3] = [(1, 40_031), (2, 40_035), (4, 40_033)];
+    /// A totem used on an item with no free enchantment slot ("There are no free enchantment slots
+    /// on this item."), below its least level ("The target item's level is too low."), below its
+    /// Arcane Lore ("The target item's arcane lore is too low."): the client's words for each.
+    pub const NO_FREE_SLOT: u32 = 40_051;
+    pub const TOTEM_LEVEL_TOO_LOW: u32 = 40_052;
+    pub const TOTEM_LORE_TOO_LOW: u32 = 40_053;
 }
 
 /// A recipe's and an ingredient's flags, as their definitions hold them.
@@ -1320,8 +1330,8 @@ pub fn give_pool<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 }
 
 /// The client asks to raise a craft skill: the pool pays what the skill still lacks for its next
-/// level. One that cannot be raised, is at its cap, or that the pool cannot pay for is left as it
-/// is (the client asks only when it can).
+/// level. One that cannot be raised or is at its cap is left as it is (the client asks only when it
+/// can); one the pool cannot pay for is left as it is, its player told it needs more experience.
 pub fn raise<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     let Some(skill) = v.iter().find_map(|x| match x {
         Value::Int(i) => Some(*i),
@@ -1346,7 +1356,23 @@ pub fn raise<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         return;
     };
     let cost = step.saturating_sub(c.available);
-    if def.cannot_raise || c.level >= def.cap || pooled < cost {
+    if def.cannot_raise || c.level >= def.cap {
+        return;
+    }
+    // Short of what the next level costs: told so, nothing else (2017: 5 of 5 such raises).
+    if pooled < cost {
+        let t = progress::text_with(
+            raised_text::SHORT,
+            vec![progress::nested(
+                raised_text::SKILL,
+                progress::text(def.name),
+            )],
+        );
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(crate::social::REFUSED, t),
+        );
         return;
     }
     c.level += 1;
@@ -2962,7 +2988,13 @@ fn spellbind<S: Store>(
         return;
     };
     let mut taken = bindable(s, source);
-    let (least_level, lore) = (source.own.min_level, source.own.arcane_lore);
+    let least_level = totem_level(source.own.min_level.or_else(|| {
+        s.catalog
+            .get(source.template)
+            .and_then(|t| t.props.int("Usage_MinLevel"))
+            .and_then(|v| i32::try_from(v).ok())
+    }));
+    let lore = source.own.arcane_lore;
     if !all && !taken.is_empty() {
         let one = taken.swap_remove(s.rng.below(taken.len()));
         taken = vec![one];
@@ -2985,6 +3017,17 @@ fn spellbind<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// The least level a totem asks of what it goes on: its source's, less [`TOTEM_LEVELS_BELOW`], and
+/// none at all from a source at that many or fewer (2017: 13 of 13 totems with the line, sources
+/// at 6 to 21; sources at 5 and 3 made totems that asked none).
+#[must_use]
+pub fn totem_level(source: Option<i32>) -> Option<i32> {
+    source.map(|l| l - TOTEM_LEVELS_BELOW).filter(|l| *l > 0)
+}
+
+/// How many levels below its source's a totem's asks.
+pub const TOTEM_LEVELS_BELOW: i32 = 5;
+
 /// The totem an item taken apart makes, by what it is: a shield by its class, whatever its template
 /// holds (the shields' two spellbinding recipes take the shields' class alone).
 fn totem_of<S: Store>(s: &Server<S>, item: u64) -> Option<u32> {
@@ -3005,7 +3048,10 @@ fn totem_of<S: Store>(s: &Server<S>, item: u64) -> Option<u32> {
 /// A totem used on an item: refused if the item isn't one it goes on, or lacks what it asks; else
 /// the item holds its enchantment, in a slot it had free, in place of a weaker of the same class,
 /// and the totem is gone (2017: 2 uses, each answered as spent; asked with no target, 4 of 4 went
-/// unanswered). What it refuses, and how it answers, are our choice.
+/// unanswered). An item below the level or the Arcane Lore the totem asks, or with no free slot, is
+/// refused with the client's own reason for it; anything else it won't go on (an item of another
+/// kind, a totem, one holding a stronger enchantment of the class) with an invalid ingredient, our
+/// choice: no recording has a refusal.
 pub fn use_totem<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3021,34 +3067,41 @@ pub fn use_totem<S: Store>(
     if !held(u.item) || u.target == 0 {
         return;
     }
-    let answer = if held(u.target) && enchant_from_totem(s, u.item, u.target) {
-        use_up(s, net, world, u.item, 1);
-        crate::places::use_answer_on(u, flags::PLAYED | flags::SPENT, 0.0, 0)
+    let put = if held(u.target) {
+        enchant_from_totem(s, u.item, u.target)
     } else {
-        crate::places::use_answer_on(u, flags::PLAYED, 0.0, error::INVALID_INGREDIENTS)
+        Err(error::INVALID_INGREDIENTS)
+    };
+    let answer = match put {
+        Ok(()) => {
+            use_up(s, net, world, u.item, 1);
+            crate::places::use_answer_on(u, flags::PLAYED | flags::SPENT, 0.0, 0)
+        }
+        Err(why) => crate::places::use_answer_on(u, flags::PLAYED, 0.0, why),
     };
     progress::private(net, world, &answer);
     crate::world::keep_player(s, world);
 }
 
-/// Put a totem's enchantment on an item, if the item may take it. Returns whether it did.
-fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
+/// Put a totem's enchantment on an item, if the item may take it; else why not.
+fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> Result<(), u32> {
+    let invalid = Err(error::INVALID_INGREDIENTS);
     let Some(t) = s.things.get(from) else {
-        return false;
+        return invalid;
     };
     let (ask_level, ask_lore) = (t.own.min_level.unwrap_or(0), t.own.arcane_lore.unwrap_or(0));
     let totem_template = t.template;
     let on_wearer = t.bonuses.first().copied();
     let Some((state, spellcraft)) = t.enchantments.first().copied().or(on_wearer) else {
-        return false;
+        return invalid;
     };
     let Some(target) = s.things.get(on) else {
-        return false;
+        return invalid;
     };
     if totem_of(s, on) != Some(totem_template)
         || s.crafting.crafts.totem_word(target.template).is_some()
     {
-        return false;
+        return invalid;
     }
     let of_template = |name: &str| {
         s.catalog
@@ -3062,11 +3115,14 @@ fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
         .or_else(|| of_template("Usage_MinLevel"))
         .unwrap_or(0);
     let lore = target.own.arcane_lore.unwrap_or(0);
-    let Some(slots) = target.own.made.map(|m| m.slots) else {
-        return false;
-    };
-    if level < ask_level || lore < ask_lore || slots == 0 {
-        return false;
+    if level < ask_level {
+        return Err(error::TOTEM_LEVEL_TOO_LOW);
+    }
+    if lore < ask_lore {
+        return Err(error::TOTEM_LORE_TOO_LOW);
+    }
+    if target.own.made.is_none_or(|m| m.slots == 0) {
+        return Err(error::NO_FREE_SLOT);
     }
     // One of the same class: the stronger stays.
     let def = s.effect_table.get(state).cloned();
@@ -3085,7 +3141,7 @@ fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
             };
             if old.eq_class != 0 && old.eq_class == new.eq_class {
                 if strength(old, at) >= strength(new, spellcraft) {
-                    return false;
+                    return invalid;
                 }
                 replaced = Some(old_state);
             }
@@ -3093,7 +3149,7 @@ fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
     }
     let on_itself = on_wearer.is_none_or(|(w, _)| w != state);
     let Some(item) = s.things.get_mut(on) else {
-        return false;
+        return invalid;
     };
     if let Some(old) = replaced {
         item.enchantments.retain(|(x, _)| *x != old);
@@ -3113,7 +3169,7 @@ fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
     if let (true, Some(d)) = (permanent && on_itself, def) {
         crate::treasure::apply_numbers(&mut item.own, &d, spellcraft);
     }
-    true
+    Ok(())
 }
 
 /// A refining: the units it yields go to the player's stack, a line says how many. What it pays:

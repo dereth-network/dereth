@@ -2623,7 +2623,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.craft.raised-from-the-pool",
         says: "Raising a craft skill by asking spends from the player's pool what the skill still lacks \
                for its next level: the pool, the skill's record and its new rating are told; a raise \
-               the pool cannot pay for changes nothing.",
+               the pool cannot pay for changes nothing and is told \"You need more experience to \
+               raise %1.\" as an error.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-RAISE"),
         station: "yalain-testkit::cpu::play::crafting::raising_a_craft_skill_spends_from_the_pool_what_it_lacks",
@@ -2920,10 +2921,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.totem-asks-five-levels-below-its-source",
+        says: "A totem asks of what it goes on a least level five below its source's, and none from \
+               a source at level 5 or below.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOTEM-LEVEL"),
+        station: "yalain-testkit::cpu::play::crafting::a_totem_asks_five_levels_below_its_source_and_none_from_level_5_or_below",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.totem-enchants-an-item",
         says: "A totem used on an item of its kind that has a free slot and the level and lore it \
-               asks puts its enchantment on the item and is gone; on anything else it is refused. \
-               Our choice beyond its being used up, which 2 recorded uses show.",
+               asks puts its enchantment on the item and is gone; on anything else it is refused, in \
+               the client's own words for a level too low (40052), a lore too low (40053) and no free \
+               slot (40051), else an invalid ingredient. Our choice beyond its being used up, which 2 \
+               recorded uses show, and the client's words.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TOTEM-USE"),
         station: "yalain-testkit::cpu::play::crafting::a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone",

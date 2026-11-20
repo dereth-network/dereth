@@ -602,7 +602,8 @@ fn a_recipe_made_pays_less_as_the_days_experience_passes_its_mark() {
 
 /// Raising a craft skill by asking spends from the pool what the skill still lacks for its next
 /// level: the pool told, the record (a level up, nothing held), "Your rating in %1 is now %2.";
-/// a raise the pool cannot pay for is left unanswered and changes nothing.
+/// a raise the pool cannot pay for changes nothing and is answered with "You need more experience to
+/// raise %1." alone, as an error, naming the craft skill.
 /// Behaviour: server.craft.raised-from-the-pool
 #[test]
 fn raising_a_craft_skill_spends_from_the_pool_what_it_lacks() {
@@ -637,10 +638,14 @@ fn raising_a_craft_skill_spends_from_the_pool_what_it_lacks() {
         yalain_world::quals::set_long(&mut p.qualities, 1001, 30);
     }
     let from = raise(&mut h);
-    assert!(
-        calls_of(&h, b, from).is_empty(),
+    assert_eq!(
+        h.texts(b, from),
+        [(1, yalain_world::craft::raised_text::SHORT.0)],
         "a raise it cannot pay for"
     );
+    let got = calls_of(&h, b, from);
+    assert_eq!(got.len(), 1, "the text alone");
+    assert!(pool_updates(&h.world_messages(b, from)).is_empty());
     let p = h.server.players.get(&world).expect("in the world");
     let tools = p.play.craft_skills.iter().find(|c| c.skill == TOOLS);
     assert_eq!(tools.map(|c| c.level), Some(2));
@@ -2641,7 +2646,29 @@ fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
         );
         let t = h.server.things.get(made).expect("the totem");
         assert_eq!(t.enchantments, vec![(ENCHANTMENT, 12.0)], "what it took");
-        assert_eq!((t.own.min_level, t.own.arcane_lore), (Some(13), Some(4)));
+        assert_eq!(
+            (t.own.min_level, t.own.arcane_lore),
+            (Some(8), Some(4)),
+            "five levels below its source's, its source's lore"
+        );
+    }
+}
+
+/// A totem asks a least level five below its source's, and none at all of a source at level 5 or
+/// below.
+/// Behaviour: server.craft.totem-asks-five-levels-below-its-source
+#[test]
+fn a_totem_asks_five_levels_below_its_source_and_none_from_level_5_or_below() {
+    use yalain_world::craft::totem_level;
+    for (source, asks) in [
+        (Some(21), Some(16)),
+        (Some(20), Some(15)),
+        (Some(6), Some(1)),
+        (Some(5), None),
+        (Some(3), None),
+        (None, None),
+    ] {
+        assert_eq!(totem_level(source), asks, "{source:?}");
     }
 }
 
@@ -2912,7 +2939,9 @@ fn a_spellbinding_row_sets_the_totem_its_sort_of_item_makes() {
 }
 
 /// A totem used on an item of its kind that has a free slot and what it asks puts its enchantment on
-/// it and is gone; on anything else it is refused and nothing changes.
+/// it and is gone; on anything else it is refused and nothing changes, in the client's own words
+/// where it has them: the item's level too low (40052), its Arcane Lore too low (40053), no free
+/// slot (40051); an item of another kind, an invalid ingredient.
 /// Behaviour: server.craft.totem-enchants-an-item
 #[test]
 fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
@@ -2948,6 +2977,7 @@ fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
     let sword = give(&mut h, SWORD_TEMPLATE);
     let low_sword = give(&mut h, SWORD_TEMPLATE);
     let full_sword = give(&mut h, SWORD_TEMPLATE);
+    let unlearned_sword = give(&mut h, SWORD_TEMPLATE);
     let robe = give(&mut h, ROBE_TEMPLATE);
     let set = |h: &mut Harness, id: u64, level: i32, slots: u32| {
         let t = h.server.things.get_mut(id).expect("made");
@@ -2960,7 +2990,23 @@ fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
     set(&mut h, sword, 12, 1);
     set(&mut h, low_sword, 9, 1);
     set(&mut h, full_sword, 12, 0);
+    set(&mut h, unlearned_sword, 12, 1);
     set(&mut h, robe, 12, 1);
+    h.server
+        .things
+        .get_mut(totem_item)
+        .expect("made")
+        .own
+        .arcane_lore = Some(5);
+    for id in [sword, low_sword, full_sword, robe] {
+        h.server.things.get_mut(id).expect("made").own.arcane_lore = Some(5);
+    }
+    h.server
+        .things
+        .get_mut(unlearned_sword)
+        .expect("made")
+        .own
+        .arcane_lore = Some(4);
     let try_it = |h: &mut Harness, target: u64| use_on(h, b, me, totem_item, target);
     let has_totem = |h: &Harness| {
         h.server.players[&world]
@@ -2969,7 +3015,27 @@ fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
             .iter()
             .any(|i| i.id == totem_item)
     };
-    for refused in [0, low_sword, full_sword, robe] {
+    use yalain_world::craft::error;
+    let why = |h: &Harness, from: usize| -> Option<u32> {
+        h.calls(b, from)
+            .into_iter()
+            .filter(|(f, _)| *f == 0x8216_0021)
+            .find_map(|(_, v)| match v.first().and_then(Value::root) {
+                Some(Node::Script { slots, .. }) => Some(slots[11].1),
+                _ => None,
+            })
+    };
+    for (refused, said) in [
+        (low_sword, error::TOTEM_LEVEL_TOO_LOW),
+        (unlearned_sword, error::TOTEM_LORE_TOO_LOW),
+        (full_sword, error::NO_FREE_SLOT),
+        (robe, error::INVALID_INGREDIENTS),
+    ] {
+        let from = h.bots[b].inbox.len();
+        try_it(&mut h, refused);
+        assert_eq!(why(&h, from), Some(said), "{refused:x}");
+    }
+    for refused in [0, low_sword, full_sword, unlearned_sword, robe] {
         try_it(&mut h, refused);
         assert!(has_totem(&h), "refused: {refused:x}");
         if refused != 0 {

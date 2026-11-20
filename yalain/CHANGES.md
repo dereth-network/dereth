@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Consignments are now limited at each broker: three a player, seven an account.
+- Totems now ask five levels below their source, and totems and craft raises say why they're refused.
 - Items on your trade offer can't be used, and closing a corpse stops a Take All.
 - Moving, attacking or dying now interrupts a craft, which then makes and costs nothing.
 - Equipping is refused while riding or swimming, and a robe won't replace two pieces at once.
