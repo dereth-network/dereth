@@ -541,6 +541,9 @@ pub struct Facts {
     pub hero: bool,
     /// The kingdom a player must be of to use a placed object, as a description's faction names it.
     pub kingdom: Option<u32>,
+    /// Its chain of entities names it nothing: its name is one its qualities record or its row
+    /// holds, the one its script gives it.
+    pub entities_unnamed: bool,
 }
 
 /// A portal's flags.
@@ -588,6 +591,9 @@ impl Facts {
         if let Some(k) = self.kingdom {
             out.push(format!("kingdom={k:X}"));
         }
+        if self.entities_unnamed {
+            out.push("unnamed=1".into());
+        }
         out.join(";")
     }
 
@@ -620,6 +626,7 @@ impl Facts {
                 "portal" => f.portal = hex32(v)?,
                 "hero" => f.hero = v == "1",
                 "kingdom" => f.kingdom = Some(hex32(v)?),
+                "unnamed" => f.entities_unnamed = v == "1",
                 other => return Err(format!("an unknown fact {other}")),
             }
         }
@@ -716,7 +723,11 @@ impl Facts {
     /// With the name and page its qualities record holds where its chain of entities says none.
     #[must_use]
     pub fn named_by_qualities(self, q: Option<&Qualities>) -> Self {
-        self.named_by(&Props::default().with_places_of(q))
+        let entities_unnamed = self.name.is_none();
+        Self {
+            entities_unnamed,
+            ..self.named_by(&Props::default().with_places_of(q))
+        }
     }
 }
 

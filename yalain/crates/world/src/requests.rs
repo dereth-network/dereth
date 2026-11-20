@@ -680,36 +680,22 @@ fn profile_bytes<S: Store>(
                 } else {
                     profile::portal_line(f.portal)
                 };
+                let name = placed_name(s, o, named);
                 if lifestone || o.destination.is_some() {
-                    profile::place(
-                        req.asked,
-                        named.unwrap_or_else(|| profile::item_name(f)),
-                        recall,
-                        f,
-                        quest,
-                    )
+                    let door = s.portal_door_packages.contains(&o.description.package);
+                    let recall = (!door).then_some(recall);
+                    profile::place_recalling(req.asked, name, recall, f, quest)
                 } else {
-                    // An object for monarchs alone goes by its plain name (2017: 14 of 14), and so
-                    // does a teaching stone (2017: every profile of the fifteen kinds examined).
                     let monarchs = s
                         .catalog
                         .get(o.template)
                         .is_some_and(|t| t.props.flag("Usage_MonarchOnly"));
-                    let teaching = crate::places::is_teaching_stone(s, o.description.package);
-                    let plain = || {
-                        f.name.map_or_else(
-                            || profile::literal(""),
-                            |(sid, t)| profile::string(t, sid),
-                        )
-                    };
-                    let name = named.unwrap_or_else(|| {
-                        if monarchs || teaching {
-                            plain()
-                        } else {
-                            profile::item_name(f)
-                        }
-                    });
                     let mut p = profile::npc(req.asked, name, f);
+                    if crate::usable::doors::door(s, req.object).is_some() {
+                        profile::door_lines(&mut p, door_lock(s, req.object));
+                    } else if let Some((chest, _)) = crate::usable::chests::chest(s, req.object) {
+                        profile::chest_lines(&mut p, chest_lock(s, req.object, &chest));
+                    }
                     if monarchs {
                         profile::monarch_lines(&mut p);
                     } else {
@@ -726,6 +712,69 @@ fn profile_bytes<S: Store>(
     };
     let answered = req.answered(examine::PEACE_MODE, examine::NO_ACCURACY);
     Some(profile.packed(&answered))
+}
+
+/// A door's lock as its page says it: locked, unlocked by its key since it last closed, or none
+/// (2017: of the doors whose lock this server knows, 41 of 52 examinations said locked and 10
+/// unlocked; of the others 245 of 254 said no lock).
+fn door_lock<S: Store>(s: &Server<S>, id: u64) -> profile::Lock {
+    if crate::usable::lock_of(s, id).is_none() {
+        profile::Lock::None
+    } else if s.doors.by_id.get(&id).is_some_and(|d| d.unlocked) {
+        profile::Lock::Unlocked
+    } else {
+        profile::Lock::Locked
+    }
+}
+
+/// A chest's lock as its page says it: locked until its key unlocks it, unlocked when it has a
+/// lock that holds it no more (or none it is locked with), or none (2017: every chest of a
+/// template with no lock said no lock).
+fn chest_lock<S: Store>(
+    s: &Server<S>,
+    id: u64,
+    chest: &crate::usable::chests::Kind,
+) -> profile::Lock {
+    let lockable = s
+        .catalog
+        .get(chest.template)
+        .is_some_and(|t| t.props.flag("Lock_Lockable"));
+    let unlocked = s.chests.by_id.get(&id).is_some_and(|c| c.unlocked);
+    if !lockable {
+        profile::Lock::None
+    } else if chest.locked && !unlocked {
+        profile::Lock::Locked
+    } else {
+        profile::Lock::Unlocked
+    }
+}
+
+/// The name a placed object is examined by: its row's, else its template's or its qualities
+/// record's. A door or a lifestone whose entities name it nothing, named as its script names it
+/// (no row's other name), shows it as an item's name; anything else shows it plainly (2017: the 9
+/// door and lifestone kinds named so composed in 618 of 620 examinations; those a row named from
+/// another table, the 2 named by their entities and the 89 other kinds plain; the 0930 library's
+/// door and lifestone scripts compose the names they set, the others set theirs plain).
+fn placed_name<S: Store>(
+    s: &Server<S>,
+    o: &yalain_content::ContentObject,
+    named: Option<auberean_script::native_object::TextInfo>,
+) -> auberean_script::native_object::TextInfo {
+    let f = &o.facts;
+    let name = named.unwrap_or_else(|| {
+        f.name
+            .map_or_else(|| profile::literal(""), |(sid, t)| profile::string(t, sid))
+    });
+    let package = o.description.package;
+    let composed =
+        crate::places::is_lifestone(s, package) || s.doors.packages.contains_key(&package);
+    let own =
+        o.description.name_text.is_none() && o.description.name.is_none_or(|n| f.name == Some(n));
+    if f.entities_unnamed && own && composed {
+        profile::item_named(name)
+    } else {
+        name
+    }
 }
 
 fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {

@@ -99,6 +99,11 @@ pub mod line {
     pub const ITEM_NAMES: u32 = 0x2500_035F;
     pub const ITEM_NAME: u32 = 0x7556_141B;
     pub const ARMOR_VALUE: u32 = 0x495D_F672;
+    /// "Lock Status: ", and what a lock is: "Locked", "Unlocked", "No lock".
+    pub const LOCK_STATUS: u32 = 0xEC40_7144;
+    pub const LOCKED: u32 = 0x6BE7_1905;
+    pub const UNLOCKED: u32 = 0xDF05_1E8A;
+    pub const NO_LOCK: u32 = 0x813A_BEB3;
 }
 
 /// The variables of those strings.
@@ -931,6 +936,47 @@ pub mod corpse_line {
     pub const HOW_MANY: u32 = 0x073E_ACEA;
 }
 
+/// What a door's or a chest's lock is as its page says it: locked, unlocked, or none at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lock {
+    Locked,
+    Unlocked,
+    None,
+}
+
+impl Lock {
+    const fn word(self) -> u32 {
+        match self {
+            Self::Locked => line::LOCKED,
+            Self::Unlocked => line::UNLOCKED,
+            Self::None => line::NO_LOCK,
+        }
+    }
+}
+
+/// What a door's page says after its description: its lock (2017: every examination of a door).
+pub fn door_lines(p: &mut Profile, lock: Lock) {
+    p.text(GENERAL, look::LABEL, string(line::TABLE, line::LOCK_STATUS));
+    p.text(GENERAL, look::VALUE, string(line::TABLE, lock.word()));
+    p.brk(STATS);
+    p.brk(STATS);
+}
+
+/// What a chest's page says after its description: that its contents are unknown, and its lock
+/// (2017: every examination of a chest).
+pub fn chest_lines(p: &mut Profile, lock: Lock) {
+    p.brk(GENERAL);
+    p.text(
+        GENERAL,
+        look::LABEL,
+        string(line::TABLE, corpse_line::CONTENTS_UNKNOWN),
+    );
+    p.brk(GENERAL);
+    p.brk(GENERAL);
+    p.text(GENERAL, look::LABEL, string(line::TABLE, lock.word()));
+    p.brk(GENERAL);
+}
+
 /// What the requirements tab says of an object for monarchs alone.
 pub fn monarch_lines(p: &mut Profile) {
     p.brk(REQUIREMENTS);
@@ -1163,20 +1209,33 @@ pub fn place(
     f: &Facts,
     quest: Option<QuestLine>,
 ) -> Profile {
+    place_recalling(asked, name, Some(recall), f, quest)
+}
+
+/// A place's profile with what may be recalled to it, or with no such line: a portal door's says
+/// nothing of recalling (2017: 25 of 25).
+#[must_use]
+pub fn place_recalling(
+    asked: u32,
+    name: TextInfo,
+    recall: Option<u32>,
+    f: &Facts,
+    quest: Option<QuestLine>,
+) -> Profile {
     let mut p = Profile::new(asked);
     p.text(GENERAL, look::VALUE, name);
     p.brk(GENERAL);
     p.brk(GENERAL);
-    p.text(GENERAL, look::LABEL, string(line::TABLE, recall));
-    p.brk(GENERAL);
+    if let Some(recall) = recall {
+        p.text(GENERAL, look::LABEL, string(line::TABLE, recall));
+        p.brk(GENERAL);
+    }
     let desc = f
         .description
         .map_or_else(|| literal(""), |(s, t)| string(t, s));
     p.text(GENERAL, look::LABEL, desc);
     p.brk(GENERAL);
-    if !requirement_lines(&mut p, f, quest) {
-        p.brk(GENERAL);
-    }
+    requirement_lines(&mut p, f, quest);
     p
 }
 

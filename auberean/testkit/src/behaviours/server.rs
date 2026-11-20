@@ -5870,6 +5870,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.lock-status-as-2017",
+        says: "A door's page says its lock after its description, \"Lock Status:\" and none, locked or \
+               unlocked, then two breaks on the stats tab; a chest's says its contents are unknown \
+               and its lock: none, locked, or unlocked once its key has unlocked it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-LAYOUT-2017"),
+        station: "yalain-testkit::cpu::entry::examine::a_doors_page_says_its_lock_and_a_chests_its_contents_and_lock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.looked-at-again-while-examined",
         says: "While a player examines something, it is looked at again every 3.5 seconds and \
                its profile sent again only when it changed; a request about something else or \
@@ -5922,6 +5932,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PLACE-PAGE-NOWHERE"),
         station: "yalain-testkit::cpu::entry::examine::a_placed_object_leading_nowhere_names_its_kingdom_when_examined",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.placed-names-as-2017",
+        says: "A placed object's name on its page is plain, as its row, its template or its qualities \
+               record names it, except a door's or a lifestone's whose entities name it nothing and \
+               no row names otherwise: that one is composed as an item's name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-NAMES-2017"),
+        station: "yalain-testkit::cpu::entry::examine::a_placed_objects_name_is_plain_unless_a_door_or_lifestones_script_composes_it",
         tier: Tier::Cpu,
     },
     behaviour! {

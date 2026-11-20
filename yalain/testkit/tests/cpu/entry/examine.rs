@@ -2073,3 +2073,220 @@ fn asking_to_examine_again_and_again_leaves_one_look_waiting() {
     h.run(period);
     assert_eq!(profile_nodes(&h, a, from).len(), 1, "looked at again");
 }
+
+/// A placed static object of the test hall, its id ending in `n`: its template, its package, the
+/// name its row gives it, its facts.
+fn placed(
+    n: u64,
+    template: u32,
+    package: u32,
+    row_name: Option<(u32, u32)>,
+    facts: Facts,
+) -> yalain_content::ContentObject {
+    yalain_content::ContentObject {
+        object: Some(0x400D_FA00_0000_0100 | n),
+        template,
+        description: yalain_content::Description {
+            name_text: None,
+            package,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: row_name,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts,
+        walks: None,
+        gate: None,
+    }
+}
+
+/// The words of each object's general tab as one player examines them, after the request.
+fn general_words(h: &mut Harness, objects: &[u64]) -> Vec<Vec<u32>> {
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let mut out = Vec::new();
+    for &o in objects {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(o, 0x0A)]),
+        );
+        h.run(30);
+        let got = profile_nodes(h, a, from);
+        let words = got
+            .last()
+            .map(|p| {
+                p[20..]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(words);
+    }
+    out
+}
+
+const DOOR_PACKAGE: u32 = 0x0EB2;
+const SIGN_PACKAGE: u32 = 0x13C1;
+const NAME: (u32, u32) = (0xA860_7CEC, 0x2500_0105);
+const PAGE: (u32, u32) = (0x6C45_9364, 0x2500_0105);
+
+/// A placed object's name on its page is plain, as its template or its qualities record names it,
+/// except a door's or a lifestone's whose entities name it nothing (its script names it): that
+/// one is composed as an item's name. A door its entities name, or one its row names from another
+/// table, is plain too (2017: every examination of 89 other kinds plain; 618 of 620 of the door
+/// and lifestone kinds named by their scripts composed).
+/// Behaviour: server.examination.placed-names-as-2017
+#[test]
+fn a_placed_objects_name_is_plain_unless_a_door_or_lifestones_script_composes_it() {
+    let mut h = Harness::new();
+    h.server
+        .doors
+        .packages
+        .insert(DOOR_PACKAGE, yalain_world::usable::doors::Kind::Plain);
+    let by_record = Facts {
+        name: Some(NAME),
+        description: Some(PAGE),
+        entities_unnamed: true,
+        ..Facts::default()
+    };
+    let by_entities = Facts {
+        entities_unnamed: false,
+        ..by_record
+    };
+    let other_row = (0xDFC3_B28E, 0x2500_1E5C);
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![
+            placed(1, 0x4700_1BB7, SIGN_PACKAGE, None, by_record),
+            placed(2, 0x4700_0FCE, DOOR_PACKAGE, None, by_record),
+            placed(3, 0x4700_0FCE, DOOR_PACKAGE, Some(NAME), by_record),
+            placed(4, 0x4700_0FC1, DOOR_PACKAGE, None, by_entities),
+            placed(5, 0x4700_0FCE, DOOR_PACKAGE, Some(other_row), by_record),
+        ],
+        ..yalain_content::ContentPack::default()
+    };
+    let ids: Vec<u64> = (1..=5).map(|n| 0x400D_FA00_0000_0100 | n).collect();
+    let got = general_words(&mut h, &ids);
+    // The first line: a text (its kind and tab), its look, the string and its table.
+    let first = |w: &Vec<u32>| (w.get(4).copied(), w.get(5).copied());
+    let composed = (
+        Some(profile::line::ITEM_NAME),
+        Some(profile::line::ITEM_NAMES),
+    );
+    assert_eq!(
+        first(&got[0]),
+        (Some(NAME.0), Some(NAME.1)),
+        "a sign: plain"
+    );
+    assert_eq!(first(&got[1]), composed, "a door its script names");
+    assert_eq!(first(&got[2]), composed, "its row giving the same name");
+    assert_eq!(
+        first(&got[3]),
+        (Some(NAME.0), Some(NAME.1)),
+        "a door its entities name"
+    );
+    assert_eq!(
+        first(&got[4]),
+        (Some(other_row.0), Some(other_row.1)),
+        "a door its row names from another table"
+    );
+}
+
+/// The lines a door's or a chest's page ends with, after its page and its break (the answer's
+/// last word, the tabs it holds, left off).
+fn page_end(words: &[u32]) -> Vec<u32> {
+    let page = words.iter().position(|w| *w == PAGE.0).expect("the page");
+    words[page + 5..words.len() - 1].to_vec()
+}
+
+/// A door's page says its lock after its description: "Lock Status:" and "No lock", "Locked" or
+/// "Unlocked" (its key has opened it since it last closed), then two breaks on the stats tab. A
+/// chest's says its contents are unknown and its lock: none for a template with no lock, locked,
+/// or unlocked once its key has unlocked it (2017: every examination of a door and of a chest).
+/// Behaviour: server.examination.lock-status-as-2017
+#[test]
+fn a_doors_page_says_its_lock_and_a_chests_its_contents_and_lock() {
+    use yalain_content::{Lock, Prop, Props};
+    use yalain_world::profile::line;
+    const CHEST_PACKAGE: u32 = 0x0EA3;
+    const CHEST: u32 = 0x4700_0F2E;
+    const OPEN_CHEST: u32 = 0x4700_0F2F;
+    const PLAIN_CHEST: u32 = 0x4700_1867;
+    let mut h = Harness::new();
+    h.server
+        .doors
+        .packages
+        .insert(DOOR_PACKAGE, yalain_world::usable::doors::Kind::Plain);
+    h.server.chests.packages.insert(CHEST_PACKAGE);
+    for (t, lockable, locked) in [
+        (CHEST, true, true),
+        (OPEN_CHEST, true, false),
+        (PLAIN_CHEST, false, false),
+    ] {
+        let mut p = Props::default();
+        p.set("Lock_Lockable", Prop::Bool(lockable));
+        p.set("Lock_IsLocked", Prop::Bool(locked));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, CHEST_PACKAGE, p));
+    }
+    let f = Facts {
+        name: Some(NAME),
+        description: Some(PAGE),
+        ..Facts::default()
+    };
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![
+            placed(1, 0x4700_0FC1, DOOR_PACKAGE, None, f),
+            placed(2, 0x4700_0FC1, DOOR_PACKAGE, None, f),
+            placed(3, CHEST, CHEST_PACKAGE, None, f),
+            placed(4, OPEN_CHEST, CHEST_PACKAGE, None, f),
+            placed(5, PLAIN_CHEST, CHEST_PACKAGE, None, f),
+        ],
+        ..yalain_content::ContentPack::default()
+    };
+    let id = |n: u64| 0x400D_FA00_0000_0100 | n;
+    h.server.locks.objects.insert(id(2), Lock { key: None });
+    let got = general_words(&mut h, &[id(1), id(2), id(3), id(4), id(5)]);
+    let (text, brk, label, value) = (0x4000_0004, 0x4000_0006, 0x33BE_4035, 0xBE5B_6513);
+    let general = |s: u32| [text, 2, label, s, line::TABLE, 0];
+    let door = |word: u32| {
+        let mut w = general(line::LOCK_STATUS).to_vec();
+        w.extend([text, 2, value, word, line::TABLE, 0, brk, 8, brk, 8]);
+        w
+    };
+    assert_eq!(
+        page_end(&got[0]),
+        door(line::NO_LOCK),
+        "a door with no lock"
+    );
+    assert_eq!(page_end(&got[1]), door(line::LOCKED), "a locked door");
+    let chest = |word: u32| {
+        let mut w = vec![brk, 2];
+        w.extend(general(profile::corpse_line::CONTENTS_UNKNOWN));
+        w.extend([brk, 2, brk, 2]);
+        w.extend(general(word));
+        w.extend([brk, 2]);
+        w
+    };
+    assert_eq!(page_end(&got[2]), chest(line::LOCKED), "a locked chest");
+    assert_eq!(
+        page_end(&got[3]),
+        chest(line::UNLOCKED),
+        "a lock not locked"
+    );
+    assert_eq!(page_end(&got[4]), chest(line::NO_LOCK), "no lock");
+}
