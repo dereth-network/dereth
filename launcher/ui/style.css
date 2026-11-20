@@ -492,8 +492,8 @@ select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220p
 table.worlds { width: 100%; border-collapse: collapse; font-size: 16px; table-layout: fixed; }
 table.worlds col.c-dot { width: 26px; }
 table.worlds col.c-emu { width: 150px; }
-table.worlds col.c-era { width: 200px; }
-table.worlds col.c-rules { width: 64px; }
+table.worlds col.c-era { width: 192px; }
+table.worlds col.c-rules { width: 76px; }
 table.worlds col.c-players { width: 84px; }
 table.worlds col.c-end { width: 50px; }
 table.worlds select.field.mini { width: 100%; min-width: 0; }
