@@ -4,9 +4,10 @@
 //!
 //! **Depends on** the shell's interface seam (`auberean-shell`), the client's contract through the
 //! SDK (`auberean-client-sdk`: the view, the events, the notices and the actions), the game's
-//! records an interface reads (`auberean-ui`'s `Assets`: its strings and pictures), the client's
-//! own preferences (`auberean-options`), the world's records the map reads, the credits' layout and
-//! a look's figure for the player's figure in the inventory window and a character's before the
+//! records an interface reads (`auberean-ui`'s `Assets`: its strings and pictures), the game's own
+//! interface's pointers as the records name them (`auberean-ui-game`), the client's own
+//! preferences (`auberean-options`), the world's records the map reads, the credits' layout and a
+//! look's figure for the player's figure in the inventory window and a character's before the
 //! world (`auberean-assets`, `auberean-scene`, `auberean-world`: the region's map pictures and
 //! labels, its calendar), the story's sounds as the shell plays them (`auberean-audio`), the
 //! client's random numbers (`auberean-primitives`), the shared float-to-integer conversion
@@ -82,7 +83,8 @@ use auberean_client_sdk::Action;
 use auberean_shell::dev::DevLogin;
 use auberean_shell::input::{Button, Event, Key};
 use auberean_shell::interface::{
-    CameraRequest, Choice, Game, Interface, Login, OrbitSettings, Overlay, Phase, Request,
+    CameraRequest, Choice, CursorImage, Game, Interface, Login, OrbitSettings, Overlay, Phase,
+    Request,
 };
 
 pub use shared::{maker, Shared};
@@ -256,6 +258,8 @@ impl Reopen {
 pub struct Horizon {
     ui: HorizonUi,
     records: Option<Records>,
+    /// The game's pointers, from its records.
+    cursors: Cursors,
     /// How the client was started.
     start: Start,
     /// The game before the world.
@@ -360,6 +364,36 @@ const fn change_key(c: &Change) -> u32 {
     }
 }
 
+/// The game's pointers as its own interface shows them: the default one everywhere, and while an
+/// item waits for its target the usage one over the world and over the items' icons.
+#[derive(Clone, Debug, Default)]
+struct Cursors {
+    default: Option<Arc<CursorImage>>,
+    usage: Option<Arc<CursorImage>>,
+}
+
+impl Cursors {
+    /// The pointers the records name, with their pictures.
+    fn of(records: &Records) -> Self {
+        let image = |c: Option<auberean_ui::Cursor>| {
+            let c = c?;
+            let img = records.image(c.picture)?;
+            Some(Arc::new(CursorImage::from_bgra(
+                c.picture,
+                (img.width, img.height),
+                &img.bgra,
+                (c.hot_x, c.hot_y),
+            )))
+        };
+        Self {
+            default: image(auberean_ui_game::flow::default_cursor(records.as_ref())),
+            usage: image(auberean_ui_game::selection::usage_cursor(Arc::clone(
+                records,
+            ))),
+        }
+    }
+}
+
 impl std::fmt::Debug for Horizon {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Horizon")
@@ -385,6 +419,7 @@ impl Horizon {
             .unwrap_or_default();
         Self {
             ui,
+            cursors: records.as_ref().map(Cursors::of).unwrap_or_default(),
             records,
             start: Start::default(),
             pregame: pregame::Pregame::default(),
@@ -1523,7 +1558,16 @@ impl Interface for Horizon {
         overlay.behind = None;
         overlay.middle = None;
         overlay.front = None;
-        overlay.cursor = None;
+        let (x, y) = self.input.mouse;
+        let aimed = self.ui.usage_pointer_at(x, y);
+        overlay.cursor = if game.phase == Phase::World && self.state.goods.targeting && aimed {
+            self.cursors
+                .usage
+                .clone()
+                .or_else(|| self.cursors.default.clone())
+        } else {
+            self.cursors.default.clone()
+        };
         overlay.screen = None;
         if game.phase != Phase::World {
             self.draw_before_world(game, overlay);

@@ -633,6 +633,60 @@ fn a_line_selected_in_horizons_log_is_copied_by_control_c() {
     );
 }
 
+/// Horizon shows the game's own pointers, as the game's own interface does: the default one over
+/// the world and its panels; while an item waits for its target, the usage one over the world (a
+/// panel keeps the default); and the default again once nothing waits. Before the world, the
+/// default too.
+///
+/// Behaviour: desktop.horizon.the-game-s-own-pointers
+#[test]
+fn horizon_shows_the_game_s_pointers_and_the_usage_one_while_an_item_waits_for_its_target() {
+    const DEFAULT: u32 = 0x4100_0870;
+    const USAGE: u32 = 0x4100_44BF;
+    let picture = |o: &auberean_shell::interface::Overlay| o.cursor.as_ref().map(|c| c.picture);
+    let mut s = Session::new(Some("[UI]\r\nInterface=Horizon\r\n"));
+    assert_eq!(picture(&s.frame()), Some(DEFAULT), "before the world");
+    s.enter_the_world();
+    for _ in 0..30 {
+        s.step();
+    }
+    s.shell.event(&Event::Pointer { x: 960.0, y: 400.0 });
+    assert_eq!(picture(&s.frame()), Some(DEFAULT), "in the world");
+    let me = s.horizon().borrow().state().player.expect("the player");
+    let waiting = |s: &mut Session, on: u32| {
+        let c = s.shell.client.as_mut().expect("the session");
+        c.notices
+            .push(auberean_client_sdk::runtime::host::PanelNotice {
+                native: auberean_ui_game::selection::notice::SET_TARGETING_POINTER,
+                about: Some(me),
+                words: vec![on],
+                ..Default::default()
+            });
+        s.step();
+    };
+    waiting(&mut s, 1);
+    let usage = s.frame();
+    let c = usage.cursor.as_ref().expect("a pointer");
+    assert_eq!(
+        (c.picture, c.hot_x, c.hot_y),
+        (USAGE, 11, 11),
+        "over the world"
+    );
+    assert_eq!(c.rgba.len(), (c.width * c.height * 4) as usize);
+    let chat = s.horizon().borrow().ui().chat.dock;
+    s.shell.event(&Event::Pointer {
+        x: chat.x + chat.w / 2.0,
+        y: chat.y + chat.h / 2.0,
+    });
+    s.step();
+    assert_eq!(picture(&s.frame()), Some(DEFAULT), "over the log window");
+    s.shell.event(&Event::Pointer { x: 960.0, y: 400.0 });
+    s.step();
+    assert_eq!(picture(&s.frame()), Some(USAGE));
+    waiting(&mut s, 0);
+    assert_eq!(picture(&s.frame()), Some(DEFAULT), "nothing waits");
+}
+
 /// T, Horizon's reply key, opens the chat entry with the game's reply command in it (`/reply `), as
 /// the game's own reply key starts its entry.
 ///

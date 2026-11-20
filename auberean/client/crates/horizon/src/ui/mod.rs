@@ -223,6 +223,14 @@ impl HorizonUi {
         self.covers.iter().any(|r| r.contains(x, y))
     }
 
+    /// Whether the usage pointer shows at `(x, y)` while an item waits for its target, as the
+    /// game's own interface shows it: over the world, and over an item's icon in the inventory
+    /// window (its other panels keep the default).
+    #[must_use]
+    pub fn usage_pointer_at(&self, x: f32, y: f32) -> bool {
+        !self.covers(x, y) || self.goods.inventory.over_item()
+    }
+
     /// Whether the chat entry, or a box of the social window or the windows of things, has the
     /// keys.
     #[must_use]

@@ -249,17 +249,18 @@ impl<P> GameFlow<P> {
 /// The interface's default cursor, from the data.
 // D2-01713
 pub fn set_default_cursor(ui: &mut Ui) {
-    let picture = ui
-        .assets()
-        .data_id_by_enum(DEFAULT_CURSOR.0, DEFAULT_CURSOR.1);
-    if picture != 0 {
-        ui.set_cursor(
-            auberean_ui::Cursor {
-                picture,
-                hot_x: 0,
-                hot_y: 0,
-            },
-            true,
-        );
+    if let Some(c) = default_cursor(ui.assets().as_ref()) {
+        ui.set_cursor(c, true);
     }
+}
+
+/// The game's default cursor as the records name it: its picture, pointing from its corner.
+#[must_use]
+pub fn default_cursor(assets: &dyn auberean_ui::Assets) -> Option<auberean_ui::Cursor> {
+    let picture = assets.data_id_by_enum(DEFAULT_CURSOR.0, DEFAULT_CURSOR.1);
+    (picture != 0).then_some(auberean_ui::Cursor {
+        picture,
+        hot_x: 0,
+        hot_y: 0,
+    })
 }

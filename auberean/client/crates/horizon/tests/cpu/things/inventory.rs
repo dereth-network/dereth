@@ -58,6 +58,38 @@ fn a_press_on_an_item_selects_it_and_a_second_soon_after_uses_it() {
     );
 }
 
+/// While an item waits for its target, the usage pointer shows over an item's icon in the
+/// window, worn or in the pack, as the game's own pack shows it; over an empty tile or the window
+/// elsewhere, the default; over the world, the usage one.
+#[test]
+fn the_usage_pointer_shows_over_an_items_icon_and_not_over_the_rest_of_the_window() {
+    let mut h = Harness::new();
+    let s = holding(pack(
+        [&[SWORD], &[], &[], &[]],
+        &[(SWORD, item("Sword")), (CAP, item("Cap"))],
+        &[(place::LEFT[0], CAP)],
+        0,
+    ));
+    let l = opened(&mut h, &s);
+    let k = h.k();
+    let worn = l
+        .worn
+        .iter()
+        .find(|(at, _)| *at == place::LEFT[0])
+        .map(|(_, r)| *r)
+        .expect("the place");
+    let at = |h: &mut Harness, (x, y): (f32, f32)| {
+        h.input.mouse = (x, y);
+        h.frame(&s);
+        h.ui.usage_pointer_at(x, y)
+    };
+    assert!(at(&mut h, mid(l.cell(0, k))), "over the sword in the pack");
+    assert!(at(&mut h, mid(worn)), "over the cap worn");
+    assert!(!at(&mut h, mid(l.cell(1, k))), "over an empty tile");
+    assert!(!at(&mut h, mid(l.figure)), "over the figure");
+    assert!(at(&mut h, (960.0, 400.0)), "over the world");
+}
+
 #[test]
 fn an_item_carried_along_its_segment_goes_to_that_slot() {
     let mut h = Harness::new();

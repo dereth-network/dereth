@@ -155,6 +155,8 @@ pub struct Inventory {
     figure: Option<(Rect, usize)>,
     /// Where the segments' tabs were last drawn.
     tabs: Vec<Rect>,
+    /// The pointer was over an item's icon, worn or in the pack, as it was last drawn.
+    over_item: bool,
 }
 
 impl Inventory {
@@ -175,6 +177,13 @@ impl Inventory {
         self.window.open = false;
         self.drawn = None;
         self.figure = None;
+        self.over_item = false;
+    }
+
+    /// Whether the pointer was over an item's icon, worn or in the pack, as it was last drawn.
+    #[must_use]
+    pub const fn over_item(&self) -> bool {
+        self.over_item
     }
 
     /// Where it was last drawn, while it is open.
@@ -213,6 +222,7 @@ impl Inventory {
         tip: &mut Option<Tip>,
     ) -> Option<Rect> {
         self.figure = None;
+        self.over_item = false;
         if !self.window.open {
             return None;
         }
@@ -257,6 +267,7 @@ impl Inventory {
                     location: *location,
                 },
             );
+            self.over_item |= t.over && item.is_some();
             if t.over {
                 *tip = Some(Tip {
                     title: item.map_or_else(
@@ -310,6 +321,7 @@ impl Inventory {
                 },
             );
             carry.zone(r, Zone::Pack { segment, cell });
+            self.over_item |= t.over && item.is_some();
             if let (true, Some((_, it))) = (t.over, item) {
                 *tip = Some(Tip {
                     title: it.name.clone(),

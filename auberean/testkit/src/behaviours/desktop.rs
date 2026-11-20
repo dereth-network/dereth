@@ -1254,6 +1254,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.the-game-s-own-pointers",
+        says: "Our choice: Horizon shows the game's own pointers from its records, as the game's \
+               own interface does: the default one, and over the world the usage one while an \
+               item waits for its target.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CURSORS"),
+        station: "auberean-horizon::dat::interfaces::horizon_shows_the_game_s_pointers_and_the_usage_one_while_an_item_waits_for_its_target",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.the-host-s-pad-plays-the-game-through-the-game-s-controls",
         says: "In the world under Horizon the host's pad, read by the shell once a frame, plays \
                the game: a first press switches gamepad mode on and does nothing else, the left \

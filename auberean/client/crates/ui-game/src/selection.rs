@@ -18,12 +18,14 @@
 //! for its target) or puts the cursor back.
 
 use std::any::Any;
+use std::sync::Arc;
 
 use auberean_ui::framework::FrameId;
 use auberean_ui::manager::{global, Cursor};
+use auberean_ui::system::Node;
 use auberean_ui::token::msg;
 use auberean_ui::types::button_id;
-use auberean_ui::{Handle, Mail, Token, Ui};
+use auberean_ui::{Assets, Handle, Mail, Token, Ui};
 
 use crate::gameplay::{Child, Notice, Request, View, PLAY_LAYOUT_ENUM};
 use crate::world::{kind, World};
@@ -195,27 +197,38 @@ impl Selection {
             ui.restore_saved_cursor(f);
             return;
         }
-        let Some(n) = ui.node(f) else { return };
-        let (Some(x), Some(y), Some(id)) = (
-            n.int_attr(name::USAGE_CURSOR_X),
-            n.int_attr(name::USAGE_CURSOR_Y),
-            n.data_id_attr(name::USAGE_CURSOR),
-        ) else {
+        let Some(c) = ui.node(f).and_then(usage_cursor_of) else {
             return;
         };
-        if id == 0 {
-            return;
-        }
         ui.save_cursor(f);
-        ui.set_element_cursor(
-            f,
-            Cursor {
-                picture: id,
-                hot_x: x,
-                hot_y: y,
-            },
-        );
+        ui.set_element_cursor(f, c);
     }
+}
+
+/// The usage cursor a field over the world names: its picture and its point.
+#[must_use]
+pub fn usage_cursor_of(n: &Node) -> Option<Cursor> {
+    let (Some(x), Some(y), Some(id)) = (
+        n.int_attr(name::USAGE_CURSOR_X),
+        n.int_attr(name::USAGE_CURSOR_Y),
+        n.data_id_attr(name::USAGE_CURSOR),
+    ) else {
+        return None;
+    };
+    (id != 0).then_some(Cursor {
+        picture: id,
+        hot_x: x,
+        hot_y: y,
+    })
+}
+
+/// The cursor shown over the world while an item waits for its target, as the play screen's field
+/// over the world names it in the records.
+#[must_use]
+pub fn usage_cursor(assets: Arc<dyn Assets + Send + Sync>) -> Option<Cursor> {
+    let mut ui = Ui::new(assets, 1, 1);
+    let field = ui.frame_create_element(PLAY_LAYOUT_ENUM, name::ITEM_SELECTION_FIELD)?;
+    ui.node(field).and_then(usage_cursor_of)
 }
 
 impl Selection {

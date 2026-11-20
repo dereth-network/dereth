@@ -23,6 +23,8 @@ auberean-client-sdk.workspace = true
 # The game's records an interface reads: its string tables, and its pictures for the effects'
 # icons.
 auberean-ui.workspace = true
+# The game's own interface's pointers as the records name them, the same ones it shows.
+auberean-ui-game.workspace = true
 # The client's own preferences, as the options pages edit them: the interface choice.
 auberean-options.workspace = true
 # The widget kit it is drawn with, and Horizon's own art, which name no game.

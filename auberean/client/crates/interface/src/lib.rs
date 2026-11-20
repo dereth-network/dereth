@@ -1604,21 +1604,12 @@ impl Retail {
             return self.cursor.clone();
         }
         let img = self.ui.assets().image(c.picture)?;
-        let rgba = img
-            .bgra
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[2], p[1], p[0], p[3]])
-            .collect();
-        let made = Arc::new(CursorImage {
-            picture: c.picture,
-            width: img.width,
-            height: img.height,
-            rgba,
-            hot_x: u32::try_from(c.hot_x).unwrap_or(0),
-            hot_y: u32::try_from(c.hot_y).unwrap_or(0),
-        });
+        let made = Arc::new(CursorImage::from_bgra(
+            c.picture,
+            (img.width, img.height),
+            &img.bgra,
+            (c.hot_x, c.hot_y),
+        ));
         self.cursor = Some(Arc::clone(&made));
         Some(made)
     }

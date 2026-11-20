@@ -572,6 +572,7 @@ dependencies = [
  "auberean-shell",
  "auberean-testkit",
  "auberean-ui",
+ "auberean-ui-game",
  "auberean-world",
  "dereth-horizon-art",
  "dereth-map-picture",

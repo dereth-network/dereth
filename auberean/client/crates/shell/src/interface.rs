@@ -504,6 +504,32 @@ pub struct CursorImage {
     pub hot_y: u32,
 }
 
+impl CursorImage {
+    /// A pointer's picture from the game's own: `picture`'s texels of blue, green, red, alpha, and
+    /// its point (a point before the picture's corner taken as the corner).
+    #[must_use]
+    pub fn from_bgra(
+        picture: u32,
+        (width, height): (u32, u32),
+        bgra: &[u8],
+        (hot_x, hot_y): (i32, i32),
+    ) -> Self {
+        Self {
+            picture,
+            width,
+            height,
+            rgba: bgra
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|p| [p[2], p[1], p[0], p[3]])
+                .collect(),
+            hot_x: u32::try_from(hot_x).unwrap_or(0),
+            hot_y: u32::try_from(hot_y).unwrap_or(0),
+        }
+    }
+}
+
 /// The overlay's textures, by key: each a picture of blue, green, red, alpha texels.
 #[derive(Clone, Default)]
 pub struct OverlayTextures(std::collections::BTreeMap<OverlayTexture, std::sync::Arc<TextureData>>);
