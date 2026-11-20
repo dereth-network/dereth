@@ -234,14 +234,22 @@ fn facts(store: i64, world: &str) -> Facts {
     }
 }
 
-/// The tree's own version declares cleanly against the tree's `releases.toml`, and the tree's
-/// facts are read from the code: the database's schema version and the world database it pins.
+/// The release the tree ships as declares cleanly against the tree's `releases.toml`, and the
+/// tree's facts are read from the code: the database's schema version and the world database it
+/// pins. Between a world database bump and the release that takes it, that is the release the
+/// bump declared, not the tree's own version.
 #[test]
 fn the_trees_yalain_version_has_a_declaration() {
     let ws = workspace_root();
-    let v = super::version::Product::Yalain
+    let tree = super::version::Product::Yalain
         .version(&ws)
         .expect("the version");
+    let entries = parse_entries_from(
+        &std::fs::read_to_string(ws.join(declaration::RELEASES_FILE)).expect("releases.toml"),
+        declaration::RELEASES_FILE,
+    )
+    .expect("entries");
+    let v = super::declaration::shipping_as(&tree, &entries).expect("a release version");
     let d = declaration::for_release(&ws, &v).expect("declared");
     assert!(
         d["upgrades_from"].as_str().is_some_and(|s| !s.is_empty()),
@@ -256,6 +264,70 @@ fn the_trees_yalain_version_has_a_declaration() {
             .as_str()
             .is_some_and(|t| t.starts_with('v')),
         "{d}"
+    );
+}
+
+/// **A tree ships as its own version right after a release, and as the release a world database
+/// bump declared after one**; the tree's own version is still held to the rule that a newer
+/// minor world database needs a minor release.
+#[test]
+fn a_yalain_tree_ships_as_its_version_or_the_release_a_world_bump_declared() {
+    let shipped = parse_entries_from(
+        r#"
+        [[release]]
+        version = "0.6.0"
+        upgrades_from = "0.5.0"
+        "#,
+        "releases.toml",
+    )
+    .expect("entries");
+    // Right after 0.6.1 shipped (a patch, with no entry of its own), and right after 0.6.0 did.
+    assert_eq!(
+        super::declaration::shipping_as("0.6.1", &shipped).unwrap(),
+        "0.6.1"
+    );
+    assert_eq!(
+        super::declaration::shipping_as("0.6.0", &shipped).unwrap(),
+        "0.6.0"
+    );
+    let bumped = parse_entries_from(
+        r#"
+        [[release]]
+        version = "0.6.0"
+        upgrades_from = "0.5.0"
+        [[release]]
+        version = "0.7.0"
+        upgrades_from = "0.6.1"
+        "#,
+        "releases.toml",
+    )
+    .expect("entries");
+    // After a world bump: the tree is still 0.6.1 and ships as the 0.7.0 it declared.
+    assert_eq!(
+        super::declaration::shipping_as("0.6.1", &bumped).unwrap(),
+        "0.7.0"
+    );
+    let shipped_facts = facts(4, "v0.38.0");
+    let bumped_facts = facts(4, "v0.39.0");
+    let d = declaration::declare(
+        "0.7.0",
+        Some(("0.6.1", &shipped_facts)),
+        &bumped_facts,
+        &bumped,
+    )
+    .expect("declared");
+    assert_eq!(d["kind"], "minor");
+    assert_eq!(d["world_database_fetch"], true);
+    let refused = declaration::declare(
+        "0.6.2",
+        Some(("0.6.1", &shipped_facts)),
+        &bumped_facts,
+        &bumped,
+    )
+    .expect_err("a patch that moves the world database a minor version is refused");
+    assert!(
+        refused.iter().any(|p| p.contains("needs a minor release")),
+        "{refused:?}"
     );
 }
 

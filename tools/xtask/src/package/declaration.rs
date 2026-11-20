@@ -400,6 +400,23 @@ pub fn previous_tag_of(
         .map(|(_, v)| v))
 }
 
+/// The release a tree at version `tree` ships as next, as far as `entries` say: `tree` itself, or,
+/// once a change that needs a minor release (a newer world database or world pack, a migration)
+/// has declared the release that takes it before the release bumps the tree's version, that
+/// declared release: the one after `tree` whose `upgrades_from` is `tree`. Either product's
+/// entries.
+#[cfg(test)]
+pub fn shipping_as(tree: &str, entries: &[Entry]) -> Result<String, String> {
+    let core = parse_release_version(tree)?;
+    Ok(entries
+        .iter()
+        .filter(|e| e.upgrades_from == core_text(core))
+        .filter_map(|e| parse_release_version(&e.version).ok().map(|v| (v, e)))
+        .filter(|(v, _)| *v > core)
+        .min_by_key(|(v, _)| *v)
+        .map_or_else(|| tree.to_owned(), |(_, e)| e.version.clone()))
+}
+
 /// The declaration of `version` for the tree at `ws`, as the module documentation describes.
 pub fn for_release(ws: &Path, version: &str) -> Result<Value, String> {
     let tags: Vec<String> = super::git(ws, &["tag", "--list", "empyrean-v*"])?

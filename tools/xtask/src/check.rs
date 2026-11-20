@@ -21,7 +21,8 @@
 //! A few tests check one crate's files against another's: [`WATCHERS`] names them, and a change
 //! to a crate or file one watches runs that one's tests too, though its own crate is only a
 //! reverse dependent (or no crate at all holds the file); a crate named with `-p` runs them the
-//! same. Athenaeum's format reference is checked so against the rows the server reads.
+//! same. Athenaeum's format reference is checked so against the rows the server reads, and
+//! Empyrean's and Yalain's release declarations against the code and their `releases.toml`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -46,34 +47,78 @@ const WORKSPACE_FILES: &[&str] = &[
 struct Watcher {
     /// The crate whose tests these are.
     package: &'static str,
-    /// The test target, a folder of `tests/` with a `main.rs`.
-    test: &'static str,
+    /// The test target.
+    test: Target,
     /// The target's module holding the tests, run by its path as a filter.
     module: &'static str,
     /// The crates whose change runs them.
     crates: &'static [&'static str],
     /// The files, relative to the workspace, whose change runs them.
     files: &'static [&'static str],
+    /// The crate whose game (`--game`) the watcher runs for: what it checks, not where its tests
+    /// live.
+    game_of: &'static str,
+}
+
+/// A watcher's test target.
+#[derive(Debug, Clone, Copy)]
+enum Target {
+    /// A folder of `tests/` with a `main.rs`.
+    Tests(&'static str),
+    /// A binary's own tests, its modules under `src/`.
+    Bin(&'static str),
 }
 
 /// Every watcher. Athenaeum's format reference describes the world database's rows, kinds and
-/// fields, and its tests check it names every one the server reads.
-const WATCHERS: &[Watcher] = &[Watcher {
-    package: "athenaeum-foundry",
-    test: "cpu",
-    module: "format",
-    crates: &["yalain-world-db"],
-    files: &["athenaeum/FORMAT.md"],
-}];
+/// fields, and its tests check it names every one the server reads. Empyrean's release declaration
+/// is read from its version, its databases' migrations, the world pack's format and schema, the
+/// configuration's renamed keys and `empyrean/releases.toml`; Yalain's from its version, its
+/// database's schema, the world database it pins and `yalain/releases.toml`. Their tests check
+/// the release each tree ships as declares cleanly.
+const WATCHERS: &[Watcher] = &[
+    Watcher {
+        package: "athenaeum-foundry",
+        test: Target::Tests("cpu"),
+        module: "format",
+        crates: &["yalain-world-db"],
+        files: &["athenaeum/FORMAT.md"],
+        game_of: "athenaeum-foundry",
+    },
+    Watcher {
+        package: "xtask",
+        test: Target::Bin("xtask"),
+        module: "package::tests",
+        crates: &[
+            "empyrean-store",
+            "empyrean-content",
+            "empyrean-common",
+            "empyrean-server",
+        ],
+        files: &["empyrean/releases.toml"],
+        game_of: "empyrean-server",
+    },
+    Watcher {
+        package: "xtask",
+        test: Target::Bin("xtask"),
+        module: "package::yalain_tests",
+        crates: &["yalain-world-db", "yalain-store", "yalain"],
+        files: &["yalain/releases.toml"],
+        game_of: "yalain",
+    },
+];
 
 impl Watcher {
     /// `cargo test`'s arguments after the profile: the target and its module.
     fn test_args(&self) -> Vec<String> {
+        let (kind, target) = match self.test {
+            Target::Tests(t) => ("--test", t),
+            Target::Bin(b) => ("--bin", b),
+        };
         [
             "-p",
             self.package,
-            "--test",
-            self.test,
+            kind,
+            target,
             "--",
             &format!("{}::", self.module),
         ]
@@ -83,7 +128,7 @@ impl Watcher {
 }
 
 /// The watchers a change runs: one watching a tested crate or a changed file (relative to the
-/// workspace, normalised), whose own crate `game` covers and is not tested whole already.
+/// workspace, normalised), for a game `game` covers, whose own crate is not tested whole already.
 fn watching<'w>(
     watchers: &'w [Watcher],
     tested: &BTreeSet<String>,
@@ -92,7 +137,7 @@ fn watching<'w>(
 ) -> Vec<&'w Watcher> {
     watchers
         .iter()
-        .filter(|w| !tested.contains(w.package) && game.covers(w.package))
+        .filter(|w| !tested.contains(w.package) && game.covers(w.game_of))
         .filter(|w| {
             w.crates.iter().any(|c| tested.contains(*c))
                 || w.files.iter().any(|f| files.contains(&norm(f)))
@@ -649,7 +694,13 @@ mod tests {
         let set = |names: &[&str]| -> BTreeSet<String> {
             names.iter().map(|s| (*s).to_owned()).collect()
         };
-        let packages = |ws: Vec<&Watcher>| ws.iter().map(|w| w.package).collect::<Vec<_>>();
+        let format_of = |ws: Vec<&'static Watcher>| -> Vec<&'static Watcher> {
+            ws.into_iter()
+                .filter(|w| w.package == "athenaeum-foundry")
+                .collect()
+        };
+        let packages =
+            |ws: Vec<&'static Watcher>| format_of(ws).iter().map(|w| w.package).collect::<Vec<_>>();
         let rows = set(&["yalain-world-db"]);
         assert_eq!(
             packages(watching(WATCHERS, &rows, &[], Game::All)),
@@ -661,7 +712,7 @@ mod tests {
             ["athenaeum-foundry"],
             "the reference is in no crate"
         );
-        let format = watching(WATCHERS, &rows, &[], Game::All)[0];
+        let format = format_of(watching(WATCHERS, &rows, &[], Game::All))[0];
         assert_eq!(
             format.test_args(),
             ["-p", "athenaeum-foundry", "--test", "cpu", "--", "format::"]
@@ -670,13 +721,111 @@ mod tests {
         // Negative controls.
         let elsewhere = set(&["yalain-world", "dereth-dat"]);
         let notes = files(&["athenaeum/README.md", "yalain/CHANGES.md"]);
-        assert!(watching(WATCHERS, &elsewhere, &notes, Game::All).is_empty());
+        assert!(packages(watching(WATCHERS, &elsewhere, &notes, Game::All)).is_empty());
         let whole = set(&["yalain-world-db", "athenaeum-foundry"]);
         assert!(
-            watching(WATCHERS, &whole, &[], Game::All).is_empty(),
+            packages(watching(WATCHERS, &whole, &[], Game::All)).is_empty(),
             "its crate's tests run whole"
         );
         assert!(watching(WATCHERS, &rows, &reference, Game::Dereth).is_empty());
+    }
+
+    /// **A change to what Yalain's release declaration reads (its version, database schema,
+    /// pinned world database or `yalain/releases.toml`) runs xtask's Yalain packaging tests**,
+    /// which a world database bump otherwise reaches through no crate it changes; a change
+    /// elsewhere does not, nor does a check of the first game alone.
+    #[test]
+    fn a_change_to_what_yalains_declaration_reads_runs_its_tests() {
+        let set = |names: &[&str]| -> BTreeSet<String> {
+            names.iter().map(|s| (*s).to_owned()).collect()
+        };
+        let declaration = |tested: &BTreeSet<String>, changed: &[String], game: Game| {
+            watching(WATCHERS, tested, changed, game)
+                .into_iter()
+                .filter(|w| w.module == "package::yalain_tests")
+                .collect::<Vec<_>>()
+        };
+        // A world database bump: the pin's crate and the release entry change.
+        let bump = files(&[
+            "yalain/releases.toml",
+            "yalain/crates/world-db/src/release.rs",
+        ]);
+        let ran = declaration(&set(&["yalain-world-db"]), &bump, Game::All);
+        assert_eq!(ran.len(), 1);
+        assert_eq!(
+            ran[0].test_args(),
+            [
+                "-p",
+                "xtask",
+                "--bin",
+                "xtask",
+                "--",
+                "package::yalain_tests::"
+            ]
+        );
+        for tested in [&["yalain"][..], &["yalain-store"][..]] {
+            assert_eq!(declaration(&set(tested), &[], Game::Auberean).len(), 1);
+        }
+        assert_eq!(
+            declaration(&set(&[]), &files(&["yalain/releases.toml"]), Game::Auberean).len(),
+            1,
+            "the entries are in no crate"
+        );
+
+        // Negative controls.
+        assert!(declaration(&set(&["yalain-world", "dereth-dat"]), &[], Game::All).is_empty());
+        assert!(declaration(&set(&["yalain-world-db"]), &bump, Game::Dereth).is_empty());
+        assert!(
+            declaration(&set(&["yalain-world-db", "xtask"]), &bump, Game::All).is_empty(),
+            "xtask's tests run whole"
+        );
+    }
+
+    /// **A change to what Empyrean's release declaration reads (its version, migrations, world
+    /// pack, renamed keys or `empyrean/releases.toml`) runs xtask's package tests**, and a change
+    /// elsewhere, or a check of the second game alone, does not.
+    #[test]
+    fn a_change_to_what_empyreans_declaration_reads_runs_its_tests() {
+        let set = |names: &[&str]| -> BTreeSet<String> {
+            names.iter().map(|s| (*s).to_owned()).collect()
+        };
+        let declaration = |tested: &BTreeSet<String>, changed: &[String], game: Game| {
+            watching(WATCHERS, tested, changed, game)
+                .into_iter()
+                .filter(|w| w.module == "package::tests")
+                .collect::<Vec<_>>()
+        };
+        let pack = files(&[
+            "empyrean/releases.toml",
+            "empyrean/crates/content/src/pack/format.rs",
+        ]);
+        let ran = declaration(&set(&["empyrean-content"]), &pack, Game::All);
+        assert_eq!(ran.len(), 1);
+        assert_eq!(
+            ran[0].test_args(),
+            ["-p", "xtask", "--bin", "xtask", "--", "package::tests::"]
+        );
+        for tested in ["empyrean-store", "empyrean-common", "empyrean-server"] {
+            assert_eq!(
+                declaration(&set(&[tested]), &[], Game::Dereth).len(),
+                1,
+                "{tested}"
+            );
+        }
+        assert_eq!(
+            declaration(&set(&[]), &files(&["empyrean/releases.toml"]), Game::Dereth).len(),
+            1,
+            "the entries are in no crate"
+        );
+
+        // Negative controls.
+        let notes = files(&["empyrean/CHANGES.md", "empyrean/DIVERGENCES.md"]);
+        assert!(declaration(&set(&["empyrean-world", "dereth-dat"]), &notes, Game::All).is_empty());
+        assert!(declaration(&set(&["empyrean-content"]), &pack, Game::Auberean).is_empty());
+        assert!(
+            declaration(&set(&["empyrean-content", "xtask"]), &pack, Game::All).is_empty(),
+            "xtask's tests run whole"
+        );
     }
 
     /// **Every watcher names crates, a test module and files that exist**, so a rename can't
@@ -701,22 +850,48 @@ mod tests {
         for w in WATCHERS {
             let dir =
                 dir_of(w.package).unwrap_or_else(|| panic!("{} is a workspace crate", w.package));
-            let target = root.join(dir).join("tests").join(w.test);
-            let main = std::fs::read_to_string(target.join("main.rs"))
-                .unwrap_or_else(|e| panic!("{}'s {}: {e}", w.package, w.test));
+            let (folder, path) = match w.test {
+                Target::Tests(t) => (root.join(&dir).join("tests").join(t), w.module.to_owned()),
+                Target::Bin(_) => (root.join(&dir).join("src"), w.module.replace("::", "/")),
+            };
+            let file = folder.join(format!("{path}.rs"));
             assert!(
-                main.contains(&format!("mod {};", w.module)),
-                "{}'s {} declares mod {}",
+                file.is_file(),
+                "{}'s {:?}: {}",
                 w.package,
                 w.test,
-                w.module
+                file.display()
             );
-            assert!(target.join(format!("{}.rs", w.module)).is_file());
+            // The module is declared in its parent: the target's `main.rs`, or the folder's
+            // `mod.rs` above it.
+            let (parent, name) = match path.rsplit_once('/') {
+                Some((p, n)) => (folder.join(p).join("mod.rs"), n),
+                None => (folder.join("main.rs"), path.as_str()),
+            };
+            let declares = std::fs::read_to_string(&parent)
+                .unwrap_or_else(|e| panic!("{}: {e}", parent.display()));
+            assert!(
+                declares.contains(&format!("mod {name};")),
+                "{} declares mod {name}",
+                parent.display()
+            );
             for f in w.files {
                 assert!(root.join(f).is_file(), "{f}");
             }
             for c in w.crates {
-                assert!(dir_of(c).is_some(), "{c} is a workspace crate");
+                // A dependency line names a library; a binary (Yalain's server) has only its
+                // members entry and its own manifest.
+                let member = || {
+                    workspace
+                        .lines()
+                        .filter_map(|l| l.trim().strip_prefix('"')?.strip_suffix("\","))
+                        .any(|dir| {
+                            std::fs::read_to_string(root.join(dir).join("Cargo.toml")).is_ok_and(
+                                |m| m.lines().any(|l| l.trim() == format!("name = \"{c}\"")),
+                            )
+                        })
+                };
+                assert!(dir_of(c).is_some() || member(), "{c} is a workspace crate");
             }
         }
     }

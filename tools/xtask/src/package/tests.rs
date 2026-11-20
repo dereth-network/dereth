@@ -1272,11 +1272,17 @@ fn the_trees_facts_are_its_migrations_and_pack_versions() {
     assert!(f.pack_format >= 1 && f.pack_schema >= 100, "{f:?}");
 }
 
-/// The tree's own version declares cleanly against the tree's `releases.toml`.
+/// The release the tree ships as declares cleanly against the tree's `releases.toml`: its own
+/// version, or, between a change that needs a minor release and the release that takes it, the
+/// release the change declared.
 #[test]
 fn the_trees_version_has_a_declaration() {
     let ws = workspace_root();
-    let v = version::empyrean_version(&ws).expect("the version");
+    let tree = version::empyrean_version(&ws).expect("the version");
+    let list = entries(
+        &std::fs::read_to_string(ws.join(declaration::RELEASES_FILE)).expect("releases.toml"),
+    );
+    let v = declaration::shipping_as(&tree, &list).expect("a release version");
     let d = declaration::for_release(&ws, &v).expect("declared");
     assert!(
         d["upgrades_from"].as_str().is_some_and(|s| !s.is_empty()),
@@ -1403,6 +1409,37 @@ fn a_minor_release_declares_the_oldest_version_that_upgrades_to_it() {
     // A schema going backwards.
     let e = declaration::declare("0.2.0", Some(("0.1.0", &new)), &old, &list).unwrap_err();
     assert!(e.iter().any(|p| p.contains("went back")), "{e:?}");
+}
+
+/// **An Empyrean tree ships as its version right after a release, and as the release a change
+/// that needs a minor one declared after it**: a world pack change declared as 0.4.0 while the tree
+/// is still 0.3.16 declares cleanly as that minor release, and is still refused as a patch.
+#[test]
+fn an_empyrean_tree_ships_as_its_version_or_the_release_a_pack_change_declared() {
+    let shipped = entries("[[release]]\nversion = \"0.3.0\"\nupgrades_from = \"0.1.2\"\n");
+    assert_eq!(
+        declaration::shipping_as("0.3.16", &shipped).unwrap(),
+        "0.3.16"
+    );
+    assert_eq!(
+        declaration::shipping_as("0.3.0", &shipped).unwrap(),
+        "0.3.0"
+    );
+    let changed = entries(
+        "[[release]]\nversion = \"0.3.0\"\nupgrades_from = \"0.1.2\"\n\n\
+         [[release]]\nversion = \"0.4.0\"\nupgrades_from = \"0.3.16\"\n",
+    );
+    assert_eq!(
+        declaration::shipping_as("0.3.16", &changed).unwrap(),
+        "0.4.0"
+    );
+    let (old, new) = (upgrade_facts(3, 2), upgrade_facts(3, 3));
+    let d =
+        declaration::declare("0.4.0", Some(("0.3.16", &old)), &new, &changed).expect("declared");
+    assert_eq!(d["kind"], "minor");
+    assert_eq!(d["world_pack_rebuild"], true);
+    let e = declaration::declare("0.3.17", Some(("0.3.16", &old)), &new, &changed).unwrap_err();
+    assert!(e.iter().any(|p| p.contains("world.pack changes")), "{e:?}");
 }
 
 /// The first release has nothing before it: it upgrades from itself only.
