@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Following now stops when you move, take a portal, or the one you follow logs off.
 - Creatures of the faster kinds now run at their own speed, even when slowed.
 - World: the two fast Shreth patrol guards now jog their rounds.
+- Giving an item to a pet is now refused instead of leaving it stuck.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

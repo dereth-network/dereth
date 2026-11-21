@@ -166,7 +166,7 @@ fn pet_of(v: &[Value]) -> Option<u64> {
 }
 
 /// A ready Ranger with its Lasher out; returns the client, the player and the pet.
-fn with_lasher(h: &mut Harness) -> (usize, u64, u64) {
+pub(super) fn with_lasher(h: &mut Harness) -> (usize, u64, u64) {
     with_natures_aid(h);
     let (b, me) = ranger(h, "one", "Kestrel");
     let from = summon(h, b, 1);

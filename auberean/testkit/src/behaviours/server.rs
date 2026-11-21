@@ -7150,6 +7150,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-pet-refuses",
+        says: "An item given to a pet is walked to and handed over as any give, then refused, sent in \
+               this order: the item back in the pack, the answer that it is not accepting it, the player \
+               handing it over again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-PET-REFUSED"),
+        station: "yalain-testkit::cpu::play::gives::an_item_given_to_a_pet_is_handed_over_then_refused_and_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.a-pet-refuses-an-attuned-item",
+        says: "An attuned item given to a pet is refused as attuned as the walk to it ends, nothing \
+               handed over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-PET-ATTUNED"),
+        station: "yalain-testkit::cpu::play::gives::an_attuned_item_given_to_a_pet_is_refused_at_the_walks_end_with_nothing_handed_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.a-step-keeps-the-item",
         says: "An item given to a person that a quest step takes is kept: it leaves the pack and the \
                world, destroyed in the person, the person says its line with the update and the quest \
@@ -7485,10 +7504,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.gives.walked-handed-over-and-answered",
-        says: "A give is walked to 2 m of the person, the order sent even when the player is there; the \
-               player plays its handing-over with the item's look in its hand in the walk's context, \
-               seen by those who see it, the item's container cleared; the give is answered as done, \
-               the animation played, 1.31 s later.",
+        says: "A give is walked to 2 m of the person, the order sent even when the player is there; \
+               there, sent in this order, the walk is stopped, the item's container cleared and the \
+               player plays its handing-over with the item's look in its hand in the walk's context, seen \
+               by those who see it; the give is answered as done, the animation played, 1.31 s later.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK"),
         station: "yalain-testkit::cpu::play::gives::an_item_given_is_walked_to_handed_over_and_answered",
@@ -7501,6 +7520,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WANTS"),
         station: "yalain-testkit::cpu::play::gives::a_step_wanting_a_count_takes_that_many_and_refuses_any_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.what-it-walks-to-is-gone",
+        says: "A give whose creature dies or leaves on the way is refused as one that could not get \
+               there, and the player may give again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-TARGET-GONE"),
+        station: "yalain-testkit::cpu::play::gives::a_give_to_a_pet_that_dies_on_the_way_is_refused_as_one_that_cannot_get_there",
         tier: Tier::Cpu,
     },
     behaviour! {

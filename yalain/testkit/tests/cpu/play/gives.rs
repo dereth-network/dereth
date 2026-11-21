@@ -1,10 +1,12 @@
 //! Gives: an item of the pack dragged onto a person or an object. The walk and the handing over,
 //! the answer; an item a quest step takes kept, one no step wants handed back with the person's
 //! refusal; a person busy with another player's give, a walk that cannot get there; a part of a
-//! stack; a quest moved on by an item a give brought; a vitae tap; a hero made.
+//! stack; a quest moved on by an item a give brought; a vitae tap; a hero made; a pet refusing what
+//! it is given.
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::{queue, ServerMessage};
+use auberean_script::args::Arg;
 use auberean_script::native_object::QuestInfo;
 use auberean_script::wire::In;
 use yalain_content::quests::{
@@ -381,10 +383,42 @@ fn steps(seconds: f64) -> usize {
     n
 }
 
-/// A give is walked to 2 m of the person (the order sent even when the player is there), the
-/// player plays its handing-over with the item's look in its hand in the walk's context, seen by
-/// the player beside it, and the item's container is cleared; the move is answered as done, the
-/// animation played, 1.31 s later and not before.
+/// What a give is told by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sent {
+    Stopped,
+    Container(u64),
+    Answered,
+    Handed,
+}
+
+/// What a client was sent of its player's give of an item since `from`, in the order the server
+/// sent it.
+fn give_sent(h: &Harness, b: usize, me: u64, item: u64, from: usize) -> Vec<Sent> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40 => {
+                Some(Sent::Stopped)
+            }
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && q.quality == CONTAINER =>
+            {
+                Some(Sent::Container(q.value))
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == MOVE_DONE => Some(Sent::Answered),
+            ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == HANDING => {
+                Some(Sent::Handed)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A give is walked to 2 m of the person (the order sent even when the player is there); there,
+/// sent in this order, the walk is stopped, the item's container is cleared and the player plays
+/// its handing-over with the item's look in its hand in the walk's context, seen by the player
+/// beside it; the move is answered as done, the animation played, 1.31 s later and not before.
 ///
 /// Behaviour: server.gives.walked-handed-over-and-answered
 #[test]
@@ -427,6 +461,11 @@ fn an_item_given_is_walked_to_handed_over_and_answered() {
             ServerMessage::UpdateInstanceIdVisual(q) if q.object.id == item
                 && q.quality == CONTAINER && q.value == 0)),
         "the container cleared"
+    );
+    assert_eq!(
+        give_sent(&h, b, me, item, from),
+        [Sent::Stopped, Sent::Container(0), Sent::Handed],
+        "in the order sent"
     );
     assert!(answers(&h, b, from).is_empty(), "not answered yet");
     h.run(8);
@@ -2640,4 +2679,166 @@ fn two_gives_alike_but_for_their_class_each_take_their_own_class() {
     let axe = hold(&mut h, me, AXE, 1);
     give_ashes(&mut h, b, me, axe, 1);
     assert!(!holds(&h, me, axe.0), "kept by the first");
+}
+
+/// The behaviors a player played since `from`, each one's behavior and target, with their place
+/// among the messages in the order sent.
+fn handings(h: &Harness, b: usize, me: u64, from: usize) -> Vec<(usize, u64)> {
+    h.sent_messages(b, from)
+        .iter()
+        .enumerate()
+        .filter_map(|(n, m)| match m {
+            ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == HANDING => {
+                Some((n, e.action.target))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The containers a client was told an item is in since `from`, in order.
+fn containers(h: &Harness, b: usize, item: u64, from: usize) -> Vec<u64> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && q.quality == CONTAINER =>
+            {
+                Some(q.value)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// An item given to the player's own pet is walked to and handed over as any give, and 1.31 s
+/// later refused as one the pet is not accepting, sent in this order: the item back in its pack,
+/// the answer still merging, the animation played, then the player handing the item over again.
+///
+/// Behaviour: server.gives.a-pet-refuses
+#[test]
+fn an_item_given_to_a_pet_is_handed_over_then_refused_and_comes_back() {
+    let mut h = world();
+    let (b, me, pet) = super::pets::with_lasher(&mut h);
+    let (item, slot) = hold(&mut h, me, JUNK, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, pet, 1));
+    h.run(steps(HANDED_AFTER) - 4);
+    let walked = h.world_messages(b, from).iter().any(|m| {
+        matches!(m, ServerMessage::MoveTo(e) if e.sender.id == me
+            && e.action.params.flags == 0x61
+            && e.action.params.target == auberean_protocol::types::MoveTarget::Object(pet))
+    });
+    assert!(walked, "walked to the pet");
+    assert_eq!(handings(&h, b, me, from).len(), 1, "handed over");
+    assert_eq!(
+        containers(&h, b, item, from),
+        vec![0],
+        "the container cleared"
+    );
+    assert_eq!(
+        give_sent(&h, b, me, item, from),
+        [Sent::Stopped, Sent::Container(0), Sent::Handed],
+        "handed over in the order sent"
+    );
+    assert!(answers(&h, b, from).is_empty(), "not answered yet");
+    let before = h.bots[b].inbox.len();
+    h.run(8);
+    let a = answers(&h, b, before);
+    assert_eq!(a.len(), 1, "answered: {a:?}");
+    assert_eq!(
+        (a[0].status, a[0].merge, a[0].played, a[0].move_type),
+        (status::NOT_ACCEPTING, true, true, GIVE)
+    );
+    assert_eq!((a[0].item, a[0].target, a[0].from), (item, pet, me));
+    assert_eq!(
+        handings(&h, b, me, before)
+            .iter()
+            .map(|x| x.1)
+            .collect::<Vec<_>>(),
+        vec![item],
+        "handed over again as it is back"
+    );
+    assert_eq!(
+        containers(&h, b, item, before),
+        vec![me],
+        "back in the pack"
+    );
+    assert_eq!(
+        give_sent(&h, b, me, item, before),
+        [Sent::Container(me), Sent::Answered, Sent::Handed],
+        "refused in the order sent"
+    );
+    assert!(holds(&h, me, item));
+    assert!(h.server.players[&world_of(&h, me)].giving.is_none());
+}
+
+/// An attuned item given to a pet is refused as the walk to it ends, as attuned: nothing handed
+/// over, the item never leaving the pack.
+///
+/// Behaviour: server.gives.a-pet-refuses-an-attuned-item
+#[test]
+fn an_attuned_item_given_to_a_pet_is_refused_at_the_walks_end_with_nothing_handed_over() {
+    let mut h = world();
+    let (b, me, pet) = super::pets::with_lasher(&mut h);
+    let (item, slot) = hold(&mut h, me, JUNK, 1);
+    h.server.things.get_mut(item).expect("made").own.attuned = true;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, pet, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 1, "answered: {a:?}");
+    assert_eq!(
+        (a[0].status, a[0].item, a[0].target),
+        (status::ATTUNED, item, pet)
+    );
+    assert!(handings(&h, b, me, from).is_empty(), "nothing handed over");
+    assert!(
+        containers(&h, b, item, from).is_empty(),
+        "never left the pack"
+    );
+    assert!(holds(&h, me, item));
+}
+
+/// A give whose creature dies on the way is refused as one that could not get there at the
+/// player's next report, nothing handed over, and the player may give again.
+///
+/// Behaviour: server.gives.what-it-walks-to-is-gone
+#[test]
+fn a_give_to_a_pet_that_dies_on_the_way_is_refused_as_one_that_cannot_get_there() {
+    let mut h = world();
+    let (b, me, pet) = super::pets::with_lasher(&mut h);
+    let (item, slot) = hold(&mut h, me, JUNK, 1);
+    let world = world_of(&h, me);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .position
+        .origin[1] += 20.0;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, pet, 1));
+    h.run(4);
+    assert!(answers(&h, b, from).is_empty(), "walking");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::pets::function::DIE, &[Arg::LongInt(0)]),
+    );
+    h.run(10);
+    let at = h.server.players[&world].position;
+    let here = auberean_primitives::Vec3::new(at.origin[0], at.origin[1], at.origin[2]);
+    let stamp = h.server.players[&world].teleport_stamp;
+    let idle = yalain_world::world::IDLE_MOTION;
+    h.bots[b].send(true, queue::WEENIE, &report(at.cell, here, 0, idle, stamp));
+    h.run(3);
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 1, "{a:?}");
+    assert_eq!(a[0].status, status::CANT_GET_THERE);
+    assert!(handings(&h, b, me, from).is_empty(), "nothing handed over");
+    assert!(holds(&h, me, item));
+    assert!(
+        h.server.players[&world].giving.is_none(),
+        "free to give again"
+    );
 }
