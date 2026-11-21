@@ -2,8 +2,8 @@
 //! hated, which behavior tables heal their kin, which friend tables never attack a player first,
 //! which friend tables fight which, a shooter's rhythm by its template, the creatures that mark the
 //! players they see, those that take on only the players they hate, those players may not harm, the
-//! camps and kinds that let pass a player holding an item or bearing an effect, and the effects
-//! creatures hold from their first moment.
+//! camps and kinds that let pass a player holding an item or bearing an effect, the effects
+//! creatures hold from their first moment, and how often the creatures of a class idle at rest.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -148,6 +148,9 @@ pub struct CreatureRows {
     pub safe_passage: Vec<SafePassage>,
     /// The effects creatures of some templates hold from their first moment.
     pub effects: Vec<CreatureEffect>,
+    /// The mean gap between the idle behaviors at rest of the creatures of an AI class (their
+    /// template's AI superclass), in seconds, by the class.
+    pub idle_every: BTreeMap<u32, f32>,
 }
 
 impl CreatureRows {

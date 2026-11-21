@@ -551,7 +551,7 @@ pub fn make<S: Store>(
     t.max_vigor = stats.max_vigor;
     t.vigor = stats.max_vigor;
     t.fresh = true;
-    let next_idle = crate::ai::first_idle(s, &stats, now);
+    let next_idle = crate::ai::first_idle(s, &stats, template.id, now);
     t.creature = Some(Creature {
         stats,
         camp,

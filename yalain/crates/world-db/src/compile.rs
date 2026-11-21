@@ -1751,6 +1751,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
+            Row::AiClass(r) => {
+                #[allow(clippy::cast_possible_truncation)]
+                let seconds = r.idle_every as f32;
+                t.creatures.idle_every.insert(r.class, seconds);
+            }
             Row::Defense(r) => {
                 let d = &r.defense;
                 let mut ok = cx.template(l, "device", d.device);

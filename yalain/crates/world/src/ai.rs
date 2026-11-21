@@ -494,9 +494,9 @@ fn plays_victory<S: Store>(s: &Server<S>, id: u64, now: f64) -> bool {
         .is_some_and(|until| now < until)
 }
 
-/// How long a creature at rest goes between its idle behaviors on average, in seconds (2017: 1,213
-/// over 152 hours of creatures at rest within 50 m of a player; the gaps spread from seconds to
-/// many minutes, as chance does).
+/// How long a creature at rest goes between its idle behaviors on average, in seconds, when the
+/// world gives its AI class no gap of its own: this server's own (2017's creatures of a class with
+/// no row idled about every 553 s, 464 to 665 s, 124 idles in 19.0 hours by distinct event).
 pub const IDLE_EVERY: f32 = 450.0;
 
 /// The position flag of an object touching the ground.
@@ -1690,24 +1690,40 @@ pub(crate) fn stands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, 
     place(s, net, id, at, heading, crate::world::IDLE_MOTION, clock);
 }
 
-/// When a creature first plays an idle behavior: never for one without idles.
+/// When a creature of a template first plays an idle behavior: never for one without idles.
 pub(crate) fn first_idle<S: Store>(
     s: &mut Server<S>,
     stats: &yalain_content::CreatureStats,
+    template: u32,
     now: f64,
 ) -> f64 {
     if stats.idles {
-        now + idle_gap(s)
+        now + idle_gap(s, template)
     } else {
         f64::INFINITY
     }
 }
 
-/// The time to a creature's next idle behavior: drawn as chance spaces them, [`IDLE_EVERY`] on
-/// average.
-pub(crate) fn idle_gap<S: Store>(s: &mut Server<S>) -> f64 {
+/// How long the creatures of a template go between their idle behaviors on average, in seconds:
+/// their AI class's gap as the world gives it, else [`IDLE_EVERY`].
+#[must_use]
+pub fn idle_every<S: Store>(s: &Server<S>, template: u32) -> f32 {
+    s.catalog
+        .get(template)
+        .and_then(|t| {
+            t.props
+                .word(yalain_content::props::creature_property::SUPER_CLASS)
+        })
+        .and_then(|class| s.creature_rows.idle_every.get(&class).copied())
+        .unwrap_or(IDLE_EVERY)
+}
+
+/// The time to the next idle behavior of a creature of a template: drawn as chance spaces them,
+/// its class's gap ([`idle_every`]) on average.
+pub(crate) fn idle_gap<S: Store>(s: &mut Server<S>, template: u32) -> f64 {
+    let every = idle_every(s, template);
     let u = s.rng.unit().clamp(0.0, 0.999_999);
-    f64::from(-IDLE_EVERY * math::logf(1.0 - u))
+    f64::from(-every * math::logf(1.0 - u))
 }
 
 /// A creature at rest and standing plays one of its idle behaviors when its time comes, for every
@@ -1720,12 +1736,13 @@ fn idle<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
     if c.mode != Mode::Idle || walking || now < c.next_idle {
         return;
     }
+    let template = s.things.get(id).map_or(0, |t| t.template);
     let behavior = if s.rng.chance(FIRST_IDLE_SHARE) {
         IDLE_BEHAVIORS[0]
     } else {
         IDLE_BEHAVIORS[1]
     };
-    let next = now + idle_gap(s);
+    let next = now + idle_gap(s, template);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_idle = next;
     }

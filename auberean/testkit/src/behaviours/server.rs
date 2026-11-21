@@ -3742,12 +3742,21 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.creatures.idle-behaviors",
         says: "A creature of a class of behavior at rest and standing now and then plays one of its \
-               two idle behaviors (the behavior and its context alone), about every seven and a \
-               half minutes as chance spaces them; one without a class, or a summoned one, never \
-               does.",
+               two idle behaviors (the behavior and its context alone), as chance spaces them; one \
+               without a class, or a summoned one, never does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-IDLE-BEHAVIORS"),
         station: "yalain-testkit::cpu::play::resting::a_creature_at_rest_plays_an_idle_behavior_now_and_then",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.idle-rate-by-class",
+        says: "A creature at rest idles as often as the world's row for its AI class says, on \
+               average (2017's rate for each class with a row); a class with no row idles about every \
+               seven and a half minutes, this server's own default.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-IDLE-RATE-BY-CLASS"),
+        station: "yalain-testkit::cpu::play::resting::a_creature_idles_at_its_classs_gap_from_the_world_and_otherwise_at_the_servers",
         tier: Tier::Cpu,
     },
     behaviour! {

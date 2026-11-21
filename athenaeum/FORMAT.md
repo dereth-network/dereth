@@ -60,7 +60,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[item_life]], [[interaction]]
 <pack>/server/examinations.toml    [[examination]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]], [[wanting]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[ai_class]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -1097,6 +1097,17 @@ long it holds its kingdom, and whether it plays its victory. A row gives at leas
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`
 has the server's own of that kind.
+
+#### `[[ai_class]]`
+
+What the world says of the creatures of an AI class. A class with no row idles every 450 s on
+average.
+
+| field | | meaning |
+|---|---|---|
+| `class` | required | its number, their `AI_AISuperClass` |
+| `idle_every` | required | the mean gap in seconds (above 0) between the idle behaviors one plays at rest, the gaps falling as chance spaces them |
+| `prov` | required | where it came from |
 
 #### `[[safe_passage]]`
 

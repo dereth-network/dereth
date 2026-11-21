@@ -10,6 +10,7 @@ what they see, not how it was done.
 - Creatures of the faster kinds now run at their own speed, even when slowed.
 - World: the two fast Shreth patrol guards now jog their rounds.
 - Giving an item to a pet is now refused instead of leaving it stuck.
+- Creatures play their idle animations as often as their kind did in retail.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

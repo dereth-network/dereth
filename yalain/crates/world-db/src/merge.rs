@@ -199,6 +199,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Creature(r) => Item::Creature {
             template: r.template,
         },
+        Row::AiClass(r) => Item::AiClass { class: r.class },
         Row::SafePassage(r) => Item::SafePassage { key: r.key.clone() },
         Row::CreatureEffect(r) => Item::CreatureEffect { key: r.key.clone() },
         Row::Defense(r) => Item::Defense {
@@ -295,6 +296,7 @@ fn value(row: &Row) -> String {
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),
         Row::Creature(x) => x.prov = crate::rows::Prov::default(),
+        Row::AiClass(x) => x.prov = crate::rows::Prov::default(),
         Row::SafePassage(x) => x.prov = crate::rows::Prov::default(),
         Row::CreatureEffect(x) => x.prov = crate::rows::Prov::default(),
         Row::Defense(x) => x.prov = crate::rows::Prov::default(),

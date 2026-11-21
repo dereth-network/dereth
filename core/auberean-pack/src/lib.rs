@@ -316,6 +316,8 @@ pub enum Item {
     FriendTable { table: u32 },
     /// What the world says of a template's creatures, by the template.
     Creature { template: u32 },
+    /// What the world says of an AI class's creatures, by the class.
+    AiClass { class: u32 },
     /// Creatures that let pass a player holding an item or bearing an effect, by the row's key.
     SafePassage { key: String },
     /// An effect creatures of some templates hold from their first moment, by the row's key.
@@ -509,6 +511,9 @@ impl Item {
             ["creature", template] => Self::Creature {
                 template: number(template)?,
             },
+            ["ai_class", class] => Self::AiClass {
+                class: number(class)?,
+            },
             ["safe_passage", key] => Self::SafePassage { key: symbol(key)? },
             ["creature_effect", key] => Self::CreatureEffect { key: symbol(key)? },
             ["defense", device] => Self::Defense {
@@ -627,6 +632,7 @@ impl fmt::Display for Item {
             Self::NpcTable { name } => write!(f, "npc_table {name}"),
             Self::FriendTable { table } => write!(f, "friend_table {table:#x}"),
             Self::Creature { template } => write!(f, "creature {template:#010x}"),
+            Self::AiClass { class } => write!(f, "ai_class {class:#x}"),
             Self::SafePassage { key } => write!(f, "safe_passage {key}"),
             Self::CreatureEffect { key } => write!(f, "creature_effect {key}"),
             Self::Defense { device } => write!(f, "defense {device:#010x}"),

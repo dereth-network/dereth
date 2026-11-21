@@ -384,3 +384,66 @@ fn a_creature_without_a_class_or_a_summoned_one_never_idles() {
     );
     assert!(!idles(&props), "a summoned creature's does not");
 }
+
+/// The mean of `n` gaps a creature draws to its next idle, each as it plays one.
+fn mean_idle_gap(h: &mut Harness, beetle: u64, n: usize) -> f64 {
+    let creature = |h: &mut Harness| {
+        h.server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+            .expect("beetle")
+            .next_idle
+    };
+    let (mut sum, mut got) = (0.0, 0);
+    for _ in 0..n * 20 {
+        let now = h.now.0;
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.next_idle = now;
+            c.next_wander = f64::INFINITY;
+        }
+        h.run(1);
+        let next = creature(h);
+        if next > now {
+            sum += next - h.now.0;
+            got += 1;
+            if got == n {
+                break;
+            }
+        }
+    }
+    assert_eq!(got, n, "played its idles");
+    #[allow(clippy::cast_precision_loss)]
+    let mean = sum / n as f64;
+    mean
+}
+
+/// A creature of a class the world gives an idle gap waits that long between its idles on average;
+/// one of a class it gives none waits the server's own gap.
+/// Behaviour: server.creatures.idle-rate-by-class
+#[test]
+fn a_creature_idles_at_its_classs_gap_from_the_world_and_otherwise_at_the_servers() {
+    for (class, row, expected) in [(6, Some(60.0), 60.0_f32), (0x1D, None, ai::IDLE_EVERY)] {
+        let (mut h, _, beetle) = resting(&[("AI_AISuperClass", Prop::Word(class))]);
+        h.server.creature_rows.idle_every.clear();
+        if let Some(gap) = row {
+            h.server.creature_rows.idle_every.insert(class, gap);
+        }
+        h.server.creature_rows.idle_every.insert(0x7F, 9000.0);
+        let mean = mean_idle_gap(&mut h, beetle, 400);
+        let wanted = f64::from(expected);
+        assert!(
+            (mean - wanted).abs() < wanted * 0.2,
+            "class {class:#x}: a mean gap of {mean:.1} s, not about {expected}"
+        );
+        assert!(
+            (ai::idle_every(&h.server, TEST_CREATURE) - expected).abs() < 1e-3,
+            "class {class:#x}"
+        );
+    }
+}

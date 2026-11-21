@@ -72,15 +72,14 @@ pub fn wake<S: Store>(s: &mut Server<S>, near: &BTreeSet<u16>, now: f64) {
 /// second, its idle behavior and its thought of wandering come after waits drawn as an awake
 /// creature's fall at a random moment, and no player is within its perception since its last step.
 fn take_up_clocks<S: Store>(s: &mut Server<S>, id: u64, now: f64) {
-    let Some((idle_due, wander_due)) = s
-        .things
-        .get(id)
-        .and_then(|t| t.creature.as_ref())
-        .map(|c| (c.next_idle < now, c.next_wander < now))
-    else {
+    let Some((idle_due, wander_due, template)) = s.things.get(id).and_then(|t| {
+        t.creature
+            .as_ref()
+            .map(|c| (c.next_idle < now, c.next_wander < now, t.template))
+    }) else {
         return;
     };
-    let idle = idle_due.then(|| now + crate::ai::idle_gap(s));
+    let idle = idle_due.then(|| now + crate::ai::idle_gap(s, template));
     let wander = wander_due.then(|| now + rest_left(s));
     let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
         return;

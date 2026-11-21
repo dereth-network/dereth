@@ -50,7 +50,8 @@
 //!                                [[guarded]], [[shifting]], [[hazard]],
 //!                                [[wanting]]
 //! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]],
-//!                                [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
+//!                                [[ai_class]], [[safe_passage]], [[creature_effect]],
+//!                                [[defense]], [[round]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! <pack>/server/allegiance.toml   [[allegiance_hall]], [[allegiance_oath]]

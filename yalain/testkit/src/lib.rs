@@ -2327,6 +2327,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         aligned: std::collections::BTreeMap::new(),
         safe_passage: Vec::new(),
         effects: Vec::new(),
+        idle_every: std::collections::BTreeMap::new(),
     }
 }
 

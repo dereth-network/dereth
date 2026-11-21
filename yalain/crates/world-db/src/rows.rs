@@ -792,6 +792,7 @@ pub enum Row {
     NpcTable(NpcTable),
     FriendTable(FriendTable),
     Creature(Creature),
+    AiClass(AiClass),
     SafePassage(SafePassageRow),
     CreatureEffect(CreatureEffectRow),
     Defense(DefenseRow),
@@ -849,6 +850,15 @@ pub struct Creature {
     pub kept_out_line: Option<StrRef>,
     /// How long, in seconds, one holds the kingdom its template names after it appears.
     pub aligned_for: Option<f64>,
+    pub prov: Prov,
+}
+
+/// `[[ai_class]]`: what the world says of the creatures of an AI class (their template's AI
+/// superclass): the mean gap between their idle behaviors at rest, in seconds above 0.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiClass {
+    pub class: u32,
+    pub idle_every: f64,
     pub prov: Prov,
 }
 
@@ -1672,6 +1682,7 @@ impl Row {
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
             Self::Creature(_) => "creature",
+            Self::AiClass(_) => "ai_class",
             Self::SafePassage(_) => "safe_passage",
             Self::CreatureEffect(_) => "creature_effect",
             Self::Defense(_) => "defense",
@@ -1756,6 +1767,7 @@ impl Row {
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
             Self::Creature(r) => Some(&r.prov),
+            Self::AiClass(r) => Some(&r.prov),
             Self::SafePassage(r) => Some(&r.prov),
             Self::CreatureEffect(r) => Some(&r.prov),
             Self::Defense(r) => Some(&r.prov),
@@ -1842,6 +1854,7 @@ pub const KINDS: &[&str] = &[
     "npc_table",
     "friend_table",
     "creature",
+    "ai_class",
     "safe_passage",
     "creature_effect",
     "defense",
@@ -2455,6 +2468,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "prov",
         ],
     ),
+    ("ai_class", &["class", "idle_every", "prov"]),
     (
         "safe_passage",
         &["key", "camp", "template", "item", "effect", "prov"],
@@ -4429,6 +4443,17 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 class,
                 regard,
+                prov: f.req_prov()?,
+            })
+        }
+        "ai_class" => {
+            let class = f.req_id("class")?;
+            let idle_every = f.req_float("idle_every")?;
+            let ok = idle_every.is_finite() && idle_every > 0.0;
+            let idle_every = f.held("idle_every", idle_every, ok, "seconds above 0")?;
+            Row::AiClass(AiClass {
+                class,
+                idle_every,
                 prov: f.req_prov()?,
             })
         }

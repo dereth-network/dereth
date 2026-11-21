@@ -7588,6 +7588,44 @@ fn a_creatures_row_reads_how_long_its_creatures_hold_their_kingdom() {
     }
 }
 
+/// An AI class's row gives its creatures' mean gap between idles, kept by the class; a gap not a
+/// number of seconds above 0, or a row with no gap or no class, is refused.
+#[test]
+fn an_ai_class_row_reads_its_creatures_idle_gap_and_refuses_a_malformed_one() {
+    const ROW: &str =
+        "[[ai_class]]\nclass = 0x06\nidle_every = 295\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.creatures
+            .idle_every
+            .iter()
+            .map(|(c, g)| (*c, *g))
+            .collect::<Vec<_>>(),
+        [(6, 295.0)]
+    );
+    for no in [
+        "idle_every = 0",
+        "idle_every = -5",
+        "idle_every = \"often\"",
+        "idle_every = nan",
+        "",
+    ] {
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROW.replacen("idle_every = 295", no, 1),
+        );
+        assert!(read(&files).is_err(), "{no:?}");
+    }
+    files.insert(
+        "town/server/creatures.toml".into(),
+        ROW.replacen("class = 0x06\n", "", 1),
+    );
+    assert!(read(&files).is_err(), "no class");
+}
+
 /// A creature's row may say its creatures never play their victory: the template is kept; false, or
 /// anything not true or false, is refused, and a row giving only that is a row.
 #[test]
