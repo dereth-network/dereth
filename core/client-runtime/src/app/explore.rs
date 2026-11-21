@@ -30,10 +30,10 @@ impl<S: Shell> App<S> {
     #[must_use]
     pub fn explore_status(&self) -> Option<Status> {
         let explore = self.explore?;
-        let location = self.world.as_ref().and_then(|ws| {
-            ws.viewer_block()
-                .map(|block| crate::explore::short_location(&ws.camera, block))
-        });
+        let location = self
+            .world
+            .as_ref()
+            .and_then(crate::explore::screen_location);
         Some(Status {
             meters_per_second: explore.meters_per_second(),
             location,

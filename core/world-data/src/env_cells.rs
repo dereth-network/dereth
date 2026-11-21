@@ -391,6 +391,69 @@ pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
     }
 }
 
+/// A room as a free camera with no body asks of it: which points it holds, and where its shape
+/// lies in its landblock.
+#[derive(Debug, Clone)]
+pub struct RoomShape {
+    pub id: CellId,
+    /// The cell's placement frame inside its landblock.
+    pub frame: Frame,
+    /// The tree that says which cell-local points the room holds.
+    pub cell_bsp: Arc<BspTree>,
+    /// Whether the room is seen from outside.
+    pub seen_outside: bool,
+    /// The corners of the box its own shape fills, block-local.
+    pub min: Vec3,
+    pub max: Vec3,
+}
+
+impl RoomShape {
+    /// Whether the room holds the block-local point `p`.
+    #[must_use]
+    pub fn holds(&self, p: Vec3) -> bool {
+        p.x >= self.min.x
+            && p.x <= self.max.x
+            && p.y >= self.min.y
+            && p.y <= self.max.y
+            && p.z >= self.min.z
+            && p.z <= self.max.z
+            && self
+                .cell_bsp
+                .point_inside_cell_bsp(dereth_physics::math::globaltolocal(&self.frame, p))
+    }
+
+    /// Whether the room lies over or under the block-local point `(x, y)`.
+    #[must_use]
+    pub fn spans(&self, x: f32, y: f32) -> bool {
+        x >= self.min.x && x <= self.max.x && y >= self.min.y && y <= self.max.y
+    }
+}
+
+/// The cell's [`RoomShape`]; `None` for a cell with no portals, which holds no point, or with no
+/// tree of its own.
+#[must_use]
+pub fn room_shape(d: &DecodedCell) -> Option<RoomShape> {
+    if d.cell.portals.is_empty() || d.structure.cell_bsp.nodes.is_empty() {
+        return None;
+    }
+    let frame = d.cell.frame;
+    let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+    let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    for v in &d.structure.vertex_array.vertices {
+        let p = dereth_physics::math::localtoglobal(&frame, v.position);
+        min = Vec3::new(min.x.min(p.x), min.y.min(p.y), min.z.min(p.z));
+        max = Vec3::new(max.x.max(p.x), max.y.max(p.y), max.z.max(p.z));
+    }
+    (min.x <= max.x).then(|| RoomShape {
+        id: d.id,
+        frame,
+        cell_bsp: Arc::new(convert_bsp(&d.structure.cell_bsp, Arc::default(), &[])),
+        seen_outside: d.cell.flags & 1 != 0,
+        min,
+        max,
+    })
+}
+
 /// A cell's portals in physics shape: [`physics_geometry`]'s, shared with the static
 /// cross-cell search's lighter cells.
 fn cell_portals(d: &DecodedCell) -> Vec<CellPortal> {

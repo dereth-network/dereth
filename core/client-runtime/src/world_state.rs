@@ -161,6 +161,9 @@ pub struct WorldState {
     /// drawn from inside, as a body's camera there would draw it. `None` for the client's own
     /// free camera, which draws only from outdoors.
     pub free_camera_cell: Option<(CellId, bool)>,
+    /// The rooms of the landblocks round the explore camera, by the block's coordinates, so that
+    /// it knows which room it is in ([`crate::explore::keep_rooms`]). Empty outside explore.
+    pub rooms: std::collections::BTreeMap<(i32, i32), Vec<dereth_world_data::env_cells::RoomShape>>,
     /// The physics bodies of the objects every resident interior cell bakes in.
     /// It lives here rather than beside the
     /// body because a cell belongs to a landblock and this is what owns the resident blocks.

@@ -260,6 +260,7 @@ impl<S: Shell> App<S> {
         // `--explore` flies the free camera at the speed the player chose.
         if let (Some(explore), Some(ws)) = (self.explore, self.world.as_mut()) {
             ws.fly_speed = Some(explore.meters_per_second());
+            crate::explore::keep_rooms(ws, &self.store);
         }
         // The rising-edge controls are consumed here, once, so a key press cannot be issued twice.
         self.char_input.jump = false;

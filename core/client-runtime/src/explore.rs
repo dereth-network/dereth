@@ -10,6 +10,7 @@
 //! What this module holds is the mode's own state (how fast the camera flies) and its words (the
 //! location line it copies). The keys that fly it are the front end's.
 
+use dereth_primitives::frame::V3 as _;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
@@ -173,13 +174,81 @@ pub fn ground_under(window: &crate::world_stream::LandblockWindow, x: f32, y: f3
     plane_set_height(&t.plane, lx, ly)
 }
 
+/// The landblock `camera` is over, by its coordinates, in the render space whose origin is the
+/// south-west corner of `viewer_block`.
+fn block_of(camera: &FreeCamera, viewer_block: (i32, i32)) -> (i32, i32) {
+    let at = camera_position(camera, viewer_block);
+    #[allow(clippy::cast_possible_wrap)] // a landblock index, 0..=255
+    (
+        ((at.cell.0 >> 24) & 0xFF) as i32,
+        ((at.cell.0 >> 16) & 0xFF) as i32,
+    )
+}
+
+/// Keep in `ws` the rooms of the landblocks round the free camera's, read from `store` as the
+/// camera comes near them, so [`hold_over_the_world`] knows which room the camera is in and
+/// which it flies over. The rest are let go.
+pub fn keep_rooms(ws: &mut crate::world_state::WorldState, store: &dereth_dat::RetailDatStore) {
+    let Some(viewer) = ws.viewer_block() else {
+        return;
+    };
+    let (bx, by) = block_of(&ws.camera, viewer);
+    ws.rooms
+        .retain(|&(x, y), _| (x - bx).abs() <= 1 && (y - by).abs() <= 1);
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            let b = (bx + dx, by + dy);
+            if ws.rooms.contains_key(&b) {
+                continue;
+            }
+            if !(0..=0xFE).contains(&b.0) || !(0..=0xFE).contains(&b.1) {
+                continue;
+            }
+            let id = block_id(b);
+            let rooms = dereth_world_data::env_cells::EnvCellLoader::new()
+                .load_block(store, id)
+                .iter()
+                .filter_map(dereth_world_data::env_cells::room_shape)
+                .collect();
+            ws.rooms.insert(b, rooms);
+        }
+    }
+}
+
 /// Hold the free camera of `ws` where it may fly: over the world's blocks, and at least
-/// [`ABOVE_THE_GROUND`] over the ground drawn under it.
+/// [`ABOVE_THE_GROUND`] over the ground drawn under it, except in or over a room its landblock
+/// holds. A room may lie under the ground (a cellar, a dungeon), so a camera in one stands in it
+/// and the world is drawn from inside it, and a camera over or under one may fly through the
+/// ground to it and back out.
 pub fn hold_over_the_world(ws: &mut crate::world_state::WorldState) {
     let Some(block) = ws.viewer_block() else {
         return;
     };
     keep_in_world(&mut ws.camera, block);
+    let at = camera_position(&ws.camera, block);
+    let lb = block_of(&ws.camera, block);
+    // A room may reach past its own block's edge, so the blocks round the camera's are asked
+    // too, each of the point in its own block-local space.
+    let mut nearby = Vec::new();
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            if let Some(rooms) = ws.rooms.get(&(lb.0 + dx, lb.1 + dy)) {
+                #[allow(clippy::cast_precision_loss)] // -1, 0 or 1
+                let local =
+                    at.frame
+                        .origin
+                        .sub(Vec3::new(dx as f32 * BLOCK, dy as f32 * BLOCK, 0.0));
+                nearby.extend(rooms.iter().map(|r| (r, local)));
+            }
+        }
+    }
+    ws.free_camera_cell = nearby
+        .iter()
+        .find(|(r, p)| r.holds(*p))
+        .map(|(r, _)| (r.id, r.seen_outside));
+    if ws.free_camera_cell.is_some() || nearby.iter().any(|(r, p)| r.spans(p.x, p.y)) {
+        return;
+    }
     let p = ws.camera.position;
     if let Some(ground) = ground_under(&ws.streamer.window, p.x, p.y) {
         ws.camera.position.z = p.z.max(ground + ABOVE_THE_GROUND);
@@ -195,12 +264,40 @@ pub fn location_line(camera: &FreeCamera, viewer_block: (i32, i32)) -> String {
     )
 }
 
-/// The camera's spot, short, for the screen: the cell and the place to a tenth of a meter.
+/// The camera's spot, short, for the screen: the cell and the place to a tenth of a meter. In
+/// `room`, it is that room and the place measured from the room's block, which may be a
+/// neighbor of the block the camera is over.
 #[must_use]
-pub fn short_location(camera: &FreeCamera, viewer_block: (i32, i32)) -> String {
+pub fn short_location(
+    camera: &FreeCamera,
+    viewer_block: (i32, i32),
+    room: Option<dereth_primitives::CellId>,
+) -> String {
     let p = camera_position(camera, viewer_block);
-    let o = p.frame.origin;
-    format!("{:#010X} [{:.1} {:.1} {:.1}]", p.cell.0, o.x, o.y, o.z)
+    let (cell, o) = match room {
+        Some(room) => {
+            let block = |c: u32| ((c >> 24) & 0xFF, (c >> 16) & 0xFF);
+            let ((rx, ry), (cx, cy)) = (block(room.0), block(p.cell.0));
+            // LINT-OK: block indices, 0..=255, and their differences.
+            #[allow(clippy::cast_precision_loss)]
+            let shift = Vec3::new(
+                (rx as f32 - cx as f32) * BLOCK,
+                (ry as f32 - cy as f32) * BLOCK,
+                0.0,
+            );
+            (room.0, p.frame.origin.sub(shift))
+        }
+        None => (p.cell.0, p.frame.origin),
+    };
+    format!("{cell:#010X} [{:.1} {:.1} {:.1}]", o.x, o.y, o.z)
+}
+
+/// What the screen says of the camera's spot: [`short_location`], in the room the camera is in
+/// when it is in one; `None` before the world is up.
+#[must_use]
+pub fn screen_location(ws: &crate::world_state::WorldState) -> Option<String> {
+    ws.viewer_block()
+        .map(|block| short_location(&ws.camera, block, ws.free_camera_cell.map(|c| c.0)))
 }
 
 /// Read a location to start from. See the module header for the forms it reads.
@@ -376,7 +473,7 @@ mod tests {
         assert!((back.origin.z - (300.0 + ABOVE_A_BODY)).abs() < 1e-3);
         assert!((back.yaw - 1.0).abs() < 1e-4, "{}", back.yaw);
         assert_eq!(
-            short_location(&camera, (0xA9, 0xB4)),
+            short_location(&camera, (0xA9, 0xB4), None),
             format!(
                 "{:#010X} [58.0 20.0 300.0]",
                 outdoor_cell(0xAAB4, 58.0, 20.0)
@@ -499,6 +596,239 @@ mod tests {
             "the camera stopped at {z}"
         );
         assert!((ws.camera.position.x - 133.1685).abs() < 1e-3);
+    }
+
+    /// Holtburg's world with no body and the explore camera flying, and the block's coordinates.
+    fn holtburg_explored() -> (
+        std::sync::Arc<dereth_dat::RetailDatStore>,
+        crate::scene::SceneConfig,
+        crate::world_state::WorldState,
+        crate::world_build::BlockResidency,
+    ) {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {}",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let cfg = crate::scene::SceneConfig {
+            landblock: 0xA9B4,
+            character: false,
+            land_radius: 1,
+            scenery_radius: 0,
+            ..crate::scene::SceneConfig::default()
+        };
+        let (mut ws, residency) = crate::world_build::load(&store, &cfg).expect("the world loads");
+        ws.fly_speed = Some(10.0);
+        keep_rooms(&mut ws, &store);
+        (store, cfg, ws, residency)
+    }
+
+    /// `n` frames of the explore camera held as `input` says.
+    fn fly(
+        store: &std::sync::Arc<dereth_dat::RetailDatStore>,
+        cfg: &crate::scene::SceneConfig,
+        ws: &mut crate::world_state::WorldState,
+        residency: &mut crate::world_build::BlockResidency,
+        now: &mut f64,
+        input: crate::camera::CameraInput,
+        n: usize,
+    ) {
+        let mut stats = crate::world_step::StepCounters::default();
+        let dt = 1.0 / 30.0;
+        for _ in 0..n {
+            *now += f64::from(dt);
+            keep_rooms(ws, store);
+            crate::world_step::update(
+                ws,
+                residency,
+                cfg,
+                input,
+                crate::character::CharacterInput::default(),
+                dereth_primitives::LocalTime(*now),
+                dt,
+                &mut stats,
+            );
+            residency.stream(ws, store, cfg);
+        }
+    }
+
+    /// A room of Holtburg's block reaching under the ground, and a point it holds at least a
+    /// meter under the ground there, block-local.
+    fn a_cellar(ws: &crate::world_state::WorldState) -> (dereth_primitives::CellId, Vec3) {
+        let rooms = &ws.rooms[&(0xA9, 0xB4)];
+        let block = ws.viewer_block().expect("a window");
+        assert_eq!(block, (0xA9, 0xB4), "the world is drawn around Holtburg");
+        for r in rooms {
+            for i in 0..=4u8 {
+                for j in 0..=4u8 {
+                    let x = r.min.x + (r.max.x - r.min.x) * f32::from(i) / 4.0;
+                    let y = r.min.y + (r.max.y - r.min.y) * f32::from(j) / 4.0;
+                    if !(1.0..191.0).contains(&x) || !(1.0..191.0).contains(&y) {
+                        continue;
+                    }
+                    let Some(ground) = ground_under(&ws.streamer.window, x, y) else {
+                        continue;
+                    };
+                    for k in 0..=8u8 {
+                        let z = r.min.z + (r.max.z - r.min.z) * f32::from(k) / 8.0;
+                        let p = Vec3::new(x, y, z);
+                        if z < ground - 1.0 && r.holds(p) {
+                            return (r.id, p);
+                        }
+                    }
+                }
+            }
+        }
+        panic!(
+            "Holtburg's block holds no room under the ground among {}",
+            rooms.len()
+        )
+    }
+
+    /// With no device, a camera started in a room under the ground (a cellar) stays there and
+    /// stands in it.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_camera_started_in_a_cellar_stays_there_and_stands_in_it() {
+        let (store, cfg, mut ws, mut residency) = holtburg_explored();
+        let mut now = 1.0;
+        let (cellar, p) = a_cellar(&ws);
+        ws.camera.position = p;
+        fly(
+            &store,
+            &cfg,
+            &mut ws,
+            &mut residency,
+            &mut now,
+            crate::camera::CameraInput::default(),
+            30,
+        );
+        assert_eq!(ws.camera.position, p, "the camera moved");
+        assert_eq!(ws.free_camera_cell.map(|c| c.0), Some(cellar));
+    }
+
+    /// With no device, a camera flown straight down from over a cellar goes through the ground into
+    /// it, and flown back up comes out over the ground, outdoors again.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_camera_flies_down_into_a_cellar_and_back_out() {
+        let (store, cfg, mut ws, mut residency) = holtburg_explored();
+        let mut now = 1.0;
+        let (cellar, p) = a_cellar(&ws);
+        let ground = ground_under(&ws.streamer.window, p.x, p.y).expect("the ground");
+        ws.camera.position = Vec3::new(p.x, p.y, ground + 5.0);
+        let (down, up) = (
+            crate::camera::CameraInput {
+                down: true,
+                ..crate::camera::CameraInput::default()
+            },
+            crate::camera::CameraInput {
+                up: true,
+                ..crate::camera::CameraInput::default()
+            },
+        );
+        let mut reached = false;
+        for _ in 0..300 {
+            fly(&store, &cfg, &mut ws, &mut residency, &mut now, down, 1);
+            if ws.free_camera_cell.map(|c| c.0) == Some(cellar) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(
+            reached,
+            "flown down from {:.2} the camera stopped at {:.2}, the cellar at {:.2}",
+            ground + 5.0,
+            ws.camera.position.z,
+            p.z
+        );
+        let shown = screen_location(&ws).expect("the world is up");
+        assert!(
+            shown.starts_with(&format!("{:#010X} [", cellar.0)),
+            "in the cellar the screen says {shown}"
+        );
+        fly(&store, &cfg, &mut ws, &mut residency, &mut now, up, 150);
+        assert!(
+            ws.camera.position.z > ground + ABOVE_THE_GROUND,
+            "flown up the camera is at {:.2}, the ground at {ground:.2}",
+            ws.camera.position.z
+        );
+        assert_eq!(
+            ws.free_camera_cell, None,
+            "out over the ground the camera is outdoors"
+        );
+        let shown = screen_location(&ws).expect("the world is up");
+        assert!(
+            shown.starts_with("0xA9B400"),
+            "out over the ground the screen says {shown}"
+        );
+    }
+
+    /// With no device, a camera under the ground where no room lies over or under it is put back
+    /// over the ground.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_camera_under_the_ground_away_from_every_room_is_put_back_over_it() {
+        let (store, cfg, mut ws, mut residency) = holtburg_explored();
+        let mut now = 1.0;
+        let rooms = ws.rooms[&(0xA9, 0xB4)].clone();
+        let (x, y) = (0u8..48)
+            .flat_map(|i| {
+                (0u8..48).map(move |j| (f32::from(i) * 4.0 + 2.0, f32::from(j) * 4.0 + 2.0))
+            })
+            .find(|&(x, y)| !rooms.iter().any(|r| r.spans(x, y)))
+            .expect("open land in Holtburg's block");
+        let ground = ground_under(&ws.streamer.window, x, y).expect("the ground");
+        ws.camera.position = Vec3::new(x, y, ground - 5.0);
+        fly(
+            &store,
+            &cfg,
+            &mut ws,
+            &mut residency,
+            &mut now,
+            crate::camera::CameraInput::default(),
+            1,
+        );
+        assert!(
+            (ws.camera.position.z - (ground + ABOVE_THE_GROUND)).abs() < 1e-3,
+            "the camera is at {:.3}, the ground at {ground:.3}",
+            ws.camera.position.z
+        );
+        assert_eq!(ws.free_camera_cell, None);
+    }
+
+    #[test]
+    fn in_a_room_the_screen_names_the_room_and_measures_from_its_block() {
+        let camera = FreeCamera::new(Vec3::new(58.0, 20.0, -30.0), 0.0, 0.0);
+        let outdoors = short_location(&camera, (0xA9, 0xB4), None);
+        assert!(outdoors.starts_with("0xA9B400"), "{outdoors}");
+        assert_eq!(
+            short_location(
+                &camera,
+                (0xA9, 0xB4),
+                Some(dereth_primitives::CellId(0xA9B4_0105))
+            ),
+            "0xA9B40105 [58.0 20.0 -30.0]"
+        );
+        // A room of the block to the east reaching back over this one.
+        assert_eq!(
+            short_location(
+                &camera,
+                (0xA9, 0xB4),
+                Some(dereth_primitives::CellId(0xAAB4_0100))
+            ),
+            "0xAAB40100 [-134.0 20.0 -30.0]"
+        );
     }
 
     #[test]
