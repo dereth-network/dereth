@@ -26,8 +26,11 @@
 //! (behind a wall, a rock or a closed door) always is: the missile meets what stands between them.
 //!
 //! **Specials.** At each attack, a special within its range and not barred is used instead of a
-//! basic attack by its chance: about one attack in ten for each special at hand (2017: 0.104,
-//! 0.138, 0.207 with one, two, three), the start area's two by their own measured chances. A use
+//! basic attack by its chance, by how many are at hand: for the generic monsters (a sub class)
+//! 0.081, 0.142 and 0.201 with one, two and three or more, for the rest 0.136 with one, 0.223 with
+//! two and 0.10 for each with more (2017's for the generic monsters' one to three and the rest's
+//! two, the others this server's own: [`SPECIAL_CHANCES`]), the start area's two by their own
+//! measured chances. A use
 //! bars it for 40 s (2017: 1,013 of 1,027 gaps between one creature's uses 38 s or more), so most
 //! fights see it once. It is told like a basic attack without the basic-attack flag; a special that
 //! throws nothing strikes where the creature stands. A harming missile's hit also drains the
@@ -147,9 +150,39 @@ pub const CREATURE_ATTACKS: [AttackSkill; 9] = [
     },
 ];
 
-/// The chance a creature uses one of its specials at an attack, for each special at hand (2017:
-/// 0.104 with one, 0.138 with two, 0.207 with three, over 56,499 attacks).
-pub const SPECIAL_CHANCE: f32 = 0.10;
+/// The chance a creature uses one of its specials at an attack, by how many are at hand, for a
+/// creature of the generic monsters' tables (one with a sub class: one, two, three or more) and for
+/// any other (one, two). 2017's attacks with specials at hand, pets and the start area's two left
+/// out, by distinct event: the generic monsters' 1,261 of 14,923 with one, 1,155 of 8,154 with two,
+/// 1,593 of 8,035 with three; the others' 849 of 3,601 with two. This server's own where 2017's
+/// differ or tell no rate: a generic monster with four or more keeps three's chance (2017: 69 of
+/// 230, 0.300), another with one keeps 0.136 (2017: 392 of 3,182, 0.123), and another with three or
+/// more takes [`OLDER_SPECIAL_EACH`] (2017: 91 of 127 over 39 creatures of 14 templates, too uneven
+/// to be a rate).
+pub const SPECIAL_CHANCES: [f32; 3] = [0.081, 0.142, 0.201];
+pub const OLDER_SPECIAL_CHANCES: [f32; 2] = [0.136, 0.223];
+/// The chance for each special at hand of a creature not of the generic monsters' tables with three
+/// or more, at most 1: this server's own.
+pub const OLDER_SPECIAL_EACH: f32 = 0.10;
+
+/// The chance a creature uses one of its specials at an attack, with so many at hand: one table
+/// for the generic monsters, flat past three; the other for the rest, and past two
+/// [`OLDER_SPECIAL_EACH`] for each.
+#[must_use]
+pub fn special_chance(at_hand: usize, generic: bool) -> f32 {
+    if !generic && at_hand > OLDER_SPECIAL_CHANCES.len() {
+        #[allow(clippy::cast_precision_loss)]
+        return (OLDER_SPECIAL_EACH * at_hand as f32).min(1.0);
+    }
+    let table: &[f32] = if generic {
+        &SPECIAL_CHANCES
+    } else {
+        &OLDER_SPECIAL_CHANCES
+    };
+    at_hand
+        .checked_sub(1)
+        .map_or(0.0, |i| table[i.min(table.len() - 1)])
+}
 /// How long a special's use bars it, in seconds (2017: the least gaps 39.6-40.2 s).
 pub const SPECIAL_BARRED: f64 = 40.0;
 /// The skills below this number are a creature's combat ratings, never used.
@@ -321,8 +354,8 @@ pub fn attacks_of(
 }
 
 /// The special a creature uses at this attack, if any: of its specials within reach of the target
-/// and not barred, one by its own measured chance, else by the general chance for each at hand,
-/// drawn among them. Its use is recorded (it is barred for 40 s after).
+/// and not barred, one by its own measured chance, else by the chance for so many at hand
+/// ([`special_chance`]), drawn among them. Its use is recorded (it is barred for 40 s after).
 pub fn pick_special<S: Store>(
     s: &mut Server<S>,
     id: u64,
@@ -330,11 +363,11 @@ pub fn pick_special<S: Store>(
     distance: f32,
     now: f64,
 ) -> Option<AttackSkill> {
-    let barred = s
+    let (barred, generic) = s
         .things
         .get(id)
         .and_then(|t| t.creature.as_ref())
-        .map(|c| c.barred.clone())
+        .map(|c| (c.barred.clone(), c.stats.sub_class.is_some()))
         .unwrap_or_default();
     let at_hand: Vec<AttackSkill> = specials
         .iter()
@@ -355,8 +388,7 @@ pub fn pick_special<S: Store>(
         .filter(|a| a.special_chance > 0.0)
         .collect();
     let pick = if own.is_empty() {
-        #[allow(clippy::cast_precision_loss)]
-        let p = (SPECIAL_CHANCE * at_hand.len() as f32).min(1.0);
+        let p = special_chance(at_hand.len(), generic);
         s.rng.chance(p).then(|| at_hand[s.rng.below(at_hand.len())])
     } else {
         own.iter().copied().find(|a| s.rng.chance(a.special_chance))

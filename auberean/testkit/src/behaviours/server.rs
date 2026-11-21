@@ -4198,12 +4198,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.specials-at-hand-where-ours",
+        says: "Where 2017's attacks differ or tell no rate, a creature's chance of a special by how \
+               many are at hand is this server's own: a generic monster with four or more keeps \
+               three's 0.201, any other with one 0.136, and any other with three or more 0.10 for \
+               each at hand, at most 1.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIALS-AT-HAND-OURS"),
+        station: "yalain-testkit::cpu::play::creature_tactics::an_older_creature_with_three_or_more_specials_at_hand_uses_one_a_tenth_for_each",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.specials-barred-forty-seconds",
         says: "A creature's special is told without the basic-attack flag, and once used it \
                waits 40 seconds before the creature uses it again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-BARRED"),
         station: "yalain-testkit::cpu::play::missiles::a_creatures_special_waits_forty_seconds_before_it_is_used_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.specials-by-how-many-at-hand",
+        says: "A creature uses one of its specials at an attack by how many are at hand: a generic \
+               monster 0.081 with one, 0.142 with two and 0.201 with three, any other 0.223 with two.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIALS-AT-HAND"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_uses_a_special_by_how_many_it_has_at_hand",
         tier: Tier::Cpu,
     },
     behaviour! {

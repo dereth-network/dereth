@@ -784,6 +784,104 @@ fn a_generic_monster_favors_its_plain_attack_four_to_two_to_one() {
     }
 }
 
+/// A creature uses one of its specials at an attack by how many are at hand: a generic monster
+/// 0.081 with one, 0.142 with two and 0.201 with three, any other 0.223 with two (and, by this
+/// server's own numbers, a generic monster 0.201 with more, any other 0.136 with one); drawn among
+/// those at hand.
+/// Behaviour: server.creatures.specials-by-how-many-at-hand
+/// Behaviour: server.creatures.specials-at-hand-where-ours
+#[test]
+fn a_creature_uses_a_special_by_how_many_it_has_at_hand() {
+    assert_eq!(
+        (1..=5)
+            .map(|n| missiles::special_chance(n, true))
+            .collect::<Vec<_>>(),
+        [0.081, 0.142, 0.201, 0.201, 0.201]
+    );
+    assert_eq!(
+        (1..=2)
+            .map(|n| missiles::special_chance(n, false))
+            .collect::<Vec<_>>(),
+        [0.136, 0.223]
+    );
+    assert_eq!(missiles::special_chance(0, true), 0.0);
+    // Specials of the start area's kind that never bar, so every draw has them all at hand.
+    let special = |skill: u32| AttackSkill {
+        skill,
+        special_chance: 0.0,
+        barred_after: false,
+        max_range: 40.0,
+        ..CREATURE_ATTACKS[3]
+    };
+    let three = [special(901), special(902), special(903)];
+    let (mut h, _, _, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let share = |h: &mut Harness, generic: bool, n: usize| -> f32 {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.stats.sub_class = generic.then_some(7);
+        }
+        let now = h.now.0;
+        let used = (0..20_000)
+            .filter(|_| missiles::pick_special(&mut h.server, id, &three[..n], 5.0, now).is_some())
+            .count();
+        used as f32 / 20_000.0
+    };
+    for (generic, n, want) in [
+        (true, 1, 0.081),
+        (true, 2, 0.142),
+        (true, 3, 0.201),
+        (false, 1, 0.136),
+        (false, 2, 0.223),
+    ] {
+        let got = share(&mut h, generic, n);
+        assert!(
+            (got - want).abs() < 0.012,
+            "generic {generic}, {n} at hand: {got}"
+        );
+    }
+}
+
+/// A creature not of the generic monsters' tables with three or more specials at hand uses one at
+/// an attack 0.10 for each, at most 1 (this server's own); drawn among those at hand.
+/// Behaviour: server.creatures.specials-at-hand-where-ours
+#[test]
+fn an_older_creature_with_three_or_more_specials_at_hand_uses_one_a_tenth_for_each() {
+    assert_eq!(
+        [3, 4, 10, 12].map(|n| missiles::special_chance(n, false)),
+        [0.3, 0.4, 1.0, 1.0]
+    );
+    let special = |skill: u32| AttackSkill {
+        skill,
+        special_chance: 0.0,
+        barred_after: false,
+        max_range: 40.0,
+        ..CREATURE_ATTACKS[3]
+    };
+    let four = [special(901), special(902), special(903), special(904)];
+    let (mut h, _, _, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.sub_class = None;
+    }
+    for (n, want) in [(3, 0.3), (4, 0.4)] {
+        let now = h.now.0;
+        let used = (0..20_000)
+            .filter(|_| missiles::pick_special(&mut h.server, id, &four[..n], 5.0, now).is_some())
+            .count();
+        #[allow(clippy::cast_precision_loss)]
+        let got = used as f32 / 20_000.0;
+        assert!((got - want).abs() < 0.015, "{n} at hand: {got}");
+    }
+}
+
 /// A damage debuff on a creature takes from each of its hits (Blood Loather at a rating of 50
 /// takes 40).
 /// Behaviour: server.creatures.damage-debuffs
