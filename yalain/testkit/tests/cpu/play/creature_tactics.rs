@@ -15,6 +15,7 @@ use yalain_testkit::{
     CREATURE_RESTORE_VIGOR, HEART_OF_ICE_EFFECT, PARALYZE_EFFECT, STILL_WATER_EFFECT,
     VACUUM_EFFECT,
 };
+use yalain_world::ai;
 use yalain_world::combat;
 use yalain_world::effect_defs::{EffectDef, Kind, Scale};
 use yalain_world::effects::{self, Cast, On};
@@ -2315,5 +2316,250 @@ fn a_creature_of_a_class_with_a_notice_idle_plays_an_idle_as_it_notices_a_player
         assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Chasing)));
         h.run(2);
         assert_eq!(idles_of(&h, b, from, id), played, "row {row:?}");
+    }
+}
+
+/// The creature's last blow, when it may set off home, and its mode.
+fn going_home(h: &Harness, id: u64) -> (f64, f64, Mode) {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| (c.last_blow, c.home_after, c.mode))
+        .expect("a creature")
+}
+
+fn place(h: &Harness, id: u64) -> [f32; 3] {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.at)
+        .expect("in the world")
+        .origin
+}
+
+/// A creature that fought a player and gives up when the player goes beyond its perception stands
+/// where the fight left it for its drawn wait after its last blow, cut at eleven seconds (the
+/// ninetieth percentile, this server's choice), and only then runs home.
+/// Behaviour: server.creatures.a-pause-before-going-home
+#[test]
+fn a_creature_giving_up_stands_its_wait_after_its_last_blow_then_runs_home() {
+    let (mut h, _b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    h.run(60);
+    let home = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.home)
+        .expect("a creature");
+    stand_off(&mut h, me, home, 80.0);
+    assert!(h.run_until(200, |h| going_home(h, id).2 == Mode::Returning));
+    let (blow, after, _) = going_home(&h, id);
+    let now = h.now.0;
+    assert!(blow.is_finite(), "it came to blows");
+    let wait = after - blow;
+    assert!(
+        wait >= 0.0 && wait <= ai::HOME_AFTER_A_BLOW[18].max(now - blow) + 1e-9,
+        "its wait after its last blow: {wait}"
+    );
+    let stood = place(&h, id);
+    while h.now.0 + yalain_testkit::STEP < after {
+        h.run(1);
+        assert_eq!(
+            place(&h, id),
+            stood,
+            "it stands until {after} ({})",
+            h.now.0
+        );
+    }
+    assert!(
+        h.run_until(20, |h| place(h, id) != stood),
+        "then it sets off home"
+    );
+}
+
+/// A creature's wait is kept from its last blow, not from when it gives up: one whose last blow is
+/// twenty seconds past sets off at once.
+/// Behaviour: server.creatures.a-pause-before-going-home
+#[test]
+fn a_creature_whose_last_blow_is_long_past_sets_off_home_as_it_gives_up() {
+    let (mut h, _b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let home = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.home)
+        .expect("a creature");
+    stand_off(&mut h, me, home, 80.0);
+    let past = h.now.0 - 20.0;
+    // No blow falls from here on: the player is far off.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.last_blow = past;
+    }
+    assert!(h.run_until(200, |h| going_home(h, id).2 == Mode::Returning));
+    let (blow, after, _) = going_home(&h, id);
+    assert!((blow - past).abs() < 1e-9, "no blow since");
+    assert!(
+        after <= h.now.0 + 1e-9,
+        "it sets off at once: due {} s on",
+        after - h.now.0
+    );
+}
+
+/// A creature that went after a player and never came to blows stands its wait after its peace,
+/// cut at about a second and a half (the ninetieth percentile, this server's choice), then runs
+/// home.
+/// Behaviour: server.creatures.a-pause-before-going-home
+#[test]
+fn a_creature_that_never_came_to_blows_stands_its_wait_after_its_peace() {
+    let (mut h, _b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let home = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.home)
+        .expect("a creature");
+    stand_off(&mut h, me, home, 80.0);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.last_blow = f64::NEG_INFINITY;
+    }
+    assert!(h.run_until(200, |h| going_home(h, id).2 == Mode::Returning));
+    let (blow, after, _) = going_home(&h, id);
+    assert!(blow.is_infinite(), "no blow");
+    let wait = after - h.now.0;
+    assert!(
+        (0.0..=ai::HOME_AFTER_A_CHASE[18] + 1e-9).contains(&wait),
+        "its wait after its peace: {wait}"
+    );
+}
+
+/// The waits' median and quartiles are 2017's: after a blow about 2.2 s, and about 1.1 and 4.6 s;
+/// after a chase about 0.95 s, and about 0.69 and 1.17 s. Each wait is cut at the ninetieth
+/// percentile, 11 s and 1.58 s, this server's choice, the longer stands left out.
+/// Behaviour: server.creatures.a-pause-before-going-home
+#[test]
+fn the_waits_before_going_home_have_2017s_median_and_quartiles_and_are_cut_at_the_ninetieth() {
+    let mut rng = yalain_world::rng::Rng::new(0x1153);
+    let quantiles = |rng: &mut yalain_world::rng::Rng, table: &[f64; 19]| {
+        let mut v: Vec<f64> = (0..8000).map(|_| ai::home_wait(rng, table)).collect();
+        v.sort_by(f64::total_cmp);
+        (v[2000], v[4000], v[6000], v[7999])
+    };
+    let (q1, m, q3, top) = quantiles(&mut rng, &ai::HOME_AFTER_A_BLOW);
+    assert!((m - 2.22).abs() < 0.15, "median {m}");
+    assert!(
+        (q1 - 1.13).abs() < 0.15 && (q3 - 4.57).abs() < 0.3,
+        "quartiles {q1} {q3}"
+    );
+    assert!((top - 11.0).abs() < 1e-9, "cut at 11 s: {top}");
+    let (q1, m, q3, top) = quantiles(&mut rng, &ai::HOME_AFTER_A_CHASE);
+    assert!((m - 0.95).abs() < 0.06, "median {m}");
+    assert!(
+        (q1 - 0.69).abs() < 0.08 && (q3 - 1.17).abs() < 0.08,
+        "quartiles {q1} {q3}"
+    );
+    assert!((top - 1.58).abs() < 1e-9, "cut at 1.58 s: {top}");
+}
+
+/// A fight an idle held, given up, still ends in the creature's peace, its pause and its run home:
+/// struck while it plays, its pause is kept from the blow; drawn in by noticing, from its peace.
+/// Home again, an idle holds a new fight as before.
+/// Behaviour: server.creatures.a-pause-before-going-home
+#[test]
+fn a_fight_an_idle_held_given_up_pauses_then_runs_home_and_an_idle_holds_the_next() {
+    for struck in [true, false] {
+        let (mut h, _b, me, id) = about_to_notice(&[]);
+        hardy(&mut h, me);
+        let home = h
+            .server
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .map(|c| c.home)
+            .expect("a creature");
+        playing_an_idle(&mut h, id, 3.0);
+        let blow = h.now.0;
+        if struck {
+            let clock = h.clock();
+            ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+        } else {
+            assert!(h.run_until(steps(2.5), |h| h
+                .server
+                .things
+                .get(id)
+                .and_then(|t| t.creature.as_ref())
+                .is_some_and(|c| c.after_idle == Some(me))));
+        }
+        assert_eq!(
+            mode_of(&h, id),
+            Some(Mode::Idle),
+            "{struck}: the idle holds the fight"
+        );
+        stand_off(&mut h, me, home, 80.0);
+        assert!(h.run_until(steps(4.0), |h| mode_of(h, id) == Some(Mode::Chasing)));
+        assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)));
+        let (last, after, _) = going_home(&h, id);
+        let now = h.now.0;
+        if struck {
+            assert!(
+                (last - blow).abs() < 1e-9,
+                "the blow in its idle counts: {last}"
+            );
+            assert!(
+                after >= now - yalain_testkit::STEP
+                    && after <= (blow + ai::HOME_AFTER_A_BLOW[18]).max(now) + 1e-9,
+                "its wait after the blow: {}",
+                after - now
+            );
+        } else {
+            assert!(last.is_infinite(), "no blow: {last}");
+            assert!(
+                after > now - yalain_testkit::STEP
+                    && after <= now + ai::HOME_AFTER_A_CHASE[18] + 1e-9,
+                "its wait after its peace: {}",
+                after - now
+            );
+        }
+        let stood = place(&h, id);
+        while h.now.0 + yalain_testkit::STEP < after {
+            h.run(1);
+            assert_eq!(place(&h, id), stood, "{struck}: it stands until {after}");
+        }
+        assert!(
+            h.run_until(steps(60.0), |h| mode_of(h, id) == Some(Mode::Idle)),
+            "{struck}: then it runs home"
+        );
+        stand_off(&mut h, me, home, 5.0);
+        playing_an_idle(&mut h, id, 3.0);
+        let clock = h.clock();
+        ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+        h.run(steps(2.5));
+        assert_eq!(
+            mode_of(&h, id),
+            Some(Mode::Idle),
+            "{struck}: the next idle holds"
+        );
+        h.run(steps(1.0));
+        assert_eq!(
+            mode_of(&h, id),
+            Some(Mode::Chasing),
+            "{struck}: then it fights"
+        );
+        assert_eq!(target_of(&h, id), Some(me));
     }
 }

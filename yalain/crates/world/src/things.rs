@@ -131,6 +131,10 @@ pub struct Creature {
     pub idle_until: f64,
     /// What it goes after once its idle is through, drawn into a fight while it played.
     pub after_idle: Option<u64>,
+    /// When (world seconds) it last attacked or was attacked this fight.
+    pub last_blow: f64,
+    /// Until when (world seconds) it stands where a fight left it before it sets off home.
+    pub home_after: f64,
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.

@@ -55,13 +55,16 @@
 //!   159 of 159 shots after a mark, none in 2,329 seconds of unmarked players within 60 m of them).
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
-//!   for every radius), or is gone, it takes its peaceful mode and runs home; it is not made whole
-//!   (it regenerates). A player it cannot reach (no way through the walls, another floor) or does
-//!   not see is no reason to give up: it stays in its fight, standing or searching again, while the
-//!   player stays within its perception. There is no leash at the homesick radius and no giving up
-//!   by time. A target that dies is replaced by the nearest player within the radius that has hurt
-//!   the creature, if any: this server's rule, not 2017's, which also took players that had not hurt
-//!   it.
+//!   for every radius), or is gone, it takes its peaceful mode, stands a moment where it is, and
+//!   runs home; it is not made whole (it regenerates). The moment has the median and quartiles of
+//!   2017's and is kept from its last blow, by it or on it (a median 2.2 s after it), or from its
+//!   peace when it never came to blows (a median 0.95 s); each is cut at the ninetieth percentile,
+//!   this server's choice, the longer stands left out ([`HOME_AFTER_A_BLOW`]).
+//!   A player it cannot reach (no way through the walls, another floor) or does not see is no
+//!   reason to give up: it stays in its fight, standing or searching again, while the player stays
+//!   within its perception. There is no leash at the homesick radius and no giving up by time. A
+//!   target that dies is replaced by the nearest player within the radius that has hurt the
+//!   creature, if any: this server's rule, not 2017's, which also took players that had not hurt it.
 //! - **Turning on another.** At each of its attacks (once for each) it may draw its target again:
 //!   while players have hurt it over the last ten seconds, about three times in ten (half that
 //!   once it has fought one target for fifteen seconds), among those players by the harm each did
@@ -797,7 +800,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                         let behavior = draw_idle(s);
                         plays_idle(s, net, id, behavior, now);
                     }
-                    go_after(s, net, id, p, clock);
+                    goes_after(s, net, id, p, clock);
                     return;
                 }
             }
@@ -874,13 +877,15 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 }
             };
             if far_from_home || lost {
-                go_home(s, net, id);
+                go_home(s, net, id, now);
                 return;
             }
             if turns_only {
                 face(s, net, id, &place, clock);
                 if seen {
+                    let due = next_attack_of(s, id);
                     shoots_in_place(s, net, id, conn, d.unwrap_or(f32::MAX), clock);
+                    struck_if_due(s, id, due, clock.local.0);
                 }
                 return;
             }
@@ -907,7 +912,9 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     cannot_reach(s, id, target);
                 } else {
                     face(s, net, id, &place, clock);
+                    let due = next_attack_of(s, id);
                     crate::missiles::shoot(s, net, id, conn, clock);
+                    struck_if_due(s, id, due, clock.local.0);
                 }
             } else {
                 // Beyond its reach it runs at the player, and goes on to where it stops even once
@@ -953,11 +960,21 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     face(s, net, id, &place, clock);
                 }
                 if seen && strikes && (!runs || moved) {
+                    let due = next_attack_of(s, id);
                     crate::combat::creature_strikes(s, net, id, conn, clock);
+                    struck_if_due(s, id, due, clock.local.0);
                 }
             }
         }
         Mode::Returning => {
+            let waits = s
+                .things
+                .get(id)
+                .and_then(|t| t.creature.as_ref())
+                .is_some_and(|c| now < c.home_after);
+            if waits {
+                return;
+            }
             let home = back_to(s, id).unwrap_or(home);
             if arrived(&at, &home) {
                 arrive_home(s, net, id, clock);
@@ -1164,7 +1181,7 @@ fn fights<S: Store>(
         return;
     };
     if far_from_home || d > perception {
-        go_home(s, net, id);
+        go_home(s, net, id, clock.local.0);
         return;
     }
     let now = clock.local.0;
@@ -1175,7 +1192,9 @@ fn fights<S: Store>(
         step_toward(s, net, id, &place, run, near, RUNNING, clock);
     } else {
         face(s, net, id, &place, clock);
+        let due = next_attack_of(s, id);
         crate::combat::thing_strikes_thing(s, net, id, pet, None, clock);
+        struck_if_due(s, id, due, clock.local.0);
     }
 }
 
@@ -1347,9 +1366,22 @@ pub fn draw<S: Store>(s: &mut Server<S>, from: &[(u64, f32, f64)]) -> Option<u64
     from.last().map(|e| e.0)
 }
 
-/// A creature goes after a player (it noticed it, or the player struck it), and its kin nearby
-/// may come too.
+/// A creature struck by a player (or the player's pet) goes after it, and its kin nearby may come
+/// too: a blow of its fight.
 pub fn go_after<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    player: u64,
+    clock: Clock,
+) {
+    goes_after(s, net, id, player, clock);
+    blow(s, id, clock.local.0);
+}
+
+/// A creature goes after a player it noticed or that struck it, unless already fighting, and its
+/// kin nearby may come too.
+fn goes_after<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
@@ -1361,11 +1393,10 @@ pub fn go_after<S: Store>(
         .get(id)
         .and_then(|t| t.creature.as_ref())
         .is_some_and(|c| !matches!(c.mode, Mode::Dead | Mode::Chasing) && c.stats.fights);
-    if !fresh {
-        return;
+    if fresh {
+        engage(s, net, id, player, clock);
+        call_kin(s, id, player, clock.local.0);
     }
-    engage(s, net, id, player, clock);
-    call_kin(s, id, player, clock.local.0);
 }
 
 /// How near a creature going after a player must be for a turret to take on a player of its own,
@@ -1511,12 +1542,18 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
     if matches!(c.mode, Mode::Dead | Mode::Chasing) || !c.stats.fights {
         return;
     }
-    // Playing an idle, it goes after the first it was drawn to once the idle is through.
+    // Playing an idle, it goes after the first it was drawn to once the idle is through: the fight
+    // is held from then on, and a blow on it meanwhile is one of the fight.
     if c.mode == Mode::Idle && clock.local.0 < c.idle_until {
+        if c.after_idle.is_none() {
+            c.last_blow = f64::NEG_INFINITY;
+        }
         c.after_idle = c.after_idle.or(Some(player));
         return;
     }
-    c.after_idle = None;
+    if c.after_idle.take().is_none() {
+        c.last_blow = f64::NEG_INFINITY;
+    }
     c.mode = Mode::Chasing;
     c.lost_since = None;
     c.joining = None;
@@ -1593,14 +1630,79 @@ fn give_up_or_turn<S: Store>(
                 c.lost_since = None;
             }
         }
-        None => go_home(s, net, id),
+        None => go_home(s, net, id, now),
     }
 }
 
-/// A creature gives up: it is at peace, and goes home, or to its route's nearest waypoint.
-fn go_home<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
-    let at = s.things.get(id).and_then(|t| t.at);
+/// How long a creature that gave up a fight stands before it sets off home, as quantiles of a draw:
+/// the first after its last blow (2017: 854 creatures away from home after a fight with an attack,
+/// a median 2.22 s, quartiles 1.13 and 4.57 s), the second after its peace for one that never came
+/// to blows (699 chases, a median 0.95 s, quartiles 0.69 and 1.17 s). Each runs in twentieths to
+/// its ninetieth percentile and is cut there, this server's choice: the slowest tenth stand that
+/// long, and 2017's longer stands are left out.
+pub const HOME_AFTER_A_BLOW: [f64; 19] = [
+    0.0, 0.30, 0.56, 0.78, 0.93, 1.13, 1.39, 1.60, 1.80, 1.98, 2.22, 2.44, 2.73, 3.11, 3.72, 4.57,
+    6.10, 7.67, 11.0,
+];
+pub const HOME_AFTER_A_CHASE: [f64; 19] = [
+    0.0, 0.07, 0.25, 0.42, 0.60, 0.69, 0.76, 0.81, 0.87, 0.91, 0.95, 1.00, 1.06, 1.09, 1.12, 1.17,
+    1.20, 1.29, 1.58,
+];
+
+/// A draw from one of the quantile tables above: a share along them, read between their
+/// twentieths, the last tenth at the table's end.
+#[must_use]
+pub fn home_wait(rng: &mut crate::rng::Rng, table: &[f64; 19]) -> f64 {
+    let u = f64::from(rng.unit()) * 20.0;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let i = u.floor() as usize;
+    if i >= table.len() - 1 {
+        return table[table.len() - 1];
+    }
+    let f = u - u.floor();
+    table[i] + (table[i + 1] - table[i]) * f
+}
+
+/// When a creature's next attack is due (none: not a creature).
+fn next_attack_of<S: Store>(s: &Server<S>, id: u64) -> Option<f64> {
+    s.things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.next_attack)
+}
+
+/// A creature whose next attack moved on attacked just now: a blow of its fight.
+fn struck_if_due<S: Store>(s: &mut Server<S>, id: u64, due: Option<f64>, now: f64) {
+    if next_attack_of(s, id) != due {
+        blow(s, id, now);
+    }
+}
+
+/// A blow of a creature's fight, by it or on it, now: one it is in, or one an idle holds.
+fn blow<S: Store>(s: &mut Server<S>, id: u64, now: f64) {
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        if c.mode == Mode::Chasing || c.after_idle.is_some() {
+            c.last_blow = now;
+        }
+    }
+}
+
+/// A creature gives up: it is at peace, stands a moment where it is (keyed to its last blow, or
+/// to now when it never came to blows), and then goes home, or to its route's nearest waypoint.
+fn go_home<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
+    let at = s.things.get(id).and_then(|t| t.at);
+    let blow = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map_or(f64::NEG_INFINITY, |c| c.last_blow);
+    let leaves = if blow.is_finite() {
+        blow + home_wait(&mut s.rng, &HOME_AFTER_A_BLOW)
+    } else {
+        now + home_wait(&mut s.rng, &HOME_AFTER_A_CHASE)
+    };
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.home_after = leaves.max(now);
         c.mode = Mode::Returning;
         c.target = None;
         c.moving_to = None;

@@ -589,6 +589,8 @@ pub fn make<S: Store>(
         victory_until: None,
         idle_until: f64::NEG_INFINITY,
         after_idle: None,
+        last_blow: f64::NEG_INFINITY,
+        home_after: f64::NEG_INFINITY,
     });
     s.things.insert(t);
     crate::arms::arm(s, id);

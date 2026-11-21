@@ -3326,6 +3326,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-pause-before-going-home",
+        says: "A creature that gives up a fight stands a moment before it runs home, the median and \
+               quartiles 2017's: from its last blow (a median 2.2 s, quartiles 1.1 and 4.6 s), or from \
+               its peace when it never came to blows (a median 0.95 s, quartiles 0.69 and 1.17 s). Each \
+               wait is cut at the ninetieth percentile (11 s and 1.58 s), this server's choice, the \
+               longer stands left out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOME-PAUSE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_giving_up_stands_its_wait_after_its_last_blow_then_runs_home",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-round-goes-round-its-places-one-at-a-time",
         says: "A world's `[[round]]` stands its first stop's creature as the world starts; each death of \
                the round's creature brings the next stop's, one at a time, round to the first after the \
