@@ -6215,7 +6215,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.falls.a-fall-hurts-as-it-lands",
         says: "A player whose client reports it falling (a descent steeper and faster than any walk \
-               or ride down a slope) loses the fall's harm as it lands, told as its health alone, \
+               or ride down a slope) loses the fall's harm as it lands, told as its health, \
                the fall from where a body dropping from rest would have started; a ride down a \
                slope is no fall, and a fall that takes all its health kills it by misadventure.",
         since: RETAIL,
@@ -6231,6 +6231,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FALL-HARM"),
         station: "yalain-testkit::cpu::play::falls::a_falls_harm_grows_with_its_height_and_a_mount_takes_the_steep_part",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.falls.impact-damage-told",
+        says: "A fall that harms tells the player \"You suffer N impact damage!\" as the next private \
+               message after its health, N the health it lost, sent after the wounded look where the fall \
+               has one; a fall that kills tells no line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FALL-IMPACT-TEXT"),
+        station: "yalain-testkit::cpu::play::falls::a_fall_that_harms_tells_its_impact_damage_after_the_health",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -13,6 +13,7 @@ what they see, not how it was done.
 - World: the two fast Shreth patrol guards now jog their rounds.
 - Giving an item to a pet is now refused instead of leaving it stuck.
 - Creatures play their idle animations as often as their kind did in retail.
+- A fall that hurts now says how much: "You suffer 18 impact damage!"
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

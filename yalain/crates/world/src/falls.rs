@@ -22,8 +22,11 @@
 //! **Safe Fall.** A player holding the effect of Safe Fall (its type [`SAFE_FALL`]) lands unhurt
 //! from a fall that would harm it, and the record ends with the fall it saved.
 //!
-//! **Told** as the player's health alone, with the wounded look as any harm shows it; with no health
-//! left the player dies, by misadventure.
+//! **Told** as the player's health, the wounded look as any harm shows it, then "You suffer N impact
+//! damage!" with the health it lost, sent in that order (2017: the line the next private message
+//! after the health in 2,857 of 2,857 falls that told both in one tick; the look, or its stop, sent
+//! before the line in 1,101 of 1,101 with one). With no health left the player dies, by misadventure,
+//! and is told no line (2017: none at 4 of 4 deaths by misadventure).
 
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
@@ -47,6 +50,11 @@ pub const TOP_SPEED_HEIGHT: f32 = 127.5;
 pub const SAFE_FALL: u32 = 552;
 /// The player's fall modifier (a float quality).
 pub const FALL_MODIFIER: u32 = 266;
+
+/// "You suffer %1 impact damage!", its variable the health lost, and the kind of text it is shown as.
+pub const IMPACT: (u32, u32) = (0x3C4C_6F74, 0x2500_000B);
+pub const IMPACT_POINTS: u32 = 0xC9B7_3800;
+pub const IMPACT_SHOWN_AS: u32 = 8;
 
 /// The first factor of a fall's harm: its height less this, in meters.
 const SPARED: f32 = 2.5;
@@ -204,11 +212,34 @@ fn land<S: Store>(
         crate::effects::remove(s, net, world, eid);
         return;
     }
+    let before = health_of(s, world);
     let (share, was) = crate::combat::lose_health(s, net, world, points);
+    let dead = s.players.get(&world).is_some_and(crate::combat::is_dead);
+    let lost = before - health_of(s, world);
     crate::combat::wounded(s, net, me, share, was);
-    if s.players.get(&world).is_some_and(crate::combat::is_dead) {
+    if !dead && lost > 0 {
+        let said = crate::progress::text_with(
+            IMPACT,
+            vec![crate::progress::word(
+                IMPACT_POINTS,
+                2,
+                lost.cast_unsigned(),
+            )],
+        );
+        crate::progress::private(net, world, &crate::chat::show_text(IMPACT_SHOWN_AS, said));
+    }
+    if dead {
         crate::death::player_dies(s, net, world, None, clock);
     }
+}
+
+/// A player's health now (its greatest where none is set, as a hurt takes it).
+fn health_of<S: Store>(s: &Server<S>, world: ConnId) -> i32 {
+    use crate::player::quality;
+    s.players.get(&world).map_or(0, |p| {
+        quals::int(&p.qualities, quality::HEALTH)
+            .unwrap_or_else(|| crate::effects::own_greatest(s, p, quality::HEALTH_MAX).max(1))
+    })
 }
 
 /// Is a place outdoors below its block's water surface?

@@ -6,9 +6,10 @@
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::ClientPosition;
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
-use yalain_net::ConnId;
+use auberean_script::native_object::VariableValue;
+use yalain_net::{BlobKind, ConnId};
 use yalain_store::StoredPosition;
-use yalain_testkit::{Harness, TestGround};
+use yalain_testkit::{Harness, Received, TestGround};
 use yalain_world::calls::{Node, Value};
 use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
 use yalain_world::falls;
@@ -18,6 +19,7 @@ use yalain_world::regen::rate::PEACE_HEALTH;
 /// The gap between two of the client's reports, in seconds.
 const STEP: f64 = 0.2;
 const DEATH_MESSAGE: u32 = 0x8207_002B;
+const SHOW_TEXT: u32 = 0x8205_0011;
 /// A made-up effect of Safe Fall's type.
 const SAFE: u32 = 0x7000_7D01;
 
@@ -133,7 +135,7 @@ fn a_falls_harm_grows_with_its_height_and_a_mount_takes_the_steep_part() {
 }
 
 /// A player whose client reports it dropping 20 m loses 18 health as it lands, told as its health
-/// alone; one dropping 3 m loses none.
+/// with no story; one dropping 3 m loses none.
 /// Behaviour: server.falls.a-fall-hurts-as-it-lands
 #[test]
 fn a_player_falling_twenty_meters_loses_its_harm_as_it_lands() {
@@ -141,7 +143,7 @@ fn a_player_falling_twenty_meters_loses_its_harm_as_it_lands() {
     let from = h.bots[b].inbox.len();
     let landed = drop(&mut h, b, at.origin, at.cell, 20.0, 0.0);
     assert_eq!(health(&h, world), 982);
-    assert_eq!(health_sent(&h, b, from), [982], "told as its health");
+    assert_eq!(health_sent(&h, b, from), [982], "told its health");
     let stories = h
         .world_messages(b, from)
         .iter()
@@ -150,6 +152,100 @@ fn a_player_falling_twenty_meters_loses_its_harm_as_it_lands() {
     assert_eq!(stories, 0, "with no story");
     drop(&mut h, b, landed, at.cell, 3.0, 0.0);
     assert_eq!(health(&h, world), 982, "3 m is no harm");
+}
+
+/// What a client is told of a fall.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Told {
+    Health(i32),
+    Wounded,
+    Impact(u32),
+    OtherPrivate,
+}
+
+/// What a client was told of falls since `from`, in the order the server sent it, with whatever
+/// else private it was sent among them.
+fn fall_sent(h: &Harness, b: usize, from: usize) -> Vec<Told> {
+    let mut sent: Vec<&Received> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world && r.blob_id >> 56 != u64::from(BlobKind::EPHEMERAL.0))
+        .collect();
+    sent.sort_by_key(|r| r.blob_id & 0xFFFF_FFFF);
+    sent.into_iter()
+        .filter_map(|r| match r.message()? {
+            ServerMessage::UpdateInt(q) if q.quality == quality::HEALTH => {
+                Some(Told::Health(q.value))
+            }
+            ServerMessage::DoFx(e) if e.action.fx == yalain_world::combat::WOUNDED_FX => {
+                Some(Told::Wounded)
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == SHOW_TEXT => {
+                let v = c
+                    .args
+                    .as_ref()
+                    .and_then(|a| yalain_world::calls::values(&a.0).ok())?;
+                let kind = v.iter().find_map(|x| match x {
+                    Value::Int(k) => Some(*k),
+                    _ => None,
+                });
+                let t = v.iter().find_map(|x| match x.root() {
+                    Some(Node::TextInfo(t)) => Some(t.clone()),
+                    _ => None,
+                })?;
+                if (t.string_id, t.table) != falls::IMPACT || kind != Some(falls::IMPACT_SHOWN_AS) {
+                    return Some(Told::OtherPrivate);
+                }
+                t.variables.iter().find_map(|var| match var.value {
+                    VariableValue::Word(n) if var.id == falls::IMPACT_POINTS => {
+                        Some(Told::Impact(n))
+                    }
+                    _ => None,
+                })
+            }
+            _ => (r.blob_id >> 56 == u64::from(BlobKind::PRIVATE.0)).then_some(Told::OtherPrivate),
+        })
+        .collect()
+}
+
+/// A fall that harms tells the player "You suffer N impact damage!" as the next private message
+/// after its health, N the health it lost, sent after the wounded look where the fall has one; a
+/// fall that kills tells no line.
+/// Behaviour: server.falls.impact-damage-told
+#[test]
+fn a_fall_that_harms_tells_its_impact_damage_after_the_health() {
+    let (mut h, b, _, at) = player(1000);
+    let from = h.bots[b].inbox.len();
+    drop(&mut h, b, at.origin, at.cell, 20.0, 0.0);
+    let told = fall_sent(&h, b, from);
+    let hurt = told.iter().position(|t| *t == Told::Health(982));
+    let hurt = hurt.expect("its health");
+    assert_eq!(told.get(hurt + 1), Some(&Told::Impact(18)), "{told:?}");
+
+    // One that leaves it low enough to look wounded: 18 of 60.
+    let (mut h, b, _, at) = player(60);
+    let from = h.bots[b].inbox.len();
+    drop(&mut h, b, at.origin, at.cell, 20.0, 0.0);
+    let told = fall_sent(&h, b, from);
+    let hurt = told.iter().position(|t| *t == Told::Health(42));
+    let hurt = hurt.expect("its health");
+    assert_eq!(
+        told.get(hurt + 1..hurt + 3),
+        Some(&[Told::Wounded, Told::Impact(18)][..]),
+        "{told:?}"
+    );
+
+    let (mut h, b, _, at) = player(500);
+    let from = h.bots[b].inbox.len();
+    drop(&mut h, b, at.origin, at.cell, 100.0, 0.0);
+    let told = fall_sent(&h, b, from);
+    assert!(
+        told.contains(&Told::Health(0)),
+        "a fall that kills: {told:?}"
+    );
+    assert!(
+        !told.iter().any(|t| matches!(t, Told::Impact(_))),
+        "a fall that kills tells no line: {told:?}"
+    );
 }
 
 /// A player running off a ledge falls from the ledge; one riding down a slope as steep as a body
