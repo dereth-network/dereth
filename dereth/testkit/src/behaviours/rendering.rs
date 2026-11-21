@@ -535,6 +535,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.lighting.the-static-pool-ranks-from-the-cells-origin",
+        says: "Indoors, when there are more static lights than the pool holds, the ones kept are                those nearest the origin of the room the player is in, chosen on entering it, not                those nearest the player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-LIGHT-ORIGIN"),
+        station: "dereth-scene::lib::world_scene::imp::lighting::origin_tests::the_static_pool_keeps_the_light_nearest_the_cells_origin_not_the_players",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "rendering.markers.marker-placements-in-the-dat-are-never-drawn",
         says: "The placement markers the world data carries for its own editors are never drawn: \
                across every landblock, the placements the client hides are exactly those made only \

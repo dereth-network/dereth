@@ -778,7 +778,8 @@ impl SceneDraw {
     /// that cell cannot see lights nothing, however near it stands.
     ///
     /// * On a cell change, clear the static-light count and rebuild the static pool from those
-    ///   cells' light records whose `state & 1` is set. The current degrade level sets
+    ///   cells' light records whose `state & 1` is set, ranked by distance from the player's cell's
+    ///   own position, not the player's ([`cell_light_origin`]). The current degrade level sets
     ///   the static and dynamic pool caps.
     /// * On every frame, clear the dynamic-light count, add the viewer light, then add every
     ///   non-static light record of those cells. A light belongs to a cell
@@ -799,6 +800,7 @@ impl SceneDraw {
             self.light_pools.max_dynamic = level.max_dynamic_lights;
             self.light_pools.clear_statics();
             self.light_cells = self.light_cells(ws, cell);
+            let rank_from = self.static_light_origin(ws, cell, &player);
             let seen = |c: CellId| self.light_cells.as_ref().is_none_or(|s| s.contains(&c.0));
             for block in self.blocks.values() {
                 for l in block
@@ -818,7 +820,7 @@ impl SceneDraw {
                         l.frame.rotation,
                     );
                     self.light_pools
-                        .add_static_from(&l.info, l.cell, &frame, player.origin);
+                        .add_static_from(&l.info, l.cell, &frame, rank_from);
                 }
             }
             // A body whose cell the land source does not hold yet sees no table: try again on
@@ -889,6 +891,29 @@ impl SceneDraw {
                 burn_env_cell(cell, pools, origin);
                 cell.burned_count = Some(count);
             }
+        }
+    }
+
+    /// Where the static pool is ranked from, in render space: the player's cell's own position
+    /// ([`cell_light_origin`]), or the player's place when there is no cell or its room is not
+    /// held.
+    fn static_light_origin(&self, ws: &WorldState, cell: u32, player: &Frame) -> Vec3 {
+        let room = || {
+            self.blocks
+                .values()
+                .flat_map(|b| b.env_cells.iter())
+                .find(|c| c.id.0 == cell)
+                .map(|c| c.frame.origin)
+        };
+        match cell_light_origin(cell, room) {
+            Some(local) => {
+                let pos = Position {
+                    cell: CellId(cell),
+                    frame: Frame::new(local, Quat::IDENTITY),
+                };
+                self.render_frame_of(ws, pos).origin
+            }
+            None => player.origin,
         }
     }
 
@@ -1036,6 +1061,25 @@ impl SceneDraw {
     }
 }
 
+/// The position the client ranks a cell's static lights from, block-local: when the player's cell
+/// changes it sets the render viewpoint to the new cell's own position, refills the static pool
+/// against it, and only then sets it back to the player. An environment cell's position is its
+/// placement frame (`room`, asked for only then); a land cell's is its middle at height 0. `None`
+/// with no cell (`0`), or an environment cell `room` does not know.
+pub(super) fn cell_light_origin(cell: u32, room: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
+    let low = cell & 0xFFFF;
+    if cell == 0 || low == 0 {
+        return None;
+    }
+    if low >= 0x0100 {
+        return room();
+    }
+    // LINT-OK: a land cell's index is 1..=64.
+    #[allow(clippy::cast_precision_loss)]
+    let (x, y) = (((low - 1) / 8) as f32, ((low - 1) % 8) as f32);
+    Some(Vec3::new(x * 24.0 + 12.0, y * 24.0 + 12.0, 0.0))
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (how the client's own burn of an interior's static lights is worked out)
@@ -1113,5 +1157,65 @@ mod tests {
                 .any(|v| v[OBJECT_DIFFUSE_OFFSET + 2] > 0),
             "the room is lit"
         );
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    /// A point light reaching `falloff` meters, its place set by the object it stands on.
+    fn light(falloff: f32) -> LightInfo {
+        LightInfo {
+            falloff,
+            color: [0.9, 0.6, 0.3],
+            ..LightInfo::default()
+        }
+    }
+
+    /// Behaviour: rendering.lighting.the-static-pool-ranks-from-the-cells-origin
+    #[test]
+    fn the_static_pool_keeps_the_light_nearest_the_cells_origin_not_the_players() {
+        // A room whose origin stands at (10, 10, 0); the player at its far end, (18, 10, 0).
+        let cell = 0xA9B4_0105;
+        let origin = cell_light_origin(cell, || Some(Vec3::new(10.0, 10.0, 0.0))).expect("a room");
+        let player = Vec3::new(18.0, 10.0, 0.0);
+        let at = |x: f32| Frame::new(Vec3::new(x, 10.0, 0.0), Quat::IDENTITY);
+        let pool = |from: Vec3| {
+            let mut pools = LightPools::new(0.0);
+            pools.max_static = 1;
+            pools.add_static_from(&light(5.0), CellId(cell), &at(17.0), from);
+            pools.add_static_from(&light(5.0), CellId(cell), &at(11.0), from);
+            assert_eq!(pools.statics.len(), 1);
+            pools.statics[0].info.offset.origin.x
+        };
+        assert_eq!(pool(origin), 11.0, "the light nearer the room's origin");
+        // Ranked from the player, the light nearer the player would stay.
+        assert_eq!(pool(player), 17.0);
+    }
+
+    /// Behaviour: rendering.lighting.the-static-pool-ranks-from-the-cells-origin
+    #[test]
+    fn a_cells_origin_is_a_rooms_placement_or_a_land_cells_middle_at_height_zero() {
+        assert_eq!(
+            cell_light_origin(0xA9B4_0001, || None),
+            Some(Vec3::new(12.0, 12.0, 0.0))
+        );
+        assert_eq!(
+            cell_light_origin(0xA9B4_0040, || None),
+            Some(Vec3::new(180.0, 180.0, 0.0))
+        );
+        assert_eq!(
+            cell_light_origin(0xA9B4_000A, || None),
+            Some(Vec3::new(36.0, 36.0, 0.0))
+        );
+        let room = Vec3::new(31.5, 159.5, 66.0);
+        assert_eq!(cell_light_origin(0xA9B4_0111, || Some(room)), Some(room));
+        assert_eq!(
+            cell_light_origin(0xA9B4_0111, || None),
+            None,
+            "a room not held"
+        );
+        assert_eq!(cell_light_origin(0, || Some(room)), None, "no cell");
     }
 }
