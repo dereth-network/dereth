@@ -475,7 +475,7 @@ impl LayerHost {
                 if *pressed && (self.layer.ui.typing() || escape || refuses) {
                     f.keys.push(key.virtual_key);
                     if let Some(t) = text {
-                        f.chars.extend(t.chars().filter(|c| !c.is_control()));
+                        f.chars.extend(dereth_input::pump::typed_characters(t));
                     }
                     return true;
                 }

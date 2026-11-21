@@ -157,11 +157,32 @@ pub fn key_text_messages(
     } else {
         msg::WM_CHAR
     };
+    // A key that types nothing gets no character, as on Windows, even where the host reports a
+    // stand-in for it.
     text_with_all_modifiers.map_or_else(Vec::new, |text| {
         text.chars()
+            .filter(|ch| !is_key_text_stand_in(*ch))
             .map(|ch| Win32Message::new(message, ch as usize, 0, time_ms))
             .collect()
     })
+}
+
+/// Whether `ch` is the stand-in a host reports as the text of a key that types nothing.
+///
+/// macOS reports the arrows, Home, End, the page keys, forward Delete and the function row as text
+/// in U+F700–U+F8FF, a private-use block it sets aside for those keys; Windows and the browser
+/// report no text for them at all. The keys themselves still arrive as key presses, and that is
+/// what moves a caret, so the stand-in is never typed, on any platform.
+#[must_use]
+pub fn is_key_text_stand_in(ch: char) -> bool {
+    ('\u{F700}'..='\u{F8FF}').contains(&ch)
+}
+
+/// The characters a key's text types into a box: the text without control characters and without
+/// [`is_key_text_stand_in`]'s stand-ins.
+pub fn typed_characters(text: &str) -> impl Iterator<Item = char> + '_ {
+    text.chars()
+        .filter(|ch| !ch.is_control() && !is_key_text_stand_in(*ch))
 }
 
 /// The `lParam` of a `WM_KEYDOWN` / `WM_KEYUP` / `WM_SYSKEY*`, as `winuser.h` defines its fields.
@@ -570,6 +591,28 @@ mod tests {
             Some(msg::WM_XBUTTONDOWN)
         );
         assert_eq!(mouse_message(MouseButton::Other(9), true), None);
+    }
+
+    #[test]
+    fn the_text_macos_reports_for_a_key_that_types_nothing_is_never_typed() {
+        // The arrows, Home and F1 as macOS reports them.
+        for stand_in in ["\u{F702}", "\u{F703}", "\u{F729}", "\u{F704}"] {
+            assert!(key_text_messages(true, false, Some(stand_in), 0).is_empty());
+            assert_eq!(typed_characters(stand_in).count(), 0);
+        }
+        // A control character is still carried as a message, and is still not typed.
+        let paste = key_text_messages(true, false, Some("\u{16}"), 0);
+        assert_eq!(paste.len(), 1);
+        assert_eq!(paste[0].wparam, 0x16);
+        assert_eq!(typed_characters("\u{16}").count(), 0);
+        // Ordinary text, including text beyond the private-use block, is typed as it came.
+        let typed = key_text_messages(true, false, Some("a\u{4E2D}\u{20AC}"), 0);
+        let chars: Vec<usize> = typed.iter().map(|m| m.wparam).collect();
+        assert_eq!(chars, [0x61, 0x4E2D, 0x20AC]);
+        assert_eq!(
+            typed_characters("a\u{F702}\u{4E2D}").collect::<String>(),
+            "a\u{4E2D}"
+        );
     }
 
     #[test]

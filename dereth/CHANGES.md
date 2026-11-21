@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- macOS: the arrow keys move the chat caret instead of typing odd characters.
 
 ## 0.4.21 (2026-11-21)
 - Fixed the game freezing while a world's large data patch downloads; it now shows progress.

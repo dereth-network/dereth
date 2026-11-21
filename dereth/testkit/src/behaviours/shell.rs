@@ -2591,6 +2591,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "text-entry.keys.a-key-that-types-nothing-puts-nothing-in-the-box-and-the-arrows-move-the-caret",
+        says: "The arrow keys move the chat line's caret one place and put no character in the \
+               line, as retail's do. A desktop that reports a stand-in character as such a key's text \
+               (macOS, for the arrows and the other keys that type nothing) is no exception.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-TEXT-KEY-STAND-IN"),
+        station: "dereth-testkit::dat::shell::scenario_a_key_that_types_nothing_puts_nothing_in_the_box",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "text-entry.paste.a-paste-puts-the-clipboard-in-once-and-not-a-letter-with-it",
         says: "Pasting with the keyboard puts the clipboard in once and does not also type the \
                letter that was held down with the modifier. The same key without the modifier, and \

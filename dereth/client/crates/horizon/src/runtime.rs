@@ -619,7 +619,7 @@ impl HorizonFrontEnd {
                 if *pressed && !switch {
                     f.keys.push(key.virtual_key);
                     if let Some(t) = text {
-                        f.chars.extend(t.chars().filter(|c| !c.is_control()));
+                        f.chars.extend(dereth_input::pump::typed_characters(t));
                     }
                 }
                 if matches!(key.virtual_key, 0x10 | 0xA0 | 0xA1) {

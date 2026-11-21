@@ -193,6 +193,7 @@ use relog::{
 use text::{
     a_character_typed_the_moment_a_screen_takes_the_keyboard_is_not_lost,
     a_composed_character_reaches_the_box_unchanged,
+    a_key_that_types_nothing_puts_nothing_in_the_box,
     a_paste_puts_the_clipboard_in_once_and_not_a_letter_with_it,
     a_press_on_a_button_takes_the_keyboard,
     a_press_on_a_list_takes_the_keyboard_and_its_look_follows,
@@ -395,6 +396,7 @@ dereth_testkit::scenarios! {
     scenario_the_how_many_box_takes_digits_only => the_how_many_box_takes_digits_only ["text-entry.filters.the-how-many-box-takes-digits-only"],
     scenario_every_composition_message_is_handed_to_the_desktop => every_composition_message_is_handed_to_the_desktop ["text-entry.ime.every-composition-message-is-handed-to-the-desktop-and-an-ordinary-character-is-not"],
     scenario_a_composed_character_reaches_the_box_unchanged => a_composed_character_reaches_the_box_unchanged ["text-entry.ime.a-composed-character-reaches-the-box-unchanged"],
+    scenario_a_key_that_types_nothing_puts_nothing_in_the_box => a_key_that_types_nothing_puts_nothing_in_the_box ["text-entry.keys.a-key-that-types-nothing-puts-nothing-in-the-box-and-the-arrows-move-the-caret"],
     scenario_a_paste_puts_the_clipboard_in_once_and_not_a_letter_with_it => a_paste_puts_the_clipboard_in_once_and_not_a_letter_with_it ["text-entry.paste.a-paste-puts-the-clipboard-in-once-and-not-a-letter-with-it"],
     scenario_line_breaks_in_what_was_pasted_never_reach_the_shard => line_breaks_in_what_was_pasted_never_reach_the_shard ["text-entry.paste.line-breaks-in-what-was-pasted-never-reach-the-shard"],
     scenario_the_how_many_of_a_component_box_takes_digits_only_on_every_row => the_how_many_of_a_component_box_takes_digits_only_on_every_row ["text-entry.filters.the-how-many-of-a-component-box-takes-digits-only-on-every-row"],

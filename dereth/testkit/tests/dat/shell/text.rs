@@ -1458,6 +1458,46 @@ pub(super) fn a_paste_puts_the_clipboard_in_once_and_not_a_letter_with_it() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// text-entry.keys.a-key-that-types-nothing-puts-nothing-in-the-box-and-the-arrows-move-the-caret
+// ---------------------------------------------------------------------------------------------
+
+/// The arrows move the chat line's caret and type nothing, even where the desktop hands over a
+/// stand-in character as the text of the key, as macOS does.
+pub(super) fn a_key_that_types_nothing_puts_nothing_in_the_box() {
+    let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(8));
+    let app = c.app_mut();
+    let entry = text_element(app, TEXT_CHAT_ENTRY);
+    let mut hand = KeyHand::new();
+    press_text_element(app, &mut hand, entry);
+    let focused = kb_ui(app).focus_element() == Some(entry);
+    hand.type_text(app, "ab");
+    let typed = kb_text(app, entry) == "ab";
+
+    // The left arrow, with the text macOS reports for it: the caret moves back one place and the
+    // line is unchanged, so what is typed next goes in before the last letter.
+    hand.key_with_text(app, KeyCode::ArrowLeft, Some("\u{F702}"), false);
+    hand.key(app, KeyCode::ArrowLeft, false);
+    let left_typed_nothing = kb_text(app, entry) == "ab";
+    hand.type_text(app, "X");
+    let moved_left = kb_text(app, entry) == "aXb";
+
+    // And the right arrow, the same way: the caret goes past the last letter again.
+    hand.key_with_text(app, KeyCode::ArrowRight, Some("\u{F703}"), false);
+    hand.key(app, KeyCode::ArrowRight, false);
+    let right_typed_nothing = kb_text(app, entry) == "aXb";
+    hand.type_text(app, "Y");
+    let moved_right = kb_text(app, entry) == "aXbY";
+
+    c.assert_behaviour(
+        "text-entry.keys.a-key-that-types-nothing-puts-nothing-in-the-box-and-the-arrows-move-the-caret",
+        move |_| {
+            focused && typed && left_typed_nothing && moved_left && right_typed_nothing && moved_right
+        },
+    );
+    c.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------
 // text-entry.paste.line-breaks-in-what-was-pasted-never-reach-the-shard
 // ---------------------------------------------------------------------------------------------
 
