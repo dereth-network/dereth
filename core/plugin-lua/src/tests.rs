@@ -59,6 +59,8 @@ struct Recorder {
     next_timer: i64,
     /// The clock of the VMs it answers.
     clock: Rc<TestClock>,
+    /// The player's items, by id: each one's name and stack size.
+    items: BTreeMap<i64, (&'static str, Option<i64>)>,
 }
 
 impl HostCalls for Recorder {
@@ -93,6 +95,19 @@ impl HostCalls for Recorder {
             }
             "player.get" if args.first().and_then(Value::as_str) == Some("name") => {
                 Ok(Value::from("Tester"))
+            }
+            "inventory.items" => Ok(Value::List(
+                self.items.keys().map(|&id| Value::Int(id)).collect(),
+            )),
+            "object.get" => {
+                let item = args.first().and_then(Value::as_i64);
+                let item = item.and_then(|id| self.items.get(&id));
+                Ok(match (item, args.get(1).and_then(Value::as_str)) {
+                    (Some((name, _)), Some("name")) => Value::from(*name),
+                    (Some((_, Some(stack))), Some("stack")) => Value::Int(*stack),
+                    (Some(_), Some("spells")) => Value::List(vec![Value::Int(2)]),
+                    _ => Value::Nil,
+                })
             }
             "commands.add" => Err(CallError::Failed(
                 "commands.add is not available here".into(),
@@ -522,6 +537,110 @@ fn a_player_field_read_twice_in_an_entry_is_asked_of_the_host_once() {
         host.console,
         ["Tester\tTester\tnil\tnil", "Tester\tTester\tnil\tnil"]
     );
+}
+
+/// Behaviour: none (a unit check of the bindings' cost: the game is the frame's for an entry).
+#[test]
+fn a_metas_item_counts_ask_the_host_for_the_inventory_and_each_items_name_once_an_entry() {
+    let mut host = Recorder {
+        items: BTreeMap::from([
+            (0x101, ("Mana Stone", Some(2))),
+            (0x102, ("Healing Kit", None)),
+            (0x103, ("Mana Stone", Some(3))),
+        ]),
+        ..Recorder::default()
+    };
+    let mut vm = vm();
+    vm.load(
+        &mut host,
+        "main.lua",
+        r#"
+        local meta = require("dereth.meta")
+        local function say(what) return meta.lua(function() print(what) end) end
+        local m = meta.new{ states = { Default = {
+            { meta.item_count_ge("Mana Stone", 5), say("stones") },
+            { meta.item_count_le("Healing Kit", 1), say("few kits") },
+            { meta.expr("getinventorycountbyname[Mana Stone] >= 5"), say("stones by expression") },
+        } } }
+        on('look', function() m:check() print("checked") end)
+        "#,
+    )
+    .expect("load");
+    let asked = |host: &Recorder, op: &str, item: i64, field: Option<&str>| {
+        host.calls
+            .iter()
+            .filter(|(o, args)| {
+                o == op
+                    && (op == "inventory.items"
+                        || (args.first().and_then(Value::as_i64) == Some(item)
+                            && args.get(1).and_then(Value::as_str) == field))
+            })
+            .count()
+    };
+    vm.deliver(&mut host, &Event::new("look", Value::map()))
+        .expect("delivered");
+    assert_eq!(
+        host.console,
+        ["stones", "few kits", "stones by expression", "checked"]
+    );
+    // A stone is spent and two kits arrive between the checks: the next entry reads them anew.
+    host.items.insert(0x103, ("Mana Stone", Some(2)));
+    host.items.insert(0x104, ("Healing Kit", Some(2)));
+    vm.deliver(&mut host, &Event::new("look", Value::map()))
+        .expect("delivered");
+    assert_eq!(host.console[4..], ["checked"]);
+    // Three conditions an entry, each counting the whole inventory: one list and one read of each
+    // item's name an entry.
+    assert_eq!(
+        asked(&host, "inventory.items", 0, None),
+        2,
+        "{:?}",
+        host.calls
+    );
+    for (item, entries) in [(0x101, 2), (0x102, 2), (0x103, 2), (0x104, 1)] {
+        assert_eq!(
+            asked(&host, "object.get", item, Some("name")),
+            entries,
+            "{item:#x}: {:?}",
+            host.calls
+        );
+    }
+}
+
+/// Behaviour: none (a unit check of the bindings' cost: the game is the frame's for an entry).
+#[test]
+fn an_objects_field_read_twice_in_an_entry_is_asked_once_unless_it_is_a_table() {
+    let mut host = Recorder {
+        items: BTreeMap::from([(0x101, ("Mana Stone", Some(2)))]),
+        ..Recorder::default()
+    };
+    let mut vm = vm();
+    vm.load(
+        &mut host,
+        "main.lua",
+        r#"
+        on('look', function()
+            local it = game.inventory.items()[1]
+            local a, b = it.spells, it.spells
+            table.insert(a, 99)
+            print(it.name, it.name, rawequal(a, b), #b)
+        end)
+        "#,
+    )
+    .expect("load");
+    vm.deliver(&mut host, &Event::new("look", Value::map()))
+        .expect("delivered");
+    // A table read again is a new one, untouched by what the plugin did to the first.
+    assert_eq!(host.console, ["Mana Stone\tMana Stone\tfalse\t1"]);
+    let asked = |field: &str| {
+        host.calls
+            .iter()
+            .filter(|(op, args)| {
+                op == "object.get" && args.get(1).and_then(Value::as_str) == Some(field)
+            })
+            .count()
+    };
+    assert_eq!((asked("name"), asked("spells")), (1, 2), "{:?}", host.calls);
 }
 
 /// Behaviour: none (a unit check of the copy into the host: a value's size is counted as it is

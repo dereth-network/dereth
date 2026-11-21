@@ -523,13 +523,45 @@ local object_methods = {
 	end,
 }
 
+-- What the game has answered in this entry: the game is the frame's for the whole entry, so a
+-- field read again is not asked of the host again. The host empties it as each entry begins.
+-- `game.player`'s fields, each object's fields by its id (those that are not tables: a table read
+-- again is a new one, as the plugin may change what it is given), and the ids of the player's
+-- items.
+local player_seen = {}
+local object_seen = {}
+local items_seen = nil
+kit.on_entry(function()
+	table.clear(player_seen)
+	table.clear(object_seen)
+	items_seen = nil
+end)
+local NOTHING = {}
+
 local object_meta = {}
 object_meta.__index = function(obj, key)
 	local m = object_methods[key]
 	if m ~= nil then
 		return m
 	end
-	return hostcall("object.get", rawget(obj, "id"), key)
+	local id = rawget(obj, "id")
+	local seen = object_seen[id]
+	local v = seen and seen[key]
+	if v == nil then
+		v = hostcall("object.get", id, key)
+		if type(v) ~= "table" then
+			if seen == nil then
+				seen = {}
+				object_seen[id] = seen
+			end
+			seen[key] = v == nil and NOTHING or v
+		end
+		return v
+	end
+	if v == NOTHING then
+		return nil
+	end
+	return v
 end
 object_meta.__newindex = function()
 	error("an object handle is read-only", 2)
@@ -544,14 +576,6 @@ local function object(id)
 	end
 	return setmetatable({ id = id }, object_meta)
 end
-
--- What `game.player` has answered in this entry: the game is the frame's for the whole entry, so
--- a field read again is not asked of the host again. The host empties it as each entry begins.
-local player_seen = {}
-kit.on_entry(function()
-	table.clear(player_seen)
-end)
-local NOTHING = {}
 
 api.game = {
 	player = setmetatable({}, {
@@ -606,10 +630,14 @@ api.game = {
 		return hostcall("player.int", key)
 	end,
 	inventory = setmetatable({
-		-- Every item the player holds, as handles.
+		-- Every item the player holds, as handles: a new list each call, of ids asked of the host
+		-- once an entry.
 		items = function()
+			if items_seen == nil then
+				items_seen = hostcall("inventory.items")
+			end
 			local found = {}
-			for _, id in ipairs(hostcall("inventory.items")) do
+			for _, id in ipairs(items_seen) do
 				table.insert(found, object(id))
 			end
 			return found

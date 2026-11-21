@@ -178,7 +178,9 @@ have, read and matched by the host.
 
 ## Reading the game
 
-Reads are synchronous and show the game as of this frame.
+Reads are synchronous and show the game as of this frame. The game holds still while a handler
+runs, so a read made again in the same run (a field of `game.player` or of an object, or
+`game.inventory.items()`'s list) is answered from the first without asking the host again.
 
 **`game.player`** (fields are nil before login):
 
@@ -234,8 +236,8 @@ Reads are synchronous and show the game as of this frame.
 
 ### Objects
 
-An **object** reads through to the game each time, so a handle to an object that has gone reads
-nil: `obj.id`, `obj.name`, `obj.icon`, `obj.type`, `obj.wcid`, `obj.container`, `obj.wielder`,
+An **object** reads through to the game as of the frame, so a handle to an object that has gone
+reads nil: `obj.id`, `obj.name`, `obj.icon`, `obj.type`, `obj.wcid`, `obj.container`, `obj.wielder`,
 `obj.stack`, `obj.value`, `obj.burden`, `obj.selected`, and `obj.class`: `Player`, `Monster`,
 `Npc`, `Vendor`, `Corpse`, `Door`, `Portal`, `Lifestone`, `MeleeWeapon`, `MissileWeapon`,
 `WandStaffOrb`, `Armor`, `Clothing`, `Jewelry`, `Food`, `Money`, `Container`, `Gem`,
