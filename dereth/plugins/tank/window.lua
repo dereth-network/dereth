@@ -541,7 +541,16 @@ local function meta_page(guest, keys)
 	local rules = metaedit.rows(metas.file, m and m.state, m and m.ran)
 	table.insert(nodes, ui.list({ id = "meta_rules", columns = { { title = "#", width = 4 }, { title = "State", width = 10 },
 		{ title = "Condition", width = 22, grow = 1 }, { title = "Action", width = 18, grow = 1 } }, rows = rules, height = 8,
-		selected = within(metaedit.chosen, rules) }))
+		selected = metaedit.chosen_row() }))
+	-- A meta of more rules than the list shows at once, a page at a time.
+	local page = metaedit.page_text(metas.file)
+	if page ~= nil then
+		table.insert(nodes, ui.row({
+			ui.label({ id = "meta_rules_page", text = page, grow = 1 }),
+			ui.button({ id = "mr_earlier", text = "Earlier rules" }),
+			ui.button({ id = "mr_later", text = "Later rules" }),
+		}))
+	end
 	if metas.file ~= nil then
 		for _, node in ipairs(metaedit.nodes(route_files())) do
 			table.insert(nodes, node)
@@ -1038,9 +1047,8 @@ function W.refresh(E)
 		-- The meta's state, and the rules that ran in it, as the meta checks them.
 		win:get("meta_now").text = m == nil and "No meta: choose its file, or make a new one below."
 			or string.format("%s, in state %s: the rules that ran in it are red.", tostring(metas.name), tostring(m.state))
-		local rules = metaedit.rows(metas.file, m and m.state, m and m.ran)
-		win:get("meta_rules").rows = rules
-		win:get("meta_rules").selected = within(metaedit.chosen, rules)
+		win:get("meta_rules").rows = metaedit.rows(metas.file, m and m.state, m and m.ran)
+		win:get("meta_rules").selected = metaedit.chosen_row()
 	end
 	if page ~= 1 then
 		return
@@ -1149,7 +1157,7 @@ function W.selected(E, e)
 		chosen[e.id] = row
 	elseif e.id == "meta_rules" then
 		-- A rule chosen: the editor holds it.
-		metaedit.choose(metas.file, row)
+		metaedit.choose(metas.file, metaedit.rule_of(row))
 		W.rebuild = true
 	elseif e.id == "mr_cparts" or e.id == "mr_aparts" then
 		metaedit.part_chosen(e.id, row)

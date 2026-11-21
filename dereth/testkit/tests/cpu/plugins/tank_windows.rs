@@ -11,7 +11,7 @@ use dereth_testkit::behaviours::note_asserted;
 use dereth_testkit::plugins::{PluginRun, ScriptedObject, SCRIPTED_PLAYER, START_EW, START_NS};
 
 use super::samples;
-use super::tank::{held, int, logged, met, tank, tank_in, text, NEVER, NONE, TANK};
+use super::tank::{held, int, logged, met, tank, tank_in, text, Rule, NEVER, NONE, TANK};
 use super::SharedFiles;
 
 dereth_testkit::scenarios! {
@@ -23,6 +23,7 @@ dereth_testkit::scenarios! {
     scenario_the_tank_reads_and_writes_a_vtank_profiles_items_consumables_and_buffs => the_tank_reads_and_writes_a_vtank_profiles_items_consumables_and_buffs ["plugins.samples.the-tank-reads-and-writes-a-vtank-profiles-items-consumables-and-buffs"],
     scenario_the_tanks_settings_page_loads_this_characters_own_profiles_from_a_list => the_tanks_settings_page_loads_this_characters_own_profiles_from_a_list ["plugins.samples.the-tanks-settings-page-loads-this-characters-own-profiles-from-a-list"],
     scenario_the_tanks_settings_page_finds_a_setting_by_part_of_its_name => the_tanks_settings_page_finds_a_setting_by_part_of_its_name ["plugins.samples.the-tanks-settings-page-finds-a-setting-by-part-of-its-name"],
+    scenario_the_tank_loads_a_meta_of_hundreds_of_rules_and_shows_it_within_its_budget => the_tank_loads_a_meta_of_hundreds_of_rules_and_shows_it_within_its_budget ["plugins.samples.the-tank-loads-a-meta-of-hundreds-of-rules-and-shows-it-within-its-budget"],
 }
 
 /// The meta's set-state action, by the number the file stores.
@@ -827,4 +828,114 @@ fn the_tanks_settings_page_finds_a_setting_by_part_of_its_name() {
         "0.08333333333333333"
     );
     note_asserted("plugins.samples.the-tanks-settings-page-finds-a-setting-by-part-of-its-name");
+}
+
+/// A nested table of a meta's file: a list of typed entries (`K`/`V`), each a kind and its data.
+fn entries(items: &[(i32, Vec<String>)]) -> Vec<String> {
+    let mut out: Vec<String> = ["TABLE", "2", "K", "V", "n", "n"]
+        .map(str::to_owned)
+        .to_vec();
+    out.push(items.len().to_string());
+    for (kind, data) in items {
+        out.extend(int(i64::from(*kind)));
+        out.extend(data.iter().cloned());
+    }
+    out
+}
+
+/// A nested table of a meta's file: named fields (`k`/`v`), each a text.
+fn fields(pairs: &[(&str, &str)]) -> Vec<String> {
+    let mut out: Vec<String> = ["TABLE", "2", "k", "v", "n", "n"]
+        .map(str::to_owned)
+        .to_vec();
+    out.push(pairs.len().to_string());
+    for (k, v) in pairs {
+        out.extend(text(k));
+        out.extend(text(v));
+    }
+    out
+}
+
+/// The rules of the large meta of [`the_tank_loads_a_meta_of_hundreds_of_rules_and_shows_it_within_its_budget`].
+const LARGE_META_RULES: usize = 400;
+
+/// The Tank, on a 4 ms budget of its script's work (a work clock: the same on any machine), given a
+/// meta of four hundred rules in seventeen states, each "all of an expression and a chat line"
+/// then "say a line and set the state": it loads the meta over as many entries as it needs, its
+/// Meta page lists the rules a hundred at a time (a rule chosen on a later page is that rule),
+/// and no entry of its runs past its budget, the page's refreshes as the meta moves on included.
+fn the_tank_loads_a_meta_of_hundreds_of_rules_and_shows_it_within_its_budget() {
+    // VTank's kinds, by the numbers the file stores.
+    const ALL: i32 = 2;
+    const CHAT_MATCH: i32 = 4;
+    const EXPR: i32 = 26;
+    const DO_ALL: i32 = 3;
+    const CHAT: i32 = 2;
+    let states: Vec<String> = (0..17).map(|i| format!("State{i}")).collect();
+    let mut rules: Vec<Rule<'_>> = Vec::new();
+    for i in 0..LARGE_META_RULES {
+        let expr = format!("getvar[n]=={i}");
+        let said = format!("You say, \"go {i}\"");
+        let line = format!("/say rule {i}");
+        rules.push((
+            ALL,
+            entries(&[(EXPR, fields(&[("e", &expr)])), (CHAT_MATCH, text(&said))]),
+            DO_ALL,
+            entries(&[
+                (CHAT, text(&line)),
+                (SET_STATE, text(&states[(i + 1) % 17])),
+            ]),
+            &states[i % 17],
+        ));
+    }
+    let files = SharedFiles::default();
+    files
+        .clone()
+        .write(TANK, "metas/big.met", met(&rules).as_bytes())
+        .expect("in memory");
+    let mut run = tank_in(PluginRun::on_a_work_clock(4.0), &files, Vec::new());
+    select(&mut run, "pages", META_PAGE);
+    run.type_line("/tank meta big.met");
+    run.advance(10.0);
+    let dump = run.ui_dump();
+    assert!(
+        logged(&run, "meta big.met: 17 states"),
+        "{:#?}",
+        run.console(TANK)
+    );
+    assert!(
+        node_line(&dump, "meta_now").contains("big.met, in state"),
+        "{}",
+        node_line(&dump, "meta_now")
+    );
+    assert!(
+        node_line(&dump, "meta_rules_page").contains("Rules 1 to 100 of 400")
+            && node_line(&dump, "meta_rules").contains(r#"/say rule 99\""#)
+            && !node_line(&dump, "meta_rules").contains(r#"/say rule 100\""#),
+        "{}",
+        node_line(&dump, "meta_rules")
+            .chars()
+            .take(600)
+            .collect::<String>()
+    );
+    run.click(TANK, "main.mr_later");
+    run.frame();
+    select(&mut run, "meta_rules", 2);
+    let dump = run.ui_dump();
+    assert!(
+        node_line(&dump, "meta_rules_page").contains("Rules 101 to 200 of 400")
+            && node_line(&dump, "mr_which").contains("rule 102"),
+        "{}\n{}",
+        node_line(&dump, "meta_rules_page"),
+        node_line(&dump, "mr_which")
+    );
+    run.advance(2.0);
+    assert!(
+        !run.console(TANK).iter().any(|l| l.contains("time budget")),
+        "{:#?}",
+        run.console(TANK)
+    );
+    note_asserted(
+        "plugins.samples.the-tank-loads-a-meta-of-hundreds-of-rules-and-shows-it-within-its-budget",
+    );
 }

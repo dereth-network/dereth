@@ -112,6 +112,9 @@ local function load_meta(name, late)
 	if name == nil or name == "" then
 		metas.stop()
 		metas.meta, metas.name = nil, nil
+		if late and E.on_files then
+			E.on_files()
+		end
 		return
 	end
 	if metas.name == name and metas.meta ~= nil then
@@ -120,6 +123,9 @@ local function load_meta(name, late)
 	local text = E.read_file("metas", name)
 	if text == nil then
 		E.note("no meta %s", name)
+		if late and E.on_files then
+			E.on_files()
+		end
 		return
 	end
 	local waited = false
@@ -139,15 +145,15 @@ local function load_meta(name, late)
 		if after ~= nil and after ~= name then
 			load_meta(after, waited or late)
 		elseif waited or late then
-			-- Read after its caller went on: the run, then the window, catch up with it, each in an
+			-- Read after its caller went on: the window, then the run, catch up with it, each in an
 			-- entry of its own.
-			task.sleep(0)
-			if m ~= nil and E.running then
-				metas.start()
-			end
 			task.sleep(0)
 			if E.on_files then
 				E.on_files()
+			end
+			task.sleep(0)
+			if m ~= nil and E.running then
+				metas.start()
 			end
 		end
 	end)
@@ -156,6 +162,11 @@ local function load_meta(name, late)
 		-- Still being read: the meta it replaces (stopped) is no longer the macro's meanwhile.
 		metas.meta, metas.name = nil, nil
 	end
+end
+-- Whether a meta is being read over several entries: whoever shows it waits for the read's end,
+-- which shows it again.
+E.meta_loading = function()
+	return loading ~= nil
 end
 E.on_load_meta = function(name)
 	if loading ~= nil and loading.task ~= nil and coroutine.status(loading.task) == "dead" then
@@ -933,8 +944,9 @@ local function tank_command(args, words)
 	else
 		chat.print("[Tank] /tank start | pause | stop | toggle | forcebuff | status | log [n] | settings | set <setting> <value> | route <file> | profile <file>")
 	end
-	-- What a command changed shows in the window.
-	if w ~= "status" and w ~= "log" and w ~= "settings" and w ~= "monsters" and w ~= "files" and w ~= nil then
+	-- What a command changed shows in the window (a meta still being read, once it is read).
+	if w ~= "status" and w ~= "log" and w ~= "settings" and w ~= "monsters" and w ~= "files" and w ~= nil
+		and not (w == "meta" and E.meta_loading()) then
 		window.build(E)
 	end
 	refresh()

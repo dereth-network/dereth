@@ -578,7 +578,7 @@ function M.switch(name)
 	if M.E.running then
 		M.start()
 	end
-	if M.E.on_files then
+	if M.E.on_files and not (M.E.meta_loading and M.E.meta_loading()) then
 		M.E.on_files()
 	end
 end

@@ -2260,6 +2260,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-loads-a-meta-of-hundreds-of-rules-and-shows-it-within-its-budget",
+        says: "The Tank sample loads a VTank meta of hundreds of rules and lists every rule on its \
+               Meta page, refreshed as the meta moves on, with no entry past its time budget.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-LARGE-META"),
+        station: "dereth-testkit::cpu::plugins::tank_windows::scenario_the_tank_loads_a_meta_of_hundreds_of_rules_and_shows_it_within_its_budget",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-loots-fellows-and-others-corpses-and-only-rare-ones-when-told",
         says: "By a corpse's appraisal (\"Killed by ...\"), VTank's LootFellowCorpses has the Tank loot a \
                fellow's kill and not a stranger's, LootAllCorpses a stranger's too, and \

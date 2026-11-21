@@ -24,7 +24,8 @@
 //! read from a clock on which an entry takes none (`NoVmTime`), so a plugin's events never wait
 //! for a later frame nor is it suspended for its share of one, and an entry may run for
 //! [`UNHURRIED_BUDGET_MS`] before its VM stops it. Only the cases about that budget itself run at
-//! the host's own ([`crate::conformance::BUDGET_CASES`]).
+//! the host's own ([`crate::conformance::BUDGET_CASES`]), and a case about how much work a plugin
+//! does in one entry runs its VMs on a work clock instead ([`PluginRun::on_a_work_clock`]).
 //!
 //! A **scripted world** is a character with the objects a case lists and a server that answers the
 //! client's requests the way a server does ([`Scripted`]): an appraisal with the object's
@@ -89,6 +90,54 @@ struct NoVmTime;
 impl VmClock for NoVmTime {
     fn now(&self) -> std::time::Duration {
         std::time::Duration::ZERO
+    }
+}
+
+/// What each interrupt of a Lua VM takes on a run's work clock ([`PluginRun::on_a_work_clock`]):
+/// a VM reads its clock once at each loop and call, so an entry's time there is the work its
+/// script did, the same on any machine however fast or loaded.
+pub const WORK_STEP: std::time::Duration = std::time::Duration::from_nanos(100);
+
+/// A Lua VM's work clock: each reading is [`WORK_STEP`] past the one before.
+#[derive(Debug, Default)]
+struct WorkClock(std::cell::Cell<std::time::Duration>);
+
+impl VmClock for WorkClock {
+    fn now(&self) -> std::time::Duration {
+        let t = self.0.get() + WORK_STEP;
+        self.0.set(t);
+        t
+    }
+}
+
+/// The Luau engine with Dereth's bindings, each VM on a [`WorkClock`] of its own.
+#[derive(Debug)]
+struct WorkLuau;
+
+impl dereth_plugin_api::engine::ScriptEngine for WorkLuau {
+    fn name(&self) -> &'static str {
+        "luau"
+    }
+
+    fn instantiate(
+        &self,
+        limits: dereth_plugin_api::Limits,
+    ) -> Result<
+        Box<dyn dereth_plugin_api::engine::ScriptInstance>,
+        dereth_plugin_api::engine::ScriptError,
+    > {
+        dereth_plugin_lua::LuauInstance::with_clock(
+            dereth_plugin_lua::DERETH,
+            limits,
+            std::rc::Rc::new(WorkClock::default()),
+        )
+        .map(|vm| Box::new(vm) as Box<dyn dereth_plugin_api::engine::ScriptInstance>)
+        .map_err(|e| {
+            dereth_plugin_api::engine::ScriptError::new(
+                dereth_plugin_api::ScriptErrorKind::Runtime,
+                e.to_string(),
+            )
+        })
     }
 }
 
@@ -1104,6 +1153,21 @@ impl PluginRun {
     /// [`UNHURRIED_BUDGET_MS`], configured by `f`.
     #[must_use]
     pub fn with_config(f: impl FnOnce(&mut HostConfig)) -> Self {
+        Self::built(Box::new(dereth_plugin_lua::LuauEngine::dereth()), f)
+    }
+
+    /// A host offering what the headless client offers, whose Lua VMs read a work clock (each
+    /// interrupt [`WORK_STEP`]) in place of the machine's, their entries given `budget_ms`: a
+    /// budget of so much of a script's work.
+    #[must_use]
+    pub fn on_a_work_clock(budget_ms: f64) -> Self {
+        Self::built(Box::new(WorkLuau), |c| c.limits.call_budget_ms = budget_ms)
+    }
+
+    fn built(
+        engine: Box<dyn dereth_plugin_api::engine::ScriptEngine>,
+        f: impl FnOnce(&mut HostConfig),
+    ) -> Self {
         let mut config = HostConfig::new(
             "dereth-conformance",
             vec![
@@ -1131,7 +1195,7 @@ impl PluginRun {
         Self {
             host: PluginHost::new(
                 config,
-                Box::new(dereth_plugin_lua::LuauEngine::dereth()),
+                engine,
                 Box::new(StaticSource::default()),
                 Box::new(MemoryStorage::default()),
             )

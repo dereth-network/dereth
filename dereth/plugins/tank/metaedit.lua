@@ -1,7 +1,7 @@
--- The meta editor, as VTank's Meta tab has one: the meta's rules listed (those that ran in this
--- stay in the meta's state in red), a rule chosen filled into the fields below the list, its state,
--- its condition and its action, each kind under VTank's name with its own fields; and the rule
--- saved, added as a new one, removed or moved. A condition or action that holds others (All, Any,
+-- The meta editor, as VTank's Meta tab has one: the meta's rules listed, a hundred at a time (those
+-- that ran in this stay in the meta's state in red), a rule chosen filled into the fields below the
+-- list, its state, its condition and its action, each kind under VTank's name with its own fields;
+-- and the rule saved, added as a new one, removed or moved. A condition or action that holds others (All, Any,
 -- Not; All) lists its parts, and a part opened is edited the same way. Each change is the meta's at
 -- once, and saved to its file in the data folder.
 
@@ -230,23 +230,81 @@ function ME.choose(file, i)
 	ME.part = { c = nil, a = nil }
 end
 
--- The rules of `file` as the list shows them, `ran` saying which ran in this stay in `state`.
+-- Each rule's condition and action as the list shows them, kept with the rule: a rule is changed
+-- by putting a new one in its place, which is summed up afresh when it is first shown.
+local lines = setmetatable({}, { __mode = "k" })
+
+local function line(r)
+	local l = lines[r]
+	if l == nil then
+		l = { string.sub(summary(ME.CONDITIONS, r.condition), 1, 300),
+			string.sub(summary(ME.ACTIONS, r.action), 1, 300) }
+		lines[r] = l
+	end
+	return l
+end
+
+-- How many rules the list shows at once: a meta of more is listed a page at a time, which keeps its
+-- window within the text a window may hold. `ME.first` is the first rule shown.
+ME.PAGE = 100
+ME.first = 1
+local paged = nil -- the file whose rules the page is of
+
+-- The first rule of the page that holds rule `i`.
+local function page_of(i)
+	return math.floor((i - 1) / ME.PAGE) * ME.PAGE + 1
+end
+
+-- The page kept within `file`'s rules: the first page of a file not listed before.
+local function settle(file)
+	local n = file and #file.rules or 0
+	if file ~= paged then
+		paged, ME.first = file, 1
+	end
+	if ME.first > math.max(n, 1) then
+		ME.first = page_of(math.max(n, 1))
+	end
+end
+
+-- Which of `file`'s rules the page shows, as a line, or nil when they all fit on one.
+function ME.page_text(file)
+	settle(file)
+	local n = file and #file.rules or 0
+	if n <= ME.PAGE then
+		return nil
+	end
+	return string.format("Rules %d to %d of %d", ME.first, math.min(n, ME.first + ME.PAGE - 1), n)
+end
+
+-- The rule a row of the list shows, and the row that shows the rule chosen (nil off the page).
+function ME.rule_of(row)
+	return row and ME.first + row - 1
+end
+function ME.chosen_row()
+	local row = ME.chosen and ME.chosen - ME.first + 1
+	return row and row >= 1 and row <= ME.PAGE and row or nil
+end
+
+-- The rules of `file` on the page, as the list shows them, `ran` saying which ran in this stay in
+-- `state`.
 function ME.rows(file, state, ran)
+	settle(file)
 	local rows, seen = {}, {}
+	local last = ME.first + ME.PAGE - 1
 	for i, r in ipairs(file and file.rules or {}) do
 		local s = tostring(r.state)
 		seen[s] = (seen[s] or 0) + 1
-		local row = { i, s, summary(ME.CONDITIONS, r.condition), summary(ME.ACTIONS, r.action) }
-		if s == state and ran ~= nil and ran[seen[s]] then
-			for j, c in ipairs(row) do
-				row[j] = { text = string.sub(tostring(c), 1, 300), color = "#FF6060" }
-			end
-		else
-			for j = 3, 4 do
-				row[j] = string.sub(row[j], 1, 300)
+		if i > last then
+			break
+		elseif i >= ME.first then
+			local l = line(r)
+			if s == state and ran ~= nil and ran[seen[s]] then
+				table.insert(rows, { { text = tostring(i), color = "#FF6060" }, { text = string.sub(s, 1, 300), color = "#FF6060" },
+					{ text = l[1], color = "#FF6060" }, { text = l[2], color = "#FF6060" } })
+			else
+				table.insert(rows, { i, s, l[1], l[2] })
 			end
 		end
-		table.insert(rows, row)
 	end
 	return rows
 end
@@ -464,12 +522,20 @@ local function incomplete(kinds, n)
 	return nil
 end
 
--- A button that changes the meta's rules (`file`'s): answers the rules changed (nil when the click
--- changed none) and the line to log.
-function ME.rules_clicked(id, file)
+-- A button that changes the meta's rules (`file`'s), or turns the list's page: answers the rules
+-- changed (nil when the click changed none) and the line to log.
+local function rules_changed(id, file)
 	local rules = file.rules
 	local i = ME.chosen
-	if id == "mr_new" then
+	if id == "mr_earlier" or id == "mr_later" then
+		settle(file)
+		local first = ME.first + (id == "mr_later" and ME.PAGE or -ME.PAGE)
+		if first >= 1 and first <= #rules then
+			ME.first = first
+		end
+		-- The page shows other rules; the one chosen stays in the editor.
+		return nil, nil
+	elseif id == "mr_new" then
 		ME.new_rule(ME.draft and ME.draft.state)
 		return nil, nil
 	elseif id == "mr_save" or id == "mr_add" then
@@ -506,6 +572,15 @@ function ME.rules_clicked(id, file)
 		return file, string.format("rule %d moved to %d", i, j)
 	end
 	return nil, nil
+end
+
+function ME.rules_clicked(id, file)
+	local changed, why = rules_changed(id, file)
+	if changed ~= nil and ME.chosen ~= nil then
+		-- The rule saved, added or moved stays in view.
+		ME.first = page_of(ME.chosen)
+	end
+	return changed, why
 end
 
 -- A rule's identity for keeping what ran: its text as the file writes it.

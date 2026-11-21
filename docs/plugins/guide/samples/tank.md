@@ -617,7 +617,8 @@ minutes [log 0.3.1.39]. The other answers' words are the plugin's own (VTank's a
 **The Meta page** [meta] is VTank's Meta tab: the meta's switch and file, its state set by hand
 (VTank's dropdown) and bound to keys (VTank's meta state hotkeys [log 0.3.1.134]: a key typed
 beside the state, **Bind the state**; each bound key shown with **Unbind**), and the meta's rules,
-those that ran in this stay in the state in red, as VTank lists them. A rule chosen fills the
+those that ran in this stay in the state in red, as VTank lists them (a meta of more than a hundred
+a hundred at a time, **Earlier rules** and **Later rules** turning the page). A rule chosen fills the
 editor under the list: its state, its condition and its action, each a kind of VTank's (Never,
 Always, All, Any, Not, Chat Message, Pack Slots <=, Seconds in State >=, ..., Expression; Set Meta
 State, Chat Command, All, Load Embedded Navroute, Call Meta State, ..., Destroy All Views) with
