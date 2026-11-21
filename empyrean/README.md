@@ -341,6 +341,8 @@ place	<kind>	published	<wcid or ->	<name>	<at>	0	0	-	<to or ->
   each written as the portal table writes positions. Names are written the same way.
 - The two zeros are when the place was first and last seen, which a server does not know, and the
   `-` is a house's owner, which it never names.
+- A client passes over a line whose first field it does not know, and a `place` of a kind it does
+  not know, and reads the rest; a `place` line that does not read refuses the whole document.
 
 ## License
 

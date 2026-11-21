@@ -212,6 +212,35 @@ fn the_store_reads_back_as_written_and_names_another_world() {
     );
 }
 
+#[test]
+fn a_line_of_a_kind_the_reader_does_not_know_is_passed_over_and_the_places_around_it_kept() {
+    let text = "dereth-places-store\t1\nworld\tw\n\
+        place\tlifestone\tpublished\t509\tLifestone\t0xDA55001D 10 103 20\t0\t0\t-\t-\n\
+        naming\town\n\
+        later\twith\tmany\tfields\there\n\
+        place\tvendor\tpublished\t712\tShopkeeper\t0xDA55001D 30 103 20\t0\t0\t-\t-\n";
+    let store = PlaceStore::from_text(text).expect("reads");
+    assert_eq!(store.world, "w");
+    let names: Vec<&str> = store.places().iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Lifestone", "Shopkeeper"]);
+}
+
+#[test]
+fn a_place_line_that_does_not_read_still_refuses_the_store() {
+    let head = "dereth-places-store\t1\nworld\tw\nnaming\town\n";
+    let short = format!("{head}place\tlifestone\tpublished\t509\tLifestone\n");
+    assert!(matches!(
+        PlaceStore::from_text(&short),
+        Err(StoreError::Line(4, _))
+    ));
+    let bad_at =
+        format!("{head}place\tlifestone\tpublished\t509\tLifestone\tnowhere\t0\t0\t-\t-\n");
+    assert!(matches!(
+        PlaceStore::from_text(&bad_at),
+        Err(StoreError::Line(4, _))
+    ));
+}
+
 fn portal() -> PortalSighting {
     PortalSighting {
         wcid: Some(29337),

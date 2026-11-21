@@ -332,12 +332,13 @@ impl PlaceStore {
         out
     }
 
-    /// Read a store written by [`Self::to_text`]. A line of a kind this client does not know is
-    /// passed over, so a later client's store still reads.
+    /// Read a store written by [`Self::to_text`]. A line whose first field this client does not
+    /// know, and a place of a kind it does not know, are passed over, so a later client's or
+    /// server's store still reads.
     ///
     /// # Errors
-    /// [`StoreError`] for text that is not a place store, a newer version, or a line that does
-    /// not read.
+    /// [`StoreError`] for text that is not a place store, a newer version, or a `place` line
+    /// that does not read.
     pub fn from_text(text: &str) -> Result<Self, StoreError> {
         let mut lines = text.lines().enumerate();
         let (_, first) = lines.next().ok_or(StoreError::NotAStore)?;
@@ -381,7 +382,8 @@ impl PlaceStore {
                         },
                     });
                 }
-                _ => return Err(bad("not a place line")),
+                Some("place") => return Err(bad("not a place line")),
+                _ => {}
             }
         }
         Ok(Self::of(store.world, store.places, store.revision))
