@@ -1936,6 +1936,111 @@ fn a_corpse_another_player_has_open_refuses_the_use_until_it_is_closed() {
     );
 }
 
+/// The close answers a client was sent since `from`: each one's status and container.
+fn close_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u64)> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == CLOSE_DONE)
+        .filter_map(|(_, v)| {
+            let status = v.iter().find_map(|x| match x {
+                Value::Int(i) => Some(*i),
+                _ => None,
+            })?;
+            let id = v.iter().find_map(|x| match x {
+                Value::Long(l) => Some(*l),
+                _ => None,
+            })?;
+            Some((status, id))
+        })
+        .collect()
+}
+
+/// Closing a corpse the player does not have open (once it has closed it, as recorded, or by this
+/// server's own rule one it never opened while another player has it open), or anything else while
+/// its corpse is open (this server's rule too), is answered that it is not open (1032), twice in one
+/// tick; nothing closes, and a corpse open stays open.
+/// Behaviour: server.loot.close-of-a-corpse-not-open
+#[test]
+fn closing_a_corpse_the_player_does_not_have_open_is_answered_not_open_twice() {
+    let (mut h, b, me, _) = fight();
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let corpse = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE => Some(o.id),
+            _ => None,
+        })
+        .expect("corpse");
+    let close = |h: &mut Harness, b: usize| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(CLOSE, &[Arg::LongInt(corpse)]),
+        );
+        h.run(20);
+        from
+    };
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    h.run(20);
+    let from = close(&mut h, b);
+    assert_eq!(close_answers(&h, b, from), vec![(0, corpse)], "closed");
+    let from = close(&mut h, b);
+    assert_eq!(
+        close_answers(&h, b, from),
+        vec![(1032, corpse), (1032, corpse)],
+        "closed already"
+    );
+    assert!(
+        !h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoMode(e) if e.sender.id == corpse)),
+        "nothing closes"
+    );
+
+    let (other, _) = h.player_in_world("two", "Fellowa");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    h.run(20);
+    let from = close(&mut h, other);
+    assert_eq!(
+        close_answers(&h, other, from),
+        vec![(1032, corpse), (1032, corpse)],
+        "never opened by it"
+    );
+    let w = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    assert_eq!(
+        h.server.players[&w].open_container,
+        Some(corpse),
+        "the one who has it open keeps it open"
+    );
+    // Asked to close something else while the corpse is open: that is not open, the corpse stays.
+    let elsewhere = corpse ^ 0xFF;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(CLOSE, &[Arg::LongInt(elsewhere)]),
+    );
+    h.run(20);
+    assert_eq!(
+        close_answers(&h, b, from),
+        vec![(1032, elsewhere), (1032, elsewhere)],
+        "another container is not open"
+    );
+    assert_eq!(h.server.players[&w].open_container, Some(corpse));
+}
+
 /// Turning a corpse's items into money moves each into the pack and destroys it there, the money
 /// going up by its value; the answer says what was earned; each item is let go of (its holder
 /// none) before it is gone.

@@ -9260,6 +9260,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.close-of-a-corpse-not-open",
+        says: "A close of a corpse the player does not have open, one it has closed or that is closing, \
+               is answered not open (1032), twice in one tick, and nothing closes. Of the rest the \
+               server answers so by its own rule, as no recording shows one: a corpse another has open, \
+               or anything else while the player's own corpse is open.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CLOSE-NOT-OPEN"),
+        station: "yalain-testkit::cpu::play::fights::closing_a_corpse_the_player_does_not_have_open_is_answered_not_open_twice",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.corpse-closes-when-its-opener-walks-away",
         says: "An open corpse whose opener goes more than six meters from it closes: its opener \
                is told, as when it asks to close it.",

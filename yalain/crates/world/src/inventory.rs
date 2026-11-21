@@ -95,6 +95,10 @@ pub const TRANSMUTE_DESC: u16 = 0x1B59;
 /// are quest items, none of the 358 templates of items turned into money do).
 pub const NOT_FOR_MONEY: u32 = 1105;
 
+/// A close's answer for a container the player does not have open: an action on the inventory it
+/// may not take.
+pub const NOT_OPEN: u32 = 1032;
+
 /// The template property that marks an item a quest needs.
 pub const QUEST_ITEM: &str = "Item_IsQuestItem";
 
@@ -1792,7 +1796,8 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     }
 }
 
-/// The client asks to close a container.
+/// The client asks to close a container: the corpse it has open closes; any other is answered that
+/// it is not open.
 pub fn close_request<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1805,9 +1810,20 @@ pub fn close_request<S: Store>(
     });
     match id {
         Some(id) if open_corpse_of(s, world) == Some(id) => close(s, net, world, id),
-        _ => s
-            .unhandled
-            .note("closing a container the player does not have open"),
+        // One it does not have open (most often one the server has just closed as the player
+        // walked off, its own close crossing the server's) is answered as an action it may not
+        // take, twice in one tick, and nothing else changes (2017: 8 of 8 such closes of corpses,
+        // each answered twice).
+        Some(id) => {
+            let not_open = session::call(
+                function::CLOSE_DONE,
+                &[Arg::Int(NOT_OPEN), Arg::LongInt(id)],
+            )
+            .expect("packs");
+            progress::private(net, world, &not_open);
+            progress::private(net, world, &not_open);
+        }
+        None => s.unhandled.note("a close that does not read"),
     }
 }
 
