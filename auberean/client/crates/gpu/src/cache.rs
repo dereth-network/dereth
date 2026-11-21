@@ -495,6 +495,19 @@ impl MeshCache {
         )
     }
 
+    /// The index buffer of a list of triangles alone, for a draw whose places come from another
+    /// list.
+    pub(crate) fn index_buffer(&mut self, device: &wgpu::Device, indices: &Arc<Vec<u16>>) -> Slice {
+        let now = self.now();
+        self.indices.slice(
+            (device, &mut self.passing_indices, wgpu::BufferUsages::INDEX),
+            now,
+            &mut self.counts,
+            indices,
+            <[u16]>::to_vec,
+        )
+    }
+
     /// The vertex and index buffers of a piece of the land's lists.
     pub(crate) fn land_buffers(
         &mut self,

@@ -13,8 +13,13 @@ use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_draw::body::BodyDrawer;
+use auberean_draw::cull::{Frustum, Relation};
 use auberean_draw::effects::ObjectEffects;
-use auberean_draw::scene::{inside_light, Camera, Frame, ObjectBatch, SceneBuilder, Spot};
+use auberean_draw::material::d3d;
+use auberean_draw::scene::{
+    inside_light, placed_box, Camera, Frame, ObjectBatch, SceneBuilder, Spot, FRILL_CELLS,
+    NEAR_RADIUS,
+};
 use auberean_draw::systems::ParticleSystems;
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
@@ -91,13 +96,43 @@ impl WorldData {
 }
 
 /// A row to stand in the world: its look, where on the world's grid, its rotation (scalar
-/// first) and its scale.
+/// first) and its scale, and the color the fast view draws it in.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
     pub look: u32,
     pub at: [f32; 3],
     pub rotation: [f32; 4],
     pub scale: f32,
+    pub color: [f32; 3],
+}
+
+/// Each of a frame's objects' own color in the fast view, by its place among the frame's objects:
+/// none for the world's own, which take their pictures'.
+pub type FlatColors = [Option<[f32; 3]>];
+
+/// How many blocks about the camera's the fast view draws the world's own objects in, each way.
+pub const FAST_BLOCKS: i32 = 3;
+
+/// A look as the fast view draws it: its draws at rest at the origin, each fragment once and with
+/// nothing that only adds light, and the box they fill.
+struct FastLook {
+    batches: Vec<ObjectBatch>,
+    lo: Vec3,
+    hi: Vec3,
+}
+
+/// Set the world's drawing for the normal view, as the client draws it with the editor's own
+/// choices ([`Scene::new`]), or for the fast view: no water reflection, shore effects, frills or
+/// light coronas, the lowest material detail, and the world's own objects over more blocks. The
+/// model detail stays: at a lower one the world's objects stop showing nearer the camera.
+fn set_view(builder: &mut SceneBuilder<'_>, fast: bool) {
+    builder.water_reflections = !fast;
+    builder.water_ripples = !fast;
+    builder.shore_effects = if fast { 0 } else { 2 };
+    builder.light_coronas = !fast;
+    builder.set_frills(!fast, FRILL_CELLS, 1.0);
+    builder.material_detail = if fast { 0 } else { 2 };
+    builder.object_radius = if fast { FAST_BLOCKS } else { NEAR_RADIUS };
 }
 
 /// A look put together once: its body at rest and its parts' poses, and the look itself where it
@@ -212,6 +247,15 @@ pub struct Scene<'w> {
     systems: ParticleSystems,
     row_effects: HashMap<(u32, usize), RowEffects>,
     started: std::time::Instant,
+    /// The fast view is on ([`Self::set_fast`]).
+    fast: bool,
+    /// The rows' bodies as the fast view draws them, at the coarsest detail, by look.
+    fast_drawer: BodyDrawer,
+    fast_looks: HashMap<u32, Option<FastLook>>,
+    /// Each of the last frame's objects' own color in the fast view: none for the world's own.
+    flat_colors: Vec<Option<[f32; 3]>>,
+    /// The picture's width over its height.
+    pub aspect: f32,
 }
 
 impl std::fmt::Debug for Scene<'_> {
@@ -231,6 +275,10 @@ impl<'w> Scene<'w> {
         builder.cloud_shadows = false;
         // The editor shows the placed objects kept out of the game too, as the tools do.
         builder.tools_draw = true;
+        set_view(&mut builder, false);
+        let mut fast_drawer = BodyDrawer::default();
+        fast_drawer.model_detail = 0;
+        fast_drawer.material_detail = 0;
         Self {
             data,
             builder,
@@ -248,7 +296,82 @@ impl<'w> Scene<'w> {
             systems: ParticleSystems::default(),
             row_effects: HashMap::new(),
             started: std::time::Instant::now(),
+            fast: false,
+            fast_drawer,
+            fast_looks: HashMap::new(),
+            flat_colors: Vec::new(),
+            aspect: 16.0 / 9.0,
         }
+    }
+
+    /// The fast view on or off: the world drawn flat and plain, with no effects, its objects over
+    /// more blocks and the rows' bodies at their coarsest; or as the client draws it.
+    pub fn set_fast(&mut self, on: bool) {
+        if self.fast == on {
+            return;
+        }
+        self.fast = on;
+        set_view(&mut self.builder, on);
+        self.built = None;
+        self.row_effects.clear();
+    }
+
+    /// Whether the fast view is on.
+    #[must_use]
+    pub fn fast(&self) -> bool {
+        self.fast
+    }
+
+    /// The frame last built ([`Self::frame`]), with its objects' own colors when the fast view
+    /// draws it.
+    #[must_use]
+    pub fn drawn(&self) -> Option<(&Frame, Option<&FlatColors>)> {
+        let frame = &self.built.as_ref()?.3;
+        Some((frame, self.fast.then_some(self.flat_colors.as_slice())))
+    }
+
+    /// A look as the fast view draws it, put together the first time it is asked for.
+    fn fast_look(&mut self, look: u32) -> Option<&FastLook> {
+        if !self.fast_looks.contains_key(&look) {
+            let made = self
+                .looks
+                .get(&look)
+                .and_then(Option::as_ref)
+                .and_then(|p| {
+                    let mut seen = HashSet::new();
+                    let mut batches: Vec<ObjectBatch> = self
+                        .fast_drawer
+                        .batches(&self.data.records, &p.figure, &p.poses, &Mat4::IDENTITY)
+                        .into_iter()
+                        .filter(|b| {
+                            b.layer.dest_blend != d3d::BLEND_ONE
+                                && seen.insert((b.places(), Arc::as_ptr(&b.indices)))
+                        })
+                        .collect();
+                    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+                    for b in &mut batches {
+                        b.each_position(|q| {
+                            for k in 0..3 {
+                                lo[k] = lo[k].min(q[k]);
+                                hi[k] = hi[k].max(q[k]);
+                            }
+                        });
+                        // The fast view reads none of a row's pictures: what copying them would cost,
+                        // it leaves.
+                        b.layer.stages = Vec::new();
+                        b.layer.light_variants = Vec::new();
+                        b.layer.pixel_program = None;
+                        b.layer.motion = None;
+                    }
+                    (lo[0] <= hi[0]).then(|| FastLook {
+                        batches,
+                        lo: Vec3::new(lo[0], lo[1], lo[2]),
+                        hi: Vec3::new(hi[0], hi[1], hi[2]),
+                    })
+                });
+            self.fast_looks.insert(look, made);
+        }
+        self.fast_looks.get(&look).and_then(Option::as_ref)
     }
 
     /// Show these clearings, each with the landblock it is written in: the blocks they change, or
@@ -799,14 +922,8 @@ impl<'w> Scene<'w> {
         for r in rows {
             let _ = self.posed(r.look);
         }
-        let effects = self.row_effects_batches(rows, block, view);
-        let (looks, drawer, records) = (&self.looks, &mut self.drawer, &self.data.records);
-        let mut batches = Vec::new();
-        for r in rows {
-            let Some(Some(p)) = looks.get(&r.look) else {
-                continue;
-            };
-            let place = Mat4::from_parts(
+        let place_of = |r: &Standing, p: &Posed| {
+            Mat4::from_parts(
                 Vec3::new(r.at[0] - origin[0], r.at[1] - origin[1], r.at[2]),
                 Quat {
                     w: r.rotation[0],
@@ -819,9 +936,58 @@ impl<'w> Scene<'w> {
                     p.scale.y * r.scale,
                     p.scale.z * r.scale,
                 ),
+            )
+        };
+        let mut batches = Vec::new();
+        let mut colors = Vec::new();
+        let effects = if self.fast {
+            // Only the rows some of whose box the view meets, as their looks stand at rest.
+            let sight = Frustum::of_camera(
+                &Camera {
+                    position: eye,
+                    heading: view.heading(),
+                    pitch: view.pitch(),
+                    fov_y: self.fov,
+                    near: 0.1,
+                    far: 2000.0,
+                    orthographic: None,
+                    roll: 0.0,
+                },
+                self.aspect,
             );
-            batches.extend(drawer.batches(records, &p.figure, &p.poses, &place));
-        }
+            let v = |p: Vec3| dereth_primitives::Vec3::new(p.x, p.y, p.z);
+            for r in rows {
+                let Some(Some(p)) = self.looks.get(&r.look) else {
+                    continue;
+                };
+                let place = place_of(r, p);
+                let Some(f) = self.fast_look(r.look) else {
+                    continue;
+                };
+                let (lo, hi) = placed_box(f.lo, f.hi, &place);
+                if sight.relation(v(lo), v(hi)) == Relation::Outside {
+                    continue;
+                }
+                for b in &f.batches {
+                    batches.push(ObjectBatch {
+                        transform: place,
+                        ..b.clone()
+                    });
+                    colors.push(Some(r.color));
+                }
+            }
+            Vec::new()
+        } else {
+            let effects = self.row_effects_batches(rows, block, view);
+            let (looks, drawer, records) = (&self.looks, &mut self.drawer, &self.data.records);
+            for r in rows {
+                let Some(Some(p)) = looks.get(&r.look) else {
+                    continue;
+                };
+                batches.extend(drawer.batches(records, &p.figure, &p.poses, &place_of(r, p)));
+            }
+            effects
+        };
         let Some(built) = self.built.as_mut() else {
             unreachable!("built above");
         };
@@ -829,6 +995,11 @@ impl<'w> Scene<'w> {
         frame.objects.truncate(built.4);
         frame.objects.extend(batches);
         frame.objects.extend(effects);
+        self.flat_colors.clear();
+        if self.fast {
+            self.flat_colors.resize(built.4, None);
+            self.flat_colors.extend(colors);
+        }
         frame.camera.position = eye;
         frame.camera.heading = view.heading();
         frame.camera.pitch = view.pitch();

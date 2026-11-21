@@ -1,7 +1,9 @@
 //! Every pipeline the device makes, and frames that reach every kind of draw, pass the graphics
 //! API's checks on the hardware GPU: a binding a shader reads from a stage its layout does not
 //! name, a blend factor the API refuses, or a draw whose bindings do not fit its pipeline fails
-//! here rather than in a player's client.
+//! here rather than in a player's client. The flat view a world builder draws with goes through
+//! too: each mesh drawn once for all its places, what the view misses left out, the colors given
+//! drawn, and the full drawing of the next frame left as it was.
 //!
 //! Behaviour: none (a check of the device, which no behavior of the game names)
 
@@ -12,6 +14,7 @@ use auberean_draw::body::BodyDrawer;
 use auberean_draw::material::{draw_layers, instance_material, DEVICE_FLAGS};
 use auberean_draw::mesh::{MeshVertex, PosedList};
 use auberean_draw::scene::{SceneBuilder, Spot};
+use auberean_gpu::Flat;
 use auberean_primitives::{DataId, Quat, Vec3};
 use auberean_world::math::Mat4;
 
@@ -520,4 +523,84 @@ fn the_retail_device_draws_a_frame_the_same_each_time() {
             );
         }
     }
+}
+
+/// A flat frame draws each mesh once for all the places it stands, so it has fewer draws than
+/// places; it leaves out what lies wholly behind the camera; and it shows the land and what stands
+/// on it, not the backdrop alone.
+#[test]
+fn a_flat_frame_draws_a_mesh_once_for_its_places_and_leaves_out_what_the_view_misses() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let frame = still_frame(&mut builder);
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let picture = checked(&mut device, |d| {
+        d.render_flat(&frame, &[], &Flat::default(), 320, 240, &mut load)
+            .expect("read back")
+    });
+    let counts = device.flat_counts();
+    eprintln!("{counts:?}");
+    assert!(counts.draws > 0, "{counts:?}");
+    assert!(counts.instances > counts.draws, "{counts:?}");
+    assert!(counts.culled > 0, "{counts:?}");
+    let colors: HashSet<&[u8]> = picture.rgba.chunks(4).collect();
+    assert!(colors.len() > 50, "{} colors", colors.len());
+}
+
+/// The colors a host gives the objects are the ones drawn: with every object given pure red, red
+/// shows; with none given, it does not.
+#[test]
+fn a_flat_frame_draws_the_objects_in_the_colors_given() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let frame = still_frame(&mut builder);
+    let red = vec![Some([1.0, 0.0, 0.0]); frame.objects.len()];
+    // No light but the ambient, all of it: a face shows its color as given.
+    let look = Flat {
+        ambient: 1.0,
+        direct: 0.0,
+        ..Flat::default()
+    };
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (given, own) = checked(&mut device, |d| {
+        (
+            d.render_flat(&frame, &red, &look, 320, 240, &mut load)
+                .expect("read back"),
+            d.render_flat(&frame, &[], &look, 320, 240, &mut load)
+                .expect("read back"),
+        )
+    });
+    let reds = |p: &auberean_gpu::Picture| {
+        p.rgba
+            .chunks(4)
+            .filter(|t| t[0] == 255 && t[1] == 0 && t[2] == 0)
+            .count()
+    };
+    assert!(reds(&given) > 1_000, "{}", reds(&given));
+    assert_eq!(reds(&own), 0);
+}
+
+/// Drawing a frame flat between two full drawings of another leaves the second as the first, byte
+/// for byte: the flat view shares the device's lists and pictures without changing what the full
+/// drawing finds there.
+#[test]
+fn a_flat_frame_leaves_the_full_drawing_as_it_was() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let frame = still_frame(&mut builder);
+    let mut device = renderer_antialiased(false);
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (before, after) = checked(&mut device, |d| {
+        let before = d.render(&frame, 320, 240, &mut load).expect("read back");
+        d.render_flat(&frame, &[], &Flat::default(), 320, 240, &mut load)
+            .expect("read back");
+        let after = d.render(&frame, 320, 240, &mut load).expect("read back");
+        (before, after)
+    });
+    assert!(before == after, "the full drawing changed");
 }

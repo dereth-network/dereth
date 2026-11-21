@@ -219,6 +219,57 @@ struct App<'w> {
     /// The game's pointer picture shown over the window (by its picture), and the cursors made.
     cursor: Option<u32>,
     cursors: std::collections::HashMap<u32, winit::window::CustomCursor>,
+    /// The frames a script's `measure` is timing.
+    measure: Option<Measure>,
+}
+
+/// Frames being timed for a script: until when, the file the line goes to and its label, when the
+/// last frame began, the time between frames, and what they drew.
+#[derive(Debug, Default)]
+struct Measure {
+    until: f64,
+    file: PathBuf,
+    label: String,
+    last: Option<f64>,
+    gaps: Vec<f64>,
+    frames: u64,
+    draws: u64,
+    objects: u64,
+    instances: u64,
+    culled: u64,
+}
+
+impl Measure {
+    /// The line of what the frames took: how many, the time between them (mean, median and the
+    /// slowest twentieth's), and what each drew on average.
+    fn line(&self) -> String {
+        let mut gaps = self.gaps.clone();
+        gaps.sort_by(f64::total_cmp);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let at = |share: f64| {
+            let k = ((gaps.len().saturating_sub(1)) as f64 * share).round() as usize;
+            gaps.get(k).copied().unwrap_or(0.0)
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let mean = gaps.iter().sum::<f64>() / gaps.len().max(1) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        let per = |n: u64| n as f64 / self.frames.max(1) as f64;
+        format!(
+            "{}\tframes {}\tmean {mean:.2} ms\tmedian {:.2} ms\t95% {:.2} ms\tdraws {:.0}\tobjects {:.0}\tflat places {:.0}\tflat culled {:.0}",
+            self.label,
+            self.frames,
+            at(0.5),
+            at(0.95),
+            per(self.draws),
+            per(self.objects),
+            per(self.instances),
+            per(self.culled),
+        )
+    }
 }
 
 impl App<'_> {
@@ -374,6 +425,19 @@ impl App<'_> {
                 },
                 Step::Type(text) => self.gui.type_text(&text),
                 Step::Shot(p) => self.shot_next = Some(p),
+                Step::Fast(on) => e.set_fast(on),
+                Step::Measure(s, file, label) => {
+                    if let Some(p) = &mut self.present {
+                        p.wait_for_display(false);
+                        let _ = p.renderer.take_work();
+                    }
+                    self.measure = Some(Measure {
+                        until: now + s,
+                        file,
+                        label,
+                        ..Measure::default()
+                    });
+                }
                 Step::Close => e.ask_close(),
                 Step::Quit => self.quit = true,
             }
@@ -454,16 +518,42 @@ impl App<'_> {
         self.input.pressed.clear();
         let shot = self.shot_next.take();
         let world = self.world;
-        let frame = self.editor.frame();
+        let _ = self.editor.frame();
+        let drawn = self.editor.scene.drawn();
+        let objects = drawn.map_or(0, |(f, _)| f.objects.len());
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
-        present.present(
-            Some(frame),
-            None,
-            out,
-            &self.gui.ctx,
-            &mut load,
-            shot.as_deref(),
-        );
+        present.present(drawn, None, out, &self.gui.ctx, &mut load, shot.as_deref());
+        if let Some(m) = &mut self.measure {
+            let work = present.renderer.take_work();
+            let flat = present.renderer.flat_counts();
+            if let Some(last) = m.last {
+                m.gaps.push((now - last) * 1000.0);
+            }
+            m.last = Some(now);
+            m.frames += 1;
+            m.draws += u64::from(work.draws);
+            m.objects += objects as u64;
+            if self.editor.scene.fast() {
+                m.instances += u64::from(flat.instances);
+                m.culled += u64::from(flat.culled);
+            }
+            if now >= m.until {
+                let line = m.line();
+                tracing::info!("measured: {line}");
+                let written = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&m.file)
+                    .and_then(|mut f| {
+                        std::io::Write::write_all(&mut f, format!("{line}\n").as_bytes())
+                    });
+                if let Err(e) = written {
+                    self.editor.status = format!("{}: {e}", m.file.display());
+                }
+                present.wait_for_display(true);
+                self.measure = None;
+            }
+        }
         self.editor
             .draw_picture(&self.gui.ctx, &mut present.renderer, &mut load);
         self.after_frame(el, began);
@@ -911,6 +1001,7 @@ fn run() -> Result<(), String> {
         shots,
         shot_next: None,
         shot_count: 0,
+        measure: None,
         start: Instant::now(),
         last: 0.0,
         failed: None,

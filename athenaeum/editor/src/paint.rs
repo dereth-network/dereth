@@ -286,6 +286,20 @@ impl Presenter {
         self.surface.configure(self.renderer.device(), &self.config);
     }
 
+    /// Whether each frame waits for the display before it is shown (as the editor draws), or is
+    /// shown as soon as it is drawn (to measure how long frames take).
+    pub fn wait_for_display(&mut self, wait: bool) {
+        let mode = if wait {
+            wgpu::PresentMode::Fifo
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        if self.config.present_mode != mode {
+            self.config.present_mode = mode;
+            self.surface.configure(self.renderer.device(), &self.config);
+        }
+    }
+
     /// The window's drawing area.
     #[must_use]
     pub const fn size(&self) -> (u32, u32) {
@@ -423,13 +437,14 @@ impl Presenter {
         self.hidden
     }
 
-    /// Draw a frame: the world (when there is one), or the game's picture laid into its part of
-    /// the window (left, top, width and height in pixels), and the panels over it, into the
-    /// window; with `shot`, also save the window's picture there.
+    /// Draw a frame: the world (when there is one; flat, with its objects' own colors, in the fast
+    /// view), or the game's picture laid into its part of the window (left, top, width and height
+    /// in pixels), and the panels over it, into the window; with `shot`, also save the window's
+    /// picture there.
     #[allow(clippy::too_many_lines)] // one pass, in drawing order
     pub fn present(
         &mut self,
-        world: Option<&Frame>,
+        world: Option<(&Frame, Option<&crate::scene::FlatColors>)>,
         game: Option<(&wgpu::Texture, [u32; 4])>,
         mut panels: egui::FullOutput,
         ctx: &egui::Context,
@@ -446,10 +461,15 @@ impl Presenter {
         let ppp = panels.pixels_per_point;
         let primitives = ctx.tessellate(panels.shapes, ppp);
         self.renderer.backdrop = wgpu::Color::BLACK;
-        let world_view = world.map(|f| {
-            self.renderer
-                .draw(f, w, h, load)
-                .create_view(&wgpu::TextureViewDescriptor::default())
+        let world_view = world.map(|(f, flat)| {
+            match flat {
+                Some(colors) => {
+                    self.renderer
+                        .draw_flat(f, colors, &auberean_gpu::Flat::default(), w, h, load)
+                }
+                None => self.renderer.draw(f, w, h, load),
+            }
+            .create_view(&wgpu::TextureViewDescriptor::default())
         });
         #[allow(clippy::cast_precision_loss)]
         let screen = [w as f32 / ppp, h as f32 / ppp, 0.0, 0.0];

@@ -1026,6 +1026,11 @@ pub struct SceneBuilder<'a> {
     pub camera_in_water: bool,
     /// Draw as the tools draw: the placed objects kept out of the game are drawn too.
     pub tools_draw: bool,
+    /// How many blocks about the viewer's have their placed objects, scenery and the interiors
+    /// seen from outside drawn: the detailed blocks' ([`NEAR_RADIUS`]) as the game draws them, or
+    /// more for a tool that shows more of the world at once. Past the detailed blocks the ground
+    /// and its water stay the far landscape's.
+    pub object_radius: i32,
     /// The landscape shore effects preference: 0 none, 1 the shores' alpha, 2 that and their foam.
     pub shore_effects: u32,
     /// The light coronas preference: the sky objects' lens flares.
@@ -1223,6 +1228,7 @@ impl<'a> SceneBuilder<'a> {
             shore_effects: 2,
             light_coronas: true,
             far_radius: FAR_RADIUS,
+            object_radius: NEAR_RADIUS,
             frill_radius: FRILL_CELLS,
             frills: true,
             frill_reach: 1.0,
@@ -1908,6 +1914,9 @@ impl<'a> SceneBuilder<'a> {
         let mut terrain: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
         let mut near_land: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
         let mut near_blocks: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
+        // The blocks past the detailed ones whose objects are drawn: the ground their scenery grows on.
+        let mut object_ground: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
+        let objects_reach = NEAR_RADIUS.max(self.object_radius);
         let mut water = Vec::new();
         for &(bx, by) in &wanted {
             let surfaces = self.region.surfaces();
@@ -1924,7 +1933,8 @@ impl<'a> SceneBuilder<'a> {
                 (by - spot.block.1) as f32 * block_len,
                 0.0,
             );
-            let near = (bx - spot.block.0).abs().max((by - spot.block.1).abs()) <= NEAR_RADIUS;
+            let ring = (bx - spot.block.0).abs().max((by - spot.block.1).abs());
+            let near = ring <= NEAR_RADIUS;
             if near {
                 self.near_terrain(&tb, offset, &light, &mut terrain, &mut counts);
                 if self.water_reflections {
@@ -1961,6 +1971,8 @@ impl<'a> SceneBuilder<'a> {
             }
             if near {
                 near_blocks.insert((bx, by), tb);
+            } else if ring <= objects_reach {
+                object_ground.insert((bx, by), tb);
             }
         }
         let cell_len = land.grid().cell_length;
@@ -1983,9 +1995,9 @@ impl<'a> SceneBuilder<'a> {
                 (by - spot.block.1) as f32 * block_len,
                 0.0,
             ));
-            // Only the detailed blocks around the viewer have their objects; the far landscape is
+            // Only the blocks the objects reach have them; the rest of the far landscape is
             // ground alone.
-            if (bx - spot.block.0).abs().max((by - spot.block.1).abs()) > NEAR_RADIUS {
+            if (bx - spot.block.0).abs().max((by - spot.block.1).abs()) > objects_reach {
                 continue;
             }
             let info = self.records.landblock_info(bx, by);
@@ -2005,7 +2017,10 @@ impl<'a> SceneBuilder<'a> {
             // The parts of the block's objects that cast on the land.
             // D2-06218
             let mut land_casters: Vec<Part> = Vec::new();
-            if let Some(tb) = near_blocks.get(&(bx, by)) {
+            if let Some(tb) = near_blocks
+                .get(&(bx, by))
+                .or_else(|| object_ground.get(&(bx, by)))
+            {
                 for s in self.block_scenery(tb, &blocks, info.as_ref()).iter() {
                     let cell = (
                         bx * cells + floor_to_i32(s.origin.x / cell_len),

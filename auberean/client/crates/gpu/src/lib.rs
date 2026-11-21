@@ -58,10 +58,12 @@ use auberean_world::math::Mat4;
 use bytemuck::Zeroable;
 
 mod cache;
+pub mod flat;
 mod pool;
 mod targets;
 mod work;
 
+pub use flat::{Flat, FlatCounts};
 pub use work::{Lap, Stages, Work};
 
 /// Why a frame could not be drawn.
@@ -214,6 +216,8 @@ pub struct Renderer {
     /// The volumes of shadow's pipelines: the volumes counted in the stencil, and the darkening
     /// where the count is not zero.
     volume_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
+    /// The flat view's pipelines and what it keeps, made the first time it draws.
+    flat: Option<flat::FlatKept>,
 }
 
 /// The sun's shadow map as last drawn, and all that decided it.
@@ -696,6 +700,7 @@ impl Renderer {
             flares_seen: info.backend != wgpu::Backend::BrowserWebGpu,
             pictures_as: pictures_on(info.backend),
             flare_pipelines: None,
+            flat: None,
         };
         r.build_terrain_pipelines();
         r

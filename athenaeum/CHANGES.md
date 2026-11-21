@@ -8,6 +8,7 @@ see, not how it was done.
 
 ## Unreleased
 - macOS: fixed arrow keys typing odd characters into text fields.
+- New Fast view (F7) for seeing far more of a big world at once.
 
 ## 0.1.10 (2026-11-21)
 - Worlds can now give examine pages, broker consignment limits, oath gates and weighted effect picks.

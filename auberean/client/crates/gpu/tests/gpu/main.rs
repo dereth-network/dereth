@@ -5,7 +5,8 @@
 //! reflection, and its ripples push the reflection one way, the shores write the frame's alpha
 //! and the foam lies over the reflection, a viewport's scene covers only where it draws, and
 //! textures are taken at their detail and filtered as the graphics preferences say, a faded
-//! object shows what is behind it, and a frame is drawn the same each time. Beside the claims, an
+//! object shows what is behind it, and a frame is drawn the same each time; the flat view draws
+//! each mesh once for its places and leaves the full drawing as it was. Beside the claims, an
 //! instrument keeps the frames of seven stations to compare a later build with (`instruments`).
 //!
 //! Fixture: a hardware adapter (a software rasteriser is refused) and the end-of-retail install

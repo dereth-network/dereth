@@ -38,6 +38,10 @@
 //! key KEY [ctrl] [shift]              a key pressed, as `KeyR`, `Delete` or `Digit1`
 //! type TEXT                          the rest of the line typed
 //! shot FILE                          save the window's picture
+//! fast on|off                        the fast view on or off
+//! measure SECONDS FILE [LABEL]       for that long, frames shown as soon as they are drawn and
+//!                                    timed; then a line of how long they took and what they drew
+//!                                    added to FILE
 //! close                              what the window's close button does
 //! quit
 //! ```
@@ -95,6 +99,9 @@ pub enum Step {
     Key(String, bool, bool),
     Type(String),
     Shot(PathBuf),
+    Fast(bool),
+    /// For how many seconds frames are timed, the file the line goes to, and its label.
+    Measure(f64, PathBuf, String),
     Close,
     Quit,
 }
@@ -249,6 +256,10 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ),
             ["type", t @ ..] => Step::Type(t.join(" ")),
             ["shot", f] => Step::Shot(dir.join(f)),
+            ["fast", on @ ("on" | "off")] => Step::Fast(*on == "on"),
+            ["measure", s, f, label @ ..] => {
+                Step::Measure(num(s).map_err(bad)?.into(), dir.join(f), label.join(" "))
+            }
             ["close"] => Step::Close,
             ["quit"] => Step::Quit,
             _ => return Err(bad(format!("not a step: {line}"))),

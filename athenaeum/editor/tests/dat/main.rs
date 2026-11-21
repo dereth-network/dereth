@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use athenaeum_editor::app::{Editor, Tool, ViewInput};
 use athenaeum_editor::gizmo::{self, Handle};
 use athenaeum_editor::live::Programs;
-use athenaeum_editor::scene::{Scene, WorldData};
+use athenaeum_editor::scene::{Scene, Standing, WorldData};
 use athenaeum_editor::view;
 use athenaeum_foundry::edit::NewKind;
 use athenaeum_foundry::{build, new, world, Session};
@@ -1061,11 +1061,12 @@ fn a_row_of_effects_alone_draws_them_and_stops_when_it_is_gone() {
     let (look, _) = e.look(0x4700_33A5).expect("a portal of effects alone");
     let g = ground(&mut e);
     let v = e.view();
-    let row = athenaeum_editor::scene::Standing {
+    let row = Standing {
         look,
         at: [g[0], g[1], g[2]],
         rotation: [1.0, 0.0, 0.0, 0.0],
         scale: 1.0,
+        color: [1.0, 1.0, 1.0],
     };
     let bare = e.scene.frame(&v, &[], None).objects.len();
     let _ = e.scene.frame(&v, &[row], None);
@@ -1565,4 +1566,128 @@ fn a_storekeepers_shop_title_is_set_in_the_inspector_and_shown_there() {
     assert_eq!(e.session.shop_title(0x4700_33D0), None, "{}", e.status);
     draw_panels(&mut e, &ctx);
     assert_eq!(e.shown_shop_title(), "");
+}
+
+/// What a frame of the world holds, to tell one view from another: its counts, how many draws of
+/// objects and water it has, whether the water reflects, and its shores' draws.
+fn held(
+    f: &auberean_draw::scene::Frame,
+) -> (auberean_draw::scene::Counts, usize, usize, bool, usize) {
+    (
+        f.counts,
+        f.objects.len(),
+        f.water.len(),
+        f.reflection.is_some(),
+        f.shore.len() + f.foam.len(),
+    )
+}
+
+/// A vendor's body standing at `at`, drawn in `color` by the fast view.
+fn vendor_at(e: &mut Editor<'_>, at: [f32; 3], color: [f32; 3]) -> Standing {
+    let (look, _) = e.look(0x4700_33D0).expect("a vendor's look");
+    Standing {
+        look,
+        at,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        scale: 1.0,
+        color,
+    }
+}
+
+/// The fast view starts off, and turned on and off again it leaves the frame a fresh editor draws:
+/// the same objects, water and shores, a row's body drawn as before, and no colors of its own.
+#[test]
+fn the_fast_view_starts_off_and_turned_off_leaves_the_normal_view_as_it_was() {
+    let mut e = editor("fast-off");
+    assert!(!e.scene.fast());
+    let g = ground(&mut e);
+    let row = vendor_at(&mut e, g, [1.0, 0.0, 0.0]);
+    let v = e.view();
+    let normal = held(e.scene.frame(&v, &[row], None));
+    assert!(e.scene.drawn().is_some_and(|(_, colors)| colors.is_none()));
+    e.set_fast(true);
+    let fast = held(e.scene.frame(&v, &[row], None));
+    assert_ne!(fast, normal);
+    e.set_fast(false);
+    assert_eq!(held(e.scene.frame(&v, &[row], None)), normal);
+    assert!(e.scene.drawn().is_some_and(|(_, colors)| colors.is_none()));
+}
+
+/// The fast view draws the world's own objects over more blocks than the normal view, and none of
+/// its water's reflection, shores or frills.
+#[test]
+fn the_fast_view_draws_the_worlds_objects_further_off_and_no_effects() {
+    let mut e = editor("fast-reach");
+    let v = e.view();
+    let normal = e.scene.frame(&v, &[], None).counts;
+    e.set_fast(true);
+    let f = e.scene.frame(&v, &[], None);
+    assert!(
+        f.counts.objects > normal.objects && f.counts.scenery > normal.scenery,
+        "{:?} against {normal:?}",
+        f.counts
+    );
+    assert_eq!(f.counts.frills, 0);
+    assert!(f.reflection.is_none() && f.shore.is_empty() && f.foam.is_empty());
+}
+
+/// The fast view's colors for each of the frame's objects, with `rows` standing in it.
+fn fast_colors(e: &mut Editor<'_>, rows: &[Standing]) -> Vec<Option<[f32; 3]>> {
+    let v = e.view();
+    let n = e.scene.frame(&v, rows, None).objects.len();
+    let (_, colors) = e.scene.drawn().expect("a frame");
+    let colors = colors.expect("the fast view's colors").to_vec();
+    assert_eq!(colors.len(), n);
+    colors
+}
+
+/// In the fast view each draw of a row's body carries the row's color and the world's own carry
+/// none; a row wholly behind the camera is left out.
+#[test]
+fn the_fast_view_colors_rows_by_their_kind_and_leaves_out_those_behind_the_camera() {
+    let mut e = editor("fast-rows");
+    e.set_fast(true);
+    let g = ground(&mut e);
+    let ahead = vendor_at(&mut e, g, [1.0, 0.0, 0.0]);
+    // The camera looks north from twenty meters south of the point: this stands forty behind it.
+    let behind = vendor_at(&mut e, [g[0], g[1] - 60.0, g[2]], [0.0, 0.0, 1.0]);
+    let bare = fast_colors(&mut e, &[]);
+    assert!(bare.iter().all(Option::is_none));
+    let one = fast_colors(&mut e, &[ahead]);
+    let red = one.iter().filter(|c| **c == Some([1.0, 0.0, 0.0])).count();
+    assert!(red > 0 && one.len() == bare.len() + red, "{red}");
+    let both = fast_colors(&mut e, &[ahead, behind]);
+    assert_eq!(both, one, "the row behind is left out");
+}
+
+/// How many of the window's frame's draws carry a row's color in the fast view.
+fn colored_draws(e: &mut Editor<'_>) -> usize {
+    frame(e, &ViewInput::default());
+    let _ = e.frame();
+    e.scene
+        .drawn()
+        .and_then(|(_, c)| c)
+        .expect("the fast view's colors")
+        .iter()
+        .flatten()
+        .count()
+}
+
+/// The fast view draws rows as bodies further off than the normal view: a row 300 meters ahead of
+/// the camera stands in its frame, and is gone from it once deleted.
+#[test]
+fn the_fast_view_draws_rows_further_off() {
+    let (mut e, item, g) = with_a_row("fast-far");
+    // What is selected is drawn however far off: let it go.
+    e.select(None);
+    e.camera.yaw = 0.0;
+    e.camera.position.x = g[0];
+    e.camera.position.y = g[1] - 300.0;
+    e.set_fast(true);
+    let with = colored_draws(&mut e);
+    e.select(Some(item.clone()));
+    e.delete_selected();
+    e.select(None);
+    let without = colored_draws(&mut e);
+    assert!(with > without, "{item}: {with} against {without}");
 }

@@ -50,6 +50,11 @@ pub mod play;
 pub const NEAR: f32 = 160.0;
 /// How far from the camera rows are marked, meters.
 pub const MARKED: f32 = 400.0;
+/// How many rows are drawn as bodies at most.
+pub const DRAWN: usize = 400;
+/// How far from the camera the fast view draws rows as bodies, meters, and how many at most.
+pub const FAST_NEAR: f32 = 640.0;
+pub const FAST_DRAWN: usize = 5000;
 /// How close to a marker a click selects it, pixels.
 pub const HIT: f32 = 12.0;
 /// How far above its point a camp's spot is marked, meters.
@@ -782,11 +787,12 @@ impl<'w> Editor<'w> {
             }
         }
         let mut near = Vec::new();
+        let reach = MARKED.max(self.drawn_reach().0);
         for (i, e) in self.session.entries().iter().enumerate() {
             let at = e.at();
             let g = view::global(e.landblock(), [at.x, at.y, at.z.unwrap_or(eye[2])]);
             let d = math::hypotf(g[0] - eye[0], g[1] - eye[1]);
-            if d <= MARKED {
+            if d <= reach {
                 near.push((i, d));
             }
         }
@@ -1233,6 +1239,7 @@ impl<'w> Editor<'w> {
             at,
             rotation: view::heading_rotation(self.placing_heading()),
             scale,
+            color: [1.0, 1.0, 0.5],
         })
     }
 
@@ -2504,15 +2511,33 @@ impl<'w> Editor<'w> {
         }
     }
 
+    /// How far from the camera rows are drawn as bodies, meters, and how many at most: further
+    /// and more in the fast view.
+    fn drawn_reach(&self) -> (f32, usize) {
+        if self.scene.fast() {
+            (FAST_NEAR, FAST_DRAWN)
+        } else {
+            (NEAR, DRAWN)
+        }
+    }
+
+    /// The fast view on or off ([`Scene::set_fast`]), and the rows near the camera found again
+    /// for its reach.
+    pub fn set_fast(&mut self, on: bool) {
+        self.scene.set_fast(on);
+        self.near_at = None;
+    }
+
     /// The bodies standing near the camera: people and objects by their templates' looks, and
     /// each camp's first creature at its middle.
     fn standing(&mut self) -> Vec<Standing> {
         let mut out = Vec::new();
         let near: Vec<(usize, f32)> = self.near.clone();
         let entries = self.session.entries();
+        let (reach, most) = self.drawn_reach();
         let mut drawn: Vec<Entry> = near
             .iter()
-            .take_while(|(_, d)| *d <= NEAR)
+            .take_while(|(_, d)| *d <= reach)
             .filter_map(|(i, _)| entries.get(*i).cloned())
             .collect();
         // What is selected is drawn however far off it stands.
@@ -2522,7 +2547,7 @@ impl<'w> Editor<'w> {
             }
         }
         for e in drawn {
-            if out.len() >= 400 {
+            if out.len() >= most {
                 break;
             }
             if !self.shows(&e) {
@@ -2542,11 +2567,13 @@ impl<'w> Editor<'w> {
             let scale = row_scale(&e.row.row).unwrap_or(scale);
             let (held, facing) = self.held_as(&e.item);
             let at = held.unwrap_or_else(|| entry_global(&e, &mut self.scene));
+            let c = color_of(&e.row.row);
             out.push(Standing {
                 look,
                 at,
                 rotation: facing.map_or_else(|| rotation_of(&e.row.row), view::heading_rotation),
                 scale,
+                color: [c.r(), c.g(), c.b()].map(|x| f32::from(x) / 255.0),
             });
         }
         out.extend(self.ghost_standing());
@@ -2625,7 +2652,11 @@ impl<'w> Editor<'w> {
         let v = self.view();
         let mut best: Option<(f32, String)> = None;
         let near = self.near.clone();
-        for (i, _) in near {
+        for (i, d) in near {
+            // The fast view finds rows further off than it marks.
+            if d > MARKED {
+                break;
+            }
             let Some(e) = self.session.entries().get(i).cloned() else {
                 continue;
             };
@@ -2802,6 +2833,7 @@ impl<'w> Editor<'w> {
                         }
                     }
                     KeyCode::KeyT if !input.ctrl => self.teleport_to_camera(),
+                    KeyCode::F7 => self.set_fast(!self.scene.fast()),
                     // A Mac's keyboard calls Backspace delete.
                     KeyCode::Delete | KeyCode::Backspace => self.delete_selected(),
                     KeyCode::Escape => {
@@ -3173,6 +3205,9 @@ impl<'w> Editor<'w> {
         let near = self.near.clone();
         let font = egui::FontId::proportional(11.0);
         for (i, d) in near {
+            if d > MARKED {
+                break;
+            }
             let Some(e) = self.session.entries().get(i).cloned() else {
                 continue;
             };
@@ -3445,6 +3480,10 @@ impl<'w> Editor<'w> {
         let rows = self.standing();
         let v = self.view();
         let inside = self.inside;
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.scene.aspect = self.size.0.max(1) as f32 / self.size.1.max(1) as f32;
+        }
         self.scene.frame(&v, &rows, inside)
     }
 
@@ -3592,6 +3631,14 @@ impl<'w> Editor<'w> {
                     self.build_check();
                 }
                 ui.separator();
+                let mut fast = self.scene.fast();
+                if ui
+                    .checkbox(&mut fast, "Fast view")
+                    .on_hover_text("flat colors and no effects, to see far more of the world (F7)")
+                    .changed()
+                {
+                    self.set_fast(fast);
+                }
                 ui.label("Time");
                 ui.add(egui::Slider::new(&mut self.scene.time_of_day, 0.0..=1.0).show_value(false));
                 ui.separator();
@@ -3755,7 +3802,7 @@ impl<'w> Editor<'w> {
             .id_salt("near rows")
             .max_height(ui.available_height() * 0.7)
             .show(ui, |ui| {
-                let near: Vec<(usize, f32)> = self.near.iter().copied().take(400).collect();
+                let near: Vec<(usize, f32)> = self.near.iter().copied().take(DRAWN).collect();
                 for (i, d) in near {
                     if d > NEAR {
                         break;
