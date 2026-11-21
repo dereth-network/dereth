@@ -159,6 +159,15 @@ pub mod raised_text {
     pub const SHORT: (u32, u32) = (0xD848_9F51, 0x2500_000C);
 }
 
+/// What a craft skill's learning says: "Your mind is swirling with new %1 knowledge! ..." as an
+/// award takes the day's experience past the day's mark, its variable the craft skill's name; and
+/// "You are too skilled to learn anything from such a simple task." for a green recipe made.
+pub mod learning_text {
+    pub const PAST_THE_MARK: (u32, u32) = (0x7E36_3DCF, 0x2500_000C);
+    pub const SKILL: u32 = 0x272E_4CC9;
+    pub const TOO_SKILLED: (u32, u32) = (0x24E6_ED87, 0x2500_000C);
+}
+
 /// How long after a use of a skill is over a player may not craft, in seconds: the combat mode
 /// delay the player's template holds (5 in the install, as every record holding it says).
 pub const COMBAT_MODE_DELAY: f64 = 5.0;
@@ -1292,7 +1301,10 @@ fn tell_pool(net: &mut ServerNet, world: ConnId, p: &crate::world::Player, total
 }
 
 /// A player is awarded craft experience in a craft skill: its pool and the skill's record change,
-/// and the client is told both (nothing when the award is nothing).
+/// and the client is told both (nothing when the award is nothing). An award that takes the day's
+/// experience past the day's mark at the skill's level says so after the record (2017: 11 of 11
+/// such lines in the update whose award crossed the mark, the next award at that level about three
+/// quarters; no crossing of a second or third mark recorded).
 pub fn award<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, skill: u32, xp: u64) {
     let Some(def) = s.crafting.skills.iter().find(|d| d.did == skill).cloned() else {
         return;
@@ -1316,6 +1328,17 @@ pub fn award<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, sk
     }
     tell_pool(net, world, p, true);
     progress::private(net, world, &skill_call(&record));
+    let mark = u64::from(def.daily.at(before.level));
+    if mark > 0 && before.today <= mark && record.today > mark {
+        let t = progress::text_with(
+            learning_text::PAST_THE_MARK,
+            vec![progress::nested(
+                learning_text::SKILL,
+                progress::text(def.name),
+            )],
+        );
+        progress::private(net, world, &crate::chat::show_text(progress::TEXT_KIND, t));
+    }
 }
 
 /// A player is given craft experience to spend: its pool's total and what is left of it grow by
@@ -2667,6 +2690,13 @@ fn result<S: Store>(
             },
             clock,
         );
+    }
+    // A green recipe made teaches nothing, and says so after the outcome's own text (2017: 10 of 10
+    // green successes with the maker's level known, none of 752 below green, each with no craft
+    // record).
+    if !failed && is_green(&def, m.spinner, level) {
+        let t = progress::text(learning_text::TOO_SKILLED);
+        progress::private(net, world, &crate::chat::show_text(progress::TEXT_KIND, t));
     }
     award(s, net, world, def.skill, xp);
     if def.checked() {

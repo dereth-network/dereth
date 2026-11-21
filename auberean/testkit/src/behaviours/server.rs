@@ -2338,6 +2338,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.green-recipe-too-skilled",
+        says: "A green recipe made says \"You are too skilled to learn anything from such a simple \
+               task.\" after its outcome's text, and tells no craft record.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-TOO-SKILLED"),
+        station: "yalain-testkit::cpu::play::crafting::a_green_recipe_made_says_its_maker_is_too_skilled_to_learn_from_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.hoard-time-runs-out",
         says: "A hoard's vein is mined only while the hoard's hidden quest runs; when its five \
                minutes run out the Shaper's Hoard effect is gone, the vein refuses as mysterious, \
@@ -2683,6 +2692,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELDS"),
         station: "yalain-testkit::cpu::play::crafting::a_recipe_working_out_its_own_product_fails_and_uses_up_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.past-the-days-mark-told",
+        says: "An award that takes the day's craft experience past the day's mark at the skill's level \
+               says \"Your mind is swirling with new %1 knowledge!\", the craft skill's name its \
+               variable, after the skill's record.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-PAST-THE-MARK"),
+        station: "yalain-testkit::cpu::play::crafting::an_award_that_passes_the_days_mark_says_the_mind_is_swirling",
         tier: Tier::Cpu,
     },
     behaviour! {

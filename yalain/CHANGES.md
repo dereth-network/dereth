@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Skills that walk you to their target now walk you into their full range.
 - Skills now turn you toward their target only when retail's did.
+- Crafting now tells you when a recipe is too easy to learn from, and when you've learned a lot today.
 - Following now stops when you move, take a portal, or the one you follow logs off.
 - Creatures of the faster kinds now run at their own speed, even when slowed.
 - World: the two fast Shreth patrol guards now jog their rounds.

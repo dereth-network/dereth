@@ -4,7 +4,7 @@
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::library::Elem;
-use auberean_script::native_object::Item;
+use auberean_script::native_object::{Item, VariableValue};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{
     Harness, BUTCHERY, GRANT_MINES_RECIPE, IRON, KNIFE_RECIPE, MINES_RECIPE, MINES_SWORD,
@@ -535,6 +535,14 @@ type Pay = (Vec<(u32, u64)>, Vec<(u32, u64, u64, u32)>);
 /// The knife's recipe paying by its spinner, its difficulty `difficulty`, made by a player whose
 /// Tools rating is `level` and who has earned `today` in it today: what the making tells of its pay.
 fn knife_made(difficulty: u32, level: u32, today: u64) -> Pay {
+    let (h, b, from) = knife(difficulty, level, today);
+    let msgs = h.world_messages(b, from);
+    let got = calls_of(&h, b, from);
+    (pool_updates(&msgs), skill_records(&got))
+}
+
+/// [`knife_made`]'s making: the harness, the client and where the making's messages begin.
+fn knife(difficulty: u32, level: u32, today: u64) -> (Harness, usize, usize) {
     let (mut h, b, _me, world) = in_world();
     if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
         r.xp_map = Some(yalain_world::craft::LevelMap {
@@ -564,14 +572,93 @@ fn knife_made(difficulty: u32, level: u32, today: u64) -> Pay {
     let from = execute_at(&mut h, b, KNIFE_RECIPE, &[], 3);
     h.run(4);
     wait(&mut h, 9.0);
-    let msgs = h.world_messages(b, from);
     let got = calls_of(&h, b, from);
     assert!(
         got.iter()
             .any(|(f, v)| *f == function::EXECUTED && v.get(1) == Some(&Value::Int(0))),
         "made"
     );
-    (pool_updates(&msgs), skill_records(&got))
+    (h, b, from)
+}
+
+/// A learning line told: its string, and the name its variable holds where it has one.
+type Learned = ((u32, u32), Option<(u32, u32)>);
+
+/// The craft skill's learning lines a making told, in order among the craft skill's records (`None`
+/// for a record).
+fn learning(h: &Harness, b: usize, from: usize) -> Vec<Option<Learned>> {
+    use yalain_world::craft::learning_text;
+    calls_of(h, b, from)
+        .iter()
+        .filter_map(|(f, v)| {
+            if *f == function::SKILL {
+                return Some(None);
+            }
+            if *f != yalain_world::session::function::SHOW_TEXT {
+                return None;
+            }
+            let t = v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some(t.clone()),
+                _ => None,
+            })?;
+            let id = (t.string_id, t.table);
+            if id != learning_text::PAST_THE_MARK && id != learning_text::TOO_SKILLED {
+                return None;
+            }
+            let named = t.variables.iter().find_map(|var| match &var.value {
+                VariableValue::Nested(n) if var.id == learning_text::SKILL => {
+                    Some((n.string_id, n.table))
+                }
+                _ => None,
+            });
+            Some(Some((id, named)))
+        })
+        .collect()
+}
+
+/// A green recipe made says "You are too skilled to learn anything from such a simple task.", and
+/// tells no craft record; one level below green says nothing of it and tells its record.
+/// Behaviour: server.craft.green-recipe-too-skilled
+#[test]
+fn a_green_recipe_made_says_its_maker_is_too_skilled_to_learn_from_it() {
+    use yalain_world::craft::learning_text;
+    let (h, b, from) = knife(10, 40, 0);
+    assert_eq!(
+        learning(&h, b, from),
+        [Some((learning_text::TOO_SKILLED, None))]
+    );
+    let (h, b, from) = knife(10, 39, 0);
+    assert_eq!(learning(&h, b, from), [None], "its record alone");
+}
+
+/// An award that takes the day's experience in a craft skill past the day's mark at its level says
+/// "Your mind is swirling with new %1 knowledge! ...", the craft skill's name its variable, after
+/// the skill's record; one that reaches the mark exactly, or that comes once it is passed, does not.
+/// Behaviour: server.craft.past-the-days-mark-told
+#[test]
+fn an_award_that_passes_the_days_mark_says_the_mind_is_swirling() {
+    use yalain_world::craft::learning_text;
+    let tools = tools_name();
+    let (h, b, from) = knife(0, 1, 1721);
+    assert_eq!(
+        learning(&h, b, from),
+        [None, Some((learning_text::PAST_THE_MARK, Some(tools)))],
+        "1,721 and 8 is past 1,728"
+    );
+    let (h, b, from) = knife(0, 1, 1720);
+    assert_eq!(learning(&h, b, from), [None], "to the mark exactly");
+    let (h, b, from) = knife(0, 1, 1729);
+    assert_eq!(learning(&h, b, from), [None], "already past it");
+}
+
+/// The Tools craft skill's name, as the test world's crafting has it.
+fn tools_name() -> (u32, u32) {
+    yalain_testkit::test_crafting()
+        .skills
+        .iter()
+        .find(|d| d.did == TOOLS)
+        .map(|d| d.name)
+        .expect("tools")
 }
 
 /// A recipe its maker sees green, made at a craft level 30 or more above its difficulty, pays no
