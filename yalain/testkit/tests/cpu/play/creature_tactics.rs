@@ -11,8 +11,9 @@ use auberean_protocol::{queue, ServerMessage};
 use yalain_content::{Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{
-    test_template, Harness, BLOOD_LOATHER_EFFECT, CREATURE_ABSORB, CREATURE_HEAL,
-    HEART_OF_ICE_EFFECT, PARALYZE_EFFECT, STILL_WATER_EFFECT, VACUUM_EFFECT,
+    test_template, Harness, BLOOD_LOATHER_EFFECT, CREATURE_ABSORB, CREATURE_FORTIFY, CREATURE_HEAL,
+    CREATURE_RESTORE_VIGOR, HEART_OF_ICE_EFFECT, PARALYZE_EFFECT, STILL_WATER_EFFECT,
+    VACUUM_EFFECT,
 };
 use yalain_world::combat;
 use yalain_world::effect_defs::{EffectDef, Kind, Scale};
@@ -1002,8 +1003,8 @@ fn a_creature_buffs_itself_in_its_fight() {
     );
     hardy(&mut h, me);
     let shows = |m: &ServerMessage| matches!(m, ServerMessage::DoFx(e) if e.sender.id == id && e.action.fx == 0x4100_0518);
-    // A buff at 31% of its first turn and 13% of each later one: ten minutes of turns leave no
-    // dice a real chance of none.
+    // A buff at about one in six of its first turns and one in twelve of its later ones: ten
+    // minutes of turns leave no dice a real chance of none.
     assert!(
         h.run_until(12_000, |h| h.world_messages(b, 0).iter().any(shows)),
         "it buffs itself"
@@ -1344,6 +1345,13 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
 /// A camp of two creatures of these properties side by side, both gone after a player; the
 /// client, the player and the two.
 fn pair(extra: &[(&str, Prop)]) -> (Harness, usize, u64, u64, u64) {
+    let (h, b, me, ids) = pack(extra, 2);
+    (h, b, me, ids[0], ids[1])
+}
+
+/// A camp of `n` creatures of these properties a pace apart, all gone after a player; the client,
+/// the player and the creatures.
+fn pack(extra: &[(&str, Prop)], n: usize) -> (Harness, usize, u64, Vec<u64>) {
     let mut h = Harness::new();
     let mut props = creature(20.0, extra);
     props.set("AI_LoveTable", Prop::Word(0x06));
@@ -1351,13 +1359,16 @@ fn pair(extra: &[(&str, Prop)]) -> (Harness, usize, u64, u64, u64) {
     h.server
         .catalog
         .insert(test_template(TEMPLATE, 0x1169, props));
-    let spots = [[61.0, 240.2, -44.6], [63.0, 240.2, -44.6]];
+    #[allow(clippy::cast_precision_loss)]
+    let spots: Vec<[f32; 3]> = (0..n)
+        .map(|i| [61.0 + 2.0 * i as f32, 240.2, -44.6])
+        .collect();
     h.server.spawns.camps.push(yalain_content::Camp {
         id: "made up".into(),
         cell: 0x0299_0109,
         origin: spots[0],
         radius: 0.0,
-        population: 2,
+        population: u32::try_from(n).expect("a few"),
         regen: 600.0,
         templates: vec![(TEMPLATE, 1)],
         spots: spots.iter().map(|o| (0x0299_0109, *o)).collect(),
@@ -1380,14 +1391,14 @@ fn pair(extra: &[(&str, Prop)]) -> (Harness, usize, u64, u64, u64) {
             _ => None,
         })
         .collect();
-    assert_eq!(ids.len(), 2, "both made");
+    assert_eq!(ids.len(), n, "all made");
     assert!(
         h.run_until(200, |h| ids
             .iter()
             .all(|id| mode_of(h, *id) == Some(Mode::Chasing))),
-        "both go after the player"
+        "all go after the player"
     );
-    (h, b, me, ids[0], ids[1])
+    (h, b, me, ids)
 }
 
 /// The stories in which a creature uses a skill on another, with their hooks on it.
@@ -1448,6 +1459,242 @@ fn a_protector_buffs_its_kin_in_a_fight() {
         .all(|(bits, n)| (*bits == 0x381 && *n == 0) || (*bits == 0xB81 && *n == -1)));
     assert!(hooks.iter().any(|(bits, _)| *bits == 0x381));
     assert!(hooks.iter().any(|(bits, _)| *bits == 0xB81));
+}
+
+/// Turns of a protector with `kin` of its kin in its fight near (the rest of the pack at rest),
+/// each a fresh turn (its first of a fight, or a later one, nothing helped the turn before): the
+/// share of turns it buffs a kin, and the kin it buffed, by how often each.
+fn kin_turns(h: &mut Harness, ids: &[u64], kin: usize, first: bool, turns: u32) -> (f32, Vec<u32>) {
+    let (me, rest) = ids.split_first().expect("a pack");
+    for (i, id) in rest.iter().enumerate() {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(*id)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.mode = if i < kin { Mode::Chasing } else { Mode::Idle };
+        }
+    }
+    let mut on = vec![0u32; rest.len()];
+    let mut buffed = 0;
+    let clock = h.clock();
+    for _ in 0..turns {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(*me)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.actions = if first { 0 } else { 5 };
+            c.kin_helped = None;
+        }
+        missiles::helps(&mut h.server, &mut h.net, *me, clock);
+        let helped = h
+            .server
+            .things
+            .get(*me)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| c.kin_helped);
+        if let Some((_, k)) = helped {
+            buffed += 1;
+            on[rest.iter().position(|x| *x == k).expect("one of the pack")] += 1;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let share = buffed as f32 / turns as f32;
+    (share, on)
+}
+
+/// A protector buffs one of its kin at a turn by one chance for how many of its kin in a fight are
+/// near: at its first turn 0.19, 0.24, 0.29 and 0.32 with one, two, three and four or more, at a
+/// later one 0.016, 0.028, 0.03 and 0.043; the kin drawn evenly among them.
+/// Behaviour: server.creatures.protectors-buff-kin-by-how-many
+#[test]
+fn a_protectors_chance_to_buff_a_kin_goes_by_how_many_are_near() {
+    let extra = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+        ("AI_AISubClass", Prop::Word(7)),
+    ];
+    let (mut h, _, _, ids) = pack(&extra, 6);
+    for (k, first, want) in [
+        (1, true, 0.19),
+        (2, true, 0.24),
+        (3, true, 0.29),
+        (5, true, 0.32),
+        (1, false, 0.016),
+        (2, false, 0.028),
+        (4, false, 0.043),
+    ] {
+        let (got, _) = kin_turns(&mut h, &ids, k, first, 20_000);
+        let room = if first { 0.015 } else { 0.006 };
+        assert!(
+            (got - want).abs() < room,
+            "{k} kin near, first turn {first}: {got}"
+        );
+    }
+    let (_, on) = kin_turns(&mut h, &ids, 4, true, 20_000);
+    let all: u32 = on.iter().sum();
+    for n in &on[..4] {
+        #[allow(clippy::cast_precision_loss)]
+        let share = *n as f32 / all as f32;
+        assert!((share - 0.25).abs() < 0.03, "drawn evenly: {on:?}");
+    }
+    assert_eq!(on[4], 0, "not one at rest");
+    assert_eq!(missiles::kin_buff_chance(0, true), 0.0, "none with no kin");
+}
+
+/// A protector that buffed a kin at its last turn buffs that kin again at this one a little under
+/// one time in two, while it is near.
+/// Behaviour: server.creatures.protectors-buff-kin-by-how-many
+#[test]
+fn a_protector_buffs_the_kin_it_buffed_again_a_little_under_half_the_time() {
+    let extra = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+        ("AI_AISubClass", Prop::Word(7)),
+    ];
+    let (mut h, _, _, one, two) = pair(&extra);
+    let clock = h.clock();
+    let mut again = 0;
+    for _ in 0..20_000 {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(one)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.actions = 5;
+            c.kin_helped = Some((CREATURE_ABSORB, two));
+        }
+        missiles::helps(&mut h.server, &mut h.net, one, clock);
+        let helped = h
+            .server
+            .things
+            .get(one)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| c.kin_helped);
+        again += u32::from(helped.is_some_and(|(_, k)| k == two));
+    }
+    // The repeat, or else the kin buff's own chance with one kin near.
+    let want = 0.43 + 0.57 * 0.016;
+    #[allow(clippy::cast_precision_loss)]
+    let got = again as f32 / 20_000.0;
+    assert!((got - want).abs() < 0.015, "{got}");
+}
+
+/// The share of `turns` turns at which a creature with these buffs, those in `barred` barred,
+/// buffs itself, at its first turn of a fight or a later one; and how many times each buff.
+fn self_turns(
+    h: &mut Harness,
+    one: u64,
+    barred: &[u32],
+    first: bool,
+    turns: u32,
+) -> (f32, std::collections::BTreeMap<u32, u32>) {
+    let clock = h.clock();
+    let until = clock.local.0 + 60.0;
+    let mut each = std::collections::BTreeMap::new();
+    for _ in 0..turns {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(one)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.actions = if first { 0 } else { 5 };
+            c.barred = barred.iter().map(|k| (*k, until)).collect();
+        }
+        missiles::helps(&mut h.server, &mut h.net, one, clock);
+        let used = h
+            .server
+            .things
+            .get(one)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| {
+                c.barred
+                    .iter()
+                    .map(|(k, _)| *k)
+                    .find(|k| !barred.contains(k))
+            });
+        if let Some(k) = used {
+            *each.entry(k).or_insert(0) += 1;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let share = each.values().sum::<u32>() as f32 / turns as f32;
+    (share, each)
+}
+
+/// A creature at full health buffs itself at a turn by one chance for how many of its buffs are
+/// free: with one, 0.155 at its first turn of a fight and 0.084 at a later one (this server's fit:
+/// 2017's 0.090); with two, 0.249 and 0.157, the buff drawn evenly; with two and one barred, as
+/// with one.
+/// Behaviour: server.creatures.buffs-itself-by-its-turn
+/// Behaviour: server.creatures.buffs-itself-later-with-one-free-ours
+#[test]
+fn a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free() {
+    let one_buff = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+    ];
+    let two_buffs = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+        ("NPC_StartingSkill2", Prop::Word(CREATURE_FORTIFY)),
+        ("NPC_StartingSkill2Level", Prop::Int(20)),
+    ];
+    let (mut h, _, _, one, _) = pair(&one_buff);
+    for (first, want) in [(true, 0.155), (false, 0.084)] {
+        let (got, _) = self_turns(&mut h, one, &[], first, 20_000);
+        assert!(
+            (got - want).abs() < 0.01,
+            "one buff, first turn {first}: {got}"
+        );
+    }
+    let (mut h, _, _, one, _) = pair(&two_buffs);
+    for (first, want) in [(true, 0.249), (false, 0.157)] {
+        let (got, each) = self_turns(&mut h, one, &[], first, 20_000);
+        assert!(
+            (got - want).abs() < 0.012,
+            "two buffs, first turn {first}: {got}"
+        );
+        let (a, b) = (each[&CREATURE_ABSORB], each[&CREATURE_FORTIFY]);
+        #[allow(clippy::cast_precision_loss)]
+        let half = a as f32 / (a + b) as f32;
+        assert!((half - 0.5).abs() < 0.04, "drawn evenly: {each:?}");
+    }
+    let (got, each) = self_turns(&mut h, one, &[CREATURE_ABSORB], false, 20_000);
+    assert!((got - 0.084).abs() < 0.01, "one of two barred: {got}");
+    assert!(!each.contains_key(&CREATURE_ABSORB), "not the barred one");
+}
+
+/// This server's creatures don't use a restore of vigor yet, where 2017's used one rarely: here a
+/// creature holding one and a buff buffs as one with the buff alone, and one holding only the
+/// restore doesn't help itself.
+/// Behaviour: server.creatures.restores-of-vigor-not-used-yet
+#[test]
+fn this_servers_creatures_do_not_yet_use_a_restore_of_vigor() {
+    let with_buff = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+        ("NPC_StartingSkill2", Prop::Word(CREATURE_RESTORE_VIGOR)),
+        ("NPC_StartingSkill2Level", Prop::Int(20)),
+    ];
+    let (mut h, _, _, one, _) = pair(&with_buff);
+    let (got, each) = self_turns(&mut h, one, &[], false, 20_000);
+    assert!((got - 0.084).abs() < 0.01, "as the buff alone: {got}");
+    assert!(!each.contains_key(&CREATURE_RESTORE_VIGOR), "{each:?}");
+    let alone = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_RESTORE_VIGOR)),
+        ("NPC_StartingSkill1Level", Prop::Int(20)),
+    ];
+    let (mut h, _, _, one, _) = pair(&alone);
+    for first in [true, false] {
+        let (got, _) = self_turns(&mut h, one, &[], first, 5_000);
+        assert!(got == 0.0, "first turn {first}: {got}");
+    }
 }
 
 /// A creature that is neither a protector buffs only itself.

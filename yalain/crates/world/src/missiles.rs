@@ -47,11 +47,18 @@
 //! and `Strong` 0.663 and 0.337 over 7,790; the other creatures' 0.331, 0.347, 0.322 over 9,426).
 //!
 //! **Heals and buffs.** At one of its turns, a creature at or below its warning level of health
-//! heals itself about one time in two; one with a buff uses it about one time in three at its first
-//! turn of a fight and one in eight after. Either takes the turn: its story on itself (its own
-//! behavior, the skill, a hit on itself), the effect a second later (a heal shows its appearance
-//! and the creature tells its health back), the next attack 2.3 s after the story; a use bars the
-//! skill 40 s.
+//! heals itself about one time in two; one with a buff free buffs itself by one chance a turn for
+//! how many of its buffs are free, about one time in six at its first turn of a fight and one in
+//! twelve after with one, one in four and one in six with two or more. A restore of vigor or focus
+//! is not used yet: this server's own choice (2017 used one of vigor rarely: 14 uses, by 8 creatures
+//! of 3 templates, each on itself). A protector buffs one of its kin in a fight near it, by one
+//! chance a turn for how many are near (about one in five at its first turn, one in fifty after), the kin drawn evenly,
+//! and next turn buffs that kin again a little under one time in two; a healer heals its badly hurt
+//! kin now and then. Heals on kin are otherwise not made (2017: 56 of 3,306 heals on kin, too few
+//! to read a rule from). Each takes the turn: its story on the one it helps (its own behavior, the
+//! skill, a hit on that one), the effect a second later (a heal shows its appearance and the
+//! creature tells its health back), the next attack 2.3 s after the story; a use on itself bars the
+//! skill 40 s, one on kin nothing.
 //!
 //! **Damage.** A creature's hit is its natural damage rolled across its variance, plus what the
 //! skill's hook adds at the creature's rating (`Strong` 3 at rating 1 to 75 at 1,000, `Stronger` 7
@@ -880,10 +887,26 @@ pub struct HelpSkill {
 /// The chance a creature at or below its warning level of health heals itself at one of its turns
 /// (2017: shown at or below 60%, 2,148 of 4,045 turns with the heal free).
 pub const HEAL_CHANCE: f32 = 0.53;
-/// The chance a creature uses a buff of its at its first turn of a fight, and at a later one (2017:
-/// 1,362 of 4,398 first turns with a buff free, 0.31; later turns 0.11-0.18).
-pub const BUFF_FIRST_CHANCE: f32 = 0.31;
-pub const BUFF_CHANCE: f32 = 0.13;
+/// The chance a creature buffs itself at a turn, by how many of its buffs are free (one, two or
+/// more), at its first turn of a fight and at a later one; one draw for the turn, the buff drawn
+/// evenly from those free (2017, every action a turn, a fight's first after 20 s without one, the
+/// wounded turns its heal takes left out, by distinct event: at the first turn 270 of 1,715 with
+/// one free, 292 of 1,103 with two or more; later 1,234 of 13,783 with one, 0.090 against the 0.084
+/// kept here, and 620 of 3,863 with two or more).
+pub const BUFF_FIRST_CHANCE: [f32; 2] = [0.155, 0.249];
+pub const BUFF_CHANCE: [f32; 2] = [0.084, 0.157];
+
+/// The chance a creature buffs itself at a turn with so many of its buffs free.
+#[must_use]
+pub fn buff_chance(free: usize, first: bool) -> f32 {
+    let table = if first {
+        BUFF_FIRST_CHANCE
+    } else {
+        BUFF_CHANCE
+    };
+    free.checked_sub(1)
+        .map_or(0.0, |i| table[i.min(table.len() - 1)])
+}
 /// When a heal or a buff takes effect after its story, and when the creature's next attack comes,
 /// in seconds (2017: a heal told a median 0.96 s after its story, 2,925 heals; the next attack a
 /// median 2.28 s after it).
@@ -893,7 +916,9 @@ pub const HELP_RECOVERY: f64 = 2.3;
 /// animation hook.
 pub const SELF_HOOK: u32 = 0x381;
 
-/// A creature's heals and buffs: its skills (numbered 100 and up) that help, with their effects.
+/// A creature's heals and buffs: its skills (numbered 100 and up) that help, with their effects. A
+/// restore of vigor or focus alone is none of them: this server doesn't use one yet, its own choice
+/// (2017 used one of vigor rarely: 14 uses, by 8 creatures of 3 templates, each on itself).
 #[must_use]
 pub fn helps_of(
     table: &crate::skills::SkillTable,
@@ -908,6 +933,16 @@ pub fn helps_of(
             let d = table.skills.get(skill)?;
             let u = d.usage.as_ref()?;
             if !d.helps || u.target_effects.is_empty() {
+                return None;
+            }
+            let restores = u.target_effects.iter().all(|e| {
+                matches!(
+                    effects.get(*e).map(|d| &d.kind),
+                    Some(crate::effect_defs::Kind::InstantVital { flags, .. })
+                        if flags & crate::effect_defs::vital::HEALTH == 0
+                )
+            });
+            if restores {
                 return None;
             }
             let heals = u.target_effects.iter().any(|e| {
@@ -931,14 +966,28 @@ pub fn helps_of(
 }
 
 /// The chance a creature that used a heal or buff on one of its kin at its last turn uses it on
-/// the same one again (2017: 0.43-0.65 by kind, 293 of 332 repeats on the same kin; a healer's 9 of
-/// 15).
-pub const KIN_REPEAT: f32 = 0.55;
-/// The chance a protector buffs each of its kin in a fight within the buff's range, at its first
-/// turn of a fight and at a later one (2017: at the first turn 74 of 293 with one such kin, 51 of
-/// 123 with two, 53 of 107 with three or more; later 0.02-0.08).
-pub const KIN_BUFF_FIRST: f32 = 0.25;
-pub const KIN_BUFF_LATER: f32 = 0.02;
+/// the same one again, while it is near (2017: protectors' next turns, 196 of 444 by distinct
+/// event, alike with one to four kin near).
+pub const KIN_REPEAT: f32 = 0.43;
+/// The chance a protector buffs one of its kin at a turn, by how many of its kin in a fight are
+/// within the buff's range (one, two, three, four or more), at its first turn of a fight and at a
+/// later one; one draw for the turn, not one for each kin (2017's protectors, turns not just after a
+/// kin buff, by distinct event: at the first turn 60 of 344, 39 of 139, 24 of 80, 33 of 107; later
+/// 40 of 3,303, 43 of 1,554, 24 of 865, 51 of 990).
+pub const KIN_BUFF_FIRST: [f32; 4] = [0.19, 0.24, 0.29, 0.32];
+pub const KIN_BUFF_LATER: [f32; 4] = [0.016, 0.028, 0.03, 0.043];
+
+/// The chance a protector buffs one of its kin at a turn with so many in a fight near.
+#[must_use]
+pub fn kin_buff_chance(kin: usize, first: bool) -> f32 {
+    let table = if first {
+        KIN_BUFF_FIRST
+    } else {
+        KIN_BUFF_LATER
+    };
+    kin.checked_sub(1)
+        .map_or(0.0, |i| table[i.min(table.len() - 1)])
+}
 /// The share of health at or below which a healer heals its most wounded kin, and its chance at a
 /// turn (2017: 12 kin heals in 143 turns with a kin at 0.4 or less, 1 in 85 between 0.4 and 0.65).
 pub const KIN_WOUNDED_AT: f32 = 0.4;
@@ -982,8 +1031,10 @@ fn kin_near<S: Store>(s: &Server<S>, id: u64, range: f32) -> Vec<(u64, f32, bool
 
 /// At one of a creature's turns, it may heal or buff instead of attacking: again on the kin it
 /// helped at its last turn, by its chance; a healer its most wounded kin when that one is badly
-/// hurt; a protector a kin of its in a fight; else itself, a heal when its health is at or below
-/// its warning level, a buff otherwise. Each by its chance; a use on itself is barred 40 s after,
+/// hurt; a protector a kin of its in a fight, by one chance for how many are near, the kin drawn
+/// evenly; else itself, a heal when its health is at or below
+/// its warning level, a buff otherwise, by one chance for how many of its buffs are free. Each by
+/// its chance; a use on itself is barred 40 s after,
 /// a use on kin bars nothing. Returns whether it did (its turn is spent).
 pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) -> bool {
     let now = clock.local.0;
@@ -1041,19 +1092,13 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
         let buffs: Vec<HelpSkill> = all.iter().filter(|h| !h.heals).cloned().collect();
         if !buffs.is_empty() {
             let h = buffs[s.rng.below(buffs.len())].clone();
-            let p = if first {
-                KIN_BUFF_FIRST
-            } else {
-                KIN_BUFF_LATER
-            };
             let kin: Vec<u64> = kin_near(s, id, h.range)
                 .into_iter()
                 .filter(|k| k.2)
                 .map(|k| k.0)
                 .collect();
-            let taken: Vec<u64> = kin.into_iter().filter(|_| s.rng.chance(p)).collect();
-            if !taken.is_empty() {
-                let k = taken[s.rng.below(taken.len())];
+            if !kin.is_empty() && s.rng.chance(kin_buff_chance(kin.len(), first)) {
+                let k = kin[s.rng.below(kin.len())];
                 use_help(s, net, id, &h, k, clock);
                 return true;
             }
@@ -1079,13 +1124,8 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
             if buffs.is_empty() {
                 None
             } else {
-                let p = if first {
-                    BUFF_FIRST_CHANCE
-                } else {
-                    BUFF_CHANCE
-                };
                 s.rng
-                    .chance(p)
+                    .chance(buff_chance(buffs.len(), first))
                     .then(|| buffs[s.rng.below(buffs.len())].clone())
             }
         }

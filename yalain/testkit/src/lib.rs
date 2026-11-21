@@ -600,6 +600,8 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
     for (id, effect) in [
         (CREATURE_HEAL, CREATURE_HEAL_EFFECT),
         (CREATURE_ABSORB, CREATURE_ABSORB_EFFECT),
+        (CREATURE_FORTIFY, CREATURE_FORTIFY_EFFECT),
+        (CREATURE_RESTORE_VIGOR, CREATURE_RESTORE_VIGOR_EFFECT),
     ] {
         skills.insert(
             id,
@@ -620,14 +622,20 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
     }
 }
 
-/// A creature's heal and its damage-absorbing buff, each used on itself or a friend.
+/// A creature's heal and its damage-absorbing buff, each used on itself or a friend; a second
+/// buff, of its armor, and a restore of its vigor.
 pub const CREATURE_HEAL: u32 = 1818;
 pub const CREATURE_ABSORB: u32 = 1815;
+pub const CREATURE_FORTIFY: u32 = 1811;
+pub const CREATURE_RESTORE_VIGOR: u32 = 2188;
 /// Their effects: the heal (2 at a rating of 1, 300 at 50) and the buff (ten seconds, its own
 /// appearance); a player's debuff that takes from a creature's hits (5 at a rating of 1, 40 at 50,
 /// thirty seconds).
 pub const CREATURE_HEAL_EFFECT: u32 = 0x6F00_018C;
 pub const CREATURE_ABSORB_EFFECT: u32 = 0x6F00_0186;
+/// The armor buff's effect (ten seconds) and the vigor restore's (vigor back at once).
+pub const CREATURE_FORTIFY_EFFECT: u32 = 0x6F00_017E;
+pub const CREATURE_RESTORE_VIGOR_EFFECT: u32 = 0x6F00_0197;
 pub const BLOOD_LOATHER_EFFECT: u32 = 0x7000_0785;
 
 /// A creature's heal or buff as the September 2013 data defines it: used on itself or a friend
@@ -1101,6 +1109,21 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
             enum_value: 0x3083,
             fx: 0x4100_0518,
             ..def(CREATURE_ABSORB_EFFECT, Kind::Other)
+        },
+        EffectDef {
+            duration: Scale(vec![(1.0, 10.0), (50.0, 10.0)]),
+            external_flags: 0x6,
+            ..def(CREATURE_FORTIFY_EFFECT, Kind::Other)
+        },
+        EffectDef {
+            external_flags: 0x22,
+            ..def(
+                CREATURE_RESTORE_VIGOR_EFFECT,
+                Kind::InstantVital {
+                    flags: 0x22,
+                    change: Scale(vec![(1.0, 2.0), (50.0, 300.0)]),
+                },
+            )
         },
         EffectDef {
             duration: Scale(vec![(1.0, 30.0), (50.0, 30.0)]),

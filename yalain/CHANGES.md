@@ -9,6 +9,7 @@ what they see, not how it was done.
 - A skill used on a person now says you can't use it on NPCs.
 - Most creatures with several special attacks use them less often, as in retail.
 - Creatures that can't reach you no longer give up while you're near.
+- Creatures buff themselves and their allies less often, as in retail.
 - Skills that walk you to their target now walk you into their full range.
 - Skills now turn you toward their target only when retail's did.
 - Crafting now tells you when a recipe is too easy to learn from, and when you've learned a lot today.

@@ -3561,6 +3561,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.buffs-itself-by-its-turn",
+        says: "A creature buffs itself at a turn by one chance for how many of its buffs are free: \
+               with one, 0.155 at its first turn of a fight; with two or more, 0.249 at its first \
+               turn and 0.157 at a later one, the buff drawn evenly from those free.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SELF-BUFF-RATE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.buffs-itself-later-with-one-free-ours",
+        says: "A creature with one buff free buffs itself at a later turn of a fight 0.084 of the time: \
+               this server's fit, against 2017's 0.090 (0.085 to 0.094) by distinct event.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SELF-BUFF-LATER-ONE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.camp-movement-settings",
         says: "A camp's movement settings stand over its creatures' template's: it may make them \
                stationary (they neither move nor fight), stop or start their wandering and give \
@@ -4121,6 +4140,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.protectors-buff-kin-by-how-many",
+        says: "A protector buffs one of its kin at a turn by one chance for how many of its kin in a \
+               fight are near (first turn 0.19, 0.24, 0.29, 0.32 with one to four or more, later \
+               0.016, 0.028, 0.03, 0.043), the kin drawn evenly, and buffs the same kin again next \
+               turn 0.43 of the time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-KIN-BUFF-RATE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_protectors_chance_to_buff_a_kin_goes_by_how_many_are_near",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.reach-goes-with-its-body",
         says: "A creature standing stays where it is and swings while its target is within 3 m past \
                its body's radius, and runs again beyond. Our choice, from the edge of 2017's swings.",
@@ -4136,6 +4166,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-REDRAW"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_creature_draws_its_target_by_harm_and_nearness",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.restores-of-vigor-not-used-yet",
+        says: "2017's creatures used a restore of their vigor rarely, on themselves; this server's \
+               don't yet, on themselves or another, and one holding a buff besides buffs as one with \
+               the buff alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-NO-VIGOR-RESTORE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::this_servers_creatures_do_not_yet_use_a_restore_of_vigor",
         tier: Tier::Cpu,
     },
     behaviour! {
