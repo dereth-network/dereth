@@ -132,15 +132,18 @@ fn a_final_release_stamps_its_own_highlights() {
     }
     let read = |product| std::fs::read_to_string(changes_path(&ws, product)).expect("read");
 
-    assert_eq!(stamp_changes(&ws, Product::Dereth, "0.2.0-rc.1"), Ok(None));
     assert_eq!(
-        stamp_changes(&ws, Product::Empyrean, "0.2.0-rc.1"),
+        stamp_changes(&ws, Product::Dereth, "0.2.0-rc.1", false),
+        Ok(None)
+    );
+    assert_eq!(
+        stamp_changes(&ws, Product::Empyrean, "0.2.0-rc.1", false),
         Ok(None)
     );
     assert_eq!(read(Product::Dereth), text);
     assert_eq!(read(Product::Empyrean), text);
     assert_eq!(
-        stamp_changes(&ws, Product::Empyrean, "0.2.0"),
+        stamp_changes(&ws, Product::Empyrean, "0.2.0", false),
         Ok(Some(notes::EMPYREAN_CHANGES.to_owned()))
     );
     assert_eq!(
@@ -149,7 +152,7 @@ fn a_final_release_stamps_its_own_highlights() {
     );
     assert_eq!(read(Product::Dereth), text);
     assert_eq!(
-        stamp_changes(&ws, Product::Dereth, "0.2.0"),
+        stamp_changes(&ws, Product::Dereth, "0.2.0", false),
         Ok(Some(notes::CHANGES.to_owned()))
     );
     assert_eq!(
@@ -213,10 +216,13 @@ fn a_final_lyceum_release_stamps_lyceum_changes() {
     let text = "# Lyceum changes\n\n## Unreleased\n\n- A world builder\n";
     std::fs::write(changes_path(&ws, Product::Lyceum), text).expect("write");
     let read = || std::fs::read_to_string(changes_path(&ws, Product::Lyceum)).expect("read");
-    assert_eq!(stamp_changes(&ws, Product::Lyceum, "0.1.0-rc.1"), Ok(None));
+    assert_eq!(
+        stamp_changes(&ws, Product::Lyceum, "0.1.0-rc.1", false),
+        Ok(None)
+    );
     assert_eq!(read(), text);
     assert_eq!(
-        stamp_changes(&ws, Product::Lyceum, "0.1.0"),
+        stamp_changes(&ws, Product::Lyceum, "0.1.0", false),
         Ok(Some(notes::LYCEUM_CHANGES.to_owned()))
     );
     assert_eq!(
@@ -226,6 +232,49 @@ fn a_final_lyceum_release_stamps_lyceum_changes() {
     assert_eq!(
         notes::section(&read(), notes::UNRELEASED).as_deref(),
         Some("")
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}
+
+/// A Lyceum release only of the crates it is built from, with nothing under Unreleased, says so in
+/// its highlights: a pre-release's Unreleased section takes the line (and the file is committed), a
+/// final release's section carries it; highlights someone wrote are kept as they are.
+#[test]
+fn a_release_only_of_the_crates_it_is_built_from_says_so_in_its_highlights() {
+    let ws = std::env::temp_dir().join(format!("xtask-stamp-shared-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(ws.join("lyceum")).expect("scratch dir");
+    let empty = "# Lyceum changes\n\n## Unreleased\n\n## 0.1.0 (2026-10-01)\n- A world builder\n";
+    let path = changes_path(&ws, Product::Lyceum);
+    std::fs::write(&path, empty).expect("write");
+    let read = || std::fs::read_to_string(changes_path(&ws, Product::Lyceum)).expect("read");
+    let line = format!("- {DEPENDENCY_ONLY}");
+    assert_eq!(
+        stamp_changes(&ws, Product::Lyceum, "0.1.1-rc.1", true),
+        Ok(Some(notes::LYCEUM_CHANGES.to_owned()))
+    );
+    assert_eq!(
+        notes::section(&read(), notes::UNRELEASED),
+        Some(line.clone())
+    );
+
+    std::fs::write(&path, empty).expect("write");
+    assert_eq!(
+        stamp_changes(&ws, Product::Lyceum, "0.1.1", true),
+        Ok(Some(notes::LYCEUM_CHANGES.to_owned()))
+    );
+    assert_eq!(notes::section(&read(), "0.1.1"), Some(line));
+    assert_eq!(
+        notes::section(&read(), notes::UNRELEASED).as_deref(),
+        Some("")
+    );
+
+    let written = "# Lyceum changes\n\n## Unreleased\n- A start screen\n";
+    std::fs::write(&path, written).expect("write");
+    stamp_changes(&ws, Product::Lyceum, "0.1.1", true).expect("stamped");
+    assert_eq!(
+        notes::section(&read(), "0.1.1").as_deref(),
+        Some("- A start screen")
     );
     let _ = std::fs::remove_dir_all(&ws);
 }
@@ -292,4 +341,30 @@ fn a_games_release_is_refused_until_the_launcher_it_holds_is_released() {
     // The tree's version before its first release, which `ship` makes 0.5.0.
     let why = launcher_refusal("launcher-v0.5.0-rc.0", false, &[]).expect("no tag");
     assert!(why.contains("cargo xtask release launcher 0.5.0`"), "{why}");
+}
+
+/// Only a product's own files, its tests aside, make its release one that needs highlights
+/// written by hand; a release from the crates it is built from alone does not.
+#[test]
+fn a_products_own_change_is_its_folder_less_its_tests() {
+    let folder = own_folder(Product::Athenaeum).expect("Athenaeum has one");
+    let files = |f: &[&str]| f.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert!(changes_its_own(folder, &files(&["athenaeum/FORMAT.md"])));
+    assert!(changes_its_own(
+        folder,
+        &files(&["athenaeum/editor/src/main.rs"])
+    ));
+    assert!(!changes_its_own(
+        folder,
+        &files(&[
+            "athenaeum/crates/foundry/tests/cpu/format.rs",
+            "athenaeum/editor/src/play/tests.rs",
+            "athenaeum/RELEASING.md",
+            "yalain/crates/content/src/lib.rs",
+            "core/terrain/src/lib.rs",
+        ])
+    ));
+    assert!(!changes_its_own(folder, &[]));
+    assert_eq!(own_folder(Product::Lyceum), Some("lyceum/"));
+    assert_eq!(own_folder(Product::Dereth), None);
 }

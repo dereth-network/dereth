@@ -35,7 +35,8 @@ subject of every commit since the product's previous final tag that changed what
 Auberean a file under `auberean/` (but not its test kit or world viewer) or `core/auberean-*`; for
 Yalain one under `yalain/` (but not its test kit) or a core crate it is built from; for Athenaeum
 one under `athenaeum/`. A first release has its highlights alone, and a release without highlights
-is refused. To see the notes before releasing:
+is refused, unless nothing under the product's own folder (its tests aside) changed since its last
+release: then it is released only for crates it is built from, and its highlights say so. To see the notes before releasing:
 
 ```
 cargo xtask release-notes auberean|yalain|athenaeum [--since <tag>] [--version <version>] [--out <file>]

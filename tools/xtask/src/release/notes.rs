@@ -844,6 +844,28 @@ pub fn section(changes: &str, name: &str) -> Option<String> {
     Some(body.join("\n").trim().to_owned())
 }
 
+/// `CHANGES.md` with `line` written as the only line of its Unreleased section, when that section
+/// is there and empty; `None` otherwise.
+#[must_use]
+pub fn fill_unreleased(changes: &str, line: &str) -> Option<String> {
+    if !section(changes, UNRELEASED)?.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(changes.len() + line.len() + 4);
+    let mut filled = false;
+    for l in changes.split_inclusive('\n') {
+        out.push_str(l);
+        if !filled && heading(l).is_some_and(|h| h == UNRELEASED) {
+            if !l.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("- {line}\n"));
+            filled = true;
+        }
+    }
+    Some(out)
+}
+
 /// `CHANGES.md` with its Unreleased section turned into release `version`'s, dated `date`, and a
 /// new empty Unreleased section above it.
 pub fn stamp(changes: &str, version: &str, date: &str) -> Result<String, String> {

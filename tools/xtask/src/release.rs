@@ -347,6 +347,58 @@ pub fn needs_highlights(product: Product) -> bool {
     product == Product::Lyceum || product.is_auberean_game()
 }
 
+/// The line a release's highlights get when the product's own folder is unchanged since its last
+/// release and nobody wrote any: it is released only because crates it is built from changed.
+pub const DEPENDENCY_ONLY: &str = "No changes of its own; built with the latest shared code.";
+
+/// The folder of `product`'s own files, for the products whose releases need highlights.
+#[must_use]
+pub fn own_folder(product: Product) -> Option<&'static str> {
+    match product {
+        Product::Lyceum => Some("lyceum/"),
+        Product::Auberean => Some("auberean/"),
+        Product::Yalain => Some("yalain/"),
+        Product::Athenaeum => Some("athenaeum/"),
+        _ => None,
+    }
+}
+
+/// Whether the changed files `changed` (paths from the repository's root) touch anything under
+/// `folder` but its tests and its `RELEASING.md`, which no one using the product sees.
+#[must_use]
+pub fn changes_its_own(folder: &str, changed: &[String]) -> bool {
+    changed.iter().any(|p| {
+        let p = p.replace('\\', "/");
+        p.starts_with(folder)
+            && !p.contains("/tests/")
+            && !p.ends_with("tests.rs")
+            && p != format!("{folder}RELEASING.md")
+    })
+}
+
+/// Whether `product`'s own folder changed since its release `released` (its tag), tests aside.
+/// A product with no own folder, or with no such tag here, counts as changed.
+///
+/// # Errors
+/// git failing on a tag that exists.
+pub fn own_changed(ws: &Path, product: Product, released: &str) -> Result<bool, String> {
+    let Some(folder) = own_folder(product) else {
+        return Ok(true);
+    };
+    let tag = product.tag_for(released);
+    if git(ws, &["tag", "--list", &tag])?.is_empty() {
+        return Ok(true);
+    }
+    let changed: Vec<String> = git(
+        ws,
+        &["diff", "--name-only", &format!("{tag}..HEAD"), "--", folder],
+    )?
+    .lines()
+    .map(str::to_owned)
+    .collect();
+    Ok(changes_its_own(folder, &changed))
+}
+
 /// Whether release `requested` has highlights in `changes` (its highlights file's text): its own
 /// section when the file has one, else the Unreleased section, which the release takes. An error
 /// saying where to write them when it has none.
@@ -366,18 +418,29 @@ pub fn check_highlights(file: &str, changes: &str, requested: &str) -> Result<()
 /// For a final release whose highlights file has no section for `requested` yet: stamp the
 /// Unreleased section with it and today's date, and return the file to commit. `None` for a
 /// pre-release (its notes show the Unreleased section, which stays for the final release), and
-/// when the section is already there.
-fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<String>, String> {
+/// when the section is already there. A release `dependency_only` (its own folder unchanged) whose
+/// Unreleased section is empty is first given [`DEPENDENCY_ONLY`] there, a pre-release's too.
+fn stamp_changes(
+    ws: &Path,
+    product: Product,
+    requested: &str,
+    dependency_only: bool,
+) -> Result<Option<String>, String> {
     let file = notes::changes_file(product);
+    let filled = if dependency_only {
+        fill_dependency_only(ws, product)?
+    } else {
+        false
+    };
     if version::is_prerelease(requested) {
         println!("=== {requested} is a pre-release: {file} keeps its Unreleased section");
-        return Ok(None);
+        return Ok(filled.then(|| file.to_owned()));
     }
     let path = changes_path(ws, product);
     let text = std::fs::read_to_string(&path).map_err(|e| format!("reading {file}: {e}"))?;
     if notes::section(&text, requested).is_some() {
         println!("=== {file} already has a section for {requested}");
-        return Ok(None);
+        return Ok(filled.then(|| file.to_owned()));
     }
     if notes::section(&text, notes::UNRELEASED).is_some_and(|s| s.is_empty()) {
         println!(
@@ -390,6 +453,20 @@ fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<
     std::fs::write(&path, stamped).map_err(|e| format!("writing {file}: {e}"))?;
     println!("=== {file}: Unreleased is now {requested}");
     Ok(Some(file.to_owned()))
+}
+
+/// `product`'s highlights file with [`DEPENDENCY_ONLY`] written under an empty Unreleased
+/// section; whether it was.
+fn fill_dependency_only(ws: &Path, product: Product) -> Result<bool, String> {
+    let file = notes::changes_file(product);
+    let path = changes_path(ws, product);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("reading {file}: {e}"))?;
+    let Some(filled) = notes::fill_unreleased(&text, DEPENDENCY_ONLY) else {
+        return Ok(false);
+    };
+    std::fs::write(&path, filled).map_err(|e| format!("writing {file}: {e}"))?;
+    println!("=== {file}: its own folder is unchanged, so its highlights say so");
+    Ok(true)
 }
 
 /// The launcher a game's smoke package holds: built here, for that smoke test alone, since its
@@ -485,7 +562,10 @@ fn run(
     if product.holds_launcher() {
         launcher_is_released(&ws, remote, &launcher_version)?;
     }
-    if needs_highlights(product) {
+    // A release only of crates it is built from, its own folder unchanged, needs none: its
+    // highlights say so.
+    let dependency_only = needs_highlights(product) && !own_changed(&ws, product, &state.current)?;
+    if needs_highlights(product) && !dependency_only {
         let file = notes::changes_file(product);
         let text = std::fs::read_to_string(changes_path(&ws, product))
             .map_err(|e| format!("reading {file}: {e}"))?;
@@ -537,7 +617,7 @@ fn run(
         if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
             paths.push(dir);
         }
-        if let Some(file) = stamp_changes(&ws, product, requested)? {
+        if let Some(file) = stamp_changes(&ws, product, requested, dependency_only)? {
             paths.push(file);
         }
         let message = format!("{name} {requested}");
@@ -551,7 +631,7 @@ fn run(
         if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
             paths.push(dir);
         }
-        if let Some(file) = stamp_changes(&ws, product, requested)? {
+        if let Some(file) = stamp_changes(&ws, product, requested, dependency_only)? {
             paths.push(file);
         }
         if !paths.is_empty() {

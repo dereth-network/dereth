@@ -123,7 +123,10 @@ cargo xtask preflight finish                  # the final builds in the dev worl
   and the crates those depend on, vendored ones included, but not the ones only their tests
   use. A change to `Cargo.lock` or the launcher's lock counts only for a product built from a
   crate that moved in it, and the plan names those crates. A Lyceum release with no highlights in
-  `lyceum/CHANGES.md` stops the preflight at once, as its release would stop `ship` halfway.
+  `lyceum/CHANGES.md` stops the preflight at once, as its release would stop `ship` halfway (so
+  does one of Asheron's Call 2's products'), unless nothing under its own folder changed since its
+  last release, tests aside: one made only for the crates it is built from has its highlights
+  written by `ship`, saying so.
   Before anything is built or stopped, it checks what it needs and says all of
   what is missing at once: the tools its builds need here, the dev Discord application's secret
   files (there, and not empty), `site_origins` beside a `discord_client_id` (the hub refuses one

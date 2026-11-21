@@ -730,6 +730,7 @@ fn repo(products: &[Product]) -> Repo {
         commit: "c0ffee0000000000000000000000000000000001".to_owned(),
         dirty: Vec::new(),
         products: products.iter().copied().collect(),
+        own: products.iter().copied().collect(),
         versions: [
             (Product::Hub, "0.2.1"),
             (Product::Ace, "0.1.2"),
@@ -5679,4 +5680,44 @@ fn the_launcher_is_its_own_product_and_ships_before_the_games() {
     assert!(at(Product::Launcher) < at(Product::Dereth));
     assert!(at(Product::Launcher) < at(Product::Auberean));
     assert_eq!(Product::Launcher.command_name(), "launcher");
+}
+
+/// A Lyceum release whose own folder is unchanged, made only because crates it is built from
+/// changed, is preflighted without highlights: `ship` writes the line saying so. With its own
+/// folder changed the same empty section stops the preflight, as before.
+#[test]
+fn a_release_only_of_the_crates_a_product_is_built_from_needs_no_highlights_written() {
+    let changes = "D:/repo/lyceum/CHANGES.md";
+    let with_lyceum = || {
+        counting(
+            fake()
+                .file(changes, "# Lyceum changes\n\n## Unreleased\n")
+                .there("owner@vm.example.org:/srv/emp/empyrean.toml", EMP_TOML),
+        )
+    };
+    let mut repo = repo(&[Product::Hub, Product::Lyceum]);
+    repo.own.remove(&Product::Lyceum);
+    let mut m = with_lyceum();
+    run(
+        &mut m,
+        &cfg(),
+        Path::new("D:/repo"),
+        &repo,
+        &Options {
+            with: vec!["vm".to_owned()],
+            dry_run: false,
+        },
+    )
+    .expect("preflighted");
+    assert!(
+        ledger(&mut m)
+            .releases
+            .iter()
+            .any(|r| r.product == Product::Lyceum && r.version == "0.1.1"),
+        "Lyceum is still released"
+    );
+
+    let mut m = with_lyceum();
+    let e = preflight(&mut m, &[Product::Hub, Product::Lyceum], &["vm"]).expect_err("refused");
+    assert!(e.contains("lyceum/CHANGES.md"), "{e}");
 }

@@ -21,7 +21,9 @@ A release's description on GitHub starts with its notes: the release's section o
 [`CHANGES.md`](CHANGES.md) as **Highlights**, then **All changes**, the subject of every commit
 since the previous final `lyceum-v*` tag that changed a file under `lyceum/` other than the sample
 world, a test or a document, grouped under Editor, Foundry and the lyceum command, Fixes and Other
-changes. The first release has its highlights alone. To see the notes before releasing:
+changes. The first release has its highlights alone. A release with nothing under `lyceum/`
+changed since the last (tests aside), made only for crates Lyceum is built from, needs no
+highlights written: they say so. To see the notes before releasing:
 
 ```
 cargo xtask release-notes lyceum [--since <tag>] [--version <version>] [--out <file>]

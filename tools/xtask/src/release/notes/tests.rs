@@ -913,3 +913,32 @@ fn asheron_s_call_2_s_products_group_their_commits_under_their_own_headings() {
     );
     assert!(render_first(Product::Yalain, Some("- A server")).contains("The first Yalain release."));
 }
+
+/// A release only of the crates a product is built from is given the line saying so, under an
+/// empty Unreleased section; a section with highlights, or a file without one, is left alone.
+#[test]
+fn an_empty_unreleased_section_is_filled_with_the_line_and_a_written_one_is_kept() {
+    let empty =
+        "# Athenaeum changes\n\nIntro.\n\n## Unreleased\n\n## 0.1.9 (2026-11-20)\n- Old thing\n";
+    let filled = fill_unreleased(empty, "Nothing of its own.").expect("filled");
+    assert_eq!(
+        filled,
+        "# Athenaeum changes\n\nIntro.\n\n## Unreleased\n- Nothing of its own.\n\n## 0.1.9 (2026-11-20)\n- Old thing\n"
+    );
+    assert_eq!(
+        section(&filled, UNRELEASED).as_deref(),
+        Some("- Nothing of its own.")
+    );
+    assert_eq!(section(&filled, "0.1.9").as_deref(), Some("- Old thing"));
+    // Stamped afterwards, the line is the release's.
+    let stamped = stamp(&filled, "0.1.10", "2026-11-21").expect("stamps");
+    assert_eq!(
+        section(&stamped, "0.1.10").as_deref(),
+        Some("- Nothing of its own.")
+    );
+    assert_eq!(fill_unreleased(CHANGES_MD, "Nothing of its own."), None);
+    assert_eq!(
+        fill_unreleased("# Athenaeum changes\n", "Nothing of its own."),
+        None
+    );
+}

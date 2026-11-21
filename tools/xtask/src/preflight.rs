@@ -79,6 +79,10 @@ pub struct Repo {
     pub dirty: Vec<String>,
     /// The products the branch changed since `main`.
     pub products: BTreeSet<Product>,
+    /// Of those that need highlights, the ones whose own folder changed since their last release
+    /// (tests aside); the rest change only through crates they are built from, and their
+    /// highlights are written for them ([`crate::release::own_changed`]).
+    pub own: BTreeSet<Product>,
     /// Each product's version in the tree now.
     pub versions: BTreeMap<Product, String>,
     /// Each product's release and why.
@@ -235,6 +239,16 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     ] {
         versions.insert(product, released.version(root)?);
     }
+    let mut own = BTreeSet::new();
+    for p in &products {
+        let Some(released) = crate::package::version::Product::from_command_name(p.command_name())
+        else {
+            continue;
+        };
+        if crate::release::own_changed(root, released, &versions[p])? {
+            own.insert(*p);
+        }
+    }
     let mut bumps = BTreeMap::new();
     let schema_now = plan::hub_schema(
         &std::fs::read_to_string(root.join("network/hub/src/registry.rs")).unwrap_or_default(),
@@ -267,6 +281,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         commit,
         dirty,
         products,
+        own,
         versions,
         bumps,
     })
@@ -453,6 +468,7 @@ pub fn run(
     let releases = releases(repo, &mut ledger.stamped)?;
     // A release that `ship` would refuse for want of highlights (Lyceum's, or one of Asheron's
     // Call 2's products') is said now, before anything is built or stopped.
+    // One changed only through crates it is built from needs none: `ship` writes them.
     for r in &releases {
         let Some(released) =
             crate::package::version::Product::from_command_name(r.product.command_name())
@@ -460,6 +476,13 @@ pub fn run(
         else {
             continue;
         };
+        if !repo.own.contains(&r.product) {
+            println!(
+                "{} changed only through crates it is built from: its highlights will say so",
+                r.product.command_name()
+            );
+            continue;
+        }
         let file = crate::release::notes::changes_file(released);
         let text = m.read(&root.join(file))?;
         crate::release::check_highlights(file, &text, &r.version)?;
