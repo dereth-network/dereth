@@ -12,6 +12,9 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.2.7 (2026-11-21)
+- No changes of its own; built with the latest shared code.
+
 ## 0.2.6 (2026-11-20)
 
 - Windows: the taskbar now names the editor Lyceum.
