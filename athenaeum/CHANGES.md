@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.10 (2026-11-21)
 - Worlds can now give examine pages, broker consignment limits, oath gates and weighted effect picks.
 
 ## 0.1.9 (2026-11-20)
