@@ -546,6 +546,9 @@ struct BlockDraw {
     levels_serial: u64,
     /// The block's environment cells.
     env_cells: Vec<EnvCellDraw>,
+    /// Which build of [`Self::env_cells`] the block holds: a new number, larger than any
+    /// before, each time a block is built.
+    cells_serial: u64,
     /// The block's building objects, as the *outdoor* portal machinery needs them.
     /// The shell triangles are in `opaque` like any other static; this is the portal half.
     building_views: Vec<BuildingView>,
@@ -601,6 +604,13 @@ struct BlockDraw {
 /// The number a block's choice of levels takes when it changes ([`BlockDraw::levels_serial`]):
 /// larger than every one before, whichever block took them.
 fn next_levels_serial() -> u64 {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The number a block's cells take when it is built ([`BlockDraw::cells_serial`]): larger than
+/// every one before, whichever block took them.
+fn next_cells_serial() -> u64 {
     static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
@@ -1019,14 +1029,123 @@ struct BuildingPortalPolygon {
 /// out ([`ObjectLook`]) rather than the world's.
 type TextureLinks = Vec<(TextureSlot, bool)>;
 
-/// Every resident interior cell as the traversal walks it, keyed by full cell id.
+/// Which cells are resident, and where each one's draw is: its block's key and its place in
+/// that block's cells. Built again only when a block comes or goes or is built again.
+#[derive(Debug, Default)]
+struct CellBase {
+    /// Each cell's place in [`Self::at`], by full cell id.
+    // ORDER-OK: a lookup keyed by cell id; the draw order is the traversal's.
+    slot: BTreeMap<u32, usize>,
+    at: Vec<((i32, i32), usize)>,
+}
+
+/// Each resident cell's viewpoint facts, by its place in [`CellBase::at`], worked out the first
+/// time a traversal reaches it, from one camera position and the blocks' origins.
+#[derive(Debug)]
+struct ViewFacts {
+    /// The camera position and the blocks' origins, as bits, they are worked out from.
+    eye: [u32; 3],
+    origins: Vec<(u32, u32)>,
+    cells: Vec<std::sync::OnceLock<dereth_world_render::cells::portal_view::TraversalCell>>,
+}
+
+/// [`SceneDraw::traversal_cells`]'s record, kept between frames.
+#[derive(Debug, Default)]
+struct CellRecords {
+    /// Each resident block's key and [`BlockDraw::cells_serial`] [`Self::base`] was built from,
+    /// in block order.
+    built_from: Vec<((i32, i32), u64)>,
+    base: std::sync::Arc<CellBase>,
+    facts: Option<std::sync::Arc<ViewFacts>>,
+}
+
+/// Every resident interior cell as the traversal walks it, by full cell id.
 ///
 /// A cell reached through a portal from another block is addressed by its full id, so this spans
-/// blocks without needing a separate lookup for each block.
-type TraversalCells = BTreeMap<u32, dereth_world_render::cells::portal_view::TraversalCell>;
+/// blocks without needing a separate lookup for each block. Each cell's viewpoint facts are
+/// worked out the first time it is asked for.
+struct ViewCells<'a> {
+    blocks: &'a BTreeMap<(i32, i32), BlockDraw>,
+    base: std::sync::Arc<CellBase>,
+    facts: std::sync::Arc<ViewFacts>,
+    eye: Vec3,
+}
+
+impl ViewCells<'_> {
+    /// Whether cell `id` is resident.
+    fn contains(&self, id: u32) -> bool {
+        self.base.slot.contains_key(&id)
+    }
+}
+
+impl dereth_world_render::cells::portal_view::CellSource for ViewCells<'_> {
+    fn cell(&self, id: u32) -> Option<&dereth_world_render::cells::portal_view::TraversalCell> {
+        use dereth_world_render::cells::portal_view::{CellPortal, TraversalCell};
+        let slot = *self.base.slot.get(&id)?;
+        let &(key, i) = self.base.at.get(slot)?;
+        let block = self.blocks.get(&key)?;
+        let c = block.env_cells.get(i)?;
+        Some(self.facts.cells.get(slot)?.get_or_init(|| {
+            let vp = Vec3::new(
+                self.eye.x - block.origin.0,
+                self.eye.y - block.origin.1,
+                self.eye.z,
+            );
+            let local = dereth_physics::math::globaltolocal(&c.frame, vp);
+            let portals = c
+                .portals
+                .iter()
+                .map(|p| {
+                    // Cell initialisation folds the largest squared distance from the viewpoint to
+                    // any of the portal polygon's vertices into `max_indist`. The seam type
+                    // carries four slots because a portal polygon is a quad in the shipped
+                    // data; filling all four with the maximum gives the same `max_indist`
+                    // for the handful that are not.
+                    let mut far = 0.0f32;
+                    for v in &p.vertices {
+                        let (dx, dy, dz) = (local.x - v.x, local.y - v.y, local.z - v.z);
+                        far = far.max(dx.mul_add(dx, dy.mul_add(dy, dz * dz)));
+                    }
+                    CellPortal {
+                        portal_side: p.portal_side,
+                        other_cell_id: p.other_cell_id,
+                        other_portal_id: p.other_portal_id,
+                        exact_match: p.exact_match,
+                        vertex_dist_sq: [far; 4],
+                        // `d` is the portal plane's normal dotted with the viewpoint, plus its `d`, in cell space.
+                        viewpoint_side_distance: p.plane_normal.x.mul_add(
+                            local.x,
+                            p.plane_normal
+                                .y
+                                .mul_add(local.y, p.plane_normal.z.mul_add(local.z, p.plane_d)),
+                        ),
+                    }
+                })
+                .collect();
+            TraversalCell { id: c.id, portals }
+        }))
+    }
+
+    fn cell_count(&self) -> usize {
+        self.base.slot.len()
+    }
+}
 
 /// The same cells' draw-side halves: the baked meshes, and the origin of the block they sit in.
-type PlacedCells<'a> = BTreeMap<u32, (&'a EnvCellDraw, (f32, f32))>;
+#[derive(Clone)]
+struct PlacedCells<'a> {
+    blocks: &'a BTreeMap<(i32, i32), BlockDraw>,
+    base: std::sync::Arc<CellBase>,
+}
+
+impl<'a> PlacedCells<'a> {
+    /// The cell's baked draw and the origin of the block it sits in.
+    fn get(&self, id: &u32) -> Option<(&'a EnvCellDraw, (f32, f32))> {
+        let &(key, i) = self.base.at.get(*self.base.slot.get(id)?)?;
+        let block = self.blocks.get(&key)?;
+        Some((block.env_cells.get(i)?, block.origin))
+    }
+}
 
 /// How much of a window slot [`WorldScene::stream`] has to rebuild.
 ///
@@ -1497,6 +1616,8 @@ pub struct SceneDraw {
     /// opening being wholly outside that view. `Gpu::portal_stamps` counts both masks across
     /// the whole frame and cannot separate the indoor half from building drawing's.
     frame_portal_stamps: std::cell::Cell<(u64, u64)>,
+    /// [`Self::traversal_cells`]'s record of the resident cells, kept between frames.
+    cell_records: std::cell::RefCell<CellRecords>,
     /// How many land cells the last [`Self::draw`] made ready to draw a building's rooms in:
     /// the view, its screen polygon and the rooms' lights, worked out for each.
     frame_building_cells: std::cell::Cell<u32>,
@@ -4232,6 +4353,10 @@ mod building_shell_visibility;
 #[cfg(test)]
 #[path = "../world_building_openings_tests.rs"]
 mod building_openings;
+
+#[cfg(test)]
+#[path = "../world_traversal_records_tests.rs"]
+mod traversal_records;
 
 #[cfg(test)]
 #[path = "../world_part_scale_tests.rs"]

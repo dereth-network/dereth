@@ -759,12 +759,7 @@ impl SceneDraw {
                             else {
                                 continue;
                             };
-                            (
-                                cell.statics_blended.get(r.batch),
-                                *origin,
-                                r.sun,
-                                Some(*cell),
-                            )
+                            (cell.statics_blended.get(r.batch), origin, r.sun, Some(cell))
                         }
                     };
                     let Some(batch) = batch else {

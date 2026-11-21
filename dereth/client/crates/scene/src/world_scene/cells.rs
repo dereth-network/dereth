@@ -73,7 +73,7 @@ impl SceneDraw {
         };
 
         let (cells, placed) = self.traversal_cells(ws);
-        if !cells.contains_key(&start.0) {
+        if !cells.contains(start.0) {
             return Ok(());
         }
 
@@ -347,7 +347,7 @@ impl SceneDraw {
                             gpu,
                             per_frame,
                             cell,
-                            *origin,
+                            origin,
                             cell_set.as_deref(),
                             env_detail,
                         )?;
@@ -692,7 +692,7 @@ impl SceneDraw {
                 continue;
             }
             // A level that draws nothing has no mesh to offer.
-            let Some((centre, radius)) = Self::cell_part_sphere(cell, *origin, p) else {
+            let Some((centre, radius)) = Self::cell_part_sphere(cell, origin, p) else {
                 continue;
             };
             stats.offered += 1;
@@ -742,7 +742,7 @@ impl SceneDraw {
         ),
         taken: Option<u32>,
     ) -> Result<u32, RenderError> {
-        let Some(&(cell, origin)) = placed.get(&id) else {
+        let Some((cell, origin)) = placed.get(&id) else {
             return Ok(0);
         };
         let blended = taken.is_some();
@@ -766,7 +766,7 @@ impl SceneDraw {
         owners.sort_unstable();
         owners.dedup();
         for owner in owners {
-            if let Some(&(other, at)) = placed.get(&owner) {
+            if let Some((other, at)) = placed.get(&owner) {
                 self.draw_cell_statics(gpu, per_frame, (other, at), blended, (id, turn), defer)?;
             }
         }
@@ -801,7 +801,7 @@ impl SceneDraw {
         owners.sort_unstable();
         owners.dedup();
         for owner in owners {
-            if let Some(&(cell, origin)) = placed.get(&owner) {
+            if let Some((cell, origin)) = placed.get(&owner) {
                 self.draw_cell_statics(gpu, per_frame, (cell, origin), false, (land, turn), None)?;
                 self.draw_cell_statics(
                     gpu,
@@ -821,60 +821,79 @@ impl SceneDraw {
     /// own space.
     ///
     /// A cell reached through a portal from another block is addressed by its full id, so the
-    /// map spans blocks exactly as the client's visible-cell table does. The second map is the draw-side
-    /// lookup — the cell's baked meshes and its block's origin — because the *order* comes from
-    /// the traversal and not from the map.
+    /// source spans blocks exactly as the client's visible-cell table does. The second half is
+    /// the draw-side lookup -- the cell's baked meshes and its block's origin -- because the
+    /// *order* comes from the traversal and not from the map.
     ///
     /// Both the indoor path ([`Self::draw_inside`]) and the outdoor building path
     /// ([`Self::draw_building_interiors`]) need this, which is why it is not inside either.
-    pub(super) fn traversal_cells(&self, ws: &WorldState) -> (TraversalCells, PlacedCells<'_>) {
-        use dereth_world_render::cells::portal_view::{CellPortal as ViewPortal, TraversalCell};
-        let mut cells: BTreeMap<u32, TraversalCell> = BTreeMap::new();
-        // ORDER-OK: a lookup for the draw, keyed by cell id; the draw order is the traversal's.
-        let mut placed: BTreeMap<u32, (&EnvCellDraw, (f32, f32))> = BTreeMap::new();
-        for block in self.blocks.values() {
-            for c in &block.env_cells {
-                let vp = Vec3::new(
-                    ws.camera.position.x - block.origin.0,
-                    ws.camera.position.y - block.origin.1,
-                    ws.camera.position.z,
-                );
-                let local = dereth_physics::math::globaltolocal(&c.frame, vp);
-                let portals = c
-                    .portals
-                    .iter()
-                    .map(|p| {
-                        // Cell initialisation folds the largest squared distance from the viewpoint to
-                        // any of the portal polygon's vertices into `max_indist`. The seam type
-                        // carries four slots because a portal polygon is a quad in the shipped
-                        // data; filling all four with the maximum gives the same `max_indist`
-                        // for the handful that are not.
-                        let mut far = 0.0f32;
-                        for v in &p.vertices {
-                            let (dx, dy, dz) = (local.x - v.x, local.y - v.y, local.z - v.z);
-                            far = far.max(dx.mul_add(dx, dy.mul_add(dy, dz * dz)));
-                        }
-                        ViewPortal {
-                            portal_side: p.portal_side,
-                            other_cell_id: p.other_cell_id,
-                            other_portal_id: p.other_portal_id,
-                            exact_match: p.exact_match,
-                            vertex_dist_sq: [far; 4],
-                            // `d` is the portal plane's normal dotted with the viewpoint, plus its `d`, in cell space.
-                            viewpoint_side_distance: p.plane_normal.x.mul_add(
-                                local.x,
-                                p.plane_normal
-                                    .y
-                                    .mul_add(local.y, p.plane_normal.z.mul_add(local.z, p.plane_d)),
-                            ),
-                        }
-                    })
-                    .collect();
-                cells.insert(c.id.0, TraversalCell { id: c.id, portals });
-                placed.insert(c.id.0, (c, block.origin));
+    ///
+    /// What is kept between calls: which cells are resident, built again only when a block
+    /// comes or goes or is built again; and each cell's viewpoint facts, worked out the first
+    /// time a traversal reaches the cell and kept until the camera or a block's origin moves.
+    /// Every caller in a frame shares them, and a traversal pays only for the cells it reaches.
+    pub(super) fn traversal_cells(&self, ws: &WorldState) -> (ViewCells<'_>, PlacedCells<'_>) {
+        let mut records = self.cell_records.borrow_mut();
+        let records = &mut *records;
+        let built = records.built_from.len() == self.blocks.len()
+            && records
+                .built_from
+                .iter()
+                .zip(&self.blocks)
+                .all(|(&(key, serial), (k, b))| key == *k && serial == b.cells_serial);
+        if !built {
+            let mut base = CellBase::default();
+            for (key, block) in &self.blocks {
+                for (i, c) in block.env_cells.iter().enumerate() {
+                    // A later block's cell of the same id takes the place of an earlier one's.
+                    base.slot.insert(c.id.0, base.at.len());
+                    base.at.push((*key, i));
+                }
             }
+            records.built_from = self
+                .blocks
+                .iter()
+                .map(|(k, b)| (*k, b.cells_serial))
+                .collect();
+            records.base = std::sync::Arc::new(base);
+            records.facts = None;
         }
-        (cells, placed)
+        let eye = ws.camera.position;
+        let bits = [eye.x.to_bits(), eye.y.to_bits(), eye.z.to_bits()];
+        let seen = records.facts.as_ref().is_some_and(|f| {
+            f.eye == bits
+                && f.origins.len() == self.blocks.len()
+                && f.origins
+                    .iter()
+                    .zip(self.blocks.values())
+                    .all(|(o, b)| *o == (b.origin.0.to_bits(), b.origin.1.to_bits()))
+        });
+        if !seen {
+            records.facts = Some(std::sync::Arc::new(ViewFacts {
+                eye: bits,
+                origins: self
+                    .blocks
+                    .values()
+                    .map(|b| (b.origin.0.to_bits(), b.origin.1.to_bits()))
+                    .collect(),
+                cells: std::iter::repeat_with(std::sync::OnceLock::new)
+                    .take(records.base.at.len())
+                    .collect(),
+            }));
+        }
+        let facts = records.facts.clone().expect("worked out above");
+        (
+            ViewCells {
+                blocks: &self.blocks,
+                base: std::sync::Arc::clone(&records.base),
+                facts,
+                eye,
+            },
+            PlacedCells {
+                blocks: &self.blocks,
+                base: std::sync::Arc::clone(&records.base),
+            },
+        )
     }
 
     /// Draw one interior cell's mesh, in its block's
@@ -1170,7 +1189,7 @@ impl SceneDraw {
         block: &BlockDraw,
         draw_cell: u16,
         side_cell_count: u8,
-        cells: &TraversalCells,
+        cells: &ViewCells<'_>,
         placed: &PlacedCells<'_>,
         drawn: &mut std::collections::HashSet<u32>,
     ) -> Result<(), RenderError> {
@@ -1300,7 +1319,7 @@ impl SceneDraw {
                     Some(full.clone())
                 };
                 let step = draw_portal(poly, &b.portals, d, mode, &|_| opened.is_some(), &|id| {
-                    cells.contains_key(&id)
+                    cells.contains(id)
                 });
 
                 // Unless the mode is 2, the portal polygon is drawn, with its flag set when the mode is 1 —
@@ -1387,7 +1406,7 @@ impl SceneDraw {
                             gpu,
                             per_frame,
                             cell,
-                            *origin,
+                            origin,
                             cell_set.as_deref(),
                             env_detail,
                         )?;

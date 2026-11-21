@@ -762,7 +762,7 @@ impl SceneDraw {
                         d,
                         PortalMode::BuildView,
                         &|_| true,
-                        &|id| cells.contains_key(&id),
+                        &|id| cells.contains(id),
                     );
                     if step.interior.is_none() {
                         continue;
@@ -830,7 +830,7 @@ impl SceneDraw {
             return Vec::new();
         };
         let (cells, placed) = self.traversal_cells(ws);
-        if !cells.contains_key(&start.0) {
+        if !cells.contains(start.0) {
             return Vec::new();
         }
         let view = self.view_params(ws, width, height);
@@ -906,7 +906,7 @@ impl SceneDraw {
             return Vec::new();
         };
         let (cells, placed) = self.traversal_cells(ws);
-        if !cells.contains_key(&start.0) {
+        if !cells.contains(start.0) {
             return Vec::new();
         }
         let view = self.view_params(ws, width, height);
@@ -964,7 +964,7 @@ impl SceneDraw {
             return (0, 0);
         };
         let (cells, placed) = self.traversal_cells(ws);
-        if !cells.contains_key(&start.0) {
+        if !cells.contains(start.0) {
             return (0, 0);
         }
         let view = construct_view(&cells, start, &|_, _| true);
@@ -1011,7 +1011,7 @@ impl SceneDraw {
         }
         let start = ws.viewer_cell()?;
         let (cells, _) = self.traversal_cells(ws);
-        if !cells.contains_key(&start.0) {
+        if !cells.contains(start.0) {
             return None;
         }
         Some(construct_view(&cells, start, &|_, _| true).outside_view_count)

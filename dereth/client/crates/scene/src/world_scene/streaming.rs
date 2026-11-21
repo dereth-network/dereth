@@ -300,6 +300,7 @@ impl SceneDraw {
             frame_outside_view_count: std::cell::Cell::new(None),
             frame_cell_views: std::cell::RefCell::new(BTreeMap::new()),
             frame_portal_stamps: std::cell::Cell::new((0, 0)),
+            cell_records: std::cell::RefCell::new(CellRecords::default()),
             frame_building_cells: std::cell::Cell::new(0),
             frame_costs: std::cell::Cell::new(FrameCosts::default()),
             degrade_stats_of: None,

@@ -5,6 +5,7 @@ mod building_boundary_frames;
 mod camera_walk_frames;
 pub(crate) mod cliff_frames;
 pub(crate) mod drawn_ground_names;
+mod dungeon_frame_cost;
 mod dungeon_web_frames;
 pub(crate) mod far_shadow_frames;
 mod horizon_frames;

@@ -821,6 +821,7 @@ impl SceneDraw {
                 levels_chosen: None,
                 levels_serial: 0,
                 env_cells: built.env_cells,
+                cells_serial: super::next_cells_serial(),
                 building_views: built.building_views,
                 baked,
                 // What the bake above was taken at, so the next `SlotWork::Mesh`

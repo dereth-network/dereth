@@ -86,6 +86,25 @@ pub struct TraversalCell {
     pub portals: Vec<CellPortal>,
 }
 
+/// Where a traversal finds its cells: a map of them, or a source that works each one out as it
+/// is first asked for, so a traversal pays only for the cells it reaches.
+pub trait CellSource {
+    /// The cell `id`, or `None` when it is not resident.
+    fn cell(&self, id: u32) -> Option<&TraversalCell>;
+    /// How many cells are resident, which bounds the traversal.
+    fn cell_count(&self) -> usize;
+}
+
+impl CellSource for BTreeMap<u32, TraversalCell> {
+    fn cell(&self, id: u32) -> Option<&TraversalCell> {
+        self.get(&id)
+    }
+
+    fn cell_count(&self) -> usize {
+        self.len()
+    }
+}
+
 /// The result of one `construct_view`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConstructedView {
@@ -223,7 +242,7 @@ pub fn ins_cell_todo_list(todo: &mut Vec<(CellId, f32)>, cell: CellId, dist: f32
 /// belongs to the renderer. Returning `true` unconditionally gives the unclipped traversal, which visits
 /// a superset of the cells and in the same order.
 pub fn construct_view(
-    cells: &BTreeMap<u32, TraversalCell>,
+    cells: &(impl CellSource + ?Sized),
     start: CellId,
     clip: &dyn Fn(CellId, usize) -> bool,
 ) -> ConstructedView {
@@ -247,7 +266,7 @@ pub fn construct_view(
 ///   `None` means "every cell is live", which is the unbounded traversal: a superset, in the same
 ///   order.
 pub fn construct_view_from(
-    cells: &BTreeMap<u32, TraversalCell>,
+    cells: &(impl CellSource + ?Sized),
     start: CellId,
     entered_portal: Option<usize>,
     live: Option<&std::collections::BTreeSet<u32>>,
@@ -255,7 +274,7 @@ pub fn construct_view_from(
 ) -> ConstructedView {
     let mut views: BTreeMap<u32, PortalView> = BTreeMap::new();
     let mut out = ConstructedView::default();
-    let Some(first) = cells.get(&start.0) else {
+    let Some(first) = cells.cell(start.0) else {
         return out;
     };
 
@@ -273,13 +292,13 @@ pub fn construct_view_from(
 
     // The client's guard against a pathological portal graph; the traversal is bounded by the cell
     // count in practice because a cell is only re-queued when it gains a new view polygon.
-    let mut guard = cells.len() * 8 + 16;
+    let mut guard = cells.cell_count() * 8 + 16;
     while let Some((id, _)) = todo.pop() {
         guard = guard.saturating_sub(1);
         if guard == 0 {
             break;
         }
-        let Some(c) = cells.get(&id.0) else { break };
+        let Some(c) = cells.cell(id.0) else { break };
         out.cell_draw_list.push(id);
         if let Some(pv) = views.get_mut(&id.0) {
             pv.cell_view_done = true;
@@ -310,7 +329,7 @@ pub fn construct_view_from(
 
         // The view hand-off: give the clipped polygon to each neighbour.
         for portal in propagate {
-            let Some(neighbour) = cells.get(&portal.other_cell_id) else {
+            let Some(neighbour) = cells.cell(portal.other_cell_id) else {
                 continue;
             };
             // The stab-list push gave a `portal_view` only to the stab cells; a neighbour without one is
@@ -363,12 +382,9 @@ pub fn construct_view_from(
 /// Not the client's traversal, which goes on only through portals the viewer looks out of: this
 /// is a world editor's view of a whole dungeon from outside its rooms.
 #[must_use]
-pub fn construct_whole_view(
-    cells: &BTreeMap<u32, TraversalCell>,
-    start: CellId,
-) -> ConstructedView {
+pub fn construct_whole_view(cells: &(impl CellSource + ?Sized), start: CellId) -> ConstructedView {
     let mut out = ConstructedView::default();
-    if !cells.contains_key(&start.0) {
+    if cells.cell(start.0).is_none() {
         return out;
     }
     let mut queued = std::collections::BTreeSet::from([start.0]);
@@ -376,10 +392,10 @@ pub fn construct_whole_view(
     ins_cell_todo_list(&mut todo, start, 0.0);
     while let Some((id, _)) = todo.pop() {
         out.cell_draw_list.push(id);
-        let Some(c) = cells.get(&id.0) else { continue };
+        let Some(c) = cells.cell(id.0) else { continue };
         for portal in &c.portals {
             let other = portal.other_cell_id;
-            if other == OUTDOORS || !cells.contains_key(&other) || !queued.insert(other) {
+            if other == OUTDOORS || cells.cell(other).is_none() || !queued.insert(other) {
                 continue;
             }
             let near = portal
@@ -411,7 +427,7 @@ pub fn construct_whole_view(
 /// A cell reachable through several portals accumulates several view polygons, exactly as
 /// `portal_view.view` does, and its exits are clipped against every one of them.
 pub fn construct_view_clipped(
-    cells: &BTreeMap<u32, TraversalCell>,
+    cells: &(impl CellSource + ?Sized),
     start: CellId,
     entered_portal: Option<usize>,
     live: Option<&std::collections::BTreeSet<u32>>,
@@ -425,7 +441,7 @@ pub fn construct_view_clipped(
     if initial.is_empty() {
         return out;
     }
-    let Some(first) = cells.get(&start.0) else {
+    let Some(first) = cells.cell(start.0) else {
         return out;
     };
 
@@ -446,13 +462,13 @@ pub fn construct_view_clipped(
     let mut todo: Vec<(CellId, f32)> = Vec::new();
     ins_cell_todo_list(&mut todo, start, 0.0);
 
-    let mut guard = cells.len() * 8 + 16;
+    let mut guard = cells.cell_count() * 8 + 16;
     while let Some((id, _)) = todo.pop() {
         guard = guard.saturating_sub(1);
         if guard == 0 {
             break;
         }
-        let Some(c) = cells.get(&id.0) else { break };
+        let Some(c) = cells.cell(id.0) else { break };
         out.cell_draw_list.push(id);
         if let Some(pv) = state.get_mut(&id.0) {
             pv.cell_view_done = true;
@@ -491,7 +507,7 @@ pub fn construct_view_clipped(
 
         // Add the view to the portals of the cell just processed.
         for (portal, view) in propagate {
-            let Some(neighbour) = cells.get(&portal.other_cell_id) else {
+            let Some(neighbour) = cells.cell(portal.other_cell_id) else {
                 continue;
             };
             if live.is_some_and(|l| !l.contains(&portal.other_cell_id)) {
