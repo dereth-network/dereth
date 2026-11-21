@@ -2742,6 +2742,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.text.a-multi-line-entrys-view-stays-put-when-its-caret-jumps",
+        says: "An editable entry of several lines keeps its view where it is when Ctrl+Home or \
+               Ctrl+End puts its caret at the whole text's start or end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-MULTI-LINE-VIEW-STAYS"),
+        station: "auberean-ui::cpu::text::a_multi_line_entrys_view_stays_put_when_its_caret_jumps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
         says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
                the width past it, then stands one width before the caret, and going back past its \
@@ -2780,6 +2789,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-HOME-END-NOT-EDITABLE"),
         station: "auberean-ui::cpu::text::a_text_that_is_not_editable_ignores_home_and_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.a-text-that-is-not-editable-ignores-the-arrows",
+        says: "A text element that is not editable, given the keyboard, doesn't move its caret for \
+               the arrows; the interface's listeners hear them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-ARROWS-NOT-EDITABLE"),
+        station: "auberean-ui::cpu::text::a_text_that_is_not_editable_ignores_the_arrows",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2838,6 +2856,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-HOME-END"),
         station: "auberean-ui::cpu::text::home_end_and_the_page_keys_move_an_entrys_caret",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.page-up-and-down-put-the-caret-at-the-views-top-left",
+        says: "Page Up and Page Down scroll an entry's view a page and put the caret at the start \
+               of the line found at the view's top left corner, wherever across its line the \
+               caret was; a corner on the edge between two lines finds the line above.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-PAGE-CARET"),
+        station: "auberean-ui::cpu::text::page_up_and_down_put_the_caret_at_the_views_top_left",
         tier: Tier::Cpu,
     },
     behaviour! {

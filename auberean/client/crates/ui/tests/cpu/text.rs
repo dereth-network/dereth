@@ -260,6 +260,118 @@ fn a_text_that_is_not_editable_ignores_home_and_end() {
     assert_eq!(caret(&u, h), 0, "End leaves the caret");
 }
 
+/// A text element that is not editable, given the keyboard, doesn't move its caret for the arrows;
+/// the interface's listeners hear them.
+///
+/// Behaviour: ui.text.a-text-that-is-not-editable-ignores-the-arrows
+#[test]
+fn a_text_that_is_not_editable_ignores_the_arrows() {
+    use auberean_ui::listener::Mail;
+    use auberean_ui::manager::global;
+    use auberean_ui::types::key_id;
+    let e = text(
+        "Entry",
+        [0, 0, 199, 19],
+        vec![
+            ("selectable", V::Bool(true)),
+            ("activate_on_show", V::Bool(true)),
+        ],
+    );
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    u.set_text(h, "abc");
+    u.set_visible(h, false);
+    u.set_visible(h, true);
+    assert_eq!(u.active(), Some(h), "it has the keyboard");
+    u.move_cursor_to_end(h);
+    let me = u.new_listener();
+    u.listen_for_global_message(me, global::KEY_DOWN);
+    assert!(!u.key(key_id::LEFT, true), "Left is not used up");
+    u.key(key_id::LEFT, false);
+    assert_eq!(caret(&u, h), 3, "Left leaves the caret");
+    assert!(
+        u.take_mail(me).iter().any(|m| matches!(
+            m,
+            Mail::Global {
+                what: global::KEY_DOWN,
+                param: key_id::LEFT
+            }
+        )),
+        "the interface hears Left"
+    );
+    press_key(&mut u, key_id::UP);
+    assert_eq!(caret(&u, h), 3, "Up leaves the caret");
+    u.move_cursor(h, auberean_ui::types::text::Move::TextStart);
+    press_key(&mut u, key_id::RIGHT);
+    assert_eq!(caret(&u, h), 0, "Right leaves the caret");
+    press_key(&mut u, key_id::DOWN);
+    assert_eq!(caret(&u, h), 0, "Down leaves the caret");
+}
+
+/// An editable entry of several lines that has the keyboard, typed into past its height: six
+/// lines of two letters, the caret at the end.
+fn multi_line_entry() -> (Ui, auberean_ui::Handle) {
+    let e = text("Entry", [0, 0, 199, 19], vec![("editable", V::Bool(true))]);
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    for (i, l) in ["ab", "cd", "ef", "gh", "ij", "kl"].iter().enumerate() {
+        if i > 0 {
+            u.character_input(13, 0);
+        }
+        u.type_text(l);
+    }
+    (u, h)
+}
+
+/// An editable entry of several lines keeps its view where it is when Ctrl+Home or Ctrl+End puts
+/// its caret at the whole text's start or end.
+///
+/// Behaviour: ui.text.a-multi-line-entrys-view-stays-put-when-its-caret-jumps
+#[test]
+fn a_multi_line_entrys_view_stays_put_when_its_caret_jumps() {
+    use auberean_ui::types::key_id;
+    let (mut u, h) = multi_line_entry();
+    let view = |u: &Ui| u.text_state(h).unwrap().view_y;
+    let (at_end, end) = (view(&u), caret(&u, h));
+    assert!(at_end > 0, "typing past its height scrolled it down");
+    u.set_modifiers(false, true);
+    press_key(&mut u, key_id::HOME);
+    assert_eq!(caret(&u, h), 0, "Ctrl+Home: the text's start");
+    assert_eq!(view(&u), at_end, "the view stays at the foot");
+    u.set_view_y(h, 0);
+    press_key(&mut u, key_id::END);
+    assert_eq!(caret(&u, h), end, "Ctrl+End: the text's end");
+    assert_eq!(view(&u), 0, "the view stays at the top");
+}
+
+/// Page Up and Page Down scroll an entry's view a page and put the caret at the start of the line
+/// found at the view's top left corner, wherever across its line the caret was. A corner on the
+/// edge between two lines finds the line above.
+///
+/// Behaviour: ui.text.page-up-and-down-put-the-caret-at-the-views-top-left
+#[test]
+fn page_up_and_down_put_the_caret_at_the_views_top_left() {
+    use auberean_ui::types::key_id;
+    // Six lines of two letters, ten pixels high, in a view twenty high: lines start at 0, 3, 6,
+    // 9, 12 and 15, and the view is at the foot (40) with the caret at the end (17).
+    let (mut u, h) = multi_line_entry();
+    let view = |u: &Ui| u.text_state(h).unwrap().view_y;
+    assert_eq!((view(&u), caret(&u, h)), (40, 17));
+    press_key(&mut u, key_id::PAGE_UP);
+    assert_eq!(view(&u), 20, "Page Up: the view a page up");
+    assert_eq!(
+        caret(&u, h),
+        3,
+        "the second line: its foot is the view's top"
+    );
+    press_key(&mut u, key_id::PAGE_DOWN);
+    assert_eq!(view(&u), 40, "Page Down: the view a page down");
+    assert_eq!(caret(&u, h), 9, "the start of the fourth line");
+}
+
 /// An editable entry's caret shows steadily for a second and a half after it moves, then blinks,
 /// a second on and a second off.
 ///

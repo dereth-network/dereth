@@ -234,12 +234,6 @@ impl Ui {
     pub(crate) fn element_key(&mut self, h: Handle, key: u32, down: bool) -> bool {
         match (self.kind_of(h), key, down) {
             (k, key_id::USE, true) if k == kind::BUTTON => self.button_start_use_active(h),
-            // A text element moves its caret for the key but never uses it up: the interface's
-            // listeners hear the key too (the chat window's history keys).
-            (k, key, down) if k == kind::TEXT => {
-                self.text_action(h, key, down);
-                false
-            }
             (k, key_id::USE, false) if k == kind::BUTTON => self.button_end_use_active(h),
             (k, key_id::USE, true) if k == kind::PANEL_PAGE => self.panel_page_start_use_active(h),
             (k, key_id::UP | key_id::DOWN | key_id::LEFT | key_id::RIGHT, true)
