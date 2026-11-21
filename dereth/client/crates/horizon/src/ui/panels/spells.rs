@@ -4,8 +4,8 @@
 //! bar does the same, as the game's spellbook does), or forget it after a question.
 //!
 //! The spellbook's level filter is the game's, kept by the server: a level switched off hides its
-//! spells. The tabs follow the world's era: Void magic only where the world has it, and a Create
-//! Spell tab where it has spell research.
+//! spells, on worlds whose spellbook has a filter. The tabs follow the world's era: Void magic only
+//! where the world has it, and a Create Spell tab where it has spell research.
 
 use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
@@ -191,7 +191,14 @@ impl Windows {
             Tab::School(i) => i,
         };
         let (school_name, school) = SCHOOLS[school_tab];
-        let mask = state.world_services.spell_filters;
+        // The tab is the school: of the game's filter only the levels apply, and none at all
+        // on a world whose spellbook has no filter.
+        let w = &state.world_services;
+        let levels = if !state.in_world || w.era_ui.spell_filter_panel {
+            w.spell_filters
+        } else {
+            u32::MAX
+        };
         // The search box under the tabs.
         let search = Rect::new(
             body.x,
@@ -217,7 +224,7 @@ impl Windows {
             .spells
             .iter()
             .filter(|s| s.school == school)
-            .filter(|s| dereth_client_contract::spellbook::accepts(mask, s.school, s.level))
+            .filter(|s| levels & dereth_client_contract::spellbook::level_mask(s.level) != 0)
             .filter(|s| search_matches(&s.name, s.level, school_name, &needle))
             .collect();
         spells.sort_by(|a, b| a.level.cmp(&b.level).then(a.name.cmp(&b.name)));
@@ -516,6 +523,9 @@ impl Windows {
         let mask = w.spell_filters;
         let dim = TextStyle::new(Family::Body, 12.0, ctx.colours.dim()).edge(ctx.colours.edge());
         let per = (r.w / 4.0).max(1.0);
+        if state.in_world && !w.era_ui.spell_filter_panel {
+            return;
+        }
         for (i, label) in LEVELS.iter().enumerate() {
             let bit = level_mask(u32::try_from(i + 1).unwrap_or(1));
             if bit == 0 || (state.in_world && !w.era_ui.spell_filter(bit)) {
