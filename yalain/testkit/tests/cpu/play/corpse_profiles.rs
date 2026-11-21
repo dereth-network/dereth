@@ -1,7 +1,8 @@
 //! A corpse's own profile: a creature whose template names its own corpse in place of the common
 //! one, where that corpse's template names a generator profile, has the profile's row drawn into its
-//! corpse beside what it leaves itself, and kept there however full the corpse. Fixture: the test
-//! world's camp of beetles, its regeneration shortened, a corpse template of its own and two items.
+//! corpse beside what it leaves itself, and kept there however full the corpse. A kill no player
+//! made leaves a corpse holding nothing, gone in fifteen seconds. Fixture: the test world's camp of
+//! beetles, its regeneration shortened, a corpse template of its own and two items, and a player.
 
 use std::collections::BTreeMap;
 
@@ -87,7 +88,19 @@ fn camp_world(population: u32, corpse: Corpse, row: bool, seed: u64) -> Harness 
     }
     h.server.rng = Rng::new(seed);
     h.run(20);
+    // The kills are a player's: a corpse no player's kill made holds nothing.
+    h.player_in_world("killer", "Brannoc");
     h
+}
+
+/// The player whose kills the corpses are.
+fn killer(h: &Harness) -> u64 {
+    h.server
+        .players
+        .values()
+        .map(|p| p.character)
+        .next()
+        .expect("a player in the world")
 }
 
 fn living(h: &Harness) -> Vec<u64> {
@@ -117,7 +130,8 @@ fn rounds(h: &mut Harness, rounds: usize) -> BTreeMap<u64, Vec<u32>> {
     for _ in 0..rounds {
         for id in living(h) {
             let clock = h.clock();
-            yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, 0, clock);
+            let by = killer(h);
+            yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, by, clock);
         }
         run_for(h, 2.5);
         for t in h.server.things.by_id.values() {
@@ -201,4 +215,74 @@ fn a_corpse_full_from_its_creatures_loot_still_holds_its_profiles_draw() {
         assert_eq!(count(held, KEEPSAKE), 1, "the drawn item kept: {held:x?}");
         assert!(count(held, TEST_ITEM) >= MOST_ITEMS - 2, "{held:x?}");
     }
+}
+
+/// The corpse a creature leaves when `by` kills it: what it holds, and how long after it appeared
+/// it was still in the world (in whole quarter seconds, up to `limit`).
+fn corpse_of(h: &mut Harness, id: u64, by: u64, limit: f64) -> (Vec<u32>, f64) {
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, by, clock);
+    let corpse = |h: &Harness| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.corpse.as_ref().is_some_and(|c| c.originator == id))
+            .map(|t| t.id)
+    };
+    while corpse(h).is_none() {
+        h.step_by(0.25);
+    }
+    let c = corpse(h).expect("its corpse");
+    let held = h
+        .server
+        .things
+        .get(c)
+        .and_then(|t| t.corpse.as_ref())
+        .map(|k| {
+            k.contents
+                .iter()
+                .filter_map(|i| h.server.things.get(*i))
+                .map(|i| i.template)
+                .collect()
+        })
+        .unwrap_or_default();
+    let from = h.now.0;
+    while h.server.things.get(c).is_some() && h.now.0 - from < limit {
+        h.step_by(0.25);
+    }
+    (held, h.now.0 - from)
+}
+
+/// A creature killed by another creature, no player's kill, leaves a corpse that goes fifteen
+/// seconds after it appeared, as seen in 2017; that it holds nothing is this server's inference.
+/// Behaviour: server.loot.no-players-kill-goes-soon
+/// Behaviour: server.loot.no-players-kill-leaves-nothing
+#[test]
+fn a_creature_another_creature_killed_leaves_an_empty_corpse_gone_in_fifteen_seconds() {
+    let mut h = camp_world(2, Corpse::Common, true, 3);
+    let beetles = living(&h);
+    let (held, stood) = corpse_of(&mut h, beetles[0], beetles[1], 200.0);
+    assert!(held.is_empty(), "it holds nothing: {held:x?}");
+    assert!(
+        (14.5..=15.75).contains(&stood),
+        "gone in fifteen seconds: {stood}"
+    );
+}
+
+/// A creature a player killed still leaves what it drops, and its corpse, untouched, stands three
+/// minutes.
+/// Behaviour: server.loot.no-players-kill-goes-soon
+/// Behaviour: server.loot.no-players-kill-leaves-nothing
+#[test]
+fn a_creature_a_player_killed_leaves_its_loot_and_its_corpse_stands_three_minutes() {
+    let mut h = camp_world(1, Corpse::Common, true, 3);
+    let beetle = living(&h)[0];
+    let by = killer(&h);
+    let (held, stood) = corpse_of(&mut h, beetle, by, 400.0);
+    assert_eq!(held, [TEST_ITEM], "its loot");
+    assert!(
+        (179.5..=180.75).contains(&stood),
+        "three minutes untouched: {stood}"
+    );
 }

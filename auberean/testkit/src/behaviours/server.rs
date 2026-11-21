@@ -9650,6 +9650,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.no-players-kill-goes-soon",
+        says: "A creature no player killed (another creature, a pet on its own) leaves a corpse seen \
+               gone 13 to 17 seconds after it appeared, here fifteen; a player's kill, a pet's \
+               credited to its owner among them, stands its full time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-NO-PLAYERS-KILL"),
+        station: "yalain-testkit::cpu::play::corpse_profiles::a_creature_another_creature_killed_leaves_an_empty_corpse_gone_in_fifteen_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.no-players-kill-leaves-nothing",
+        says: "The corpse of a creature no player killed holds nothing, and a player's kill leaves its \
+               loot. That the first is empty is this server's inference from how soon such corpses \
+               went: none was seen opened.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-NO-PLAYERS-KILL-EMPTY"),
+        station: "yalain-testkit::cpu::play::corpse_profiles::a_creature_another_creature_killed_leaves_an_empty_corpse_gone_in_fifteen_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.no-players-kill-opens-to-anyone",
         says: "A corpse no player's kill made opens to anyone, and so does a player's own corpse, \
                which holds nothing.",

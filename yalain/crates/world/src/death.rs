@@ -81,7 +81,10 @@
 //! **A corpse leaves the world** by its creature's template's times, for most creatures these: three
 //! minutes after it appeared, or fifteen seconds if it can hold nothing (the creature has no loot
 //! profile and left nothing); fifteen seconds after it was closed empty, a minute after it was
-//! closed with items left, if that is sooner. One still open when its time comes stays, looked at
+//! closed with items left, if that is sooner. A creature no player killed (killed by another
+//! creature, a pet on its own, anything not a player) leaves a corpse that goes fifteen seconds
+//! after it appeared; that it holds nothing is this server's inference from how soon 2017's went,
+//! as none was seen opened. One still open when its time comes stays, looked at
 //! again each time an empty one's time goes by, and goes at the first such look after it is closed.
 //! A player's lasts a minute whatever is done to it.
 //!
@@ -184,7 +187,8 @@ fn dead_type(t: &Thing) -> i32 {
     t.description.numbers[0] | look::DEAD_BIT
 }
 
-/// How long after a death its corpse is kept for those with a right to it, in seconds.
+/// How long after a death its corpse is kept for those with a right to it, in seconds: the game's
+/// own corpses stay locked to their killer for 120 s, and open to all once someone has looted them.
 pub const LOOT_LOCK: f64 = 120.0;
 
 /// The most items a corpse holds.
@@ -1155,7 +1159,13 @@ pub fn corpse_appears<S: Store>(
         .creature
         .as_ref()
         .is_some_and(|c| c.unreached.contains(&killer));
-    let loot = if unfair {
+    // A kill no player is credited with leaves nothing: one by another creature, or a pet's own,
+    // its owner's harm not counting. That is this server's inference: 2017's such corpses went
+    // 13-17 s after they appeared, as one that holds nothing does, and none was seen opened. A
+    // pet's kill credited to its owner was the owner's, lasting as players' kills do.
+    // A character's id, in the world or not: a player's kill even once it has left.
+    let by_player = killer & 0xFFFF_0000_0000_0000 == crate::login::PLAYER_ID_BASE;
+    let loot = if unfair || !by_player {
         Vec::new()
     } else {
         roll_loot(s, &dead, killer, clock)
@@ -1187,8 +1197,8 @@ pub fn corpse_appears<S: Store>(
         .values()
         .find(|p| p.character == killer)
         .map_or(0, |p| crate::examine::level_of(&p.qualities));
-    // One that can hold nothing goes as a corpse closed empty does.
-    let lasts = if contents.is_empty() && !has_profile {
+    // One that can hold nothing, or that no player's kill made, goes as a corpse closed empty does.
+    let lasts = if !by_player || (contents.is_empty() && !has_profile) {
         rot.empty
     } else {
         rot.untouched

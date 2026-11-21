@@ -34,7 +34,19 @@ fn camp_world(population: u32, regen: f64, rows: Vec<DeathTreasure>, seed: u64) 
     h.server.loot.treasures = rows;
     h.server.rng = Rng::new(seed);
     h.run(20);
+    // The kills are a player's: a corpse no player's kill made holds nothing.
+    h.player_in_world("killer", "Brannoc");
     h
+}
+
+/// The player whose kills the corpses are.
+fn killer(h: &Harness) -> u64 {
+    h.server
+        .players
+        .values()
+        .map(|p| p.character)
+        .next()
+        .expect("a player in the world")
 }
 
 fn row(from: Dropper, chance: f32) -> DeathTreasure {
@@ -66,7 +78,8 @@ fn kill_all(h: &mut Harness) -> usize {
     let all = living(h);
     for id in &all {
         let clock = h.clock();
-        yalain_world::death::creature_dies(&mut h.server, &mut h.net, *id, 0, clock);
+        let by = killer(h);
+        yalain_world::death::creature_dies(&mut h.server, &mut h.net, *id, by, clock);
     }
     all.len()
 }
@@ -476,7 +489,8 @@ fn a_corpse_holds_a_death_treasure_once_however_it_is_named() {
     let beetle = living(&h)[0];
     for _ in 0..2 {
         let clock = h.clock();
-        yalain_world::death::creature_dies(&mut h.server, &mut h.net, beetle, 0, clock);
+        let by = killer(&h);
+        yalain_world::death::creature_dies(&mut h.server, &mut h.net, beetle, by, clock);
         h.step();
     }
     run_for(&mut h, 2.5);

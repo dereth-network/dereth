@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Creatures that can't reach you no longer give up while you're near.
 - Creatures buff themselves and their allies less often, as in retail.
 - New worlds' time of day now matches retail's.
+- Creatures killed by other creatures leave empty corpses that vanish quickly.
 - Skills that walk you to their target now walk you into their full range.
 - Skills now turn you toward their target only when retail's did.
 - Crafting now tells you when a recipe is too easy to learn from, and when you've learned a lot today.
