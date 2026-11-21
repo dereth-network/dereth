@@ -176,7 +176,7 @@ pub const APPEARS_AWAY: f32 = 2.0;
 pub const ON_SOMETHING: f32 = 1.0;
 
 /// The template property of a kind's own velocity scale.
-pub const KIND_VELOCITY: &str = "Physics_VelScale";
+pub const KIND_VELOCITY: &str = yalain_content::props::creature_property::VELOCITY_SCALE;
 
 /// A pet's vigor per level of its summoner's rating (2017: exactly 20 times, 4 of 4).
 pub const VIGOR_PER_LEVEL: i32 = 20;

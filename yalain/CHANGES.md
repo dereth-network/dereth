@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Following now stops when you move, take a portal, or the one you follow logs off.
+- Creatures of the faster kinds now run at their own speed, even when slowed.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

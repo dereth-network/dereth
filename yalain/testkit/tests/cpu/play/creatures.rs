@@ -562,6 +562,79 @@ fn a_creature_swings_on_the_run_at_a_player_who_keeps_within_its_reach() {
     }
 }
 
+/// The strides of a creature of a scale and a kind's speed scale running at a player far off: the
+/// next three, once it is chasing.
+fn run_strides(scale: f32, kind: f32) -> Vec<f32> {
+    let mut h = Harness::new();
+    let (id, _) = after_player(&mut h, scale);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.velocity_scale = kind;
+    }
+    keep_off(&mut h, id, 30.0);
+    let at = |h: &Harness| {
+        h.server
+            .things
+            .get(id)
+            .and_then(|t| t.at)
+            .expect("placed")
+            .origin
+    };
+    let mut strides = Vec::new();
+    let mut was = at(&h);
+    for _ in 0..40 {
+        h.step();
+        let now = at(&h);
+        if now != was {
+            strides.push(((now[0] - was[0]).powi(2) + (now[1] - was[1]).powi(2)).sqrt());
+            was = now;
+        }
+        if strides.len() == 3 {
+            break;
+        }
+    }
+    strides
+}
+
+/// A creature runs at its kind's own speed scale times a creature's run for its size: 6.4 m/s at
+/// 1, 7.04 at 1.1.
+/// Behaviour: server.creatures.runs-at-its-kinds-speed
+#[test]
+fn a_creature_of_a_faster_kind_runs_its_kinds_scale_faster() {
+    for kind in [1.0f32, 1.1] {
+        let strides = run_strides(1.0, kind);
+        #[allow(clippy::cast_possible_truncation)]
+        let stride = 6.4 * kind * yalain_world::spawn::STEP_SECONDS as f32;
+        assert_eq!(strides.len(), 3, "kind {kind}: it runs");
+        for d in &strides[1..] {
+            assert!((d - stride).abs() < 1e-3, "kind {kind}: a stride of {d} m");
+        }
+    }
+}
+
+/// A creature's full run is 6.4 m/s times its scale at any scale, the small and the big alike:
+/// 3.84 m/s at 0.6, 12.8 at 2.
+/// Behaviour: server.creatures.runs-at-its-scale
+#[test]
+fn a_creature_runs_its_scale_times_a_creatures_run_however_big() {
+    for scale in [0.6f32, 1.0, 2.0] {
+        let strides = run_strides(scale, 1.0);
+        #[allow(clippy::cast_possible_truncation)]
+        let stride = 6.4 * scale * yalain_world::spawn::STEP_SECONDS as f32;
+        assert_eq!(strides.len(), 3, "scale {scale}: it runs");
+        for d in &strides[1..] {
+            assert!(
+                (d - stride).abs() < 1e-3,
+                "scale {scale}: a stride of {d} m"
+            );
+        }
+    }
+}
+
 /// A creature after a player on the move stops further off than from one who stands.
 /// Behaviour: server.creatures.stops-further-from-one-moving
 #[test]

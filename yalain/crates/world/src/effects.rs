@@ -2422,14 +2422,28 @@ fn schedule<S: Store>(s: &mut Server<S>, world: ConnId, e: &EffectState, now: f6
     schedule_on(s, On::Player(world), e, now, clock);
 }
 
-/// The speed and acceleration scales a player's or a creature's effects give it, a player's both
-/// at the operator's movement rate (so it comes to its speed in the time it would at 1).
+/// The speed and acceleration scales a player or a creature moves at: a player's effects', both at
+/// the operator's movement rate (so it comes to its speed in the time it would at 1); a creature's
+/// speed its kind's own times its effects' (2017: a slow's end told 1.1 to a kind of 1.1, 1,186
+/// times, and 1.05 to one of 1.05, 378 times; a slow of 0.653 came as 0.718 on a kind of 1.1 and
+/// 0.685 on one of 1.05).
 fn speeds_on<S: Store>(s: &Server<S>, on: On) -> (f32, f32) {
     let (v, a) = scales(&s.effect_table, records_of(s, on));
     match on {
         On::Player(_) => at_rate(s.cfg.rates.movement, (v, a)),
-        On::Creature(_) => (v, a),
+        On::Creature(id) => (v * kind_speed(s, id), a),
     }
+}
+
+/// A creature's kind's own speed scale (1 where its template sets none). A pet's speed is its own,
+/// told as it follows its owner, so this leaves it at 1. A kind's acceleration scale is not read:
+/// only pets' templates set one.
+fn kind_speed<S: Store>(s: &Server<S>, id: u64) -> f32 {
+    s.things
+        .get(id)
+        .filter(|t| t.summoner.is_none())
+        .and_then(|t| t.creature.as_ref())
+        .map_or(1.0, |c| c.stats.velocity_scale)
 }
 
 /// Speed and acceleration scales at the movement rate.
@@ -2481,7 +2495,8 @@ fn rated<S: Store>(s: &Server<S>, records: &[EffectState]) -> Option<(f32, f32)>
     (!crate::rates::is_one(rate)).then(|| at_rate(rate, scales(&s.effect_table, records)))
 }
 
-/// The speed and acceleration scales a creature's effects give it (1 and 1 with none).
+/// The speed and acceleration scales a creature moves at: its kind's speed times its effects', and
+/// its effects' acceleration (its kind's and 1 with none).
 #[must_use]
 pub fn creature_speed<S: Store>(s: &Server<S>, id: u64) -> (f32, f32) {
     speeds_on(s, On::Creature(id))

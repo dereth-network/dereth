@@ -402,6 +402,9 @@ pub struct CreatureStats {
     pub fights: bool,
     /// Its scale (its running speed goes with it).
     pub scale: f32,
+    /// Its kind's own speed scale (1 where its template sets none): it runs and walks at this times
+    /// what its effects leave it, and is told its speed so.
+    pub velocity_scale: f32,
     /// Its skills and their levels, in the template's order.
     pub skills: Vec<(u32, i64)>,
     /// The skills among them that are its basic attacks (the rest of its attacks are specials).
@@ -473,6 +476,7 @@ pub mod creature_property {
     pub const MOVEMENT_TYPE: &str = "AI_MovementType";
     pub const USES_DOORS: &str = "AI_CanUseDoors";
     pub const SCALE: &str = "Scale";
+    pub const VELOCITY_SCALE: &str = "Physics_VelScale";
     pub const LOOT_PROFILE: &str = "NPC_DeathLootProfile";
     pub const LOOT_MIN: &str = "NPC_DeathLootMinQuantityOverride";
     pub const LOOT_QUALITY: &str = "NPC_DeathLootQualityOverride";
@@ -633,6 +637,10 @@ impl CreatureStats {
             friend_table: p.word(k::LOVE_TABLE),
             fights: true,
             scale: p.float(k::SCALE).filter(|s| *s > 0.0).unwrap_or(1.0),
+            velocity_scale: p
+                .float(k::VELOCITY_SCALE)
+                .filter(|v| *v > 0.0)
+                .unwrap_or(1.0),
             skills,
             basic,
             loot_profile: p.word(k::LOOT_PROFILE),

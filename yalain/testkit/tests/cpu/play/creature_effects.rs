@@ -25,8 +25,24 @@ const OVER_TIME_FX: u32 = 0x4100_0031;
 /// A new player with the scene drawn, vigor to spare, beside `n` of the camp's beetles made
 /// practice targets; returns the client, the player and the beetles.
 fn beside_beetles(n: u32) -> (Harness, usize, u64, Vec<u64>) {
+    beside_beetles_of(n, None)
+}
+
+/// [`beside_beetles`], the beetles' template setting its kind's own speed scale where one is given.
+fn beside_beetles_of(n: u32, kind_speed: Option<f32>) -> (Harness, usize, u64, Vec<u64>) {
     let mut h = Harness::new();
     h.add_creatures(n);
+    if let Some(v) = kind_speed {
+        let mut t = h
+            .server
+            .catalog
+            .get(TEST_CREATURE)
+            .expect("the beetle")
+            .clone();
+        t.props
+            .set("Physics_VelScale", yalain_content::Prop::Float(v));
+        h.server.catalog.insert(t);
+    }
     let (b, me) = h.player_in_world("one", "Elara");
     h.bots[b].send(
         true,
@@ -381,6 +397,63 @@ fn a_held_creature_is_sent_no_speed_and_its_own_again_when_the_hold_ends() {
     assert!(effects::records_of(&h.server, On::Creature(beetle))
         .iter()
         .all(|e| e.state != PARALYZE_EFFECT));
+}
+
+/// A slow on a creature of a kind with its own speed scale (1.1) is told as the two together, and
+/// the kind's own scale, not 1, as it ends; a hold, nothing and then the kind's.
+/// Behaviour: server.effects.creature-speed-of-its-kind
+#[test]
+fn a_slow_on_a_creature_of_a_faster_kind_is_told_times_its_kinds_speed_and_its_kinds_after() {
+    for (slow, told) in [(0.653f32, 0.7183f32), (0.0, 0.0)] {
+        let (mut h, b, me, beetles) = beside_beetles_of(1, Some(1.1));
+        let beetle = beetles[0];
+        slowing_to(&mut h, slow);
+        place(&mut h, me, beetle, 0.8, 0.0);
+        h.arm(b, me, SWORD);
+        let (_, from) = until_it_lands(&mut h, b, PARALYZE, beetle, PARALYZE_FX);
+        step_until(&mut h, b, from, 400, |m| stops(m, beetle, PARALYZE_FX)).expect("it ends");
+        let speeds: Vec<f32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::VelocityScale(e) if e.sender.id == beetle => Some(e.action.0),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(speeds.len(), 2, "slowed by {slow}: {speeds:?}");
+        assert!(
+            (speeds[0] - told).abs() < 1e-3,
+            "slowed by {slow}: {speeds:?}"
+        );
+        assert!(
+            (speeds[1] - 1.1).abs() < 1e-6,
+            "slowed by {slow}: {speeds:?}"
+        );
+    }
+}
+
+/// Make the test hold a slow: it leaves its target's speed at so much of what it was.
+fn slowing_to(h: &mut Harness, by: f32) {
+    use yalain_world::effect_defs::{Kind, Scale};
+    let d = h
+        .server
+        .effect_table
+        .effects
+        .get_mut(&PARALYZE_EFFECT)
+        .expect("the hold");
+    let Kind::Chained(parts) = &mut d.kind else {
+        panic!("the hold is chained");
+    };
+    for part in parts {
+        if let Kind::Numeric {
+            stats, magnitude, ..
+        } = &mut part.kind
+        {
+            if stats.contains(&effects::speed::VELOCITY) {
+                *magnitude = Scale(vec![(0.0, by)]);
+            }
+        }
+    }
 }
 
 /// The ticks of a damage over time on a creature: stories the creature tells, with the caster as

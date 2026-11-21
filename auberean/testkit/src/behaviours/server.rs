@@ -4003,6 +4003,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.runs-at-its-kinds-speed",
+        says: "A creature runs at its kind's own speed scale times a creature's run for its size.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-KIND-SPEED-RUN"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_of_a_faster_kind_runs_its_kinds_scale_faster",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.runs-at-its-scale",
+        says: "A creature's full run is 6.4 m/s times its template's scale, at any scale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-RUN-SCALE"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_runs_its_scale_times_a_creatures_run_however_big",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.settled-never-wander",
         says: "A creature whose homesick radius is under 5 m never wanders.",
         since: RETAIL,
@@ -4949,6 +4965,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SPEED"),
         station: "yalain-testkit::cpu::play::creature_effects::a_held_creature_is_sent_no_speed_and_its_own_again_when_the_hold_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.creature-speed-of-its-kind",
+        says: "A creature whose kind has its own speed scale is told a slow as the slow times that \
+               scale, and that scale, not 1, as the slow ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-KIND-SPEED-TOLD"),
+        station: "yalain-testkit::cpu::play::creature_effects::a_slow_on_a_creature_of_a_faster_kind_is_told_times_its_kinds_speed_and_its_kinds_after",
         tier: Tier::Cpu,
     },
     behaviour! {
