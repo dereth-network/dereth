@@ -306,6 +306,15 @@ pub fn day_parts(p: &Portal) -> Vec<(f32, bool)> {
     })
 }
 
+/// The chat regions the install lays over the world's landblocks.
+#[must_use]
+pub fn chat_regions(p: &Portal) -> Option<yalain_world::chat::ChatRegions> {
+    let (_, path) = p.files.iter().find(|(n, _)| *n == DatName::Portal)?;
+    let file = auberean_dat::DatFile::open(path).ok()?;
+    let db = auberean_assets::database::Database::new(vec![std::sync::Arc::new(file)]);
+    yalain_world::chat::ChatRegions::read(&db)
+}
+
 /// The calendar of the region's first sky.
 fn game_time(p: &Portal) -> Option<auberean_assets::region::GameTime> {
     use auberean_assets::region::{GameTime, Region, SkyDesc};

@@ -4,6 +4,7 @@
 
 mod character_select;
 mod chat;
+mod chat_regions;
 mod data_download;
 mod examine;
 mod keeping;

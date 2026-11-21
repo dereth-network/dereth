@@ -144,6 +144,8 @@ pub struct Player {
     pub giving: Option<crate::gives::Giving>,
     /// The object it follows.
     pub following: Option<u64>,
+    /// The chat region its channel list last named (0: none).
+    pub chat_region: u32,
     /// Where it last reported itself at rest while walked toward a use.
     pub walk_rest: Option<StoredPosition>,
     /// Its trip through portal space, while it is under way.
@@ -544,6 +546,7 @@ pub fn enter<S: Store>(
         giving: None,
         walk_rest: None,
         following: None,
+        chat_region: 0,
         trip: None,
         places: st.places.clone(),
         play,
@@ -1473,6 +1476,8 @@ fn moved<S: Store>(
     }
     if cell >> 16 != before.cell >> 16 {
         crate::kingdoms::check(s, net, world);
+        // Walked into another chat region, or indoors from one: its channels again.
+        crate::chat::region_moved(s, net, world);
     }
     crate::places::arrived(s, net, world, clock);
     crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);

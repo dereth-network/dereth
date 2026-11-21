@@ -33,9 +33,11 @@
 //!
 //! **Channels.** The chat service runs on the login connection: a line a client sends to a room
 //! comes back to it as the room's line, then as the answer to its request, and goes to every
-//! other player in the world (a kingdom's, an allegiance's or a fellowship's room: to its members).
-//! The rooms a client may use are the channels the world sends it as it enters, and the rooms of
-//! its kingdom, allegiance and fellowship. A line to any other room, or from a client not in the
+//! other player in the world (a kingdom's, an allegiance's or a fellowship's room: to its members;
+//! a region's: to the players in that region). The rooms a client may use are the channels the
+//! world sends it as it enters, and the rooms of its kingdom, allegiance, fellowship and region. A
+//! player outdoors has its chat region's channel ([`ChatRegions`]), and is sent its channels again
+//! when it walks into another region or lands from portal space in another region, or indoors. A line to any other room, or from a client not in the
 //! world, is answered with a refusal and reaches nobody.
 //!
 //! **Rooms admins made.** A line to one reaches its members ([`crate::admin_calls`]) and no one else.
@@ -792,18 +794,196 @@ pub fn channels_of(kingdom: Option<u32>) -> [Channel; 4] {
     list
 }
 
-/// Send a player its channels, `times` times over.
-pub fn send_channels<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, times: usize) {
+/// The kind of a region's channel.
+pub const REGION_KIND: u32 = 1 << 21;
+/// The property the install lays the chat regions over the world by, as a mapped property of its
+/// region: one value per region number, 0 for none.
+pub const REGION_PROPERTY: u32 = 0x4100_0271;
+/// The room region N's channel is given: this plus N, after the world's own rooms and before the
+/// allegiances'.
+pub const REGION_ROOMS_AFTER: u32 = 8;
+/// The most chat regions there are.
+pub const MOST_REGIONS: u32 = 30;
+const REGION_NAMES: [&str; MOST_REGIONS as usize] = [
+    "Region 1",
+    "Region 2",
+    "Region 3",
+    "Region 4",
+    "Region 5",
+    "Region 6",
+    "Region 7",
+    "Region 8",
+    "Region 9",
+    "Region 10",
+    "Region 11",
+    "Region 12",
+    "Region 13",
+    "Region 14",
+    "Region 15",
+    "Region 16",
+    "Region 17",
+    "Region 18",
+    "Region 19",
+    "Region 20",
+    "Region 21",
+    "Region 22",
+    "Region 23",
+    "Region 24",
+    "Region 25",
+    "Region 26",
+    "Region 27",
+    "Region 28",
+    "Region 29",
+    "Region 30",
+];
+
+/// The chat regions the install lays over the world: a region number from 1 to [`MOST_REGIONS`]
+/// for each landblock, 0 where there is none. A player outdoors in a region has its channel;
+/// indoors, none. (2017: of the channel lists placed by the player's next own report, 2,168 of
+/// 2,192 outdoors held a region's channel and 716 of 741 indoors held none; the install's regions
+/// gave the one 2017 named in 222 of 223 outdoor landblocks, and none in the 15 where 2017 named
+/// none.)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatRegions {
+    /// By landblock, its east-west number times 256 plus its north-south number.
+    cells: Vec<u8>,
+}
+
+impl ChatRegions {
+    /// The regions of 256 by 256 landblocks, east-west first; `None` for any other size.
+    #[must_use]
+    pub fn new(cells: Vec<u8>) -> Option<Self> {
+        (cells.len() == 256 * 256).then_some(Self { cells })
+    }
+
+    /// The install's chat regions: its region's mapped property [`REGION_PROPERTY`], each
+    /// landblock's value through the property's block map. `None` when the install holds none.
+    #[must_use]
+    pub fn read(db: &auberean_assets::database::Database) -> Option<Self> {
+        use auberean_assets::property::PropertyValue;
+        use auberean_assets::region::{BlockMap, PropertyDesc, Region};
+        const REGION_MAPPING: u32 = 0x4000_0007;
+        let record = db.data_id_by_enum(player::REGION, REGION_MAPPING);
+        let region = db.get::<Region>(record)?;
+        let mapped = region.properties.iter().find_map(|r| {
+            let desc = db.get::<PropertyDesc>(r.record.0)?;
+            desc.properties
+                .iter()
+                .find(|m| m.property == REGION_PROPERTY)
+                .cloned()
+        })?;
+        let map = db.get::<BlockMap>(mapped.block_map.0)?;
+        // Each map value names its region by the value's number.
+        let regions: Vec<u8> = mapped
+            .values
+            .iter()
+            .map(|v| match v.value {
+                PropertyValue::Integer(n) => u8::try_from(n).unwrap_or(0),
+                _ => 0,
+            })
+            .collect();
+        let cells = map
+            .cells
+            .iter()
+            .map(|c| regions.get(usize::from(*c)).copied().unwrap_or(0))
+            .collect();
+        Self::new(cells)
+    }
+
+    /// The region of a place, by its cell: none indoors, or where the map names none or a
+    /// region past the last.
+    #[must_use]
+    pub fn of(&self, cell: u32) -> u32 {
+        if crate::presence::indoors(cell) {
+            return 0;
+        }
+        let block = (cell >> 16) as usize;
+        let region = self.cells.get(block).map_or(0, |r| u32::from(*r));
+        if region > MOST_REGIONS {
+            0
+        } else {
+            region
+        }
+    }
+}
+
+/// The channel of a chat region (none for region 0).
+#[must_use]
+pub fn region_channel(region: u32) -> Option<Channel> {
+    let name = REGION_NAMES.get(usize::try_from(region.checked_sub(1)?).ok()?)?;
+    Some(Channel {
+        kind: REGION_KIND,
+        room: REGION_ROOMS_AFTER + region,
+        region,
+        faction: 0,
+        pending: false,
+        name,
+    })
+}
+
+/// The chat region a player stands in (0: none, or indoors).
+#[must_use]
+pub fn region_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> u32 {
+    s.chat_regions.as_ref().map_or(0, |r| r.of(p.position.cell))
+}
+
+/// The channels of a player where it stands: its kingdom's, and its region's when it is in one.
+#[must_use]
+pub fn channels_for<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Vec<Channel> {
+    let mut list = channels_of(crate::kingdoms::of(&p.qualities)).to_vec();
+    list.extend(region_channel(region_of(s, p)));
+    list
+}
+
+/// The players in a region's room: those whose channel list names that region.
+#[must_use]
+pub fn region_room_members<S: Store>(s: &Server<S>, room: u32) -> Option<Vec<u64>> {
+    let region = room.checked_sub(REGION_ROOMS_AFTER)?;
+    if region == 0 || region > MOST_REGIONS {
+        return None;
+    }
+    Some(
+        s.players
+            .values()
+            .filter(|p| p.chat_region == region)
+            .map(|p| p.character)
+            .collect(),
+    )
+}
+
+/// Send a player its channels where it stands, `times` times over, and keep the region they name.
+pub fn send_channels<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    times: usize,
+) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let ch = channels(
-        &s.cfg.world_name,
-        &channels_of(crate::kingdoms::of(&p.qualities)),
-    )
-    .encode();
+    let region = region_of(s, p);
+    let ch = channels(&s.cfg.world_name, &channels_for(s, p)).encode();
     for _ in 0..times {
         net.send(world, queue::EVENT, BlobKind::PRIVATE, ch.clone());
+    }
+    if let Some(p) = s.players.get_mut(&world) {
+        p.chat_region = region;
+    }
+}
+
+/// A player has come to stand somewhere new (it reported a place in another landblock, or came out
+/// of portal space): when its region is not the one its channel list last named, it is sent the
+/// list again, once. Walking into a building or out of one keeps the list. (2017: a list came
+/// within 2 s in 1,130 of 1,199 portal exits into another region and 133 of 1,661 into the same
+/// one, a median 0.008 s after the exit; within 3 s in 98 of 100 walks across a region's edge;
+/// and in none of 67 walks into or out of a building.)
+pub fn region_moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let changed = s
+        .players
+        .get(&world)
+        .is_some_and(|p| region_of(s, p) != p.chat_region);
+    if changed {
+        send_channels(s, net, world, 1);
     }
 }
 
@@ -1156,9 +1336,10 @@ pub fn service<S: Store>(
             return;
         }
     }
-    // A kingdom's, an allegiance's or a fellowship's room reaches its members alone.
+    // A kingdom's, an allegiance's, a region's or a fellowship's room reaches its members alone.
     let members = crate::kingdoms::room_members(s, line.room)
         .or_else(|| crate::allegiance::room_members(s, line.room))
+        .or_else(|| region_room_members(s, line.room))
         .or_else(|| s.fellowships.room_members(line.room));
     if !NEW_CHANNELS.iter().any(|c| c.room == line.room) && members.is_none() {
         refuse(net);

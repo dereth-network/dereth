@@ -443,6 +443,9 @@ pub struct Server<S: Store> {
     /// The parts of the game's day, by the calendar: where each begins (a share of the day) and
     /// whether it is night.
     pub day_parts: Vec<(f32, bool)>,
+    /// The chat regions the install lays over the world's landblocks (none read: no region
+    /// channels).
+    pub chat_regions: Option<chat::ChatRegions>,
     /// The skills' definitions and advancement tables.
     pub skill_table: skills::SkillTable,
     /// The effects' definitions, and the recipes' and craft skills'.
@@ -951,6 +954,7 @@ impl<S: Store> Server<S> {
             calendar: None,
             night: false,
             day_parts: Vec::new(),
+            chat_regions: None,
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
             events: events::Events::default(),

@@ -1304,6 +1304,63 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.region-channel-as-recorded",
+        says: "Every region channel the 2017 servers sent is the one this server gives a player in the \
+               region it names, slot for slot but its room: its kind, region, tags and name after the \
+               world's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-CHANNEL"),
+        station: "yalain-testkit::corpus::chat::every_recorded_region_channel_is_ours_for_the_region_it_names",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.chat.region-channel-at-a-landing",
+        says: "A player landing from portal space in another region is sent its channels as it comes out, \
+               naming the new region; indoors, a list with no region's; in the region its list names, \
+               nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-LANDING"),
+        station: "yalain-testkit::cpu::entry::chat_regions::a_player_landing_in_another_region_is_sent_its_channels_as_it_comes_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.region-channel-on-walking-across",
+        says: "A player walking into another region's landblock is sent its channels again, once, naming \
+               the new region; walking on within it, or into a building, sends nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-WALK"),
+        station: "yalain-testkit::cpu::entry::chat_regions::a_player_walking_into_another_region_is_sent_its_channels_again_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.region-channel-outdoors",
+        says: "A player outdoors in a chat region has its region's channel with the other four; indoors it \
+               has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-OUTDOORS"),
+        station: "yalain-testkit::cpu::entry::chat_regions::a_player_outdoors_has_its_regions_channel_and_none_indoors",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.region-of-the-install",
+        says: "The chat regions are the install's: thirty regions laid over the landblocks by the region's \
+               mapped property, the ones the 2017 servers named where their players stood.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-MAP"),
+        station: "yalain-testkit::corpus::chat::the_installs_chat_regions_are_the_ones_the_2017_servers_named",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.chat.region-room-reaches-its-region",
+        says: "A line in a region's room reaches the players whose channels name that region, and is \
+               refused from a player of another region (our choice: the 2017 region rooms carried a \
+               handful of lines).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-REGION-ROOM"),
+        station: "yalain-testkit::cpu::entry::chat_regions::a_line_in_a_regions_room_reaches_the_players_in_that_region",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.room-line-echoed-answered-and-relayed",
         says: "A line a client sends to a chat room comes back to it as the room's line (its name \
                without the grammar mark, the words, and what its client said of it), then as the \

@@ -2814,6 +2814,8 @@ fn arrive<S: Store>(
     p.known.clear();
     s.players.insert(world, p);
     presence::tell_position(s, net, world, &m, true, false);
+    // Landed in another chat region (or indoors from one): its channels again.
+    crate::chat::region_moved(s, net, world);
     // A trip through portal space ends an attack run: the player is no longer attacking, and at
     // peace (2017: 5 of 5 runs, just after the exit).
     if s.players.get(&world).is_some_and(|p| p.attacking.is_some()) {

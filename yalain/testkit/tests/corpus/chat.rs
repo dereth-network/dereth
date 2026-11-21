@@ -398,6 +398,12 @@ fn chat_messages_are_built_as_the_2017_servers_sent_them() {
 /// The faction channel of a packed channel list: its slots and tags but the name's reference, and
 /// its name.
 fn faction_channel(g: &Graph) -> Option<(Vec<u32>, Vec<u8>, String)> {
+    channel_of_kind(g, 0x40_0000)
+}
+
+/// The channel of a kind in a packed channel list: its slots and tags but the name's reference,
+/// and its name.
+fn channel_of_kind(g: &Graph, kind: u32) -> Option<(Vec<u32>, Vec<u8>, String)> {
     let at = |id: u32| {
         g.ids
             .iter()
@@ -405,9 +411,7 @@ fn faction_channel(g: &Graph) -> Option<(Vec<u32>, Vec<u8>, String)> {
             .and_then(|i| g.entries.get(i))
     };
     g.entries.iter().find_map(|e| match &e.body {
-        Body::Object(o)
-            if o.package == chat::CHANNEL_DATA.0 && o.slots.get(1) == Some(&0x40_0000) =>
-        {
+        Body::Object(o) if o.package == chat::CHANNEL_DATA.0 && o.slots.get(1) == Some(&kind) => {
             let name = o
                 .slots
                 .get(6)
@@ -483,4 +487,112 @@ fn every_recorded_faction_channel_is_ours_for_the_kingdom_it_names() {
     for (k, (same, of)) in &by_kingdom {
         assert_eq!(same, of, "kingdom {k:#x}");
     }
+}
+
+/// Every region channel the 2017 servers sent a player in its channel list is the one this server
+/// gives a player in the region it names, slot for slot but its room (each 2017 world numbered its
+/// region rooms its own way): its kind, its region, not pending, no faction, its tags, and its name
+/// after the world's.
+/// Behaviour: server.chat.region-channel-as-recorded
+#[test]
+fn every_recorded_region_channel_is_ours_for_the_region_it_names() {
+    use yalain_world::chat::{channels, region_channel, REGION_KIND};
+    let path = auberean_testkit::data::require_capture_index();
+    let Some(lib) = library() else {
+        println!("no September 2013 install here");
+        return;
+    };
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.mtype = 65638 AND substr(m.raw, 5, 4) = X'1E000582'",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut by_region: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
+    let without_room = |(mut slots, tags, name): (Vec<u32>, Vec<u8>, String)| {
+        slots.remove(3);
+        (slots, tags, name)
+    };
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(m) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        let Some((_, a)) = args_of(&m, lib) else {
+            continue;
+        };
+        let Some(Arg::Object(g)) = a.first() else {
+            continue;
+        };
+        let Some(recorded) = channel_of_kind(g, REGION_KIND) else {
+            continue;
+        };
+        let region = recorded.0[2];
+        let Some((world, _)) = recorded.2.rsplit_once(" Region ") else {
+            continue;
+        };
+        let Some(ours) = region_channel(region) else {
+            by_region.entry(region).or_default().1 += 1;
+            continue;
+        };
+        let Some((_, ours)) = args_of(&channels(world, &[ours]), lib) else {
+            continue;
+        };
+        let Some(Arg::Object(og)) = ours.first() else {
+            continue;
+        };
+        let e = by_region.entry(region).or_default();
+        e.0 += usize::from(
+            channel_of_kind(og, REGION_KIND).map(without_room) == Some(without_room(recorded)),
+        );
+        e.1 += 1;
+    }
+    println!("2017 region channels by region (as ours, of): {by_region:?}");
+    assert!(by_region.len() >= 20, "most regions recorded");
+    for (region, (same, of)) in &by_region {
+        assert_eq!(same, of, "region {region}");
+    }
+}
+
+/// The install's chat regions read from its region's mapped property: thirty regions over the
+/// land, and at the landblocks the 2017 servers named a region for (by where their players stood),
+/// the same region; none at a landblock 2017 named none for, and none indoors.
+/// Behaviour: server.chat.region-of-the-install
+#[test]
+fn the_installs_chat_regions_are_the_ones_the_2017_servers_named() {
+    let dir = require_install(TARGET);
+    let (_, path) = install_dats(&dir)
+        .expect("the install's data files")
+        .into_iter()
+        .find(|(n, _)| *n == DatName::Portal)
+        .expect("a portal file");
+    let dat = DatFile::open(&path).expect("the portal file opens");
+    let db = auberean_assets::database::Database::new(vec![std::sync::Arc::new(dat)]);
+    use yalain_world::chat::{ChatRegions, MOST_REGIONS};
+    let regions = ChatRegions::read(&db).expect("the install lays chat regions over the world");
+    let at = |block: u32| regions.of(block << 16 | 0x0001);
+    let named: std::collections::BTreeSet<u32> =
+        (0..0x1_0000).map(at).filter(|r| *r != 0).collect();
+    assert_eq!(named, (1..=MOST_REGIONS).collect(), "regions 1 to 30");
+    for (block, region) in [
+        (0x3C73, 23),
+        (0x5766, 21),
+        (0x5774, 18),
+        (0xCC8B, 12),
+        (0xA394, 6),
+        (0x4E5B, 22),
+        (0xC6A1, 14),
+        (0x859D, 4),
+        (0x7964, 17),
+        (0x6FA8, 5),
+        (0x76B8, 3),
+        (0x9B8D, 8),
+    ] {
+        assert_eq!(at(block), region, "landblock {block:#06x}");
+    }
+    assert_eq!(at(0x879D), 0, "a landblock 2017 named no region for");
+    assert_eq!(regions.of(0x6FA8_0100), 0, "indoors, none");
 }
