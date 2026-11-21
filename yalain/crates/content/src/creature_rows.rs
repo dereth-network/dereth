@@ -3,7 +3,8 @@
 //! which friend tables fight which, a shooter's rhythm by its template, the creatures that mark the
 //! players they see, those that take on only the players they hate, those players may not harm, the
 //! camps and kinds that let pass a player holding an item or bearing an effect, the effects
-//! creatures hold from their first moment, and how often the creatures of a class idle at rest.
+//! creatures hold from their first moment, and how often the creatures of a class idle at rest and
+//! as they notice a player.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -151,6 +152,9 @@ pub struct CreatureRows {
     /// The mean gap between the idle behaviors at rest of the creatures of an AI class (their
     /// template's AI superclass), in seconds, by the class.
     pub idle_every: BTreeMap<u32, f32>,
+    /// The chance that a creature of an AI class plays an idle behavior as it notices a player, by
+    /// the class: it goes after the player once the idle is through.
+    pub notice_idle: BTreeMap<u32, f32>,
 }
 
 impl CreatureRows {

@@ -7588,6 +7588,50 @@ fn a_creatures_row_reads_how_long_its_creatures_hold_their_kingdom() {
     }
 }
 
+/// An AI class's row may give its creatures' chance of an idle as they notice a player instead of,
+/// or beside, their idle gap; a chance not from 0 to 1 is refused.
+#[test]
+fn an_ai_class_row_reads_its_creatures_chance_of_an_idle_on_noticing_and_refuses_a_bad_one() {
+    const ROW: &str =
+        "[[ai_class]]\nclass = 0x06\nnotice_idle = 0.06\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.creatures
+            .notice_idle
+            .iter()
+            .map(|(c, g)| (*c, *g))
+            .collect::<Vec<_>>(),
+        [(6, 0.06)]
+    );
+    assert!(t.creatures.idle_every.is_empty(), "no gap given");
+    let both = ROW.replacen(
+        "notice_idle = 0.06",
+        "idle_every = 295\nnotice_idle = 0.06",
+        1,
+    );
+    files.insert("town/server/creatures.toml".into(), both);
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        (t.creatures.idle_every.len(), t.creatures.notice_idle.len()),
+        (1, 1)
+    );
+    for no in [
+        "notice_idle = 1.5",
+        "notice_idle = -0.1",
+        "notice_idle = \"often\"",
+        "notice_idle = nan",
+    ] {
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROW.replacen("notice_idle = 0.06", no, 1),
+        );
+        assert!(read(&files).is_err(), "{no:?}");
+    }
+}
+
 /// An AI class's row gives its creatures' mean gap between idles, kept by the class; a gap not a
 /// number of seconds above 0, or a row with no gap or no class, is refused.
 #[test]

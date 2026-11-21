@@ -15,6 +15,7 @@ what they see, not how it was done.
 - Creatures play their idle animations as often as their kind did in retail.
 - A fall that hurts now says how much: "You suffer 18 impact damage!"
 - Outdoors you now have your region's chat channel, as in retail.
+- Creatures finish an idle before attacking, and drudges sometimes pause before charging.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

@@ -262,6 +262,19 @@ pub fn thing_length<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Option<f
     Some(ends(&played, 1.0))
 }
 
+/// How long a creature's behavior plays at rest (in its peaceful mode), at time scale 1, in seconds;
+/// `None` when its look has no clip for it, or the install does not say.
+#[must_use]
+pub fn thing_length_at_rest<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Option<f64> {
+    let t = s.timings.as_ref()?;
+    let played = t.timeline(
+        &thing_plays(s, t, id)?,
+        crate::combat::mode::PEACE,
+        behavior,
+    )?;
+    Some(ends(&played, 1.0))
+}
+
 /// Does a creature's or a pet's behavior table name a behavior in the stance it fights in, whether
 /// or not its look has a clip for it? Not when the install does not say.
 #[must_use]

@@ -3,7 +3,8 @@
 //! attacks by weight, a damage debuff taking from their hits, and healing and buffing themselves;
 //! effects that slow their attacks or their running, and armor debuffs adding to players' hits;
 //! protectors buffing their kin and healers healing theirs; counters answering them and wards
-//! keeping their effects off.
+//! keeping their effects off; an idle holding a fight till it is through, and the idle some kinds
+//! play as they notice a player.
 //! Fixture: creatures of templates made up for each test, in a camp beside where a character starts.
 
 use auberean_protocol::{queue, ServerMessage};
@@ -1846,4 +1847,128 @@ fn a_ward_from_a_row_keeps_off_its_classes_and_effects_by_its_chance() {
     assert!((3200..3600).contains(&through), "{through} of 4,000");
     assert_eq!(count(NAMED_SURE, &mut h), 0);
     assert_eq!(count(OF_NO_CLASS, &mut h), 4000);
+}
+
+/// The camp's creature beside where a character starts, the player's client having drawn it, and the
+/// creature not yet looking about (it does so within the next two seconds); the client, the player
+/// and the creature.
+fn about_to_notice(extra: &[(&str, Prop)]) -> (Harness, usize, u64, u64) {
+    let mut h = Harness::new();
+    camp(&mut h, creature(20.0, extra), [61.0, 240.2, -44.6]);
+    let (b, me) = h.player_in_world("one", "Elara");
+    let id = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == TEMPLATE)
+        .map(|t| t.id)
+        .expect("the camp's creature");
+    let later = h.now.0 + 2.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.next_look = later;
+    }
+    drawn(&mut h, b);
+    assert_eq!(mode_of(&h, id), Some(Mode::Idle), "not yet noticed");
+    (h, b, me, id)
+}
+
+fn playing_an_idle(h: &mut Harness, id: u64, seconds: f64) {
+    let now = h.now.0;
+    let c = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+        .expect("a creature");
+    c.idle_until = now + seconds;
+}
+
+/// A creature playing an idle as a player comes within its perception goes after the player only
+/// once the idle is through, and then at once; one playing none goes after it within its look about.
+/// Behaviour: server.creatures.an-idle-holds-a-fight
+#[test]
+fn a_creature_noticing_a_player_while_it_plays_an_idle_goes_after_it_once_the_idle_is_through() {
+    for idle in [None, Some(4.5)] {
+        let (mut h, _b, me, id) = about_to_notice(&[]);
+        if let Some(seconds) = idle {
+            playing_an_idle(&mut h, id, seconds);
+        }
+        let from = h.now.0;
+        assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Chasing)));
+        let took = h.now.0 - from;
+        assert_eq!(target_of(&h, id), Some(me));
+        match idle {
+            None => assert!(took < 2.0, "within its look about: {took}"),
+            Some(seconds) => assert!(
+                took >= seconds && took < seconds + 0.6,
+                "once the idle is through: {took}"
+            ),
+        }
+    }
+}
+
+/// A creature struck while it plays an idle goes after its striker once the idle is through, not
+/// before.
+/// Behaviour: server.creatures.an-idle-holds-a-fight
+#[test]
+fn a_creature_struck_while_it_plays_an_idle_goes_after_its_striker_once_the_idle_is_through() {
+    let (mut h, _b, me, id) = about_to_notice(&[]);
+    playing_an_idle(&mut h, id, 3.0);
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    h.run(steps(2.5));
+    assert_eq!(mode_of(&h, id), Some(Mode::Idle), "the idle still plays");
+    h.run(steps(1.0));
+    assert_eq!(mode_of(&h, id), Some(Mode::Chasing));
+    assert_eq!(target_of(&h, id), Some(me));
+}
+
+/// How many of the harness's steps make `seconds` (rounded up).
+fn steps(seconds: f64) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = (seconds / yalain_testkit::STEP).ceil() as usize;
+    n
+}
+
+/// The idle behaviors a creature played that a client was told of since `from`.
+fn idles_of(h: &Harness, b: usize, from: usize, id: u64) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == id
+                && yalain_world::ai::IDLE_BEHAVIORS.contains(&e.action.behavior))
+        })
+        .count()
+}
+
+/// A creature of a class the world gives a chance of an idle on noticing plays one as it notices a
+/// player, every time at a chance of 1; with no such row, or a row for another class, none.
+/// Behaviour: server.creatures.notice-idle-by-class
+#[test]
+fn a_creature_of_a_class_with_a_notice_idle_plays_an_idle_as_it_notices_a_player() {
+    for (row, played) in [(Some(6), 1), (Some(0x1D), 0), (None, 0)] {
+        let (mut h, b, _me, id) = about_to_notice(&[("AI_AISuperClass", Prop::Word(6))]);
+        if let Some(class) = row {
+            h.server.creature_rows.notice_idle.insert(class, 1.0);
+        }
+        // No resting idle comes due meanwhile.
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.next_idle = f64::INFINITY;
+        }
+        let from = h.bots[b].inbox.len();
+        assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Chasing)));
+        h.run(2);
+        assert_eq!(idles_of(&h, b, from, id), played, "row {row:?}");
+    }
 }

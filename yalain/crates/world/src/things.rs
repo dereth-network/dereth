@@ -129,6 +129,11 @@ pub struct Creature {
     /// Until when (world seconds) it plays its victory over a player it killed: it keeps its
     /// fighting mode till then.
     pub victory_until: Option<f64>,
+    /// Until when (world seconds) it plays an idle behavior: a fight it is drawn into waits till
+    /// then.
+    pub idle_until: f64,
+    /// What it goes after once its idle is through, drawn into a fight while it played.
+    pub after_idle: Option<u64>,
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.

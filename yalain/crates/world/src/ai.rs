@@ -121,6 +121,13 @@
 //!   standing (2017: the last place of 93.5% of the movements that ended was told standing).
 //! - **Idling.** At rest and standing, a creature of a class of behavior now and then plays one of
 //!   its two idle behaviors (2017: about 8 an hour near players, the second a little more often).
+//!   An idle plays as long as its look's clip for it at rest: a creature drawn into a fight
+//!   meanwhile, noticing a player, struck or called by its kin, goes after its foe only once the
+//!   idle is through. A creature of a class the world gives a chance of it plays an idle as it
+//!   notices a player, and goes after the player when that is through (2017: drudges, an idle
+//!   starting within 1.5 s of the player coming within their perception in 12 of 168 fights they
+//!   began on their own, against 1.7 by their resting rate; every other class, 1 of 1,477 against
+//!   7.7).
 
 use crate::admin_calls::Attackable;
 use auberean_protocol::physics::ObjectPosition;
@@ -623,6 +630,15 @@ fn takes_on_again<S: Store>(
         .is_none_or(|c| !c.passed_over.contains(&player))
 }
 
+/// Is what a creature was drawn to while it played an idle still there to go after: a player in the
+/// world, alive and not on its way somewhere, or a live thing?
+fn still_there<S: Store>(s: &Server<S>, foe: u64) -> bool {
+    s.players
+        .values()
+        .any(|p| p.character == foe && !crate::combat::is_dead(p) && p.trip.is_none())
+        || s.things.get(foe).is_some_and(crate::things::Thing::alive)
+}
+
 /// [`notice`] for tests of who is passed over.
 #[doc(hidden)]
 #[must_use]
@@ -766,6 +782,20 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
     };
     match mode {
         Mode::Idle => {
+            if let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) {
+                if now < c.idle_until && c.after_idle.is_some() {
+                    return;
+                }
+                if let Some(foe) = c.after_idle {
+                    if still_there(s, foe) {
+                        engage(s, net, id, foe, clock);
+                        return;
+                    }
+                    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                        c.after_idle = None;
+                    }
+                }
+            }
             if let Some((p, when)) = joining {
                 if now >= when {
                     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
@@ -816,6 +846,13 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     }
                 }
                 if let Some(p) = player {
+                    // Some kinds notice a player with an idle, and go after it when it is through.
+                    let template = s.things.get(id).map_or(0, |t| t.template);
+                    let chance = notice_idle(s, template);
+                    if chance > 0.0 && s.rng.chance(chance) {
+                        let behavior = draw_idle(s);
+                        plays_idle(s, net, id, behavior, now);
+                    }
                     go_after(s, net, id, p, clock);
                     return;
                 }
@@ -1563,6 +1600,12 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
     if matches!(c.mode, Mode::Dead | Mode::Chasing) || !c.stats.fights {
         return;
     }
+    // Playing an idle, it goes after the first it was drawn to once the idle is through.
+    if c.mode == Mode::Idle && clock.local.0 < c.idle_until {
+        c.after_idle = c.after_idle.or(Some(player));
+        return;
+    }
+    c.after_idle = None;
     c.mode = Mode::Chasing;
     c.lost_since = None;
     c.joining = None;
@@ -1733,18 +1776,49 @@ fn idle<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
         return;
     };
     let walking = c.wander_to.is_some() || c.patrol.as_ref().is_some_and(|p| p.walking);
-    if c.mode != Mode::Idle || walking || now < c.next_idle {
+    if c.mode != Mode::Idle || walking || now < c.next_idle || now < c.idle_until {
         return;
     }
     let template = s.things.get(id).map_or(0, |t| t.template);
-    let behavior = if s.rng.chance(FIRST_IDLE_SHARE) {
-        IDLE_BEHAVIORS[0]
-    } else {
-        IDLE_BEHAVIORS[1]
-    };
+    let behavior = draw_idle(s);
     let next = now + idle_gap(s, template);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_idle = next;
+    }
+    plays_idle(s, net, id, behavior, now);
+}
+
+/// Which of its two idle behaviors a creature plays.
+fn draw_idle<S: Store>(s: &mut Server<S>) -> u32 {
+    if s.rng.chance(FIRST_IDLE_SHARE) {
+        IDLE_BEHAVIORS[0]
+    } else {
+        IDLE_BEHAVIORS[1]
+    }
+}
+
+/// The chance that a creature of a template plays an idle behavior as it notices a player: its AI
+/// class's as the world gives it, else none.
+#[must_use]
+pub fn notice_idle<S: Store>(s: &Server<S>, template: u32) -> f32 {
+    s.catalog
+        .get(template)
+        .and_then(|t| {
+            t.props
+                .word(yalain_content::props::creature_property::SUPER_CLASS)
+        })
+        .and_then(|class| s.creature_rows.notice_idle.get(&class).copied())
+        .unwrap_or(0.0)
+}
+
+/// A creature plays one of its idle behaviors, for every client that sees it, and plays it for as
+/// long as its look's clip for it at rest runs: a fight it is drawn into meanwhile waits till then
+/// (2017: of the fights a creature began within twelve seconds after an idle, 88 at the clip's
+/// end, within 0.6 s of it, and 21 while it still played).
+fn plays_idle<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, behavior: u32, now: f64) {
+    let lasts = crate::timings::thing_length_at_rest(s, id, behavior).unwrap_or(0.0);
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.idle_until = now + lasts;
     }
     s.next_context = s.next_context.wrapping_add(1);
     let m =

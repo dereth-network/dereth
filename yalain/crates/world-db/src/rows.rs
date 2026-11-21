@@ -854,11 +854,13 @@ pub struct Creature {
 }
 
 /// `[[ai_class]]`: what the world says of the creatures of an AI class (their template's AI
-/// superclass): the mean gap between their idle behaviors at rest, in seconds above 0.
+/// superclass): the mean gap between their idle behaviors at rest, in seconds above 0, and the
+/// chance, from 0 to 1, that one plays an idle as it notices a player. A row gives at least one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiClass {
     pub class: u32,
-    pub idle_every: f64,
+    pub idle_every: Option<f64>,
+    pub notice_idle: Option<f64>,
     pub prov: Prov,
 }
 
@@ -2468,7 +2470,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "prov",
         ],
     ),
-    ("ai_class", &["class", "idle_every", "prov"]),
+    ("ai_class", &["class", "idle_every", "notice_idle", "prov"]),
     (
         "safe_passage",
         &["key", "camp", "template", "item", "effect", "prov"],
@@ -4448,12 +4450,33 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         }
         "ai_class" => {
             let class = f.req_id("class")?;
-            let idle_every = f.req_float("idle_every")?;
-            let ok = idle_every.is_finite() && idle_every > 0.0;
-            let idle_every = f.held("idle_every", idle_every, ok, "seconds above 0")?;
+            let idle_every = match f.get("idle_every") {
+                Some(_) => {
+                    let every = f.req_float("idle_every")?;
+                    let ok = every.is_finite() && every > 0.0;
+                    Some(f.held("idle_every", every, ok, "seconds above 0")?)
+                }
+                None => None,
+            };
+            let notice_idle = match f.get("notice_idle") {
+                Some(_) => {
+                    let chance = f.req_float("notice_idle")?;
+                    let ok = (0.0..=1.0).contains(&chance);
+                    Some(f.held("notice_idle", chance, ok, "a chance from 0 to 1")?)
+                }
+                None => None,
+            };
+            if idle_every.is_none() && notice_idle.is_none() {
+                f.bad(
+                    "idle_every, notice_idle",
+                    "an AI class's row gives idle_every or notice_idle",
+                );
+                return None;
+            }
             Row::AiClass(AiClass {
                 class,
                 idle_every,
+                notice_idle,
                 prov: f.req_prov()?,
             })
         }

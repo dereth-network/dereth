@@ -1100,13 +1100,15 @@ has the server's own of that kind.
 
 #### `[[ai_class]]`
 
-What the world says of the creatures of an AI class. A class with no row idles every 450 s on
-average.
+What the world says of the creatures of an AI class. A row gives at least one of `idle_every`
+and `notice_idle`. A class with no `idle_every` idles every 450 s on average, and one with no
+`notice_idle` never plays an idle as it notices a player.
 
 | field | | meaning |
 |---|---|---|
 | `class` | required | its number, their `AI_AISuperClass` |
-| `idle_every` | required | the mean gap in seconds (above 0) between the idle behaviors one plays at rest, the gaps falling as chance spaces them |
+| `idle_every` | | the mean gap in seconds (above 0) between the idle behaviors one plays at rest, the gaps falling as chance spaces them |
+| `notice_idle` | | the chance, from 0 to 1, that one plays an idle as it notices a player; it goes after the player once the idle is through |
 | `prov` | required | where it came from |
 
 #### `[[safe_passage]]`

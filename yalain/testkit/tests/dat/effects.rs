@@ -1,5 +1,5 @@
 //! Effects, recipes, basic attacks, bodies and treasure as the server reads them from the September
-//! 2013 data.
+//! 2013 data, and an idle's clip holding a creature's fight.
 
 use yalain_testkit::authored::Portal;
 use yalain_world::craft::Action;
@@ -4367,4 +4367,106 @@ fn the_effects_that_scale_heals_read_with_their_vital_and_factor() {
         assert!(near(read(state), want), "{state:08X}: {:?}", read(state));
     }
     assert_eq!(read(0x6F00_1DF7), None, "Courage scales no heals");
+}
+
+/// An Inferno Drudge Cabal's look: its idles' clips at rest run 6.25 s and 4.54 s.
+const DRUDGE: u32 = 0x4700_2327;
+
+/// A drudge that notices a player with an idle (its class's chance 1) goes after the player when
+/// its look's clip for that idle at rest is through: 4.54 s or 6.25 s by which of its two it played
+/// (2017: fights a drudge began 4.86 to 4.96 s after the shorter, 27 of 51), the clip read from the
+/// look at rest. Fixture: a made-up drudge of that look, in a camp beside where a character starts.
+/// Behaviour: server.creatures.an-idle-holds-a-fight
+#[test]
+fn a_drudge_noticing_a_player_with_an_idle_goes_after_it_when_its_clip_is_through() {
+    const TEMPLATE: u32 = 0x4700_2230;
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.timings = Some(yalain_world::timings::Timings::new(
+        p.dat.clone(),
+        p.ctx.clone(),
+    ));
+    let mut props = yalain_content::Props::default();
+    props
+        .set("GameplayStatistics_Level", yalain_content::Prop::Int(2))
+        .set(
+            "GameplayStatistics_MaxHealth",
+            yalain_content::Prop::Int(460),
+        )
+        .set("AICombat_NaturalDamage", yalain_content::Prop::Float(1.0))
+        .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0))
+        .set("AI_AISuperClass", yalain_content::Prop::Word(6));
+    let mut t = yalain_testkit::test_template(TEMPLATE, 0x1169, props);
+    t.description.look = p.described(DRUDGE).expect("a drudge").description.look;
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.insert(t);
+    let spot = [61.0, 240.2, -44.6];
+    h.server.spawns.camps.push(yalain_content::Camp {
+        id: "made up".into(),
+        cell: 0x0299_0109,
+        origin: spot,
+        radius: 0.0,
+        population: 1,
+        regen: 600.0,
+        templates: vec![(TEMPLATE, 1)],
+        spots: vec![(0x0299_0109, spot)],
+        placed: "authored for the tests".into(),
+        confidence: "authored".into(),
+        moves: yalain_content::CampMoves::default(),
+        name: None,
+    });
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    h.server.creature_rows.notice_idle.insert(6, 1.0);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    let made = |h: &yalain_testkit::Harness| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.template == TEMPLATE)
+            .map(|t| t.id)
+    };
+    let drudge = made(&h).expect("the camp's drudge");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(drudge)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.next_idle = f64::INFINITY;
+    }
+    let creature = |h: &yalain_testkit::Harness| {
+        h.server
+            .things
+            .get(drudge)
+            .and_then(|t| t.creature.as_ref())
+            .map(|c| (c.idle_until, c.mode, c.target))
+            .expect("a creature")
+    };
+    assert!(
+        h.run_until(400, |h| creature(h).0 > f64::NEG_INFINITY),
+        "it noticed"
+    );
+    let noticed = h.now.0;
+    let lasts = creature(&h).0 - noticed;
+    assert!(
+        [4.54, 6.25].iter().any(|c| (lasts - c).abs() < 0.3),
+        "the clip of one of its idles: {lasts}"
+    );
+    assert_eq!(creature(&h).1, yalain_world::things::Mode::Idle);
+    assert!(h.run_until(250, |h| creature(h).1
+        == yalain_world::things::Mode::Chasing));
+    let took = h.now.0 - noticed;
+    assert!(
+        took >= lasts - 0.3 && took <= lasts + 0.6,
+        "when the idle is through: {took} of {lasts}"
+    );
+    assert_eq!(creature(&h).2, Some(me));
 }

@@ -3368,6 +3368,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.an-idle-holds-a-fight",
+        says: "A creature drawn into a fight while it plays an idle, noticing a player or struck, \
+               goes after its foe once its look's clip for the idle at rest is through, and not \
+               before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-IDLE-HOLDS-FIGHT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_noticing_a_player_while_it_plays_an_idle_goes_after_it_once_the_idle_is_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.an-items-use-makes-what-it-names",
         says: "An item whose use names an effect a world's row makes creatures by makes them at the \
                row's offset from its user, as the use is done.",
@@ -3952,6 +3962,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AI-NOTICE"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_notices_a_player_within_its_perception_and_comes_at_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.notice-idle-by-class",
+        says: "A creature of an AI class the world gives a chance of it plays an idle as it notices \
+               a player, and goes after the player once the idle is through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NOTICE-IDLE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_of_a_class_with_a_notice_idle_plays_an_idle_as_it_notices_a_player",
         tier: Tier::Cpu,
     },
     behaviour! {

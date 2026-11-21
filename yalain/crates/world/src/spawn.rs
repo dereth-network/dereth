@@ -588,6 +588,8 @@ pub fn make<S: Store>(
         actions: 0,
         in_sight: Vec::new(),
         victory_until: None,
+        idle_until: f64::NEG_INFINITY,
+        after_idle: None,
     });
     s.things.insert(t);
     crate::arms::arm(s, id);

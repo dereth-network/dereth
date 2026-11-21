@@ -1753,8 +1753,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::AiClass(r) => {
                 #[allow(clippy::cast_possible_truncation)]
-                let seconds = r.idle_every as f32;
-                t.creatures.idle_every.insert(r.class, seconds);
+                if let Some(seconds) = r.idle_every {
+                    t.creatures.idle_every.insert(r.class, seconds as f32);
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                if let Some(chance) = r.notice_idle {
+                    t.creatures.notice_idle.insert(r.class, chance as f32);
+                }
             }
             Row::Defense(r) => {
                 let d = &r.defense;
