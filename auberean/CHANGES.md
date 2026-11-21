@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.11 (2026-11-21)
 - Horizon: Ctrl+C copies what you select in the chat log.
 - Horizon: shows the game's own mouse pointers, and its crosshair in mouse look.
 - Horizon: windows now open clear of the chat and HUD where you put them.
