@@ -1702,6 +1702,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.run-at-a-person-refused",
+        says: "An attack run at a placed person or object the player talks to (a person's table, or the \
+               person kind) is refused 22014 (Combat_BasicAttacksFailed); a creature holding a person's \
+               table, as a barrel does, is fought; a target gone is refused 20002. That every such \
+               object is refused so is ours: 2017 recorded four.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-NPC-RUN"),
+        station: "yalain-testkit::cpu::play::attacks_on_people::an_attack_run_at_a_person_is_refused_as_not_used_on_npcs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.shield-guards-the-front",
         says: "A shield's rating counts in its bearer's armor only against an attack from the front half \
                of where the bearer faces, melee, missile or magic; its armor as shown counts it always.",
@@ -1719,6 +1730,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SWING-LANDS"),
         station: "yalain-testkit::cpu::play::fights::a_players_swing_hurts_a_creature_as_it_lands_by_its_skill",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.the-recorded-people-refused-22014",
+        says: "The four the 2017 servers refused attacks at as not used on such (22014), the training \
+               hall's stones Attacking and Vulnerable Targets, the Tomb of a Knight of the Flame and \
+               the Master of the Gauntlet, are refused so here; the rule for any other object a player \
+               talks to is ours.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-NPC-22014"),
+        station: "yalain-testkit::corpus::world_db::the_people_2017_refused_attacks_at_are_ones_this_world_refuses_them_at",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.combat.weapon-hit-effects-on-what-they-hit",
@@ -19004,6 +19026,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GUARDS-GO-WITH-BEACON"),
         station: "yalain-testkit::cpu::play::master_camps::a_camps_creatures_leave_with_its_masters_last_and_stand_again_with_its_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.at-a-person-refused",
+        says: "A special at a placed person or object the player talks to is refused 22014 \
+               (Combat_AttackError), after the checks before it: asked on the move, it is refused for \
+               moving.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-NPC-SPECIAL"),
+        station: "yalain-testkit::cpu::play::attacks_on_people::a_special_at_a_person_is_refused_as_not_used_on_npcs_after_the_moving_check",
         tier: Tier::Cpu,
     },
     behaviour! {

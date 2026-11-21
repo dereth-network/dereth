@@ -72,6 +72,8 @@ pub mod error {
     pub const WRONG_IMPLEMENT: u32 = 30026;
     pub const TARGET_DEAD: u32 = 22000;
     pub const TARGET_GONE: u32 = 20002;
+    /// The target is one a player talks to, not one it fights.
+    pub const CANNOT_USE_ON_NPC: u32 = 22014;
     pub const TOO_FAR: u32 = 30019;
 }
 
@@ -448,6 +450,25 @@ pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> R
     }
 }
 
+/// Is a target one a player talks to and never fights: a placed person or object (never a creature,
+/// which is no placed object) that the player talks to by using it, or of a template with a table
+/// of a person's doings. An attack
+/// on one, or a skill used on one, is refused as one not used on such (2017: 6 of 6 refusals at the
+/// two training-hall stones, the Artefon tomb and the Master of the Gauntlet that no earlier check
+/// refused; that every such object answers so is our reading of the refusal). A creature (a barrel
+/// too, though it holds such a table) is fought as any creature.
+#[must_use]
+pub fn talks_not_fights<S: Store>(s: &Server<S>, target: u64) -> bool {
+    let Some(i) = crate::presence::content_by_id(&s.content.objects, target) else {
+        return false;
+    };
+    let o = &s.content.objects[i];
+    crate::places::talks_to(s, o)
+        || s.catalog
+            .get(o.template)
+            .is_some_and(|t| t.props.text("AI_NPCTable").is_some())
+}
+
 /// Is a thing a creature players may not harm, and with what line is a player's attack on it told
 /// (none for one whose row gives none)?
 pub(crate) fn kept_out_line<S: Store>(s: &Server<S>, thing: u64) -> Option<Option<(u32, u32)>> {
@@ -618,6 +639,8 @@ pub fn begin<S: Store>(
     if fightable != Some(true) {
         let err = if fightable.is_some() {
             error::TARGET_DEAD
+        } else if talks_not_fights(s, target) {
+            error::CANNOT_USE_ON_NPC
         } else {
             error::TARGET_GONE
         };

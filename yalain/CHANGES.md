@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- A skill used on a person now says you can't use it on NPCs.
 - Skills that walk you to their target now walk you into their full range.
 - Skills now turn you toward their target only when retail's did.
 - Crafting now tells you when a recipe is too easy to learn from, and when you've learned a lot today.

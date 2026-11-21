@@ -132,6 +132,8 @@ pub mod refusal {
     pub const NOT_IN_SIGHT: u32 = 22_034;
     pub const WRONG_IMPLEMENT: u32 = 30_026;
     pub const MOVING: u32 = 30_027;
+    /// Used on one a player talks to, not one it fights.
+    pub const ON_NPC: u32 = 22_014;
     pub const NOT_RESET: u32 = 30_030;
     pub const MISSING_EFFECT: u32 = 30_024;
     pub const BARRED_BY_EFFECT: u32 = 30_025;
@@ -1417,6 +1419,7 @@ fn check<S: Store>(
     }
     // Where another the use is aimed at stands, for a skill that reaches only what is in sight.
     let mut in_sight_of_me = None;
+    let mut on_npc = false;
     match aim_of(s, world, r, &u) {
         Aim::Me | Aim::Item(_) => {}
         Aim::Corpse(corpse) => {
@@ -1489,6 +1492,7 @@ fn check<S: Store>(
             }
             in_sight_of_me = at;
         }
+        Aim::Thing(target) if combat::talks_not_fights(s, target) => on_npc = true,
         Aim::Thing(target) => {
             if target == 0 {
                 return Err(refusal::TARGET_GONE);
@@ -1522,6 +1526,10 @@ fn check<S: Store>(
     }
     if u.ui_flags & ui_flag::USE_WHILE_MOVING == 0 && moving(p) {
         return Err(refusal::MOVING);
+    }
+    // One the player talks to is refused once the checks before have passed.
+    if on_npc {
+        return Err(refusal::ON_NPC);
     }
     if let Some(at) = in_sight_of_me.filter(|_| !walks && needs_sight(&u)) {
         let mine = p.position;

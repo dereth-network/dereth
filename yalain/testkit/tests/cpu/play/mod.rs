@@ -9,6 +9,7 @@ mod allegiance_management;
 mod areas;
 mod armor;
 mod attack_speed;
+mod attacks_on_people;
 mod auras;
 mod barrels_and_turrets;
 mod binding;

@@ -36877,3 +36877,60 @@ fn the_worlds_two_fast_shreth_guards_are_shown_jogging_their_routes() {
     named.dedup();
     assert_eq!(named, [("shreth-guard-1", 0xDF), ("shreth-guard-2", 0xDF)]);
 }
+
+/// The four people and objects the 2017 servers refused an attack or a skill at as not used on
+/// such (22014): the training hall's stones "Attacking" and "Vulnerable Targets", the Tomb of a
+/// Knight of the Flame and the Master of the Gauntlet, placed by the database, are ones a player
+/// talks to and never fights; an attack run at the Master is refused so.
+/// Behaviour: server.combat.the-recorded-people-refused-22014
+#[test]
+fn the_people_2017_refused_attacks_at_are_ones_this_world_refuses_them_at() {
+    const RECORDED: [u32; 4] = [0x4700_2E0D, 0x4700_2E11, 0x4700_2F21, 0x4700_2FD2];
+    let t = &compiled().tables;
+    let (mut h, b, _) = served(t);
+    let authored = yalain_testkit::authored::Portal::open();
+    for template in RECORDED {
+        h.server.catalog.insert(authored.template(template));
+    }
+    let objects = &h.server.content.objects;
+    let mut master = None;
+    for template in RECORDED {
+        let i = objects
+            .iter()
+            .position(|o| o.template == template)
+            .unwrap_or_else(|| panic!("{template:08X} placed"));
+        let id = yalain_world::presence::content_id(objects, i);
+        assert!(
+            yalain_world::combat::talks_not_fights(&h.server, id),
+            "{template:08X} is talked to"
+        );
+        if template == 0x4700_2FD2 {
+            master = Some(id);
+        }
+    }
+    let from = h.bots[b].inbox.len();
+    let master = master.expect("the Master of the Gauntlet");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8204_0008, &[auberean_script::args::Arg::LongInt(master)]),
+    );
+    h.run(6);
+    let failed: Vec<Vec<yalain_world::calls::Value>> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == 0x8204_001C => c
+                .args
+                .as_ref()
+                .and_then(|a| yalain_world::calls::values(&a.0).ok()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        failed,
+        vec![vec![yalain_world::calls::Value::Int(
+            yalain_world::combat::error::CANNOT_USE_ON_NPC
+        )]]
+    );
+}

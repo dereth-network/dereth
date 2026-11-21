@@ -635,7 +635,7 @@ fn is_person<S: Store>(s: &Server<S>, template: u32) -> bool {
 /// Is a content object one a player talks to: a person, never a portal. A placed person or object
 /// of the script library's person kind with nothing else to do is one, saying nothing of its own
 /// (2017: 78 of 78 uses of such objects answered as a person's, 12 of them with nothing said).
-fn talks_to<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool {
+pub(crate) fn talks_to<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool {
     let person = is_person(s, o.template)
         || (o.destination.is_none() && s.person_packages.contains(&o.description.package));
     person && (o.destination.is_none() || !crate::talk::talks_when_used(s, o.template))
