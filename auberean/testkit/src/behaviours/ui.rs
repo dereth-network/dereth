@@ -2774,6 +2774,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.a-text-that-is-not-editable-ignores-home-and-end",
+        says: "A text element that is not editable, given the keyboard, doesn't move its caret for \
+               Home or End.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HOME-END-NOT-EDITABLE"),
+        station: "auberean-ui::cpu::text::a_text_that_is_not_editable_ignores_home_and_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.an-element-with-no-font-starts-in-the-default-font",
         says: "A text element with no font of its own starts in the default font the font mapping \
                names.",
@@ -2818,6 +2827,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STRDL-ELEMENT-DROPPED"),
         station: "auberean-ui::cpu::text::a_text_element_lets_go_of_its_downloads_when_its_text_is_replaced_or_it_goes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.home-end-and-the-page-keys-move-an-entrys-caret",
+        says: "An editable entry with the keyboard hears Home, End and the page keys as interface \
+               keys: Home and End go to its line's start and end, with Ctrl the whole text's, and \
+               the page keys move the caret a page; the interface's listeners still hear each key, \
+               and an arrow moves the caret once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HOME-END"),
+        station: "auberean-ui::cpu::text::home_end_and_the_page_keys_move_an_entrys_caret",
         tier: Tier::Cpu,
     },
     behaviour! {

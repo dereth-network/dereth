@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 - macOS: fixed arrow keys typing odd characters into text fields.
+- Home, End and the page keys now move the cursor in text fields.
 
 ## 0.1.11 (2026-11-21)
 - Horizon: Ctrl+C copies what you select in the chat log.

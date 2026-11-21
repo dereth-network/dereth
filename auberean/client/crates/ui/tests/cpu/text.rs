@@ -39,6 +39,16 @@ fn typed(u: &Ui, h: auberean_ui::Handle) -> String {
     u.text(h).unwrap_or_default()
 }
 
+/// An interface key pressed and let go.
+fn press_key(u: &mut Ui, k: u32) {
+    u.key(k, true);
+    u.key(k, false);
+}
+
+fn caret(u: &Ui, h: auberean_ui::Handle) -> i32 {
+    u.text_state(h).unwrap().cursor
+}
+
 /// What the input method is composing shows at the caret and isn't the entry's text: what it writes
 /// is typed as any text, and when it gives up the picture is as it was. An entry that doesn't have
 /// the input method on shows none of it.
@@ -86,6 +96,7 @@ fn the_input_methods_composition_shows_at_the_caret() {
 /// Behaviour: ui.text.typing-and-editing-keys-work-at-the-caret
 #[test]
 fn typing_and_editing_keys_work_at_the_caret() {
+    use auberean_ui::types::key_id;
     let e = text(
         "Entry",
         [0, 0, 199, 19],
@@ -103,7 +114,7 @@ fn typing_and_editing_keys_work_at_the_caret() {
     u.pointer_release();
     assert_eq!(u.focus(), Some(h), "a press gives the entry the keyboard");
     assert!(u.type_text("abc"));
-    u.character_input(0, key::LEFT);
+    press_key(&mut u, key_id::LEFT);
     u.type_text("X");
     assert_eq!(typed(&u, h), "abXc", "typing goes in at the caret");
     u.backspace();
@@ -112,7 +123,7 @@ fn typing_and_editing_keys_work_at_the_caret() {
         "abc",
         "Backspace drops the character before the caret"
     );
-    u.character_input(0, key::HOME);
+    press_key(&mut u, key_id::HOME);
     u.character_input(0, key::DELETE);
     assert_eq!(typed(&u, h), "bc", "Delete drops the character after it");
     u.type_text("123456789");
@@ -121,10 +132,10 @@ fn typing_and_editing_keys_work_at_the_caret() {
         "123456bc",
         "no further than its greatest length"
     );
-    u.character_input(0, key::END);
+    press_key(&mut u, key_id::END);
     u.set_modifiers(true, false);
-    u.character_input(0, key::LEFT);
-    u.character_input(0, key::LEFT);
+    press_key(&mut u, key_id::LEFT);
+    press_key(&mut u, key_id::LEFT);
     u.set_modifiers(false, false);
     assert_eq!(u.selected_text(h), "bc");
     u.character_input(u16::from(b'z'), 0);
@@ -137,6 +148,116 @@ fn typing_and_editing_keys_work_at_the_caret() {
     u.character_input(0x16, 0);
     u.set_modifiers(false, false);
     assert_eq!(typed(&u, h), "pq", "Ctrl+V pastes over the selection");
+}
+
+/// An editable entry with the keyboard hears Home, End and the page keys as interface keys: Home
+/// puts the caret at the start of its line and End at the end, with Ctrl the start and end of the
+/// whole text, and the page keys move it a page. The interface's own listeners still hear each of
+/// them, and an arrow moves the caret once.
+///
+/// Behaviour: ui.text.home-end-and-the-page-keys-move-an-entrys-caret
+#[test]
+fn home_end_and_the_page_keys_move_an_entrys_caret() {
+    use auberean_ui::listener::Mail;
+    use auberean_ui::manager::global;
+    use auberean_ui::types::key_id;
+    let line = text(
+        "Entry",
+        [0, 0, 199, 19],
+        vec![("editable", V::Bool(true)), ("one_line", V::Bool(true))],
+    );
+    let mut u = ui(vec![line], vec![]);
+    let h = entry(&mut u);
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    assert!(u.type_text("abc"));
+    let me = u.new_listener();
+    u.listen_for_global_message(me, global::KEY_DOWN);
+    assert!(!u.key(key_id::HOME, true), "Home is not used up");
+    u.key(key_id::HOME, false);
+    assert!(
+        u.take_mail(me).iter().any(|m| matches!(
+            m,
+            Mail::Global {
+                what: global::KEY_DOWN,
+                param: key_id::HOME
+            }
+        )),
+        "the interface hears Home too"
+    );
+    u.type_text("X");
+    assert_eq!(typed(&u, h), "Xabc", "Home: the line's start");
+    press_key(&mut u, key_id::END);
+    u.type_text("Y");
+    assert_eq!(typed(&u, h), "XabcY", "End: the line's end");
+    press_key(&mut u, key_id::LEFT);
+    assert_eq!(caret(&u, h), 4, "an arrow moves the caret once");
+
+    let lines = text("Entry", [0, 0, 199, 19], vec![("editable", V::Bool(true))]);
+    let mut u = ui(vec![lines], vec![]);
+    let h = entry(&mut u);
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    for (i, l) in ["ab", "cd", "ef", "gh", "ij", "kl"].iter().enumerate() {
+        if i > 0 {
+            u.character_input(13, 0);
+        }
+        u.type_text(l);
+    }
+    assert_eq!(typed(&u, h), "ab\ncd\nef\ngh\nij\nkl");
+    let end = caret(&u, h);
+    press_key(&mut u, key_id::PAGE_UP);
+    let up = caret(&u, h);
+    assert!(up < end, "Page Up: a page up");
+    press_key(&mut u, key_id::PAGE_UP);
+    assert_eq!(caret(&u, h), 0, "Page Up again: the top");
+    press_key(&mut u, key_id::PAGE_DOWN);
+    assert_eq!(caret(&u, h), up, "Page Down: a page down");
+    u.set_modifiers(false, true);
+    press_key(&mut u, key_id::END);
+    assert_eq!(caret(&u, h), end, "Ctrl+End: the text's end");
+    press_key(&mut u, key_id::HOME);
+    assert_eq!(caret(&u, h), 0, "Ctrl+Home: the text's start");
+    u.set_modifiers(false, false);
+    press_key(&mut u, key_id::END);
+    assert_eq!(caret(&u, h), 2, "End: the first line's end");
+    press_key(&mut u, key_id::RIGHT);
+    press_key(&mut u, key_id::RIGHT);
+    press_key(&mut u, key_id::END);
+    assert_eq!(caret(&u, h), 5, "End: the second line's end");
+    press_key(&mut u, key_id::HOME);
+    assert_eq!(caret(&u, h), 3, "Home: the second line's start");
+}
+
+/// A text element that is not editable, given the keyboard, doesn't move its caret for Home or
+/// End.
+///
+/// Behaviour: ui.text.a-text-that-is-not-editable-ignores-home-and-end
+#[test]
+fn a_text_that_is_not_editable_ignores_home_and_end() {
+    use auberean_ui::types::key_id;
+    let e = text(
+        "Entry",
+        [0, 0, 199, 19],
+        vec![
+            ("selectable", V::Bool(true)),
+            ("activate_on_show", V::Bool(true)),
+        ],
+    );
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    u.set_text(h, "abc");
+    u.set_visible(h, false);
+    u.set_visible(h, true);
+    assert_eq!(u.active(), Some(h), "it has the keyboard");
+    u.move_cursor_to_end(h);
+    press_key(&mut u, key_id::HOME);
+    assert_eq!(caret(&u, h), 3, "Home leaves the caret");
+    u.move_cursor(h, auberean_ui::types::text::Move::TextStart);
+    press_key(&mut u, key_id::END);
+    assert_eq!(caret(&u, h), 0, "End leaves the caret");
 }
 
 /// An editable entry's caret shows steadily for a second and a half after it moves, then blinks,
@@ -853,6 +974,7 @@ fn an_element_with_no_font_starts_in_the_default_font() {
 /// Behaviour: ui.text.a-one-line-entry-keeps-the-caret-in-view
 #[test]
 fn a_one_line_entry_keeps_the_caret_in_view() {
+    use auberean_ui::types::key_id;
     let e = text(
         "Entry",
         [0, 0, 19, 19],
@@ -881,9 +1003,9 @@ fn a_one_line_entry_keeps_the_caret_in_view() {
     }
     let at_end = (fit + 4) * advance - width;
     assert_eq!(view(&u), at_end, "one width before the caret");
-    u.character_input(0, key::HOME);
+    press_key(&mut u, key_id::HOME);
     assert_eq!(view(&u), 0, "back at the start");
-    u.character_input(0, key::END);
+    press_key(&mut u, key_id::END);
     assert_eq!(view(&u), at_end, "at the end again");
 }
 

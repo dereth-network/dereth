@@ -1757,6 +1757,21 @@ impl Ui {
         false
     }
 
+    /// An editable entry with the keyboard hears every interface key on its own, before the
+    /// element with the keyboard is given the arrows and the use key. Home, End and the page keys,
+    /// which that step doesn't give it, move its caret here; the arrows reach it through that step.
+    // D2-11750
+    pub(crate) fn entry_hears_key(&mut self, action: u32, down: bool) {
+        use crate::types::key_id;
+        let Some(h) = self.focus() else { return };
+        if matches!(
+            action,
+            key_id::HOME | key_id::END | key_id::PAGE_UP | key_id::PAGE_DOWN
+        ) {
+            self.text_action(h, action, down);
+        }
+    }
+
     /// The interface's movement keys while the element has the keyboard: a character (a word
     /// with Ctrl) left or right, a line up or down, a page up or down, the line's start or end
     /// (the text's with Ctrl). Returns whether it moved the caret for the key.

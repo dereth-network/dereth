@@ -651,14 +651,15 @@ impl Ui {
     // The keyboard
     // -----------------------------------------------------------------------------------------
 
-    /// An interface key pressed or let go. The element with the keyboard takes the arrows and the
-    /// use key first; whatever it does not take, the global listeners hear. Returns whether the
-    /// element took it.
+    /// An interface key pressed or let go. An editable entry with the keyboard hears it first, on
+    /// its own. Then the element with the keyboard takes the arrows and the use key; whatever it
+    /// does not take, the global listeners hear. Returns whether the element took it.
     // D2-11198, D2-11199
     pub fn key(&mut self, key: u32, down: bool) -> bool {
         if key == key_id::USE {
             self.mgr.use_down = down;
         }
+        self.entry_hears_key(key, down);
         let used = match (self.mgr.active, key) {
             (Some(a), key_id::LEFT | key_id::RIGHT | key_id::UP | key_id::DOWN | key_id::USE) => {
                 self.element_key(a, key, down)
