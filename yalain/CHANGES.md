@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Skills now turn you toward their target only when retail's did.
 - Following now stops when you move, take a portal, or the one you follow logs off.
 - Creatures of the faster kinds now run at their own speed, even when slowed.
 - World: the two fast Shreth patrol guards now jog their rounds.

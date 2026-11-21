@@ -19044,6 +19044,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.power-up-turns-first",
+        says: "A power-up skill whose flags turn its user turns the player to its target as the use \
+               begins, then plays its power-up: the attack state, the mode, the turn and the power-up \
+               in that order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-POWERUP-TURN"),
+        station: "yalain-testkit::cpu::play::specials::a_power_up_skill_turns_its_user_before_its_power_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.range-between-bodies",
         says: "A skill's range is measured between the bodies, each a cylinder of its look's \
                radius and height: too far beyond its greatest range, too close within its least.",
@@ -19071,6 +19081,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-REFUSED"),
         station: "yalain-testkit::cpu::play::specials::a_special_or_the_recall_with_an_empty_hand_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.turns-by-the-skills-flags",
+        says: "A skill turns its user to the other it is used on only when its flags say so (the turn \
+               flag, and not one used on its user alone); without the flag the use goes with no turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-TURN-FLAG"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_turns_its_user_to_the_target_only_when_its_flags_say_so",
         tier: Tier::Cpu,
     },
     behaviour! {

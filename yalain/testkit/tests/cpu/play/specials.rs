@@ -2284,3 +2284,107 @@ fn a_death_cuts_a_skills_use_short_after_the_death_message() {
     assert!(states[0].0 > refused, "{names:x?}");
     assert_eq!(states[0].1, &vec![Value::Int(0)]);
 }
+
+/// The flags of the movement orders a client was sent for its player since `from`.
+fn own_orders(h: &Harness, b: usize, from: usize, me: u64) -> Vec<u32> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me => Some(e.action.params.flags),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A skill whose flags turn its user (Deadeye as the data has it) turns the player to its target
+/// as the use begins; the same skill without that flag, or marked as used on its user alone, turns
+/// no one, and the use without it still goes.
+/// Behaviour: server.specials.turns-by-the-skills-flags
+#[test]
+fn a_skill_turns_its_user_to_the_target_only_when_its_flags_say_so() {
+    use yalain_world::skill_use::{turns, ui_flag};
+    let shot = |flags: Option<u32>| {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        if let Some(f) = flags {
+            let u = h
+                .server
+                .skill_table
+                .skills
+                .get_mut(&DEADEYE)
+                .and_then(|d| d.usage.as_mut())
+                .expect("Deadeye is used");
+            u.ui_flags = f;
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(4);
+        let early = own_orders(&h, b, from, me);
+        h.run(80);
+        let shot = h
+            .world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == DEADEYE));
+        (early, shot)
+    };
+    let usage = || {
+        yalain_testkit::test_skills().skills[&DEADEYE]
+            .usage
+            .clone()
+            .expect("Deadeye is used")
+    };
+    let flags = usage().ui_flags;
+    assert_ne!(flags & ui_flag::TURNS_TO_TARGET, 0, "the data's flags turn");
+    assert_eq!(shot(None), (vec![0x46A], true), "turned, then shot");
+    let without = flags & !ui_flag::TURNS_TO_TARGET;
+    assert_eq!(shot(Some(without)), (vec![], true), "no turn, still shot");
+    let mut alone = usage();
+    assert!(turns(&alone));
+    alone.ui_flags |= ui_flag::SELF_TARGETED;
+    assert!(
+        !turns(&alone),
+        "a skill used on its user alone turns no one"
+    );
+}
+
+/// A power-up skill whose flags turn its user (Inner Calm at another player) turns the player to
+/// its target as the use begins, then plays its power-up: the attack state, the mode, the turn and
+/// the power-up in that order.
+/// Behaviour: server.specials.power-up-turns-first
+#[test]
+fn a_power_up_skill_turns_its_user_before_its_power_up() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    let (_, other) = h.player_in_world("two", "Torvald");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    h.arm(b, me, SWORD);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, VIGOR, 400);
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::VIGOR_MAX,
+            400,
+        );
+    }
+    let from = use_skill(&mut h, b, 7, yalain_testkit::INNER_CALM, other);
+    h.run(3);
+    let seq: Vec<&'static str> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == ATTACK_STATE => Some("attack state"),
+            ServerMessage::DoMode(e) if e.sender.id == me => Some("mode"),
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x46A => {
+                Some("turn")
+            }
+            ServerMessage::PlayBehavior(e) if e.sender.id == me => Some("power-up"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seq, vec!["attack state", "mode", "turn", "power-up"]);
+}
