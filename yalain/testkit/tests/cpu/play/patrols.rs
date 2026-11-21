@@ -28,6 +28,7 @@ fn route(shape: Shape, gait: Gait, waypoints: Vec<Waypoint>) -> Route {
         shape,
         gait,
         speed: None,
+        forward: None,
         waypoints,
     }
 }
@@ -166,6 +167,31 @@ fn a_creature_on_a_route_walks_to_each_waypoint_rests_there_and_turns_back_at_th
         h.run_until(steps(1.0), |h| place_of(h, beetle).origin != there.origin),
         "then sets off again"
     );
+}
+
+/// A route that names a forward byte is shown walked with it at its own pace; one that names none
+/// with its gait's (0xBF for a walk).
+/// Behaviour: server.creatures.patrol-shown-its-forward-byte
+#[test]
+fn a_route_that_names_a_forward_byte_is_shown_walked_with_it() {
+    let a = OUT;
+    let b = [OUT[0], OUT[1] + 30.0, OUT[2]];
+    let jog = yalain_world::world::motion(0x80, 0xDF, 0x7F);
+    for (forward, shown) in [(Some(0xDF), jog), (None, ai::PATROL_WALKING)] {
+        let mut r = route(
+            Shape::BackAndForth,
+            Gait::Walk,
+            vec![waypoint(OUT_CELL, a, 0.0), waypoint(OUT_CELL, b, 0.0)],
+        );
+        r.speed = Some(3.66);
+        r.forward = forward;
+        let (mut h, _, beetle) = patrolling((OUT_CELL, a), r, &[]);
+        assert!(
+            h.run_until(steps(20.0), |h| flat(&place_of(h, beetle), a) > 0.1),
+            "it sets off"
+        );
+        assert_eq!(motion(&h, beetle), shown, "named {forward:?}");
+    }
 }
 
 /// On a loop the creature goes on from the last waypoint to the first; a route walked at a run

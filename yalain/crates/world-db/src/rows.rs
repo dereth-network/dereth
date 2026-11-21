@@ -212,6 +212,8 @@ pub struct Route {
     pub gait: Gait,
     /// How fast it is walked by a creature of scale 1, in meters a second, when not its gait's own.
     pub speed: Option<f32>,
+    /// The forward motion byte a creature walking it is shown with, when not its gait's own.
+    pub forward: Option<u8>,
     pub rest: f64,
     pub prov: Prov,
 }
@@ -2116,7 +2118,16 @@ pub const FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "route",
-        &["key", "waypoints", "shape", "gait", "speed", "rest", "prov"],
+        &[
+            "key",
+            "waypoints",
+            "shape",
+            "gait",
+            "speed",
+            "forward",
+            "rest",
+            "prov",
+        ],
     ),
     ("area", &["landblock", "conflict", "prov"]),
     (
@@ -5307,6 +5318,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("speed", "meters a second above 0");
                 return None;
             }
+            let forward = match f.get("forward") {
+                None => None,
+                Some(_) => {
+                    Some(
+                        f.typed("forward", "a forward motion byte, 0x80 to 0xFE", |v| {
+                            v.as_integer()
+                                .and_then(|i| u8::try_from(i).ok())
+                                .filter(|b| yalain_content::movement::FORWARD_BYTES.contains(b))
+                        })?,
+                    )
+                }
+            };
             let rest = f.float("rest").unwrap_or(0.0);
             if rest < 0.0 {
                 f.bad("rest", "a rest is seconds from 0");
@@ -5329,6 +5352,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 shape,
                 gait,
                 speed,
+                forward,
                 rest,
                 prov: f.req_prov()?,
             })

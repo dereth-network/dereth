@@ -36851,3 +36851,26 @@ fn placed_objects_are_examined_line_for_line_as_2017() {
         }
     }
 }
+
+/// The world's two fast Shreth guards are shown jogging their routes (forward byte 0xDF), and every
+/// other route its gait's own. A world older than the rows names none.
+/// Behaviour: server.creatures.patrol-shown-its-forward-byte
+#[test]
+fn the_worlds_two_fast_shreth_guards_are_shown_jogging_their_routes() {
+    let mut named: Vec<(&str, u8)> = compiled()
+        .tables
+        .spawns
+        .camps
+        .iter()
+        .filter_map(|c| {
+            let r = c.moves.route.as_ref()?;
+            Some((r.key.as_str(), r.forward?))
+        })
+        .collect();
+    if named.is_empty() {
+        return;
+    }
+    named.sort_unstable();
+    named.dedup();
+    assert_eq!(named, [("shreth-guard-1", 0xDF), ("shreth-guard-2", 0xDF)]);
+}

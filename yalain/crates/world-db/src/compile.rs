@@ -486,6 +486,7 @@ impl Ctx<'_> {
             shape: r.shape,
             gait: r.gait,
             speed: r.speed,
+            forward: r.forward,
             waypoints,
         })
     }

@@ -256,6 +256,7 @@ fn a_person_walking_its_route_walks_on_through_a_reload_that_left_it_alone() {
             shape: Shape::BackAndForth,
             gait: Gait::Walk,
             speed: None,
+            forward: None,
             waypoints: vec![
                 Waypoint {
                     cell: CELL,

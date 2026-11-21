@@ -312,6 +312,10 @@ impl Shape {
     }
 }
 
+/// The forward motion bytes a route may name for its walk: forward of standing (0x7F) up to a
+/// full run (0xFE).
+pub const FORWARD_BYTES: std::ops::RangeInclusive<u8> = 0x80..=0xFE;
+
 /// How fast a route is walked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Gait {
@@ -356,6 +360,8 @@ pub struct Route {
     /// How fast it is walked by a creature of scale 1, in meters a second, when not its gait's own
     /// pace.
     pub speed: Option<f32>,
+    /// The forward motion byte a creature walking it is shown with, when not its gait's own.
+    pub forward: Option<u8>,
     pub waypoints: Vec<Waypoint>,
 }
 
@@ -392,7 +398,8 @@ pub struct CampMoves {
 
 impl CampMoves {
     /// The route as the spawn table writes it: `key,shape,gait,speed,start,way` (the speed empty
-    /// for the gait's own) then each waypoint as `cell:x:y:z:rest`, joined by `|`; empty for none.
+    /// for the gait's own), and `,forward` (two hex digits) when it names a forward byte, then each
+    /// waypoint as `cell:x:y:z:rest`, joined by `|`; empty for none.
     #[must_use]
     pub fn route_text(&self) -> String {
         let Some(r) = &self.route else {
@@ -407,6 +414,9 @@ impl CampMoves {
             self.start,
             if self.backward { "backward" } else { "forward" }
         );
+        if let Some(b) = r.forward {
+            let _ = write!(out, ",{b:02X}");
+        }
         for w in &r.waypoints {
             let [x, y, z] = w.at;
             let _ = write!(out, "|{:08X}:{x}:{y}:{z}:{}", w.cell, w.rest);
@@ -428,12 +438,24 @@ impl CampMoves {
         }
         let mut parts = route.split('|');
         let head: Vec<&str> = parts.next().unwrap_or_default().split(',').collect();
-        let [key, shape, gait, speed, start, way] = head[..] else {
+        let (fields, forward) = match head.split_at_checked(6) {
+            Some((six, &[b])) => (six, Some(b)),
+            _ => (&head[..], None),
+        };
+        let [key, shape, gait, speed, start, way] = fields[..] else {
             return Err(format!(
-                "a route is key,shape,gait,speed,start,way, not {}",
+                "a route is key,shape,gait,speed,start,way[,forward], not {}",
                 head.join(",")
             ));
         };
+        let forward = forward
+            .map(|b| {
+                u8::from_str_radix(b, 16)
+                    .ok()
+                    .filter(|b| FORWARD_BYTES.contains(b))
+                    .ok_or_else(|| format!("{b} is no forward motion byte"))
+            })
+            .transpose()?;
         let num = |s: &str| s.parse::<f32>().map_err(|e| format!("{s}: {e}"));
         let mut waypoints = Vec::new();
         for w in parts {
@@ -456,6 +478,7 @@ impl CampMoves {
             } else {
                 Some(num(speed)?)
             },
+            forward,
             waypoints,
         });
         m.start = start.parse().map_err(|e| format!("{start}: {e}"))?;
@@ -480,6 +503,7 @@ mod tests {
             shape,
             gait: Gait::Walk,
             speed: None,
+            forward: None,
             waypoints: (0..n)
                 .map(|i| Waypoint {
                     cell: 1,
@@ -554,6 +578,7 @@ mod tests {
                 shape: Shape::Loop,
                 gait: Gait::Run,
                 speed: Some(3.65),
+                forward: Some(0xDF),
                 waypoints: vec![
                     Waypoint {
                         cell: 0x048A_0101,

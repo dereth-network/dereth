@@ -2019,6 +2019,7 @@ fn a_camp_sets_how_its_creatures_move_and_names_a_route_they_walk() {
          prov = { from = \"authored\", note = \"moved up the hill\" }\n",
     );
     let route = "[[route]]\nkey = \"rounds\"\nshape = \"loop\"\ngait = \"run\"\nrest = 20.0\n\
+                 forward = 0xDF\n\
                  waypoints = [{ cell = 0x77B70031, at = [60.0, 0.0, 140.0] }, \
                  { cell = 0x77B70035, at = [60.0, 80.0, 140.0], rest = 5.0 }, \
                  { cell = 0x77B70065, at = [140.0, 80.0, 140.0] }]\n\
@@ -2041,6 +2042,11 @@ fn a_camp_sets_how_its_creatures_move_and_names_a_route_they_walk() {
     );
     let r = m.route.as_ref().unwrap();
     assert_eq!((r.shape, r.gait), (Shape::Loop, Gait::Run));
+    assert_eq!(
+        r.forward,
+        Some(0xDF),
+        "the forward byte it is shown walked with"
+    );
     let rests: Vec<f64> = r.waypoints.iter().map(|w| w.rest).collect();
     assert_eq!(
         rests,
@@ -2084,6 +2090,17 @@ fn a_camp_sets_how_its_creatures_move_and_names_a_route_they_walk() {
         "\"roaming\"",
     );
     assert!(read(&bad).is_err());
+    // A forward byte backward of standing, past a byte, or not a whole number.
+    for byte in ["0x7F", "0x100", "\"fast\"", "223.0"] {
+        let mut bad = files.clone();
+        edit(
+            &mut bad,
+            "town-fixes/server/routes.toml",
+            "forward = 0xDF",
+            &format!("forward = {byte}"),
+        );
+        assert!(read(&bad).is_err(), "forward = {byte}");
+    }
     let mut bad = files;
     edit(
         &mut bad,

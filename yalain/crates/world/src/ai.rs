@@ -1924,7 +1924,7 @@ fn patrol<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
         return;
     }
     let Some(goal) = p.goal() else { return };
-    let (walking, gait, pace, scale) = (p.walking, p.route.gait, p.route.speed, c.stats.scale);
+    let (walking, (speed, motion), scale) = (p.walking, route_pace(&p.route), c.stats.scale);
     let reached = |s: &mut Server<S>, net: &mut ServerNet| {
         if let Some(p) = s
             .things
@@ -1949,11 +1949,6 @@ fn patrol<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     if s.walls.is_some() && !player_near(s, &at) {
         return;
     }
-    let (speed, motion) = match gait {
-        yalain_content::movement::Gait::Walk => (PATROL_WALK_SPEED, PATROL_WALKING),
-        yalain_content::movement::Gait::Run => (RUN_SPEED, RUNNING),
-    };
-    let speed = pace.unwrap_or(speed);
     let speed = speed * scale * speed_scale(s, id);
     let step = step_toward(s, net, id, &goal, speed, 0.0, motion, clock);
     let held = {
@@ -1976,6 +1971,20 @@ fn patrol<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     if held {
         reached(s, net);
     }
+}
+
+/// How fast a route is walked at scale 1, in meters a second, and the motion it is shown with: its
+/// gait's own pace and motion, or the pace and forward byte it names (2017: two guards walked their
+/// route at 4.2 m/s with forward byte 0xDF, the others 1.87 m/s with 0xBF).
+pub(crate) fn route_pace(route: &yalain_content::Route) -> (f32, u32) {
+    let (speed, motion) = match route.gait {
+        yalain_content::movement::Gait::Walk => (PATROL_WALK_SPEED, PATROL_WALKING),
+        yalain_content::movement::Gait::Run => (RUN_SPEED, RUNNING),
+    };
+    let motion = route
+        .forward
+        .map_or(motion, |b| crate::world::motion(0x80, b, 0x7F));
+    (route.speed.unwrap_or(speed), motion)
 }
 
 /// Is a player in the world in the landblock of a place or one beside it (farther than anything

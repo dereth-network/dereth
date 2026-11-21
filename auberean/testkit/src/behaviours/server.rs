@@ -3917,6 +3917,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.patrol-shown-its-forward-byte",
+        says: "A creature or person on a route that names a forward motion byte is shown walking \
+               it with that byte; on a route that names none, with its gait's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATROL-FORWARD-BYTE"),
+        station: "yalain-testkit::cpu::play::patrols::a_route_that_names_a_forward_byte_is_shown_walked_with_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.patrol-walks-indoors",
         says: "A route is walked indoors, where a creature at rest otherwise stands, and by a \
                creature whose template says it does not wander.",

@@ -108,12 +108,9 @@ fn walk<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock)
         return;
     }
     let route = &s.walkers.by_id[&id].patrol.route;
-    let (speed, motion) = match route.gait {
-        yalain_content::movement::Gait::Walk => (ai::PATROL_WALK_SPEED, ai::PATROL_WALKING),
-        yalain_content::movement::Gait::Run => (ai::RUN_SPEED, ai::RUNNING),
-    };
+    let (speed, motion) = ai::route_pace(route);
     let scale = s.content.objects[index].description.scale.unwrap_or(1.0);
-    let speed = route.speed.unwrap_or(speed) * scale;
+    let speed = speed * scale;
     #[allow(clippy::cast_possible_truncation)]
     let go = (speed * crate::spawn::STEP_SECONDS as f32).min(flat);
     let (x, y) = (

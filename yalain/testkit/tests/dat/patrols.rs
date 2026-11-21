@@ -43,6 +43,7 @@ fn a_creature_walks_a_fortress_corridor_route_end_to_end_through_the_walls() {
             shape: Shape::BackAndForth,
             gait: Gait::Run,
             speed: None,
+            forward: None,
             waypoints: vec![
                 Waypoint {
                     cell: EAST.0,

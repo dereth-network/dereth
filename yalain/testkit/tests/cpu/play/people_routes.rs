@@ -16,6 +16,11 @@ const B: [f32; 3] = [60.0, 249.0, -44.6];
 
 /// The hall with a person at `A` walking to `B` and back, resting 4 s at `A` and 3 s at `B`.
 fn hall() -> Harness {
+    hall_walked(None)
+}
+
+/// [`hall`], the route naming the forward byte its walk is shown with where one is given.
+fn hall_walked(forward: Option<u8>) -> Harness {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![ContentObject {
@@ -45,6 +50,7 @@ fn hall() -> Harness {
                     shape: Shape::BackAndForth,
                     gait: Gait::Walk,
                     speed: None,
+                    forward,
                     waypoints: vec![
                         Waypoint {
                             cell: CELL,
@@ -139,4 +145,36 @@ fn a_walking_persons_places_are_told_and_a_newcomer_makes_it_where_it_stands() {
         (at.y - h.server.content.objects[0].origin[1]).abs() < 2.0,
         "where it stands, not where it was placed"
     );
+}
+
+/// A person on a route that names a forward byte is told walking with it; on one that names none,
+/// with a walk's.
+/// Behaviour: server.creatures.patrol-shown-its-forward-byte
+#[test]
+fn a_person_on_a_route_that_names_a_forward_byte_is_told_walking_with_it() {
+    let jog = yalain_world::world::motion(0x80, 0xDF, 0x7F);
+    for (forward, shown) in [(Some(0xDF), jog), (None, yalain_world::ai::PATROL_WALKING)] {
+        let mut h = hall_walked(forward);
+        let (a, _) = h.player_in_world("one", "Elara");
+        let fa = h.bots[a].inbox.len();
+        h.run(steps(3.0));
+        let (id, _) = person(&h);
+        let told: Vec<u32> = h
+            .world_messages(a, fa)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::Position(p) | ServerMessage::PositionCell(p)
+                    if p.sender.id == id =>
+                {
+                    Some(p.heading_motion & 0x00FF_FFFF)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(!told.is_empty(), "its places told");
+        assert!(
+            told.iter().all(|m| *m == shown),
+            "named {forward:?}: {told:X?}"
+        );
+    }
 }
