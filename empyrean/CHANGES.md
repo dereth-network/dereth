@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.17 (2026-11-21)
 - Fixed a world's data patch falling back to the slow way when its offer arrived late.
 - Relay: the character screen shows ac1999's news again.
 - Falling now hurts as it did in retail, by your own jump.
