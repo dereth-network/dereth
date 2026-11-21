@@ -36934,3 +36934,40 @@ fn the_people_2017_refused_attacks_at_are_ones_this_world_refuses_them_at() {
         )]]
     );
 }
+
+/// The game clock reads what the 2017 servers' read at the same moment: at a position's capture time
+/// after the last recorded maintenance (31 January 2017), the game time on this server's epoch is
+/// the time the server sent, within seconds, and the world's calendar puts it in the same part of
+/// the day, night or not.
+/// Behaviour: server.clock.game-time-as-2017-read-it
+#[test]
+fn the_game_clock_reads_what_the_2017_servers_read_at_the_same_moment() {
+    use yalain_world::game_clock::{game_time_at, EPOCH};
+    // A position the 2017 server sent on 31 January 2017: its capture time, and the game time in it.
+    const CAPTURED: f64 = 1_485_869_362.742;
+    const SENT: f64 = 130_286_366.259;
+    let ours = game_time_at(CAPTURED, EPOCH);
+    assert!(
+        (ours - SENT).abs() < 10.0,
+        "game time {ours} against 2017's {SENT}"
+    );
+    let calendar = super::invariants::world_records()
+        .region()
+        .expect("the region")
+        .calendar
+        .expect("the world's calendar");
+    let mut h = Harness::new();
+    h.server.calendar = Some(auberean_world::calendar::GameClock::new(calendar));
+    assert_eq!(
+        h.server.is_night(ours),
+        h.server.is_night(SENT),
+        "the same part of the day"
+    );
+    let at = |t: f64| {
+        let mut c = h.server.calendar.clone().expect("a calendar");
+        c.use_time(t);
+        c.time_of_day()
+    };
+    let (a, b) = (at(ours), at(SENT));
+    assert!((a - b).abs() < 0.002, "time of day {a} against 2017's {b}");
+}

@@ -1315,3 +1315,35 @@ fn an_item_kept_worn_takes_its_worn_rows_look_at_the_next_entry() {
     let entry = listed.characters.iter().find(|c| c.id == me).unwrap();
     assert!(wears(&entry.visual, AFTER), "listed wearing the row's look");
 }
+
+/// A world keeps the epoch its game clock counts from: a new world takes retail's last recorded
+/// one and records it; a world that has kept a character's play with none recorded keeps the epoch
+/// its things were kept on; a recorded epoch is the world's from then on.
+/// Behaviour: server.clock.a-world-keeps-its-epoch
+#[test]
+fn a_world_keeps_the_epoch_its_game_clock_counts_from() {
+    use yalain_world::game_clock::{epoch_of, EPOCH, FIRST_EPOCH, RECORD};
+    let mut fresh = yalain_store::MemoryStore::default();
+    assert_eq!(epoch_of(&mut fresh), EPOCH, "a new world");
+    assert_eq!(
+        fresh.world_record(RECORD).ok().flatten(),
+        Some(EPOCH.to_le_bytes().to_vec()),
+        "recorded"
+    );
+
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    log_off(&mut h, b, me);
+    assert_eq!(
+        epoch_of(&mut h.server.store),
+        FIRST_EPOCH,
+        "a world that kept play on its first clock"
+    );
+    assert_eq!(epoch_of(&mut h.server.store), FIRST_EPOCH, "and keeps it");
+
+    let mut set = yalain_store::MemoryStore::default();
+    set.set_world_record(RECORD, &42_i64.to_le_bytes())
+        .expect("recorded");
+    assert_eq!(epoch_of(&mut set), 42, "the recorded one");
+}

@@ -231,9 +231,6 @@ use yalain_world::reload::WorldTables;
 use yalain_world::{AccountPolicy, CharGenRules, Clock, Server, ServerConfig, StartRules};
 use yalain_world_db::compile::Tables;
 
-/// The game clock counts from the relaunch's start (1 December 2012), as the 2017 servers' did.
-const GAME_EPOCH: i64 = 1_354_320_000;
-
 #[derive(Debug)]
 struct Options {
     dats: Option<PathBuf>,
@@ -1041,10 +1038,13 @@ fn run<S: Store>(
         .map(|ws| o.websocket.url(ws.local_addr(), ws.tls()));
     let started = Instant::now();
     let local = || LocalTime(started.elapsed().as_secs_f64());
+    // The game clock counts from the world's epoch: the 2017 servers' after retail's last recorded
+    // maintenance, or the one the world's kept things are on.
+    let epoch = yalain_world::game_clock::epoch_of(&mut store);
     #[allow(clippy::cast_precision_loss)]
     let game_time = o
         .game_time
-        .unwrap_or_else(|| (unix_now() - GAME_EPOCH) as f64);
+        .unwrap_or_else(|| yalain_world::game_clock::game_time_at(unix_now() as f64, epoch));
     let mut net = ServerNet::new(
         NetConfig {
             large_message_bytes_per_second: o.download_rate,

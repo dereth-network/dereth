@@ -1492,6 +1492,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.clock.a-world-keeps-its-epoch",
+        says: "A world keeps the epoch its game clock counts from: a new one takes retail's last recorded \
+               epoch and records it, one that kept a character's play with none recorded keeps the \
+               epoch its things were kept on, and a recorded epoch is the world's from then on. Our \
+               choice, so kept times stay on their clock.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GAME-CLOCK-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::a_world_keeps_the_epoch_its_game_clock_counts_from",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.clock.game-time-as-2017-read-it",
+        says: "The game clock reads what the 2017 servers' read at the same moment after retail's last \
+               recorded maintenance (31 January 2017): at a position's capture time then the game time \
+               is the one the server sent, within seconds, and the calendar's time of day and part of \
+               the day are the same.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GAME-CLOCK-EPOCH"),
+        station: "yalain-testkit::corpus::world_db::the_game_clock_reads_what_the_2017_servers_read_at_the_same_moment",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.combat.a-basic-attacks-target-effects-land",
         says: "A basic attack that names target effects puts them on what it lands on, at its user's \
                rating in it, as a special's do. Our choice: of the players' basic attacks one names \

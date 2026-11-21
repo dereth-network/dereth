@@ -108,6 +108,7 @@ pub mod fellowship;
 pub mod focus;
 pub mod follow;
 pub mod fought;
+pub mod game_clock;
 pub mod gives;
 pub mod graph;
 pub mod guard;
