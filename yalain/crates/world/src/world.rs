@@ -1476,6 +1476,7 @@ fn moved<S: Store>(
     }
     crate::places::arrived(s, net, world, clock);
     crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);
+    crate::follow::moved(s, net, world, c.flags, c.move_to_stamp);
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::hazards::moved(s, net, world, clock);

@@ -1,8 +1,21 @@
 //! Following: a player asks to follow an object (the client sends its selection) and is told so,
 //! with one standing movement order toward it; the client keeps up on its own, and nothing is
-//! sent again as the object moves. Asked again while following, the old follow ends first. An
-//! attack or a use ends it: the order is stopped and the player told. A death ends it too, the
-//! player told just after its death message. The object followed is told nothing, even when it
+//! sent again as the object moves. Asked again while following, the old follow ends first.
+//!
+//! A follow ends, the order stopped for all who see the player and the player told, when the
+//! player moves by its own hand or uses a skill: a skill's use that turns or walks the player to
+//! its target ends it as it turns or walks, a refused one at its refusal, and one that gives the
+//! player no movement order when it is over. The server also ends it as a use or a run of attacks
+//! is requested: its own rule, not every use's in 2017, and a run refused at its start left the
+//! follow on in 8 of 9 then. The player's trip ends it: as it goes where
+//! it is told "Teleporting ...", as it comes out where it is not. The player's own death ends it
+//! too, the player told just after its death message.
+//!
+//! The object followed leaving the world ends every follow of it: a player logging off or losing
+//! its connection, a body or a thing going. Its trip, its going out of the follower's view and its
+//! death end none: the follow goes on until it leaves or the player acts (2017: 0 of 4 followed
+//! players' deaths ended a follow; a creature is held to the same, until its body leaves, this
+//! server's own rule, as no recording shows one). The object followed is told nothing, even when it
 //! dies.
 
 use auberean_primitives::Vec3;
@@ -82,13 +95,28 @@ pub fn start<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     crate::places::to_all_knowing(s, net, id, &m);
 }
 
-/// A player following something stops: the order is stopped and the player told.
-pub fn stop<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// A player following something stops: the order is stopped and the player told. Returns whether
+/// it was following.
+pub fn stop<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
+    let followed = order_stopped(s, net, world);
+    if followed {
+        told_stopped(net, world);
+    }
+    followed
+}
+
+/// A player following something follows no more: its order is stopped, and it is not told yet (a
+/// use's end sends more before it does: [`told_stopped`]). Returns whether it was following.
+pub(crate) fn order_stopped<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+) -> bool {
     let Some(p) = s.players.get_mut(&world) else {
-        return;
+        return false;
     };
     if p.following.take().is_none() {
-        return;
+        return false;
     }
     let m = crate::places::move_order(
         p,
@@ -108,8 +136,64 @@ pub fn stop<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     );
     let id = p.character;
     crate::places::to_all_knowing(s, net, id, &m);
+    true
+}
+
+/// A player is told it stopped following.
+pub(crate) fn told_stopped(net: &mut ServerNet, world: ConnId) {
     let said = crate::chat::show_text(SHOWN_AS, progress::text(STOPPED));
     progress::private(net, world, &said);
+}
+
+/// A following player reported moving by its own hand once it had taken up the order (its report
+/// carries the order's stamp): the follow ends. Reports under the order change nothing. (2017: 742
+/// follows ended so, a median 0.09 s after the first such report.)
+pub fn moved<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    flags: u32,
+    move_to_stamp: u16,
+) {
+    let by_hand = s.players.get(&world).is_some_and(|p| {
+        p.following.is_some()
+            && flags & crate::places::MOVED_BY_HAND != 0
+            && move_to_stamp == p.move_to_stamp
+    });
+    if by_hand {
+        stop(s, net, world);
+    }
+}
+
+/// The object `id` left the world (a player logging off or losing its connection, a body or a thing
+/// going): every player following it stops following, whether it still held it in view or not.
+/// (2017: a follow ended as the followed player went to another world server and went on through
+/// its trip on the same one. A log-off is that rule applied: none was recorded.)
+pub fn target_left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let followers: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(_, p)| p.following == Some(id))
+        .map(|(w, _)| *w)
+        .collect();
+    for w in followers {
+        stop(s, net, w);
+    }
+}
+
+/// The object `id` was hidden from the players in `told` (a cloaked admin): those of them following
+/// it stop following. Our own rule: no recording shows one.
+pub(crate) fn target_hidden<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    told: &[ConnId],
+) {
+    for w in told {
+        if s.players.get(w).is_some_and(|p| p.following == Some(id)) {
+            stop(s, net, *w);
+        }
+    }
 }
 
 /// A player following something dies: it follows no more and is told so, just after its death
@@ -122,6 +206,5 @@ pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if p.following.take().is_none() {
         return;
     }
-    let said = crate::chat::show_text(SHOWN_AS, progress::text(STOPPED));
-    progress::private(net, world, &said);
+    told_stopped(net, world);
 }

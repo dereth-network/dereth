@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Following now stops when you move, take a portal, or the one you follow logs off.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

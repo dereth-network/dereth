@@ -429,7 +429,8 @@ pub fn cloak_changed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
         return;
     };
     if p.admin.cloaked {
-        leave_from(s, net, &p, |q| !q.admin.sees_hidden);
+        let told = leave_from(s, net, &p, |q| !q.admin.sees_hidden);
+        crate::follow::target_hidden(s, net, p.character, &told);
     }
     s.players.insert(world, p);
     refresh(s, net, world);
@@ -448,26 +449,29 @@ pub fn stops_seeing_hidden<S: Store>(s: &mut Server<S>, net: &mut ServerNet, wor
         .collect();
     for c in cloaked {
         if let Some(q) = s.players.remove(&c) {
-            leave_from(s, net, &q, |v| v.character == viewer);
+            let told = leave_from(s, net, &q, |v| v.character == viewer);
+            crate::follow::target_hidden(s, net, q.character, &told);
             s.players.insert(c, q);
         }
     }
 }
 
 /// A player leaves the world: every client that holds it sees it leave, on its stream of the
-/// player's places, with the player's next position stamp.
+/// player's places, with the player's next position stamp. Every follow of it ends.
 pub fn depart<S: Store>(s: &mut Server<S>, net: &mut ServerNet, p: &Player) {
     leave_from(s, net, p, |_| true);
+    crate::follow::target_left(s, net, p.character);
 }
 
 /// The clients holding a player that `which` picks see it leave the world, and are no longer
-/// told of it.
+/// told of it; returns their connections. It may only have made a trip: this alone ends no
+/// follow.
 pub fn leave_from<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     p: &Player,
     which: impl Fn(&Player) -> bool,
-) {
+) -> Vec<ConnId> {
     let m = ServerMessage::ObjectLeaves(ObjectEvent {
         sender: p.stamp(),
         action: Leave {
@@ -476,18 +480,21 @@ pub fn leave_from<S: Store>(
     })
     .encode();
     let held = in_hand(p);
+    let mut told = Vec::new();
     for (conn, q) in &mut s.players {
         if !which(q) {
             continue;
         }
         if let Some(seen) = q.known.remove(&p.character) {
             net.send_ephemeral(*conn, queue::EVENT, seen.position_stream, m.clone());
+            told.push(*conn);
             // What it held goes with it.
             for id in &held {
                 q.known.remove(id);
             }
         }
     }
+    told
 }
 
 /// Send an event about a player to every other client that knows it, on that client's stream of
@@ -689,6 +696,7 @@ pub fn thing_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, ins
             net.send(*conn, queue::EVENT, BlobKind::UNORDERED, bytes.clone());
         }
     }
+    crate::follow::target_left(s, net, id);
 }
 
 /// Send an event about a thing to every client that knows it, as a blob of a kind.

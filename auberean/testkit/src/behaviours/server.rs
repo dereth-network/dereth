@@ -6558,12 +6558,122 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.follow.ends-as-a-use-is-over",
+        says: "A skill's use that gives the follower no movement order leaves the follow on while it is \
+               under way; when the use is over or cut short the follow ends, sent in this order: the \
+               order stopped once, the attack state lowered, peace, then told so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-USE-OVER"),
+        station: "yalain-testkit::cpu::play::follow::a_skill_used_where_the_follower_stands_ends_the_follow_when_it_is_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-as-a-use-turns",
+        says: "A skill that turns the follower to its target ends the follow as it turns: the \
+               follow's stop, then the turn, in one tick, the use still under way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-USE-TURN"),
+        station: "yalain-testkit::cpu::play::follow::a_skill_that_turns_the_follower_to_its_target_ends_the_follow_as_it_turns",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-as-a-walk-begins",
+        says: "A skill that walks to its target ends the follow as the walk begins: the follow's stop, then the \
+               walk, in one tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-USE-WALK"),
+        station: "yalain-testkit::cpu::play::follow::a_skill_that_walks_to_its_target_ends_the_follow_as_the_walk_begins",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-at-a-refused-use",
+        says: "A skill's use refused while following ends the follow after the refusal: told so, the order \
+               stopped.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-USE-REFUSED"),
+        station: "yalain-testkit::cpu::play::follow::a_refused_skill_use_ends_the_follow_after_its_refusal",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-at-a-trip",
+        says: "A follower's trip ends its follow, its order stopped, then told so: on a trip told \
+               \"Teleporting ...\" as it goes, before the flash of what sent it and that text; on a trip \
+               within the world with no such text (a recall, a resurrection, an item's trip) as it comes \
+               out, before the exit from portal space (5 of 5 such trips that came out on the connection \
+               that went in). One sent away with no text is held to the same: none was recorded.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-TRIP"),
+        station: "yalain-testkit::cpu::play::follow::a_follower_walking_into_a_portal_stops_following_before_it_is_told_it_is_teleporting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-at-a-use-request",
+        says: "This server ends a follow as a use of an object is requested: told so, the order stopped. \
+               Its own rule: 2017 ended some follows at a use and not others.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-AT-USE-REQUEST"),
+        station: "yalain-testkit::cpu::play::follow::the_server_ends_a_follow_as_a_use_is_requested",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.follow.ends-at-death",
         says: "A player that dies while following is told it stopped following just after its \
                death message and follows no more; the one it followed is told nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DEATH-ENDS-FOLLOW"),
         station: "yalain-testkit::cpu::play::follow::a_player_that_dies_while_following_follows_no_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-for-every-follower-as-what-it-follows-leaves",
+        says: "Whatever is followed leaving the world, a player, a thing or a body, ends every follow of \
+               it, a follower that no longer had it in view included: this server's application of the \
+               rule for players, as no recording shows a follower out of view at such a leaving.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-LEFT-UNSEEN"),
+        station: "yalain-testkit::cpu::play::follow::a_follower_stops_when_the_thing_it_follows_is_gone_in_view_or_out_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-when-moved-by-hand",
+        says: "A follower's first report of moving by its own hand under the follow's order ends the \
+               follow: told \"Stopped following.\", the order stopped for all who see it; reports under \
+               the order, or from before it was taken up, change nothing, and no later use stops it \
+               again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-MOVED-BY-HAND"),
+        station: "yalain-testkit::cpu::play::follow::a_follower_moving_by_its_own_hand_stops_following_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-when-the-followed-creatures-body-leaves",
+        says: "A follow outlives the death of the creature followed and ends as its body leaves, whether \
+               it leaves a corpse or none: the follower told so once, its order stopped once. This \
+               server's application of the rule for players: no recording shows a follow of a creature \
+               that died.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-CREATURE-DIED"),
+        station: "yalain-testkit::cpu::play::follow::a_follow_outlives_the_creatures_death_and_ends_when_the_body_leaves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-when-the-followed-leaves",
+        says: "The followed player leaving the world ends the follow, told so, the order stopped; its \
+               trip within the world or its going out of view ends none. The recordings show a follow \
+               end as the followed player went to another world server: a log-off or a lost connection \
+               is that rule applied, as no log-off was recorded.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-TARGET-LEFT"),
+        station: "yalain-testkit::cpu::play::follow::a_follower_stops_when_the_one_it_follows_leaves_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.goes-on-past-the-followed-players-death",
+        says: "A followed player dying does not end the follow: the follower is told nothing and its \
+               order stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-TARGET-DIED"),
+        station: "yalain-testkit::cpu::play::follow::a_follow_goes_on_through_the_followed_players_death",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -18645,11 +18755,10 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.social.follow-starts-and-stops",
         says: "A player asking to follow an object is told \"Started following.\" and given one standing \
                order to keep within a meter of it, never sent again as it moves; following again first \
-               stops the old follow (\"Stopped following.\", the order stopped), and an attack or a use stops \
-               it too.",
+               stops the old follow (\"Stopped following.\", the order stopped).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW"),
-        station: "yalain-testkit::cpu::play::follow::a_player_follows_another_until_it_follows_again_or_uses_something",
+        station: "yalain-testkit::cpu::play::follow::a_player_follows_another_until_it_follows_again",
         tier: Tier::Cpu,
     },
     behaviour! {

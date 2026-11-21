@@ -9,6 +9,7 @@ use auberean_protocol::script::{Arg, FunctionId, ScriptArgs, ServerCall};
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::{NarrowString, WideString};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
+use yalain_net::BlobKind;
 use yalain_store::Store;
 use yalain_world::session::function;
 
@@ -131,6 +132,19 @@ impl<S: Store> Harness<S> {
             .filter(|r| r.world)
             .filter_map(Received::message)
             .collect()
+    }
+
+    /// The messages a client received on its world connection since `from`, read, in the order the
+    /// server sent them (their blob ids' sequence; a message may arrive ahead of one sent before
+    /// it). An ephemeral message has no sequence, so none is here.
+    #[must_use]
+    pub fn sent_messages(&self, b: usize, from: usize) -> Vec<ServerMessage> {
+        let mut sent: Vec<&Received> = self.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| r.world && r.blob_id >> 56 != u64::from(BlobKind::EPHEMERAL.0))
+            .collect();
+        sent.sort_by_key(|r| r.blob_id & 0xFFFF_FFFF);
+        sent.into_iter().filter_map(Received::message).collect()
     }
 
     /// Step until a client has received a world message `pick` accepts since `from`; returns it.

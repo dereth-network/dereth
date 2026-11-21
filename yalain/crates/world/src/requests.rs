@@ -129,7 +129,6 @@ pub fn call<S: Store>(
             // An attack cuts a transmute or a take-all under way short: carried out first.
             crate::inventory::transmute_cut_short(s, net, world);
             crate::pack::take_all_cut_short(s, net, world, clock);
-            crate::follow::stop(s, net, world);
             crate::skill_use::request(s, net, world, &values, clock);
             // Asked while a craft is under way, it cuts the craft short, whether it goes or is
             // refused (2017: 2 of 2, the use answered first).

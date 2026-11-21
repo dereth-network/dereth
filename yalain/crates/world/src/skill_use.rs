@@ -1533,6 +1533,8 @@ pub fn starts<S: Store>(
         Ok(u) => u,
         Err(err) => {
             refuse(s, net, world, r, err);
+            // A follow ends at the refusal (2017: 32 of 32 uses refused inside a follow).
+            crate::follow::stop(s, net, world);
             return;
         }
     };
@@ -1577,10 +1579,17 @@ pub fn starts<S: Store>(
         let plays = ServerMessage::PlayBehavior(player_event(p, b));
         to_all_seeing(s, net, me, &plays);
     } else if let Some(target) = aimed_at(aim).filter(|_| !matches!(aim, Aim::Item(_))) {
-        let order = if missile_hook(&u).is_some() || u.max_range > 1.0 {
-            turn_to(p, target, context)
-        } else {
+        let walks = missile_hook(&u).is_none() && u.max_range <= 1.0;
+        // A turn or a walk to the target takes the player off a follow first, its stop then the
+        // order in one tick (2017: 152 of 152 uses inside a follow that turned or walked).
+        crate::follow::stop(s, net, world);
+        let Some(p) = s.players.get_mut(&world) else {
+            return;
+        };
+        let order = if walks {
             approach(p, target, u.max_range, context)
+        } else {
+            turn_to(p, target, context)
         };
         turned = true;
         to_all_seeing(s, net, me, &order);
@@ -3245,12 +3254,24 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     }
     let me = p.character;
     if x.alone {
+        // A use that gave the player no order ends a follow as it is over, the follow's stop in
+        // place of the player's own: the stop sent before the attack state is lowered, the player
+        // told after the peace (2017: of 156 such uses inside a follow, 129 ended it in the tick of
+        // the lowering, 24 earlier, none later; in send order the stop before the lowering in 103
+        // of 104 such ends with nothing refused in the tick, the line after the lowering in 103 of
+        // 104).
+        let followed = crate::follow::order_stopped(s, net, world);
         progress::private(net, world, &combat::attack_state(false));
-        if x.turned {
-            let stop = stop_moving(p);
-            to_all_seeing(s, net, me, &stop);
+        if x.turned && !followed {
+            if let Some(p) = s.players.get_mut(&world) {
+                let stop = stop_moving(p);
+                to_all_seeing(s, net, me, &stop);
+            }
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        if followed {
+            crate::follow::told_stopped(net, world);
+        }
         run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
@@ -3340,6 +3361,8 @@ fn turns_on<S: Store>(
             .filter_map(|st| crate::effects::toggled_on(s, net, world, *st, cast, clock))
             .collect()
     };
+    // A follow's stop goes before the lowering and its line after the peace, as at any use's end.
+    let followed = x.alone && crate::follow::order_stopped(s, net, world);
     if x.alone {
         progress::private(net, world, &combat::attack_state(false));
     }
@@ -3351,11 +3374,16 @@ fn turns_on<S: Store>(
     };
     let me = p.character;
     if x.alone {
-        if x.turned {
-            let stop = stop_moving(p);
-            to_all_seeing(s, net, me, &stop);
+        if x.turned && !followed {
+            if let Some(p) = s.players.get_mut(&world) {
+                let stop = stop_moving(p);
+                to_all_seeing(s, net, me, &stop);
+            }
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        if followed {
+            crate::follow::told_stopped(net, world);
+        }
         run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
@@ -3418,7 +3446,8 @@ fn skill_unused<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, x: 
 /// A use is cut short (the player moved, stopped attacking, died): over, why, the player not
 /// attacking and at peace. Before its story nothing is spent and its power-up stops; after it, it
 /// counts as used (the skill's information first), its behavior stops on the player and what it
-/// wields, and a player turned to its target is stopped. A missile already thrown still lands.
+/// wields, and a player turned to its target is stopped. A follow the use left on ends with it: its
+/// stop sent before all of it, the player told after the peace. A missile already thrown still lands.
 pub fn interrupt<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3431,6 +3460,12 @@ pub fn interrupt<S: Store>(
         return;
     };
     let Some(x) = p.using.take() else {
+        return;
+    };
+    // The follow's stop first (2017: of 20 uses cut short while under way inside a follow, the stop
+    // was sent first in 14 and after the lowering in 6).
+    let followed = x.alone && crate::follow::order_stopped(s, net, world);
+    let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     if let Some(old) = p.queued.take() {
@@ -3479,13 +3514,16 @@ pub fn interrupt<S: Store>(
             }
         }
     }
-    if x.told && x.turned {
+    if x.told && x.turned && !followed {
         if let Some(p) = s.players.get_mut(&world) {
             let stop = stop_moving(p);
             to_all_seeing(s, net, me, &stop);
         }
     }
     combat::set_player_mode(s, net, world, combat::mode::PEACE);
+    if followed {
+        crate::follow::told_stopped(net, world);
+    }
 }
 
 /// The player reported a place: moving cuts short a use that is not used on the move (2017: 803

@@ -1944,9 +1944,11 @@ pub(crate) fn through_portal<S: Store>(
     );
 }
 
-/// What was used has sent the player: it flashes, the player is told it is teleporting and goes into
-/// portal space.
+/// What was used has sent the player: a follow ends (its order stopped, the player told), it
+/// flashes, the player is told it is teleporting and goes into portal space (2017: a follow's stop
+/// and "Stopped following." sent before "Teleporting ..." in 49 of 49 trips that told both).
 fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    crate::follow::stop(s, net, world);
     if s.things.get(item).is_some() {
         let flash = ServerMessage::DoFx(ObjectEvent {
             sender: crate::inventory::visual(s, item),
@@ -2036,6 +2038,7 @@ fn through_door<S: Store>(
     if on_a_trip(s, world) {
         return;
     }
+    crate::follow::stop(s, net, world);
     let teleporting = TextInfo {
         string_id: text::TELEPORTING.0,
         table: text::TELEPORTING.1,
@@ -2085,6 +2088,7 @@ fn through_door<S: Store>(
 /// shard's glows and the teleport's effects. The player's auras stay on (2017: the two shard trips
 /// taken with auras on, seven of them, turned none off).
 pub(crate) fn shard_portal_space<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    crate::follow::stop(s, net, world);
     let teleporting = TextInfo {
         string_id: text::TELEPORTING.0,
         table: text::TELEPORTING.1,
@@ -2554,6 +2558,8 @@ pub fn step<S: Store>(
             else {
                 return;
             };
+            // A follow ends before the flash, as at a portal.
+            crate::follow::stop(s, net, world);
             let flash = ServerMessage::DoFx(ObjectEvent {
                 sender: object_stamp(s, target),
                 action: Fx {
@@ -2625,6 +2631,12 @@ fn arrive<S: Store>(
     clock: Clock,
 ) {
     let time = net.game_time(clock.local);
+    // A follow still on ends as the player comes out, before the exit: a trip told "Teleporting ..."
+    // ended it as it went (2017: 5 of 5 trips within the world with no such text that came out on
+    // the connection that went in, sent the order stopped, "Stopped following.", then the exit).
+    if on_a_trip(s, world) {
+        crate::follow::stop(s, net, world);
+    }
     let Some(mut p) = s.players.remove(&world) else {
         return;
     };

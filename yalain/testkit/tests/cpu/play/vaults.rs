@@ -223,6 +223,52 @@ fn a_glyph_used_on_its_vault_takes_the_player_through_and_is_used_up() {
     );
 }
 
+/// A player that takes up a follow while its glyph's use plays stops following as the vault opens,
+/// before anything of the trip is told: sent the order stopped, "Stopped following.", the vault's
+/// flash, then "Teleporting ...".
+/// Behaviour: server.follow.ends-at-a-trip
+#[test]
+fn a_follower_going_through_a_vault_stops_following_before_it_is_told_it_is_teleporting() {
+    let mut h = hall();
+    let (a, me, world, glyph) = with_glyph(&mut h, "one", ESPER_GLYPH);
+    let (_, other) = h.player_in_world("two", "two");
+    h.run(10);
+    send_use(&mut h, a, me, glyph, VAULT, 0.5);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::follow::FOLLOW, &[Arg::LongInt(other)]),
+    );
+    run_for(&mut h, 0.3);
+    assert_eq!(h.server.players[&world].following, Some(other), "following");
+    let from = h.bots[a].inbox.len();
+    run_for(&mut h, vaults::OPENS_AFTER + 0.5);
+    let text = |c: &auberean_protocol::script::ClientCall| {
+        let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok())?;
+        v.iter().find_map(|x| match x.root() {
+            Some(Node::TextInfo(t)) => Some(t.string_id),
+            _ => None,
+        })
+    };
+    let told: Vec<&str> = h
+        .sent_messages(a, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40 => {
+                Some("order stopped")
+            }
+            ServerMessage::DoFx(e) if e.sender.id == VAULT && e.action.fx == FLASH => Some("flash"),
+            ServerMessage::PlayerCall(c) => match text(c)? {
+                id if id == yalain_world::follow::STOPPED.0 => Some("stopped"),
+                id if id == yalain_world::places::text::TELEPORTING.0 => Some("teleporting"),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, ["order stopped", "stopped", "flash", "teleporting"]);
+}
+
 /// A vault used bare, or with a glyph not its own, needs its glyph: refused with the vault's flash,
 /// the glyph kept and the player not moved.
 /// Behaviour: server.places.vault-needs-its-glyph

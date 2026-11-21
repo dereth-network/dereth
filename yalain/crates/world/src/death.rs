@@ -1412,6 +1412,7 @@ pub fn vanish<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
             net.send_ephemeral(*conn, queue::EVENT, seen.position_stream, leave.clone());
         }
     }
+    crate::follow::target_left(s, net, id);
     // What it held goes with it (its list gone with it, each is its own still), and nothing it
     // lists that is elsewhere now.
     if let Some(c) = t.corpse {
