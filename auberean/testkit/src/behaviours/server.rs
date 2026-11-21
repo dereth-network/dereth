@@ -19120,6 +19120,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.walks-into-the-skills-range",
+        says: "A skill whose flags walk its user to the target walks the player into the skill's own \
+               range, whatever it is (20 m for one such skill), not a turn, and strikes once the \
+               player stands within it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-WALK-RANGE"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_that_walks_its_user_walks_into_its_own_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.a-keeper-opens-for-all-who-see-it",
         says: "A storekeeper opening and closing for a sale is told to every client that knows \
                it, each taking the keeper's visual messages in turn.",

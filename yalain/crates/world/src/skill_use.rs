@@ -1265,6 +1265,15 @@ pub fn time_left<S: Store>(
     recovery.max(reset)
 }
 
+/// Is the player walked into a skill's reach of the other it is used on? When the skill's flags say
+/// so, whatever its reach (2017, every session: 1,332 of 1,361 uses of such skills aimed at another
+/// walked the player within 0.15 s of the use's start, each to the skill's greatest range, 1, 2, 20
+/// or 70 m; 4 of the 11,176 uses of skills without the flag walked it).
+#[must_use]
+pub fn walks_to_target(u: &Usage) -> bool {
+    u.ui_flags & ui_flag::MOVE_TO != 0
+}
+
 /// Is the player turned to the other a skill is used on? When the skill's flags turn it and it is
 /// not one used on its user alone (2017, every session: 5,630 of 5,727 uses of such skills aimed at
 /// another turned the player within 0.1 s of the use's start, the heal-only skills aimed at a
@@ -1565,10 +1574,11 @@ pub fn starts<S: Store>(
     combat::set_player_mode(s, net, world, mode);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
-    // The player walks to its target, or is turned to it when the skill says so, before any
-    // power-up; a turn or a walk takes the player off a follow first, its stop then the order in
-    // one tick (2017: 152 of 152 uses inside a follow that turned or walked).
-    let walks = u.powerup <= 0.0 && missile_hook(&u).is_none() && u.max_range <= 1.0;
+    // The player walks into the skill's reach of its target when the skill says so, or is turned
+    // to it when the skill says that, before any power-up; a turn or a walk takes the player off a
+    // follow first, its stop then the order in one tick (2017: 161 of 161 uses inside a follow
+    // that turned or walked: 150 turning, 11 walking).
+    let walks = u.powerup <= 0.0 && walks_to_target(&u);
     let mut turned = false;
     if let Some(target) = aimed_at(aim)
         .filter(|_| !matches!(aim, Aim::Item(_)))
@@ -2242,13 +2252,13 @@ fn story<S: Store>(
     let on_item = matches!(aim, Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_));
     let target = aimed_at(aim).unwrap_or(me);
     // A strike that walks the player to its target does not reach from afar: wait for the player
-    // to come into reach.
+    // to come into reach, or into the skill's range where that is greater.
     if !on_self && !on_item && missile_hook(&u).is_none() && u.ui_flags & ui_flag::MOVE_TO != 0 {
         let at = position_of(s, aim, target);
         let d = at.and_then(|a| crate::presence::distance(&p.position, &a));
         match d {
             None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
-            Some(d) if d > combat::PLAYER_REACH => {
+            Some(d) if d > combat::PLAYER_REACH.max(u.max_range) => {
                 let began = p.using.as_ref().map_or(0.0, |x| x.began);
                 if net.game_time(clock.local) - began > MOST_WAITED_FOR_REACH {
                     return interrupt(s, net, world, refusal::TOO_FAR, clock);

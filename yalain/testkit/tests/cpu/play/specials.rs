@@ -2388,3 +2388,54 @@ fn a_power_up_skill_turns_its_user_before_its_power_up() {
         .collect();
     assert_eq!(seq, vec!["attack state", "mode", "turn", "power-up"]);
 }
+
+/// A skill whose flags walk its user to the target walks the player into the skill's range,
+/// whatever that range is (Riposte given a 20 m range here, as such a skill's data has it): the
+/// walk to 20 m, not a turn, and the strike once the player stands within that range.
+/// Behaviour: server.specials.walks-into-the-skills-range
+#[test]
+fn a_skill_that_walks_its_user_walks_into_its_own_range() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("Riposte is used");
+    u.max_range = 20.0;
+    let w = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let d = yalain_world::presence::distance(&h.server.players[&w].position, &at).expect("near");
+    assert!(
+        d > 3.5 && d < 20.0,
+        "the beetle stands beyond a strike's reach, within 20 m: {d}"
+    );
+    let from = use_skill(&mut h, b, 6, RIPOSTE, beetle);
+    h.run(4);
+    let walks: Vec<(u32, f32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me => {
+                Some((e.action.params.flags, e.action.params.desired_distance))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(walks, vec![(0x46B, 20.0)], "walked to 20 m, not turned");
+    h.run(80);
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == RIPOSTE)),
+        "struck from within 20 m"
+    );
+}
