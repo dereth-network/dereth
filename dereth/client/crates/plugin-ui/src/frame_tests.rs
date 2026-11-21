@@ -730,3 +730,143 @@ fn an_unlocked_hud_is_dragged_kept_where_it_is_put_and_stays_on_the_screen() {
     let f = fresh.rect("hud");
     assert_eq!((f.x, f.y), (200.0, 150.0), "where it was kept");
 }
+
+/// A HUD at the screen's top left holding `children`, declared at `revision`.
+fn hud_of(children: Vec<dereth_plugin_api::Value>, revision: u64) -> WindowView {
+    view(
+        dereth_plugin_api::UiNode::window_from_value(
+            &node("hud")
+                .with("id", "hud")
+                .with("anchor", "top_left")
+                .with("children", children),
+        )
+        .expect("a valid HUD"),
+        revision,
+    )
+}
+
+/// A button saying `Ping` with `tooltip`, with its own `id` or none.
+fn ping(id: Option<&str>, tooltip: &str) -> dereth_plugin_api::Value {
+    let button = node("button").with("text", "Ping").with("tooltip", tooltip);
+    match id {
+        Some(id) => button.with("id", id),
+        None => button,
+    }
+}
+
+/// The pointer on the middle of the frame's first control (the HUD's button), resting there a
+/// second: longer than a tooltip waits to show.
+fn rest_on_button(h: &mut Harness, views: &[WindowView]) {
+    h.frame(views);
+    let button = crate::kit_tests::controls(h)
+        .first()
+        .copied()
+        .expect("the button is noted");
+    h.input.mouse = (button.x + button.w / 2.0, button.y + button.h / 2.0);
+    for _ in 0..60 {
+        h.frame(views);
+    }
+}
+
+/// The letters drawn over every window this frame: the tooltip's, there being nothing else
+/// there.
+fn tooltip_letters(h: &Harness) -> usize {
+    h.drawn()
+        .top
+        .quads
+        .iter()
+        .filter(|q| q.tex.is_some())
+        .count()
+}
+
+/// A tooltip shows only while its control is drawn: the pointer resting on a HUD's button, its
+/// tooltip shows; the HUD declared again without the button, or the plugin drawing nothing at all
+/// (reloaded or turned off), it is gone at once and stays gone.
+/// Behaviour: plugins.ui.a-tooltip-shows-only-while-its-control-is-drawn
+#[test]
+fn a_tooltip_goes_when_its_control_is_declared_away_or_its_plugin_draws_nothing() {
+    let before = [hud_of(vec![ping(None, "Ping them all")], 1)];
+    let after = [hud_of(vec![node("label").with("text", "Pinged")], 2)];
+    let mut h = Harness::with_art(eight_wide_art());
+    rest_on_button(&mut h, &before);
+    assert!(tooltip_letters(&h) > 0, "the tooltip shows");
+    for _ in 0..3 {
+        h.frame(&after);
+        assert!(
+            h.drawn().top.quads.is_empty(),
+            "declared without its button, no tooltip: {:?}",
+            h.drawn().top.quads
+        );
+    }
+    let mut h = Harness::with_art(eight_wide_art());
+    rest_on_button(&mut h, &before);
+    assert!(tooltip_letters(&h) > 0, "the tooltip shows");
+    for _ in 0..3 {
+        h.frame(&[]);
+        assert!(
+            h.drawn().top.quads.is_empty(),
+            "with nothing drawn, no tooltip: {:?}",
+            h.drawn().top.quads
+        );
+    }
+}
+
+/// A control declared again under the pointer with the same id keeps its tooltip showing, though
+/// it moved in the tree, with no new wait; the tooltip says the text declared now, and a control
+/// declared again with no tooltip shows none.
+/// Behaviour: plugins.ui.a-tooltip-shows-only-while-its-control-is-drawn
+#[test]
+fn a_control_declared_again_with_its_id_keeps_its_tooltip_and_says_its_text_now() {
+    let first = [hud_of(vec![ping(Some("ping"), "Ping")], 1)];
+    let mut h = Harness::with_art(eight_wide_art());
+    rest_on_button(&mut h, &first);
+    let short = tooltip_letters(&h);
+    assert!(short > 0, "the tooltip shows");
+    // Moved behind a new label: the pointer follows it, and the tooltip is still up at once.
+    let moved = [hud_of(
+        vec![
+            node("label").with("text", "Pinged"),
+            ping(Some("ping"), "Ping"),
+        ],
+        2,
+    )];
+    let mut there = Harness::with_art(eight_wide_art());
+    there.frame(&moved);
+    there.frame(&moved);
+    let button = crate::kit_tests::controls(&there)
+        .first()
+        .copied()
+        .expect("the button is noted");
+    h.input.mouse = (button.x + button.w / 2.0, button.y + button.h / 2.0);
+    h.frame(&moved);
+    assert_eq!(
+        tooltip_letters(&h),
+        short,
+        "the same tooltip, with no new wait"
+    );
+    // Its tooltip declared anew: the new text, as a tooltip with that text from the first.
+    let longer = [hud_of(
+        vec![
+            node("label").with("text", "Pinged"),
+            ping(Some("ping"), "Ping every one of them"),
+        ],
+        3,
+    )];
+    h.frame(&longer);
+    let mut fresh = Harness::with_art(eight_wide_art());
+    rest_on_button(
+        &mut fresh,
+        &[hud_of(vec![ping(None, "Ping every one of them")], 1)],
+    );
+    assert!(tooltip_letters(&h) > short, "the new, longer text");
+    assert_eq!(tooltip_letters(&h), tooltip_letters(&fresh));
+    // Declared with no tooltip: none.
+    h.frame(&[hud_of(
+        vec![node("label").with("text", "Pinged"), ping(Some("ping"), "")],
+        4,
+    )]);
+    assert!(
+        h.drawn().top.quads.is_empty(),
+        "no tooltip declared, none shown"
+    );
+}

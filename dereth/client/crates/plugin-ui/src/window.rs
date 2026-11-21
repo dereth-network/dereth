@@ -198,6 +198,8 @@ pub struct PluginUi {
     open: Option<OpenChoice>,
     /// The control the pointer rests on that has a tooltip: its id, since when, and its text.
     hover: Option<(u32, f64, String)>,
+    /// That control has been drawn this frame: a tooltip shows only while its control does.
+    hover_seen: bool,
     /// Which art the pictures were made in.
     art: usize,
     /// How many windows have been placed with no place of their own, for the next one's.
@@ -898,6 +900,7 @@ impl PluginUi {
     /// Escape, closes it, and the press goes no further.
     pub fn begin(&mut self, p: &Painter<'_>, ctx: &mut Ctx<'_>) {
         self.made_picture = false;
+        self.hover_seen = false;
         if let Some(open) = &self.open {
             if kit::dropdown_dismissed(p, ctx, open.anchor, open.options.len()) {
                 self.open = None;
@@ -906,8 +909,12 @@ impl PluginUi {
     }
 
     /// What stands over every plugin window: the open choice's list, and the tooltip of the
-    /// control the pointer rests on. After every window is drawn.
+    /// control the pointer rests on. After every window is drawn: a control not drawn this frame
+    /// (its window closed or declared anew without it, its plugin gone) shows no tooltip.
     pub fn top(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>) {
+        if !self.hover_seen {
+            self.hover = None;
+        }
         if let Some(mut open) = self.open.take() {
             let names: Vec<&str> = open.options.iter().map(String::as_str).collect();
             let picked = kit::dropdown_list(p, ctx, open.anchor, &names, open.at, &mut open.top);
@@ -982,18 +989,25 @@ impl PluginUi {
         ctx.input.occluders.truncate(before);
     }
 
-    /// Note a control's tooltip while the pointer rests on it.
+    /// Note a control's tooltip while the pointer rests on it: the text it has now, shown after
+    /// the delay from when the pointer came to rest on it.
     fn tip(&mut self, ctx: &Ctx<'_>, n: &UiNode, id: u32, r: Rect) {
         let text = n.text("tooltip");
-        if text.is_empty() || !ctx.input.hover(&r) {
-            if self.hover.as_ref().is_some_and(|h| h.0 == id) && !ctx.input.hover(&r) {
-                self.hover = None;
+        let over = !text.is_empty() && ctx.input.hover(&r);
+        match &mut self.hover {
+            Some(h) if h.0 == id => {
+                if !over {
+                    self.hover = None;
+                    return;
+                }
+                if h.2 != text {
+                    text.clone_into(&mut h.2);
+                }
             }
-            return;
+            _ if !over => return,
+            _ => self.hover = Some((id, ctx.time, text.to_owned())),
         }
-        if self.hover.as_ref().is_none_or(|h| h.0 != id) {
-            self.hover = Some((id, ctx.time, text.to_owned()));
-        }
+        self.hover_seen = true;
     }
 
     /// Draw node `n`, laid out as `l`, its parent's top left at `origin` (screen pixels).

@@ -27,6 +27,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Plugins: draw paths in the world with `draw.path`.
 - Horizon: the Spellbook's school tabs no longer come up empty.
 - Plugins: metas that count items no longer slow down on a full pack.
+- Plugins: a tooltip no longer stays on screen after its window changes.
 
 ## 0.4.20 (2026-11-20)
 - Navigator: opens doors that only a lever works, by using the lever.

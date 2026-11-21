@@ -3315,6 +3315,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.ui.a-tooltip-shows-only-while-its-control-is-drawn",
+        says: "A control's tooltip shows while the pointer rests on it and the control is drawn: \
+               declared away, its window closed or its plugin reloaded or turned off, the tooltip \
+               goes at once. Declared again with the same id, the control keeps its tooltip \
+               showing, with the text declared now.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TOOLTIP-DRAWN"),
+        station: "dereth-plugin-ui::lib::frame_tests::a_tooltip_goes_when_its_control_is_declared_away_or_its_plugin_draws_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.ui.a-window-and-the-bar-come-back-where-the-player-left-them-on-the-screen",
         says: "A plugin window opens where and at the size the player left it, and the plugin bar \
                where and as wide as the player left it, remembered for the character; a window \
