@@ -4,12 +4,13 @@
 -- dispatcher, all written over one host call.
 --
 -- This chunk runs once per VM, before the game's own layer and before the sandbox is sealed. It
--- receives the host call, a compiler for the plugin's own modules, the traceback function and the
--- sources of the host's libraries written in Lua, and returns the API table (whose entries become
--- read-only globals), the event dispatcher and the function run as each entry begins (which the
--- engine keeps and never exposes), and the kit the game's layer builds its namespaces from.
+-- receives the host call, a compiler for the plugin's own modules, the traceback function, the
+-- sources of the host's libraries written in Lua and a function answering the share of its budget
+-- the entry in progress has spent, and returns the API table (whose entries become read-only
+-- globals), the event dispatcher and the function run as each entry begins (which the engine
+-- keeps and never exposes), and the kit the game's layer builds its namespaces from.
 
-local hostcall, compile, traceback, libraries = ...
+local hostcall, compile, traceback, libraries, budget_spent = ...
 
 local api = {}
 local handlers = {} -- event name -> list of functions, in registration order
@@ -18,6 +19,7 @@ local commands = {} -- command name -> function
 local modules = {} -- module name -> loaded value
 local promises = {} -- action id -> its promise, until it settles
 local services = {} -- service name -> the function that answers it
+local tasks = setmetatable({}, { __mode = "k" }) -- the coroutines `task.spawn` made
 
 -- Events -----------------------------------------------------------------------------------------
 
@@ -136,6 +138,7 @@ api.task = {
 	spawn = function(fn, ...)
 		assert(type(fn) == "function", "task.spawn(fn, ...): fn must be a function")
 		local co = coroutine.create(fn)
+		tasks[co] = true
 		resume(co, ...)
 		return co
 	end,
@@ -607,6 +610,13 @@ local function dispatch(name, data)
 	return first_error
 end
 
+-- Whether the code running is a task's own (not a coroutine of the plugin's inside one), where a
+-- library may sleep without its caller noticing.
+local function in_task()
+	local co = coroutine.running()
+	return co ~= nil and tasks[co] == true and coroutine.isyieldable()
+end
+
 -- What the game's layer is given besides the API table: the host call and the shared pieces it
 -- builds its namespaces from. It never reaches a plugin.
 local kit = {
@@ -620,6 +630,17 @@ local kit = {
 	-- `on_entry(fn)`: run `fn` as each entry begins.
 	on_entry = function(fn)
 		table.insert(entry_hooks, fn)
+	end,
+	-- `in_task()`: whether a library's long work may go on in the entries after this one
+	-- (`checkpoint`).
+	in_task = in_task,
+	-- `checkpoint()`, between the pieces of a library's long work: in a task, once the entry has
+	-- spent a quarter of its budget, the work sleeps and goes on in the next entry, leaving the
+	-- rest for a piece that runs long; elsewhere it does nothing, and the work is the entry's.
+	checkpoint = function()
+		if in_task() and budget_spent() >= 0.25 then
+			api.task.sleep(0)
+		end
 	end,
 }
 

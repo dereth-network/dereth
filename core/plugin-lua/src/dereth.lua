@@ -8,6 +8,7 @@
 
 local api, kit = ...
 local hostcall, request, numbered, builtin = kit.hostcall, kit.request, kit.numbered, kit.builtin
+local in_task, checkpoint = kit.in_task, kit.checkpoint
 
 -- An appraisal's property tables keyed by number.
 local function appraisal_value(a)
@@ -1704,11 +1705,30 @@ builtin["dereth.meta"] = function()
 
 	-- VTank's `.met` files ---------------------------------------------------------------------------
 
+	-- A `.met` file's text read: in a task a page at a time, so that a large meta is read over
+	-- as many of the task's entries as it takes; elsewhere at once.
+	local function read_met(text)
+		if not in_task() then
+			return hostcall("meta.parse", text)
+		end
+		local rules, page = {}, {}
+		while page ~= nil do
+			-- After the first page the host holds the text.
+			local p = hostcall("meta.parse", page.read == nil and text or "", page)
+			table.move(p.rules, 1, #p.rules, #rules + 1, rules)
+			page = p.next
+			if page ~= nil then
+				checkpoint()
+			end
+		end
+		return { rules = rules }
+	end
+
 	-- `meta.read_met(text)`: a VTank `.met` file's rules as data, `{ rules = { { state,
 	-- condition = { kind, data }, action = { kind, data } }, … } }`, in file order.
 	function M.read_met(text)
 		assert(type(text) == "string", "meta.read_met(text): text must be the meta's contents")
-		return hostcall("meta.parse", text)
+		return read_met(text)
 	end
 
 	-- The kinds as the file numbers them, and how each one's data is written: `none` (no data),
@@ -1904,10 +1924,11 @@ builtin["dereth.meta"] = function()
 	-- state). `opts` go to `meta.new` (`every`, `need_to_buff`, `engine`: the macro the meta drives,
 	-- see `automation.md`); `opts.start` picks the first state (else `Default`, else the first
 	-- rule's). What the import could not carry is listed in the meta's `unsupported`, each once.
+	-- In a task a large meta is read and compiled over as many of its entries as it takes.
 	function M.load_met(text, opts)
 		opts = opts or {}
 		local navlib = api.require("dereth.nav")
-		local file = type(text) == "table" and text or hostcall("meta.parse", text)
+		local file = type(text) == "table" and text or read_met(text)
 		local unsupported, seen = {}, {}
 		local function missing(what)
 			if not seen[what] then
@@ -2058,6 +2079,7 @@ builtin["dereth.meta"] = function()
 			first_state = first_state or s
 			states[s] = states[s] or {}
 			table.insert(states[s], { cond(r.condition), act(r.action) })
+			checkpoint()
 		end
 		-- A state named only by an action still exists, with no rules.
 		local function touch(e)
@@ -2081,6 +2103,7 @@ builtin["dereth.meta"] = function()
 		end
 		for _, r in ipairs(file.rules) do
 			touch(r.action)
+			checkpoint()
 		end
 		local start = opts.start or (states.Default and "Default") or first_state or "Default"
 		states[start] = states[start] or {}

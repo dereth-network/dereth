@@ -150,6 +150,11 @@ action it does not know does nothing, and an expression that names a function th
 support is listed with it. Monster priorities, which live in VTank's own settings, count any
 monster unless the meta drives an engine that knows them.
 
+A large meta (hundreds of rules, many embedded routes) is more than one entry's time budget to read
+and compile, so load it inside `task.spawn`: there `meta.load_met` and `meta.read_met` carry on
+over as many of the task's entries as they need, and other events run in between. Anywhere else
+the whole file is read and compiled in the one entry, which a large meta runs past.
+
 **A meta driving an engine.** VTank runs a meta on top of its macro: an embedded route becomes the
 macro's route, its options switch the macro's parts, its VTank commands (`/vt opt set …`, `/vt nav
 load …`) are the macro's. `opts.engine` (for `meta.new` and `meta.load_met`) is that macro, a table
@@ -171,6 +176,8 @@ reader is in the host, and the rule kinds map onto the conditions and actions ab
 routes are read as [`.nav` files](nav.md), a follow route too (walked by following its player, or
 handed to the engine). A VTank option a meta sets (`EnableCombat`,
 `EnableNav`, …) is only recorded: what it means is the plugin's to decide, through `on_option`.
+A file whose line ends were turned into line feeds alone (as git may do) reads the same: an
+embedded route's or view's byte count still counts each of its lines as ended `\r\n`.
 
 **A meta as data, and written.** `meta.read_met(text)` answers a `.met` file's rules as data, for
 a plugin that shows or changes them: `{ rules = { { state, condition = { kind, data }, action =

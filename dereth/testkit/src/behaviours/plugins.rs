@@ -122,6 +122,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries",
+        says: "A VTank meta too large to read or compile in one entry's time budget is read and \
+               compiled over as many of a task's entries as it takes, when it is loaded inside \
+               task.spawn; anywhere else it is one entry's work.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-MET-BUDGET"),
+        station: "dereth-plugin-host::lib::tests::a_large_meta_loads_and_reads_over_a_tasks_entries_within_the_budget",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.automation.a-meta-runs-its-states-rules-on-a-timer",
         says: "A meta checks its current state's rules on a timer and runs the action of each rule whose \
                condition holds; its actions change its state and may move the character.",

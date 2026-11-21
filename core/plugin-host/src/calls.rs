@@ -1830,8 +1830,14 @@ impl HostCalls for Call<'_, '_> {
                     .and_then(|f| f.travel_store)
                     .map_or_else(|| Value::List(Vec::new()), |s| recalls_value(s, &character)))
             }
-            "meta.parse" => crate::metfile::parse(arg_str(args, 0, "the meta's text")?)
-                .map_err(CallError::Failed),
+            "meta.parse" => {
+                let text = arg_str(args, 0, "the meta's text")?;
+                match args.get(1) {
+                    None | Some(Value::Nil) => crate::metfile::parse(text),
+                    Some(page) => self.slot.met_reads.page(text, page),
+                }
+                .map_err(CallError::Failed)
+            }
             "files.data" => {
                 let path = arg_str(args, 0, "the file's path")?;
                 if !dereth_plugin_api::manifest::is_package_path(path) {

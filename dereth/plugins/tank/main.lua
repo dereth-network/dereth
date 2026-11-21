@@ -91,8 +91,24 @@ E.on_resume = metas.resumed
 E.on_stop = function()
 	metas.stop()
 end
--- The meta the settings name, read with the other files.
-E.on_load_meta = function(name)
+-- The meta the settings name, read with the other files. It is read in a task, so that a large
+-- one takes as many entries as it needs; one asked for while another is being read is read next.
+local loading, wanted = nil, nil -- the read under way (its name and task), and the one asked after it
+local function note_loaded(name, m, why)
+	if m == nil then
+		E.note("meta %s does not read: %s", name, tostring(why))
+	else
+		local n = 0
+		for _ in pairs(m.states) do
+			n = n + 1
+		end
+		E.note("meta %s: %d states%s", name, n,
+			#m.unsupported > 0 and ("; not carried: " .. table.concat(m.unsupported, "; ")) or "")
+	end
+end
+-- `late`: the read was asked for by one that finished after its caller had gone on, so the run
+-- and the window catch up with this one however it goes.
+local function load_meta(name, late)
 	if name == nil or name == "" then
 		metas.stop()
 		metas.meta, metas.name = nil, nil
@@ -106,18 +122,51 @@ E.on_load_meta = function(name)
 		E.note("no meta %s", name)
 		return
 	end
-	local m, why = metas.load(text, name)
-	if m == nil then
-		E.note("meta %s does not read: %s", name, tostring(why))
-	else
-		E.note("meta %s: %d states%s", name, (function()
-			local n = 0
-			for _ in pairs(m.states) do
-				n = n + 1
+	local waited = false
+	local this = { name = name }
+	loading = this
+	this.task = task.spawn(function()
+		local ok, m, why = pcall(metas.load, text, name)
+		if not ok then
+			m, why = nil, m
+		end
+		if loading == this then
+			loading = nil
+		end
+		note_loaded(name, m, why)
+		local after = wanted
+		wanted = nil
+		if after ~= nil and after ~= name then
+			load_meta(after, waited or late)
+		elseif waited or late then
+			-- Read after its caller went on: the run, then the window, catch up with it, each in an
+			-- entry of its own.
+			task.sleep(0)
+			if m ~= nil and E.running then
+				metas.start()
 			end
-			return n
-		end)(), #m.unsupported > 0 and ("; not carried: " .. table.concat(m.unsupported, "; ")) or "")
+			task.sleep(0)
+			if E.on_files then
+				E.on_files()
+			end
+		end
+	end)
+	waited = true
+	if loading == this then
+		-- Still being read: the meta it replaces (stopped) is no longer the macro's meanwhile.
+		metas.meta, metas.name = nil, nil
 	end
+end
+E.on_load_meta = function(name)
+	if loading ~= nil and loading.task ~= nil and coroutine.status(loading.task) == "dead" then
+		-- A read stopped without finishing (over its budget past catching).
+		loading = nil
+	end
+	if loading ~= nil then
+		wanted = name or ""
+		return
+	end
+	load_meta(name)
 end
 
 window.build(E)

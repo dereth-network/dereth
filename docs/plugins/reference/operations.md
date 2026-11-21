@@ -453,9 +453,9 @@ A VTank route file's text, read.
 
 ### `meta.parse`
 
-A VTank meta file's text, read.
+A VTank meta file's text, read: `{ rules }`. With `page`, one page of its rules, about 16 KiB of the text (one rule at least): `{ rules, total, next }`, `total` the meta's rule count and `next` the page to ask for after this one, unless these were the last. The first page is `{}`; after it the host holds the text until the last page, and `text` is not read again.
 
-- WIT: `meta-parse: func(text: string) -> result<value, string>`
+- WIT: `meta-parse: func(text: string, page: option<value>) -> result<value, string>`
 - Lua: through the Lua API ([api.md](../api.md))
 
 ## `profile`

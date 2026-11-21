@@ -89,8 +89,8 @@ Each entry into a plugin (loading it, or delivering one event) has a **time budg
 default, and each VM a **memory cap**, 64 MiB by default. A Lua VM checks the clock at every loop
 and function call and stops an entry past its deadline; a compiled plugin counts its work instead
 (100,000 units per millisecond of the budget), so it stops at the same point on every host.
-Either way the budget is the plugin's own work: time the host spends answering its calls (a
-printed line written to the log, a long list built) is not counted.
+Either way the time the host spends answering the plugin's calls (a file read, a long list built)
+counts as the plugin's own.
 Allocating past the cap fails as an out-of-memory error.
 
 In Lua the overrun is an error naming where the script was (`the plugin ran past its time budget
@@ -98,7 +98,8 @@ In Lua the overrun is an error naming where the script was (`the plugin ran past
 whose loop wraps its step in `pcall` notes the error and sleeps, and lives on. Past that the entry
 is stopped whatever it catches, and an overrun the script caught still counts as one. Work too
 long for one entry (reading a spell book of thousands, a long file) belongs in a task that
-`task.sleep(0)`s between pieces.
+`task.sleep(0)`s between pieces. Inside a task the host's own libraries do this for their long
+work, `meta.load_met` of a large meta for one.
 
 To see where a Lua plugin's time goes, start the desktop client with `DERETH_PLUGIN_PROFILE=1`.
 Every half minute each plugin writes to the client's log (`dereth::plugin` at debug) its entries

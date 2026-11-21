@@ -127,6 +127,8 @@ pub struct SlotState {
     pub activation_until: f64,
     /// The loot profiles the plugin has read, by handle (index).
     pub loot_profiles: Vec<crate::loot::Profile>,
+    /// The metas it is reading a page at a time.
+    pub met_reads: crate::metfile::Reads,
     /// Its markers, by id.
     pub markers: BTreeMap<i64, crate::overlay::Marker>,
     /// Images it fetched, by the name `ui.image` shows them by (`net:<n>`).
@@ -180,6 +182,7 @@ impl SlotState {
             loaded_at: now,
             activation_until: f64::NEG_INFINITY,
             loot_profiles: Vec::new(),
+            met_reads: crate::metfile::Reads::default(),
             markers: BTreeMap::new(),
             images: BTreeMap::new(),
             pictures: crate::pictures::Pictures::default(),

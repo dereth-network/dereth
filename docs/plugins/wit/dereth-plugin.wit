@@ -154,8 +154,8 @@ interface host {
     /// Whether a straight line from the character (or `from`) to an object or a place is clear of the world's walls, ground and the objects that stop a body, a metre above each end; null where the host cannot tell.
     nav-sight: func(target: value, %from: option<value>) -> result<option<bool>, string>;
 
-    /// A VTank meta file's text, read.
-    meta-parse: func(text: string) -> result<value, string>;
+    /// A VTank meta file's text, read: `{ rules }`. With `page`, one page of its rules, about 16 KiB of the text (one rule at least): `{ rules, total, next }`, `total` the meta's rule count and `next` the page to ask for after this one, unless these were the last. The first page is `{}`; after it the host holds the text until the last page, and `text` is not read again.
+    meta-parse: func(text: string, page: option<value>) -> result<value, string>;
 
     /// A text file of the plugin's data folder (the player's files for it), or null.
     files-data: func(path: string) -> result<option<string>, string>;

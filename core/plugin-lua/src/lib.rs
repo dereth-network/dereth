@@ -225,11 +225,24 @@ impl Budget {
             self.deadline.set(Some(d + by));
         }
     }
+
+    /// The share of the entry's budget spent at `now`: 0 as it begins, 1 at its deadline; 0
+    /// outside an entry.
+    fn spent(&self, now: Duration) -> f64 {
+        match (self.began.get(), self.deadline.get()) {
+            (Some(began), Some(deadline)) if deadline > began => {
+                now.saturating_sub(began).as_secs_f64() / (deadline - began).as_secs_f64()
+            }
+            _ => 0.0,
+        }
+    }
 }
 
 /// The deadline of the entry in progress, on the VM's clock.
 #[derive(Debug, Default)]
 struct Budget {
+    /// When the entry began.
+    began: Cell<Option<Duration>>,
     deadline: Cell<Option<Duration>>,
     /// Interrupts since the entry began.
     work: Cell<u32>,
@@ -360,11 +373,16 @@ impl LuauInstance {
             libraries.set(*name, *source)?;
         }
         let traceback: Function = lua.globals().get::<Table>("debug")?.get("traceback")?;
+        // The share of its budget the entry in progress has spent (0 outside an entry), for the
+        // libraries that split long work across a task's entries.
+        let spending = budget.clone();
+        let c = clock.clone();
+        let spent = lua.create_function(move |_, ()| Ok(spending.spent(c.now())))?;
         let (api, dispatch, new_entry, kit): (Table, Function, Function, Table) = lua
             .load(BASE)
             .set_name("=bindings")
             .set_mode(ChunkMode::Text)
-            .call((hostcall, compile, traceback, libraries))?;
+            .call((hostcall, compile, traceback, libraries, spent))?;
         lua.load(bindings.layer)
             .set_name(format!("=bindings.{}", bindings.name))
             .set_mode(ChunkMode::Text)
@@ -417,9 +435,10 @@ impl LuauInstance {
         } else {
             dereth_plugin_api::engine::entry_budgets(label)
         };
+        let began = clock.now();
+        self.budget.began.set(Some(began));
         self.budget.deadline.set(Some(
-            clock.now()
-                + Duration::from_secs_f64(self.limits.call_budget_ms.max(0.0) * entries / 1000.0),
+            began + Duration::from_secs_f64(self.limits.call_budget_ms.max(0.0) * entries / 1000.0),
         ));
         let profile = self.profile.as_deref();
         let new_entry = self.new_entry.clone();
@@ -444,6 +463,7 @@ impl LuauInstance {
             body(lua)
         });
         self.budget.deadline.set(None);
+        self.budget.began.set(None);
         let _ = lua.set_named_registry_value(HOST_KEY, mlua::Value::Nil);
         let table = self.profile.as_ref().and_then(|p| {
             let now = clock.now();

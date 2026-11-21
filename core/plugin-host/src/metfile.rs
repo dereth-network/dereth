@@ -145,27 +145,10 @@ impl<'a> Reader<'a> {
     }
 
     pub(crate) fn table(&mut self) -> Result<Value, String> {
-        let columns = self.int("a table's column count")?;
-        if !(1..=64).contains(&columns) {
-            return Err(format!("{columns} columns is not a table"));
-        }
-        let names: Vec<String> = (0..columns)
-            .map(|_| self.line().map(str::to_owned))
-            .collect::<Result<_, _>>()?;
-        for _ in 0..columns {
-            self.line()?;
-        }
-        let rows = self.int("a table's row count")?;
-        if !(0..=1_000_000).contains(&rows) {
-            return Err(format!("{rows} rows is not a table"));
-        }
+        let (names, rows) = self.table_head()?;
         let mut cells = Vec::new();
         for _ in 0..rows {
-            let row: Vec<Value> = names
-                .iter()
-                .map(|_| self.value())
-                .collect::<Result<_, _>>()?;
-            cells.push(row);
+            cells.push(self.row(&names)?);
         }
         let shape: Vec<&str> = names.iter().map(String::as_str).collect();
         Ok(match shape.as_slice() {
@@ -194,20 +177,42 @@ impl<'a> Reader<'a> {
                     })
                     .collect(),
             ),
-            _ => Value::List(
-                cells
-                    .into_iter()
-                    .map(|row| {
-                        let mut m = Value::map();
-                        for (name, v) in names.iter().zip(row) {
-                            m = m.with(name, v);
-                        }
-                        m
-                    })
-                    .collect(),
-            ),
+            _ => Value::List(cells.into_iter().map(|row| named(&names, row)).collect()),
         })
     }
+
+    /// A table's columns and its row count, before its rows.
+    fn table_head(&mut self) -> Result<(Vec<String>, usize), String> {
+        let columns = self.int("a table's column count")?;
+        if !(1..=64).contains(&columns) {
+            return Err(format!("{columns} columns is not a table"));
+        }
+        let names: Vec<String> = (0..columns)
+            .map(|_| self.line().map(str::to_owned))
+            .collect::<Result<_, _>>()?;
+        for _ in 0..columns {
+            self.line()?;
+        }
+        let rows = self.int("a table's row count")?;
+        if !(0..=1_000_000).contains(&rows) {
+            return Err(format!("{rows} rows is not a table"));
+        }
+        Ok((names, usize::try_from(rows).unwrap_or_default()))
+    }
+
+    /// One row's cells, a value for each of `names`.
+    fn row(&mut self, names: &[String]) -> Result<Vec<Value>, String> {
+        names.iter().map(|_| self.value()).collect()
+    }
+}
+
+/// A row as a map of its cells by their columns' names.
+fn named(names: &[String], row: Vec<Value>) -> Value {
+    let mut m = Value::map();
+    for (name, v) in names.iter().zip(row) {
+        m = m.with(name, v);
+    }
+    m
 }
 
 fn kind_name(table: &[&str], v: &Value) -> Value {
@@ -255,6 +260,38 @@ fn entry(table: &[&str], is_action: bool, ty: &Value, data: Value) -> Value {
     Value::map().with("kind", kind).with("data", data)
 }
 
+/// A rule of the meta's table, its kinds named and its nested entries resolved.
+fn rule(row: &Value) -> Value {
+    let cond = entry(
+        CONDITIONS,
+        false,
+        row.get("CType"),
+        row.get("CData").clone(),
+    );
+    let act = entry(ACTIONS, true, row.get("AType"), row.get("AData").clone());
+    Value::map()
+        .with("state", row.get("State").clone())
+        .with("condition", cond)
+        .with("action", act)
+}
+
+/// A reader past a meta's header, at its first rule, with its table's columns and rule count.
+fn rules_head(text: &str) -> Result<(Reader<'_>, Vec<String>, usize), String> {
+    let mut r = Reader::new(text);
+    let version = r.line()?.trim().to_owned();
+    let name = r.line()?.trim().to_owned();
+    if name != "CondAct" {
+        return Err(format!(
+            "{version:?} then {name:?} is not a meta's header (1, CondAct)"
+        ));
+    }
+    let (names, rows) = r.table_head()?;
+    if names == ["k", "v"] {
+        return Err("a meta's rules are not a table".into());
+    }
+    Ok((r, names, rows))
+}
+
 /// A meta read into `{ rules = { { state, condition = { kind, data }, action = { kind, data } },
 /// … } }`, rules in file order. A kind the reader does not know is named `unknown:<n>`. An
 /// embedded route's data is `{ name, route, text }` (`error` in place of `route` when it does not
@@ -263,44 +300,132 @@ fn entry(table: &[&str], is_action: bool, ty: &Value, data: Value) -> Value {
 /// # Errors
 /// Not a meta, or a value that does not read as its type.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut r = Reader {
-        data: text.as_bytes(),
-        at: 0,
-    };
-    let version = r.line()?.trim().to_owned();
-    let name = r.line()?.trim().to_owned();
-    if name != "CondAct" {
-        return Err(format!(
-            "{version:?} then {name:?} is not a meta's header (1, CondAct)"
-        ));
-    }
-    let Value::List(rows) = r.table()? else {
-        return Err("a meta's rules are not a table".into());
-    };
+    let (mut r, names, rows) = rules_head(text)?;
     let mut rules = Vec::new();
-    for row in rows {
-        let cond = entry(
-            CONDITIONS,
-            false,
-            row.get("CType"),
-            row.get("CData").clone(),
-        );
-        let act = entry(ACTIONS, true, row.get("AType"), row.get("AData").clone());
-        rules.push(
-            Value::map()
-                .with("state", row.get("State").clone())
-                .with("condition", cond)
-                .with("action", act),
-        );
+    for _ in 0..rows {
+        let row = r.row(&names)?;
+        rules.push(rule(&named(&names, row)));
     }
     Ok(Value::map().with("rules", Value::List(rules)))
+}
+
+/// About how much of a meta's text one page reads: a page ends at the first rule that ends past
+/// this many bytes from where it began.
+pub const PAGE_BYTES: usize = 16 << 10;
+
+/// One page of a meta's rules ([`page`]).
+struct Page {
+    rules: Vec<Value>,
+    /// The meta's rule count.
+    total: usize,
+    /// Where the next page begins (its rule and byte), unless these were the last.
+    next: Option<(usize, usize)>,
+}
+
+/// One page of a meta's rules, as [`parse`] reads them, beginning at rule `row` (from 0), which
+/// begins at byte `at` of `text` (the first rule's when `None`): the rules that begin in about
+/// [`PAGE_BYTES`] of the text (one at least). A page costs its own rules, not the text before it.
+///
+/// # Errors
+/// Not a meta, a place that is not one of its rules', or a value that does not read as its type.
+fn page(text: &str, row: usize, at: Option<usize>) -> Result<Page, String> {
+    let (mut r, names, rows) = rules_head(text)?;
+    if let Some(at) = at {
+        if at < r.at || at > r.data.len() {
+            return Err(format!("{at} is not a place in the meta"));
+        }
+        r.at = at;
+    }
+    if row > rows {
+        return Err(format!("the meta has {rows} rules, not {row}"));
+    }
+    let start = r.at;
+    let mut rules = Vec::new();
+    let mut next = row;
+    while next < rows && (rules.is_empty() || r.at - start < PAGE_BYTES) {
+        let cells = r.row(&names)?;
+        rules.push(rule(&named(&names, cells)));
+        next += 1;
+    }
+    Ok(Page {
+        rules,
+        total: rows,
+        next: (next < rows).then_some((next, r.at)),
+    })
+}
+
+/// The most metas a plugin may be reading a page at a time; a read begun past it drops the oldest.
+pub const HELD_READS: usize = 4;
+
+/// The metas a plugin is reading a page at a time: each one's text, held from its first page to
+/// its last, so that a later page is not handed the whole text again.
+#[derive(Debug, Default)]
+pub struct Reads {
+    held: std::collections::VecDeque<(i64, String)>,
+    last_id: i64,
+}
+
+impl Reads {
+    /// `meta.parse` with a page: `{}` begins a read of `text`, and the `next` of a page answers
+    /// the page after it from the text held (`text` is not read again). Answers `{ rules, total,
+    /// next }`, `next` absent once the last page is read, when the text is let go.
+    ///
+    /// # Errors
+    /// Not a meta, a place that is not one of its rules', a value that does not read as its type,
+    /// or a page of a read no longer held.
+    pub fn page(&mut self, text: &str, cursor: &Value) -> Result<Value, String> {
+        let row = cursor.get("row").as_i64().unwrap_or(0);
+        let row = usize::try_from(row).map_err(|_| format!("{row} is not a rule's place"))?;
+        let at = match cursor.get("at").as_i64() {
+            Some(at) => {
+                Some(usize::try_from(at).map_err(|_| format!("{at} is not a place in the meta"))?)
+            }
+            None => None,
+        };
+        let (id, read) = match cursor.get("read").as_i64() {
+            None => (None, page(text, row, at)?),
+            Some(id) => {
+                let i = self
+                    .held
+                    .iter()
+                    .position(|(held, _)| *held == id)
+                    .ok_or("the meta being read is no longer held; read it again")?;
+                let read = page(&self.held[i].1, row, at);
+                if !matches!(&read, Ok(p) if p.next.is_some()) {
+                    self.held.remove(i);
+                }
+                (Some(id), read?)
+            }
+        };
+        let mut out = Value::map()
+            .with("rules", Value::List(read.rules))
+            .with("total", i64::try_from(read.total).unwrap_or_default());
+        if let Some((row, at)) = read.next {
+            let id = id.unwrap_or_else(|| {
+                if self.held.len() >= HELD_READS {
+                    self.held.pop_front();
+                }
+                self.last_id += 1;
+                self.held.push_back((self.last_id, text.to_owned()));
+                self.last_id
+            });
+            out = out.with(
+                "next",
+                Value::map()
+                    .with("read", id)
+                    .with("row", i64::try_from(row).unwrap_or_default())
+                    .with("at", i64::try_from(at).unwrap_or_default()),
+            );
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (unit checks of the file reader; the import's behaviour is pinned by the
     //! conformance case `automation/met-import`).
-    use super::parse;
+    use super::{parse, Reads, HELD_READS, PAGE_BYTES};
     use dereth_plugin_api::Value;
 
     fn sample(crlf: bool) -> String {
@@ -446,6 +571,69 @@ mod tests {
     fn a_meta_reads_with_either_line_ending() {
         check(&parse(&sample(true)).unwrap());
         check(&parse(&sample(false)).unwrap());
+    }
+
+    /// A meta of `rules` rules, each a chat line said always.
+    fn many(rules: usize) -> String {
+        let mut out = String::from(
+            "1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n",
+        );
+        out.push_str(&format!("{rules}\r\n"));
+        for i in 0..rules {
+            out.push_str(&format!(
+                "i\r\n1\r\ni\r\n2\r\ni\r\n0\r\ns\r\n/say {i}\r\ns\r\nDefault\r\n"
+            ));
+        }
+        out
+    }
+
+    /// The rules of `text` read a page at a time through `reads`, and the pages it took.
+    fn paged(reads: &mut Reads, text: &str) -> (Vec<Value>, usize) {
+        let (mut rules, mut pages, mut page) = (Vec::new(), 0, Value::map());
+        loop {
+            let p = reads.page(text, &page).unwrap();
+            pages += 1;
+            assert_eq!(p.get("total").as_i64(), Some(1000));
+            rules.extend(p.get("rules").as_list().unwrap().iter().cloned());
+            match p.get("next") {
+                Value::Nil => return (rules, pages),
+                next => page = next.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn a_meta_read_a_page_at_a_time_is_the_same_rules_as_read_at_once() {
+        let text = many(1000);
+        let mut reads = Reads::default();
+        let (rules, pages) = paged(&mut reads, &text);
+        assert!(pages >= text.len() / PAGE_BYTES, "{pages} pages");
+        assert_eq!(
+            parse(&text).unwrap().get("rules").as_list().unwrap(),
+            &rules[..]
+        );
+        // Each read lets its text go at its last page; a later page needs only the cursor.
+        assert!(reads.held.is_empty());
+        let first = reads.page(&text, &Value::map()).unwrap();
+        let next = first.get("next").clone();
+        assert!(reads.page("", &next).is_ok());
+    }
+
+    #[test]
+    fn a_read_begun_past_the_held_reads_lets_the_oldest_go() {
+        let text = many(1000);
+        let mut reads = Reads::default();
+        let firsts: Vec<Value> = (0..=HELD_READS)
+            .map(|_| {
+                reads
+                    .page(&text, &Value::map())
+                    .unwrap()
+                    .get("next")
+                    .clone()
+            })
+            .collect();
+        assert!(reads.page("", &firsts[0]).is_err());
+        assert!(reads.page("", &firsts[HELD_READS]).is_ok());
     }
 
     #[test]

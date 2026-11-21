@@ -1849,6 +1849,411 @@ end
     }
 }
 
+/// A clock on which a plugin's time is its own work alone: each reading (a VM reads it once at
+/// each interrupt) is [`WORK_TICK`] past the one before, and the host's answer to a call takes
+/// [`WORK_PER_VALUE`] for each value it holds. While it is held still nothing takes any time.
+#[derive(Debug, Default)]
+struct WorkClock {
+    now: Cell<std::time::Duration>,
+    still: Cell<bool>,
+}
+
+/// What each interrupt of a VM on a [`WorkClock`] takes.
+const WORK_TICK: std::time::Duration = std::time::Duration::from_micros(1);
+
+/// What each value of a host's answer takes on a [`WorkClock`].
+const WORK_PER_VALUE: std::time::Duration = std::time::Duration::from_nanos(500);
+
+impl VmClock for WorkClock {
+    fn now(&self) -> std::time::Duration {
+        if !self.still.get() {
+            self.now.set(self.now.get() + WORK_TICK);
+        }
+        self.now.get()
+    }
+}
+
+impl WorkClock {
+    fn spend(&self, values: u32) {
+        if !self.still.get() {
+            self.now.set(self.now.get() + WORK_PER_VALUE * values);
+        }
+    }
+}
+
+/// The values a value holds, itself included.
+fn values_in(v: &Value) -> u32 {
+    1 + match v {
+        Value::List(l) => l.iter().map(values_in).sum(),
+        Value::Map(m) => m.values().map(values_in).sum(),
+        _ => 0,
+    }
+}
+
+/// The Luau engine with Dereth's bindings, its VMs reading one [`WorkClock`].
+#[derive(Debug)]
+struct WorkEngine(Rc<WorkClock>);
+
+#[derive(Debug)]
+struct WorkVm {
+    vm: dereth_plugin_lua::LuauInstance,
+    clock: Rc<WorkClock>,
+}
+
+/// A host whose answers take their time on a [`WorkClock`].
+struct Metered<'a> {
+    host: &'a mut dyn dereth_plugin_api::engine::HostCalls,
+    clock: &'a WorkClock,
+}
+
+impl dereth_plugin_api::engine::HostCalls for Metered<'_> {
+    fn call(
+        &mut self,
+        op: &str,
+        args: &[Value],
+    ) -> Result<Value, dereth_plugin_api::engine::CallError> {
+        let out = self.host.call(op, args)?;
+        self.clock.spend(values_in(&out));
+        Ok(out)
+    }
+    fn console(&mut self, line: &str) {
+        self.host.console(line);
+    }
+    fn note(&mut self, line: &str) {
+        self.host.note(line);
+    }
+    fn module_source(&mut self, name: &str) -> Option<String> {
+        self.host.module_source(name)
+    }
+}
+
+impl dereth_plugin_api::engine::ScriptEngine for WorkEngine {
+    fn name(&self) -> &'static str {
+        "luau"
+    }
+
+    fn instantiate(
+        &self,
+        limits: Limits,
+    ) -> Result<
+        Box<dyn dereth_plugin_api::engine::ScriptInstance>,
+        dereth_plugin_api::engine::ScriptError,
+    > {
+        let vm = dereth_plugin_lua::LuauInstance::with_clock(
+            dereth_plugin_lua::DERETH,
+            limits,
+            self.0.clone(),
+        )
+        .map_err(|e| {
+            dereth_plugin_api::engine::ScriptError::new(
+                dereth_plugin_api::ScriptErrorKind::Runtime,
+                e.to_string(),
+            )
+        })?;
+        Ok(Box::new(WorkVm {
+            vm,
+            clock: self.0.clone(),
+        }))
+    }
+}
+
+impl dereth_plugin_api::engine::ScriptInstance for WorkVm {
+    fn load(
+        &mut self,
+        host: &mut dyn dereth_plugin_api::engine::HostCalls,
+        chunk_name: &str,
+        source: &str,
+    ) -> Result<(), dereth_plugin_api::engine::ScriptError> {
+        let clock = &*self.clock;
+        self.vm
+            .load(&mut Metered { host, clock }, chunk_name, source)
+    }
+    fn deliver(
+        &mut self,
+        host: &mut dyn dereth_plugin_api::engine::HostCalls,
+        event: &dereth_plugin_api::Event,
+    ) -> Result<Value, dereth_plugin_api::engine::ScriptError> {
+        let clock = &*self.clock;
+        self.vm.deliver(&mut Metered { host, clock }, event)
+    }
+    fn memory_used(&self) -> usize {
+        self.vm.memory_used()
+    }
+}
+
+/// A clock that stands still: the host never finds a plugin past its share of a frame.
+#[derive(Debug)]
+struct StillClock;
+
+impl VmClock for StillClock {
+    fn now(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+}
+
+/// The rules of the large meta the plugin of [`large_meta_run`] writes.
+const LARGE_META_RULES: usize = 300;
+
+/// A plugin that writes a large VTank meta, `text` (its rules' conditions expressions and chat
+/// matches, their actions expressions and, one in three, an embedded route of twenty points), the
+/// same with line feeds alone, `lf`, and the small one `small` (three rules), and a moment after it loads runs `then`; run on the 4 ms
+/// budget with its VMs on a [`WorkClock`] (held still until it has loaded) until it prints `done`
+/// or a thousand frames pass. Answers what else it printed.
+fn large_meta_run(then: &str) -> Vec<String> {
+    let main = format!(
+        r#"
+local meta = require("dereth.meta")
+local function route(i)
+	local lines = {{ "uTank2 NAV 1.2", "4", "20" }}
+	local points = {{}}
+	for p = 1, 20 do
+		table.insert(lines, "0")
+		table.insert(lines, string.format("%.3f", i + p / 7))
+		table.insert(lines, string.format("%.3f", -i - p / 3))
+		table.insert(lines, "0")
+		table.insert(lines, "0")
+		table.insert(points, {{}})
+	end
+	return {{ name = "route " .. i, text = table.concat(lines, "\r\n") .. "\r\n", route = {{ kind = "once", points = points }} }}
+end
+local rules = {{}}
+for i = 1, {LARGE_META_RULES} do
+	local act = {{ kind = "expr", data = {{ e = "setvar[n," .. i .. "]" }} }}
+	if i % 3 == 0 then
+		act = {{ kind = "multiple", data = {{ act, {{ kind = "walk", data = route(i) }} }} }}
+	end
+	table.insert(rules, {{
+		state = "State" .. (i % 17),
+		condition = {{ kind = "all", data = {{
+			{{ kind = "expr", data = {{ e = "getvar[n]==" .. (i - 1) }} }},
+			{{ kind = "chat_match", data = "You say, \"go " .. i .. "\"" }},
+		}} }},
+		action = act,
+	}})
+end
+local text = meta.write_met({{ rules = rules }})
+-- The same file with its line ends turned into line feeds alone.
+local lf = string.gsub(text, "\r\n", "\n")
+local small = meta.write_met({{ rules = {{
+	{{ state = "Default", condition = {{ kind = "always" }}, action = {{ kind = "none" }} }},
+	{{ state = "Default", condition = {{ kind = "never" }}, action = {{ kind = "set_state", data = "Other" }} }},
+	{{ state = "Other", condition = {{ kind = "always" }}, action = {{ kind = "none" }} }},
+}} }})
+local function states(m)
+	local n = 0
+	for _ in pairs(m.states) do
+		n = n + 1
+	end
+	return n
+end
+task.after(100, function()
+{then}
+end)
+print("ready")
+"#
+    );
+    let clock = Rc::new(WorkClock::default());
+    clock.still.set(true);
+    let mut config = HostConfig::new("dereth-test", vec![HostCapability::Core]);
+    config.limits = Limits {
+        memory_bytes: 64 << 20,
+        call_budget_ms: 4.0,
+        profile: false,
+    };
+    let mut host = PluginHost::new(
+        config,
+        Box::new(WorkEngine(clock.clone())),
+        Box::new(StaticSource {
+            packages: vec![package("test.bigmeta", &main, "")],
+        }),
+        Box::new(MemoryStorage::default()),
+    )
+    .with_vm_clock(Box::new(StillClock));
+    host.load_all();
+    let (view, world, table) = (View::default(), World::new(), CommandInterp::new());
+    let mut time = 0.0;
+    for _ in 0..1000 {
+        time += 0.05;
+        let mut frame = HookFrame::new(&view, &world, &table, time, time, &[], &[]);
+        host.step(&mut frame);
+        let lines = host.console("test.bigmeta").unwrap_or_default();
+        // Loaded, the meta written for nothing: from now the plugin's work is its time.
+        if lines.iter().any(|l| l == "ready") {
+            clock.still.set(false);
+        }
+        if lines.iter().any(|l| l.starts_with("done")) {
+            break;
+        }
+    }
+    let mut lines = host.console("test.bigmeta").unwrap_or_default();
+    lines.retain(|l| l != "ready");
+    lines
+}
+
+/// Whether a plugin's printed lines tell of an entry past its time budget.
+fn over_budget(lines: &[String]) -> bool {
+    lines.iter().any(|l| l.contains("time budget"))
+}
+
+/// A meta far larger than one entry's budget can read or compile is read and compiled over as
+/// many of a task's entries as it takes: `meta.load_met` and `meta.read_met` inside `task.spawn`
+/// finish with no entry past its budget, the task going on after `task.spawn` has returned.
+///
+/// Behaviour: plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries
+#[test]
+fn a_large_meta_loads_and_reads_over_a_tasks_entries_within_the_budget() {
+    let lines = large_meta_run(
+        r#"
+	task.spawn(function()
+		local m = meta.load_met(text)
+		print("loaded", states(m), #m.unsupported)
+		local f = meta.read_met(text)
+		print("done", #f.rules)
+	end)
+	print("spawned")
+"#,
+    );
+    assert!(!over_budget(&lines), "{lines:?}");
+    assert_eq!(
+        lines,
+        [
+            "spawned".to_owned(),
+            "loaded\t17\t0".to_owned(),
+            format!("done\t{LARGE_META_RULES}"),
+        ]
+    );
+}
+
+/// Outside a task the same meta is one entry's work as before: reading or loading it runs past
+/// the budget.
+///
+/// Behaviour: plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries
+#[test]
+fn a_large_meta_read_or_loaded_outside_a_task_runs_past_the_budget() {
+    let read = large_meta_run(
+        r#"
+	local ok, e = pcall(function()
+		local f = meta.read_met(text)
+		local n = 0
+		for _ in ipairs(f.rules) do
+			n = n + 1
+		end
+		return n
+	end)
+	print("done", ok, tostring(e))
+"#,
+    );
+    let load = large_meta_run(
+        r#"
+	local ok, e = pcall(meta.load_met, text)
+	print("done", ok, tostring(e))
+"#,
+    );
+    for lines in [read, load] {
+        assert!(
+            over_budget(&lines) && !lines.iter().any(|l| l.starts_with("done\ttrue")),
+            "{lines:?}"
+        );
+    }
+}
+
+/// A plugin's own coroutine inside a task is not the task: `meta.load_met` in a
+/// `coroutine.wrap` never sleeps, even past the point where, run in the task itself, it does.
+///
+/// Behaviour: plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries
+#[test]
+fn a_meta_loaded_in_a_plugins_own_coroutine_never_sleeps_under_it() {
+    let lines = large_meta_run(
+        r#"
+	local function busy()
+		local n = 0
+		for i = 1, 1500 do
+			n = n + i
+		end
+		return n
+	end
+	task.spawn(function()
+		busy()
+		local wrapped = coroutine.wrap(function()
+			return meta.load_met(small)
+		end)
+		local m = wrapped()
+		print("wrapped", type(m) == "table" and states(m) or "nothing")
+		task.sleep(0)
+		busy()
+		local co = task.spawn(function()
+			print("in the task", states(meta.load_met(small)))
+		end)
+		print("task slept", coroutine.status(co) == "suspended")
+		task.sleep(10)
+		print("done")
+	end)
+"#,
+    );
+    assert!(!over_budget(&lines), "{lines:?}");
+    assert_eq!(
+        lines,
+        ["wrapped\t2", "task slept\ttrue", "in the task\t2", "done"]
+    );
+}
+
+/// A meta whose line ends a tool has turned into line feeds alone reads, a page at a time, as
+/// the same rules as the `\r\n` file it was written as, its embedded routes' byte counts still
+/// those of `\r\n` lines: every route reads.
+///
+/// Behaviour: plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries
+#[test]
+fn a_large_meta_with_line_feeds_alone_reads_in_a_task_as_its_crlf_file() {
+    let lines = large_meta_run(
+        r#"
+	task.spawn(function()
+		print("line ends", #lf < #text, string.find(lf, "\r", 1, true) == nil)
+		local a = meta.read_met(text)
+		local b = meta.read_met(lf)
+		local routes = 0
+		for _, r in ipairs(b.rules) do
+			if r.action.kind == "multiple" and r.action.data[2].data.route ~= nil then
+				routes = routes + 1
+			end
+		end
+		-- The same values, a route's text the same but for its line ends.
+		local function same(x, y)
+			if type(x) == "string" and type(y) == "string" then
+				return x == y or (string.gsub(x, "\r", "")) == (string.gsub(y, "\r", ""))
+			elseif type(x) ~= "table" or type(y) ~= "table" then
+				return x == y
+			end
+			for k, v in pairs(x) do
+				if not same(v, y[k]) then
+					return false
+				end
+			end
+			for k in pairs(y) do
+				if x[k] == nil then
+					return false
+				end
+			end
+			return true
+		end
+		local all = #a.rules == #b.rules
+		for i = 1, #a.rules do
+			all = all and same(a.rules[i], b.rules[i])
+			task.sleep(0)
+		end
+		print("done", #b.rules, routes, all)
+	end)
+"#,
+    );
+    assert!(!over_budget(&lines), "{lines:?}");
+    assert_eq!(
+        lines,
+        [
+            "line ends\ttrue\ttrue".to_owned(),
+            format!("done\t{LARGE_META_RULES}\t{}\ttrue", LARGE_META_RULES / 3),
+        ]
+    );
+}
+
 #[test]
 fn a_package_in_the_clients_own_namespace_is_refused_and_reaches_none_of_the_hosts_files() {
     assert!(dereth_plugin_api::PluginId::parse(super::HOST_ID).is_some_and(|id| id.is_reserved()));
