@@ -22,6 +22,11 @@
 //! taken out of it ([`keep_winners`]), so only what is drawn is read. Below the stack, the classic
 //! look and the world's own answer as they do for one pack.
 //!
+//! **Each world draws the entries made from its own records** ([`ArtPack::for_world`]): an entry
+//! that names a fingerprint ([`dereth_assets::fingerprint`]) is kept for a world only where the
+//! world's record of its id matches it, the first that does for each id, so one pack carries an
+//! entry for each era's record of an id and a world draws only its own.
+//!
 //! **A pack may lay the ground** ([`PackGround`]): a material for each retail terrain type it
 //! covers, its pictures packed three to a material and brought to one size, so the presentation
 //! holds them all in three arrays.
@@ -48,8 +53,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use dereth_assets::art_pack::{
-    ArtPackManifest, Credit, ManifestCover, ManifestGround, MANIFEST_FILE,
+    ArtPackManifest, Credit, DrawsOn, ManifestCover, ManifestGround, MANIFEST_FILE,
 };
+use dereth_assets::fingerprint::Fingerprint;
 
 pub use dereth_assets::art_pack::{Category, Ground};
 use dereth_primitives::{DataId, Frame};
@@ -179,6 +185,10 @@ pub struct PackModel {
     pub lods: Vec<PackLod>,
     /// A sphere holding every level, model space: centre and radius.
     pub bounds: ([f32; 3], f32),
+    /// The fingerprint of the retail object it was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
+    /// Which records it is drawn on.
+    pub draws_on: DrawsOn,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -231,6 +241,10 @@ pub struct PackSkin {
     /// Its own clips, each by the slot it fills ([`dereth_assets::art_pack::CLIP_SLOTS`]).
     pub clips: Vec<(String, PackClip)>,
     /// Who made it, with what, and under which license.
+    /// The fingerprint of the retail setup it was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
+    /// Which records of its setup it is drawn on.
+    pub draws_on: DrawsOn,
     pub credit: Credit,
 }
 
@@ -269,6 +283,9 @@ pub struct PackGround {
     pub pebbles: bool,
     /// Laid on the steep slopes of its grounds rather than on their flat ground.
     pub steep: bool,
+    /// The fingerprint of the picture the world's region lays its grounds with in the world it
+    /// was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -290,6 +307,7 @@ impl PackGround {
             detail_strength: entry.detail_strength,
             pebbles: entry.pebbles,
             steep: entry.steep,
+            fingerprint: entry.fingerprint,
             credit: entry.credit.clone(),
         }
     }
@@ -818,41 +836,101 @@ fn bounds(lods: &[PackLod]) -> ([f32; 3], f32) {
 /// Leave in each manifest of a stack, bottom first, only what no manifest above it claims: a model
 /// for an object one above has a model for, a ground (flat or steep) one above has a material for,
 /// a retail picture one above has a material for, a cover whose model one above grows, a body for
-/// a setup one above has a body for. A material left with no ground or picture is taken out
-/// whole. `[lighting]` is kept whole in each, to be
-/// merged key by key ([`merged_lighting`]).
+/// a setup one above has a body for. An entry above that names a fingerprint claims its id (a
+/// body's setup) for that record alone ([`claimed`]). A material left with no ground or picture is taken out whole.
+/// `[lighting]` is kept whole in each, to be merged key by key ([`merged_lighting`]).
 pub fn keep_winners(manifests: &mut [ArtPackManifest]) {
-    let mut models: HashSet<DataId> = HashSet::new();
-    let mut grounds: HashSet<(bool, Ground)> = HashSet::new();
-    let mut textures: HashSet<DataId> = HashSet::new();
-    let mut setups: HashSet<DataId> = HashSet::new();
+    let mut models: HashMap<DataId, Vec<Option<Fingerprint>>> = HashMap::new();
+    let mut grounds: HashMap<(bool, Ground), Vec<Option<Fingerprint>>> = HashMap::new();
+    let mut textures: HashMap<DataId, Vec<Option<Fingerprint>>> = HashMap::new();
+    let mut setups: HashMap<DataId, Vec<Option<Fingerprint>>> = HashMap::new();
     for m in manifests.iter_mut().rev() {
-        m.skins.retain(|k| !setups.contains(&k.setup));
-        setups.extend(m.skins.iter().map(|k| k.setup));
-        m.models.retain(|model| !models.contains(&model.id));
-        models.extend(m.models.iter().map(|model| model.id));
+        m.skins
+            .retain(|k| !claimed(setups.get(&k.setup), k.fingerprint.as_ref()));
+        for k in &m.skins {
+            setups.entry(k.setup).or_default().push(k.fingerprint);
+        }
+        m.models
+            .retain(|model| !claimed(models.get(&model.id), model.fingerprint.as_ref()));
+        for model in &m.models {
+            models.entry(model.id).or_default().push(model.fingerprint);
+        }
         let kept: HashSet<DataId> = m.models.iter().map(|model| model.id).collect();
         m.covers.retain(|c| kept.contains(&c.id));
         for g in &mut m.grounds {
-            let steep = g.steep;
-            g.grounds.retain(|k| !grounds.contains(&(steep, *k)));
+            let (steep, print) = (g.steep, g.fingerprint);
+            g.grounds
+                .retain(|k| !claimed(grounds.get(&(steep, *k)), print.as_ref()));
         }
         m.grounds.retain(|g| !g.grounds.is_empty());
-        grounds.extend(
-            m.grounds
-                .iter()
-                .flat_map(|g| g.grounds.iter().map(move |k| (g.steep, *k))),
-        );
+        for g in &m.grounds {
+            for k in &g.grounds {
+                grounds
+                    .entry((g.steep, *k))
+                    .or_default()
+                    .push(g.fingerprint);
+            }
+        }
         for material in &mut m.materials {
-            material.textures.retain(|t| !textures.contains(t));
+            let kept: Vec<(DataId, Option<Fingerprint>)> = material
+                .textures
+                .iter()
+                .copied()
+                .zip(material.fingerprints.iter().copied())
+                .filter(|(t, p)| !claimed(textures.get(t), p.as_ref()))
+                .collect();
+            (material.textures, material.fingerprints) = kept.into_iter().unzip();
         }
         m.materials.retain(|material| !material.textures.is_empty());
-        textures.extend(
-            m.materials
-                .iter()
-                .flat_map(|material| material.textures.iter().copied()),
-        );
+        for material in &m.materials {
+            for (t, p) in material.textures.iter().zip(&material.fingerprints) {
+                textures.entry(*t).or_default().push(*p);
+            }
+        }
     }
+}
+
+/// The fingerprint of the object or picture `id` in `store` ([`dereth_assets::fingerprint`]), as
+/// a pack's entry names the record it was made from; `None` when it will not read.
+#[must_use]
+pub fn record_print(store: &dereth_dat::RetailDatStore, id: DataId) -> Option<Fingerprint> {
+    match dereth_dat::divine_type(id)? {
+        dereth_dat::DbType::Setup | dereth_dat::DbType::GfxObj => Fingerprint::of_model(store, id),
+        _ => {
+            let p = crate::textures::TextureStore::new(store).bgra8(id).ok()?;
+            Some(Fingerprint::of_picture(
+                p.width,
+                p.height,
+                p.pixels.as_flattened(),
+            ))
+        }
+    }
+}
+
+/// The fingerprint of the picture `region` lays `ground` with in `store`.
+#[must_use]
+pub fn laid_print(
+    store: &dereth_dat::RetailDatStore,
+    region: &dereth_assets::Region,
+    ground: Ground,
+) -> Option<Fingerprint> {
+    let tm = region.land_surf.tex_merge.as_ref()?;
+    let t = match ground {
+        Ground::Type(k) => u32::from(k),
+        Ground::Road => dereth_terrain::consts::ROAD_TERRAIN_TYPE,
+    };
+    let desc = dereth_terrain::land::merge::get_terrain_tex(tm, t)?;
+    record_print(store, desc.tex_gid)
+}
+
+/// Whether the entries of a pack above, made from records of the fingerprints `above` (`None`
+/// for one that names none), claim an entry below made from a record of fingerprint `below`: one
+/// above that names none claims every record of the id, and one that names a fingerprint claims
+/// the record of that fingerprint; an entry below that names none is claimed by any above.
+fn claimed(above: Option<&Vec<Option<Fingerprint>>>, below: Option<&Fingerprint>) -> bool {
+    above.is_some_and(|prints| {
+        below.is_none() || prints.iter().any(|p| p.is_none() || p.as_ref() == below)
+    })
 }
 
 /// The lighting of a stack: `above`'s keys over `below`'s, table within table, so a pack that
@@ -1274,6 +1352,8 @@ impl ArtPack {
                 category: entry.category,
                 bounds: bounds(&built),
                 lods: built,
+                fingerprint: entry.fingerprint,
+                draws_on: entry.draws_on,
                 credit: entry.credit.clone(),
             });
         }
@@ -1402,6 +1482,8 @@ impl ArtPack {
                 gfxobjs: skin.gfxobjs,
                 bones: skin.bones,
                 clips,
+                fingerprint: entry.fingerprint,
+                draws_on: entry.draws_on,
                 credit: entry.credit.clone(),
             });
         }
@@ -1596,15 +1678,35 @@ impl ArtPack {
             }
             Pictures::Packed(file) => {
                 images::par_map(manifest.materials.iter().collect(), &|entry| {
-                    let made = file.three(&packed::material_key(entry));
-                    (entry, made.map(|p| materials::with_pictures(entry, p)))
+                    let key = packed::material_key(entry);
+                    let made = if entry.keep_retail_picture {
+                        file.two(&key)
+                            .map(|[n, s]| materials::with_pictures(entry, None, n, s))
+                    } else {
+                        // A pack packed before materials named their height and dampness keeps
+                        // them under the key it was packed with.
+                        let earlier = packed::earlier_material_key(entry);
+                        let key = if file.holds(&key) || !file.holds(&earlier) {
+                            key
+                        } else {
+                            earlier
+                        };
+                        file.three(&key)
+                            .map(|[a, n, s]| materials::with_pictures(entry, Some(a), n, s))
+                    };
+                    (entry, made)
                 })
             }
         };
         if let Some(r) = recording.as_deref_mut() {
             for (entry, m) in &made {
                 if let Ok(m) = m {
-                    let made = vec![m.albedo.clone(), m.normal.clone(), m.surface.clone()];
+                    let made = m
+                        .albedo
+                        .iter()
+                        .cloned()
+                        .chain([m.normal.clone(), m.surface.clone()])
+                        .collect();
                     r.pictures.insert(packed::material_key(entry), made);
                 }
             }
@@ -1684,6 +1786,135 @@ impl ArtPack {
         self.grounds
             .iter()
             .find(|g| g.steep && g.grounds.contains(&ground))
+    }
+
+    /// Whether a world must be asked which of the pack's entries it draws ([`Self::for_world`]):
+    /// some entry names a fingerprint or `draws_on`.
+    #[must_use]
+    pub fn varies_by_world(&self) -> bool {
+        self.models
+            .iter()
+            .any(|m| m.fingerprint.is_some() || m.draws_on != DrawsOn::Matching)
+            || self
+                .skins
+                .iter()
+                .any(|k| k.fingerprint.is_some() || k.draws_on != DrawsOn::Matching)
+            || self.grounds.iter().any(|g| g.fingerprint.is_some())
+            || self.materials.iter().any(|m| {
+                m.draws_on != DrawsOn::Matching || m.fingerprints.iter().any(Option::is_some)
+            })
+    }
+
+    /// The pack as a world draws it: for each object, body, retail picture and ground, the first
+    /// of its entries drawn on the world's record ([`DrawsOn::draws`]), whose fingerprint `record`
+    /// gives for an object, setup or picture and `laid` for the picture a ground is laid with
+    /// (`None` where it is not known, which every entry is drawn on). Materials and bodies told
+    /// apart by palette are each kept, the first drawn on the record for each id and palettes, and
+    /// chosen among as the picture or object is drawn. The pictures are shared with this pack, not
+    /// copied.
+    #[must_use]
+    pub fn for_world(
+        &self,
+        record: &mut dyn FnMut(DataId) -> Option<Fingerprint>,
+        laid: &mut dyn FnMut(Ground) -> Option<Fingerprint>,
+    ) -> Self {
+        let mut prints: HashMap<DataId, Option<Fingerprint>> = HashMap::new();
+        // The world's record is read only for an entry that names a fingerprint to match.
+        let mut drawn_on = |on: DrawsOn, made_from: Option<&Fingerprint>, id: DataId| match on {
+            DrawsOn::Nothing => false,
+            DrawsOn::Any => true,
+            DrawsOn::Matching => made_from.is_none_or(|f| {
+                prints
+                    .entry(id)
+                    .or_insert_with(|| record(id))
+                    .is_none_or(|r| f.matches(&r))
+            }),
+        };
+        let mut out = self.clone();
+        let mut drawn: HashSet<DataId> = HashSet::new();
+        out.models.retain(|m| {
+            let draws =
+                !drawn.contains(&m.id) && drawn_on(m.draws_on, m.fingerprint.as_ref(), m.id);
+            if draws {
+                drawn.insert(m.id);
+            }
+            draws
+        });
+        let mut drawn: HashSet<(DataId, Vec<DataId>)> = HashSet::new();
+        for m in &mut out.materials {
+            let kept: Vec<(DataId, Option<Fingerprint>)> = m
+                .textures
+                .iter()
+                .copied()
+                .zip(m.fingerprints.iter().copied())
+                .filter(|(t, p)| {
+                    let draws = !drawn.contains(&(*t, m.palettes.clone()))
+                        && drawn_on(m.draws_on, p.as_ref(), *t);
+                    if draws {
+                        drawn.insert((*t, m.palettes.clone()));
+                    }
+                    draws
+                })
+                .collect();
+            (m.textures, m.fingerprints) = kept.into_iter().unzip();
+        }
+        out.materials.retain(|m| !m.textures.is_empty());
+        let mut drawn: HashSet<(DataId, Vec<u32>)> = HashSet::new();
+        out.skins.retain(|k| {
+            let draws = !drawn.contains(&(k.setup, k.palettes.clone()))
+                && drawn_on(k.draws_on, k.fingerprint.as_ref(), k.setup);
+            if draws {
+                drawn.insert((k.setup, k.palettes.clone()));
+            }
+            draws
+        });
+        let mut laid_prints: HashMap<Ground, Option<Fingerprint>> = HashMap::new();
+        let mut drawn: HashSet<(bool, Ground)> = HashSet::new();
+        for g in &mut out.grounds {
+            let (steep, made_from) = (g.steep, g.fingerprint);
+            g.grounds.retain(|k| {
+                let world = made_from.and(*laid_prints.entry(*k).or_insert_with(|| laid(*k)));
+                let draws = !drawn.contains(&(steep, *k))
+                    && DrawsOn::Matching.draws(made_from.as_ref(), world.as_ref());
+                if draws {
+                    drawn.insert((steep, *k));
+                }
+                draws
+            });
+        }
+        out.grounds.retain(|g| !g.grounds.is_empty());
+        out
+    }
+
+    /// [`Self::for_world`] for the world whose files are `store`, its records' fingerprints read
+    /// from them ([`record_print`], [`laid_print`]); the pack itself where no entry varies by
+    /// world.
+    #[cfg(feature = "remaster")]
+    #[must_use]
+    pub fn for_store(pack: &Arc<Self>, store: &dereth_dat::RetailDatStore) -> Arc<Self> {
+        if !pack.varies_by_world() {
+            return Arc::clone(pack);
+        }
+        let started = web_time::Instant::now();
+        let region = crate::world_scene::world_region(store).ok();
+        let world = pack.for_world(&mut |id| record_print(store, id), &mut |g| {
+            region.as_ref().and_then(|r| laid_print(store, r, g))
+        });
+        tracing::info!(
+            "art pack {:?} for this world's files: {} of {} models, {} of {} bodies, {} of {} \
+             materials and {} of {} grounds drawn, chosen in {:.2} s",
+            pack.name,
+            world.models.len(),
+            pack.models.len(),
+            world.skins.len(),
+            pack.skins.len(),
+            world.materials.len(),
+            pack.materials.len(),
+            world.grounds.len(),
+            pack.grounds.len(),
+            started.elapsed().as_secs_f64()
+        );
+        Arc::new(world)
     }
 
     /// How many triangles every level of every model holds.
@@ -1903,7 +2134,13 @@ license = "CC0-1.0"
         .expect("the pack opens");
         assert_eq!(pack.materials.len(), 1, "{:?}", pack.problems);
         let wall = &pack.materials[0];
-        assert_eq!((wall.albedo.width, wall.albedo.height), (16, 16));
+        assert_eq!(
+            (
+                wall.albedo.as_ref().expect("a base color").width,
+                wall.albedo.as_ref().expect("a base color").height
+            ),
+            (16, 16)
+        );
         assert_eq!((wall.normal.width, wall.normal.height), (4, 4));
         assert_eq!((wall.surface.width, wall.surface.height), (4, 4));
     }
@@ -1977,13 +2214,16 @@ license = "CC0-1.0"
         assert_eq!(pack.material_of(DataId(0x0500_1CB4)), None);
         let wall = &pack.materials[0];
         // Read as stored, as the retail picture is, and compressed in blocks.
-        assert!(!wall.albedo.srgb);
-        assert_eq!(wall.albedo.format, Some(images::BlockFormat::Bc7));
+        assert!(!wall.albedo.as_ref().expect("a base color").srgb);
+        assert_eq!(
+            wall.albedo.as_ref().expect("a base color").format,
+            Some(images::BlockFormat::Bc7)
+        );
         let texels = dereth_render::block_codec::decode(
             images::BlockFormat::Bc7,
             8,
             8,
-            &wall.albedo.levels[0],
+            &wall.albedo.as_ref().expect("a base color").levels[0],
         );
         // The cut-away half keeps its alpha, the rest its color.
         for y in 0..8 {
@@ -2006,10 +2246,12 @@ license = "CC0-1.0"
         );
         let x = f32::from(normal[0]) / 255.0 * 2.0 - 1.0;
         assert!((x - 0.5).abs() < 0.04, "{x}");
-        // The roughness and occlusion at half the size; occlusion none where it names none.
+        // The roughness and occlusion at half the size, with the height and dampness in blue and
+        // alpha; occlusion none where it names none.
         assert_eq!((wall.surface.width, wall.surface.height), (4, 4));
+        assert_eq!(wall.surface.format, Some(images::BlockFormat::Bc7));
         let surface = dereth_render::block_codec::decode(
-            images::BlockFormat::Bc5,
+            images::BlockFormat::Bc7,
             4,
             4,
             &wall.surface.levels[0],
@@ -2020,7 +2262,13 @@ license = "CC0-1.0"
             &surface[..4]
         );
         let floor = &pack.materials[1];
-        assert_eq!((floor.albedo.width, floor.albedo.height), (8, 8));
+        assert_eq!(
+            (
+                floor.albedo.as_ref().expect("a base color").width,
+                floor.albedo.as_ref().expect("a base color").height
+            ),
+            (8, 8)
+        );
     }
 
     #[test]
@@ -2245,6 +2493,7 @@ license = "CC0-1.0"
             detail_strength: 1.0,
             pebbles: true,
             steep: false,
+            fingerprint: None,
             credit: Credit::default(),
         });
         let mut asked = Vec::new();
@@ -2708,5 +2957,262 @@ launchers = true
         assert_eq!(merged["tint"].as_float(), Some(0.5));
         assert_eq!(merged["rainy"]["fog_density"].as_float(), Some(1.5));
         assert_eq!(merged["rainy"]["haze"].as_float(), Some(0.3));
+    }
+
+    const EOR_PRINT: &str = "picture 64x128 0000f5ffffc30000";
+    const OLD_PRINT: &str = "picture 32x64 008cecf7f7fffff7";
+
+    /// A pack with a material for each era's record of one picture, a material for any record
+    /// of another, one told apart by palette, and a ground for end of retail's grass alone.
+    fn eras_pack() -> ArtPack {
+        let mut files = HashMap::new();
+        for name in [
+            "m/eor.png",
+            "m/old.png",
+            "m/any.png",
+            "m/golem.png",
+            "g/grass.png",
+        ] {
+            files.insert(
+                name.to_owned(),
+                png_of(4, 4, &[90, 120, 60, 255].repeat(16)),
+            );
+        }
+        let manifest = format!(
+            "[pack]\nname = \"Eras\"\nformat = 1\n\
+             [[material]]\ntexture = \"0x0500001F\"\nfingerprint = \"{EOR_PRINT}\"\nbase_color = \"m/eor.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x0500001F\"\nfingerprint = \"{OLD_PRINT}\"\nbase_color = \"m/old.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x05000020\"\nbase_color = \"m/any.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x05001310\"\npalettes = [\"0x04000BA5\"]\nbase_color = \"m/golem.png\"\n{CREDIT}\
+             [[terrain]]\nground = [1]\nfingerprint = \"{EOR_PRINT}\"\nbase_color = \"g/grass.png\"\nsize = 4\n{CREDIT}"
+        );
+        ArtPack::open(&manifest, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens")
+    }
+
+    /// Each world draws the entry made from its own record of a picture, an entry that names no
+    /// record wherever it is, a ground only where the region lays the picture it was made for,
+    /// and keeps a material told apart by palette.
+    #[test]
+    fn each_world_draws_the_entries_made_from_its_own_records() {
+        let pack = eras_pack();
+        assert!(pack.varies_by_world());
+        assert_eq!(pack.materials.len(), 4, "{:?}", pack.problems);
+        assert!(pack.materials.iter().all(|m| m.albedo.is_some()));
+        let world = |picture: &str| {
+            let print = Fingerprint::parse(picture);
+            pack.for_world(
+                &mut |id| (id == DataId(0x0500_001F)).then_some(print).flatten(),
+                &mut |_| print,
+            )
+        };
+        let eor = world(EOR_PRINT);
+        let old = world(OLD_PRINT);
+        let base_of = |p: &ArtPack, id: u32| {
+            p.material_of(DataId(id))
+                .map(|i| p.materials[i].fingerprints[0])
+        };
+        assert_eq!(
+            base_of(&eor, 0x0500_001F),
+            Some(Fingerprint::parse(EOR_PRINT))
+        );
+        assert_eq!(
+            base_of(&old, 0x0500_001F),
+            Some(Fingerprint::parse(OLD_PRINT))
+        );
+        for p in [&eor, &old] {
+            assert!(p.material_of(DataId(0x0500_0020)).is_some(), "any record");
+            assert!(
+                p.material_of(DataId(0x0500_1310)).is_some(),
+                "told apart by palette"
+            );
+            assert_eq!(p.materials.len(), 3);
+        }
+        assert!(eor.ground(Ground::Type(1)).is_some());
+        assert!(
+            old.ground(Ground::Type(1)).is_none(),
+            "laid with another picture"
+        );
+        let unknown = pack.for_world(&mut |_| None, &mut |_| None);
+        assert_eq!(
+            base_of(&unknown, 0x0500_001F),
+            Some(Fingerprint::parse(EOR_PRINT)),
+            "a record that will not read is drawn on by the first entry"
+        );
+        assert!(
+            Arc::ptr_eq(
+                &eor.materials[0]
+                    .albedo
+                    .as_ref()
+                    .expect("a base color")
+                    .levels[0],
+                &pack.materials[0]
+                    .albedo
+                    .as_ref()
+                    .expect("a base color")
+                    .levels[0]
+            ),
+            "the pictures are the pack's, not copies"
+        );
+    }
+
+    /// A pack whose entries name no record is the same for every world, and is not asked.
+    #[test]
+    fn a_pack_that_names_no_records_is_the_same_for_every_world() {
+        let mut files = HashMap::new();
+        files.insert(
+            "m/a.png".to_owned(),
+            png_of(4, 4, &[1, 2, 3, 255].repeat(16)),
+        );
+        let manifest = format!(
+            "[pack]\nname = \"Plain\"\nformat = 1\n\
+             [[material]]\ntexture = \"0x0500001F\"\nbase_color = \"m/a.png\"\n{CREDIT}"
+        );
+        let pack = ArtPack::open(&manifest, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens");
+        assert!(!pack.varies_by_world());
+        let pack = Arc::new(pack);
+        let mut asked = false;
+        let world = pack.for_world(
+            &mut |_| {
+                asked = true;
+                None
+            },
+            &mut |_| None,
+        );
+        assert!(!asked, "no record is read");
+        assert_eq!(world.materials.len(), 1);
+    }
+
+    /// A pack above that names a record claims that record alone from the packs below; one that
+    /// names none claims every record of the id.
+    #[test]
+    fn a_pack_above_claims_only_the_records_it_names() {
+        let manifest = |text: &str| ArtPackManifest::parse(text).expect("the manifest reads");
+        let bottom = format!(
+            "[pack]\nname = \"Bottom\"\nformat = 1\n\
+             [[material]]\ntexture = \"0x0500001F\"\nfingerprint = \"{OLD_PRINT}\"\nbase_color = \"m/a.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x05000020\"\nfingerprint = \"{OLD_PRINT}\"\nbase_color = \"m/b.png\"\n{CREDIT}"
+        );
+        let top = format!(
+            "[pack]\nname = \"Top\"\nformat = 1\n\
+             [[material]]\ntexture = \"0x0500001F\"\nfingerprint = \"{EOR_PRINT}\"\nbase_color = \"m/c.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x05000020\"\nbase_color = \"m/d.png\"\n{CREDIT}"
+        );
+        let mut stack = vec![manifest(&bottom), manifest(&top)];
+        keep_winners(&mut stack);
+        assert_eq!(
+            stack[0].materials.iter().map(|m| m.textures[0]).collect::<Vec<_>>(),
+            [DataId(0x0500_001F)],
+            "2005's record of the first is still the bottom pack's; every record of the second is the top's"
+        );
+    }
+
+    const EOR_MODEL: &str = "model 0123456789abcdef";
+    const OLD_MODEL: &str = "model fedcba9876543210";
+
+    /// A body for each era's record of the human's setup, and one that names no record for
+    /// another setup.
+    fn era_bodies() -> ArtPack {
+        let files: HashMap<String, Vec<u8>> =
+            skin_files("a.png", [200, 0, 0, 255]).into_iter().collect();
+        let body = |setup: &str, print: Option<&str>| {
+            let print = print.map_or(String::new(), |p| format!("fingerprint = \"{p}\"\n"));
+            format!("[[skin]]\nsetup = \"{setup}\"\nfile = \"skin/body.gltf\"\n{print}{CREDIT}")
+        };
+        let manifest = format!(
+            "[pack]\nname = \"Bodies\"\nformat = 1\n{}{}{}",
+            body("0x02000001", Some(EOR_MODEL)),
+            body("0x02000001", Some(OLD_MODEL)),
+            body("0x0200004E", None)
+        );
+        ArtPack::open(&manifest, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens")
+    }
+
+    /// Each world draws the body made from its own record of a setup, and a body that names no
+    /// record on every world.
+    #[test]
+    fn each_world_draws_the_body_made_from_its_own_setup() {
+        let pack = era_bodies();
+        assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+        assert_eq!(pack.skins.len(), 3, "both eras' bodies for one setup load");
+        assert!(pack.varies_by_world());
+        let world = |print: Option<&str>| {
+            let print = print.and_then(Fingerprint::parse);
+            pack.for_world(
+                &mut |id| (id == DataId(0x0200_0001)).then_some(print).flatten(),
+                &mut |_| None,
+            )
+        };
+        let bodies = |p: &ArtPack| {
+            p.skins
+                .iter()
+                .map(|k| (k.setup.0, k.fingerprint))
+                .collect::<Vec<_>>()
+        };
+        let other = (0x0200_004E, None);
+        assert_eq!(
+            bodies(&world(Some(EOR_MODEL))),
+            [(0x0200_0001, Fingerprint::parse(EOR_MODEL)), other]
+        );
+        assert_eq!(
+            bodies(&world(Some(OLD_MODEL))),
+            [(0x0200_0001, Fingerprint::parse(OLD_MODEL)), other]
+        );
+        assert_eq!(
+            bodies(&world(Some("model 1111111111111111"))),
+            [other],
+            "a world with neither era's setup draws no body for it"
+        );
+        assert_eq!(
+            bodies(&world(None)),
+            [(0x0200_0001, Fingerprint::parse(EOR_MODEL)), other],
+            "a setup that will not read is drawn on by the first body"
+        );
+        let mut plain = pack.clone();
+        plain.skins.retain(|k| k.fingerprint.is_none());
+        assert!(!plain.varies_by_world(), "a body that names no record");
+    }
+
+    /// A pack above that names a setup's record takes only that record's body from the packs
+    /// below.
+    #[test]
+    fn a_pack_above_claims_only_the_bodies_of_the_records_it_names() {
+        let manifest = |name: &str, print: &str| {
+            ArtPackManifest::parse(&format!(
+                "[pack]\nname = \"{name}\"\nformat = 1\n\
+                 [[skin]]\nsetup = \"0x02000001\"\nfile = \"b.gltf\"\nfingerprint = \"{print}\"\n{CREDIT}"
+            ))
+            .expect("the manifest reads")
+        };
+        let mut stack = vec![manifest("Bottom", OLD_MODEL), manifest("Top", EOR_MODEL)];
+        keep_winners(&mut stack);
+        assert_eq!(
+            stack[0].skins.len(),
+            1,
+            "2005's body is still the bottom pack's"
+        );
+        let mut stack = vec![manifest("Bottom", EOR_MODEL), manifest("Top", EOR_MODEL)];
+        keep_winners(&mut stack);
+        assert!(
+            stack[0].skins.is_empty(),
+            "the same record's body is the top's"
+        );
     }
 }

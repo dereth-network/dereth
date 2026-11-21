@@ -137,7 +137,9 @@
 //! `max_slope` to 0.6. Covers that name the same levels share one model, each growing it on its
 //! own types as thickly as it says. Covers of several packs in a stack all grow, unless two name
 //! the same first file: then the one above wins. Where a cover grows, a pack can thin or take away the grass and
-//! flowers the presentation grows itself through its `[lighting]`'s grass tables.
+//! flowers the presentation grows itself through its `[lighting]`'s grass tables. A cover stands
+//! for no retail record, so it has no era of its own: a `fingerprint` or `draws_on` on it is read
+//! past like any other key it does not use.
 //!
 //! A pack may also draw a picture of its own in place of a retail picture, wherever a retail
 //! object or room is drawn with it: buildings, statics, rooms, dungeon pieces and what the
@@ -155,13 +157,36 @@
 //!                                                  # width, green up it
 //! roughness = "materials/0x0500287C_roughness.png" # red
 //! occlusion = "materials/0x0500287C_occlusion.png" # red
+//! height = "materials/0x0500287C_height.png"       # red; white the surface, black its deepest
 //! normal_scale = 1.0         # how strongly the normal picture bends the normal
+//! keep_retail_picture = true # draw the player's own retail picture, not base_color
+//! damp = 0.8                 # 0 to 1: how damp it looks in a room
+//! damp_map = "materials/0x0500287C_damp.png"       # red: white as damp as damp says, black dry
 //! author = "..."
 //! tool = "..."
 //! license = "..."
 //! ```
 //!
-//! Only `texture`, `base_color` and the credit are required.
+//! Only `texture`, `base_color` and the credit are required. A material that names
+//! `keep_retail_picture = true` keeps drawing the retail picture, in whichever form the player's
+//! files hold it, and adds only what its other pictures say of the surface: its relief, its
+//! roughness and occlusion. Its `base_color` is then a flat colour for a reader that draws no
+//! relief, and is neither read nor drawn here. Such a pack carries none of the retail art: the
+//! player's own copy is drawn, and the pack's pictures say only how its surface lies.
+//!
+//! A material's pictures are packed as the base color (none where it keeps the retail picture),
+//! the normal at its own size, and one surface picture at about half its pictures' size holding
+//! the roughness, the occlusion, the height and how damp it is in red, green, blue and alpha.
+//! `metal`, `brighten`, `gloss`, `clear`, `refraction` and `wet` say what it is made of; a
+//! material that names one of them needs no picture of its own.
+//!
+//! **What a reader may leave out.** A reader of this format draws what it knows of a pack and
+//! leaves the rest, refusing nothing for it: a key it does not know is read past, and a table it
+//! does not know (`[[light]]`, `[[moon]]`) is not read. This reader leaves out
+//! `height`, `damp` and `damp_map` once packed (they shape the surface picture, which it reads),
+//! and a material's `grit`, `grit_repeat`, `damp_floors`, `slime`, `ice`, `sheen` and what it is
+//! made of; a model's `wind`; a ground's colours beyond its pictures. Each is drawn as if the pack
+//! had not named it.
 //!
 //! **A model's category** says which of a player's switches turns it on: `tree`, `plant`, `rock`
 //! or `water` (growth in and by the water: lily pads, reeds). A model that names none is a tree
@@ -187,6 +212,8 @@
 //! A setup may have several bodies, each for the objects whose look carries one of its
 //! `palettes` (palette ids, `0x04...`, as a server's description of the object lays them over
 //! its parts): the first that matches is drawn, and a body that names none is drawn for the rest.
+//! A body may also name the fingerprint of the setup it was made for, as a model does (below), so
+//! a pack can carry one body for each era's setup under the same id.
 //!
 //! A body's clips (`clips`) name an animation of its glTF, by name, for each motion slot it
 //! fills ([`CLIP_SLOTS`]). The slots are the same for every creature: the client plays the one for
@@ -238,13 +265,46 @@
 //! art pack source (`dereth-art-catalog`); a pack opened from its folder or its file needs
 //! none of them. The id is lowercase words joined by dots, its author's own domain reversed and
 //! a name (`com.example.holtburg-houses`); the version is `MAJOR.MINOR.PATCH`; `made_for` names
-//! the data the pack's ids are chosen from, `end-of-retail` or `1999` (a pack only replaces
-//! things by their ids, so it draws on any world whose data has them).
+//! the data the pack's ids are chosen from, `end-of-retail`, `2005` or `1999` (a pack only
+//! replaces things by their ids, so it draws on any world whose data has them).
+//!
+//! **Which era's record an entry is for.** The eras' files hold other art under some of the same
+//! ids: Throne of Destiny repainted pictures and remade models in place. A `[[model]]`, `[[skin]]`,
+//! `[[material]]`, `[[terrain]]` or `[[steep]]` may name the fingerprint of the retail record it
+//! was made from ([`crate::fingerprint`]), and is then drawn only on a world whose record of that
+//! id matches it, so one id may have an entry for each era's record of it:
+//!
+//! ```toml
+//! [[material]]
+//! texture = "0x0500001F"
+//! fingerprint = "picture 64x128 0000f5ffffc30000"   # end of retail's picture
+//! ...
+//!
+//! [[material]]
+//! texture = "0x0500001F"
+//! fingerprint = "picture 32x64 008cecf7f7fffff7"    # 2005's picture under the same id
+//! ...
+//! ```
+//!
+//! A material for several pictures names a list of fingerprints, one for each. A `[[terrain]]`
+//! or `[[steep]]` material's fingerprint is that of the picture the world's region lays its
+//! grounds with. A `[[skin]]`'s is that of its setup (`model <hash>`, as a `[[model]]` names).
+//! An entry that names none is drawn on any record, as before. `draws_on = "any"` draws a model,
+//! body or material on any record whatever its fingerprint, and `draws_on = "none"` on
+//! none. Where several entries are for one id (for bodies, one setup and its palettes), the first
+//! that is drawn on the world's record draws it; two entries for one id may not name the same fingerprint, and an entry that names
+//! none may only come after those that do. A material may name `palettes`, the palette records
+//! (`0x04...`) it is drawn in alone, for one picture several creatures wear, told apart by
+//! palette; a reader that does not tell palettes apart leaves such a material out.
 //!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
 
+use std::collections::HashMap;
+
 use dereth_primitives::DataId;
+
+pub use crate::fingerprint::Fingerprint;
 
 /// The manifest format this module reads.
 pub const FORMAT: i64 = 1;
@@ -298,7 +358,7 @@ pub struct About {
 }
 
 /// The data a pack's ids may be chosen from ([`About::made_for`]).
-pub const MADE_FOR: [&str; 2] = ["end-of-retail", "1999"];
+pub const MADE_FOR: [&str; 3] = ["end-of-retail", "2005", "1999"];
 
 /// Whether `id` is a pack id: lowercase words of letters, digits and `-`, joined by dots, at
 /// least two of them, at most 128 bytes in all.
@@ -436,8 +496,26 @@ pub struct ManifestMaterial {
     pub roughness: Option<String>,
     /// The ambient occlusion picture, in its red.
     pub occlusion: Option<String>,
+    /// The height picture, in its red: white the surface, black its deepest.
+    pub height: Option<String>,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Draw the player's own retail picture, not [`Self::base_color`], which is then a flat
+    /// colour for a reader that draws no relief and is neither read nor drawn here.
+    pub keep_retail_picture: bool,
+    /// How damp it looks in a room, 0 to 1.
+    pub damp: f32,
+    /// Where it is damp, in its red: white as damp as [`Self::damp`] says, black dry.
+    pub damp_map: Option<String>,
+    /// What it is made of beyond its pictures.
+    pub matter: Matter,
+    /// The fingerprint of the retail picture each of [`Self::textures`] was made from, where it
+    /// names one.
+    pub fingerprints: Vec<Option<Fingerprint>>,
+    /// Which records it is drawn on.
+    pub draws_on: DrawsOn,
+    /// The palettes (`0x04...`) it is drawn in alone; any, where it names none.
+    pub palettes: Vec<DataId>,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -490,8 +568,60 @@ pub struct ManifestSkin {
     pub clips: Vec<(String, String)>,
     /// Clips listed by the animation (`0x03...`) they were played for, as packs once named them.
     pub by_animation: Vec<(DataId, String)>,
+    /// The fingerprint of the retail setup it was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
+    /// Which records of its setup it is drawn on.
+    pub draws_on: DrawsOn,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
+}
+
+/// What a material is made of beyond its pictures: a metal, how smooth, or clear as ice or a gem.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Matter {
+    /// A metal, its picture brightened this many times to its colour.
+    pub metal: Option<f32>,
+    /// How smooth it is where no roughness picture says, 0 to 1.
+    pub gloss: Option<f32>,
+    /// Clear in its picture's own colour, this share of the world behind seen through it.
+    pub clear: Option<f32>,
+    /// How strongly a clear material bends light: its index of refraction.
+    pub refraction: f32,
+    /// How much of a film of water lies on it, 0 to 1.
+    pub wet: Option<f32>,
+}
+
+impl Matter {
+    /// Whether it says nothing beyond its pictures.
+    #[must_use]
+    pub fn is_plain(&self) -> bool {
+        self.metal.is_none() && self.gloss.is_none() && self.clear.is_none() && self.wet.is_none()
+    }
+}
+
+/// Which retail records an entry is drawn on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DrawsOn {
+    /// Those whose fingerprint matches its own; any, where it names none.
+    #[default]
+    Matching,
+    /// Any record of its id.
+    Any,
+    /// None: the entry is not drawn.
+    Nothing,
+}
+
+impl DrawsOn {
+    /// Whether an entry made from a record of fingerprint `made_from` is drawn on a record of
+    /// fingerprint `record`; a record whose fingerprint is not known is drawn on as any.
+    #[must_use]
+    pub fn draws(self, made_from: Option<&Fingerprint>, record: Option<&Fingerprint>) -> bool {
+        match (self, made_from, record) {
+            (Self::Nothing, _, _) => false,
+            (Self::Matching, Some(a), Some(b)) => a.matches(b),
+            _ => true,
+        }
+    }
 }
 
 /// A retail ground a pack's material is drawn for.
@@ -535,6 +665,9 @@ pub struct ManifestGround {
     /// Laid on the steep slopes of its grounds rather than on their flat ground: a `[[steep]]`
     /// table's.
     pub steep: bool,
+    /// The fingerprint of the picture the world's region lays its grounds with in the world it
+    /// was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -553,6 +686,10 @@ pub struct ManifestModel {
     pub foliage: bool,
     /// Which switch turns it on: the one it names, or the one it is taken for.
     pub category: Category,
+    /// The fingerprint of the retail object it was made for, where it names one.
+    pub fingerprint: Option<Fingerprint>,
+    /// Which records it is drawn on.
+    pub draws_on: DrawsOn,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -683,7 +820,9 @@ impl ArtPackManifest {
                 return fail(format!("model {} is not a table", i + 1));
             };
             let model = model(m).map_err(|e| ManifestError(format!("model {}: {}", i + 1, e.0)))?;
-            if models.iter().any(|o| o.id == model.id) {
+            if models.iter().any(|o| {
+                o.id == model.id && (o.fingerprint.is_none() || o.fingerprint == model.fingerprint)
+            }) {
                 return fail(format!("{:#010X} is listed twice", model.id.0));
             }
             models.push(model);
@@ -709,10 +848,11 @@ impl ArtPackManifest {
                     ));
                 }
                 for k in &ground.grounds {
-                    if grounds
-                        .iter()
-                        .any(|o| o.steep == steep && o.grounds.contains(k))
-                    {
+                    if grounds.iter().any(|o| {
+                        o.steep == steep
+                            && o.grounds.contains(k)
+                            && (o.fingerprint.is_none() || o.fingerprint == ground.fingerprint)
+                    }) {
                         return fail(format!("{kind} {}: {k:?} has a material already", i + 1));
                     }
                 }
@@ -724,6 +864,8 @@ impl ArtPackManifest {
             Some(toml::Value::Array(a)) => a,
             Some(_) => return fail("`material` is not a list of [[material]] tables"),
         };
+        // The materials for each picture so far, so a pack of thousands is checked quickly.
+        let mut material_at: HashMap<DataId, Vec<usize>> = HashMap::new();
         let mut materials: Vec<ManifestMaterial> = Vec::with_capacity(listed.len());
         for (i, m) in listed.iter().enumerate() {
             let Some(m) = m.as_table() else {
@@ -731,14 +873,27 @@ impl ArtPackManifest {
             };
             let material =
                 material(m).map_err(|e| ManifestError(format!("material {}: {}", i + 1, e.0)))?;
-            for t in &material.textures {
-                if materials.iter().any(|o| o.textures.contains(t)) {
+            for (t, print) in material.textures.iter().zip(&material.fingerprints) {
+                let same = material_at.get(t).map_or(&[][..], Vec::as_slice);
+                if same.iter().map(|&j| &materials[j]).any(|o| {
+                    let apart = !o.palettes.is_empty()
+                        && !material.palettes.is_empty()
+                        && !o.palettes.iter().any(|p| material.palettes.contains(p));
+                    !apart
+                        && o.textures
+                            .iter()
+                            .zip(&o.fingerprints)
+                            .any(|(u, p)| u == t && (p.is_none() || p == print))
+                }) {
                     return fail(format!(
                         "material {}: {:#010X} has a material already",
                         i + 1,
                         t.0
                     ));
                 }
+            }
+            for t in &material.textures {
+                material_at.entry(*t).or_default().push(materials.len());
             }
             materials.push(material);
         }
@@ -779,10 +934,12 @@ impl ArtPackManifest {
                 return fail(format!("skin {} is not a table", i + 1));
             };
             let one = skin(k).map_err(|e| ManifestError(format!("skin {}: {}", i + 1, e.0)))?;
-            if skins
-                .iter()
-                .any(|o| o.setup == one.setup && o.palettes.is_empty() && one.palettes.is_empty())
-            {
+            if skins.iter().any(|o| {
+                o.setup == one.setup
+                    && o.palettes.is_empty()
+                    && one.palettes.is_empty()
+                    && (o.fingerprint.is_none() || o.fingerprint == one.fingerprint)
+            }) {
                 return fail(format!(
                     "skin {}: {:#010X} has a skin already",
                     i + 1,
@@ -1007,6 +1164,7 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         detail_strength,
         pebbles,
         steep: false,
+        fingerprint: fingerprints_of(t.get("fingerprint"), 1)?.remove(0),
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1044,8 +1202,79 @@ fn textures_of(v: Option<&toml::Value>) -> Result<Vec<DataId>, ManifestError> {
     Ok(textures)
 }
 
+/// The fingerprints `v` names for `count` records: one text, or a list of one for each.
+fn fingerprints_of(
+    v: Option<&toml::Value>,
+    count: usize,
+) -> Result<Vec<Option<Fingerprint>>, ManifestError> {
+    let one = |v: &toml::Value| -> Result<Fingerprint, ManifestError> {
+        v.as_str()
+            .and_then(Fingerprint::parse)
+            .map_or_else(|| fail(format!("fingerprint {v} is not one")), Ok)
+    };
+    match v {
+        None => Ok(vec![None; count]),
+        Some(toml::Value::Array(a)) if a.len() == count => {
+            a.iter().map(|v| one(v).map(Some)).collect()
+        }
+        Some(toml::Value::Array(_)) => fail(format!("fingerprint does not name {count}")),
+        Some(v) if count == 1 => Ok(vec![Some(one(v)?)]),
+        Some(_) => fail(format!("fingerprint does not name {count}")),
+    }
+}
+
+/// The palettes `v` names: palette records (`0x04...`), one or a list.
+fn palettes_of(v: Option<&toml::Value>) -> Result<Vec<DataId>, ManifestError> {
+    let one = |v: &toml::Value| -> Result<DataId, ManifestError> {
+        let id = v
+            .as_str()
+            .and_then(|s| s.trim().strip_prefix("0x"))
+            .and_then(|d| u32::from_str_radix(d, 16).ok());
+        match id {
+            Some(id) if id >> 24 == 0x04 => Ok(DataId(id)),
+            _ => fail(format!("palette {v} is not a palette record (0x04...)")),
+        }
+    };
+    match v {
+        None => Ok(Vec::new()),
+        Some(toml::Value::Array(a)) => a.iter().map(one).collect(),
+        Some(v) => Ok(vec![one(v)?]),
+    }
+}
+
+/// The records an entry is drawn on, as its `draws_on` says.
+fn draws_on(t: &toml::Table) -> Result<DrawsOn, ManifestError> {
+    match t.get("draws_on").map(|v| v.as_str()) {
+        None | Some(Some("matching")) => Ok(DrawsOn::Matching),
+        Some(Some("any")) => Ok(DrawsOn::Any),
+        Some(Some("none")) => Ok(DrawsOn::Nothing),
+        Some(_) => fail("draws_on is not matching, any or none"),
+    }
+}
+
 fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
     let textures = textures_of(t.get("texture"))?;
+    let fingerprints = fingerprints_of(t.get("fingerprint"), textures.len())?;
+    let flag = |key: &str| match t.get(key) {
+        None => Ok(false),
+        Some(toml::Value::Boolean(b)) => Ok(*b),
+        Some(v) => fail(format!("{key} {v} is not true or false")),
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // A share or an index, well inside both types' range.
+    let number = |key: &str, lo: f64, hi: f64| match t.get(key) {
+        None => Ok(None),
+        Some(toml::Value::Float(f)) if (lo..=hi).contains(f) => Ok(Some(*f as f32)),
+        Some(toml::Value::Integer(i)) if (lo..=hi).contains(&(*i as f64)) => Ok(Some(*i as f32)),
+        Some(v) => fail(format!("{key} {v} is not a number from {lo} to {hi}")),
+    };
+    let matter = Matter {
+        metal: flag("metal")?.then_some(number("brighten", 0.1, 20.0)?.unwrap_or(1.0)),
+        gloss: number("gloss", 0.0, 1.0)?,
+        clear: number("clear", 0.0, 1.0)?,
+        refraction: number("refraction", 1.0, 3.0)?.unwrap_or(1.31),
+        wet: number("wet", 0.0, 1.0)?,
+    };
     let picture = |key: &str| -> Result<Option<String>, ManifestError> {
         match t.get(key) {
             None => Ok(None),
@@ -1072,7 +1301,15 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
         normal: picture("normal")?,
         roughness: picture("roughness")?,
         occlusion: picture("occlusion")?,
+        height: picture("height")?,
         normal_scale,
+        keep_retail_picture: flag("keep_retail_picture")?,
+        damp: number("damp", 0.0, 1.0)?.unwrap_or(0.0),
+        damp_map: picture("damp_map")?,
+        matter,
+        fingerprints,
+        draws_on: draws_on(t)?,
+        palettes: palettes_of(t.get("palettes"))?,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1139,6 +1376,8 @@ fn skin(t: &toml::Table) -> Result<ManifestSkin, ManifestError> {
         palettes,
         clips,
         by_animation,
+        fingerprint: fingerprints_of(t.get("fingerprint"), 1)?.remove(0),
+        draws_on: draws_on(t)?,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1149,7 +1388,11 @@ fn skin(t: &toml::Table) -> Result<ManifestSkin, ManifestError> {
 
 fn model(t: &toml::Table) -> Result<ManifestModel, ManifestError> {
     let id = object_id(t.get("id").and_then(toml::Value::as_str).unwrap_or(""))?;
-    shape(t, id, "model")
+    Ok(ManifestModel {
+        fingerprint: fingerprints_of(t.get("fingerprint"), 1)?.remove(0),
+        draws_on: draws_on(t)?,
+        ..shape(t, id, "model")?
+    })
 }
 
 /// A cover's model, listed under its first file's id, and how it grows.
@@ -1348,6 +1591,8 @@ fn shape(t: &toml::Table, id: DataId, kind: &str) -> Result<ManifestModel, Manif
         lods,
         foliage,
         category,
+        fingerprint: None,
+        draws_on: DrawsOn::Matching,
         credit,
     })
 }
@@ -1456,6 +1701,49 @@ license = \"C\"
             body("0x02000001", "b.gltf")
         );
         assert!(ArtPackManifest::parse(&twice).is_err());
+    }
+
+    /// A setup takes a body for each era's record of it, told apart by fingerprint; the same
+    /// record twice, or a body for any record before one for a single record, is refused.
+    #[test]
+    fn a_setup_takes_a_body_for_each_eras_record_of_it() {
+        let body = |extra: &str| {
+            format!(
+                "[[skin]]\nsetup = \"0x02000001\"\nfile = \"b.gltf\"\n{extra}\
+                 author = \"A\"\ntool = \"B\"\nlicense = \"C\"\n"
+            )
+        };
+        let (eor, old) = (
+            "fingerprint = \"model 0123456789abcdef\"\n",
+            "fingerprint = \"model fedcba9876543210\"\n",
+        );
+        let m = ArtPackManifest::parse(&format!("{PILOT}\n{}{}{}", body(eor), body(old), body("")))
+            .expect("a body for each era, then one for any");
+        assert_eq!(m.skins.len(), 3);
+        assert_eq!(
+            m.skins[1].fingerprint,
+            Fingerprint::parse("model fedcba9876543210")
+        );
+        assert!(m.skins[2].fingerprint.is_none());
+        assert_eq!(m.skins[0].draws_on, DrawsOn::Matching);
+        for (pair, why) in [
+            ((eor, eor), "one record twice"),
+            (("", eor), "any record, then one"),
+        ] {
+            let text = format!("{PILOT}\n{}{}", body(pair.0), body(pair.1));
+            let e = ArtPackManifest::parse(&text).expect_err(why);
+            assert!(e.0.contains("has a skin already"), "{why}: {}", e.0);
+        }
+        let any = ArtPackManifest::parse(&format!("{PILOT}\n{}", body("draws_on = \"any\"\n")))
+            .expect("draws_on reads");
+        assert_eq!(any.skins[0].draws_on, DrawsOn::Any);
+        assert!(
+            ArtPackManifest::parse(&format!("{PILOT}\n{}", body("draws_on = \"some\"\n"))).is_err()
+        );
+        assert!(
+            ArtPackManifest::parse(&format!("{PILOT}\n{}", body("fingerprint = \"model\"\n")))
+                .is_err()
+        );
     }
 
     #[test]
@@ -2046,7 +2334,7 @@ license = \"CC0-1.0\"
             "id = \"com..houses\"",
             "version = \"1.0\"",
             "version = \"01.0.0\"",
-            "made_for = [\"2005\"]",
+            "made_for = [\"2004\"]",
             "authors = 3",
         ] {
             assert!(
@@ -2095,6 +2383,24 @@ license = \"CC0-1.0\"
         );
         assert_ne!(fern.id, lupins.id);
         assert!(!is_cover(DataId(0x0200_0258)));
+    }
+
+    /// A cover names no retail record: a `fingerprint` or `draws_on` on it is read past.
+    #[test]
+    fn a_cover_reads_past_a_fingerprint_and_draws_on() {
+        let marked = COVER.replacen(
+            "[[cover]]\n",
+            "[[cover]]\nfingerprint = \"model 0123456789abcdef\"\ndraws_on = \"none\"\n",
+            1,
+        );
+        assert_ne!(marked, COVER);
+        let m = ArtPackManifest::parse(&marked).expect("the covers read");
+        let plain = ArtPackManifest::parse(COVER).expect("the covers read");
+        assert_eq!(m.covers, plain.covers);
+        assert_eq!(m.models, plain.models);
+        let lupins = m.model(m.covers[0].id).expect("its model");
+        assert!(lupins.fingerprint.is_none());
+        assert_eq!(lupins.draws_on, DrawsOn::Matching);
     }
 
     #[test]
@@ -2155,5 +2461,137 @@ license = \"CC0-1.0\"
         assert_eq!(one.covers[0].id, moved.covers[0].id);
         assert_eq!(cover_id("cover/lupins.gltf"), cover_id("cover/lupins.gltf"));
         assert_ne!(cover_id("cover/lupins.gltf"), cover_id("cover/lupin.gltf"));
+    }
+
+    /// Two materials for one picture, each made from another era's record of it.
+    const ERAS: &str = r#"
+[pack]
+name = "Eras"
+format = 1
+
+[[material]]
+texture = "0x0500001F"
+fingerprint = "picture 64x128 0000f5ffffc30000"
+base_color = "materials/eor.png"
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+
+[[material]]
+texture = "0x0500001F"
+fingerprint = "picture 32x64 008cecf7f7fffff7"
+base_color = "materials/2005.png"
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+"#;
+
+    /// One picture may have a material for each era's record of it, told apart by fingerprint;
+    /// two for the same record, or one for any record before one for a single record, are refused.
+    #[test]
+    fn one_picture_takes_a_material_for_each_eras_record_of_it() {
+        let m = ArtPackManifest::parse(ERAS).expect("a material for each era reads");
+        assert_eq!(m.materials.len(), 2);
+        assert_eq!(
+            m.materials[1].fingerprints,
+            [Fingerprint::parse("picture 32x64 008cecf7f7fffff7")]
+        );
+        assert_eq!(m.materials[0].draws_on, DrawsOn::Matching);
+        let same = ERAS.replacen(
+            "picture 32x64 008cecf7f7fffff7",
+            "picture 64x128 0000f5ffffc30000",
+            1,
+        );
+        let e = ArtPackManifest::parse(&same).expect_err("one record twice");
+        assert!(e.0.contains("has a material already"), "{}", e.0);
+        let any_first = ERAS.replacen("fingerprint = \"picture 64x128 0000f5ffffc30000\"\n", "", 1);
+        let e = ArtPackManifest::parse(&any_first).expect_err("any record, then one");
+        assert!(e.0.contains("has a material already"), "{}", e.0);
+        let any_last = ERAS.replacen("fingerprint = \"picture 32x64 008cecf7f7fffff7\"\n", "", 1);
+        assert!(
+            ArtPackManifest::parse(&any_last).is_ok(),
+            "one record, then any other"
+        );
+        for (from, to, why) in [
+            (
+                "picture 32x64 008cecf7f7fffff7",
+                "picture 32x64",
+                "is not one",
+            ),
+            (
+                "tool = \"t\"",
+                "tool = \"t\"\ndraws_on = \"some\"",
+                "draws_on",
+            ),
+            (
+                "tool = \"t\"",
+                "tool = \"t\"\npalettes = [\"0x0500001F\"]",
+                "palette record",
+            ),
+        ] {
+            let e = ArtPackManifest::parse(&ERAS.replacen(from, to, 1)).expect_err(why);
+            assert!(e.0.contains(why), "{why}: {}", e.0);
+        }
+    }
+
+    /// Two materials for one record told apart by palette both read; one named for both palettes
+    /// does not.
+    #[test]
+    fn one_record_takes_a_material_for_each_palette_it_is_drawn_in() {
+        let both = ERAS.replacen(
+            "picture 32x64 008cecf7f7fffff7",
+            "picture 64x128 0000f5ffffc30000",
+            1,
+        );
+        let apart = both
+            .replacen(
+                "tool = \"t\"",
+                "tool = \"t\"\npalettes = [\"0x04000BA1\"]",
+                1,
+            )
+            .replacen(
+                "tool = \"t\"\nlicense",
+                "tool = \"t\"\npalettes = [\"0x04000BA5\"]\nlicense",
+                2,
+            );
+        let m = ArtPackManifest::parse(&apart).expect("two palettes apart read");
+        assert_eq!(m.materials[0].palettes, [DataId(0x0400_0BA1)]);
+        let shared = apart.replacen("[\"0x04000BA5\"]", "[\"0x04000BA1\"]", 1);
+        assert!(
+            ArtPackManifest::parse(&shared).is_err(),
+            "one palette twice"
+        );
+    }
+
+    /// A model and a ground name the record they were made from in the same way; `draws_on`
+    /// reads matching, any or none; a pack may say it was made for the 2005 files.
+    #[test]
+    fn models_and_grounds_name_their_records_and_a_pack_may_be_made_for_2005() {
+        let eor = "fingerprint = \"model 0123456789abcdef\"\n";
+        let two = PILOT.replacen("foliage = true\n", &format!("foliage = true\n{eor}"), 1)
+            + "\n[[model]]\nid = \"0x02000258\"\nfingerprint = \"model fedcba9876543210\"\n\
+               draws_on = \"any\"\nauthor = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n\n\
+               [[model.lod]]\nfile = \"old.gltf\"\n";
+        let m = ArtPackManifest::parse(&two).expect("a model for each era reads");
+        let trees: Vec<_> = m
+            .models
+            .iter()
+            .filter(|t| t.id == DataId(0x0200_0258))
+            .collect();
+        assert_eq!(trees.len(), 2);
+        assert_eq!(trees[1].draws_on, DrawsOn::Any);
+        let made_for = PILOT.replacen("format = 1", "format = 1\nmade_for = [\"2005\"]", 1);
+        let m = ArtPackManifest::parse(&made_for).expect("made for 2005 reads");
+        assert_eq!(m.about.made_for, ["2005"]);
+        assert!(!DrawsOn::Nothing.draws(None, None));
+        let a = Fingerprint::parse("model 0123456789abcdef");
+        let b = Fingerprint::parse("model fedcba9876543210");
+        assert!(DrawsOn::Matching.draws(a.as_ref(), a.as_ref()));
+        assert!(!DrawsOn::Matching.draws(a.as_ref(), b.as_ref()));
+        assert!(
+            DrawsOn::Matching.draws(a.as_ref(), None),
+            "an unknown record is drawn on"
+        );
+        assert!(DrawsOn::Any.draws(a.as_ref(), b.as_ref()));
     }
 }
