@@ -44,6 +44,15 @@ const HOUSE_CELL: u32 = 0xA9B4_0146;
 /// view was also within about one sphere radius of it, or off screen (measured over 58 placements).
 const DOORWAY_CELL: u32 = 0xA9B4_013F;
 
+/// Where the body is asked to stand for each station, block-local. A body is put down resting on
+/// the floor under the point it is asked to, which near the top of the house's cellar stairs is
+/// the floor of the room below: the station is where the body comes to rest, and the views are
+/// its chase camera's from there. From the house's point some reached cells' openings leave
+/// their own cells' views at some bearings, which the stamp claim needs; from the doorway's,
+/// a reached cell can hold a chest seen through its view and on screen outside it.
+const HOUSE_STAND: Vec3 = Vec3::new(140.5, 7.5, 94.0);
+const DOORWAY_STAND: Vec3 = Vec3::new(135.5, 16.0, 94.0);
+
 const CHEST: ObjectId = ObjectId(0x7DA5_5060);
 
 /// The frames a bearing needs before its views are the settled camera's.
@@ -127,12 +136,7 @@ fn corpus() -> &'static Corpus {
 }
 
 /// A real headless `App` over Holtburg with the body standing in `cell`.
-fn setup_in(block: u16, cell: u32, portal_clip: bool) -> Option<App> {
-    let store = dereth_dat::testing::open_store_or_fail();
-    let stand = *points_in(&store, cell)
-        .first()
-        .expect("the station cell has a standable point");
-
+fn setup_in(block: u16, cell: u32, stand: Vec3, portal_clip: bool) -> Option<App> {
     let Ok(mut app) = App::new(Config {
         headless: true,
         sound: false,
@@ -499,7 +503,7 @@ fn reached_cells(app: &App) -> Vec<ReachedCell> {
 /// portal-graph depth, prove a particular polygon shape, or deduplicate overlapping view areas.
 #[test]
 fn a_cell_reached_through_a_doorway_has_a_view_smaller_than_the_screen() {
-    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, true) else {
+    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, HOUSE_STAND, true) else {
         return;
     };
     // Prefer more reached cells, breaking ties by the largest single cell's summed view area.
@@ -675,7 +679,7 @@ fn the_same_object_is_drawn_and_named_only_from_bearings_its_cell_sees_it_throug
     /// A view a chest can stand clear inside at all.
     const MIN_VIEW_AREA: f32 = 5_000.0;
 
-    let Some(mut app) = setup_in(HOLTBURG, DOORWAY_CELL, true) else {
+    let Some(mut app) = setup_in(HOLTBURG, DOORWAY_CELL, DOORWAY_STAND, true) else {
         return;
     };
     let sbox = world_view(&mut app);
@@ -879,7 +883,7 @@ fn the_same_object_is_drawn_and_named_only_from_bearings_its_cell_sees_it_throug
 /// rejection to a cell boundary rather than a screen boundary, or compare stamp pixels.
 #[test]
 fn the_indoor_stamps_are_clipped_to_their_own_cells_views() {
-    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, true) else {
+    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, HOUSE_STAND, true) else {
         return;
     };
     let mut clipped_total = 0u64;
@@ -909,7 +913,7 @@ fn the_indoor_stamps_are_clipped_to_their_own_cells_views() {
         "no opening/view pair was clipped away in this enabled-clipping sweep"
     );
 
-    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, false) else {
+    let Some(mut app) = setup_in(HOLTBURG, HOUSE_CELL, HOUSE_STAND, false) else {
         return;
     };
     let mut unclipped_clipped = 0u64;
@@ -984,7 +988,8 @@ fn a_body_on_the_cellar_stairs_is_drawn_whole_from_the_room_above() {
 fn cellar_stairs_station(portal_clip: bool) -> BTreeSet<usize> {
     const GROUND_FLOOR: u32 = 0xA9B4_0143;
     const CELLAR_TOP: u32 = 0xA9B4_0147;
-    let mut app = setup_in(HOLTBURG, HOUSE_CELL, portal_clip).expect("the station app");
+    let mut app =
+        setup_in(HOLTBURG, HOUSE_CELL, HOUSE_STAND, portal_clip).expect("the station app");
     {
         let mut scene = app.world_scene_mut().expect("a world scene");
         let c = scene.character.as_mut().expect("a body");
