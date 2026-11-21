@@ -986,6 +986,73 @@ fn the_chat_entry_cuts_copies_and_pastes_through_the_systems_clipboard() {
     assert_eq!(text_of(&retail, "ChatEntry").as_deref(), Some(""), "cut");
 }
 
+/// A key pressed with the text the host reports for it, as the desktop host sends them, and let
+/// go, a frame after each.
+fn press_with_text(shell: &mut Shell<'_, DoubleHost>, key: Key, text: &str) {
+    shell.event(&Event::Key {
+        key,
+        down: true,
+        repeat: false,
+    });
+    shell.event(&Event::Text(text.into()));
+    step(shell);
+    shell.event(&Event::Key {
+        key,
+        down: false,
+        repeat: false,
+    });
+    step(shell);
+}
+
+/// The arrows move the chat entry's caret and type nothing, and Home types nothing, even where the
+/// host reports a stand-in character as the key's text, as macOS does for the keys that type
+/// nothing; what is typed next goes in at the caret.
+///
+/// Behaviour: ui.text.a-key-that-types-nothing-puts-nothing-in-the-entry-and-the-arrows-move-the-caret
+#[test]
+fn a_key_that_types_nothing_puts_nothing_in_the_chat_entry_and_the_arrows_move_its_caret() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    press(&mut s, Key::Enter);
+    s.event(&Event::Text("ab".into()));
+    step(&mut s);
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("ab"),
+        "typed"
+    );
+    press_with_text(&mut s, Key::ArrowLeft, "\u{F702}");
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("ab"),
+        "the left arrow typed nothing"
+    );
+    s.event(&Event::Text("X".into()));
+    step(&mut s);
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("aXb"),
+        "the caret went back one place"
+    );
+    press_with_text(&mut s, Key::ArrowRight, "\u{F703}");
+    s.event(&Event::Text("Y".into()));
+    step(&mut s);
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("aXbY"),
+        "the right arrow typed nothing and the caret went past the last letter"
+    );
+    press_with_text(&mut s, Key::Home, "\u{F729}");
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("aXbY"),
+        "Home typed nothing"
+    );
+}
+
 /// The chat window's scroll bars, each with its bar's height and its widget's, when the widget shows.
 fn chat_bars(retail: &Rc<RefCell<Retail>>) -> Vec<(i32, Option<i32>)> {
     fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle, out: &mut Vec<(i32, Option<i32>)>) {

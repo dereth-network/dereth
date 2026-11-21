@@ -689,6 +689,68 @@ fn horizon_shows_the_game_s_pointers_and_the_usage_one_while_an_item_waits_for_i
     assert_eq!(picture(&s.frame()), Some(DEFAULT), "nothing waits");
 }
 
+/// A key pressed with the text the host reports for it, as the desktop host sends them, and let
+/// go, a frame after each.
+fn press_with_text(s: &mut Session, key: Key, text: &str) {
+    s.shell.event(&Event::Key {
+        key,
+        down: true,
+        repeat: false,
+    });
+    s.shell.event(&Event::Text(text.into()));
+    s.step();
+    s.shell.event(&Event::Key {
+        key,
+        down: false,
+        repeat: false,
+    });
+    s.step();
+}
+
+/// The arrows and Home move the caret in Horizon's chat entry and type nothing, even where the
+/// host reports a stand-in character as the key's text, as macOS does for the keys that type
+/// nothing; what is typed next goes in at the caret.
+///
+/// Behaviour: desktop.horizon.a-key-that-types-nothing-puts-nothing-in-the-chat-entry
+#[test]
+fn a_key_that_types_nothing_puts_nothing_in_horizons_chat_entry_and_the_arrows_move_its_caret() {
+    let mut s = Session::new(Some("[UI]\r\nInterface=Horizon\r\n"));
+    s.enter_the_world();
+    for _ in 0..30 {
+        s.step();
+    }
+    let text = |s: &Session| s.horizon().borrow().ui().chat.text().to_owned();
+    press(&mut s, Key::Enter);
+    assert!(
+        s.horizon().borrow().ui().chat.typing(),
+        "the entry has the keys"
+    );
+    s.shell.event(&Event::Text("ab".into()));
+    s.step();
+    assert_eq!(text(&s), "ab", "typed");
+    press_with_text(&mut s, Key::ArrowLeft, "\u{F702}");
+    assert_eq!(text(&s), "ab", "the left arrow typed nothing");
+    s.shell.event(&Event::Text("X".into()));
+    s.step();
+    assert_eq!(text(&s), "aXb", "the caret went back one place");
+    press_with_text(&mut s, Key::ArrowRight, "\u{F703}");
+    s.shell.event(&Event::Text("Y".into()));
+    s.step();
+    assert_eq!(
+        text(&s),
+        "aXbY",
+        "the right arrow typed nothing and the caret went past the last letter"
+    );
+    press_with_text(&mut s, Key::Home, "\u{F729}");
+    s.shell.event(&Event::Text("Z".into()));
+    s.step();
+    assert_eq!(
+        text(&s),
+        "ZaXbY",
+        "Home typed nothing and the caret went to the start"
+    );
+}
+
 /// T, Horizon's reply key, opens the chat entry with the game's reply command in it (`/reply `), as
 /// the game's own reply key starts its entry.
 ///

@@ -971,7 +971,7 @@ impl Horizon {
                 if self.ui.pregame.typing() {
                     self.input
                         .chars
-                        .extend(text.chars().filter(|c| !c.is_control()));
+                        .extend(dereth_primitives::text::key_text::typed_characters(text));
                 }
                 true
             }
@@ -1391,7 +1391,7 @@ impl Interface for Horizon {
                 if self.ui.typing() {
                     self.input
                         .chars
-                        .extend(text.chars().filter(|c| !c.is_control()));
+                        .extend(dereth_primitives::text::key_text::typed_characters(text));
                     return true;
                 }
                 false

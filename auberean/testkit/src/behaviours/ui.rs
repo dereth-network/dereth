@@ -2731,6 +2731,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.a-key-that-types-nothing-puts-nothing-in-the-entry-and-the-arrows-move-the-caret",
+        says: "The arrows move the caret of the entry with the keyboard, and neither they nor \
+               Home put a character in it, as retail's do. A desktop that reports a stand-in \
+               character as such a key's text (macOS, for the arrows and the other keys that type \
+               nothing) is no exception.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-KEY-STAND-IN"),
+        station: "auberean-interface::dat::screens::a_key_that_types_nothing_puts_nothing_in_the_chat_entry_and_the_arrows_move_its_caret",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
         says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
                the width past it, then stands one width before the caret, and going back past its \

@@ -1,4 +1,5 @@
-//! Text: the Windows-1252 table ([`cp1252`]) and the chat slice of retail string width conversion.
+//! Text: the Windows-1252 table ([`cp1252`]), the chat slice of retail string width conversion,
+//! and the characters a key press types ([`key_text`]).
 //!
 //! The chat conversions keep bytes and UTF-16 explicit: no assumed CP1252 interpretation of ACP
 //! bytes and no mutation of locale or global settings. Sources: retail's two wide-to-narrow
@@ -23,6 +24,7 @@ mod windows;
 
 pub mod cp1252;
 mod cp1252_best_fit;
+pub mod key_text;
 
 /// The table arm against the host arm, on the host that has both.
 #[cfg(all(test, windows, feature = "host-nls"))]

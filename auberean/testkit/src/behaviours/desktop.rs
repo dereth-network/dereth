@@ -1048,6 +1048,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-key-that-types-nothing-puts-nothing-in-the-chat-entry",
+        says: "Our choice: the arrows and Home move the caret in Horizon's chat entry and put no \
+               character in it, even where the desktop reports a stand-in character as the key's \
+               text, as macOS does for the arrows and the other keys that type nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-KEY-STAND-IN"),
+        station: "auberean-horizon::dat::interfaces::a_key_that_types_nothing_puts_nothing_in_horizons_chat_entry_and_the_arrows_move_its_caret",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-line-selected-in-the-log-is-copied-by-control-c",
         says: "Our choice: text dragged over in Horizon's log is copied to the system's clipboard \
                by Control-C or Control-Insert, as in Dereth's chat; the key maps do not see the \

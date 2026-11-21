@@ -2122,7 +2122,14 @@ impl Interface for Retail {
                 took || pregame
             }
             Event::Text(t) => {
-                let took = self.ui.type_text(t);
+                // A key that types nothing types nothing here, even where the host reports a
+                // stand-in character as its text; the control characters still copy, cut and
+                // paste.
+                let typed: String = t
+                    .chars()
+                    .filter(|c| !dereth_primitives::text::key_text::is_key_text_stand_in(*c))
+                    .collect();
+                let took = self.ui.type_text(&typed);
                 took || pregame
             }
             Event::Composing(t) => {
