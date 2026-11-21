@@ -1829,6 +1829,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(p) = &r.pick {
                     t.effect_rules.picks.insert(effect, p.clone());
                 }
+                #[allow(clippy::cast_possible_truncation)]
+                if let Some(chance) = r.drops_threat {
+                    t.effect_rules.drops_threat.insert(effect, chance as f32);
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;

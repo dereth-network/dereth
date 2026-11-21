@@ -785,6 +785,7 @@ fn summon_kind<S: Store>(
         after_idle: None,
         last_blow: f64::NEG_INFINITY,
         home_after: f64::NEG_INFINITY,
+        lost_interest: Vec::new(),
     });
     let holds = held_auras(s, &t);
     s.things.insert(t);

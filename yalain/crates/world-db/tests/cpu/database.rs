@@ -1602,6 +1602,37 @@ fn a_tool_row_gives_a_templates_unmade_yield_and_must_name_one_installed() {
     assert!(read(&files).is_err());
 }
 
+/// An effect rule may give a detaunt a chance, from 0 to 1, of dropping all threat on its caster;
+/// any other value is refused.
+#[test]
+fn an_effect_rule_row_gives_a_detaunt_its_chance_of_dropping_all_threat_and_refuses_a_bad_one() {
+    const ROW: &str = "[[effect_rule]]\neffect = 0x700007E3\ndrops_threat = 0.3\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/effects.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules
+            .drops_threat
+            .iter()
+            .map(|(e, c)| (*e, *c))
+            .collect::<Vec<_>>(),
+        [(0x7000_07E3, 0.3)]
+    );
+    for no in [
+        "drops_threat = 1.2",
+        "drops_threat = -0.1",
+        "drops_threat = \"often\"",
+        "drops_threat = nan",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            ROW.replacen("drops_threat = 0.3", no, 1),
+        );
+        assert!(read(&files).is_err(), "{no:?}");
+    }
+}
+
 #[test]
 fn an_effect_rule_row_gives_a_ward_of_classes_or_effects_at_a_chance() {
     let mut files = fixture();

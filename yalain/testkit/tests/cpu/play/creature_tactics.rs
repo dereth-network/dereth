@@ -2563,3 +2563,172 @@ fn a_fight_an_idle_held_given_up_pauses_then_runs_home_and_an_idle_holds_the_nex
         assert_eq!(target_of(&h, id), Some(me));
     }
 }
+
+/// A detaunt as the install defines Bluff's: 10% to 15% of the creature's whole health below
+/// nothing, along its spellcraft from 1 to 50.
+const BLUFF: u32 = 0x7000_07E3;
+
+/// A creature that has fought `me` a while, the only one to fight it, with Bluff's detaunt known
+/// and the world's chance of its dropping all threat (none: no row).
+fn bluffed(chance: Option<f32>) -> (Harness, u64, u64) {
+    let (mut h, _b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    h.run(40);
+    h.server.effect_table.effects.insert(
+        BLUFF,
+        effect_of(BLUFF, Kind::Taunt(Scale(vec![(1.0, -0.10), (50.0, -0.15)]))),
+    );
+    if let Some(c) = chance {
+        h.server.effect_table.drops_threat.insert(BLUFF, c);
+    }
+    // Bluff lands, and its blow follows it in the same instant.
+    let clock = h.clock();
+    let cast = Cast {
+        caster: me,
+        spellcraft: 20.0,
+        ..Cast::default()
+    };
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(id),
+        BLUFF,
+        cast,
+        clock
+    ));
+    ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    (h, me, id)
+}
+
+/// A detaunt the world gives a chance of dropping all threat, succeeding, makes a creature whose
+/// only foe its caster was forget the caster's harm and give up: it pauses, goes home, and doesn't
+/// take the caster on again standing beside it, until the caster strikes it again.
+/// Behaviour: server.creatures.a-detaunt-may-drop-all-threat
+#[test]
+fn a_bluff_that_drops_all_threat_makes_a_creature_give_up_and_fight_again_only_when_struck() {
+    let (mut h, me, id) = bluffed(Some(1.0));
+    let c = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .expect("a creature");
+    assert_eq!(c.mode, Mode::Returning, "it gives up");
+    assert!(
+        c.harm.iter().all(|e| e.1 != me),
+        "the caster's harm forgotten"
+    );
+    assert!(
+        c.taunts.iter().all(|e| e.1 != me),
+        "and no taunt of its counts"
+    );
+    assert!(c.home_after >= h.now.0, "it pauses first");
+    assert!(
+        h.run_until(steps(40.0), |h| mode_of(h, id) == Some(Mode::Idle)),
+        "it goes home"
+    );
+    h.run(steps(10.0));
+    assert_eq!(mode_of(&h, id), Some(Mode::Idle), "it leaves the caster be");
+    let clock = h.clock();
+    ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    assert_eq!(
+        mode_of(&h, id),
+        Some(Mode::Chasing),
+        "struck again, it fights"
+    );
+    assert_eq!(target_of(&h, id), Some(me));
+}
+
+/// A detaunt whose chance of dropping all threat fails, or one the world gives no such chance,
+/// only takes from its caster's weight: the creature fights on.
+/// Behaviour: server.creatures.a-detaunt-may-drop-all-threat
+#[test]
+fn a_bluff_that_fails_to_drop_threat_or_has_no_chance_only_takes_from_the_weight() {
+    for chance in [Some(0.0), None] {
+        let (h, me, id) = bluffed(chance);
+        let c = h
+            .server
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .expect("a creature");
+        assert_eq!(c.mode, Mode::Chasing, "{chance:?}: it fights on");
+        assert_eq!(c.target, Some(me));
+        assert!(
+            c.taunts.iter().any(|e| e.1 == me && e.2 < 0),
+            "{chance:?}: the weight taken"
+        );
+    }
+}
+
+/// A creature that lost interest in a player neither notices the player beside it nor joins its
+/// kin's fight with the player; once the player has left its perception and come back, it notices
+/// the player again.
+/// Behaviour: server.creatures.a-detaunt-may-drop-all-threat
+#[test]
+fn a_creature_that_lost_interest_neither_notices_its_caster_nor_joins_its_kin_against_it() {
+    let (mut h, me, id) = bluffed(Some(1.0));
+    assert!(h.run_until(steps(40.0), |h| mode_of(h, id) == Some(Mode::Idle)));
+    let home = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.home)
+        .expect("a creature");
+    stand_off(&mut h, me, home, 3.0);
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.joining = Some((me, now + 1.0));
+    }
+    h.run(steps(5.0));
+    assert_eq!(mode_of(&h, id), Some(Mode::Idle), "it lets the caster be");
+    stand_off(&mut h, me, home, 80.0);
+    h.run(steps(2.0));
+    stand_off(&mut h, me, home, 3.0);
+    assert!(
+        h.run_until(steps(5.0), |h| mode_of(h, id) == Some(Mode::Chasing)),
+        "back again, the caster is noticed"
+    );
+    assert_eq!(target_of(&h, id), Some(me));
+}
+
+/// A detaunt that drops all threat on a creature whose fight with its caster an idle holds drops
+/// that fight too: once the idle is through, it lets the caster be.
+/// Behaviour: server.creatures.a-detaunt-may-drop-all-threat
+#[test]
+fn a_bluff_that_drops_all_threat_during_an_idle_drops_the_fight_the_idle_held() {
+    let (mut h, _b, me, id) = about_to_notice(&[]);
+    hardy(&mut h, me);
+    h.server.effect_table.effects.insert(
+        BLUFF,
+        effect_of(BLUFF, Kind::Taunt(Scale(vec![(1.0, -0.10), (50.0, -0.15)]))),
+    );
+    h.server.effect_table.drops_threat.insert(BLUFF, 1.0);
+    playing_an_idle(&mut h, id, 3.0);
+    let clock = h.clock();
+    ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    h.run(steps(1.0));
+    let clock = h.clock();
+    let cast = Cast {
+        caster: me,
+        spellcraft: 20.0,
+        ..Cast::default()
+    };
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(id),
+        BLUFF,
+        cast,
+        clock
+    ));
+    ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    h.run(steps(5.0));
+    assert_eq!(mode_of(&h, id), Some(Mode::Idle), "it lets the caster be");
+}

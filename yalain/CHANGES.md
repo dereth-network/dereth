@@ -13,6 +13,7 @@ what they see, not how it was done.
 - New worlds' time of day now matches retail's.
 - Creatures killed by other creatures leave empty corpses that vanish quickly.
 - Creatures pause a moment after a fight before heading home.
+- Bluff can now make a creature lose interest in you.
 - Skills that walk you to their target now walk you into their full range.
 - Skills now turn you toward their target only when retail's did.
 - Crafting now tells you when a recipe is too easy to learn from, and when you've learned a lot today.

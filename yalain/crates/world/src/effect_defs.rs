@@ -1100,6 +1100,9 @@ pub struct EffectTable {
     pub forces: HashMap<u32, Force>,
     /// What effects hold back while they are held, by saved state (the world's rules).
     pub holds_back: HashMap<u32, HoldBack>,
+    /// The detaunts' chances of making a creature drop all its threat on their caster, by saved
+    /// state (the world's rules).
+    pub drops_threat: HashMap<u32, f32>,
 }
 
 impl EffectTable {
@@ -1166,6 +1169,9 @@ impl EffectTable {
                 }
                 if let Some(h) = rules.holds_back.get(&s) {
                     t.holds_back.insert(s, h.clone());
+                }
+                if let Some(chance) = rules.drops_threat.get(&s) {
+                    t.drops_threat.insert(s, *chance);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

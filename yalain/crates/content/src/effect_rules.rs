@@ -161,4 +161,7 @@ pub struct EffectRules {
     pub holds_back: BTreeMap<u32, HoldBack>,
     /// The effects that put one of a list of effects on in their place, drawn by weight.
     pub picks: BTreeMap<u32, Pick>,
+    /// The detaunts that, at a chance from 0 to 1, make the creature they land on drop all its
+    /// threat on their caster: it turns from it, or gives up when it was its only foe.
+    pub drops_threat: BTreeMap<u32, f32>,
 }

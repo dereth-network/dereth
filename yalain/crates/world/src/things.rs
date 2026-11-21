@@ -135,6 +135,9 @@ pub struct Creature {
     pub last_blow: f64,
     /// Until when (world seconds) it stands where a fight left it before it sets off home.
     pub home_after: f64,
+    /// The players (character ids) it dropped all its threat on, and when: it takes none of them on
+    /// again until that one strikes it, or leaves its perception and comes back.
+    pub lost_interest: Vec<(u64, f64)>,
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.

@@ -1181,10 +1181,17 @@ pub fn apply_on<S: Store>(
             }
             true
         }
-        // A taunt counts by its share at the spellcraft it is cast at (a skill's rating).
+        // A taunt counts by its share at the spellcraft it is cast at (a skill's rating). A detaunt
+        // the world gives a chance of it may instead make the creature drop all its threat on its
+        // caster.
         (Kind::Taunt(share), On::Creature(id)) => {
             let share = share.at(cast.spellcraft).unwrap_or(0.0);
-            crate::ai::taunted(s, id, cast.caster, share, clock.local.0);
+            let drops = s.effect_table.drops_threat.get(&def.state).copied();
+            if drops.is_some_and(|c| share < 0.0 && s.rng.chance(c)) {
+                crate::ai::drops_threat(s, net, id, cast.caster, clock.local.0);
+            } else {
+                crate::ai::taunted(s, id, cast.caster, share, clock.local.0);
+            }
             true
         }
         (

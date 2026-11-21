@@ -1009,7 +1009,8 @@ struct Requires {
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
 /// the complete reset of skills it grants, the untraining it finishes, the skill it trains, the
-/// items it gives, the effects it dispels, the rises in a quality it holds back while held.
+/// items it gives, the effects it dispels, the rises in a quality it holds back while held, a
+/// detaunt's chance of dropping all threat.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state, or by its name for one the install holds no state of.
@@ -1036,6 +1037,8 @@ pub struct EffectRule {
     pub holds_back: Option<yalain_content::effect_rules::HoldBack>,
     /// The effects one of which it puts on in its place, drawn by weight, and to whom.
     pub pick: Option<yalain_content::effect_rules::Pick>,
+    /// A detaunt's chance, from 0 to 1, of making the creature drop all its threat on its caster.
+    pub drops_threat: Option<f64>,
     pub prov: Prov,
 }
 
@@ -2265,6 +2268,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "dispels",
             "holds_back",
             "pick",
+            "drops_threat",
             "prov",
         ],
     ),
@@ -4199,7 +4203,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 None => None,
             };
             let places = f.placing()?;
+            let drops_threat = match f.get("drops_threat") {
+                Some(_) => {
+                    let chance = f.req_float("drops_threat")?;
+                    let ok = (0.0..=1.0).contains(&chance);
+                    Some(f.held("drops_threat", chance, ok, "a chance from 0 to 1")?)
+                }
+                None => None,
+            };
             let others = ward.is_some()
+                || drops_threat.is_some()
                 || pick.is_some()
                 || vitae_share.is_some()
                 || vitae_restore.is_some()
@@ -4212,11 +4225,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 || holds_back.is_some();
             if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, holds_back, pick, places",
+                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, holds_back, pick, drops_threat, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
                      a reset it grants, the untraining it finishes, a skill it trains, an item it \
                      gives, the effects it dispels, the rises it holds back, the effects it picks \
-                     among or what it places",
+                     among, a chance of dropping threat or what it places",
                 );
                 return None;
             }
@@ -4241,6 +4254,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 dispels,
                 holds_back,
                 pick,
+                drops_threat,
                 prov: f.req_prov()?,
             })
         }

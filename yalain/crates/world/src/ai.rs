@@ -65,6 +65,10 @@
 //!   within its perception. There is no leash at the homesick radius and no giving up by time. A
 //!   target that dies is replaced by the nearest player within the radius that has hurt the
 //!   creature, if any: this server's rule, not 2017's, which also took players that had not hurt it.
+//! - **Losing interest.** A detaunt the world gives a chance of it may make a creature drop all
+//!   its threat on its caster ([`drops_threat`]): the caster's harm and taunts count no more, it
+//!   turns to another that hurt it or, with none, gives up, and it takes the caster on again only
+//!   once struck by it or once the caster has left its perception and come back.
 //! - **Turning on another.** At each of its attacks (once for each) it may draw its target again:
 //!   while players have hurt it over the last ten seconds, about three times in ten (half that
 //!   once it has fought one target for fifteen seconds), among those players by the harm each did
@@ -547,8 +551,14 @@ fn notice<S: Store>(
     (id, class): (Option<u64>, Option<u32>),
     attacks_first: bool,
 ) -> Option<u64> {
+    let lost = id
+        .and_then(|id| s.things.get(id))
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.lost_interest.as_slice())
+        .unwrap_or_default();
     notices_among(s, at, radius, |p| {
         fightable(p)
+            && !lost.iter().any(|(q, _)| *q == p.character)
             && p.admin.attackable == Attackable::Normal
             && match regard_of(s, id, class, p) {
                 Some(Regard::Spares) => false,
@@ -585,6 +595,43 @@ fn still_there<S: Store>(s: &Server<S>, foe: u64) -> bool {
         .values()
         .any(|p| p.character == foe && !crate::combat::is_dead(p) && p.trip.is_none())
         || s.things.get(foe).is_some_and(crate::things::Thing::alive)
+}
+
+/// A creature forgets having lost interest in the players that have left its perception: it may
+/// take them on again when they come back.
+fn forget_lost_interest<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    at: &StoredPosition,
+    perception: f32,
+) {
+    let lost: Vec<u64> = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.lost_interest.iter().map(|(p, _)| *p).collect())
+        .unwrap_or_default();
+    for player in lost {
+        let gone = s
+            .players
+            .values()
+            .find(|p| p.character == player)
+            .is_none_or(|p| presence::distance(at, &p.position).is_none_or(|d| d > perception));
+        if gone {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.lost_interest.retain(|(p, _)| *p != player);
+            }
+        }
+    }
+}
+
+/// Has a creature lost interest in a player: dropped all its threat on it, and not since struck by
+/// it nor seen it leave its perception?
+fn lost_interest_in<S: Store>(s: &Server<S>, id: u64, player: u64) -> bool {
+    s.things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.lost_interest.iter().any(|(q, _)| *q == player))
 }
 
 /// [`notice`] for tests of who is passed over.
@@ -705,6 +752,14 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
     if c.mode != Mode::Dead && !s.creature_rows.marks.is_empty() {
         marks(s, net, id, &at, perception, clock);
     }
+    let lost_any = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| !c.lost_interest.is_empty());
+    if lost_any {
+        forget_lost_interest(s, id, &at, perception);
+    }
     let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) else {
         return;
     };
@@ -759,7 +814,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     // Its kin's fight may be with a pet: it goes at the pet, while it lives.
                     let pet = s.pets.is_pet(p)
                         && s.things.get(p).is_some_and(crate::things::Thing::alive);
-                    if here || pet {
+                    if (here || pet) && !lost_interest_in(s, id, p) {
                         engage(s, net, id, p, clock);
                         return;
                     }
@@ -1231,6 +1286,39 @@ pub(crate) fn taunted<S: Store>(s: &mut Server<S>, id: u64, by: u64, share: f32,
     c.taunts.push((now, by, amount as i64));
 }
 
+/// A detaunt makes a creature drop all its threat on its caster: the caster's harm and taunts
+/// count no more, and it takes the caster on again only once struck by it or once the caster has
+/// left its perception and come back. Fighting the caster, it turns to the nearest other that hurt
+/// it within its perception, or, with none, gives up: it pauses, then goes home.
+pub fn drops_threat<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    caster: u64,
+    now: f64,
+) {
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    let at = t.at;
+    let Some(c) = t.creature.as_mut() else {
+        return;
+    };
+    c.harm.retain(|(_, who, _)| *who != caster);
+    c.taunts.retain(|(_, who, _)| *who != caster);
+    c.lost_interest.retain(|(p, _)| *p != caster);
+    c.lost_interest.push((caster, now));
+    // A fight with the caster an idle holds is dropped too.
+    if c.after_idle == Some(caster) {
+        c.after_idle = None;
+    }
+    let fighting_it = c.mode == Mode::Chasing && c.target == Some(caster);
+    let perception = perception_of(c);
+    if let (true, Some(at)) = (fighting_it, at) {
+        give_up_or_turn(s, net, id, &at, perception, now);
+    }
+}
+
 /// [`reconsider`] for tests: the creature thinks again now, where it stands.
 #[doc(hidden)]
 pub fn reconsider_for_test<S: Store>(s: &mut Server<S>, id: u64, now: f64) {
@@ -1278,6 +1366,7 @@ fn reconsider<S: Store>(
         .values()
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
         .filter(|(p, d)| *d <= perception && fightable(p) && may_take_on(s, id, p))
+        .filter(|(p, _)| !lost_interest_in(s, id, p.character))
         .filter(|(p, _)| {
             regard_of(s, Some(id), class, p) != Some(Regard::Spares)
                 || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
@@ -1375,8 +1464,19 @@ pub fn go_after<S: Store>(
     player: u64,
     clock: Clock,
 ) {
+    let now = clock.local.0;
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        // The blow that made it lose interest is not one that wins it back.
+        if c.lost_interest
+            .iter()
+            .any(|(p, when)| *p == player && *when >= now)
+        {
+            return;
+        }
+        c.lost_interest.retain(|(p, _)| *p != player);
+    }
     goes_after(s, net, id, player, clock);
-    blow(s, id, clock.local.0);
+    blow(s, id, now);
 }
 
 /// A creature goes after a player it noticed or that struck it, unless already fighting, and its
@@ -1606,7 +1706,13 @@ fn give_up_or_turn<S: Store>(
         .things
         .get(id)
         .and_then(|t| t.creature.as_ref())
-        .map(|c| c.damage_by.iter().map(|(p, _)| *p).collect())
+        .map(|c| {
+            c.damage_by
+                .iter()
+                .map(|(p, _)| *p)
+                .filter(|p| !c.lost_interest.iter().any(|(q, _)| q == p))
+                .collect()
+        })
         .unwrap_or_default();
     let next = s
         .players

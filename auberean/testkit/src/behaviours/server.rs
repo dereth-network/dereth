@@ -3294,6 +3294,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-detaunt-may-drop-all-threat",
+        says: "A detaunt the world gives a chance of it may make a creature drop all its threat on \
+               its caster: it turns from the caster, or gives up and goes home after its pause when \
+               the caster was its only foe, and takes the caster on again only once struck by it; \
+               failing, the detaunt only takes from the caster's weight.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BLUFF-DROPS-THREAT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_bluff_that_drops_all_threat_makes_a_creature_give_up_and_fight_again_only_when_struck",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-detaunt-takes-from-the-draw",
         says: "A detaunt on a creature takes its share of the creature's whole health, at the low end \
                of its script's range, from its caster's weight at the draw for twenty seconds, down to \
