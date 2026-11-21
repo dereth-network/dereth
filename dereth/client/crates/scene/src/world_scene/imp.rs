@@ -2579,6 +2579,12 @@ pub struct SceneStats {
     /// reachable at all, and a test whose subject was never executed passes for the most boring
     /// possible reason.
     pub blocks_remeshed_in_place: u64,
+    /// Blocks built, ever: each mesh [`SceneDraw::stream`] generated and put in a window slot,
+    /// whether the block was new to the window or built again.
+    pub blocks_built: u64,
+    /// Resident blocks whose vertex lighting was re-baked in place, ever, as a change of the
+    /// landscape's light does without building them again.
+    pub blocks_relit: u64,
     /// The same pair for the local body: links the **previous**
     /// `character_parts` returned when an appearance change replaced them.
     ///

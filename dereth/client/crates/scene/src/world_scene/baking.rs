@@ -800,6 +800,7 @@ impl SceneDraw {
             (built, wants_objects)
         };
         ws.streamer.window.set_mesh(xi, yi, SlotMesh::new(mesh));
+        self.stats.blocks_built += 1;
         self.blocks.insert(
             (bx, by),
             BlockDraw {

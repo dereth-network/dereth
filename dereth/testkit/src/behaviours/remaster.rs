@@ -135,6 +135,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "remaster.light.the-remaster-follows-the-sun-across-the-light-tick",
+        says: "With the remaster on, the land follows the sun as the hour moves on, and it is \
+               drawn just as it would be had every block been loaded fresh at the new hour, with \
+               no block loaded again to do it.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-REMASTER-LIGHT-TICK"),
+        station: "dereth-client::gpu::rendering::remaster_light_tick::the_remaster_follows_the_sun_across_the_light_tick_without_a_block_built_again",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "remaster.options.a-live-fidelity-change-is-kept-for-the-next-world",
         says: "A remaster option changed while playing is recorded in the scene the next \
                world is built from, as the landscape options are, so a second login keeps it.",

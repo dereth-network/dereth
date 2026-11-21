@@ -202,8 +202,7 @@ fn the_sky_is_not_black_and_the_day_cycle_moves_it() {
 /// landscape light tick move the sky and relight the terrain from inside the frame loop.
 ///
 /// This is the path a session actually takes, and the one the two-scene test above cannot reach:
-/// Landscape-lighting updates re-run `calc_lighting` on every loaded block, which
-/// this crate does by asking the window to regenerate each slot's mesh.
+/// Landscape-lighting updates re-run `calc_lighting` on every loaded block, in place.
 ///
 /// Oracle: the retail region's own `SkyTimeOfDay` ramp, and a WARP device.
 #[test]
@@ -232,8 +231,8 @@ fn advancing_the_clock_relights_the_world_from_inside_the_frame_loop() {
                 step as f32
             },
         );
-        // The light tick queues a mesh rebuild; `App::frame` flushes it here, outside the frame
-        // bracket, because `Gpu::upload_texture` runs a command list of its own.
+        // `App::frame` streams here, outside the frame bracket, because `Gpu::upload_texture`
+        // runs a command list of its own.
         scene.stream(&store, &mut gpu).expect("stream");
     }
 
@@ -264,6 +263,268 @@ fn advancing_the_clock_relights_the_world_from_inside_the_frame_loop() {
         "t {:.3} -> {t:.3}; sunlight {:?} -> {:?}; {differing} pixels changed",
         0.25, before_light.sunlight, after_light.sunlight
     );
+}
+
+/// The scene the light tick is watched in: the landscape two blocks round the viewer, at two
+/// levels of detail, with no scenery and no body.
+fn land_at(store: &std::sync::Arc<RetailDatStore>, gpu: &mut Gpu, t: f32) -> WorldScene {
+    let cfg = SceneConfig {
+        land_radius: 2,
+        scenery_radius: 0,
+        character: false,
+        time_of_day: Some(t),
+        ..SceneConfig::default()
+    };
+    WorldScene::load(store, gpu, cfg).expect("the landscape loads")
+}
+
+/// Step `scene`'s clock to `now` and stream, as a frame does, and say whether the step left any
+/// block queued to be built between its update and its stream.
+fn tick_to(
+    scene: &mut WorldScene,
+    store: &std::sync::Arc<RetailDatStore>,
+    gpu: &mut Gpu,
+    now: f64,
+    dt: f64,
+) -> usize {
+    scene.update(
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
+        dereth_primitives::LocalTime(now),
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            dt as f32
+        },
+    );
+    let queued = scene.pending_slot_count();
+    scene.stream(store, gpu).expect("stream");
+    queued
+}
+
+/// Every resident block's baked vertex colours, by its block.
+fn block_colours(scene: &WorldScene) -> std::collections::BTreeMap<(i32, i32), Vec<[u8; 3]>> {
+    let window = &scene.streamer.window;
+    let w = window.mid_width();
+    (0..w)
+        .flat_map(|xi| (0..w).map(move |yi| (xi, yi)))
+        .filter_map(|(xi, yi)| {
+            let slot = window.slot(xi, yi)?;
+            let mesh = slot
+                .mesh
+                .as_ref()?
+                .get::<dereth_terrain::land::mesh::LandblockMesh>()?;
+            Some(((slot.block_x, slot.block_y), mesh.colours.clone()))
+        })
+        .collect()
+}
+
+/// What `calc_lighting` gives each resident block's mesh under the landscape's light as it
+/// stands, by its block.
+fn lit_colours(scene: &WorldScene) -> std::collections::BTreeMap<(i32, i32), Vec<[u8; 3]>> {
+    let lighting = scene.landscape_lighting();
+    let window = &scene.streamer.window;
+    let w = window.mid_width();
+    (0..w)
+        .flat_map(|xi| (0..w).map(move |yi| (xi, yi)))
+        .filter_map(|(xi, yi)| {
+            let slot = window.slot(xi, yi)?;
+            let mesh = slot
+                .mesh
+                .as_ref()?
+                .get::<dereth_terrain::land::mesh::LandblockMesh>()?;
+            Some((
+                (slot.block_x, slot.block_y),
+                dereth_terrain::land::lighting::calc_lighting(mesh, &lighting),
+            ))
+        })
+        .collect()
+}
+
+/// One frame's clock step, the headless frame's.
+const FRAME: f64 = 1.0 / 30.0;
+
+/// Behaviour: rendering.sky.the-light-tick-builds-no-block-again
+/// **The light tick re-lights the land without building it again.** Between two light ticks the
+/// landscape queues and builds nothing, and its colours hold; across the tick it still queues and
+/// builds nothing, while every resident block is re-lit where it stands.
+///
+/// The clock is the scene's injected one, stepped a headless frame at a time from the first
+/// light tick to the next.
+///
+/// Oracle: the retail region's light tick of 15 s, and a GPU device.
+#[test]
+fn the_light_tick_relights_the_land_without_building_a_block_again() {
+    let store = std::sync::Arc::new(store());
+    let mut gpu = crate::common::test_gpu(400, 300);
+    let mut scene = land_at(&store, &mut gpu, 0.25);
+
+    // Settle: the first update takes the first light tick; every block is built.
+    let mut now = FRAME;
+    tick_to(&mut scene, &store, &mut gpu, now, FRAME);
+    while scene.pending_slot_count() > 0 {
+        scene.stream(&store, &mut gpu).expect("stream");
+    }
+    let resident = block_colours(&scene).len();
+    assert_eq!(resident, 25, "the window is not five blocks square");
+    let deadline = scene.next_light_tick;
+    let built = scene.draw.stats.blocks_built;
+    let relit = scene.draw.stats.blocks_relit;
+    let colours = block_colours(&scene);
+    let light = scene.landscape_lighting();
+
+    // The quiet period: every frame short of the next light tick.
+    let mut frames = 0;
+    while now + FRAME <= deadline {
+        now += FRAME;
+        frames += 1;
+        let queued = tick_to(&mut scene, &store, &mut gpu, now, FRAME);
+        assert_eq!(
+            queued, 0,
+            "{queued} blocks queued {now:.3} s into the quiet period"
+        );
+    }
+    assert!(frames > 400, "only {frames} frames before the light tick");
+    assert_eq!(
+        scene.landscape_lighting(),
+        light,
+        "the light changed between ticks"
+    );
+    assert_eq!(
+        scene.draw.stats.blocks_built, built,
+        "a block was built between ticks"
+    );
+    assert_eq!(
+        scene.draw.stats.blocks_relit, relit,
+        "a block was re-lit between ticks"
+    );
+    assert!(
+        block_colours(&scene) == colours,
+        "a block's colours changed between ticks"
+    );
+
+    // Across the tick: the frames up to and including the one that takes it.
+    while scene.draw.stats.blocks_relit == relit {
+        assert!(
+            now < deadline + 1.0,
+            "no light tick by {now:.3} s (due after {deadline:.3})"
+        );
+        now += FRAME;
+        let queued = tick_to(&mut scene, &store, &mut gpu, now, FRAME);
+        assert_eq!(
+            queued, 0,
+            "the light tick at {now:.3} s queued {queued} blocks"
+        );
+    }
+    assert_ne!(
+        scene.landscape_lighting(),
+        light,
+        "the light tick changed no light"
+    );
+    assert_eq!(
+        scene.draw.stats.blocks_relit - relit,
+        resident as u64,
+        "the light tick did not re-light every resident block once"
+    );
+    assert_eq!(
+        scene.draw.stats.blocks_built,
+        built,
+        "the light tick built {} blocks again",
+        scene.draw.stats.blocks_built - built
+    );
+    eprintln!(
+        "{frames} quiet frames; the tick at {now:.3} s re-lit {resident} blocks and built none"
+    );
+}
+
+/// Behaviour: rendering.sky.the-light-tick-relights-each-block-as-a-rebuild-would
+/// **The light tick's colours are the ones a rebuilt block bakes.** After a light tick every
+/// resident block's vertex colours are `calc_lighting` of its own mesh under the new light; they
+/// moved from the old hour's; and building every block again under the same light changes no
+/// colour and no pixel of the frame.
+///
+/// One update a long way on in game time is one light tick: the tick fires once whatever the
+/// step, and the long step moves the sun far enough that the colours plainly change.
+///
+/// Oracle: the landscape lighting function on the block's own mesh, and a GPU device.
+#[test]
+fn a_light_tick_relights_each_block_as_building_it_again_would() {
+    let store = std::sync::Arc::new(store());
+    let mut gpu = crate::common::test_gpu(400, 300);
+    let mut scene = land_at(&store, &mut gpu, 0.25);
+
+    let mut now = FRAME;
+    tick_to(&mut scene, &store, &mut gpu, now, FRAME);
+    while scene.pending_slot_count() > 0 {
+        scene.stream(&store, &mut gpu).expect("stream");
+    }
+    let before = block_colours(&scene);
+    let light = scene.landscape_lighting();
+    let built = scene.draw.stats.blocks_built;
+
+    // Ten minutes of clock in one step: one light tick, an hour and a half of game time.
+    now += 600.0;
+    let queued = tick_to(&mut scene, &store, &mut gpu, now, FRAME);
+    assert_eq!(queued, 0, "the light tick queued {queued} blocks");
+    assert_eq!(
+        scene.draw.stats.blocks_built, built,
+        "the light tick built blocks"
+    );
+    assert_ne!(
+        scene.landscape_lighting().sunlight,
+        light.sunlight,
+        "the sun did not move"
+    );
+
+    let after = block_colours(&scene);
+    assert_eq!(after.len(), before.len());
+    let moved: usize = after
+        .iter()
+        .map(|(b, c)| c.iter().zip(&before[b]).filter(|(x, y)| x != y).count())
+        .sum();
+    let total: usize = after.values().map(Vec::len).sum();
+    assert!(
+        moved * 2 > total,
+        "only {moved} of {total} vertex colours moved with the sun"
+    );
+    for (block, lit) in lit_colours(&scene) {
+        assert!(
+            after[&block] == lit,
+            "block {block:?}'s colours are not its mesh's lighting under the new light"
+        );
+    }
+    let (_, frame) = draw_and_count(&scene, &mut gpu);
+
+    // Every block built again under the same light: the same colours, the same frame.
+    scene.draw.rebuild_resident_blocks(&mut scene.world);
+    assert!(
+        scene.pending_slot_count() > 0,
+        "no block was queued to be built again"
+    );
+    while scene.pending_slot_count() > 0 {
+        scene.stream(&store, &mut gpu).expect("stream");
+    }
+    assert_eq!(
+        scene.draw.stats.blocks_built - built,
+        after.len() as u64,
+        "not every block was built again"
+    );
+    assert!(
+        block_colours(&scene) == after,
+        "a block built again under the same light baked other colours"
+    );
+    let (_, rebuilt) = draw_and_count(&scene, &mut gpu);
+    let differing = frame
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(rebuilt.as_chunks::<4>().0)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "{differing} pixels differ from the frame of the blocks built again"
+    );
+    eprintln!("{moved} of {total} vertex colours moved; the rebuilt frame is the same");
 }
 
 /// **The sun vector is not normalised.** Sky lighting returns a sun vector whose *length is

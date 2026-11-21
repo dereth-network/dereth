@@ -35,6 +35,12 @@ impl SlotMesh {
     pub fn get<T: Any>(&self) -> Option<&T> {
         self.0.downcast_ref()
     }
+
+    /// The mesh, if it is a `T`, to change in place.
+    #[must_use]
+    pub fn get_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.0.downcast_mut()
+    }
 }
 
 impl std::fmt::Debug for SlotMesh {

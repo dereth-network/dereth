@@ -267,15 +267,14 @@ impl SceneDraw {
     /// the whole day cycle.
     ///
     /// Returns true when the lighting changed, which is what makes the resident blocks re-bake:
-    /// the landscape-lighting update ends by re-lighting every loaded landblock, and
-    /// this crate reaches that through the window's own rebuild path.
+    /// the landscape-lighting update ends by re-lighting every loaded landblock in place
+    /// ([`Self::relight_blocks`]).
     ///
     /// **One deliberate departure, and it is not observable.** The client re-lights every
     /// loaded block on *every* light tick without comparing; this compares first and skips the
-    /// rebuild when the four values are bit-identical, which they are inside a flat stretch of
+    /// relight when the four values are bit-identical, which they are inside a flat stretch of
     /// the sky time-of-day ramp. `calc_lighting` is a pure function of the mesh and these four
-    /// values, so the skipped rebuild would have produced the same vertices — and re-meshing a
-    /// 49-block window to write the same bytes is a visible hitch for no pixels.
+    /// values, so the skipped relight would have written the same colours.
     pub(super) fn apply_lighting(&mut self, ws: &mut WorldState) -> bool {
         // The landscape lighting override has two arms. With always-daylight
         // set the function **discards** the caller's four arguments and re-asks the region
@@ -498,26 +497,21 @@ impl SceneDraw {
     /// Re-bake every resident block's vertex lighting, which is the landscape-lighting update's
     /// tail.
     ///
-    /// The client calls on each loaded block directly; this
-    /// crate reaches the same place by asking [`Self::stream`] to regenerate each slot's mesh,
-    /// because `LandContext::generate` already runs `bake_lighting` after every geometry
-    /// rebuild and a block's baked objects survive a `SlotWork::Mesh`.
+    /// Each loaded block's mesh is re-lit where it stands, from its own vertices and the new
+    /// light: nothing is read again, re-meshed or re-merged, so a light tick costs one lighting
+    /// pass over the window and not a rebuild of it. A block still waiting to be built takes
+    /// the light current when it is, and one waiting to be rebuilt at another detail keeps its
+    /// old mesh, re-lit here, until the new one replaces it.
     pub(super) fn relight_blocks(&mut self, ws: &mut WorldState) {
-        let w = ws.streamer.window.mid_width();
-        for xi in 0..w {
-            for yi in 0..w {
-                if ws
-                    .streamer
-                    .window
-                    .slot(xi, yi)
-                    .and_then(|s| s.mesh.as_ref())
-                    .and_then(SlotMesh::get::<LandblockMesh>)
-                    .is_none()
-                {
-                    continue;
-                }
-                self.want(ws, xi, yi, SlotWork::Mesh);
-            }
+        let lighting = self.land.lighting;
+        for mesh in ws
+            .streamer
+            .window
+            .meshes_mut()
+            .filter_map(SlotMesh::get_mut::<LandblockMesh>)
+        {
+            bake_lighting(mesh, &lighting);
+            self.stats.blocks_relit += 1;
         }
     }
 
@@ -687,6 +681,27 @@ impl SceneDraw {
             .as_ref()
             .and_then(SlotMesh::get::<LandblockMesh>)
             .map(|m| m.colours.clone())
+    }
+
+    /// Queue every resident block to be built again at its own detail, as a change of its
+    /// stitching does, for the tests: a block built afresh under the light as it stands, to set
+    /// beside one re-lit in place.
+    pub fn rebuild_resident_blocks(&mut self, ws: &mut WorldState) {
+        let w = ws.streamer.window.mid_width();
+        for xi in 0..w {
+            for yi in 0..w {
+                if ws
+                    .streamer
+                    .window
+                    .slot(xi, yi)
+                    .and_then(|s| s.mesh.as_ref())
+                    .and_then(SlotMesh::get::<LandblockMesh>)
+                    .is_some()
+                {
+                    self.want(ws, xi, yi, SlotWork::Mesh);
+                }
+            }
+        }
     }
 
     /// Return `sunlight` and `ambient_level` as they stand, for the tests. The vector

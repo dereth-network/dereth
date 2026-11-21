@@ -47,6 +47,7 @@ mod remaster_doorways;
 mod remaster_drawn;
 mod remaster_gi;
 mod remaster_lamps;
+mod remaster_light_tick;
 mod remaster_lod;
 mod remaster_look;
 mod remaster_metalfx;

@@ -366,6 +366,13 @@ impl<M> LandblockWindow<M> {
         }
     }
 
+    /// Every loaded slot's mesh, to change in place. A slot keeps its block, ring and direction.
+    pub fn meshes_mut(&mut self) -> impl Iterator<Item = &mut M> {
+        self.slots
+            .iter_mut()
+            .filter_map(|s| s.as_mut()?.mesh.as_mut())
+    }
+
     /// `side_cell_count` of each slot, as the window's detail policy assigns it. Handy for the
     /// ring test.
     #[must_use]
@@ -735,6 +742,52 @@ mod tests {
         for dx in -6..=6 {
             for dy in -6..=6 {
                 assert_eq!(WindowSpec::DEFAULT.orient(dx, dy), block_orient(dx, dy));
+            }
+        }
+    }
+
+    /// Changing the meshes in place reaches every loaded slot that holds one, once, and no other,
+    /// and leaves each slot's block and ring where they were.
+    ///
+    /// Behaviour: none (the accessor the landscape's in-place relight is built on)
+    #[test]
+    fn meshes_mut_visits_each_held_mesh_once_and_moves_no_slot() {
+        let mut win = LandblockWindow::<usize>::new(2);
+        win.update_block((50, 60));
+        let w = win.mid_width();
+        // Every other slot holds a mesh: its own index.
+        for xi in 0..w {
+            for yi in 0..w {
+                let idx = win.index(xi, yi);
+                if idx.is_multiple_of(2) {
+                    win.set_mesh(xi, yi, idx);
+                }
+            }
+        }
+        let before: Vec<_> = (0..w)
+            .flat_map(|xi| (0..w).map(move |yi| (xi, yi)))
+            .map(|(xi, yi)| {
+                let s = win.slot(xi, yi).expect("a loaded slot");
+                (s.block_x, s.block_y, s.lod_div, s.trans_dir)
+            })
+            .collect();
+        let mut visited = 0;
+        for m in win.meshes_mut() {
+            *m += 1000;
+            visited += 1;
+        }
+        assert_eq!(visited, (w * w).div_ceil(2) as usize);
+        for xi in 0..w {
+            for yi in 0..w {
+                let idx = win.index(xi, yi);
+                let s = win.slot(xi, yi).expect("a loaded slot");
+                let want = idx.is_multiple_of(2).then_some(idx + 1000);
+                assert_eq!(s.mesh, want, "slot ({xi},{yi})");
+                assert_eq!(
+                    (s.block_x, s.block_y, s.lod_div, s.trans_dir),
+                    before[idx],
+                    "slot ({xi},{yi}) moved"
+                );
             }
         }
     }

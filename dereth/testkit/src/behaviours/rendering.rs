@@ -1121,6 +1121,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.sky.the-light-tick-builds-no-block-again",
+        says: "Every 15 seconds the land is re-lit for the hour, every loaded block where it \
+               stands: between those moments nothing of the land changes, and at each one no \
+               block of it is loaded or built again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LIGHT-TICK-IN-PLACE"),
+        station: "dereth-client::gpu::rendering::sky::the_light_tick_relights_the_land_without_building_a_block_again",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.sky.the-light-tick-relights-each-block-as-a-rebuild-would",
+        says: "When the land is re-lit for the hour, each loaded block takes the light a block \
+               loaded fresh at that hour would: the same colours at every corner of its ground, \
+               and the same picture.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LIGHT-TICK-RELIGHT"),
+        station: "dereth-client::gpu::rendering::sky::a_light_tick_relights_each_block_as_building_it_again_would",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.sky.the-sky-is-drawn-and-the-day-cycle-moves-it",
         says: "The sky is drawn rather than left black, and the time of day changes it: noon and \
                midnight give clearly different pictures, and the sun and the ambient light both \
