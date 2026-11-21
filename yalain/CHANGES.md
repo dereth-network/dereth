@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.
 - You can't craft for five seconds after using a skill.
 - Spellbinding an item with nothing it can take now says why.
