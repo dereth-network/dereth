@@ -3469,9 +3469,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.creatures.attack-only-what-it-sees",
         says: "A creature attacks only a player it sees, walls, floors, the ground, buildings and \
                closed doors between them stopping its sight; out of its sight it neither shoots nor \
-               strikes but closes in, and gives up as it gives up any player left beyond its \
-               perception, or five seconds on with no way to the player (at once for one that only \
-               turns, which has none).",
+               strikes but closes in, and gives up only as it gives up any player left beyond its \
+               perception, never for having no way to the player.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SIGHT"),
         station: "yalain-testkit::cpu::play::missiles::a_shooter_attacks_only_a_player_in_a_room_it_sees_and_gives_up_when_left_behind",
@@ -3717,10 +3716,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.creatures.fights-things-only-in-sight",
         says: "A creature fighting a pet or another creature strikes it only when it sees it; out of its \
-               sight it closes in, and with no way to it gives up five seconds on, as with a player.",
+               sight it closes in, and with no way to it keeps the fight, giving up only once the target \
+               is beyond its perception, as with a player.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FIGHTS-THINGS-SIGHT"),
-        station: "yalain-testkit::dat::walls::a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up",
+        station: "yalain-testkit::dat::walls::a_creature_fighting_another_it_neither_sees_nor_reaches_keeps_it_until_it_is_beyond",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -3790,16 +3790,6 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-UP"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_gives_up_a_second_after_the_player_leaves_its_perception",
         tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.creatures.given-up-unseen-not-taken-on-again",
-        says: "Creatures notice players through walls; one that gave up a player it neither saw nor found a \
-               way to takes that player on again, by noticing or with its kin, only once it sees the \
-               player or the player has left its perception and come back. Our choice.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-NOTICE-THROUGH-WALLS"),
-        station: "yalain-testkit::dat::walls::a_creature_that_gave_up_a_player_it_neither_sees_nor_reaches_takes_it_on_again_only_once_it_sees_it",
-        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.harm-points-from-the-classes",
@@ -3986,6 +3976,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SWING-HEIGHT"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_does_not_swing_at_a_player_on_a_ledge_above_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.no-way-keeps-the-fight",
+        says: "A creature that neither sees a player nor finds a way to it (another floor, a room no way \
+               leads to) stays in its fight while the player stays within its perception, past five \
+               seconds and on, the player counted as one it could not reach; it gives up a second after \
+               the player is beyond its perception.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AI-NO-WAY-HOLDS"),
+        station: "yalain-testkit::dat::walls::a_creature_that_neither_sees_nor_can_reach_its_player_keeps_its_fight_until_the_player_leaves",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.not-wandering-never-wander",

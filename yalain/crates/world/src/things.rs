@@ -84,9 +84,6 @@ pub struct Creature {
     /// The players (character ids) it could not reach this fight, going after them: their kill of
     /// it is no fair fight.
     pub unreached: Vec<u64>,
-    /// The players (character ids) it gave up neither seeing nor finding a way to: it takes them on
-    /// again only once it sees them, or once they have left its perception and come back.
-    pub passed_over: Vec<u64>,
     /// This fight it stands and shoots (else it closes in and strikes).
     pub ranged: bool,
     /// It is running at a player, and goes on to where it stops once within reach: where the player

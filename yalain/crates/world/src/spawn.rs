@@ -568,7 +568,6 @@ pub fn make<S: Store>(
         damage_by: Vec::new(),
         taken_by: Vec::new(),
         unreached: Vec::new(),
-        passed_over: Vec::new(),
         ranged: false,
         closing: None,
         barred: Vec::new(),

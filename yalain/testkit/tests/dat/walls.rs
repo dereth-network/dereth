@@ -240,8 +240,7 @@ fn a_creature_with_no_way_to_its_player_counts_it_as_one_it_could_not_reach() {
         }
         let clock = h.clock();
         yalain_world::ai::go_after(&mut h.server, &mut h.net, beetle, player, clock);
-        // What it counts while it is still after the player (one it neither sees nor can reach it
-        // soon gives up).
+        // What it counts while it is after the player.
         let unreached = |h: &Harness| {
             h.server
                 .things
@@ -1939,11 +1938,12 @@ fn drudge_outcasts_in_the_arwic_mines_attack_only_a_player_they_see() {
 }
 
 /// A creature going after a player it does not see and that no way through the walls leads to
-/// (the player in the hall's other copy, within its perception) gives up a moment after its search
-/// finds no way, and goes home, instead of running at the rock for as long as the player stays.
-/// Behaviour: server.creatures.attack-only-what-it-sees
+/// (the player in the hall's other copy, within its perception) stays in its fight well past five
+/// seconds, counting the player as one it could not reach; it gives up once the player is beyond its
+/// perception for a second.
+/// Behaviour: server.creatures.no-way-keeps-the-fight
 #[test]
-fn a_creature_that_neither_sees_nor_can_reach_its_player_gives_up() {
+fn a_creature_that_neither_sees_nor_can_reach_its_player_keeps_its_fight_until_the_player_leaves() {
     let start = hall(0x010C, 16.0, 428.0, -43.1);
     let (mut h, _, beetle) = beetle_at(start);
     if let Some(c) = h
@@ -1969,14 +1969,61 @@ fn a_creature_that_neither_sees_nor_can_reach_its_player_gives_up() {
     }
     let clock = h.clock();
     yalain_world::ai::go_after(&mut h.server, &mut h.net, beetle, player, clock);
-    let gave_up = h.run_until(200, |h| {
+    assert!(
+        holds_for(&mut h, 20.0, |h| target_of(h, beetle) == Some(player)),
+        "still after the player it cannot see or reach, 20 s on"
+    );
+    assert!(
         h.server
             .things
             .get(beetle)
             .and_then(|t| t.creature.as_ref())
-            .is_some_and(|c| c.target.is_none())
-    });
-    assert!(gave_up, "it gives up the player it cannot see or reach");
+            .is_some_and(|c| c.unreached.contains(&player)),
+        "one it could not reach"
+    );
+    // The player leaves its perception: a second on, it gives up.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 1.0;
+    }
+    let left = h.now.0;
+    assert!(
+        holds_for(&mut h, 0.8, |h| target_of(h, beetle) == Some(player)),
+        "not at once"
+    );
+    assert!(
+        h.run_until(40, |h| target_of(h, beetle).is_none()),
+        "it gives up"
+    );
+    assert!(
+        h.now.0 - left < 2.5,
+        "a second or so after: {}",
+        h.now.0 - left
+    );
+}
+
+fn target_of(h: &Harness, creature: u64) -> Option<u64> {
+    h.server
+        .things
+        .get(creature)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.target)
+}
+
+/// Step the world for so many seconds, true if `still` held at every step.
+fn holds_for(h: &mut Harness, seconds: f64, still: impl Fn(&Harness) -> bool) -> bool {
+    let until = h.now.0 + seconds;
+    while h.now.0 < until {
+        h.step();
+        if !still(h) {
+            return false;
+        }
+    }
+    true
 }
 
 /// A creature whose attack is due on a player it does not see looks for the player once a world
@@ -2353,75 +2400,11 @@ fn a_creatures_missile_misses_a_player_who_steps_behind_the_rock_as_it_flies() {
     assert_eq!(health(&h), before, "unhurt");
 }
 
-/// A creature that gave up a player it neither saw nor found a way to doesn't take that player on
-/// again while it still doesn't see it, and does once it does: a beetle that attacks first notices
-/// a player in the training hall's other copy, beside its own and within its perception, goes after
-/// it, gives up, and goes home; for the next half minute it leaves the player be; with the player
-/// come into its room, it takes it on again.
-/// Behaviour: server.creatures.given-up-unseen-not-taken-on-again
+/// A creature that only turns keeps its fight with a player it does not see while the player stays
+/// within its perception: it has no way to anything, and that is no reason to give up.
+/// Behaviour: server.creatures.no-way-keeps-the-fight
 #[test]
-fn a_creature_that_gave_up_a_player_it_neither_sees_nor_reaches_takes_it_on_again_only_once_it_sees_it(
-) {
-    let start = hall(0x010C, 16.0, 428.0, -43.1);
-    let (mut h, b, beetle) = beetle_at(start);
-    h.bots[b].send(
-        true,
-        auberean_protocol::queue::WEENIE,
-        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
-    );
-    h.run(5);
-    if let Some(c) = h
-        .server
-        .things
-        .get_mut(beetle)
-        .and_then(|t| t.creature.as_mut())
-    {
-        c.stats.movement.perception = 400.0;
-        c.stats.attacks_first = true;
-    }
-    for p in h.server.players.values_mut() {
-        p.position = StoredPosition {
-            cell: 0x0299_010C,
-            ..start
-        };
-    }
-    let target = |h: &Harness| {
-        h.server
-            .things
-            .get(beetle)
-            .and_then(|t| t.creature.as_ref())
-            .and_then(|c| c.target)
-    };
-    assert!(
-        h.run_until(100, |h| target(h).is_some()),
-        "it notices the player"
-    );
-    assert!(h.run_until(400, |h| target(h).is_none()), "and gives up");
-    let mut again = 0;
-    for _ in 0..600 {
-        h.step();
-        again += usize::from(target(&h).is_some());
-    }
-    assert_eq!(again, 0, "it leaves the player be while it does not see it");
-    let home = place_of(&h, beetle);
-    let near = StoredPosition {
-        origin: [home.origin[0] + 2.0, home.origin[1], home.origin[2]],
-        ..home
-    };
-    for p in h.server.players.values_mut() {
-        p.position = near;
-    }
-    assert!(
-        h.run_until(60, |h| target(h).is_some()),
-        "in its sight, it takes the player on again"
-    );
-}
-
-/// A creature that only turns gives up a player it does not see: it has no way to anything, so out
-/// of its sight it is as good as gone, five seconds on.
-/// Behaviour: server.creatures.attack-only-what-it-sees
-#[test]
-fn a_creature_that_only_turns_gives_up_a_player_it_does_not_see() {
+fn a_creature_that_only_turns_keeps_a_player_it_does_not_see() {
     let (mut h, _, me, outcast) = outcast_and_player(beyond_the_rock());
     if let Some(c) = h
         .server
@@ -2433,22 +2416,18 @@ fn a_creature_that_only_turns_gives_up_a_player_it_does_not_see() {
     }
     let clock = h.clock();
     yalain_world::ai::go_after(&mut h.server, &mut h.net, outcast, me, clock);
-    let gave_up = h.run_until(200, |h| {
-        h.server
-            .things
-            .get(outcast)
-            .and_then(|t| t.creature.as_ref())
-            .is_some_and(|c| c.target.is_none())
-    });
-    assert!(gave_up, "it gives up the player it does not see");
+    assert!(
+        holds_for(&mut h, 20.0, |h| target_of(h, outcast) == Some(me)),
+        "still after the player it does not see, 20 s on"
+    );
 }
 
-/// A creature fighting another creature it neither sees nor finds a way to gives up five seconds on,
-/// as it gives up such a player: a beetle set on a creature in the training hall's other copy,
-/// beside its own, runs at the rock, finds no way, and goes home.
+/// A creature fighting another creature it neither sees nor finds a way to keeps that fight as it
+/// keeps such a player: a beetle set on a creature in the training hall's other copy, beside its
+/// own, is still on it 20 s on; with the other beyond its perception, it gives up and goes home.
 /// Behaviour: server.creatures.fights-things-only-in-sight
 #[test]
-fn a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up() {
+fn a_creature_fighting_another_it_neither_sees_nor_reaches_keeps_it_until_it_is_beyond() {
     let start = hall(0x010C, 16.0, 428.0, -43.1);
     let (mut h, _, beetle) = beetle_at(start);
     h.add_creatures(1);
@@ -2484,25 +2463,21 @@ fn a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up() {
     }
     let clock = h.clock();
     yalain_world::ai::take_on(&mut h.server, &mut h.net, beetle, other, clock);
-    assert_eq!(
-        h.server
-            .things
-            .get(beetle)
-            .and_then(|t| t.creature.as_ref())
-            .and_then(|c| c.target),
-        Some(other),
-        "set on the other"
-    );
-    let gave_up = h.run_until(400, |h| {
-        h.server
-            .things
-            .get(beetle)
-            .and_then(|t| t.creature.as_ref())
-            .is_some_and(|c| c.target.is_none())
-    });
     assert!(
-        gave_up,
-        "it gives up the creature it neither sees nor reaches"
+        holds_for(&mut h, 20.0, |h| target_of(h, beetle) == Some(other)),
+        "still on the creature it neither sees nor reaches, 20 s on"
+    );
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 1.0;
+    }
+    assert!(
+        h.run_until(40, |h| target_of(h, beetle).is_none()),
+        "beyond its perception, it gives up"
     );
 }
 

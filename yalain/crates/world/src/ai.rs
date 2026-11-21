@@ -55,15 +55,13 @@
 //!   159 of 159 shots after a mark, none in 2,329 seconds of unmarked players within 60 m of them).
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
-//!   for every radius), or out of its sight with no way through the walls to it for five seconds
-//!   (inferred: 2017's few indoor fights hold no such case; one that only turns has no way to
-//!   anything), or is gone, it takes its peaceful mode and runs home; it is not made whole
-//!   (it regenerates). A player it gave up neither seeing nor reaching it takes on again, by noticing
-//!   or with its kin, only once it sees the player, or once the player has left its perception and
-//!   come back: else it would notice the player through the rock again at once, run at it and give
-//!   up, over and over. There is no leash at the homesick radius and no giving up by time. A target
-//!   that dies is replaced by the nearest player within the radius that has hurt the creature, if
-//!   any (2017: 62 of 387 took another).
+//!   for every radius), or is gone, it takes its peaceful mode and runs home; it is not made whole
+//!   (it regenerates). A player it cannot reach (no way through the walls, another floor) or does
+//!   not see is no reason to give up: it stays in its fight, standing or searching again, while the
+//!   player stays within its perception. There is no leash at the homesick radius and no giving up
+//!   by time. A target that dies is replaced by the nearest player within the radius that has hurt
+//!   the creature, if any: this server's rule, not 2017's, which also took players that had not hurt
+//!   it.
 //! - **Turning on another.** At each of its attacks (once for each) it may draw its target again:
 //!   while players have hurt it over the last ten seconds, about three times in ten (half that
 //!   once it has fought one target for fifteen seconds), among those players by the harm each did
@@ -281,10 +279,6 @@ fn marks<S: Store>(
 /// How long a player must have been beyond a creature's perception radius for it to give up, in
 /// seconds (2017: a median 1.17 s, the bulk from 0.8 to 1.6).
 pub const GIVE_UP_AFTER: f64 = 1.0;
-
-/// How long a creature must have neither seen a player nor found a way to it for it to give up, in
-/// seconds (authored: long enough for a few more searches, a second apart).
-pub const NO_WAY_GIVE_UP_AFTER: f64 = 5.0;
 
 /// How often a creature at rest looks about for a player, in seconds (2017: about 14% of those
 /// in reach engaged each quarter second, half by one second).
@@ -550,14 +544,8 @@ fn notice<S: Store>(
     (id, class): (Option<u64>, Option<u32>),
     attacks_first: bool,
 ) -> Option<u64> {
-    let given_up = id
-        .and_then(|id| s.things.get(id))
-        .and_then(|t| t.creature.as_ref())
-        .map(|c| c.passed_over.as_slice())
-        .unwrap_or_default();
     notices_among(s, at, radius, |p| {
         fightable(p)
-            && !given_up.contains(&p.character)
             && p.admin.attackable == Attackable::Normal
             && match regard_of(s, id, class, p) {
                 Some(Regard::Spares) => false,
@@ -585,49 +573,6 @@ pub fn notices_among<S: Store>(
         .map(|(d, p)| (d, p.character))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id)
-}
-
-/// A creature forgets having given up the players it now sees, and those that have left its
-/// perception since.
-fn forget_given_up<S: Store>(s: &mut Server<S>, id: u64, at: &StoredPosition, perception: f32) {
-    let given_up = s
-        .things
-        .get(id)
-        .and_then(|t| t.creature.as_ref())
-        .map(|c| c.passed_over.clone())
-        .unwrap_or_default();
-    for player in given_up {
-        let place = s
-            .players
-            .values()
-            .find(|p| p.character == player)
-            .map(|p| p.position);
-        let forget = place.is_none_or(|place| {
-            presence::distance(at, &place).is_none_or(|d| d > perception)
-                || sees(s.ground.as_deref(), s.walls.as_mut(), at, &place)
-        });
-        if forget {
-            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-                c.passed_over.retain(|p| *p != player);
-            }
-        }
-    }
-}
-
-/// Does a creature take on a player it has been called to: one it has not given up unseen and
-/// unreached, or has forgotten giving up?
-fn takes_on_again<S: Store>(
-    s: &mut Server<S>,
-    id: u64,
-    at: &StoredPosition,
-    perception: f32,
-    player: u64,
-) -> bool {
-    forget_given_up(s, id, at, perception);
-    s.things
-        .get(id)
-        .and_then(|t| t.creature.as_ref())
-        .is_none_or(|c| !c.passed_over.contains(&player))
 }
 
 /// Is what a creature was drawn to while it played an idle still there to go after: a player in the
@@ -811,7 +756,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     // Its kin's fight may be with a pet: it goes at the pet, while it lives.
                     let pet = s.pets.is_pet(p)
                         && s.things.get(p).is_some_and(crate::things::Thing::alive);
-                    if (here || pet) && takes_on_again(s, id, &at, perception, p) {
+                    if here || pet {
                         engage(s, net, id, p, clock);
                         return;
                     }
@@ -826,7 +771,6 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     engage(s, net, id, device, clock);
                     return;
                 }
-                forget_given_up(s, id, &at, perception);
                 let player = notice(
                     s,
                     &at,
@@ -920,33 +864,16 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 if !seen && now >= c.next_attack {
                     c.next_attack = now + crate::spawn::STEP_SECONDS;
                 }
-                // Out of its sight with no way to it is as good as gone, once a few more searches
-                // have found none; one that only turns never has a way.
-                let unreached = !seen && (c.way.no_way || turns_only);
-                if beyond || unreached {
-                    let since = *c.lost_since.get_or_insert(now);
-                    now - since
-                        >= if beyond {
-                            GIVE_UP_AFTER
-                        } else {
-                            NO_WAY_GIVE_UP_AFTER
-                        }
+                // Beyond its perception for a while it is gone; out of its sight, or with no way to
+                // it, it stays after the player.
+                if beyond {
+                    now - *c.lost_since.get_or_insert(now) >= GIVE_UP_AFTER
                 } else {
                     c.lost_since = None;
                     false
                 }
             };
             if far_from_home || lost {
-                if lost && !beyond && !far_from_home {
-                    if let (Some(c), Some(p)) = (
-                        s.things.get_mut(id).and_then(|t| t.creature.as_mut()),
-                        target,
-                    ) {
-                        if !c.passed_over.contains(&p) {
-                            c.passed_over.push(p);
-                        }
-                    }
-                }
                 go_home(s, net, id);
                 return;
             }
@@ -1214,9 +1141,8 @@ fn foe_near<S: Store>(
 }
 
 /// A creature fights a pet or another creature: it gives up as with a player when the target is
-/// gone, dead or beyond its perception, or it is too far from home, or out of its sight with no way
-/// to it for five seconds; else it runs into reach and strikes it, only when it sees it (out of its
-/// sight it closes in).
+/// gone, dead or beyond its perception, or it is too far from home, never for having no way to it;
+/// else it runs into reach and strikes it, only when it sees it (out of its sight it closes in).
 #[allow(clippy::too_many_arguments)]
 fn fights<S: Store>(
     s: &mut Server<S>,
@@ -1243,21 +1169,6 @@ fn fights<S: Store>(
     }
     let now = clock.local.0;
     let seen = sight_of(s, id, at, pet, &place, now);
-    let lost = {
-        let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
-            return;
-        };
-        if !seen && c.way.no_way {
-            now - *c.lost_since.get_or_insert(now) >= NO_WAY_GIVE_UP_AFTER
-        } else {
-            c.lost_since = None;
-            false
-        }
-    };
-    if lost {
-        go_home(s, net, id);
-        return;
-    }
     if d > reach || !seen {
         // Out of its sight it goes for where the target stands, to come round to it.
         let near = if seen { reach - MELEE_REACH * 0.2 } else { 0.0 };
@@ -1645,7 +1556,7 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
 }
 
 /// A creature's target is dead or gone: it takes the nearest player within its perception that has
-/// hurt it, else it gives up.
+/// hurt it, else it gives up. This server's rule: 2017 also took players that had not hurt it.
 fn give_up_or_turn<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,

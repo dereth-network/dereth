@@ -232,6 +232,10 @@ pub enum Order {
     Return,
 }
 
+/// How long a pet must have neither seen its target nor found a way to it for it to let the target
+/// be, in seconds (authored: long enough for a few more searches, a second apart).
+pub const NO_WAY_GIVE_UP_AFTER: f64 = 5.0;
+
 /// One pet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pet {
@@ -758,7 +762,6 @@ fn summon_kind<S: Store>(
         damage_by: Vec::new(),
         taken_by: Vec::new(),
         unreached: Vec::new(),
-        passed_over: Vec::new(),
         ranged: false,
         closing: None,
         barred: Vec::new(),
@@ -2366,7 +2369,7 @@ fn fight_player<S: Store>(
             .and_then(|t| t.creature.as_mut())
             .is_some_and(|c| {
                 if kind.stays || c.way.no_way {
-                    now - *c.lost_since.get_or_insert(now) >= crate::ai::NO_WAY_GIVE_UP_AFTER
+                    now - *c.lost_since.get_or_insert(now) >= NO_WAY_GIVE_UP_AFTER
                 } else {
                     c.lost_since = None;
                     false
@@ -2588,7 +2591,7 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
             .and_then(|t| t.creature.as_mut())
             .is_some_and(|c| {
                 if kind.stays || c.way.no_way {
-                    now - *c.lost_since.get_or_insert(now) >= crate::ai::NO_WAY_GIVE_UP_AFTER
+                    now - *c.lost_since.get_or_insert(now) >= NO_WAY_GIVE_UP_AFTER
                 } else {
                     c.lost_since = None;
                     false
