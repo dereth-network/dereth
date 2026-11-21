@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use dereth_primitives::text::key_text::typed_characters;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -320,31 +321,43 @@ impl Gui {
                 self.events
                     .push(egui::Event::ModifiersChanged(self.modifiers));
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                let pressed = event.state == ElementState::Pressed;
-                if let PhysicalKey::Code(code) = event.physical_key {
-                    if let Some(k) = key_of(code) {
-                        self.events.push(egui::Event::Key {
-                            key: k,
-                            physical_key: Some(k),
-                            pressed,
-                            repeat: event.repeat,
-                            modifiers: self.modifiers,
-                        });
-                    }
-                }
-                if pressed && !self.modifiers.ctrl && !self.modifiers.command {
-                    if let Some(t) = event
-                        .text
-                        .as_ref()
-                        .filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()))
-                    {
-                        self.events.push(egui::Event::Text(t.to_string()));
-                    }
-                }
-            }
+            WindowEvent::KeyboardInput { event, .. } => self.key_input(
+                event.physical_key,
+                event.state == ElementState::Pressed,
+                event.repeat,
+                event.text.as_deref(),
+            ),
             WindowEvent::Focused(f) => self.events.push(egui::Event::WindowFocused(*f)),
             _ => {}
+        }
+    }
+
+    /// A key of the window's keyboard down or up, with the text the window reports for it. A
+    /// press types its text unless a shortcut's modifier is held; the text's control characters
+    /// and the stand-ins a host reports for keys that type nothing are never typed.
+    pub fn key_input(
+        &mut self,
+        physical_key: PhysicalKey,
+        pressed: bool,
+        repeat: bool,
+        text: Option<&str>,
+    ) {
+        if let PhysicalKey::Code(code) = physical_key {
+            if let Some(k) = key_of(code) {
+                self.events.push(egui::Event::Key {
+                    key: k,
+                    physical_key: Some(k),
+                    pressed,
+                    repeat,
+                    modifiers: self.modifiers,
+                });
+            }
+        }
+        if pressed && !self.modifiers.ctrl && !self.modifiers.command {
+            let typed: String = text.map(typed_characters).into_iter().flatten().collect();
+            if !typed.is_empty() {
+                self.events.push(egui::Event::Text(typed));
+            }
         }
     }
 

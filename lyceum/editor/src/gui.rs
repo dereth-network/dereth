@@ -26,6 +26,7 @@ use dereth_client_contract::overlay::{
 };
 use dereth_input::host::HostEvent;
 use dereth_input::keys::MouseButton;
+use dereth_primitives::text::key_text::typed_characters;
 use dereth_primitives::{TextureData, TextureFormat};
 
 /// The carried sans, for the panels' text.
@@ -690,11 +691,16 @@ impl Gui {
                         });
                     }
                     if *pressed {
-                        if let Some(t) = text
-                            .as_ref()
-                            .filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()))
-                        {
-                            out.push(egui::Event::Text(t.clone()));
+                        // Neither a control character nor the stand-in a host reports for a key
+                        // that types nothing is typed into a field.
+                        let typed: String = text
+                            .as_deref()
+                            .map(typed_characters)
+                            .into_iter()
+                            .flatten()
+                            .collect();
+                        if !typed.is_empty() {
+                            out.push(egui::Event::Text(typed));
                         }
                     }
                 }
@@ -1436,5 +1442,36 @@ mod tests {
             e,
             egui::Event::PointerButton { pos, pressed: true, .. } if *pos == egui::pos2(5.0, 6.0)
         )));
+    }
+
+    #[test]
+    fn a_key_that_types_nothing_reaches_egui_as_a_key_with_no_text() {
+        let mut g = Gui::new();
+        let key = |vk, text: &str| HostEvent::KeyboardInput {
+            key: dereth_input::keys::Key::new(vk, 0),
+            pressed: true,
+            text: Some(text.to_owned()),
+        };
+        // The text macOS reports for the left arrow and Home, then a letter.
+        let input = g.input(
+            &[key(0x25, "\u{F702}"), key(0x24, "\u{F729}"), key(0x41, "a")],
+            (800, 600),
+            1.0,
+        );
+        let keys: Vec<egui::Key> = input
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::Key { key, .. } => Some(*key),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(keys, [egui::Key::ArrowLeft, egui::Key::Home, egui::Key::A]);
+        let texts: Vec<&egui::Event> = input
+            .events
+            .iter()
+            .filter(|e| matches!(e, egui::Event::Text(_)))
+            .collect();
+        assert_eq!(texts, [&egui::Event::Text("a".into())]);
     }
 }

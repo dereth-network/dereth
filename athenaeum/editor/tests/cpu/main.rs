@@ -224,6 +224,36 @@ fn the_shortcuts_key_is_ctrl_and_on_a_mac_cmd_too() {
     assert!(!athenaeum_editor::gui::command_key(M::SHIFT));
 }
 
+#[test]
+fn a_key_that_types_nothing_reaches_the_panels_as_a_key_with_no_text() {
+    use winit::keyboard::{KeyCode, PhysicalKey};
+    let mut g = athenaeum_editor::gui::Gui::new(1.0);
+    // The text macOS reports for the left arrow and Home, then a letter.
+    for (code, text) in [
+        (KeyCode::ArrowLeft, "\u{F702}"),
+        (KeyCode::Home, "\u{F729}"),
+        (KeyCode::KeyA, "a"),
+    ] {
+        g.key_input(PhysicalKey::Code(code), true, false, Some(text));
+    }
+    let input = g.input((800, 600), 1.0);
+    let keys: Vec<egui::Key> = input
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            egui::Event::Key { key, .. } => Some(*key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(keys, [egui::Key::ArrowLeft, egui::Key::Home, egui::Key::A]);
+    let texts: Vec<&egui::Event> = input
+        .events
+        .iter()
+        .filter(|e| matches!(e, egui::Event::Text(_)))
+        .collect();
+    assert_eq!(texts, [&egui::Event::Text("a".into())]);
+}
+
 mod gizmo_math {
     use athenaeum_editor::gizmo::*;
 
