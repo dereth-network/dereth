@@ -371,6 +371,8 @@ rows whose moment and quest match, picking at random among several.
 | `quest`, `update`, `phase` | | the quest update the line comes with (`bestow`, `advance` and its phase, `complete`, `fail`); a `remind` line names its `quest` and no `update` |
 | `item` | | the item given, for a line said when one is |
 | `order` | | its place in a speech of several lines (0 first) |
+| `pause` | | for a line said with a quest update: seconds, above 0 and at most 60, that the rest of its step (its later lines, its items, its update) waits after it, as at a step's `pause`; the item given such a step is kept at once. A step that leads somewhere is held by no line |
+| `after_update` | | for a line said with a quest update, in place of `pause`: seconds, above 0 and at most 60, after that update that it is said, holding nothing |
 | `requires` | | what must be as it says for it to be said: tallies full or not yet full (`[{ tally = "key", full = true }]`), or a count at least and below so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both); events on (`{ event = "key" }`) or off (`{ event = "key", on = false }`) |
 | `fills` | | a tally's key: the line's one variable is the tally's count as a percent of its `full`, rounded down. Only with `line`, a string of the install's that takes one variable |
 | `full_line`, `full_line_text` | | with `fills`: what is said in the line's place once the tally is full |
@@ -446,6 +448,7 @@ What moves a quest on, in its quest's file.
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
 | `again_after` | | seconds by the calendar, above 0: once it has run for a player it runs for that player again only after so many, kept while the player is away; meanwhile a use of a person that would run it is answered with the person's `too-soon` line. Left out, it runs whenever it may |
+| `pause` | | seconds, above 0 and at most 60: the step says and does nothing until so long after its trigger, then all of it. What it takes it takes as it begins. Meanwhile no other step of its quest runs for the player. A quest cancelled, failed or moved meanwhile gets nothing more of it. One who leaves the world has it done then. The trigger's later steps come after it. A step with `to`, or of a kill, a hurt or a take, takes none |
 | `permissions` | | `{ grant, revoke }`, either or both, no bit in both: bits added to and taken from the permissions its player always lets through, after its effects; a change is told to every client that knows the player. `grant = 0xC0000` lets players of other kingdoms who hold it too fight the player anywhere, peace areas included |
 | `escort` | | a creature it sets to follow the player for the quest, below |
 | `out_of_turn` | | true, with `update = "none"` and `needs` above 0: it runs when its quest is under way at any phase but `needs`, saying and putting on what it names and moving no quest (a stop of a course used out of its turn); used at `needs`, the quest's own step for it runs instead |

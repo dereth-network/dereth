@@ -938,6 +938,15 @@ fn use_person(h: &mut Harness, b: usize, me: u64, t: &Tables, i: usize) -> Vec<(
         &server_call(0x8216_0016, &[use_of(id, me)]),
     );
     h.run(10);
+    // A step that pauses is waited out, a minute at most, and what it does then is read with it.
+    let mut waited = 0;
+    while !h.server.paused_steps.is_empty() && waited < 1_300 {
+        h.step();
+        waited += 1;
+    }
+    if waited > 0 {
+        h.run(2);
+    }
     h.world_messages(b, from)
         .iter()
         .filter_map(|m| match m {

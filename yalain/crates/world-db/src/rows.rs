@@ -615,6 +615,9 @@ pub struct Step {
     /// Seconds by the calendar, above 0: once it has run for a player it runs for that player again
     /// only after so many.
     pub again_after: Option<u32>,
+    /// Seconds, above 0 and at most [`MOST_PAUSE`]: how long after its trigger the step says and does
+    /// all it does (a step that leads somewhere takes none).
+    pub pause: Option<f64>,
     /// What it does to the permissions its player always lets through.
     pub permissions: Option<yalain_content::kingdoms::Permits>,
     pub prov: Prov,
@@ -696,8 +699,17 @@ pub struct Talk {
     /// What is said in its place once that tally is full.
     pub full_line: Option<StrRef>,
     pub full_line_text: Option<String>,
+    /// Seconds, above 0 and at most [`MOST_PAUSE`], for a line said with a quest update: how long the
+    /// rest of its step (its later lines, its items, its update) waits after it.
+    pub pause: Option<f64>,
+    /// Seconds, above 0 and at most [`MOST_PAUSE`], for a line said with a quest update: how long
+    /// after that update it is said, holding nothing (never with `pause`).
+    pub after_update: Option<f64>,
     pub prov: Prov,
 }
+
+/// The longest pause a step or a line said with one may make, in seconds.
+pub const MOST_PAUSE: f64 = 60.0;
 
 /// `[[place]]`: a destination.
 #[derive(Debug, Clone, PartialEq)]
@@ -2045,6 +2057,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "out_of_turn",
             "given_effects",
             "again_after",
+            "pause",
             "permissions",
             "prov",
         ],
@@ -2105,6 +2118,8 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "fills",
             "full_line",
             "full_line_text",
+            "pause",
+            "after_update",
             "prov",
         ],
     ),
@@ -3133,6 +3148,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 fought,
             } = f.requires_and_events("requires", true);
             let needs = f.req_u32("needs")?;
+            // A kill's and a take's own effects read which quests their steps moved: those steps
+            // can't come later.
+            let moves_at_once = matches!(
+                trigger,
+                Trigger::Take(_)
+                    | Trigger::Kill(_)
+                    | Trigger::KillIn(..)
+                    | Trigger::KillNear(..)
+                    | Trigger::HurtNear(..)
+            );
             Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
@@ -3204,6 +3229,24 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     let after = f.u32("again_after");
                     let ok = after.is_none_or(|t| t > 0);
                     f.held("again_after", after, ok, "above 0")?
+                },
+                pause: {
+                    let pause = f.float("pause");
+                    let ok = pause.is_none_or(|p| p > 0.0 && p <= MOST_PAUSE);
+                    let pause = f.held("pause", pause, ok, "above 0 and at most 60 seconds")?;
+                    let leads = f.t.contains_key("to");
+                    let pause = f.held(
+                        "pause",
+                        pause,
+                        pause.is_none() || !leads,
+                        "a step that leads somewhere (to) takes no pause",
+                    )?;
+                    f.held(
+                        "pause",
+                        pause,
+                        pause.is_none() || !moves_at_once,
+                        "a step of a kill, a hurt or a take takes no pause",
+                    )?
                 },
                 permissions: f.permits(),
                 prov: f.req_prov()?,
@@ -3318,6 +3361,36 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 fills: f.key("fills"),
                 full_line: f.strref("full_line"),
                 full_line_text: f.text("full_line_text"),
+                pause: {
+                    let pause = f.float("pause");
+                    let ok = pause.is_none_or(|p| p > 0.0 && p <= MOST_PAUSE);
+                    let pause = f.held("pause", pause, ok, "above 0 and at most 60 seconds")?;
+                    f.held(
+                        "pause",
+                        pause,
+                        pause.is_none() || update.is_some(),
+                        "a line pauses only as it is said with a quest update",
+                    )?
+                },
+                after_update: {
+                    let after = f.float("after_update");
+                    let ok = after.is_none_or(|p| p > 0.0 && p <= MOST_PAUSE);
+                    let after =
+                        f.held("after_update", after, ok, "above 0 and at most 60 seconds")?;
+                    let after = f.held(
+                        "after_update",
+                        after,
+                        after.is_none() || update.is_some(),
+                        "a line comes after its update only as it is said with a quest update",
+                    )?;
+                    let pauses = f.t.contains_key("pause");
+                    f.held(
+                        "after_update",
+                        after,
+                        after.is_none() || !pauses,
+                        "a line that comes after its update holds nothing: it takes no pause",
+                    )?
+                },
                 prov: f.req_prov()?,
             })
         }

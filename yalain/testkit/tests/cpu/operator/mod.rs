@@ -12,7 +12,7 @@ mod item_ids;
 mod moderation;
 mod old_saves;
 mod rates;
-mod reload;
+pub(crate) mod reload;
 mod reload_camps;
 mod reload_placed;
 mod reload_veins;

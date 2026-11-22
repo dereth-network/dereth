@@ -957,6 +957,7 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::plants::owner_leaves(s, net, id);
         crate::drops::left(s, world);
         crate::gives::left(s, net, world);
+        crate::quests::paused_left(s, net, world);
         crate::usable::chests::left(s, net, world);
         crate::usable::vaults::left(s, world);
         crate::hazards::left(s, world);

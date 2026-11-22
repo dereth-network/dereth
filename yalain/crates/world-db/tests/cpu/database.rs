@@ -3925,6 +3925,143 @@ fn a_steps_wait_between_runs_is_read_compiled_by_its_quest_and_key_and_kept_abov
     }
 }
 
+/// A step's `pause` is read and compiled to the pause of the step of its quest and key, in
+/// milliseconds, and a line's to the line's; each must be above 0 and at most a minute, a step's
+/// takes none where it leads somewhere, and a line pauses only as it is said with a quest update.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_steps_and_a_lines_pause_are_read_compiled_and_kept_within_a_minute() {
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        plain.content.step_pauses.is_empty(),
+        "none named, none kept"
+    );
+    assert!(plain.talk.lines.iter().all(|l| l.pause_ms == 0));
+    let with = |step: &str, line: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{step}"),
+        );
+        edit(
+            &mut files,
+            "town/server/talk/470033D0.toml",
+            "update = \"bestow\"\n",
+            &format!("update = \"bestow\"\n{line}"),
+        );
+        files
+    };
+    let files = with("pause = 1.5\n", "pause = 2.0\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.step_pauses.into_iter().collect::<Vec<_>>(),
+        [((0x4000_0088, "s1".to_string()), 1500)]
+    );
+    let offer = t.talk.lines.iter().find(|l| l.quest == Some(0x4000_0088));
+    assert_eq!(offer.map(|l| l.pause_ms), Some(2000));
+    let problems =
+        |files: &Files| -> Vec<String> { check(files).iter().map(ToString::to_string).collect() };
+    for bad in ["0", "-1.0", "60.5", "\"a beat\""] {
+        let m = problems(&with(&format!("pause = {bad}\n"), ""));
+        assert!(
+            m.iter().any(|m| m.contains("pause")),
+            "a step's {bad}: {m:?}"
+        );
+        let m = problems(&with("", &format!("pause = {bad}\n")));
+        assert!(
+            m.iter().any(|m| m.contains("pause")),
+            "a line's {bad}: {m:?}"
+        );
+    }
+    let m = problems(&with("to = \"inn\"\npause = 1.0\n", ""));
+    assert!(
+        m.iter()
+            .any(|m| m.contains("pause") && m.contains("leads somewhere")),
+        "a step that leads somewhere: {m:?}"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"\n",
+        "role = \"near\"\npause = 1.0\n",
+    );
+    let m = problems(&files);
+    assert!(
+        m.iter()
+            .any(|m| m.contains("pause") && m.contains("quest update")),
+        "a line said with no update: {m:?}"
+    );
+}
+
+/// A line's `after_update` is read and compiled to the line's, above 0 and at most a minute, only
+/// on a line said with an update and never with a pause; a step of a kill takes no pause.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_lines_time_after_its_update_is_read_and_a_kills_step_takes_no_pause() {
+    let line = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/talk/470033D0.toml",
+            "update = \"bestow\"\n",
+            &format!("update = \"bestow\"\n{extra}"),
+        );
+        files
+    };
+    let problems =
+        |files: &Files| -> Vec<String> { check(files).iter().map(ToString::to_string).collect() };
+    let files = line("after_update = 1.5\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let offer = t.talk.lines.iter().find(|l| l.quest == Some(0x4000_0088));
+    assert_eq!(
+        offer.map(|l| (l.pause_ms, l.after_update_ms)),
+        Some((0, 1500))
+    );
+    for bad in ["0", "-1.0", "60.5"] {
+        let m = problems(&line(&format!("after_update = {bad}\n")));
+        assert!(
+            m.iter()
+                .any(|m| m.contains("after_update") && m.contains("60")),
+            "{bad}: {m:?}"
+        );
+    }
+    let m = problems(&line("after_update = 1.5\npause = 1.0\n"));
+    assert!(
+        m.iter().any(|m| m.contains("takes no pause")),
+        "with a pause: {m:?}"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"\n",
+        "role = \"near\"\nafter_update = 1.0\n",
+    );
+    let m = problems(&files);
+    assert!(
+        m.iter()
+            .any(|m| m.contains("only as it is said with a quest update")),
+        "no update: {m:?}"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+        "needs = 0\ntrigger = { kill = 0x470020BB }\npause = 1.0\n",
+    );
+    let m = problems(&files);
+    assert!(
+        m.iter().any(|m| m.contains("a kill, a hurt or a take")),
+        "a kill's: {m:?}"
+    );
+}
+
 /// A step's `permissions` are read and compiled to what the step of its quest and key grants and
 /// revokes; one with neither, a bit in both or another key is a problem.
 #[test]

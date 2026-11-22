@@ -2,7 +2,7 @@
 //! the answer; an item a quest step takes kept, one no step wants handed back with the person's
 //! refusal; a person busy with another player's give, a walk that cannot get there; a part of a
 //! stack; a quest moved on by an item a give brought; a vitae tap; a hero made; a pet refusing what
-//! it is given.
+//! it is given; a step that pauses, or a line said with it that pauses the rest of it.
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::{queue, ServerMessage};
@@ -149,6 +149,8 @@ fn line(who: u32, string: u32, role: Option<Role>, quest: Option<u32>) -> Line {
         item: None,
         order: 0,
         measured: true,
+        pause_ms: 0,
+        after_update_ms: 0,
         placed: "authored for a test".into(),
     }
 }
@@ -2841,4 +2843,484 @@ fn a_give_to_a_pet_that_dies_on_the_way_is_refused_as_one_that_cannot_get_there(
         h.server.players[&world].giving.is_none(),
         "free to give again"
     );
+}
+
+const EMOTE_LINE: u32 = 0x8A69_7D3E;
+const AFTER_LINE: u32 = 0x42E6_0A37;
+const SHOW_TEXT: u32 = 0x8205_0011;
+
+/// The emotes a person showed a client since `from`.
+fn emoted(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == SHOW_TEXT)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some(t.string_id),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// The world of [`world`] whose ashes step is said with two lines, an emote that pauses
+/// `pause_ms` and a line after it, and (with `step_ms`) pauses itself first.
+fn pausing_world(pause_ms: u32, step_ms: Option<u32>) -> Harness {
+    let mut h = world();
+    h.server.talk.lines.retain(|l| l.quest != Some(QUEST));
+    h.server.talk.lines.push(Line {
+        how: How::Emote,
+        phase: Some(3),
+        pause_ms,
+        ..line(PERSON_T, EMOTE_LINE, None, Some(QUEST))
+    });
+    h.server.talk.lines.push(Line {
+        phase: Some(3),
+        order: 1,
+        ..line(PERSON_T, AFTER_LINE, None, Some(QUEST))
+    });
+    for st in &mut h.server.quests.steps {
+        if st.needs == 2 {
+            st.key = "ashes".into();
+        }
+    }
+    if let Some(ms) = step_ms {
+        h.server
+            .content
+            .step_pauses
+            .insert((QUEST, "ashes".into()), ms);
+    }
+    h
+}
+
+/// A give's answer for the ashes, and the inbox mark before it.
+fn ashes_given(h: &mut Harness, b: usize, me: u64) -> (u64, usize) {
+    at_phase(h, QUEST, 2);
+    let (ashes, slot) = hold(h, me, ASHES, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, ashes, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 4);
+    assert_eq!(answers(h, b, from).len(), 1, "answered");
+    (ashes, from)
+}
+
+/// A line said with a step that pauses holds the rest of the step: the person's emote comes with
+/// the give's answer and the item is kept then, and its next line and the quest's update come 2 s
+/// later, not before.
+/// Behaviour: server.quests.a-line-pauses-its-step
+#[test]
+fn a_line_that_pauses_holds_the_rest_of_its_step() {
+    let mut h = pausing_world(2000, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (ashes, from) = ashes_given(&mut h, b, me);
+    assert_eq!(emoted(&h, b, from), vec![EMOTE_LINE], "the emote at once");
+    assert!(!holds(&h, me, ashes), "the ashes kept at once");
+    assert!(told(&h, b, from).is_empty(), "the next line waits");
+    assert!(updates(&h, b, from).is_empty(), "the update waits");
+    h.run(steps(2.0) - 10);
+    assert!(updates(&h, b, from).is_empty(), "not before 2 s");
+    h.run(12);
+    assert_eq!(told(&h, b, from), vec![AFTER_LINE]);
+    assert_eq!(updates(&h, b, from), vec![(0x2000_0003, QUEST, 3)]);
+}
+
+/// A step that pauses says and does nothing until its pause is through: not its lines, not its
+/// update; then all of it, its own pauses after.
+/// Behaviour: server.quests.a-step-pauses
+#[test]
+fn a_step_that_pauses_says_and_does_nothing_until_its_pause_is_through() {
+    let mut h = pausing_world(0, Some(1000));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (_, from) = ashes_given(&mut h, b, me);
+    assert!(
+        emoted(&h, b, from).is_empty() && told(&h, b, from).is_empty(),
+        "nothing said"
+    );
+    assert!(updates(&h, b, from).is_empty(), "nothing moved");
+    h.run(steps(1.0) + 2);
+    assert_eq!(emoted(&h, b, from), vec![EMOTE_LINE]);
+    assert_eq!(told(&h, b, from), vec![AFTER_LINE]);
+    assert_eq!(updates(&h, b, from), vec![(0x2000_0003, QUEST, 3)]);
+}
+
+/// While a step of a quest is paused for a player, no other step of that quest runs for the
+/// player: a second gift in the pause moves nothing and is handed back, and the quest moves once.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_paused_steps_quest_runs_no_other_step_until_it_is_done() {
+    let mut h = pausing_world(2000, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (_, from) = ashes_given(&mut h, b, me);
+    let (second, slot) = hold(&mut h, me, ASHES, 1);
+    h.bots[b].send(true, queue::WEENIE, &give(me, second, slot, PERSON, 1));
+    h.run(steps(3.0) + steps(gives::HANDED_BACK_AFTER));
+    assert_eq!(
+        updates(&h, b, from),
+        vec![(0x2000_0003, QUEST, 3)],
+        "moved once"
+    );
+    assert!(holds(&h, me, second), "the second handed back");
+}
+
+/// One who leaves the world in a step's pause has what the step was for: its quest moved as it
+/// left, kept for when it comes back.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_step_paused_as_its_player_leaves_runs_then() {
+    let mut h = pausing_world(2000, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    ashes_given(&mut h, b, me);
+    let w = world_of(&h, me);
+    yalain_world::world::leave(&mut h.server, &mut h.net, w);
+    h.run(2);
+    let st = yalain_store::Store::world_state(&mut h.server.store, me)
+        .expect("reads")
+        .expect("kept");
+    let play = yalain_world::state::PlayState::from_bytes(&st.play).expect("reads");
+    assert_eq!(
+        play.quests
+            .iter()
+            .find(|q| q.quest == QUEST)
+            .map(|q| q.phase),
+        Some(3),
+        "moved on"
+    );
+}
+
+const NEXT: u32 = 0x4000_0BC0;
+const TOOK: u32 = 0x4000_0BC1;
+const LAST_LINE: u32 = 0xA303_0C8E;
+
+/// The calls and the destroying of a gift in the order they were sent (a blob id's low half): the
+/// function of each, with a tell's or a text's string.
+fn sent(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    let mut v: Vec<(u32, (u32, u32))> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| {
+            let call = match r.message()? {
+                ServerMessage::PlayerCall(c) => c,
+                ServerMessage::VisualObjectCall(c) => c.call,
+                _ => return None,
+            };
+            let text = call
+                .args
+                .as_ref()
+                .and_then(|a| calls::values(&a.0).ok())
+                .and_then(|v| {
+                    v.iter().find_map(|x| match x.root() {
+                        Some(Node::TextInfo(t)) => Some(t.string_id),
+                        _ => None,
+                    })
+                })
+                .unwrap_or(0);
+            #[allow(clippy::cast_possible_truncation)]
+            let seq = r.blob_id as u32;
+            Some((seq, (call.function.0, text)))
+        })
+        .collect();
+    v.sort_by_key(|(seq, _)| *seq);
+    v.into_iter().map(|(_, x)| x).collect()
+}
+
+/// A player's quest, as it stands: its status.
+fn status_of(h: &Harness, me: u64, quest: u32) -> Option<u32> {
+    h.server.players[&world_of(h, me)]
+        .play
+        .quests
+        .iter()
+        .find(|q| q.quest == quest)
+        .map(|q| q.status)
+}
+
+/// The quests kept of a player who left the world: each one's status and phase.
+fn kept_quests(h: &mut Harness, me: u64) -> Vec<(u32, u32, u32)> {
+    let st = yalain_store::Store::world_state(&mut h.server.store, me)
+        .expect("reads")
+        .expect("kept");
+    yalain_world::state::PlayState::from_bytes(&st.play)
+        .expect("reads")
+        .quests
+        .iter()
+        .map(|q| (q.quest, q.status, q.phase))
+        .collect()
+}
+
+/// The world of [`world`] with two lines at the sliver's completion, and a quest given as that one
+/// is done, its step pausing 1.5 s.
+fn finishing_world() -> Harness {
+    let mut h = world();
+    h.server.talk.lines.retain(|l| l.quest != Some(QUEST));
+    h.server.talk.lines.push(Line {
+        update: Some(TalkUpdate::Complete),
+        ..line(PERSON_T, AFTER_LINE, None, Some(QUEST))
+    });
+    h.server.talk.lines.push(Line {
+        update: Some(TalkUpdate::Complete),
+        order: 1,
+        after_update_ms: 1500,
+        ..line(PERSON_T, LAST_LINE, None, Some(QUEST))
+    });
+    h.server.quests.quests.push(quest(NEXT, 2));
+    h.server.quests.steps.push(Step {
+        key: "next".into(),
+        ..step(NEXT, 0, Trigger::Done(QUEST), Update::Bestow)
+    });
+    h.server
+        .content
+        .step_pauses
+        .insert((NEXT, "next".into()), 1500);
+    h
+}
+
+/// The sliver given at the quest's last phase and answered; the inbox mark before it.
+fn sliver_given(h: &mut Harness, b: usize, me: u64) -> usize {
+    at_phase(h, QUEST, 3);
+    let (sliver, slot) = hold(h, me, SLIVER, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, sliver, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 4);
+    assert!(!answers(h, b, from).is_empty(), "answered");
+    from
+}
+
+/// A line said so long after its update holds nothing: the first line and the completion come at
+/// once, and that line and the quest given as that one is done 1.5 s later, the line first (2017,
+/// by the order sent: 18 of 18). With that quest under way already the line still comes, and
+/// nothing is given.
+/// Behaviour: server.quests.a-line-after-its-update-holds-nothing
+#[test]
+fn a_line_after_its_update_holds_neither_it_nor_the_completion() {
+    for held in [false, true] {
+        let mut h = finishing_world();
+        let (b, me) = player(&mut h, "one", "Elara");
+        if held {
+            at_phase(&mut h, NEXT, 1);
+        }
+        let from = sliver_given(&mut h, b, me);
+        assert_eq!(told(&h, b, from), [AFTER_LINE], "the first line at once");
+        assert_eq!(
+            updates(&h, b, from),
+            [(0x3000_0000, QUEST, 0)],
+            "completed at once, held by nothing"
+        );
+        h.run(steps(1.5) - 10);
+        assert_eq!(told(&h, b, from), [AFTER_LINE], "the next line waits");
+        assert_eq!(updates(&h, b, from).len(), 1, "the giving waits");
+        h.run(14);
+        assert_eq!(told(&h, b, from), [AFTER_LINE, LAST_LINE]);
+        let mut want = vec![(0x3000_0000, QUEST, 0)];
+        if !held {
+            want.push((0x1000_0000, NEXT, 1));
+            let order = sent(&h, b, from);
+            let line = order.iter().rposition(|x| *x == (HEAR_TELL, LAST_LINE));
+            let giving = order.iter().rposition(|x| x.0 == UPDATE_QUEST);
+            assert!(line < giving, "the line, then the giving: {order:X?}");
+        }
+        assert_eq!(updates(&h, b, from), want, "held: {held}");
+    }
+}
+
+/// A quest cancelled or failed while its step pauses is neither said on, completed nor paid, and
+/// nothing is given for it, whether the pause runs out or the player leaves in it.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_quest_cancelled_or_failed_in_a_pause_is_neither_completed_nor_paid() {
+    for (cancels, leaves) in [(true, false), (false, false), (true, true)] {
+        let mut h = world();
+        h.server.quests.quests[0].xp = 500;
+        for st in &mut h.server.quests.steps {
+            st.key = format!("needs-{}", st.needs);
+        }
+        h.server
+            .content
+            .step_pauses
+            .insert((QUEST, "needs-3".into()), 2000);
+        h.server.talk.lines.push(Line {
+            update: Some(TalkUpdate::Complete),
+            ..line(PERSON_T, AFTER_LINE, None, Some(QUEST))
+        });
+        let (b, me) = player(&mut h, "one", "Elara");
+        let from = sliver_given(&mut h, b, me);
+        let w = world_of(&h, me);
+        let clock = h.clock();
+        let xp = |h: &Harness| yalain_world::quals::long(&h.server.players[&w].qualities, 300);
+        let before = xp(&h);
+        if cancels {
+            let quest = [Value::Int(QUEST)];
+            yalain_world::quests::cancel(&mut h.server, &mut h.net, w, &quest, clock);
+        } else {
+            yalain_world::quests::fail(&mut h.server, &mut h.net, w, QUEST, clock);
+        }
+        let stands = status_of(&h, me, QUEST);
+        assert_ne!(
+            stands,
+            Some(yalain_world::quests::status::UNDERWAY),
+            "it ended"
+        );
+        if leaves {
+            yalain_world::world::leave(&mut h.server, &mut h.net, w);
+            h.run(2);
+            let kept = kept_quests(&mut h, me);
+            let status = kept.iter().find(|q| q.0 == QUEST).map(|q| q.1);
+            assert_eq!(status, stands, "left: still cancelled");
+            continue;
+        }
+        h.run(steps(2.5));
+        assert_eq!(status_of(&h, me, QUEST), stands, "not completed");
+        assert!(told(&h, b, from).is_empty(), "nothing said");
+        assert!(
+            !updates(&h, b, from).iter().any(|u| u.0 == 0x3000_0000),
+            "no completion"
+        );
+        assert_eq!(xp(&h), before, "not paid");
+        let given = &h.server.players[&w].play.items;
+        assert!(!given.iter().any(|x| x.template == IMBUED), "nothing given");
+    }
+}
+
+/// One who leaves in a pause has what the step was for: the item it gives moves the quest it moves
+/// when received, and a step that pauses as that one's quest is done is done too.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_player_who_leaves_in_a_pause_receives_and_finishes_what_follows() {
+    let mut h = finishing_world();
+    h.server.quests.quests.push(quest(TOOK, 2));
+    h.server
+        .quests
+        .steps
+        .push(step(TOOK, 0, Trigger::Take(IMBUED), Update::Bestow));
+    for st in &mut h.server.quests.steps {
+        if st.needs == 3 {
+            st.key = "sliver".into();
+        }
+    }
+    h.server
+        .content
+        .step_pauses
+        .insert((QUEST, "sliver".into()), 2000);
+    let (b, me) = player(&mut h, "one", "Elara");
+    sliver_given(&mut h, b, me);
+    let w = world_of(&h, me);
+    yalain_world::world::leave(&mut h.server, &mut h.net, w);
+    h.run(2);
+    let kept = kept_quests(&mut h, me);
+    let underway = yalain_world::quests::status::UNDERWAY;
+    assert!(kept.contains(&(TOOK, underway, 1)), "received: {kept:X?}");
+    assert!(
+        kept.contains(&(NEXT, underway, 1)),
+        "the pause after it: {kept:X?}"
+    );
+}
+
+/// A trigger's run of steps carries on once a paused one is through: a later step of the same
+/// trigger that waits on the paused one's completion runs then.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_run_of_steps_carries_on_after_a_pause() {
+    let mut h = world();
+    h.server.quests.quests.push(quest(NEXT, 2));
+    h.server.quests.steps.push(Step {
+        requires: vec![(QUEST, Need::Done)],
+        ..step(NEXT, 0, Trigger::Give(SLIVER, PERSON_T), Update::Bestow)
+    });
+    for st in &mut h.server.quests.steps {
+        if st.needs == 3 {
+            st.key = "sliver".into();
+        }
+    }
+    h.server
+        .content
+        .step_pauses
+        .insert((QUEST, "sliver".into()), 1000);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let from = sliver_given(&mut h, b, me);
+    assert!(updates(&h, b, from).is_empty(), "paused");
+    h.run(steps(1.0) + 4);
+    assert_eq!(
+        updates(&h, b, from),
+        [(0x3000_0000, QUEST, 0), (0x1000_0000, NEXT, 1)]
+    );
+}
+
+/// A step that pauses takes all it takes as it begins, so none of it can be dropped or traded in
+/// the pause and the reward still had.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_step_that_pauses_takes_all_it_takes_as_it_begins() {
+    let mut h = pausing_world(2000, None);
+    for st in &mut h.server.quests.steps {
+        if st.needs == 2 {
+            st.takes = vec![ASHES, JUNK];
+        }
+    }
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (other, _) = hold(&mut h, me, JUNK, 1);
+    let (_, from) = ashes_given(&mut h, b, me);
+    assert!(updates(&h, b, from).is_empty(), "paused");
+    assert!(!holds(&h, me, other), "taken as it began");
+    h.run(steps(2.0) + 4);
+    assert_eq!(updates(&h, b, from), [(0x2000_0003, QUEST, 3)]);
+}
+
+/// A line pauses no step that leads somewhere: its trip doesn't wait, so neither does its update.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_step_that_leads_somewhere_is_held_by_no_line() {
+    let mut h = pausing_world(2000, None);
+    for st in &mut h.server.quests.steps {
+        if st.needs == 2 {
+            st.to = Some(yalain_content::quests::Place {
+                cell: 0x0299_0109,
+                origin: [62.0, 243.0, -44.6],
+                heading: 0,
+            });
+        }
+    }
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (_, from) = ashes_given(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), [(0x2000_0003, QUEST, 3)], "not held");
+}
+
+/// A world reloaded in a pause, the person's place in the list moved by it: the line after the
+/// pause is still that person's.
+/// Behaviour: server.quests.a-pause-keeps-its-step-whole
+#[test]
+fn a_world_reloaded_in_a_pause_leaves_the_line_with_its_person() {
+    let mut h = pausing_world(2000, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (_, from) = ashes_given(&mut h, b, me);
+    let mut t = crate::operator::reload::tables_of(&h);
+    let other = place(
+        0x8130_0000_0000_0709,
+        0x4700_3043,
+        Kind::Npc,
+        [70.0, 241.0, -44.6],
+    );
+    t.content.objects.insert(0, other);
+    crate::operator::reload::reload(&mut h, t);
+    h.run(steps(2.0) + 4);
+    let speakers: Vec<Vec<Value>> = h
+        .calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == HEAR_TELL)
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(speakers.len(), 1, "the line after");
+    let by = |id: u64| format!("{:?}", speakers[0]).contains(&format!("Long({id})"));
+    assert!(by(PERSON), "the person's: {:?}", speakers[0]);
+}
+
+/// A line that pauses sends the gift's going before it, by the order sent (2017: 22 of 22 whose
+/// going was seen).
+/// Behaviour: server.quests.a-line-pauses-its-step
+#[test]
+fn the_gift_of_a_step_that_pauses_goes_before_the_first_line() {
+    let mut h = pausing_world(2000, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (_, from) = ashes_given(&mut h, b, me);
+    let order = sent(&h, b, from);
+    let gone = order.iter().position(|x| x.0 == gives::DESTROY_CONTAINED);
+    let said = order.iter().position(|x| *x == (SHOW_TEXT, EMOTE_LINE));
+    assert!(gone.is_some() && gone < said, "{order:X?}");
 }

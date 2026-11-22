@@ -609,6 +609,9 @@ pub struct Server<S: Store> {
     pub walkers: walkers::Walkers,
     /// The placed people turned or turning to face their users.
     pub facing: facing::Facing,
+    /// The quests whose steps are paused for a player, each running no other step of its own for
+    /// that player until the rest of it is done.
+    pub paused_steps: std::collections::BTreeSet<(ConnId, u32)>,
     /// What reloading the world database keeps of the placed objects and camps between reloads.
     pub placed: reload::Placed,
 }
@@ -807,6 +810,16 @@ pub enum Timer {
     GiveStep {
         world: ConnId,
         step: Box<yalain_content::quests::Step>,
+    },
+    /// A quest step's pause is through: the rest of it.
+    StepGoesOn {
+        world: ConnId,
+        rest: Box<quests::Paused>,
+    },
+    /// A line said so long after its quest step's update comes.
+    LineComes {
+        world: ConnId,
+        line: Box<quests::Said>,
     },
     /// A person's turn to face its user takes its next step.
     PersonTurns { id: u64, count: u32 },
@@ -1041,6 +1054,7 @@ impl<S: Store> Server<S> {
             interactions: usable::interactions::Interactions::default(),
             walkers: walkers::Walkers::default(),
             facing: facing::Facing::default(),
+            paused_steps: std::collections::BTreeSet::new(),
             placed: reload::Placed::default(),
         })
     }
@@ -1262,6 +1276,12 @@ impl<S: Store> Server<S> {
                     started,
                 } => quests::runs_out(self, net, world, quest, started, clock),
                 Timer::SentAway { world, to } => places::sent_away(self, net, world, to, clock),
+                Timer::StepGoesOn { world, rest } => {
+                    quests::step_goes_on(self, net, world, *rest, clock);
+                }
+                Timer::LineComes { world, line } => {
+                    quests::say_one(self, net, world, &line);
+                }
                 Timer::PersonTurns { id, count } => {
                     facing::step(self, net, id, count, clock);
                 }

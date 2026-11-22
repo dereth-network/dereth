@@ -15899,6 +15899,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-line-after-its-update-holds-nothing",
+        says: "A line said so long after a quest step's update holds nothing: the first line and the \
+               update come at once, and that line, with a step that pauses as long after the update, \
+               later, the line first; the line comes too where that step doesn't run.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LINE-AFTER-UPDATE"),
+        station: "yalain-testkit::cpu::play::gives::a_line_after_its_update_holds_neither_it_nor_the_completion",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-line-pauses-its-step",
+        says: "A line said with a quest step's update that pauses holds the rest of the step (its \
+               later lines, its items, its update) as long after it; the item given such a step is \
+               kept at once, sent gone before the step's first line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LINE-PAUSES"),
+        station: "yalain-testkit::cpu::play::gives::a_line_that_pauses_holds_the_rest_of_its_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-name-in-words-is-told-as-written",
         says: "A quest named by words, standing in for a name the install's text lacks, is told by \
                those words in its record as it is given and in the text of what its completion \
@@ -15906,6 +15926,19 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-NAME-WORDS-TOLD"),
         station: "yalain-testkit::cpu::play::quests::a_quest_named_by_words_is_told_by_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-pause-keeps-its-step-whole",
+        says: "A pause leaves its step whole. Meanwhile no other step of its quest runs for the player; \
+               what it takes is taken as it begins; a quest cancelled, failed or moved meanwhile is \
+               neither said on, completed nor paid; a player who leaves has the step and what it sets \
+               off done then; the trigger's later steps run after it; a reload leaves its lines with \
+               their person. A pause is above 0 and at most a minute, and a step that leads somewhere, \
+               or one of a kill, a hurt or a take, has none. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PAUSE-WHOLE"),
+        station: "yalain-testkit::cpu::play::gives::a_quest_cancelled_or_failed_in_a_pause_is_neither_completed_nor_paid",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -16004,6 +16037,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STEP-FAIL"),
         station: "yalain-testkit::cpu::play::quests::a_step_may_fail_its_quest_and_it_may_then_be_given_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-step-pauses",
+        says: "A quest step whose row names a pause says and does nothing until it is through, then \
+               all of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-PAUSES"),
+        station: "yalain-testkit::cpu::play::gives::a_step_that_pauses_says_and_does_nothing_until_its_pause_is_through",
         tier: Tier::Cpu,
     },
     behaviour! {

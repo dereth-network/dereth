@@ -63,13 +63,15 @@ fn talk(string: u32) -> TalkTable {
             item: None,
             order: 0,
             measured: true,
+            pause_ms: 0,
+            after_update_ms: 0,
             placed: "authored for a test".into(),
         }],
     }
 }
 
 /// The world as the server holds it, as a reload would hand it over.
-pub(super) fn tables_of(h: &Harness) -> WorldTables {
+pub(crate) fn tables_of(h: &Harness) -> WorldTables {
     let s = &h.server;
     WorldTables {
         content: s.content.clone(),
@@ -105,7 +107,7 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
 }
 
 /// Reload the world database the server is handed.
-pub(super) fn reload(h: &mut Harness, t: WorldTables) -> Reloaded {
+pub(crate) fn reload(h: &mut Harness, t: WorldTables) -> Reloaded {
     let clock = h.clock();
     h.server.reload(&mut h.net, clock, t)
 }
@@ -224,6 +226,23 @@ fn a_reload_takes_up_the_waits_of_steps_between_their_runs() {
     t.content.step_waits.clear();
     reload(&mut h, t);
     assert!(h.server.content.step_waits.is_empty(), "dropped");
+}
+
+/// A reload takes up steps' pauses: one it adds is the step's at once, and one it drops is gone.
+/// Behaviour: server.quests.a-step-pauses
+#[test]
+fn a_reload_takes_up_the_pauses_of_steps() {
+    let step = (0x4000_027F, "scroll-ankoro".to_string());
+    let (mut h, _, _) = world();
+    let mut t = tables_of(&h);
+    t.content.step_pauses.insert(step.clone(), 1500);
+    let r = reload(&mut h, t);
+    assert_eq!(r.applied, [table::QUESTS]);
+    assert_eq!(h.server.content.step_pauses.get(&step), Some(&1500));
+    let mut t = tables_of(&h);
+    t.content.step_pauses.clear();
+    reload(&mut h, t);
+    assert!(h.server.content.step_pauses.is_empty(), "dropped");
 }
 
 /// A reload whose database no longer names a template keeps the template known (a thing of it may

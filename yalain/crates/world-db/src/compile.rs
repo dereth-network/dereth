@@ -1404,6 +1404,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(after) = s.again_after {
                     t.content.step_waits.insert((s.quest, s.key.clone()), after);
                 }
+                if let Some(pause) = s.pause {
+                    t.content
+                        .step_pauses
+                        .insert((s.quest, s.key.clone()), millis(pause));
+                }
                 if let Some(p) = s.permissions {
                     t.kingdoms.permits.insert((s.quest, s.key.clone()), p);
                 }
@@ -2832,6 +2837,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             item: r.item,
             order: r.order.unwrap_or(0),
             measured: r.prov.source == Source::Capture,
+            pause_ms: r.pause.map_or(0, millis),
+            after_update_ms: r.after_update.map_or(0, millis),
             placed: prov_text(&r.prov),
         });
         if let Some(line) = t.talk.lines.last() {
@@ -3282,4 +3289,11 @@ fn pool_entry(e: &crate::rows::PoolEntry) -> yalain_content::pools::Entry {
         least: e.least.unwrap_or(0),
         most: e.most.unwrap_or(OPEN_ABOVE),
     }
+}
+
+/// A pause in seconds (above 0, at most a minute: the rows' rule) in whole milliseconds.
+fn millis(seconds: f64) -> u32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let ms = (seconds * 1000.0).round().clamp(0.0, f64::from(u32::MAX)) as u32;
+    ms
 }

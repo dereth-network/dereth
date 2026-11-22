@@ -28,6 +28,8 @@ fn line(how: How, when: When, string: u32) -> Line {
         item: None,
         order: 0,
         measured: false,
+        pause_ms: 0,
+        after_update_ms: 0,
         placed: "authored for a test".into(),
     }
 }

@@ -678,6 +678,10 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
     let Some(p) = s.players.get(&world) else {
         return false;
     };
+    // A quest whose step is paused for the player runs no other step until that one is done.
+    if s.paused_steps.contains(&(world, st.quest)) {
+        return false;
+    }
     let held = &p.play.quests;
     // A step that runs out of turn answers its trigger at any phase of its quest under way but its
     // own.
@@ -835,7 +839,16 @@ fn moved_by<S: Store>(
     clock: Clock,
 ) -> Vec<u32> {
     let mut moved = Vec::new();
-    run_triggered(s, net, world, trigger, None, None, clock, &mut moved);
+    run_triggered(
+        s,
+        net,
+        world,
+        trigger,
+        None,
+        (None, None),
+        clock,
+        &mut moved,
+    );
     moved
 }
 
@@ -865,6 +878,8 @@ fn triggered_with<S: Store>(
     clock: Clock,
 ) -> (bool, bool) {
     let mut moved = Vec::new();
+    let handed = given.map(|g| g.quantity);
+    let given = (given, handed);
     let kept = run_triggered(s, net, world, trigger, who, given, clock, &mut moved);
     (!moved.is_empty(), kept)
 }
@@ -878,13 +893,13 @@ fn run_triggered<S: Store>(
     world: ConnId,
     trigger: Trigger,
     who: Option<(u64, Option<(u32, u32)>)>,
-    mut given: Option<crate::gives::Given>,
+    // The item given, and how many were handed over: a step wanting a count runs for that many
+    // given and no other, also where the run carries on after a pause.
+    (mut given, handed): (Option<crate::gives::Given>, Option<u32>),
     clock: Clock,
     moved: &mut Vec<u32>,
 ) -> bool {
     let mut kept = false;
-    // A step wanting a count runs for that many given and no other.
-    let handed = given.map(|g| g.quantity);
     // A person who gives several quests gives one of them at a time.
     let several = match trigger {
         Trigger::Use(_) => givings(s, trigger),
@@ -917,7 +932,7 @@ fn run_triggered<S: Store>(
     ) && by.is_some();
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
-    let mut errand_ran = false;
+    let mut errand_ran = used && moved.iter().any(|q| errand(*q));
     // A step whose chance did not come up stays out of the rest of this trigger's steps.
     let mut missed: Vec<Step> = Vec::new();
     loop {
@@ -988,7 +1003,16 @@ fn run_triggered<S: Store>(
             }
             continue;
         }
-        let received = run_with(s, net, world, &step, who, given, clock);
+        let chain = Chain {
+            trigger,
+            who,
+            handed,
+            moved: moved.clone(),
+        };
+        let Some(received) = run_with(s, net, world, &step, who, given, Some(chain), clock) else {
+            // Paused: the steps after it come once it is through, as they would have after it.
+            return kept || given.is_some_and(|g| step.takes.contains(&g.template));
+        };
         if let Some((place, by)) = sent {
             // One already on its way goes nowhere, whichever room.
             if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
@@ -1266,10 +1290,28 @@ pub fn killed<S: Store>(
     let mut moved = Vec::new();
     let who = Some((creature, None));
     let trigger = Trigger::Kill(template);
-    run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
+    run_triggered(
+        s,
+        net,
+        killer,
+        trigger,
+        who,
+        (None, None),
+        clock,
+        &mut moved,
+    );
     if let Some(camp) = camp.and_then(|c| u32::try_from(c).ok()) {
         let trigger = Trigger::KillIn(template, camp);
-        run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
+        run_triggered(
+            s,
+            net,
+            killer,
+            trigger,
+            who,
+            (None, None),
+            clock,
+            &mut moved,
+        );
     }
     let named: Vec<(QuestEffect, u32)> = effects
         .iter()
@@ -1366,7 +1408,7 @@ fn runs_near<S: Store>(
     for world in near {
         let mut moved = Vec::new();
         let who = Some((creature, None));
-        run_triggered(s, net, world, trigger, who, None, clock, &mut moved);
+        run_triggered(s, net, world, trigger, who, (None, None), clock, &mut moved);
     }
 }
 
@@ -1795,12 +1837,185 @@ pub fn run<S: Store>(
     who: Option<(u64, Option<(u32, u32)>)>,
     clock: Clock,
 ) {
-    run_with(s, net, world, step, who, None, clock);
+    run_with(s, net, world, step, who, None, None, clock);
+}
+
+/// One thing a step says: its own line, told by the one it was put on, or a line said with its
+/// update by the person it was put on (by its id: a reload may move its place in the list while
+/// the step pauses), with how long the rest of the step waits after it (seconds).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Said {
+    Told {
+        teller: u64,
+        name: Option<(u32, u32)>,
+        words: Words,
+    },
+    Line {
+        speaker: u64,
+        words: Words,
+        how: yalain_content::talk::How,
+        pause: f64,
+    },
+}
+
+impl Said {
+    /// How long the rest of its step waits after it, in seconds.
+    #[must_use]
+    pub fn pause(&self) -> f64 {
+        match self {
+            Said::Told { .. } => 0.0,
+            Said::Line { pause, .. } => *pause,
+        }
+    }
+}
+
+/// Where a trigger's run of steps was when one of them paused: it carries on once that one is
+/// through, so a step that waits on the paused one's update still runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chain {
+    pub trigger: Trigger,
+    pub who: Option<(u64, Option<(u32, u32)>)>,
+    /// How many were handed over, for a give.
+    pub handed: Option<u32>,
+    /// The quests its steps moved, the paused one's among them.
+    pub moved: Vec<u32>,
+}
+
+/// What is left of a step that pauses.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Paused {
+    pub step: Step,
+    pub who: Option<(u64, Option<(u32, u32)>)>,
+    pub given: Option<crate::gives::Given>,
+    /// What it takes is taken already (the item given among it).
+    pub taken: bool,
+    /// What it has still to say before the rest of what it does.
+    pub said: Vec<Said>,
+    /// The lines said so long after its update (seconds).
+    pub late: Vec<(f64, Said)>,
+    /// Its quest as it stood when the step began: its status, phase and giving's time.
+    pub stood: Option<(u32, u32, i64)>,
+    pub chain: Option<Chain>,
+}
+
+/// A player's quest as a paused step must find it again.
+fn standing<S: Store>(s: &Server<S>, world: ConnId, quest: u32) -> Option<(u32, u32, i64)> {
+    let p = s.players.get(&world)?;
+    let q = p.play.quests.iter().find(|q| q.quest == quest)?;
+    Some((q.status, q.phase, q.started))
+}
+
+/// How long a step pauses before it says or does anything, in seconds (its world row's `pause`).
+#[must_use]
+pub fn pause_of<S: Store>(s: &Server<S>, step: &Step) -> f64 {
+    s.content
+        .step_pauses
+        .get(&(step.quest, step.key.clone()))
+        .map_or(0.0, |ms| f64::from(*ms) / 1000.0)
+}
+
+/// What a step says: in order, its own line and then the lines its person says with its update;
+/// and apart from them the lines said so long after that update. A step that leads somewhere holds
+/// nothing (its trip doesn't wait): all it says, it says at once.
+fn speech<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    step: &Step,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    given: Option<crate::gives::Given>,
+) -> (Vec<Said>, Vec<(f64, Said)>) {
+    let (mut said, mut late) = (Vec::new(), Vec::new());
+    let Some((teller, name)) = who else {
+        return (said, late);
+    };
+    if let Some(line) = &step.tell {
+        said.push(Said::Told {
+            teller,
+            name,
+            words: line.clone(),
+        });
+    }
+    if let Some(i) = crate::presence::content_by_id(&s.content.objects, teller) {
+        let template = s.content.objects[i].template;
+        // The move that finishes a quest's last subquests is said as that quest's completion
+        // (2017: the last element handed over, 1 of 1), and one that finishes an earlier
+        // phase's as its next phase where the person has a line for that.
+        let item = given.map(|g| g.template);
+        let parents = finishes_parent(s, world, step).map_or_else(Vec::new, |(q, up)| {
+            crate::talk::with_update(s, template, Some(i), (q, up), item)
+        });
+        let lines = if parents.is_empty() {
+            crate::talk::with_update(s, template, Some(i), (step.quest, step.update), item)
+        } else {
+            parents
+        };
+        let seconds = |ms: u32| match step.to {
+            Some(_) => 0.0,
+            None => f64::from(ms) / 1000.0,
+        };
+        for l in lines {
+            if step.tell.as_ref() == Some(&l.words) {
+                continue;
+            }
+            let after = seconds(l.after_update_ms);
+            let x = Said::Line {
+                speaker: teller,
+                words: l.words,
+                how: l.how,
+                pause: seconds(l.pause_ms),
+            };
+            if after > 0.0 {
+                late.push((after, x));
+            } else {
+                said.push(x);
+            }
+        }
+    }
+    (said, late)
+}
+
+/// Say one thing a step says, to a player in the world, if its person still stands.
+pub(crate) fn say_one<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, x: &Said) {
+    if !s.players.contains_key(&world) {
+        return;
+    }
+    match x {
+        Said::Told {
+            teller,
+            name,
+            words,
+        } => {
+            let told = crate::presence::content_by_id(&s.content.objects, *teller)
+                .map(|i| crate::talk::content_speaker(s, i).told_as())
+                .unwrap_or_else(|| name.map_or_else(TextInfo::default, progress::text));
+            tell(s, net, world, *teller, told, words);
+        }
+        Said::Line {
+            speaker,
+            words,
+            how,
+            ..
+        } => {
+            if let Some(i) = crate::presence::content_by_id(&s.content.objects, *speaker) {
+                let speaker = crate::talk::content_speaker(s, i);
+                crate::talk::say(s, net, world, &speaker, words, *how);
+            }
+        }
+    }
 }
 
 /// Run a step, for an item given (if any): the item kept where the step takes its template, the
 /// step's items made from the person given it. Returns the templates of the items a give's step
-/// gave.
+/// gave; none if it paused, and then those come with the rest of it.
+///
+/// A step that pauses ([`pause_of`]) says and does nothing until its pause is through, and a line
+/// said with it that pauses holds the rest of the step (its later lines, its items, its update) as
+/// long after it; meanwhile no step of its quest runs for the player. A line said so long after
+/// the update holds nothing. What a step that pauses takes, the item given among it, it takes at
+/// once (2017, by the order sent: the gift gone before the first line in 22 of 22 gives to such
+/// steps whose going was seen); the item given to a step that doesn't is kept first as the rest of
+/// it runs, before its update.
+#[allow(clippy::too_many_arguments)]
 fn run_with<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1808,43 +2023,191 @@ fn run_with<S: Store>(
     step: &Step,
     who: Option<(u64, Option<(u32, u32)>)>,
     given: Option<crate::gives::Given>,
+    chain: Option<Chain>,
     clock: Clock,
-) -> Vec<u32> {
+) -> Option<Vec<u32>> {
     // What it adds to the world's tallies comes first, so what is said with it names the count it
     // made.
     crate::tallies::step_ran(s, step, clock);
     wait_from(s, world, step, clock.unix);
-    if let Some((teller, name)) = who {
-        if let Some(line) = &step.tell {
-            let told = crate::presence::content_by_id(&s.content.objects, teller)
-                .map(|i| crate::talk::content_speaker(s, i).told_as())
-                .unwrap_or_else(|| name.map_or_else(TextInfo::default, progress::text));
-            tell(s, net, world, teller, told, line);
+    let (said, late) = speech(s, world, step, who, given);
+    let pause = match step.to {
+        Some(_) => 0.0,
+        None => pause_of(s, step),
+    };
+    let pauses = pause > 0.0 || said.iter().any(|x| x.pause() > 0.0);
+    let rest = Paused {
+        step: step.clone(),
+        who,
+        given,
+        taken: pauses,
+        said,
+        late,
+        stood: standing(s, world, step.quest),
+        chain,
+    };
+    if pauses {
+        let kept = given.filter(|g| step.takes.contains(&g.template));
+        if let Some(g) = kept {
+            crate::gives::keep(s, net, world, g);
         }
-        if let Some(i) = crate::presence::content_by_id(&s.content.objects, teller) {
-            let template = s.content.objects[i].template;
-            let speaker = crate::talk::content_speaker(s, i);
-            // The move that finishes a quest's last subquests is said as that quest's completion
-            // (2017: the last element handed over, 1 of 1), and one that finishes an earlier
-            // phase's as its next phase where the person has a line for that.
-            let item = given.map(|g| g.template);
-            let parents = finishes_parent(s, world, step).map_or_else(Vec::new, |(q, up)| {
-                crate::talk::with_update(s, template, Some(i), (q, up), item)
-            });
-            let lines = if parents.is_empty() {
-                crate::talk::with_update(s, template, Some(i), (step.quest, step.update), item)
-            } else {
-                parents
-            };
-            for l in lines {
-                if step.tell.as_ref() != Some(&l.words) {
-                    crate::talk::say(s, net, world, &speaker, &l.words, l.how);
-                }
-            }
+        takes_the_rest(s, net, world, step, kept);
+    }
+    if pause > 0.0 {
+        holds_on(s, world, rest, pause, clock);
+        return None;
+    }
+    let rest = goes_on(s, net, world, rest, clock)?;
+    Some(finish(s, net, world, &rest, clock))
+}
+
+/// What a step takes of the pack besides the item given it that it keeps.
+fn takes_the_rest<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &Step,
+    mut kept: Option<crate::gives::Given>,
+) {
+    for t in &step.takes {
+        if kept.is_some_and(|g| g.template == *t) {
+            kept = None;
+            continue;
+        }
+        crate::inventory::take_from_pack(s, net, world, *t);
+    }
+}
+
+/// A step waits: the rest of it is due so long from now.
+fn holds_on<S: Store>(s: &mut Server<S>, world: ConnId, rest: Paused, seconds: f64, clock: Clock) {
+    s.paused_steps.insert((world, rest.step.quest));
+    s.after(
+        clock,
+        seconds,
+        crate::Timer::StepGoesOn {
+            world,
+            rest: Box::new(rest),
+        },
+    );
+}
+
+/// A step goes on: it says what it has to say up to a line that pauses (the rest then due after
+/// it), else all of it. Returns it once nothing holds the rest of what it does.
+fn goes_on<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    mut rest: Paused,
+    clock: Clock,
+) -> Option<Paused> {
+    while !rest.said.is_empty() {
+        let x = rest.said.remove(0);
+        say_one(s, net, world, &x);
+        let pause = x.pause();
+        if pause > 0.0 {
+            holds_on(s, world, rest, pause, clock);
+            return None;
         }
     }
+    s.paused_steps.remove(&(world, rest.step.quest));
+    Some(rest)
+}
+
+/// A paused step's pause is through: it goes on if its player is in the world and its quest stands
+/// as it did when the step began (one cancelled, failed or moved meanwhile is neither said, moved
+/// nor paid), then the run of steps it paused carries on.
+pub fn step_goes_on<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    rest: Paused,
+    clock: Clock,
+) {
+    let quest = rest.step.quest;
+    if !s.players.contains_key(&world) {
+        s.paused_steps.remove(&(world, quest));
+    } else if standing(s, world, quest) != rest.stood {
+        s.paused_steps.remove(&(world, quest));
+        carry_on(s, net, world, rest.chain, clock);
+    } else if let Some(rest) = goes_on(s, net, world, rest, clock) {
+        through(s, net, world, rest, clock);
+    }
+}
+
+/// A step that paused does the rest of what it does; the items it gave move the quests they move
+/// when received, and the run of steps it paused carries on.
+fn through<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    rest: Paused,
+    clock: Clock,
+) {
+    for template in finish(s, net, world, &rest, clock) {
+        took(s, net, world, template, clock);
+    }
+    carry_on(s, net, world, rest.chain, clock);
+}
+
+/// A trigger's run of steps carries on where one of them paused it, the item given kept or handed
+/// back by then.
+fn carry_on<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    chain: Option<Chain>,
+    clock: Clock,
+) {
+    if let Some(mut c) = chain {
+        let given = (None, c.handed);
+        run_triggered(s, net, world, c.trigger, c.who, given, clock, &mut c.moved);
+    }
+}
+
+/// A player leaves the world with steps paused: what they do they do now, unsaid (what they keep
+/// and give, what that moves and their updates are the player's whether it stays or not), and so
+/// does what that pauses in turn.
+pub(crate) fn paused_left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let clock = Clock {
+        local: s.saves.now,
+        unix: s.saves.unix,
+    };
+    while let Some(i) = s
+        .timers
+        .iter()
+        .position(|(_, t)| matches!(t, crate::Timer::StepGoesOn { world: w, .. } if *w == world))
+    {
+        let (_, crate::Timer::StepGoesOn { rest, .. }) = s.timers.remove(i) else {
+            break;
+        };
+        let mut rest = *rest;
+        let quest = rest.step.quest;
+        s.paused_steps.remove(&(world, quest));
+        if standing(s, world, quest) == rest.stood {
+            rest.said.clear();
+            rest.late.clear();
+            through(s, net, world, rest, clock);
+        } else {
+            carry_on(s, net, world, rest.chain, clock);
+        }
+    }
+    s.paused_steps.retain(|(w, _)| *w != world);
+}
+
+/// The rest of what a step does once it has said all it says before its update: the items it
+/// gives and takes (the item given it kept first, where it was not taken at once), its effects and
+/// its update, its share of a level's experience, its fellows' updates. Returns the templates of
+/// the items it gave.
+fn finish<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    rest: &Paused,
+    clock: Clock,
+) -> Vec<u32> {
+    let (step, who, given) = (&rest.step, rest.who, rest.given);
     let mut received = Vec::new();
-    let mut kept = given.filter(|g| step.takes.contains(&g.template));
+    let kept = given.filter(|g| !rest.taken && step.takes.contains(&g.template));
     if let Some(g) = kept {
         crate::gives::keep(s, net, world, g);
     }
@@ -1870,12 +2233,8 @@ fn run_with<S: Store>(
         };
         received.push(g);
     }
-    for t in &step.takes {
-        if kept.is_some_and(|g| g.template == *t) {
-            kept = None;
-            continue;
-        }
-        crate::inventory::take_from_pack(s, net, world, *t);
+    if !rest.taken {
+        takes_the_rest(s, net, world, step, kept);
     }
     // What it puts on the item it hands back goes on before the item is back.
     if let Some(g) = given.filter(|g| !step.takes.contains(&g.template)) {
@@ -1885,6 +2244,12 @@ fn run_with<S: Store>(
     // A step that leads somewhere itself takes the player there, not the update's own recall.
     let up = (step.quest, step.update, step.xp);
     let led = step.to.is_some();
+    // Due before anything the update sets off is, so a line as long after the update as a step
+    // that waits on it comes before that step.
+    for (seconds, line) in &rest.late {
+        let line = Box::new(line.clone());
+        s.after(clock, *seconds, crate::Timer::LineComes { world, line });
+    }
     if step.effects_last {
         apply_led(s, net, world, up, led, clock);
         step_effects(s, net, world, step, who, clock);

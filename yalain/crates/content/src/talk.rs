@@ -232,6 +232,14 @@ pub struct Line {
     pub order: u32,
     /// Whether the line was heard said at this moment, rather than derived from its name.
     pub measured: bool,
+    /// For a line said with a quest step's update: how long the rest of the step (its later lines,
+    /// its items, its update) waits after it, in milliseconds (0: none). Not part of the text form:
+    /// the world database's rows fill it.
+    pub pause_ms: u32,
+    /// For a line said with a quest step's update: how long after that update it is said, holding
+    /// nothing, in milliseconds (0: with the step's other lines). Not part of the text form: the
+    /// world database's rows fill it.
+    pub after_update_ms: u32,
     pub placed: String,
 }
 
@@ -332,6 +340,8 @@ impl TalkTable {
                 item: opt(c[9], hex).map_err(at)?,
                 order: c[10].parse().map_err(|e| at(format!("{e}")))?,
                 measured: c[11] == "1",
+                pause_ms: 0,
+                after_update_ms: 0,
                 placed: c[12].to_string(),
             });
         }
