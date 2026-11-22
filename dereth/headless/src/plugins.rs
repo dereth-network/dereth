@@ -5,6 +5,7 @@
 //! folder of packages; `plugin load <dir>` in a script loads one more.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use dereth_client_sdk::plugin_api::{HostCapability, PluginId};
 use dereth_client_sdk::plugins::package::{is_package_root, MANIFEST_FILE};
@@ -260,14 +261,35 @@ impl LoopbackPeers {
         let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
         socket.set_nonblocking(true)?;
         let port = socket.local_addr()?.port();
-        std::fs::create_dir_all(dir)?;
-        std::fs::write(dir.join(format!("{port}.peer")), b"")?;
-        Ok(Self {
+        let peers = Self {
             socket,
             dir: dir.to_owned(),
             port,
             refreshed: std::time::Instant::now(),
-        })
+        };
+        peers.list()?;
+        Ok(peers)
+    }
+
+    /// Write this client's listing, making it again if another client removed it. The listing
+    /// holds the time it was written and its modified time is set to now: rewriting a file with
+    /// the bytes it already holds leaves its modified time where it was on some file systems, and
+    /// a listing whose time stops moving looks like a client that has gone.
+    fn list(&self) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let now = SystemTime::now();
+        let stamp = now
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        std::fs::create_dir_all(&self.dir)?;
+        let mut f = std::fs::File::create(self.listing())?;
+        f.write_all(stamp.to_string().as_bytes())?;
+        f.set_modified(now)
+    }
+
+    /// This client's listing.
+    fn listing(&self) -> PathBuf {
+        self.dir.join(format!("{}.peer", self.port))
     }
 
     /// The other clients' ports, dropping listings nobody has refreshed for a minute.
@@ -275,6 +297,7 @@ impl LoopbackPeers {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return Vec::new();
         };
+        let now = SystemTime::now();
         let mut out = Vec::new();
         for e in entries.filter_map(Result::ok) {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -287,25 +310,30 @@ impl LoopbackPeers {
             if port == self.port {
                 continue;
             }
-            let stale = e
+            let fresh = e
                 .metadata()
                 .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_none_or(|age| age.as_secs() > PEER_STALE_SECS);
-            if stale {
-                let _ = std::fs::remove_file(e.path());
-            } else {
+                .is_ok_and(|t| listed_recently(t, now));
+            if fresh {
                 out.push(port);
+            } else {
+                let _ = std::fs::remove_file(e.path());
             }
         }
         out
     }
 }
 
+/// Whether a listing last written at `modified` is still a live client's at `now`. A time ahead
+/// of now, as after the clock was set back, counts as fresh.
+fn listed_recently(modified: SystemTime, now: SystemTime) -> bool {
+    now.duration_since(modified)
+        .map_or(true, |age| age.as_secs() <= PEER_STALE_SECS)
+}
+
 impl Drop for LoopbackPeers {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(self.dir.join(format!("{}.peer", self.port)));
+        let _ = std::fs::remove_file(self.listing());
     }
 }
 
@@ -327,7 +355,7 @@ impl dereth_client_sdk::plugins::PluginPeers for LoopbackPeers {
     fn receive(&mut self) -> Vec<dereth_client_sdk::plugins::PeerMessage> {
         if self.refreshed.elapsed().as_secs() >= 10 {
             self.refreshed = std::time::Instant::now();
-            let _ = std::fs::write(self.dir.join(format!("{}.peer", self.port)), b"");
+            let _ = self.list();
         }
         let mut out = Vec::new();
         let mut buf = vec![0_u8; 65_536];
@@ -395,5 +423,70 @@ mod tests {
         let left = std::fs::read_dir(&dir).map(Iterator::count).unwrap_or(0);
         let _ = std::fs::remove_dir(&dir);
         assert_eq!(left, 0, "each client's listing goes with it");
+    }
+
+    /// A folder of its own for one test.
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "dereth-headless-peers-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    /// Set a listing's modified time, as the clock would have left it.
+    fn date_listing(path: &std::path::Path, at: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(at))
+            .expect("dated");
+    }
+
+    /// Let the next poll refresh the listing, as if its interval had passed.
+    fn refresh_due(p: &mut LoopbackPeers) {
+        p.refreshed = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(11))
+            .expect("the clock has run eleven seconds");
+    }
+
+    #[test]
+    fn a_refresh_moves_a_listing_back_past_the_stale_limit_and_makes_a_removed_one_again() {
+        let dir = scratch("refresh");
+        let mut a = LoopbackPeers::open(&dir).expect("a");
+        let b = LoopbackPeers::open(&dir).expect("b");
+        let limit = std::time::Duration::from_secs(super::PEER_STALE_SECS);
+        let long_ago = std::time::SystemTime::now() - 2 * limit;
+        date_listing(&a.listing(), long_ago);
+        refresh_due(&mut a);
+        let _ = a.receive();
+        let refreshed = std::fs::metadata(a.listing())
+            .and_then(|m| m.modified())
+            .expect("listed");
+        assert!(
+            refreshed > long_ago + limit,
+            "the refresh moved the listing's time: {long_ago:?} -> {refreshed:?}"
+        );
+        assert_eq!(b.others(), vec![a.port], "the other client still finds it");
+        std::fs::remove_file(a.listing()).expect("removed");
+        refresh_due(&mut a);
+        let _ = a.receive();
+        assert_eq!(b.others(), vec![a.port], "a removed listing is made again");
+        drop((a, b));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_listing_dated_ahead_of_the_clock_is_kept() {
+        let dir = scratch("ahead");
+        let a = LoopbackPeers::open(&dir).expect("a");
+        let b = LoopbackPeers::open(&dir).expect("b");
+        let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3_600);
+        date_listing(&a.listing(), ahead);
+        assert_eq!(b.others(), vec![a.port]);
+        assert!(a.listing().is_file(), "the listing is not removed");
+        drop((a, b));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

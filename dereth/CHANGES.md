@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - macOS: the arrow keys move the chat caret instead of typing odd characters.
 - Faster frames in big dungeons.
 - Fixed a short stutter every 15 seconds.
+- Plugins: fixed messages between clients stopping after a minute on Windows.
 
 ## 0.4.21 (2026-11-21)
 - Fixed the game freezing while a world's large data patch downloads; it now shows progress.
