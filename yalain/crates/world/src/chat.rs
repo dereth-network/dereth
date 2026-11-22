@@ -988,8 +988,8 @@ pub fn region_moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
 }
 
 /// What a character entering the world is told of its allegiance and its channels, after the
-/// objects around it, in the order sent: what changed while it was away, its allegiance's chat
-/// room and profile, then its channels, twice.
+/// objects around it, in the order sent: what changed while it was away, its allegiance's profile
+/// and chat room, then its channels, twice.
 pub fn tell_allegiance_and_channels<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,

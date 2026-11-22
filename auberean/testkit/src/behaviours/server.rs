@@ -640,11 +640,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.allegiance.at-entry",
-        says: "A member entering the world hears its allegiance's chat room twice, then its \
-               profile; one in no allegiance is sent the empty profile alone.",
+        says: "A member entering the world is sent its profile, then its allegiance's chat room \
+               twice, then its channels; one in no allegiance is sent the empty profile and its \
+               channels, and hears no room.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-ENTRY"),
-        station: "yalain-testkit::cpu::play::allegiance::a_member_entering_again_hears_its_room_twice_then_its_profile",
+        station: "yalain-testkit::cpu::play::allegiance::a_member_entering_again_is_sent_its_profile_then_its_room_twice_then_its_channels",
         tier: Tier::Cpu,
     },
     behaviour! {

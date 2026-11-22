@@ -402,42 +402,39 @@ fn both_sides_of_a_broken_allegiance_are_told_who_broke_it() {
     }
 }
 
-/// A member entering the world again hears its allegiance's chat room twice before its profile,
-/// which names its patron; one in no allegiance hears no room.
+/// A member entering the world again is sent its profile, which names its patron, then hears its
+/// allegiance's chat room twice, then is sent its channels, in that order as sent; one in no
+/// allegiance is sent its profile and channels and hears no room.
 /// Behaviour: server.allegiance.at-entry
 #[test]
-fn a_member_entering_again_hears_its_room_twice_then_its_profile() {
+fn a_member_entering_again_is_sent_its_profile_then_its_room_twice_then_its_channels() {
     let (mut h, a, b) = two();
     let (va, vid) = a;
     let (_, pid) = b;
-    sworn(&mut h, a, b);
-    let before = h.bots[va].inbox.len();
-    h.bots[va].send(
-        false,
-        queue::LOGON,
-        &ClientMessage::LogOff(CharacterRef { character: vid }),
-    );
-    assert!(h.run_until(STEPS, |h| h.bots[va].inbox[before..]
-        .iter()
-        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    logged_off(&mut h, va, vid);
     let from = h.bots[va].inbox.len();
     h.enter_world(va, "one", vid);
-    let f = h.functions(va, from);
-    let rooms: Vec<usize> = f
-        .iter()
-        .enumerate()
-        .filter(|(_, x)| **x == function::CHAT_ROOM)
-        .map(|(i, _)| i)
-        .collect();
-    let prof = f
-        .iter()
-        .position(|x| *x == function::PROFILE)
-        .expect("a profile");
-    assert_eq!(rooms.len(), 2, "{f:x?}");
-    assert!(rooms[1] < prof);
-    let c = h.calls(va, from);
     assert_eq!(
-        profile_ids(&c[prof].1),
+        sent_at_entry(&h, va, from),
+        ["profile", "channels", "channels"],
+        "in no allegiance"
+    );
+    sworn(&mut h, a, b);
+    logged_off(&mut h, va, vid);
+    let from = h.bots[va].inbox.len();
+    h.enter_world(va, "one", vid);
+    assert_eq!(
+        sent_at_entry(&h, va, from),
+        ["profile", "room", "room", "channels", "channels"],
+        "a member"
+    );
+    let c = h.calls(va, from);
+    let (_, profile) = c
+        .iter()
+        .find(|(f, _)| *f == function::PROFILE)
+        .expect("a profile");
+    assert_eq!(
+        profile_ids(profile),
         vec![pid, vid],
         "its patron, the monarch"
     );

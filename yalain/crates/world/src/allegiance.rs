@@ -10,9 +10,9 @@
 //! nothing in it.
 //!
 //! **As a player enters**: a member is told of a rank that fell or rose while it was away, then
-//! what its vassals earned for it while it was away; then it hears its allegiance's chat room
-//! twice, then its own profile (one in no allegiance, the empty profile alone), and its channels
-//! follow.
+//! what its vassals earned for it while it was away; then it is sent its own profile (one in no
+//! allegiance, the empty profile alone), then hears its allegiance's chat room twice, and its
+//! channels follow.
 //!
 //! **Asked for a member's profile** (the allegiance page walking the tree), the profile centred on
 //! that member is sent, online or not; asked for nothing (id 0: the page no longer follows a
@@ -1040,8 +1040,9 @@ fn chat_room_message(room: u32) -> ServerMessage {
 }
 
 /// What a player entering the world is sent of its allegiance, after what it is told of the time
-/// it was away ([`tell_while_away`]): its chat room twice and its profile (the empty profile alone
-/// for one in none).
+/// it was away ([`tell_while_away`]): its profile, then its chat room twice (the empty profile
+/// alone for one in none). 2017, in the order sent: the profile before the rooms at 402 of 402
+/// entries.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if !ensure(s) {
         return;
@@ -1049,14 +1050,14 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(id) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    let m = profile(s, id);
+    progress::private(net, world, &m);
     if let Some(monarch) = s.allegiances.monarch(id) {
         let r = room(s, monarch);
         for _ in 0..2 {
             progress::private(net, world, &chat_room_message(r));
         }
     }
-    let m = profile(s, id);
-    progress::private(net, world, &m);
 }
 
 /// What a player entering is told first of its allegiance: a rank that fell or rose while it was
