@@ -20,6 +20,8 @@
 //! other fellow that it was dismissed. A leader leaving leaves the fellowship to its oldest fellow
 //! (each client works this out itself).
 //! **Disbanding**: every fellow is cleared of it and told.
+//! **A fellow dying**: every fellow is told ("Your fellow, %s, has died."), the dead one too, as a
+//! notice of its own.
 //!
 //! **Loot**: how a fellowship was made says whose a kill's corpse is ([`crate::death::may_loot`]).
 //! Shared, it is the killer's and every fellow's; given in turns, the next fellow's by its id, for
@@ -928,24 +930,26 @@ pub fn disband<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
     }
 }
 
-/// A fellow has died: its fellows are told.
+/// A fellow has died: every fellow is told, the dead one too, as a notice of its own (2017: a
+/// player seen in a fellowship was told so at each of its 131 deaths, before its death message;
+/// the 333 lines of other fellows' deaths were notices).
 pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     let Some(i) = s.fellowships.of(id) else {
         return;
     };
     let name = fellow_name(s, id);
-    let others: Vec<u64> = s.fellowships.list[i]
-        .fellows
-        .iter()
-        .map(|x| x.id)
-        .filter(|x| *x != id)
-        .collect();
-    for o in others {
+    let fellows: Vec<u64> = s.fellowships.list[i].fellows.iter().map(|x| x.id).collect();
+    for o in fellows {
+        let kind = if o == id {
+            social::NOTICE_OF_ONESELF
+        } else {
+            NOTICE
+        };
         show_to(
             s,
             net,
             o,
-            NOTICE,
+            kind,
             progress::text_with(text::FELLOW_DIED, vec![name_var(text::NAME, &name)]),
         );
     }

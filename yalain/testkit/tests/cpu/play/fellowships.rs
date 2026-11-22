@@ -796,6 +796,32 @@ fn a_joiners_first_update_comes_anywhere_in_a_looks_gap_by_the_draw() {
     drawn_over_a_gap(&firsts);
 }
 
+/// A fellow who dies is told of its death as its fellows are ("Your fellow, %s, has died."), as a
+/// notice of its own; the others as a notice.
+/// Behaviour: server.fellowship.a-dead-fellow-is-told-too
+#[test]
+fn a_fellow_who_dies_is_told_of_its_death_as_a_notice_of_its_own_and_the_others_as_a_notice() {
+    let (mut h, [(a, aid), (b, bid), (c, cid)]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    join(&mut h, (a, aid), (c, cid));
+    let from = [a, b, c].map(|x| h.bots[x].inbox.len());
+    let clock = h.clock();
+    let w = world(&h, bid);
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, w, None, clock);
+    h.run(2);
+    let told = |h: &Harness, x: usize, from: usize| -> Vec<u32> {
+        h.texts(x, from)
+            .into_iter()
+            .filter(|(_, t)| *t == text::FELLOW_DIED.0)
+            .map(|(k, _)| k)
+            .collect()
+    };
+    assert_eq!(told(&h, b, from[1]), vec![0x1_0008], "the dead fellow");
+    assert_eq!(told(&h, a, from[0]), vec![8], "the leader");
+    assert_eq!(told(&h, c, from[2]), vec![8], "the other fellow");
+}
+
 /// A kill's experience in a fellowship that shares it: each fellow of a level to share gets the
 /// creature's experience by its own level times the share for how many share (0.6 for two); a
 /// fellow more than five levels from the leader shares nothing; a group creature's takes the

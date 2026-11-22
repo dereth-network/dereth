@@ -48,9 +48,11 @@ pub const ASKS_AT_ONCE: f64 = 5.0;
 /// See [`ASKS_AT_ONCE`].
 pub const ASKS_PER_SECOND: f64 = 1.0;
 
-/// Chat-window kinds of the social texts: a refusal or a rank's change, a notice.
+/// Chat-window kinds of the social texts: a refusal or a rank's change, a notice, and a notice of
+/// what befell the one told itself (a fellow told of its own death).
 pub const REFUSED: u32 = 1;
 pub const NOTICE: u32 = 8;
+pub const NOTICE_OF_ONESELF: u32 = 0x1_0008;
 
 /// The world connection of a character in the world.
 #[must_use]

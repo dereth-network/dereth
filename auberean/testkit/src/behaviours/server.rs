@@ -6485,6 +6485,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-dead-fellow-is-told-too",
+        says: "A fellow who dies is told \"Your fellow, %s, has died.\" as its fellows are, in a \
+               notice kind of its own; the others as a notice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-DEAD-TOLD"),
+        station: "yalain-testkit::cpu::play::fellowships::a_fellow_who_dies_is_told_of_its_death_as_a_notice_of_its_own_and_the_others_as_a_notice",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.a-new-fellows-first-look-anywhere-in-the-gap",
         says: "A new fellow is first looked at anywhere in a look's gap, drawn as every other is: \
                its first update comes from at once to seven and a half seconds after it joins or \
