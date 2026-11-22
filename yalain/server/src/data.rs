@@ -1210,6 +1210,23 @@ pub fn bodies(p: &Portal, catalog: &Catalog) -> BTreeMap<u32, [f32; 2]> {
         .collect()
 }
 
+/// The still turn rates of the catalog's templates whose looks give a motion description: what it
+/// gives on the ground in peace.
+pub fn still_turns(p: &Portal, catalog: &Catalog) -> BTreeMap<u32, f32> {
+    catalog
+        .templates
+        .values()
+        .filter_map(|t| {
+            let rate = yalain_world::facing::still_turn_of_look(
+                t.description.look,
+                |did| p.visual(did),
+                |did| p.decoded(did),
+            )?;
+            Some((t.id, rate))
+        })
+        .collect()
+}
+
 /// What the catalog's templates are wielded as, by the script classes they derive from.
 ///
 /// # Errors

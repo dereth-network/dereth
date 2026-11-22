@@ -103,6 +103,7 @@ pub mod equip;
 pub mod escorts;
 pub mod events;
 pub mod examine;
+pub mod facing;
 pub mod falls;
 pub mod fellowship;
 pub mod focus;
@@ -606,6 +607,8 @@ pub struct Server<S: Store> {
     pub interactions: usable::interactions::Interactions,
     /// The placed people walking their routes.
     pub walkers: walkers::Walkers,
+    /// The placed people turned or turning to face their users.
+    pub facing: facing::Facing,
     /// What reloading the world database keeps of the placed objects and camps between reloads.
     pub placed: reload::Placed,
 }
@@ -805,6 +808,10 @@ pub enum Timer {
         world: ConnId,
         step: Box<yalain_content::quests::Step>,
     },
+    /// A person's turn to face its user takes its next step.
+    PersonTurns { id: u64, count: u32 },
+    /// A person used now faces its user: what the use says and does.
+    PersonTalks { world: ConnId, id: u64 },
     /// A player's use of an item on an object, its behavior played out.
     Interaction {
         world: ConnId,
@@ -1033,6 +1040,7 @@ impl<S: Store> Server<S> {
             mounts: mounts::Mounts::default(),
             interactions: usable::interactions::Interactions::default(),
             walkers: walkers::Walkers::default(),
+            facing: facing::Facing::default(),
             placed: reload::Placed::default(),
         })
     }
@@ -1254,6 +1262,12 @@ impl<S: Store> Server<S> {
                     started,
                 } => quests::runs_out(self, net, world, quest, started, clock),
                 Timer::SentAway { world, to } => places::sent_away(self, net, world, to, clock),
+                Timer::PersonTurns { id, count } => {
+                    facing::step(self, net, id, count, clock);
+                }
+                Timer::PersonTalks { world, id } => {
+                    facing::talks(self, net, world, id, clock);
+                }
                 Timer::Interaction { world, used } => {
                     usable::interactions::played(self, net, world, &used, clock);
                 }

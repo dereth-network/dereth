@@ -14496,6 +14496,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.person-facing-speaks-ours",
+        says: "A person that doesn't turn to its user has its place told once as it stands, 0.1 s \
+               after the use's answer, and speaks 0.17 s after it: this server's fit, against 2017's \
+               people of a turning type that didn't turn, told once a median 0.125 s after the answer \
+               and speaking a median 0.172 s after it (q10 0.065, q90 0.296, max 2.501, 268 uses).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FACING-OURS"),
+        station: "yalain-testkit::cpu::play::people_turn::a_person_whose_body_gives_no_rate_answers_as_one_facing_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.person-kind-answers",
         says: "A placed object of the script library's person kind with nothing to say is answered \
                as a person: near, at once, status 0, flags 956, nothing said; far off, the player \
@@ -14512,6 +14523,67 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PERSON-KINDS"),
         station: "yalain-testkit::dat::interactions::person_kind_objects_and_faction_shrines_are_told_by_their_script_kinds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.person-re-aims-ours",
+        says: "A turning person's place is told with its aim, the heading toward its user, 0.1 s after \
+               the use's answer, and told again every 0.2 s and 0.3 s by turns, aimed where its user \
+               is then, until its turn is done, and once more then: this server's fit, against 2017's \
+               first place a median 0.114 s after the answer (q10 0.057, q90 0.245, 609 turns) and \
+               0.203 s between places (q10 0.094, q90 0.297, 2,155 pairs); the aim within 3 degrees \
+               of where the user was in 935 of 1,029 places told mid-turn.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-RE-AIM-OURS"),
+        station: "yalain-testkit::cpu::play::people_turn::a_turning_persons_aim_is_told_at_once_and_again_where_its_user_moves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.person-turn-ends-ours",
+        says: "A person's turn is done, and what the use makes it say and do comes, 0.152 s and the \
+               angle to its user at its body's rate after the use's answer: this server's fit, which \
+               put 468 of 584 of 2017's lines within 0.125 s (held out by session), against 184 for \
+               0.37 s and a second for each 141 degrees. 2017's bodies rated 120 degrees a second \
+               turned 6 to 9 percent faster than their rate.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-TURN-ENDS-OURS"),
+        station: "yalain-testkit::cpu::play::people_turn::a_person_turns_at_its_bodys_rate_and_speaks_when_the_turn_is_done",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.person-turns-at-its-bodys-rate",
+        says: "A person turns at its body's still turn rate: the default values its motion description \
+               gives the ground element in peace (90, 120 or 200 degrees a second among the install's \
+               people). One whose body gives none answers as one facing its user.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-TURN-RATE"),
+        station: "yalain-testkit::dat::interactions::a_persons_turn_rate_is_its_bodys_still_turn_rate",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.person-turns-past-ten-degrees-ours",
+        says: "A person farther than ten degrees from facing its user turns, and one within ten \
+               doesn't: this server's fit, against 2017's people of a turning type, who turned in 4 \
+               of 255 uses under 8 degrees, 8 of 48 from 8 to 10, 13 of 20 from 10 to 12 and 27 of \
+               30 from 12 to 16.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-TURN-THRESHOLD-OURS"),
+        station: "yalain-testkit::cpu::play::people_turn::a_person_within_ten_degrees_of_its_user_speaks_after_one_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.person-turns-to-its-user",
+        says: "A placed person that a player uses, its template naming a movement type that is not \
+               stationary, turns to face the player, and what the use makes it say and do waits until \
+               the turn is done; it keeps the heading it turned to. What turns is told by the movement \
+               type, not by the script package objects share with people: 2017's people over 15 \
+               degrees from their user turned in 561 of 606 uses, objects in 7 of 367, all the Master \
+               of the Gauntlet, which is stationary by type and left out by it. Not built: the 43 of \
+               606 people over 15 degrees that sent no place, and 197 changes of people's headings \
+               outside their users' own uses, which 2017 doesn't explain.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FACES"),
+        station: "yalain-testkit::dat::interactions::the_installs_people_turn_and_its_objects_of_the_same_packages_dont",
         tier: Tier::Dat,
     },
     behaviour! {

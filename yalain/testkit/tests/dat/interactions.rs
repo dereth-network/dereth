@@ -156,6 +156,66 @@ fn person_kind_objects_and_faction_shrines_are_told_by_their_script_kinds() {
     }
 }
 
+/// What turns to face its user is told by the template's own movement type, not by its script
+/// package, which objects share with people: on the install's templates Stubby's, the three
+/// explorers', Moose Rickenson's, Lahry's and Menaluc's turn, and the Olvidan well, the nine
+/// obelisks of the explorers' searches, a bush, a vortex and the Master of the Gauntlet stand.
+/// Behaviour: server.places.person-turns-to-its-user
+#[test]
+fn the_installs_people_turn_and_its_objects_of_the_same_packages_dont() {
+    use yalain_world::facing::turns;
+    let p = Portal::open();
+    for t in [
+        0x4700_335B,
+        0x4700_31E6,
+        0x4700_31E8,
+        0x4700_31EA,
+        0x4700_3357,
+        0x4700_33D6,
+        0x4700_2FA5,
+    ] {
+        assert!(turns(&p.template(t).props), "{t:08X} turns");
+    }
+    let obelisks = 0x4700_31EC..=0x4700_31F4;
+    for t in [0x4700_301B, 0x4700_31D0, 0x4700_2F60, 0x4700_2FD2]
+        .into_iter()
+        .chain(obelisks)
+    {
+        assert!(
+            p.derives(t, &yalain_world::places::PERSONS),
+            "{t:08X} of the people's kind"
+        );
+        assert!(!turns(&p.template(t).props), "{t:08X} stands");
+    }
+}
+
+/// A person turns at the still turn rate its body's motion description gives on the ground in
+/// peace: Stubby's and Moose Rickenson's 90 degrees a second, the explorers', Lahry's and Menaluc's
+/// 120, Venedeta's Servant's 200. The Olvidan well's body gives one too, 3 degrees a second, and it
+/// stands all the same: its movement type is stationary.
+/// Behaviour: server.places.person-turns-at-its-bodys-rate
+#[test]
+fn a_persons_turn_rate_is_its_bodys_still_turn_rate() {
+    let p = Portal::open();
+    for (t, rate) in [
+        (0x4700_335B, 90.0),
+        (0x4700_3357, 90.0),
+        (0x4700_31E6, 120.0),
+        (0x4700_31E8, 120.0),
+        (0x4700_31EA, 120.0),
+        (0x4700_33D6, 120.0),
+        (0x4700_2FA5, 120.0),
+        (0x4700_2FF5, 200.0),
+    ] {
+        assert_eq!(p.still_turn(t), Some(rate), "{t:08X}");
+    }
+    assert_eq!(p.still_turn(0x4700_301B), Some(3.0), "the well's body");
+    assert!(
+        !yalain_world::facing::turns(&p.template(0x4700_301B).props),
+        "the well stands"
+    );
+}
+
 /// Each faction shrine joins the kingdom its script kind names: the placed shrines are the
 /// Dominion's, the neutral kingdom's and the Order's, each of one kind alone.
 /// Behaviour: server.kingdoms.shrine-kinds-read

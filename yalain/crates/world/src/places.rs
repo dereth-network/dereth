@@ -1869,9 +1869,13 @@ fn carried_out<S: Store>(
             );
             return;
         }
-        if crate::store::talk(s, net, world, u.item, &o, clock) {
-            crate::shifting::used(s, net, i, clock);
+        // A person turns to face its user, and says and does what the use makes it once it does.
+        let wait = crate::facing::to_face(s, i, world, clock);
+        if wait > 0.0 {
+            s.after(clock, wait, Timer::PersonTalks { world, id: u.item });
+            return;
         }
+        crate::facing::talks(s, net, world, u.item, clock);
         return;
     }
     // A portal walked into that its quest keeps the player out of refuses as a use does (2017: 19

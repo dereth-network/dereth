@@ -667,6 +667,18 @@ impl Portal {
         yalain_content::look_body(look, &visual, &setup)
     }
 
+    /// The still turn rate a template's look gives, as the server reads it at start.
+    #[must_use]
+    pub fn still_turn(&self, template: u32) -> Option<f32> {
+        let look = self.template(template).description.look;
+        let read = |did: u32| self.dat.read(did).ok();
+        yalain_world::facing::still_turn_of_look(
+            look,
+            |did| auberean_assets::decode(did, &read(did)?, &self.ctx).ok(),
+            |did| auberean_assets::decode(did, &read(did)?, &self.ctx).ok(),
+        )
+    }
+
     /// The level table.
     ///
     /// # Panics

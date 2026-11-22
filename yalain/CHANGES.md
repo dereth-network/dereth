@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- People now turn to face you before they talk to you.
 - Items with a cooldown, like delving stones, now make you wait between uses.
 - You're now told at login if your allegiance rank changed.
 - You're now told when you die in a fellowship.

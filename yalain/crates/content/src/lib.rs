@@ -389,6 +389,9 @@ pub struct Catalog {
     pub bodies: BTreeMap<u32, [f32; 2]>,
     /// What the templates of a class that says so are wielded as (their implement kinds).
     pub implements: BTreeMap<u32, u32>,
+    /// The still turn rates of the templates whose looks give one, in degrees a second: what their
+    /// motion descriptions give on the ground in peace.
+    pub still_turns: BTreeMap<u32, f32>,
 }
 
 impl Catalog {

@@ -572,6 +572,10 @@ pub fn created<S: Store>(
     if let Some(stamp) = crate::walkers::position_stamp(s, id) {
         m.physics.stamps[0] = stamp;
     }
+    // A person turned to face its user is made with the stamp its new heading was told with.
+    if let Some(stamp) = crate::facing::position_stamp(s, id) {
+        m.physics.stamps[0] = stamp;
+    }
     if door(s, id).is_some() {
         let open = s
             .doors

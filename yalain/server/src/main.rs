@@ -2167,6 +2167,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         absorb(&mut catalog, held);
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
         catalog.bodies = data::bodies(portal, &catalog);
+        catalog.still_turns = data::still_turns(portal, &catalog);
         catalog.implements = data::implements(portal, &catalog)?;
         // What items of templates that name nothing are called, as the world's rows say.
         catalog.name_unnamed(&item_rows.names);
@@ -3117,7 +3118,9 @@ mod real_start_tests {
             queue::WEENIE,
             &server_call(0x8216_0016, &[use_of(id, me)]),
         );
-        h.run(20);
+        // Long enough for the person to turn to face the player first (a half turn at 90 degrees a
+        // second, 2.15 s).
+        h.run(60);
     }
 
     /// Give one of an item held to a person, as a client drags it onto them.

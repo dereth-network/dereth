@@ -427,3 +427,51 @@ fn a_reload_names_the_items_of_a_template_naming_nothing_by_its_examination_row(
         "its template's own name"
     );
 }
+
+/// A world reloaded while a person turns to its user, the person's place in the list moved by it:
+/// the same person goes on turning, and says what the use makes it say once it has turned.
+/// Behaviour: server.places.person-turns-to-its-user
+#[test]
+fn a_person_turning_as_the_world_is_reloaded_still_speaks() {
+    let (mut h, b, me) = world();
+    let mut props = yalain_content::Props::default();
+    props.set("AI_MovementType", yalain_content::Prop::Word(0x4000_0002));
+    h.server
+        .catalog
+        .insert(test_template(TEMPLATE, 0x13A4, props));
+    h.server.catalog.still_turns.insert(TEMPLATE, 90.0);
+    for p in h.server.players.values_mut() {
+        p.position.cell = 0x0299_0109;
+        // East of it, a quarter turn.
+        p.position.origin = [BESIDE[0] + 3.0, BESIDE[1], BESIDE[2]];
+        p.heading_motion = yalain_world::world::IDLE_MOTION;
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(PERSON, me)]),
+    );
+    h.run(4);
+    assert!(!h.server.facing.turning.is_empty(), "turning");
+    let mut t = tables_of(&h);
+    let mut other = person([70.0, 241.0, -44.6]);
+    other.object = Some(PERSON + 1);
+    other.template = TEMPLATE + 1;
+    t.content.objects.insert(0, other);
+    reload(&mut h, t);
+    assert_eq!(h.server.content.objects[1].object, Some(PERSON), "moved on");
+    h.run(40);
+    let said = h
+        .calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == HEAR_TELL)
+        .count();
+    assert_eq!(said, 1, "it speaks");
+    assert!(h.server.facing.turning.is_empty(), "turned");
+    let faces = yalain_world::facing::degrees_of(h.server.content.objects[1].rotation);
+    assert!(
+        yalain_world::facing::angle(faces, 90.0) <= 2.0,
+        "east: {faces}"
+    );
+}
