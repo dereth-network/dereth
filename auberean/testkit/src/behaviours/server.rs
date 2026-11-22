@@ -10231,6 +10231,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-broker-opens-for-a-sale",
+        says: "A player's sale bought at a broker opens the broker (quality 702 to 1), seen by all \
+               who know it, and is sent in this order: the opening, the money, the item contained, \
+               the closing (702 to 0), the move, the sale's stock, the item; a purchase of a sale \
+               no longer to be had is refused and opens nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-BROKER-OPENS"),
+        station: "yalain-testkit::cpu::play::market::a_broker_opens_for_a_sale_of_a_players_item_and_closes_after_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-brokers-store-goes-by-pages",
         says: "A broker's store shows a page's sales at a time and names how many it lists, and its \
                pages turn through them all.",

@@ -43,8 +43,10 @@
 //! filled at [`PAGE_ROWS_A_SECOND`], by the sales shown and the listing read for them ([`LISTED_A_ROW`]);
 //! a page past that is not answered.
 //!
-//! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
-//! pack, the sale's stock told as gone; the seller collects the price. A seller in the world is told
+//! **Buying a player's sale**: the broker opens and closes for it, as a storekeeper does for its
+//! own. The broker opens, the price is taken, the item goes into the buyer's pack, the broker
+//! closes, then the move and the sale's stock gone are told; a purchase refused opens nothing. The
+//! seller collects the price. A seller in the world is told
 //! of the sale, which its client marks on its reminder of that broker. A client shopping at that
 //! broker doesn't take that word, so it is sent the reminder whole, and the consignments page if it
 //! has it open.
@@ -1631,10 +1633,13 @@ pub fn purchase<S: Store>(
         store::MONEY,
         (money - price).cast_signed(),
     );
+    let me = p.character;
+    // The broker opens before the money is told and closes between the item's containing and its
+    // move (2017, by the order sent: 2 of 2; a sale no longer to be had opened nothing, 2 of 2).
+    store::opens(s, net, keeper, true);
     progress::send_int(net, world, store::MONEY, (money - price).cast_signed());
     s.market.list[i].sold = c.offered;
     // The item moves from the broker into the buyer's pack.
-    let me = p.character;
     let to = To::Pack(world, holding::Slot::Room);
     let slot = holding::move_item(s, item, Place::Kept(keeper), to).unwrap_or(0);
     let stamp = inventory::contain_stamp(s, item);
@@ -1644,6 +1649,7 @@ pub fn purchase<S: Store>(
         BlobKind::UNORDERED,
         ServerMessage::Contain(ObjectOnly(stamp)).encode(),
     );
+    store::opens(s, net, keeper, false);
     let m = Move {
         move_type: MOVE_OUT,
         item,

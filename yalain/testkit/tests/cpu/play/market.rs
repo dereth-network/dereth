@@ -2623,3 +2623,102 @@ fn a_store_or_the_consignments_asked_for_twice_at_once_is_too_busy_the_second_ti
         "a second on: shown again"
     );
 }
+
+/// What a client was sent of a purchase of a player's sale, in the order the server sent it (the
+/// sequence in each message's id: visual and private messages may arrive in another); and the
+/// stamps of the broker's opening and closing.
+fn sent_of_a_purchase(h: &Harness, b: usize, from: usize) -> (Vec<&'static str>, Vec<u16>) {
+    let mut sent: Vec<(u64, M)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| r.message().map(|m| (r.blob_id & 0xFFFF_FFFF, m)))
+        .collect();
+    sent.sort_by_key(|(sequence, _)| *sequence);
+    let mut order = Vec::new();
+    let mut stamps = Vec::new();
+    for (_, m) in &sent {
+        let label = match m {
+            M::UpdateInt(q) if q.quality == 3100 => "money",
+            M::UpdateBoolVisual(q)
+                if q.object.id == BROKER && q.quality == yalain_world::store::OPEN =>
+            {
+                stamps.push(q.object.other_stamp);
+                if q.value == 1 {
+                    "open"
+                } else {
+                    "close"
+                }
+            }
+            M::Contain(_) => "contain",
+            M::PlayerCall(c) if c.function.0 == yalain_world::inventory::function::MOVE_DONE => {
+                "move"
+            }
+            M::PlayerCall(c) if c.function.0 == function::UPDATE_SALE => "stock",
+            M::PlayerCall(c) if c.function.0 == yalain_world::store::function::REQUEST_DONE => {
+                "refused"
+            }
+            M::CreateObject(_) => "item",
+            _ => continue,
+        };
+        order.push(label);
+    }
+    (order, stamps)
+}
+
+/// A player's sale bought at a broker opens the broker for the sale and closes it, sent in this
+/// order: the broker open, the money, the item contained, the broker closed, the move, the sale's
+/// stock, the item; the seller beside it sees the broker open and close too.
+/// Behaviour: server.market.a-broker-opens-for-a-sale
+#[test]
+fn a_broker_opens_for_a_sale_of_a_players_item_and_closes_after_it() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    buy(&mut h, b, idb, sword);
+    assert_eq!(h.server.market.list[0].sold, 1, "bought");
+    let (order, stamps) = sent_of_a_purchase(&h, b, from_b);
+    assert_eq!(
+        order,
+        ["open", "money", "contain", "close", "move", "stock", "item"]
+    );
+    assert_eq!(stamps.len(), 2);
+    assert!(stamps[1] > stamps[0], "each with its own stamp: {stamps:?}");
+    let (seen, _) = sent_of_a_purchase(&h, a, from_a);
+    assert_eq!(seen, ["open", "close"], "the seller beside it sees it");
+}
+
+/// A purchase of a sale already sold is refused (45001) and the sale's stock told as gone, and
+/// nothing else: no money, and the broker neither opens nor closes for anyone (2017: 2 of 2
+/// refused purchases of a player's sale).
+/// Behaviour: server.market.a-broker-opens-for-a-sale
+#[test]
+fn a_refused_purchase_of_a_players_sale_does_not_open_the_broker() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    buy(&mut h, b, idb, sword);
+    let (c, idc) = h.player_in_world("three", "Late");
+    at_the_broker(&mut h, idc);
+    money(&mut h, idc, 5_000);
+    let (from_a, from_c) = (h.bots[a].inbox.len(), h.bots[c].inbox.len());
+    buy(&mut h, c, idc, sword);
+    assert_eq!(
+        last_error(&h, c, from_c),
+        Some(yalain_world::store::error::NOT_FOUND)
+    );
+    let (order, _) = sent_of_a_purchase(&h, c, from_c);
+    assert_eq!(order, ["refused", "stock"], "refused, nothing opened");
+    let (_, stamps) = sent_of_a_purchase(&h, a, from_a);
+    assert!(stamps.is_empty(), "nothing seen beside it");
+}

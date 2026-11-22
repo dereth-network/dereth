@@ -478,19 +478,11 @@ pub fn purchase<S: Store>(
         return;
     }
     let room = crate::inventory::fits_in_pack(&p.play.items, &rooms, 1);
-    let open = |s: &mut Server<S>, v: i32| {
-        ServerMessage::UpdateBoolVisual(VisualQuality {
-            object: crate::places::object_stamp(s, keeper),
-            quality: OPEN,
-            value: v,
-        })
-    };
     // No room in the pack: the storekeeper opens and closes, the purchase is refused and the page
     // sent again; nothing is paid.
     if !room {
-        for v in [1, 0] {
-            let m = open(s, v);
-            crate::places::to_knowers(s, net, keeper, &m);
+        for open in [true, false] {
+            opens(s, net, keeper, open);
         }
         let m = session::call(function::REQUEST_DONE, &[Arg::Int(error::NO_ROOM)]).expect("packs");
         progress::private(net, world, &m);
@@ -505,15 +497,23 @@ pub fn purchase<S: Store>(
     crate::quals::set_int(&mut p.qualities, MONEY, left.cast_signed());
     // The money first (2017: before the storekeeper opened in 9 of 10 purchases).
     progress::send_int(net, world, MONEY, left.cast_signed());
-    let opened = open(s, 1);
-    crate::places::to_knowers(s, net, keeper, &opened);
+    opens(s, net, keeper, true);
     crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
     if hires {
         crate::pets::hire(s, net, world, sale.product, clock);
     }
     let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
-    let closed = open(s, 0);
-    crate::places::to_knowers(s, net, keeper, &closed);
+    opens(s, net, keeper, false);
     crate::world::keep_player(s, world);
+}
+
+/// A storekeeper opens for a sale, or closes after it, seen by all who know it.
+pub(crate) fn opens<S: Store>(s: &mut Server<S>, net: &mut ServerNet, keeper: u64, open: bool) {
+    let m = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: crate::places::object_stamp(s, keeper),
+        quality: OPEN,
+        value: i32::from(open),
+    });
+    crate::places::to_knowers(s, net, keeper, &m);
 }
