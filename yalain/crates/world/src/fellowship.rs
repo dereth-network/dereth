@@ -27,8 +27,9 @@
 //! the killer's alone.
 //!
 //! **The fellows' updates**: each fellow is looked at every three and a half to seven and a half
-//! seconds; what changed of its health, vigor, their greatest, its level and its cell is sent to
-//! every fellow, itself included.
+//! seconds, a new one first anywhere in such a gap; what changed of its health, vigor, their
+//! greatest, its level and its cell is sent to every fellow, itself included. A new fellow's
+//! record carries its level (and a joiner's its cell), its vitals nothing till its first look.
 //!
 //! **Shared experience**: in a fellowship that shares it, each part of a kill a fellow earns (its
 //! own, or its pet's) pays each fellow within 160 m of it whose level is within five of the
@@ -361,6 +362,13 @@ fn level_of<S: Store>(s: &Server<S>, id: u64) -> i32 {
         .map_or(1, |p| crate::examine::level_of(&p.qualities))
 }
 
+/// When a new fellow is first looked at: anywhere in a look's gap drawn as every other is, from
+/// now (2017: a joiner's first update came 0 to 7 s after it joined, a median 2.8 s, 119 joiners).
+fn first_check<S: Store>(s: &mut Server<S>, now: f64) -> f64 {
+    let gap = CHECK_EVERY + f64::from(s.rng.unit()) * CHECK_SPREAD;
+    now + f64::from(s.rng.unit()) * gap
+}
+
 /// A fellow's vitals as they stand.
 fn vitals_now<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
     let p = s.players.get(&world_of(s, id)?)?;
@@ -551,6 +559,8 @@ pub fn create<S: Store>(
     let room = FIRST_ROOM + s.fellowships.next_room;
     s.fellowships.next_room += 1;
     let now = net.game_time(clock.local);
+    let level = level_of(s, me).max(1).cast_unsigned();
+    let next_check = first_check(s, clock.local.0);
     s.fellowships.list.push(Fellowship {
         name: name.clone(),
         leader: me,
@@ -559,8 +569,11 @@ pub fn create<S: Store>(
         fellows: vec![Fellow {
             id: me,
             joined: now,
-            sent: Vitals::default(),
-            next_check: clock.local.0 + CHECK_EVERY,
+            sent: Vitals {
+                level,
+                ..Vitals::default()
+            },
+            next_check,
         }],
         last_claimant: 0,
     });
@@ -750,14 +763,16 @@ pub fn accept<S: Store>(
     }
     let now = net.game_time(clock.local);
     let cell = s.players.get(&world).map_or(0, |p| p.position.cell);
+    let level = level_of(s, me).max(1).cast_unsigned();
     let fellow = Fellow {
         id: me,
         joined: now,
         sent: Vitals {
             cell,
+            level,
             ..Vitals::default()
         },
-        next_check: clock.local.0 + CHECK_EVERY,
+        next_check: first_check(s, clock.local.0),
     };
     let others: Vec<u64> = s.fellowships.list[i].fellows.iter().map(|f| f.id).collect();
     s.fellowships.list[i].fellows.push(fellow.clone());

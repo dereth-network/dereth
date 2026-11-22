@@ -6485,6 +6485,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-new-fellows-first-look-anywhere-in-the-gap",
+        says: "A new fellow is first looked at anywhere in a look's gap, drawn as every other is: \
+               its first update comes from at once to seven and a half seconds after it joins or \
+               makes the fellowship.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-FIRST-LOOK"),
+        station: "yalain-testkit::cpu::play::fellowships::a_joiners_first_update_comes_anywhere_in_a_looks_gap_by_the_draw",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.a-new-fellows-record-carries-its-level",
+        says: "A new fellow's record, the maker's own and a joiner's, carries its level, its vitals \
+               nothing till its first look; no level update follows a join.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-RECORD-LEVEL"),
+        station: "yalain-testkit::cpu::play::fellowships::a_new_fellows_record_carries_its_level_as_it_makes_or_joins_a_fellowship",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.a-pets-damage-takes-part-for-its-owner",
         says: "A kill of a group creature goes by who hurt it, a pet's damage counting as its \
                owner's.",

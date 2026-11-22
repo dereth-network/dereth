@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Items with a cooldown, like delving stones, now make you wait between uses.
+- Fellows' levels show right away when they join.
 - A skill used on a person now says you can't use it on NPCs.
 - Most creatures with several special attacks use them less often, as in retail.
 - Creatures that can't reach you no longer give up while you're near.

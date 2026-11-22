@@ -645,6 +645,157 @@ fn a_fellows_changes_go_out_in_order_health_before_vigor_before_place() {
     );
 }
 
+/// The levels the fellows' records carry in the fellowship calls a client was sent since `from`.
+fn record_levels(h: &Harness, b: usize, from: usize, call: u32) -> Vec<u32> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == call)
+        .flat_map(|(_, v)| v)
+        .filter_map(|v| match v {
+            Value::Graph(g) => Some(g),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|(_, n)| match n {
+            Node::Script { package, slots } if package == yalain_world::fellowship::FELLOW.0 => {
+                slots.get(2).map(|s| s.1)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A new fellow's record carries its level: the maker's own in the fellowship it made, the
+/// joiner's in the fellowship it is sent and in the fellow its fellows are sent.
+/// Behaviour: server.fellowship.a-new-fellows-record-carries-its-level
+#[test]
+fn a_new_fellows_record_carries_its_level_as_it_makes_or_joins_a_fellowship() {
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    set_level(&mut h, aid, 7);
+    set_level(&mut h, bid, 9);
+    let fa = h.bots[a].inbox.len();
+    create(&mut h, a, "Band");
+    assert_eq!(
+        record_levels(&h, a, fa, function::UPDATE_FELLOWSHIP),
+        vec![7],
+        "the maker's own"
+    );
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    join(&mut h, (a, aid), (b, bid));
+    assert_eq!(
+        record_levels(&h, a, fa, function::UPDATE_FELLOW),
+        vec![9],
+        "the joiner, to the leader"
+    );
+    let mut sent = record_levels(&h, b, fb, function::UPDATE_FELLOWSHIP);
+    sent.sort_unstable();
+    assert_eq!(sent, vec![7, 9], "the fellowship the joiner is sent");
+}
+
+/// No level update follows a join or a making: the records carried the levels. A level gained
+/// later is sent.
+/// Behaviour: server.fellowship.a-new-fellows-record-carries-its-level
+#[test]
+fn no_level_update_follows_a_join_and_a_level_gained_later_is_sent() {
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    set_level(&mut h, aid, 7);
+    set_level(&mut h, bid, 9);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    let t = h.now.0;
+    h.run_to(yalain_net::LocalTime(t + 16.0));
+    for (x, from) in [(a, fa), (b, fb)] {
+        assert!(
+            h.functions(x, from).contains(&function::MAX_HEALTH),
+            "the first looks were made"
+        );
+        assert!(
+            !h.functions(x, from).contains(&function::LEVEL),
+            "no level update"
+        );
+    }
+    set_level(&mut h, bid, 10);
+    let fa = h.bots[a].inbox.len();
+    let t = h.now.0;
+    h.run_to(yalain_net::LocalTime(t + 7.6));
+    h.run(5);
+    let (_, v) = h
+        .calls(a, fa)
+        .into_iter()
+        .find(|(f, _)| *f == function::LEVEL)
+        .expect("a level gained is sent");
+    assert_eq!(v, vec![Value::Int(10), Value::Long(bid)]);
+}
+
+/// How long from now until a client is first sent a fellow's greatest health, looked for since
+/// `from`: the new fellow's first look.
+fn first_look(h: &mut Harness, to: usize, from: usize, who: u64) -> f64 {
+    let start = h.now.0;
+    loop {
+        let updated = h
+            .calls(to, from)
+            .iter()
+            .any(|(f, v)| *f == function::MAX_HEALTH && v.contains(&Value::Long(who)));
+        if updated {
+            return h.now.0 - start;
+        }
+        assert!(h.now.0 - start < 10.0, "updated within a gap");
+        h.run(1);
+    }
+}
+
+/// First looks by several draws fall inside a look's gap, some sooner than the least gap, and
+/// differ.
+fn drawn_over_a_gap(firsts: &[f64]) {
+    use yalain_world::fellowship::{CHECK_EVERY, CHECK_SPREAD};
+    let gap = CHECK_EVERY + CHECK_SPREAD;
+    assert!(
+        firsts.iter().all(|t| *t <= gap + yalain_testkit::STEP),
+        "{firsts:?}"
+    );
+    assert!(
+        firsts.iter().any(|t| *t < CHECK_EVERY - 0.5),
+        "some sooner than the least gap: {firsts:?}"
+    );
+    let spread = firsts.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+        - firsts.iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(spread > 1.0, "they differ by the draw: {firsts:?}");
+}
+
+/// A fellowship's maker is first looked at anywhere in a look's gap, at another time for another
+/// draw, as a joiner is.
+/// Behaviour: server.fellowship.a-new-fellows-first-look-anywhere-in-the-gap
+#[test]
+fn a_makers_first_update_comes_anywhere_in_a_looks_gap_by_the_draw() {
+    let mut firsts = Vec::new();
+    for seed in 1..=8 {
+        let (mut h, [(a, aid), _, _]) = three();
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        let fa = h.bots[a].inbox.len();
+        create(&mut h, a, "Band");
+        firsts.push(first_look(&mut h, a, fa, aid));
+    }
+    drawn_over_a_gap(&firsts);
+}
+
+/// A joiner is first looked at anywhere in a look's gap: its first update comes from at once to
+/// seven and a half seconds after it joins, at another time for another draw.
+/// Behaviour: server.fellowship.a-new-fellows-first-look-anywhere-in-the-gap
+#[test]
+fn a_joiners_first_update_comes_anywhere_in_a_looks_gap_by_the_draw() {
+    let mut firsts = Vec::new();
+    for seed in 1..=8 {
+        let (mut h, [(a, aid), (b, bid), _]) = three();
+        create(&mut h, a, "Band");
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        let fa = h.bots[a].inbox.len();
+        join(&mut h, (a, aid), (b, bid));
+        firsts.push(first_look(&mut h, a, fa, bid));
+    }
+    drawn_over_a_gap(&firsts);
+}
+
 /// A kill's experience in a fellowship that shares it: each fellow of a level to share gets the
 /// creature's experience by its own level times the share for how many share (0.6 for two); a
 /// fellow more than five levels from the leader shares nothing; a group creature's takes the
