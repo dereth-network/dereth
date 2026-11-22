@@ -194,8 +194,8 @@ pub struct PlayState {
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at; 26 nothing after the step waits; 27 the pack's own items past its places numbered from just past the last bag, where a grown last bag's places are now).
-const VERSION: u32 = 28;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at; 26 nothing after the step waits; 27 the pack's own items past its places numbered from just past the last bag, where a grown last bag's places are now; 28 no time an item was last used at).
+const VERSION: u32 = 29;
 
 /// The pack's own items past its places, kept numbered from just past the last bag, take the
 /// numbers they have now, in the same order: the places a grown last bag adds would otherwise read
@@ -247,6 +247,8 @@ const OWN_TIMED: u32 = 0x2000;
 const OWN_ENCHANTMENTS: u32 = 0x4000;
 /// Holds when it is gone.
 const OWN_ENDS: u32 = 0x8000;
+/// Holds when it was last used.
+const OWN_USED: u32 = 0x1_0000;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -453,7 +455,8 @@ impl ItemState {
             } else {
                 0
             }
-            | if own.ends.is_some() { OWN_ENDS } else { 0 };
+            | if own.ends.is_some() { OWN_ENDS } else { 0 }
+            | if own.used.is_some() { OWN_USED } else { 0 };
         w32(out, has);
         if let Some(v) = own.min_level {
             w32(out, v.cast_unsigned());
@@ -524,6 +527,9 @@ impl ItemState {
         }
         if let Some(ends) = own.ends {
             out.extend_from_slice(&ends.to_bits().to_le_bytes());
+        }
+        if let Some(used) = own.used {
+            out.extend_from_slice(&used.to_bits().to_le_bytes());
         }
     }
 
@@ -630,6 +636,9 @@ impl ItemState {
             }
             if has & OWN_ENDS != 0 {
                 own.ends = Some(r.f64()?);
+            }
+            if has & OWN_USED != 0 {
+                own.used = Some(r.f64()?);
             }
         }
         Some(Self {

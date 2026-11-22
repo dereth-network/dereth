@@ -73,6 +73,8 @@ pub struct Own {
     pub attuned: bool,
     /// When it is gone, made of a template a world's row gives a lifetime (game time).
     pub ends: Option<f64>,
+    /// When it was last used, of a template that names a time between uses (game time).
+    pub used: Option<f64>,
 }
 
 /// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
@@ -116,6 +118,7 @@ impl Own {
             && self.bound_to == 0
             && !self.attuned
             && self.ends.is_none()
+            && self.used.is_none()
     }
 }
 

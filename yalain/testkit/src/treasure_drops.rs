@@ -191,9 +191,9 @@ pub fn seeded_drops(p: &Portal, tables: TreasureTables) -> Drops {
                     yalain_world::inventory::make_item(&mut h.server, t, 1, value).expect("made");
                 yalain_world::treasure::endow(&mut h.server, item, level, quality);
                 let thing = h.server.things.get(item).expect("made");
-                // No treasure has an end: its text stays as it was before items could.
-                assert_eq!(thing.own.ends, None);
-                let own = format!("{:?}", thing.own).replace(", ends: None }", " }");
+                // No treasure has an end or a last use: its text stays as it was before items could.
+                assert_eq!((thing.own.ends, thing.own.used), (None, None));
+                let own = format!("{:?}", thing.own).replace(", ends: None, used: None }", " }");
                 text.push_str(&format!(
                     "{t:08x} {level} {quality:?} {own} {:?} {:?}\n",
                     thing.enchantments, thing.bonuses

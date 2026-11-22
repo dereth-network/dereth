@@ -1154,6 +1154,18 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
             return;
         }
     }
+    // An item used again within its template's time between uses is refused, nothing done.
+    if crate::item_use::too_soon(s, u.item, net.game_time(clock.local)) {
+        let no = use_refused(
+            &u,
+            0,
+            Some(crate::item_use::TOO_SOON_FLAGS),
+            0.0,
+            crate::item_use::refusal::TOO_SOON,
+        );
+        send(net, world, BlobKind::PRIVATE, &no);
+        return;
+    }
     if crate::usable::doors::door(s, u.target).is_some() {
         crate::usable::doors::key_used(s, net, world, u, clock);
         return;

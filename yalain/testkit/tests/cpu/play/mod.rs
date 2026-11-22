@@ -65,6 +65,7 @@ mod integrity;
 mod interactions;
 mod item_effects;
 mod item_lives;
+mod item_reuse;
 mod items;
 mod kill_quests;
 mod kingdom_points;

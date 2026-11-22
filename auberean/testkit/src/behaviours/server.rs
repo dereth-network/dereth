@@ -9026,6 +9026,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.time-between-uses",
+        says: "An item whose template names a time between uses, used again within that time of its \
+               last use let through, is refused 10007 with control flags 828 and nothing is done; \
+               the refusal does not start the wait again, the wait goes on while its holder is \
+               away, and an item naming no time is used again at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-TIME-BETWEEN-USES"),
+        station: "yalain-testkit::cpu::play::item_reuse::an_item_used_again_within_its_time_between_uses_is_refused_and_after_it_used",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.training-hall-potions",
         says: "A training hall's potion, whose template names no effect, is drunk as a potion is \
                and at the drink's end puts on its one effect (haste, healing or thorns) at the \

@@ -259,6 +259,37 @@ pub mod refusal {
     pub const NOT_THERE: u32 = 10_054;
     /// An item that may not be used moving, while the player moves.
     pub const MOVING: u32 = 10_055;
+    /// Used again within its template's time between uses.
+    pub const TOO_SOON: u32 = 10_007;
+}
+
+/// The control flags of a use refused as too soon (2017: 5 of 5).
+pub const TOO_SOON_FLAGS: u32 = 828;
+
+/// Is a use of this item too soon after its last, its template naming a time between uses that has
+/// not passed? A use that is not is let through, and its time kept on the item; one that is
+/// changes nothing (2017: a three-second item's uses again were refused at 0.75 to 2.80 s after the
+/// last accepted, 5 of 5, and accepted from 3.18 s; an item of a template naming no time was used
+/// again as soon as 0.06 s after).
+pub fn too_soon<S: Store>(s: &mut Server<S>, item: u64, now: f64) -> bool {
+    let Some(t) = s.things.get(item) else {
+        return false;
+    };
+    let Some(wait) = s
+        .catalog
+        .get(t.template)
+        .and_then(|c| c.props.float("Item_TimeBetweenUses"))
+        .filter(|w| *w > 0.0)
+    else {
+        return false;
+    };
+    if t.own.used.is_some_and(|at| now - at < f64::from(wait)) {
+        return true;
+    }
+    if let Some(t) = s.things.get_mut(item) {
+        t.own.used = Some(now);
+    }
+    false
 }
 
 /// The hands' places among the places items are worn.
