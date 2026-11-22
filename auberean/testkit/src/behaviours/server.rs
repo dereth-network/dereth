@@ -597,6 +597,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.a-rank-changed-while-away-told-at-entry",
+        says: "A member whose rank rose while it was away is told \"Your rank has increased!\" as \
+               it enters, and one whose rank fell \"Your rank has decreased.\", each with its new \
+               title, as a rank's change is told, whoever else swore meanwhile; one whose rank \
+               stood is told neither. The rank's line is sent first, then that of what its vassals \
+               earned while it was away, both before its profile, its chat rooms and its channels.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-RANK-AT-ENTRY"),
+        station: "yalain-testkit::cpu::play::allegiance::a_rank_that_rose_or_fell_while_away_is_told_as_the_member_enters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.a-stored-circle-has-an-end",
         says: "A store edited by hand into a circle of oaths is walked once round: every member \
                counted once, nothing hangs.",

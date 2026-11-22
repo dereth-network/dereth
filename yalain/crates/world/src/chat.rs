@@ -988,15 +988,16 @@ pub fn region_moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
 }
 
 /// What a character entering the world is told of its allegiance and its channels, after the
-/// objects around it: its allegiance's profile, then its channels, twice (as 2017 sent them).
+/// objects around it, in the order sent: what changed while it was away, its allegiance's chat
+/// room and profile, then its channels, twice.
 pub fn tell_allegiance_and_channels<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
 ) {
+    crate::allegiance::tell_while_away(s, net, world);
     crate::allegiance::enter(s, net, world);
     send_channels(s, net, world, 2);
-    crate::allegiance::after_entry(s, net, world);
 }
 
 // ---- the chat service -----------------------------------------------------------------------

@@ -9,9 +9,10 @@
 //! for it, id, rank, faction and name. A character in no allegiance is sent the profile with
 //! nothing in it.
 //!
-//! **As a player enters**: a member hears its allegiance's chat room twice, then its own profile
-//! (one in no allegiance, the empty profile alone); then what its vassals earned for it while it
-//! was away, and a rank that fell while it was away.
+//! **As a player enters**: a member is told of a rank that fell or rose while it was away, then
+//! what its vassals earned for it while it was away; then it hears its allegiance's chat room
+//! twice, then its own profile (one in no allegiance, the empty profile alone), and its channels
+//! follow.
 //!
 //! **Asked for a member's profile** (the allegiance page walking the tree), the profile centred on
 //! that member is sent, online or not; asked for nothing (id 0: the page no longer follows a
@@ -1038,9 +1039,9 @@ fn chat_room_message(room: u32) -> ServerMessage {
     session::call(function::CHAT_ROOM, &[Arg::Int(room)]).expect("a word packs")
 }
 
-/// What a player entering the world is told of its allegiance: its chat room twice and its
-/// profile (the empty profile alone for one in none), then what its vassals earned for it while it
-/// was away and a rank that fell meanwhile.
+/// What a player entering the world is sent of its allegiance, after what it is told of the time
+/// it was away ([`tell_while_away`]): its chat room twice and its profile (the empty profile alone
+/// for one in none).
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if !ensure(s) {
         return;
@@ -1058,9 +1059,14 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     progress::private(net, world, &m);
 }
 
-/// After the entry's channels: the experience earned for the player while it was away, and a rank
-/// that fell.
-pub fn after_entry<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// What a player entering is told first of its allegiance: a rank that fell or rose while it was
+/// away, then the experience earned for it meanwhile, with its totals (2017, in the order sent:
+/// 9 rank lines at entries, 5 falls and 4 rises, 3 with the experience's line after; 35 such
+/// lines; every one of both before the profile, the chat rooms and the channels).
+pub fn tell_while_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    if !ensure(s) {
+        return;
+    }
     let Some(id) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -1068,8 +1074,11 @@ pub fn after_entry<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     let Some(node) = s.allegiances.nodes.get(&id).copied() else {
         return;
     };
+    // A rank that fell or rose while it was away (none told for one never told a rank).
     if rank < node.rank_seen {
         tell_rank(s, net, world, rank, text::RANK_DOWN);
+    } else if rank > node.rank_seen && node.rank_seen > 0 {
+        tell_rank(s, net, world, rank, text::RANK_UP);
     }
     if let Some(n) = s.allegiances.nodes.get_mut(&id) {
         n.rank_seen = rank;
@@ -1646,13 +1655,15 @@ pub fn accept<S: Store>(
                 tell_rank(s, net, w, rank, text::RANK_UP);
             }
         }
-        let seen = if id == vassal || id == patron || world_of(s, id).is_some() {
-            rank
-        } else {
-            before.get(&id).copied().unwrap_or(rank)
-        };
+        // One away keeps the rank it was last told of, however many swear meanwhile; one with
+        // none kept is given the rank it had before this oath.
+        let here = id == vassal || id == patron || world_of(s, id).is_some();
         if let Some(n) = s.allegiances.nodes.get_mut(&id) {
-            n.rank_seen = seen;
+            if here {
+                n.rank_seen = rank;
+            } else if n.rank_seen == 0 {
+                n.rank_seen = before.get(&id).copied().unwrap_or(rank);
+            }
         }
     }
     keep(s);

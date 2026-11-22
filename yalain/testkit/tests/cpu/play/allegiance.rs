@@ -824,3 +824,244 @@ fn an_oath_to_ones_own_vassal_is_refused_as_circular() {
     assert!(answer.1.contains(&Value::Int(5505)), "{answer:?}");
     assert_eq!(h.server.allegiances.monarch(v.1), Some(p.1));
 }
+
+/// Log a player off and wait for its character list.
+fn logged_off(h: &mut Harness, b: usize, id: u64) {
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: id }),
+    );
+    assert!(h.run_until(STEPS, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+}
+
+/// A member whose rank rose while it was away is told so as it enters ("Your rank has
+/// increased!", as a rank's change is told); one whose rank fell, that it fell; one whose rank
+/// stood, neither; nor one never told a rank.
+/// Behaviour: server.allegiance.a-rank-changed-while-away-told-at-entry
+#[test]
+fn a_rank_that_rose_or_fell_while_away_is_told_as_the_member_enters() {
+    let (mut h, a, b) = two();
+    let (pa, pid) = b;
+    sworn(&mut h, a, b);
+    let rank_lines = |h: &Harness, from: usize| -> Vec<(u32, u32)> {
+        h.texts(pa, from)
+            .into_iter()
+            .filter(|(_, t)| [text::RANK_UP.0, text::RANK_DOWN.0].contains(t))
+            .collect()
+    };
+    // Unchanged: nothing.
+    logged_off(&mut h, pa, pid);
+    let from = h.bots[pa].inbox.len();
+    h.enter_world(pa, "two", pid);
+    h.run(5);
+    assert_eq!(rank_lines(&h, from), vec![], "a rank that stood");
+    // Another vassal swears while the patron is away: its rank rises.
+    logged_off(&mut h, pa, pid);
+    let before = h.server.allegiances.rank(pid);
+    let other = 0x2100_0000_0000_7777;
+    let joined = h.server.allegiances.nodes[&a.1].joined + 1.0;
+    h.server.allegiances.nodes.insert(
+        other,
+        yalain_world::allegiance::Node {
+            patron: pid,
+            joined,
+            ..yalain_world::allegiance::Node::default()
+        },
+    );
+    assert!(h.server.allegiances.rank(pid) > before, "it rose");
+    let from = h.bots[pa].inbox.len();
+    h.enter_world(pa, "two", pid);
+    h.run(5);
+    assert_eq!(
+        rank_lines(&h, from),
+        vec![(1, text::RANK_UP.0)],
+        "a rank that rose"
+    );
+    // The vassal leaves while the patron is away: its rank falls back.
+    logged_off(&mut h, pa, pid);
+    h.server.allegiances.nodes.remove(&other);
+    let from = h.bots[pa].inbox.len();
+    h.enter_world(pa, "two", pid);
+    h.run(5);
+    assert_eq!(
+        rank_lines(&h, from),
+        vec![(1, text::RANK_DOWN.0)],
+        "a rank that fell"
+    );
+    // One never told a rank (a store from before ranks were kept) is told none.
+    logged_off(&mut h, pa, pid);
+    h.server
+        .allegiances
+        .nodes
+        .get_mut(&pid)
+        .expect("a member")
+        .rank_seen = 0;
+    let from = h.bots[pa].inbox.len();
+    h.enter_world(pa, "two", pid);
+    h.run(5);
+    assert_eq!(rank_lines(&h, from), vec![], "never told a rank");
+}
+
+/// A member away keeps the rank it was last told of though others swear meanwhile: a rise by its
+/// vassal's new vassal, and the fall as that one breaks, are each told once as it enters; so is a
+/// rise for one with no rank kept till then.
+/// Behaviour: server.allegiance.a-rank-changed-while-away-told-at-entry
+#[test]
+fn a_rank_change_while_away_outlasts_the_oaths_others_swear_meanwhile() {
+    for kept in [true, false] {
+        let (mut h, a, b) = two();
+        let (_, vid) = a;
+        let (pa, pid) = b;
+        let first = h.player_in_world("three", "Firstvassal");
+        let second = h.player_in_world("four", "Secondvassal");
+        let stranger = h.player_in_world("five", "Stranger");
+        let patron = h.player_in_world("six", "Elsewhere");
+        sworn(&mut h, a, b);
+        // A level of two vassals.
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == vid)
+            .expect("in the world");
+        yalain_world::quals::set_int(&mut p.qualities, 302, 4);
+        sworn(&mut h, first, a);
+        logged_off(&mut h, pa, pid);
+        if !kept {
+            let n = h.server.allegiances.nodes.get_mut(&pid).expect("a member");
+            n.rank_seen = 0;
+        }
+        sworn(&mut h, second, a);
+        assert_eq!(h.server.allegiances.rank(pid), 2, "it rose");
+        sworn(&mut h, stranger, patron);
+        let rank_lines = |h: &Harness, from: usize| -> Vec<(u32, u32)> {
+            h.texts(pa, from)
+                .into_iter()
+                .filter(|(_, t)| [text::RANK_UP.0, text::RANK_DOWN.0].contains(t))
+                .collect()
+        };
+        let from = h.bots[pa].inbox.len();
+        h.enter_world(pa, "two", pid);
+        h.run(5);
+        assert_eq!(
+            rank_lines(&h, from),
+            vec![(1, text::RANK_UP.0)],
+            "kept {kept}: the rise"
+        );
+        logged_off(&mut h, pa, pid);
+        let from = h.bots[pa].inbox.len();
+        h.enter_world(pa, "two", pid);
+        h.run(5);
+        assert_eq!(rank_lines(&h, from), vec![], "kept {kept}: told once");
+        logged_off(&mut h, pa, pid);
+        h.ask(second.0, function::BREAK, &[Arg::LongInt(vid)], 10);
+        assert_eq!(h.server.allegiances.rank(pid), 1, "it fell");
+        h.ask(stranger.0, function::BREAK, &[Arg::LongInt(patron.1)], 10);
+        sworn(&mut h, stranger, patron);
+        assert!(h.server.allegiances.member(stranger.1), "another oath");
+        let from = h.bots[pa].inbox.len();
+        h.enter_world(pa, "two", pid);
+        h.run(5);
+        assert_eq!(
+            rank_lines(&h, from),
+            vec![(1, text::RANK_DOWN.0)],
+            "kept {kept}: the fall"
+        );
+    }
+}
+
+/// What a client was sent of its allegiance and channels since `from`, in the order sent (by the
+/// connection's sequence, the low word of each message's blob id), each named.
+fn sent_at_entry(h: &Harness, b: usize, from: usize) -> Vec<&'static str> {
+    let mut sent: Vec<(u32, &'static str)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| {
+            let Some(ServerMessage::PlayerCall(c)) = r.message() else {
+                return None;
+            };
+            let name = match c.function.0 {
+                function::CHAT_ROOM => "room",
+                function::PROFILE => "profile",
+                yalain_world::chat::function::CHANNELS => "channels",
+                yalain_world::session::function::SHOW_TEXT => {
+                    let v = yalain_world::calls::values(&c.args.as_ref()?.0).ok()?;
+                    let id = v.iter().find_map(|x| match x.root() {
+                        Some(Node::TextInfo(t)) => Some(t.string_id),
+                        _ => None,
+                    })?;
+                    if id == text::RANK_UP.0 || id == text::RANK_DOWN.0 {
+                        "rank"
+                    } else if id == text::AWAY_EARNED.0 {
+                        "away"
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            };
+            #[allow(clippy::cast_possible_truncation)]
+            let sequence = r.blob_id as u32;
+            Some((sequence, name))
+        })
+        .collect();
+    sent.sort_unstable();
+    sent.into_iter().map(|(_, name)| name).collect()
+}
+
+/// A member entering with a rank changed and experience earned while it was away is sent the
+/// rank's line first, then the experience's, both before its profile, chat rooms and channels: a
+/// rise or a fall, and with the world's allegiances not read yet.
+/// Behaviour: server.allegiance.a-rank-changed-while-away-told-at-entry
+#[test]
+fn a_rank_changed_and_experience_earned_while_away_are_sent_before_the_profile_and_rooms() {
+    for rose in [true, false] {
+        let (mut h, a, b) = two();
+        let (pa, pid) = b;
+        h.server.levels = levels();
+        sworn(&mut h, a, b);
+        logged_off(&mut h, pa, pid);
+        let node = *h.server.allegiances.nodes.get(&pid).expect("a member");
+        if rose {
+            let joined = h.server.allegiances.nodes[&a.1].joined + 1.0;
+            h.server.allegiances.nodes.insert(
+                0x2100_0000_0000_7777,
+                yalain_world::allegiance::Node {
+                    patron: pid,
+                    joined,
+                    ..yalain_world::allegiance::Node::default()
+                },
+            );
+        }
+        h.server.allegiances.nodes.insert(
+            pid,
+            yalain_world::allegiance::Node {
+                owed: 30,
+                rank_seen: if rose { node.rank_seen } else { 5 },
+                ..node
+            },
+        );
+        yalain_world::allegiance::keep(&mut h.server);
+        h.run(STEPS);
+        h.server.allegiances = yalain_world::allegiance::Allegiances::default();
+        let from = h.bots[pa].inbox.len();
+        h.enter_world(pa, "two", pid);
+        h.run(5);
+        let sent = sent_at_entry(&h, pa, from);
+        assert_eq!(
+            sent.get(..2),
+            Some(&["rank", "away"][..]),
+            "rose {rose}: {sent:?}"
+        );
+        for after in ["profile", "room", "channels"] {
+            assert!(
+                sent[2..].contains(&after),
+                "rose {rose}: {after} after: {sent:?}"
+            );
+        }
+    }
+}

@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Items with a cooldown, like delving stones, now make you wait between uses.
+- You're now told at login if your allegiance rank changed.
 - You're now told when you die in a fellowship.
 - Fellows' levels show right away when they join.
 - A skill used on a person now says you can't use it on NPCs.
