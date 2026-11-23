@@ -413,7 +413,7 @@ fn an_unknown_element_type_drops_its_whole_subtree_and_is_logged() {
     for t in ty::UNREGISTERED {
         assert!(
             !ui.is_registered(t),
-            "{t:?} has no registration in this build (#115)"
+            "{t:?} has no registration in this build"
         );
     }
 }

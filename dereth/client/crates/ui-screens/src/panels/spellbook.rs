@@ -68,7 +68,7 @@ pub const fn level_button(level: u32) -> Option<ElementId> {
 
 /// How many level buttons the layout provides.
 pub const LEVEL_BUTTON_COUNT: u32 = 8;
-/// The highest level bit the filter carries, including the ninth (#173).
+/// The highest level bit the filter carries, including the ninth.
 pub const MAX_LEVEL_BIT: u32 = 9;
 
 /// One spell, reduced to what the filter tests.
