@@ -45,6 +45,9 @@ Options:
 
 - `--names off` leaves out `places.tsv`.
 - `--frills off` grows the cover without AC2's small grass and plants.
+- `--sky ac1` keeps AC1's own sky. By default the world has AC2's: its seven days, its sun, moon,
+  stars and clouds, colored by the hour as AC2 colors them (the overlay's sky tints, which Dereth
+  draws). `--sky-day 1` to `7` keeps one of AC2's days alone.
 - `--levels 2` or `3` gives placed objects more levels of detail (one by default).
 - `--table ac2` keeps AC2's own height table instead of one fitted to the converted land.
 - `--vaults tools/art/ac2-world/arwic-vault.txt --placements tools/art/ac2-world/arwic-vault-placements.tsv`

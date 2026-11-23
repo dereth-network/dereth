@@ -289,8 +289,8 @@ pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     ("dereth-art", "auberean-animation"),
     ("dereth-art", "auberean-text"),
     ("dereth-art", "auberean-primitives"),
-    // And its objects' effects: AC2's effects, particles and materials made ready as AC2 draws
-    // them, to bring them over as AC1's; it draws nothing.
+    // And its sky: AC2's materials made ready as AC2 draws them, to work out each sky picture's
+    // texture stages; it draws nothing.
     ("dereth-art", "auberean-draw"),
     // The session recorder names each recorded message of the second game by its type and the
     // object it is about, and nothing of its client, server or world builder.

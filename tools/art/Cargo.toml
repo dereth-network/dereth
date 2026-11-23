@@ -47,7 +47,7 @@ auberean-world.workspace = true
 auberean-animation.workspace = true
 auberean-text.workspace = true
 auberean-primitives.workspace = true
-# Its objects' effects: AC2's effects, particles and materials made ready as AC2 draws them.
+# Its sky: AC2's materials made ready as AC2 draws them (the pictures and how they scroll).
 auberean-draw.workspace = true
 # The trees a new model or room needs.
 dereth-builder.workspace = true
@@ -64,6 +64,8 @@ sha2.workspace = true
 dereth-dat = { workspace = true, features = ["test-support"] }
 # `auberean_dat::testing`: where the retail-data test finds the Asheron's Call 2 install.
 auberean-dat = { workspace = true, features = ["fs", "test-support"] }
+# AC1's sky as the retail look places it, against AC2's (the sun's and the moon's arcs).
+dereth-world-render.workspace = true
 
 [lints]
 workspace = true

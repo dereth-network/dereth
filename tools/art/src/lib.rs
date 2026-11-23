@@ -15,7 +15,7 @@
 //! shapes' coordinates), `dereth-builder` (the trees a new model or room needs), `dereth-physics`
 //! (the starting area's ground and water, told as the server tells them), `dereth-landscape`
 //! (the scenery the converted land grows, placed as the client places it) and `auberean-draw` (its
-//! objects' effects, particles and materials made ready as AC2 draws them). **Used
+//! sky's materials made ready as AC2 draws them, to work out their pictures). **Used
 //! by** nothing: it is the `dereth-art` program, which comes beside the client, and which the
 //! launcher runs to build the AC2 look.
 //!

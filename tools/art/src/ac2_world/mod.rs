@@ -17,9 +17,11 @@
 //!   every model AC2's, so the land names none of AC1's scenery ([`grown`], [`scenes`]); AC2's
 //!   placed objects as AC1 statics ([`statics`]), set into the ground as AC2 sets them
 //!   ([`buried`]), its ledges an AC1 body does not climb made climbable ([`ledges`], [`climb`]),
-//!   its shells standing over rooms of their own made buildings you walk into ([`rooms`]); and
-//!   AC1's character-creation table (`0x0E000002`) with the world's one starting area, on dry
-//!   land by Cragstone and named for the nearest of AC2's towns ([`start`]);
+//!   its shells standing over rooms of their own made buildings you walk into ([`rooms`]);
+//!   unless `--sky ac1`, AC2's sky as the region's sky, its models among the new records, with
+//!   the world's sky tints beside the region (`0x13000001`), which color it by the hour
+//!   ([`sky`]); and AC1's character-creation table (`0x0E000002`) with the world's one starting
+//!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]);
 //! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's land lies
 //!   over AC1's dungeons; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
@@ -50,8 +52,9 @@
 //! left out for what it is, and why), `statics-effects.tsv` (each object that plays effects,
 //! whether it draws anything of its own, and the AC1 emitters and lights they became),
 //! `ledges.tsv` (each placement with ledges AC1's bodies do not
-//! climb, and the land raised and ramps made for them) and `ramps.tsv` (each ramp, and the walk
-//! along its foot before and after). The same inputs give the same bytes, the reports too.
+//! climb, and the land raised and ramps made for them), `ramps.tsv` (each ramp, and the walk
+//! along its foot before and after) and `sky.tsv` (each AC2 sky object of each day, and what it
+//! became). The same inputs give the same bytes, the reports too.
 //!
 //! Everything it writes is made from the player's own installs and stays with them.
 
@@ -81,6 +84,7 @@ mod region;
 mod roads;
 mod rooms;
 mod scenes;
+mod sky;
 mod start;
 mod statics;
 mod steep;
@@ -172,6 +176,10 @@ pub struct Args {
     /// Whether AC2's frills (its grass and small plants, drawn only near the viewer in AC2) are
     /// grown with its cover ([`grown`]); on unless asked.
     pub frills: bool,
+    /// The sky: AC2's (`--sky ac2`, the default), every day or the `--sky-day`th alone, with its
+    /// tints ([`sky`]); or AC1's own (`--sky ac1`).
+    pub sky: bool,
+    pub sky_day: Option<usize>,
     /// The ledger of the contents written so far, each with its generation ([`iteration`]).
     pub ledger: PathBuf,
     /// Whether to build from installs whose files are not the expected ones (`--any-install`),
@@ -182,7 +190,7 @@ pub struct Args {
 }
 
 /// The usage line of `dereth-art ac2-world`.
-pub const USAGE: &str = "dereth-art ac2-world --ac1 DIR --ac2 DIR --out DIR [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--vaults FILE --placements FILE] [--ledger FILE] [--any-install]";
+pub const USAGE: &str = "dereth-art ac2-world --ac1 DIR --ac2 DIR --out DIR [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--ledger FILE] [--any-install]";
 
 impl Args {
     /// The arguments after `ac2-world`.
@@ -196,6 +204,7 @@ impl Args {
         let mut vaults = None;
         let mut placements = None;
         let mut frills = true;
+        let (mut sky, mut sky_day) = (true, None);
         let mut ledger = None;
         let mut any_install = false;
         let mut a = args.iter();
@@ -215,6 +224,15 @@ impl Args {
                 "--table" if v == "fitted" || v == "ac2" => tab = v,
                 "--names" if v == "on" || v == "off" => names = v == "on",
                 "--frills" if v == "on" || v == "off" => frills = v == "on",
+                "--sky" if v == "ac2" || v == "ac1" => sky = v == "ac2",
+                "--sky-day" => {
+                    sky_day = Some(
+                        v.parse::<usize>()
+                            .ok()
+                            .filter(|n| (1..=7).contains(n))
+                            .ok_or_else(|| format!("--sky-day {v}: 1 to 7"))?,
+                    );
+                }
                 "--vaults" => vaults = Some(PathBuf::from(v)),
                 "--placements" => placements = Some(PathBuf::from(v)),
                 "--ledger" => ledger = Some(PathBuf::from(v)),
@@ -240,6 +258,8 @@ impl Args {
             vaults,
             placements,
             frills,
+            sky,
+            sky_day,
             ledger,
             any_install,
             command: std::iter::once("dereth-art ac2-world".to_owned())
@@ -1218,6 +1238,23 @@ pub fn build(args: &Args) -> Result<(), String> {
         &mut ids,
         &mut art_records,
     )?;
+    // AC2's sky as AC1's, its models among the new records, and its tints beside the region.
+    let sky = if args.sky {
+        eprintln!("converting AC2's sky");
+        let s = sky::convert(
+            &args.ac2,
+            &ac2_art,
+            &ac1_region,
+            args.sky_day,
+            &mut ids,
+            &mut art_records,
+        )?;
+        art_records.add(dereth_assets::sky_tints::SKY_TINTS, s.tints.encode());
+        eprintln!("{}", s.line);
+        Some(s)
+    } else {
+        None
+    };
     // Every new record's id is free: the converted world names none of AC1's scenery records.
     check_free(&portal, art_records.0.keys().copied())?;
     let tm = ac1_region
@@ -1249,6 +1286,10 @@ pub fn build(args: &Args) -> Result<(), String> {
         &ac1_region.terrain_types,
         &scene_lists,
     )?;
+    let patched = match &sky {
+        Some(s) => sky::splice(&patched, &s.groups)?,
+        None => patched,
+    };
 
     // The world's starting area: AC1's creation table with the one area, the dry land nearest the
     // start point on the converted land, named for the nearest of AC2's towns.
@@ -1617,6 +1658,24 @@ pub fn build(args: &Args) -> Result<(), String> {
     }
     same.scene_info = ac1_region.scene_info.clone();
     same.terrain_types = ac1_region.terrain_types.clone();
+    // The sky reads back as made, its tick sizes AC1's.
+    if let Some(s) = &sky {
+        let rs = r
+            .sky_info
+            .as_ref()
+            .ok_or("the converted region lost its sky")?;
+        let a1 = ac1_region
+            .sky_info
+            .as_ref()
+            .ok_or("AC1's region has no sky")?;
+        if rs.day_groups != s.groups
+            || rs.tick_size != a1.tick_size
+            || rs.light_tick_size != a1.light_tick_size
+        {
+            return Err("the converted region's sky reads back otherwise".into());
+        }
+        same.sky_info = ac1_region.sky_info.clone();
+    }
     if same != ac1_region {
         return Err("the converted region differs from AC1's outside its land definitions and terrain textures".into());
     }
@@ -1633,6 +1692,9 @@ pub fn build(args: &Args) -> Result<(), String> {
             0x08 => dereth_assets::Surface::decode_payload(*id, bytes).map(|_| ()),
             0x11 => {
                 dereth_assets::motion::GfxObjDegradeInfo::decode_payload(*id, bytes).map(|_| ())
+            }
+            _ if *id == dereth_assets::sky_tints::SKY_TINTS => {
+                dereth_assets::sky_tints::SkyTints::decode(bytes).map(|_| ())
             }
             _ => Ok(()),
         };
@@ -1845,6 +1907,12 @@ pub fn build(args: &Args) -> Result<(), String> {
     let _ = writeln!(stats, "{}", climb.line);
     let _ = writeln!(
         stats,
+        "{}",
+        sky.as_ref()
+            .map_or("sky: AC1's (--sky ac1)", |s| s.line.as_str())
+    );
+    let _ = writeln!(
+        stats,
         "overlay content {} is generation {generation} (generations.tsv): iterations {cell_rev}..={cell_iteration} over the cell file, {portal_rev}..={portal_iteration} over the portal file",
         crate::ac2_world::iteration::hex(&content)
     );
@@ -1983,6 +2051,10 @@ pub fn build(args: &Args) -> Result<(), String> {
         ("statics-effects.tsv", &statics.effects_tsv),
         ("ledges.tsv", &climb.tsv),
         ("ramps.tsv", &climb.ramps_tsv),
+        (
+            "sky.tsv",
+            &sky.as_ref().map(|s| s.tsv.clone()).unwrap_or_default(),
+        ),
     ] {
         let p = beside.join(name);
         std::fs::write(&p, body).map_err(|e| format!("{}: {e}", p.display()))?;

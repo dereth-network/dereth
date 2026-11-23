@@ -1548,6 +1548,7 @@ dependencies = [
  "dereth-scene",
  "dereth-terrain",
  "dereth-world-data",
+ "dereth-world-render",
  "glam",
  "png",
  "serde",
