@@ -679,6 +679,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.smooth-movement.own-body-and-the-games-camera-drawn-between-ticks",
+        says: "Drawn between its physics ticks, the player's own body turning under the game's \
+               camera turns a little every frame, at 60 and at 144 frames a second, and the eye \
+               drawn follows it, turning by at most a little over half what it turns in a frame \
+               drawn at the ticks; with Smooth Movement off the eye drawn is the camera's own, \
+               exactly.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-OWN-BODY"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_the_players_own_body_and_the_games_camera_turn_a_little_every_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.startup.a-second-client-starts-while-the-first-is-running",
         says: "A second client starts, and runs its interface, while another is still running on \
                the same machine; neither refuses the other.",

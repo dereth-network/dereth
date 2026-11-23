@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Horizon's Smooth Movement now smooths your own character and the camera too.
 - macOS: the arrow keys move the chat caret instead of typing odd characters.
 - Faster frames in big dungeons.
 - Fixed a short stutter every 15 seconds.

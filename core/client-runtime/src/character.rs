@@ -1174,6 +1174,13 @@ pub struct Character {
     /// The body as it is drawn between its physics ticks, and the time the frame being drawn is
     /// at.
     between: crate::between_ticks::BetweenTicks,
+    /// Where the game's camera stood from the body at its last two physics ticks (the eye in the
+    /// body's own frame) and the time of each, for drawing it between them with the body
+    /// ([`Self::follows_the_drawn_body`]).
+    eye_ticks: [Option<(Frame, f64)>; 2],
+    /// Where the game's camera is drawn standing from the body this frame: eased onto its way
+    /// between the ticks ([`Self::eye_ticks`]), so that a tick come early or late does not show.
+    eye_drawn: Option<Frame>,
     /// Whether the last [`Self::update`] raised
     /// [`dereth_physics::PhysicsNotice::PlayerPhysicsUpdated`] — that is, whether
     /// the physics-update gate opened and the object it stepped was the player.
@@ -1456,6 +1463,8 @@ impl Character {
             player_physics_updated: false,
             drawn_between_ticks: false,
             between: crate::between_ticks::BetweenTicks::default(),
+            eye_ticks: [None, None],
+            eye_drawn: None,
             collision_scripts: Vec::new(),
             restriction_effects: Vec::new(),
             input: CharacterInput::default(),
@@ -2201,15 +2210,73 @@ impl Character {
             dt,
             self.player_physics_updated,
         );
+        // Where the game's camera stands from the body at each tick, for drawing it between them.
+        if !self.drawn_between_ticks || self.camera.orbit_active {
+            self.eye_ticks = [None, None];
+            self.eye_drawn = None;
+            return;
+        }
+        if self.player_physics_updated || self.eye_ticks[1].is_none() {
+            let body = self.render_frame();
+            let eye = self.render_frame_of(self.camera.viewer);
+            self.eye_ticks = [self.eye_ticks[1], Some((seen_from(&body, &eye), now.0))];
+        }
+        let way = self.eye_way();
+        self.eye_drawn = match (self.eye_drawn, way) {
+            (Some(was), Some(way)) => {
+                #[allow(clippy::cast_possible_truncation)]
+                let k = (1.0 - dereth_primitives::num::math::exp(-dt / EYE_EASE_SECONDS)) as f32;
+                Some(blend(&was, &way, k))
+            }
+            (_, way) => way,
+        };
+    }
+
+    /// Where the game's camera stood from the body on its way between the last two ticks: a tick
+    /// behind, from the tick before to the last by the share of a tick since. `None` before two.
+    fn eye_way(&self) -> Option<Frame> {
+        let [Some((a, t0)), Some((b, t1))] = self.eye_ticks else {
+            return None;
+        };
+        if t1 <= t0 {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let share = ((self.between.frame_time() - t1) / (t1 - t0)).clamp(0.0, 1.0) as f32;
+        Some(blend(&a, &b, share))
     }
 
     /// The camera's eye frame in the renderer's **viewer-block-relative** space, or `None` when
     /// the sweep found no valid camera position at all — the viewer cell is null, which is
     /// what makes the world render pass skip the 3D world for that frame.
+    ///
+    /// With the body drawn between its physics ticks ([`Self::drawn_between_ticks`]), the game's
+    /// camera, which moves only on ticks, is drawn following the body as it is drawn: turned with
+    /// it about the body and carried with it ([`Self::follows_the_drawn_body`]). The orbit camera
+    /// follows the drawn body itself.
     #[must_use]
     pub fn camera_render_frame(&self) -> Option<Frame> {
         self.camera.viewer_cell?;
-        Some(self.render_frame_of(self.camera.viewer))
+        let eye = self.render_frame_of(self.camera.viewer);
+        Some(if self.drawn_between_ticks && !self.camera.orbit_active {
+            self.follows_the_drawn_body(eye)
+        } else {
+            eye
+        })
+    }
+
+    /// The game camera's eye `eye` (render space), placed at a tick, drawn with the body as it is
+    /// drawn between ticks: where it stood from the body is taken a tick behind, as the body is
+    /// drawn, from the tick before to the last by the share of a tick since, eased so that an
+    /// early or late tick does not show ([`Self::eye_drawn`]), and set on the body where it is
+    /// drawn ([`Self::drawn_frame`]). Until two ticks have passed, it stands from the drawn body
+    /// as it stands from the body.
+    #[must_use]
+    pub fn follows_the_drawn_body(&self, eye: Frame) -> Frame {
+        let from = self
+            .eye_drawn
+            .unwrap_or_else(|| seen_from(&self.render_frame(), &eye));
+        dereth_primitives::frame::combine(&self.drawn_frame(), &from)
     }
 
     /// The placed viewer position in the renderer's **viewer-block-relative** space — the value
@@ -3268,6 +3335,54 @@ pub fn refresh_run_rate(
         _ => None,
     };
     character.set_run_rate(rate);
+}
+
+/// Whether the player's own body is drawn between its physics ticks: under the orbit camera
+/// (`orbit_camera`), which eases every frame, and with smooth movement on (`smooth_movement`), as
+/// every other mover is, the game's camera following it as drawn
+/// ([`Character::camera_render_frame`]).
+#[must_use]
+pub const fn own_body_drawn_between_ticks(orbit_camera: bool, smooth_movement: bool) -> bool {
+    orbit_camera || smooth_movement
+}
+
+/// How quickly the game camera drawn between ticks eases onto its way between them, in seconds:
+/// half the time the drawn body's spring takes to settle
+/// ([`crate::between_ticks::DRAWN_SPRING_SECONDS`]), so that the two move together.
+const EYE_EASE_SECONDS: f64 = crate::between_ticks::DRAWN_SPRING_SECONDS as f64 / 2.0;
+
+/// Frame `a` taken `k` of the way to frame `b`: its place along the straight line, its turn
+/// along the shorter arc.
+fn blend(a: &Frame, b: &Frame, k: f32) -> Frame {
+    let mut f = Frame::new(
+        Vec3::new(
+            a.origin.x + (b.origin.x - a.origin.x) * k,
+            a.origin.y + (b.origin.y - a.origin.y) * k,
+            a.origin.z + (b.origin.z - a.origin.z) * k,
+        ),
+        a.rotation,
+    );
+    dereth_physics::math::slerp_rotation_plain(&mut f, a, b, k);
+    f
+}
+
+/// Frame `eye` as seen from frame `body`: where it stands and how it is turned in `body`'s own
+/// frame, so that [`dereth_primitives::frame::combine`] of `body` and it is `eye` again.
+fn seen_from(body: &Frame, eye: &Frame) -> Frame {
+    let m = dereth_primitives::frame::l2g(body.rotation);
+    let away = Vec3::new(
+        eye.origin.x - body.origin.x,
+        eye.origin.y - body.origin.y,
+        eye.origin.z - body.origin.z,
+    );
+    let q = body.rotation;
+    let back = Frame::new(
+        Vec3::ZERO,
+        dereth_primitives::Quat::new(q.w, -q.x, -q.y, -q.z),
+    );
+    let mut f = dereth_primitives::frame::combine(&back, eye);
+    f.origin = dereth_primitives::frame::globaltolocalvec(m, away);
+    f
 }
 
 #[cfg(test)]

@@ -404,7 +404,10 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "Under the Horizon interface, a box on its options page (Smooth Movement, on until \
                  the player turns it off) draws every other player, creature and moving object \
                  gliding between the physics steps that move it thirty times a second, where the \
-                 final client draws it where its last step left it. Each is drawn a step behind, \
+                 final client draws it where its last step left it; the player's own character \
+                 is drawn so too, and the game's camera, which moves only on those steps, is drawn \
+                 following it, standing from it a step behind as it stood at each step. Each is \
+                 drawn a step behind, \
                  on the way physics carried it, never ahead of where physics has it; anything put \
                  somewhere rather than stepped there (a teleport, a portal, a recall, a \
                  correction too far to walk) is drawn where it lands at once. Where each object \
@@ -412,9 +415,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  the drawing follows it (what it holds, its parts' lights and sounds, and the \
                  parts a click is tested against, so a click selects what is drawn under the \
                  pointer). The classic and modern interfaces never draw it.",
-        why: "Other characters and creatures move as smoothly as the rest of the picture at high \
-              frame rates without changing how the game plays; a player who wants the final \
-              client's steps turns it off.",
+        why: "Other characters and creatures, and the player's own, move and turn as smoothly as \
+              the rest of the picture at high frame rates without changing how the game plays; a \
+              player who wants the final client's steps turns it off.",
     },
     Divergence {
         id: "CD-042",

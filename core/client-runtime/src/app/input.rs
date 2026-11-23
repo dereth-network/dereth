@@ -558,8 +558,10 @@ impl<S: Shell> App<S> {
             return;
         };
         c.camera.orbit_active = settings.is_some();
-        // The orbit camera eases every frame, so the body it follows is drawn moving every frame.
-        c.drawn_between_ticks = settings.is_some();
+        c.drawn_between_ticks = crate::character::own_body_drawn_between_ticks(
+            settings.is_some(),
+            self.smooth_movement,
+        );
         let Some(settings) = settings else {
             c.camera.orbit_turns_with_player = false;
             return;

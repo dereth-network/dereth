@@ -1892,4 +1892,106 @@ mod tests {
             "the objects must be stepped every second frame; gaps {gaps:?}"
         );
     }
+
+    /// Each frame at `fps` of a body running and turned by the game's turning key, under the
+    /// game's own camera, the body drawn between its physics ticks (`smooth`) or where physics has
+    /// it: the heading the camera's eye is drawn looking, the heading the body is drawn facing,
+    /// and whether the eye drawn is the camera's own, exactly.
+    fn turning_under_the_game_camera(fps: f64, smooth: bool) -> Vec<(f32, f32, bool)> {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        c.drawn_between_ticks = smooth;
+        let block = c.position().cell.landblock();
+        let block = (i32::from(block.x()), i32::from(block.y()));
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character| {
+            t += 1.0 / fps;
+            c.update(LocalTime(t));
+            c.update_camera(CameraInput::default(), LocalTime(t), 1.0 / fps);
+            let space = c.set_viewer_block(block);
+            c.place_parts(space);
+            let eye = c.camera_render_frame().expect("the eye is placed");
+            let own = c.render_frame_of(c.camera.viewer);
+            let drawn = dereth_primitives::frame::get_heading(&c.position().frame) + c.drawn_turn();
+            (
+                dereth_primitives::frame::get_heading(&eye),
+                drawn,
+                eye.origin == own.origin && eye.rotation == own.rotation,
+            )
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let second = fps as usize;
+        for _ in 0..second {
+            frame(&mut c);
+        }
+        c.input.forward = true;
+        c.input.run = true;
+        for _ in 0..second {
+            frame(&mut c);
+        }
+        c.input.turn_left = true;
+        for _ in 0..second / 2 {
+            frame(&mut c);
+        }
+        (0..2 * second).map(|_| frame(&mut c)).collect()
+    }
+
+    /// The largest change, in degrees, from one frame to the next of the headings `h`.
+    fn largest_turn(h: &[f32]) -> f32 {
+        h.windows(2)
+            .map(|w| ((w[1] - w[0] + 540.0).rem_euclid(360.0) - 180.0).abs())
+            .fold(0.0, f32::max)
+    }
+
+    /// With Smooth Movement on, the player's own body is drawn between its physics ticks as every
+    /// other mover is, and the game's camera, which moves only on ticks, is drawn following it:
+    /// turning under the game's camera at 60 and at 144 frames a second, the eye drawn turns a
+    /// little every frame, where drawn at the ticks it stands still and then jumps. With it off,
+    /// the eye drawn is the camera's own, exactly.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_the_players_own_body_and_the_games_camera_turn_a_little_every_frame() {
+        for fps in [60.0, 144.0] {
+            let at_ticks = turning_under_the_game_camera(fps, false);
+            let between = turning_under_the_game_camera(fps, true);
+            let eye = |f: &[(f32, f32, bool)]| f.iter().map(|x| x.0).collect::<Vec<_>>();
+            let body = |f: &[(f32, f32, bool)]| f.iter().map(|x| x.1).collect::<Vec<_>>();
+            let (eye_a, eye_b) = (largest_turn(&eye(&at_ticks)), largest_turn(&eye(&between)));
+            let (body_a, body_b) = (
+                largest_turn(&body(&at_ticks)),
+                largest_turn(&body(&between)),
+            );
+            eprintln!(
+                "{fps} fps: the eye's largest turn in a frame {eye_a:.3} degrees at the ticks, \
+                 {eye_b:.3} between them; the body's {body_a:.3} and {body_b:.3}"
+            );
+            assert!(eye_a > 1.0, "{fps} fps: turning at all: {eye_a}");
+            assert!(
+                eye_b < eye_a * 0.6,
+                "{fps} fps: the eye {eye_b} between ticks against {eye_a} at them"
+            );
+            assert!(
+                body_b < body_a * 0.6,
+                "{fps} fps: the body {body_b} between ticks against {body_a} at them"
+            );
+            assert!(
+                at_ticks.iter().all(|x| x.2),
+                "{fps} fps: off, the eye drawn is the camera's own"
+            );
+        }
+        // The player's own body is drawn so with smooth movement on, as under the orbit camera.
+        use crate::character::own_body_drawn_between_ticks as drawn;
+        assert!(drawn(false, true) && drawn(true, false) && drawn(true, true));
+        assert!(!drawn(false, false));
+    }
 }
