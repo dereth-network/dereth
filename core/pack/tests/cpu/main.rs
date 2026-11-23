@@ -10,6 +10,8 @@ use dereth_pack::pack::{PackHeader, Remove};
 use dereth_pack::store::{DiskStore, SourceStore};
 use dereth_pack::{Dialect, Error, Loc, Lock, Numbering, SymbolKind, World};
 
+mod layers;
+
 /// The test's game: two record kinds, a counted kind a world may start elsewhere, a counted kind
 /// it may not, and one numbered in its landblock.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,6 +91,7 @@ impl Dialect for Toy {
     const ITEM_FORMS: &'static str =
         "record <id>, class <n>, landblock <XXYY>, or a new record's kind and symbol";
     const NAMES_BASE: bool = true;
+    const NAMES_LINEAGE: bool = true;
     type Kind = ToyKind;
     type Era = ToyEra;
 

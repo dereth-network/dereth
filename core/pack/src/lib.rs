@@ -21,15 +21,23 @@
 //! ([`provenance`]): the data files, a recorded session, another project's table, or a person.
 //! An editor holds a world's sources open as text ([`session`]): each change is new text for some
 //! files, undone and redone as text, and saved only where it differs from the store's.
+//! A world can be ordered **layers** ([`lineage`]): its own packs, the base, then patches, each
+//! a delta on the layer before or a checkpoint, a whole known world pinned to its source; the
+//! world at any layer is the layers up to it folded, field by field, each field with its
+//! provenance ([`fold`]), and the fold lists what is wrong or worth knowing in each layer. A game
+//! whose rows are records of fields reads them from TOML tables as [`records`] says.
 //! [`error`] is what any of that could not do.
 
 pub mod conflict;
 pub mod dialect;
 pub mod error;
+pub mod fold;
 pub mod format;
+pub mod lineage;
 pub mod lock;
 pub mod pack;
 pub mod provenance;
+pub mod records;
 pub mod session;
 pub mod store;
 pub mod symbol;

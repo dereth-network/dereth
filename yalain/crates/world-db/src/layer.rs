@@ -8,11 +8,14 @@
 //! differently stop the build unless an override says which wins) and laid over the base: a world
 //! row that sets an item the base sets takes its place without a conflict (the base is released
 //! rows a world corrects by key), every other world row comes after the base's, and the world's
-//! `[[remove]]` rows take items away from both.
+//! `[[remove]]` rows take items away from both. The base and the world are two layers of the
+//! shared format's fold (`dereth_pack::fold`), each row taken whole.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use crate::merge::{item_key, merge, Merged};
+use dereth_pack::fold::{fold, Input};
+
+use crate::merge::{change, item_key, merge, rows_of, stale_removals, Merged, LAYER};
 use crate::rows::{read_partly, Database, Located, Row};
 use crate::{check, Files, Problem};
 
@@ -156,43 +159,30 @@ pub fn merge_over(base: &Base, world: &Database) -> Result<Merged, Vec<Problem>>
         });
     }
     let ours = merge(&kept)?;
-    let mut rows = base.merged.rows.clone();
-    let at: BTreeMap<String, usize> = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(i, l)| item_key(l).map(|k| (k, i)))
-        .collect();
+    let theirs: BTreeSet<String> = base.merged.rows.iter().filter_map(item_key).collect();
     let mut overridden = base.merged.overridden.clone();
-    let mut after = Vec::new();
-    for l in ours.rows {
-        match item_key(&l).and_then(|k| at.get(&k).map(|i| (k, *i))) {
-            Some((k, i)) => {
-                overridden.push(k);
-                rows[i] = l;
-            }
-            None => after.push(l),
-        }
-    }
-    rows.extend(after);
-    let mut warnings = base.merged.warnings.clone();
-    warnings.extend(ours.warnings);
-    let gone: BTreeSet<&str> = removes.iter().map(|(i, _)| i.as_str()).collect();
-    let present: BTreeSet<String> = rows.iter().filter_map(item_key).collect();
-    for (item, l) in &removes {
-        if !present.contains(item) {
-            warnings.push(Problem::new(
-                &l.file,
-                l.line,
-                format!("remove: neither the base nor a pack sets {item}"),
-            ));
-        }
-    }
-    rows.retain(|l| item_key(l).is_none_or(|k| !gone.contains(k.as_str())));
+    overridden.extend(
+        ours.rows
+            .iter()
+            .filter_map(item_key)
+            .filter(|k| theirs.contains(k)),
+    );
     overridden.sort();
     overridden.dedup();
+    let mut warnings = base.merged.warnings.clone();
+    warnings.extend(ours.warnings);
     // The base's shops keep their ids; the world's own lockfile gives its shops theirs.
     let mut stores = base.merged.stores.clone();
     stores.extend(ours.stores);
+    let folded = fold([
+        Input::of_change(BASE, change(base.merged.rows.iter().cloned(), [])),
+        Input::of_change(
+            LAYER,
+            change(ours.rows, removes.iter().map(|(i, l)| (i.clone(), l))),
+        ),
+    ]);
+    warnings.extend(stale_removals(&folded, "neither the base nor a pack sets"));
+    let rows = rows_of(folded.world);
     Ok(Merged {
         rows,
         warnings,

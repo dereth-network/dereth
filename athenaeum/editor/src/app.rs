@@ -255,6 +255,7 @@ pub fn badge(p: Option<&Prov>) -> (&'static str, String) {
                 Source::Capture => "C",
                 Source::Dat => "D",
                 Source::Derived => "R",
+                Source::Snapshot => "S",
                 Source::Authored => "A",
             },
             p.to_string(),

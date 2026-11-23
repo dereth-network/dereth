@@ -256,6 +256,11 @@ pub fn prov_text(p: &Prov) -> String {
                 .unwrap_or_default()
         ),
         Source::Dat => format!("dat {:08X}", p.record.unwrap_or(0)),
+        Source::Snapshot => format!(
+            "source {} {}",
+            p.origin.as_deref().unwrap_or(""),
+            p.revision.as_deref().unwrap_or("")
+        ),
         Source::Authored => format!(
             "authored{}",
             p.by.as_deref()

@@ -43,6 +43,11 @@ pub trait Dialect:
     /// and a world that sets one is refused.
     const SETS_LAND: bool = false;
 
+    /// Whether a world of the game may list patch layers over its own packs in `lineage`
+    /// ([`crate::lineage`]). A builder that reads one layer only says no, and a world that lists
+    /// some is refused.
+    const NAMES_LINEAGE: bool = false;
+
     /// What the game's symbols name.
     type Kind: SymbolKind;
 

@@ -8,6 +8,8 @@
 //! packs = ["sample"]        # the load order, folders relative to this file
 //! imports = []              # overlay folders an import made, laid under the packs
 //! out = "build"             # the default output folder, relative to this file
+//! lineage = ["1999-12-a-patch"] # the patch layers over these packs, oldest first, where the
+//!                           # game has them ([`crate::lineage`])
 //! [land]                    # how fine its land grid is, where the game lets a world say
 //! spacing = 8               # meters between vertices: 24 (the default), 12 or 8
 //! [base]                    # the base database under every pack, where the game has one
@@ -57,6 +59,8 @@ pub struct World<D: Dialect> {
     pub overrides: Vec<Override>,
     /// The base database under every pack, when the world names one.
     pub base: Option<Base>,
+    /// The patch layers over the world's own packs, by id, oldest first ([`crate::lineage`]).
+    pub lineage: Vec<String>,
     /// The vertex steps a land cell side is cut into, when the world sets its land's spacing
     /// (`[land]`): 1, 2 or 3, for 24, 12 or 8 meters between vertices.
     pub land_steps: Option<usize>,
@@ -103,6 +107,7 @@ impl<D: Dialect> Clone for World<D> {
             overrides: self.overrides.clone(),
             base: self.base.clone(),
             land_steps: self.land_steps,
+            lineage: self.lineage.clone(),
         }
     }
 }
@@ -119,6 +124,7 @@ impl<D: Dialect> PartialEq for World<D> {
             && self.overrides == other.overrides
             && self.base == other.base
             && self.land_steps == other.land_steps
+            && self.lineage == other.lineage
     }
 }
 
@@ -137,6 +143,7 @@ impl<D: Dialect> fmt::Debug for World<D> {
             .field("overrides", &self.overrides)
             .field("base", &self.base)
             .field("land_steps", &self.land_steps)
+            .field("lineage", &self.lineage)
             .finish()
     }
 }
@@ -158,6 +165,7 @@ struct WorldFile {
     #[serde(default, rename = "override")]
     overrides: Vec<Spanned<OverrideRow>>,
     base: Option<Spanned<Base>>,
+    lineage: Option<Spanned<Vec<String>>>,
     land: Option<Spanned<LandRow>>,
 }
 
@@ -169,7 +177,7 @@ struct LandRow {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OverrideRow {
+pub(crate) struct OverrideRow {
     pack: String,
     over: String,
     items: Option<Vec<String>>,
@@ -246,43 +254,7 @@ impl<D: Dialect> World<D> {
                 ids.insert(kind, start);
             }
         }
-        let mut overrides = Vec::new();
-        for row in &file.overrides {
-            let at = Loc::at(path, text, row.span().start);
-            let r = row.get_ref();
-            if r.pack == r.over {
-                return Err(Error::source(
-                    &at,
-                    format!("{} cannot win over itself", r.pack),
-                ));
-            }
-            let items = r
-                .items
-                .as_ref()
-                .map(|list| list.iter().map(|i| Scope::parse::<D>(i)).collect())
-                .transpose()
-                .map_err(|why: String| Error::source(&at, why))?;
-            overrides.push(Override {
-                pack: r.pack.clone(),
-                over: r.over.clone(),
-                items,
-                at,
-            });
-        }
-        // Two packs that each win everything over the other say nothing.
-        for (i, a) in overrides.iter().enumerate() {
-            if let Some(b) = overrides[..i].iter().find(|b| {
-                a.items.is_none() && b.items.is_none() && a.pack == b.over && a.over == b.pack
-            }) {
-                return Err(Error::source(
-                    &a.at,
-                    format!(
-                        "{} and {} each win everything over the other ({} says so too)",
-                        a.pack, a.over, b.at
-                    ),
-                ));
-            }
-        }
+        let overrides = overrides::<D>(path, text, &file.overrides)?;
         if let Some(base) = &file.base {
             if !D::NAMES_BASE {
                 return Err(Error::source(
@@ -308,6 +280,14 @@ impl<D: Dialect> World<D> {
                     })?)
                 }
             };
+        if let Some(lineage) = &file.lineage {
+            if !D::NAMES_LINEAGE {
+                return Err(Error::source(
+                    &Loc::at(path, text, lineage.span().start),
+                    format!("a {} world lists no patch layers", D::PRODUCT),
+                ));
+            }
+        }
         let dir = path.parent().unwrap_or(Path::new("."));
         Ok(Self {
             path: path.to_path_buf(),
@@ -320,6 +300,7 @@ impl<D: Dialect> World<D> {
             overrides,
             base: file.base.map(Spanned::into_inner),
             land_steps,
+            lineage: file.lineage.map(Spanned::into_inner).unwrap_or_default(),
         })
     }
 
@@ -341,4 +322,54 @@ impl<D: Dialect> World<D> {
     pub fn lock_path(&self) -> PathBuf {
         self.path.with_file_name("world.lock")
     }
+}
+
+/// The `[[override]]` rows of a world or a patch file (`path`, its `text`), read.
+///
+/// # Errors
+/// An override that names no item, wins over its own pack, or wins everything over a pack that
+/// wins everything over it.
+pub(crate) fn overrides<D: Dialect>(
+    path: &Path,
+    text: &str,
+    rows: &[Spanned<OverrideRow>],
+) -> Result<Vec<Override>, Error> {
+    let mut overrides = Vec::new();
+    for row in rows {
+        let at = Loc::at(path, text, row.span().start);
+        let r = row.get_ref();
+        if r.pack == r.over {
+            return Err(Error::source(
+                &at,
+                format!("{} cannot win over itself", r.pack),
+            ));
+        }
+        let items = r
+            .items
+            .as_ref()
+            .map(|list| list.iter().map(|i| Scope::parse::<D>(i)).collect())
+            .transpose()
+            .map_err(|why: String| Error::source(&at, why))?;
+        overrides.push(Override {
+            pack: r.pack.clone(),
+            over: r.over.clone(),
+            items,
+            at,
+        });
+    }
+    // Two packs that each win everything over the other say nothing.
+    for (i, a) in overrides.iter().enumerate() {
+        if let Some(b) = overrides[..i].iter().find(|b| {
+            a.items.is_none() && b.items.is_none() && a.pack == b.over && a.over == b.pack
+        }) {
+            return Err(Error::source(
+                &a.at,
+                format!(
+                    "{} and {} each win everything over the other ({} says so too)",
+                    a.pack, a.over, b.at
+                ),
+            ));
+        }
+    }
+    Ok(overrides)
 }

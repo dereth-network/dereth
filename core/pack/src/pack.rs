@@ -7,6 +7,7 @@
 //! authors = ["A. Builder"]
 //! license = "MIT"
 //! description = "A guide at Holtburg's gate."
+//! prov = { from = "source", source = "ac1999", revision = "183e74f8" }   # where a row came from when it says nothing
 //! ```
 //!
 //! Only `pack.toml` is required of a pack; the rest of its folder is the game's ([`crate::Dialect`]),
@@ -31,6 +32,9 @@ pub struct PackHeader {
     pub authors: Vec<String>,
     pub license: Option<String>,
     pub description: Option<String>,
+    /// Where a row of the pack came from when it says nothing; a person, when the header says
+    /// nothing either ([`Provenance::AUTHORED`]).
+    pub prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +49,7 @@ struct PackFile {
     authors: Vec<String>,
     license: Option<String>,
     description: Option<String>,
+    prov: Option<Provenance>,
 }
 
 impl PackHeader {
@@ -73,6 +78,7 @@ impl PackHeader {
             authors: meta.authors,
             license: meta.license,
             description: meta.description,
+            prov: meta.prov,
         })
     }
 }

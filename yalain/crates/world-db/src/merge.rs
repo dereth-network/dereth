@@ -9,12 +9,20 @@
 //! one class each give theirs, and each field keeps the provenance of the row it came from; two
 //! packs setting one field differently are a conflict as any item's, which the world settles the
 //! same way.
+//!
+//! A database is one layer of the shared format's fold (`dereth_pack::fold`), and a world over a
+//! base database two ([`crate::layer`]): each merged row is what its layer sets of its item, taken
+//! whole as one field, a later layer's replacing an earlier's where it stands, and the removals
+//! last. [`change`] makes a layer of merged rows, [`rows_of`] takes the folded world's rows back.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use auberean_pack::Item;
 use dereth_pack::conflict::{self, settle, Claim, Settled};
+use dereth_pack::fold::{
+    fold, Change, Edit, Finding, Folded, Input, Origin, Removal, Resolved, Setting,
+};
 use dereth_pack::Loc;
 
 use crate::rows::{AiClass, Database, Located, Prov, Row};
@@ -409,6 +417,72 @@ fn ai_class_by_field(
     })
 }
 
+/// The id a database's own layer goes by in a fold.
+pub const LAYER: &str = "world";
+
+/// The one field a fold carries each row in: rows are taken whole.
+const ROW: &str = "row";
+
+impl dereth_pack::fold::Value for Located {}
+
+/// Merged `rows` (each item once) and `removes` (each item a `[[remove]]` names, with its row) as
+/// what one layer changes.
+pub fn change<'a>(
+    rows: impl IntoIterator<Item = Located>,
+    removes: impl IntoIterator<Item = (String, &'a Located)>,
+) -> Change<Located> {
+    let edits = rows
+        .into_iter()
+        .filter_map(|l| {
+            let mut edit = Edit::new(conflict::Item::new(item_key(&l)?));
+            let at = Loc::new(Path::new(&l.file), l.line);
+            let setting = Setting {
+                prov: std::sync::Arc::new(l.row.prov().cloned().unwrap_or_default()),
+                origin: Origin::pack(&l.pack, &at),
+                value: l,
+            };
+            edit.set.insert(ROW.to_owned(), setting);
+            Some(edit)
+        })
+        .collect();
+    let removals = removes
+        .into_iter()
+        .map(|(item, l)| Removal {
+            item,
+            pack: l.pack.clone(),
+            at: Loc::new(Path::new(&l.file), l.line),
+        })
+        .collect();
+    Change { edits, removals }
+}
+
+/// A folded world's rows, in order.
+#[must_use]
+pub fn rows_of(world: Resolved<Located>) -> Vec<Located> {
+    world
+        .into_entries()
+        .filter_map(|mut e| e.fields.remove(ROW).map(|f| f.value))
+        .collect()
+}
+
+/// Every removal of a fold that took away nothing, as a warning: `remove: <nothing> <item>`.
+#[must_use]
+pub fn stale_removals(folded: &Folded<Located>, nothing: &str) -> Vec<Problem> {
+    folded
+        .layers
+        .iter()
+        .flat_map(|l| &l.findings)
+        .filter_map(|f| match f {
+            Finding::StaleRemoval { item, at } => Some(Problem::new(
+                &at.file.to_string_lossy(),
+                at.line,
+                format!("remove: {nothing} {item}"),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The merged rows, in load order (an overriding row takes the place of the row it replaces).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Merged {
@@ -512,24 +586,17 @@ pub fn merge(db: &Database) -> Result<Merged, Vec<Problem>> {
             ),
         ));
     }
-    let mut warnings = Vec::new();
-    for (item, l) in removes {
-        if chosen.remove(&item).is_none() && !by_item.contains_key(&item) {
-            warnings.push(Problem::new(
-                &l.file,
-                l.line,
-                format!("remove: no pack sets {item}"),
-            ));
-        }
-    }
     if !problems.is_empty() {
         problems.sort();
         return Err(problems);
     }
-    // In load order: each item where its first row stood, holding the row that stands.
-    let rows = order.iter().filter_map(|k| chosen.remove(k)).collect();
+    // In load order: each item where its first row stood, holding the row that stands; then the
+    // removals, as the database's one layer.
+    let rows = order.iter().filter_map(|k| chosen.remove(k));
+    let folded = fold([Input::of_change(LAYER, change(rows, removes))]);
+    let warnings = stale_removals(&folded, "no pack sets");
     Ok(Merged {
-        rows,
+        rows: rows_of(folded.world),
         warnings,
         overridden: settled.overridden.iter().map(ToString::to_string).collect(),
         stores: db.world.stores.clone(),

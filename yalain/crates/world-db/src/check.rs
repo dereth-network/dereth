@@ -938,7 +938,7 @@ fn check_prov(p: &Prov, out: &mut dyn FnMut(String)) {
                 out(format!("prov: derived by {:?}, not a listed rule", p.rule));
             }
         }
-        Source::Dat | Source::Authored => {}
+        Source::Dat | Source::Snapshot | Source::Authored => {}
     }
     for k in p.sample.keys() {
         if !SAMPLES.contains(&k.as_str()) {

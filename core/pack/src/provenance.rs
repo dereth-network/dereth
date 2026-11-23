@@ -1,4 +1,5 @@
-//! Where a row of a pack came from: the data files, recorded sessions, a stated rule, or a person.
+//! Where a row of a pack came from: the data files, recorded sessions, a stated rule, another
+//! project's world converted, or a person.
 //!
 //! A row says so with `prov`, an inline table whose `from` names the source; a field of the row
 //! whose source differs from the row's says so in `prov.fields`:
@@ -21,6 +22,7 @@
 //! | `capture` | measured from recorded sessions | `evidence` (an opaque handle naming the measurement), `ref` (the row inside it, opaque), `confidence` (`high`, `medium`, `low`) | `sample`, the counts behind it by name |
 //! | `dat` | the data files' own record | `record` (its id) | |
 //! | `derived` | computed by a stated rule | `rule` | `record` (the record it reads) |
+//! | `source` | a converted snapshot of another project's world | `source` (the project, as its world names it), `revision` (the snapshot's release or commit) | |
 //! | `authored` | written by a person | | `by`, `note` |
 //!
 //! A row that says nothing was written by a person: [`Provenance::AUTHORED`]. Provenance never
@@ -44,6 +46,9 @@ pub enum Source {
     Dat,
     /// Computed by a stated rule from other rows or the data files.
     Derived,
+    /// Converted from a snapshot of another project's world (`from = "source"`).
+    #[serde(rename = "source")]
+    Snapshot,
     /// Written by a person, in a pack.
     #[default]
     Authored,
@@ -57,6 +62,7 @@ impl Source {
             Self::Capture => "capture",
             Self::Dat => "dat",
             Self::Derived => "derived",
+            Self::Snapshot => "source",
             Self::Authored => "authored",
         }
     }
@@ -68,6 +74,7 @@ impl Source {
             Self::Capture => 'C',
             Self::Dat => 'D',
             Self::Derived => 'R',
+            Self::Snapshot => 'S',
             Self::Authored => 'A',
         }
     }
@@ -116,6 +123,10 @@ pub struct Provenance {
     pub record: Option<u32>,
     /// The rule that computed it.
     pub rule: Option<String>,
+    /// The project whose snapshot it was converted from (`source`), and the snapshot's release or
+    /// commit (`revision`).
+    pub origin: Option<String>,
+    pub revision: Option<String>,
     /// Who wrote it, and why.
     pub by: Option<String>,
     pub note: Option<String>,
@@ -133,6 +144,8 @@ impl Provenance {
         sample: BTreeMap::new(),
         record: None,
         rule: None,
+        origin: None,
+        revision: None,
         by: None,
         note: None,
         fields: BTreeMap::new(),
@@ -170,6 +183,12 @@ impl fmt::Display for Provenance {
             .reference
             .clone()
             .or_else(|| self.rule.clone())
+            .or_else(|| {
+                self.origin.as_ref().map(|o| match &self.revision {
+                    Some(r) => format!("{o} {r}"),
+                    None => o.clone(),
+                })
+            })
             .or_else(|| self.record.map(|r| format!("record {r:#010X}")))
             .or_else(|| self.note.clone());
         if let Some(what) = what {
@@ -191,6 +210,8 @@ struct Written {
     sample: BTreeMap<String, u32>,
     record: Option<u32>,
     rule: Option<String>,
+    source: Option<String>,
+    revision: Option<String>,
     by: Option<String>,
     note: Option<String>,
     #[serde(default)]
@@ -206,6 +227,8 @@ impl<'de> Deserialize<'de> for Provenance {
             Source::Capture if w.confidence.is_none() => Some("confidence"),
             Source::Dat if w.record.is_none() => Some("record"),
             Source::Derived if w.rule.is_none() => Some("rule"),
+            Source::Snapshot if w.source.is_none() => Some("source"),
+            Source::Snapshot if w.revision.is_none() => Some("revision"),
             _ => None,
         };
         if let Some(field) = missing {
@@ -222,6 +245,8 @@ impl<'de> Deserialize<'de> for Provenance {
             sample: w.sample,
             record: w.record,
             rule: w.rule,
+            origin: w.source,
+            revision: w.revision,
             by: w.by,
             note: w.note,
             fields: w.fields,
