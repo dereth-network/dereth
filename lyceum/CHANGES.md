@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.2.8 (2026-11-23)
+
 - macOS: fixed arrow keys typing odd characters into text fields.
 
 ## 0.2.7 (2026-11-21)
