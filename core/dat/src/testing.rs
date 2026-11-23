@@ -247,11 +247,8 @@ pub fn open_classic_store_or_fail() -> RetailDatStore {
 }
 
 /// One folder holding both dat sets, as a player's one `--dat-dir` does: the retail files of
-/// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`classic_dat_dir`], hard-linked
-/// into a folder beside the test programs in the build's output (no copy is made), so it goes when
-/// the build output does; in the temp directory when the program's own folder is unknown. The
-/// folder is named after the two it joins, so every test process of the build reuses it, and it is
-/// protected for the run as the install is.
+/// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`classic_dat_dir`]
+/// ([`linked_folder`]).
 ///
 /// # Panics
 ///
@@ -269,49 +266,96 @@ pub fn both_sets_dir() -> PathBuf {
         }
         let later = dat_dir();
         let older = classic_dat_dir().unwrap_or_default();
-        // FNV-1a over the two folders' spellings: a stable name for the pair.
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in format!("{}|{}", later.display(), older.display()).bytes() {
-            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
-        }
-        // A test program runs from `<target>/<profile>/deps/`: the folder goes in `<profile>`.
-        let base = std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.to_path_buf()))
-            .unwrap_or_else(std::env::temp_dir);
-        let dir = base.join(format!("dereth-both-dat-sets-{hash:016x}"));
-        std::fs::create_dir_all(&dir)
-            .unwrap_or_else(|e| panic!("the folder {} could not be made: {e}", dir.display()));
         let files = ModernDat::ALL
             .iter()
             .map(|d| d.in_dir(&later))
             .chain(crate::ClassicDat::ALL.iter().map(|d| d.in_dir(&older)))
-            .filter(|p| p.is_file());
-        for src in files {
-            let dst = dir.join(src.file_name().unwrap_or_default());
-            let current = std::fs::metadata(&dst)
-                .ok()
-                .zip(std::fs::metadata(&src).ok())
-                .is_some_and(|(d, s)| d.len() == s.len() && d.modified().ok() == s.modified().ok());
-            if current {
-                continue;
-            }
-            let _ = std::fs::remove_file(&dst);
-            if let Err(e) = std::fs::hard_link(&src, &dst) {
-                // Another test process may have linked it first.
-                if !dst.is_file() {
-                    panic!(
-                        "{} could not be linked into {}: {e}",
-                        src.display(),
-                        dir.display()
-                    );
-                }
-            }
-        }
-        crate::protect_install(&dir);
-        dir
+            .collect();
+        linked_folder("dereth-both-dat-sets", &[&later, &older], files)
     })
     .clone()
+}
+
+/// One folder holding the retail files of [`dat_dir`] and nothing else, the later set alone, as
+/// a player's install is: whatever else the install folder holds (an older set put beside it) is
+/// not in it ([`linked_folder`]).
+///
+/// # Panics
+///
+/// With the shortfall line when the set is not there, or when a file cannot be linked.
+#[must_use]
+pub fn later_set_dir() -> PathBuf {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        if let Some(msg) = shortfall() {
+            panic!("{msg}");
+        }
+        let later = dat_dir();
+        let files = ModernDat::ALL.iter().map(|d| d.in_dir(&later)).collect();
+        linked_folder("dereth-later-dat-set", &[&later], files)
+    })
+    .clone()
+}
+
+/// A folder named `name` and after `from` (the folders its files come from), holding `files`
+/// (those there are), each followed through any symbolic link to its file and hard-linked in (no
+/// copy is made): beside the test programs in the build's output, so it goes when the build
+/// output does, in the temp directory when the program's own folder is unknown. Every test
+/// process of the build reuses it, and it is protected for the run as the install is.
+///
+/// # Panics
+///
+/// When a file cannot be followed or linked (the build's output on another volume than the
+/// dats), or is not a file once linked.
+fn linked_folder(name: &str, from: &[&Path], files: Vec<PathBuf>) -> PathBuf {
+    // FNV-1a over the folders' spellings: a stable name for them.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let spelled: Vec<String> = from.iter().map(|p| p.display().to_string()).collect();
+    for b in spelled.join("|").bytes() {
+        hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    // A test program runs from `<target>/<profile>/deps/`: the folder goes in `<profile>`.
+    let base = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.to_path_buf()))
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join(format!("{name}-{hash:016x}"));
+    std::fs::create_dir_all(&dir)
+        .unwrap_or_else(|e| panic!("the folder {} could not be made: {e}", dir.display()));
+    for named in files.into_iter().filter(|p| p.is_file()) {
+        let dst = dir.join(named.file_name().unwrap_or_default());
+        // The file itself, not a link to it: a hard link to a symbolic link is a copy of that
+        // link, and a relative one points nowhere from the folder it is copied into.
+        let src = std::fs::canonicalize(&named).unwrap_or_else(|e| {
+            panic!("{} could not be followed to its file: {e}", named.display())
+        });
+        let current = std::fs::metadata(&dst)
+            .ok()
+            .zip(std::fs::metadata(&src).ok())
+            .is_some_and(|(d, s)| d.len() == s.len() && d.modified().ok() == s.modified().ok());
+        if current {
+            continue;
+        }
+        let _ = std::fs::remove_file(&dst);
+        if let Err(e) = std::fs::hard_link(&src, &dst) {
+            // Another test process may have linked it first.
+            if !dst.is_file() {
+                panic!(
+                    "{} could not be linked into {}: {e}",
+                    src.display(),
+                    dir.display()
+                );
+            }
+        }
+        assert!(
+            dst.is_file(),
+            "{} linked into {} is not a file there",
+            named.display(),
+            dir.display()
+        );
+    }
+    crate::protect_install(&dir);
+    dir
 }
 
 /// The test-only variable naming a directory of historical dat captures: one folder per capture,

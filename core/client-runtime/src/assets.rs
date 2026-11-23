@@ -442,7 +442,7 @@ mod tests {
         ignore = "reads the retail dats: --features retail-dats"
     )]
     fn the_later_set_alone_draws_the_later_world_with_no_classic_interface_or_older_looks() {
-        let later = dereth_dat::testing::dat_dir();
+        let later = dereth_dat::testing::later_set_dir();
         assert_eq!(classic_set_dir(&later, None), None);
         let alone = Available {
             world: dereth_dat::ContainerEra::Modern,
@@ -467,7 +467,7 @@ mod tests {
     )]
     fn a_classic_folder_holding_no_older_set_changes_nothing_the_later_folder_makes_available() {
         let empty = dereth_dat::testing::ScratchDir::new("classic-dat-dir-empty").expect("scratch");
-        let later = dereth_dat::testing::dat_dir();
+        let later = dereth_dat::testing::later_set_dir();
         assert_eq!(classic_set_dir(&later, Some(empty.path())), None);
         let store = open_world_files(&later, Some(empty.path()), None).expect("the later set");
         assert_eq!(
