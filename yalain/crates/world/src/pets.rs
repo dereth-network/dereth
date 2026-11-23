@@ -86,7 +86,7 @@
 //! and its kill of a player ([`crate::pk_points`]). Its skills put nothing on a player.
 //!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
-//! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
+//! pet falls as a creature does and is taken off its owner's list, in one tick (its physics type
 //! as it dies its own, kingdom and all, with the dead bit); its corpse comes a
 //! second and a half later and its body leaves three seconds after that. An owner leaving the
 //! world takes its pets out of the world with it (nothing more sent to the owner). A pet goes with
@@ -1692,15 +1692,13 @@ fn calm<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
 /// off the list).
 pub const CORPSE_AFTER: f64 = 1.5;
 
-/// A pet dies (killed by `killer`, ordered, or with its owner: 0): taken off its owner's list,
-/// then it falls as a creature does, in one tick; its corpse comes after.
+/// A pet dies (killed by `killer`, ordered, or with its owner: 0): it falls as a creature does,
+/// then it is taken off its owner's list, in one tick (2017, by the order sent: its dead flag and
+/// its death before the removal 253 of 253); its corpse comes after.
 pub fn dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, killer: u64, clock: Clock) {
     let Some(pet) = s.pets.by_id.remove(&id) else {
         return;
     };
-    if let Some(world) = conn_of(s, pet.owner) {
-        progress::private(net, world, &removed(id));
-    }
     crate::effects::pet_pulses_end(s, net, id);
     if let Some(t) = s.things.get_mut(id) {
         t.health = 0;
@@ -1710,6 +1708,9 @@ pub fn dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, killer: u
         }
     }
     let pose = crate::death::falls(s, net, id, clock);
+    if let Some(world) = conn_of(s, pet.owner) {
+        progress::private(net, world, &removed(id));
+    }
     crate::escorts::died(s, net, id, clock);
     match s.pets.kind_of(pet.effect).and_then(|k| k.corpse_after) {
         Some(after) => s.after(

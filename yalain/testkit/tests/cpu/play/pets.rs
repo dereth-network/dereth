@@ -442,24 +442,40 @@ fn a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name() {
     );
 }
 
-/// A pet ordered to die (0: all) is taken off its owner's list and falls as a creature does, in
-/// one tick; its corpse comes after, and its body leaves the world.
+/// Where in what a client was sent since `from`, in the order the server sent it, a pet was told
+/// dead, played its death, and was taken off its owner's list.
+fn fell_then_removed(
+    h: &Harness,
+    b: usize,
+    from: usize,
+    pet: u64,
+) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let sent = h.sent_messages(b, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pick);
+    (
+        at(
+            &|m| matches!(m, ServerMessage::UpdateBoolVisual(q) if q.object.id == pet && q.quality == 279 && q.value == 1),
+        ),
+        at(&|m| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == pet)),
+        at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::REMOVE)),
+    )
+}
+
+/// A pet ordered to die (0: all) falls as a creature does and is taken off its owner's list, in
+/// one tick and that order: told dead, its death played, then off the list; its corpse comes after,
+/// and its body leaves the world.
 /// Behaviour: server.pets.ordered-to-die
+/// Behaviour: server.pets.falls-then-leaves-the-list
 #[test]
 fn a_pet_ordered_to_die_falls_and_is_taken_off_its_owners_list() {
     let mut h = Harness::new();
     let (b, _, pet) = with_lasher(&mut h);
     let from = order(&mut h, b, function::DIE, &[Arg::LongInt(0)]);
-    let msgs = h.world_messages(b, from);
-    let fell = msgs
-        .iter()
-        .position(|m| matches!(m, ServerMessage::UpdateBoolVisual(q) if q.object.id == pet && q.quality == 279 && q.value == 1))
-        .expect("dead");
-    let removed = msgs
-        .iter()
-        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::REMOVE))
-        .expect("taken off the list");
-    assert!(removed < fell, "off the list first");
+    let (dead, death, removed) = fell_then_removed(&h, b, from, pet);
+    assert!(
+        dead.is_some() && dead < death && death < removed,
+        "dead {dead:?}, its death {death:?}, then off the list {removed:?}"
+    );
     assert!(h.server.pets.by_id.is_empty());
     h.run(40);
     let corpse = h
@@ -735,8 +751,10 @@ fn a_pet_called_back_drops_its_fight() {
 }
 
 /// A pet that supports its owner does not fight back what strikes it; in a mode that defends
-/// itself it does; struck down, it is taken off its owner's list.
+/// itself it does; struck down, it is told dead and plays its death, then is taken off its owner's
+/// list.
 /// Behaviour: server.pets.defends-itself-by-mode
+/// Behaviour: server.pets.falls-then-leaves-the-list
 #[test]
 fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
     let mut h = Harness::new();
@@ -796,7 +814,11 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
         strike(&mut h);
     }
     h.run(2);
-    assert!(h.functions(b, from).contains(&function::REMOVE));
+    let (dead, death, removed) = fell_then_removed(&h, b, from, pet);
+    assert!(
+        dead.is_some() && dead < death && death < removed,
+        "killed: dead {dead:?}, its death {death:?}, then off the list {removed:?}"
+    );
 }
 
 /// A creature's strike takes a pet's health as the blow reaches it, not with its story.
@@ -1130,8 +1152,10 @@ fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
     assert_eq!(h.server.things.get(beetle).map(|t| t.last_hurt), hurt);
 }
 
-/// An owner's death takes its pets in its death tick: each taken off the list.
+/// An owner's death takes its pets in its death tick, in the order sent: the owner told dead, its
+/// death message and who killed it, then each pet told dead, its death played, and off the list.
 /// Behaviour: server.pets.die-with-their-owner
+/// Behaviour: server.pets.falls-then-leaves-the-list
 #[test]
 fn an_owners_death_takes_its_pets() {
     let mut h = Harness::new();
@@ -1142,16 +1166,29 @@ fn an_owners_death_takes_its_pets() {
     yalain_world::death::player_dies(&mut h.server, &mut h.net, conn, None, clock);
     assert!(!h.server.pets.is_pet(pet));
     h.run(3);
-    let calls = h.calls(b, from);
-    let death = calls
-        .iter()
-        .position(|(f, _)| *f == yalain_world::death::player_fn::DEATH_MESSAGE)
-        .expect("the owner's death");
-    let removed = calls
-        .iter()
-        .position(|(f, _)| *f == function::REMOVE)
-        .expect("the pet taken off");
-    assert!(death < removed);
+    let sent = h.sent_messages(b, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pick);
+    let call =
+        |m: &ServerMessage, f: u32| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == f);
+    let owner_dead = at(
+        &|m| matches!(m, ServerMessage::UpdateBoolVisual(q) if q.object.id == me && q.quality == 279 && q.value == 1),
+    );
+    let message = at(&|m| call(m, yalain_world::death::player_fn::DEATH_MESSAGE));
+    let who = at(
+        &|m| matches!(m, ServerMessage::VisualObjectCall(c) if c.call.function.0 == yalain_world::death::player_fn::WHO_KILLED),
+    );
+    let (dead, death, removed) = fell_then_removed(&h, b, from, pet);
+    assert!(
+        owner_dead.is_some()
+            && message.is_some()
+            && message < who
+            && owner_dead < who
+            && who < dead
+            && dead < death
+            && death < removed,
+        "owner dead {owner_dead:?}, message {message:?}, who {who:?}, pet dead {dead:?}, its death \
+         {death:?}, off the list {removed:?}"
+    );
 }
 
 /// An owner leaving the world takes its pets out of it, and another player sees the pet go.

@@ -13382,6 +13382,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.falls-then-leaves-the-list",
+        says: "A pet that dies, killed, ordered to or with its owner, is told dead and plays its death \
+               before it is taken off its owner's list, in the order sent; with its owner, after the \
+               owner's death message and who killed it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-FALL-THEN-REMOVE"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_ordered_to_die_falls_and_is_taken_off_its_owners_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.fight-players-their-owner-may-harm",
         says: "A pet fights a player only where its owner may harm that player: a supporting pet one \
                its owner hurts, a self-defending one a player that hurts it; its hits are told and \
@@ -13608,8 +13618,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.pets.ordered-to-die",
-        says: "A pet ordered to die (or all of them) is taken off its owner's list and falls as a \
-               creature does, in one tick; its corpse comes after and its body leaves the world.",
+        says: "A pet ordered to die (or all of them) falls as a creature does and is taken off its \
+               owner's list, in one tick; its corpse comes after and its body leaves the world.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-DIE"),
         station: "yalain-testkit::cpu::play::pets::a_pet_ordered_to_die_falls_and_is_taken_off_its_owners_list",
