@@ -1435,16 +1435,38 @@ pub(crate) fn gone_from_where_it_lay<S: Store>(s: &mut Server<S>, net: &mut Serv
     }));
     crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
     crate::presence::leaves(s, net, item, &left_the_ground(item, instance, stamp));
+    forgotten_on_the_ground(s, item);
+}
+
+/// An item that lay on the ground and has been told leaving it is destroyed there, forgotten by
+/// everyone who knew it.
+fn destroyed_on_the_ground<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64) {
+    if holding::place_of(s, item) != Some(Place::Ground) {
+        return;
+    }
+    let Some(instance) = s.things.get(item).map(|t| t.instance) else {
+        return;
+    };
+    let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+        id: item,
+        instance_stamp: instance,
+        other_stamp: 0,
+    }));
+    crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
+    forgotten_on_the_ground(s, item);
+}
+
+fn forgotten_on_the_ground<S: Store>(s: &mut Server<S>, item: u64) {
     let _ = holding::destroy_item(s, item, Place::Ground);
     for p in s.players.values_mut() {
         p.known.remove(&item);
     }
 }
 
-/// The picking-up behavior is through: the item is contained in the pack, the move answered, its
-/// holder told everyone who knows it, and it leaves the world. An item of a template the player
-/// holds a stack of joins the stack instead (the move answered, the stack's quantity, the item
-/// destroyed and out of the world); one the pack has no room for is put back down.
+/// The picking-up behavior is through: the item is contained in the pack, its holder told everyone
+/// who knows it, it leaves the world, and the move is answered. An item of a template the player
+/// holds a stack of joins the stack instead (the stack's quantity, the item out of the world, the
+/// move answered, the item destroyed); one the pack has no room for is put back down.
 pub fn picked_up<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1478,7 +1500,6 @@ pub fn picked_up<S: Store>(
             actual_target_slot: slot,
             ..pickup_move(item, player, quantity, template, look)
         };
-        progress::private(net, world, &move_done(&m));
         let total = had + quantity;
         if let Some(h) = s
             .players
@@ -1496,7 +1517,9 @@ pub fn picked_up<S: Store>(
             value: i32::try_from(total).unwrap_or(i32::MAX),
         });
         to_holder(s, net, world, stack, &more);
-        gone_from_where_it_lay(s, net, item);
+        crate::presence::leaves(s, net, item, &leave);
+        progress::private(net, world, &move_done(&m));
+        destroyed_on_the_ground(s, net, item);
     } else {
         let full = pack_full_of(s, world);
         if full {
@@ -1517,7 +1540,6 @@ pub fn picked_up<S: Store>(
             actual_target_slot: i32::try_from(slot).unwrap_or(0),
             ..pickup_move(item, player, quantity, template, look)
         };
-        progress::private(net, world, &move_done(&m));
         let held = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
             object: visual(s, item),
             quality: q::CONTAINER,
@@ -1525,6 +1547,7 @@ pub fn picked_up<S: Store>(
         });
         to_holder(s, net, world, item, &held);
         crate::presence::leaves(s, net, item, &leave);
+        progress::private(net, world, &move_done(&m));
     }
     crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
@@ -1979,20 +2002,21 @@ pub fn taken<S: Store>(
         item_appearance: appearance,
         ..Move::default()
     };
-    progress::private(net, world, &move_done(&m));
     let held = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
         object: visual(s, item),
         quality: q::CONTAINER,
         value: player,
     });
     to_holder(s, net, world, item, &held);
+    progress::private(net, world, &move_done(&m));
     crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
 
-/// A taken item joins a stack in the pack, which needs no place of its own: the move answered as a
-/// merge, the stack's new quantity shown and the item gone from all who knew it (2017: 162 of 773
-/// takes).
+/// A taken item joins a stack in the pack, which needs no place of its own: the stack's new
+/// quantity shown, the move answered as a merge and the item gone from all who knew it (2017: 162
+/// of 773 takes; by the order sent, the stack's quantity before the answer 277 of 278, the item
+/// destroyed after it 237 of 237).
 #[allow(clippy::too_many_arguments)]
 fn joined_stack<S: Store>(
     s: &mut Server<S>,
@@ -2043,7 +2067,6 @@ fn joined_stack<S: Store>(
         item_appearance: appearance,
         ..Move::default()
     };
-    progress::private(net, world, &move_done(&m));
     let total = had + quantity;
     if let Some(h) = s
         .players
@@ -2061,6 +2084,7 @@ fn joined_stack<S: Store>(
         value: i32::try_from(total).unwrap_or(i32::MAX),
     });
     to_holder(s, net, world, stack, &more);
+    progress::private(net, world, &move_done(&m));
     let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id: item,
         instance_stamp: instance,
@@ -2267,6 +2291,18 @@ pub fn transmute_now<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
             continue;
         }
         done.push(*item);
+        // Each item turned into money is let go of (its holder none) before anything else is said
+        // of it, then contained, its move answered and it destroyed, all before the transmute's
+        // answer (2017, by the order sent: 2,378 of 5,023 items so, 2,602 the same but not let go
+        // of first; destroyed before its own discrete destroy 4,983 of 4,983).
+        if s.things.get(*item).is_some() {
+            let left = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+                object: visual(s, *item),
+                quality: q::CONTAINER,
+                value: 0,
+            });
+            to_holder(s, net, world, *item, &left);
+        }
         let stamp = contain_stamp(s, *item);
         net.send(
             world,
@@ -2313,6 +2349,17 @@ pub fn transmute_now<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
         let money = crate::store::money(&p.qualities).saturating_add(worth);
         crate::quals::set_int(&mut p.qualities, crate::store::MONEY, money.cast_signed());
         progress::send_int(net, world, crate::store::MONEY, money.cast_signed());
+        if let Ok(t) = holding::destroy_item(s, *item, Place::Contents(corpse)) {
+            let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+                id: t.id,
+                instance_stamp: t.instance,
+                other_stamp: 0,
+            }));
+            net.send(world, queue::EVENT, BlobKind::UNORDERED, gone.encode());
+        }
+        if let Some(p) = s.players.get_mut(&world) {
+            p.known.remove(item);
+        }
         let gone =
             session::call(function::DISCRETE_DESTROY, &[Arg::LongInt(*item)]).expect("packs");
         progress::private(net, world, &gone);
@@ -2335,29 +2382,6 @@ pub fn transmute_now<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
         player,
     );
     progress::private(net, world, &answer);
-    // Each item turned into money is let go of (its holder none) before it is gone (2017: 1,718
-    // of the transmutes' destroyed items).
-    for item in &done {
-        if s.things.get(*item).is_some() {
-            let left = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
-                object: visual(s, *item),
-                quality: q::CONTAINER,
-                value: 0,
-            });
-            to_holder(s, net, world, *item, &left);
-        }
-        if let Ok(t) = holding::destroy_item(s, *item, Place::Contents(corpse)) {
-            let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
-                id: t.id,
-                instance_stamp: t.instance,
-                other_stamp: 0,
-            }));
-            net.send(world, queue::EVENT, BlobKind::UNORDERED, gone.encode());
-        }
-        if let Some(p) = s.players.get_mut(&world) {
-            p.known.remove(item);
-        }
-    }
     let pack = reset_contents(s, world);
     progress::private(net, world, &pack);
     crate::world::keep_player(s, world);

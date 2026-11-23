@@ -8128,7 +8128,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.inventory.a-picked-up-item-joins-the-stack-it-matches",
         says: "An item picked up of a template the pack holds a stack of joins that stack: the \
-               move is answered as merged, the stack shows its new quantity, and the item is \
+               stack shows its new quantity, the move is answered as merged, and the item is \
                destroyed and leaves the world; another use meanwhile is refused at once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PICK-UP-MERGE"),
@@ -8298,6 +8298,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-DROP"),
         station: "yalain-testkit::cpu::play::drops::an_item_under_an_attuning_effect_is_refused_its_drop_until_it_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.answer-after-the-items-state",
+        says: "An inventory answer (a move's, a move about the pack's, an equipping's, a money \
+               bag's, a transmute's) is sent after what the server says of the items it changes: \
+               their containing, holders, wielder and counts; an item it makes is made after it, \
+               an item a merge does away with destroyed after it, and an item turned into money \
+               destroyed before it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ANSWER-AFTER-STATE"),
+        station: "yalain-testkit::cpu::play::pack::a_move_about_the_pack_is_answered_after_its_items_state_and_before_any_made_or_destroyed",
         tier: Tier::Cpu,
     },
     behaviour! {

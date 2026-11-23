@@ -261,7 +261,6 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
             actual_target_slot: item_slot(target),
             ..answer
         };
-        progress::private(net, world, &reorganize_done(&m));
         if let Some(x) = held.iter_mut().find(|x| x.id == stack) {
             x.quantity = x.quantity.max(1) + moved;
             if let Some(t) = s.things.get_mut(stack) {
@@ -269,6 +268,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
             }
         }
         quantity_shown(s, net, world, stack);
+        progress::private(net, world, &reorganize_done(&m));
         destroyed(s, net, world, h.id, Place::Pack(player));
         finish(s, world, held);
         return;
@@ -295,8 +295,8 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         all_taken: true,
         ..answer
     };
-    progress::private(net, world, &reorganize_done(&m));
     contained_again(s, net, world, h.id, player);
+    progress::private(net, world, &reorganize_done(&m));
     finish(s, world, held);
 }
 
@@ -339,6 +339,7 @@ fn split<S: Store>(
     if let Some(t) = s.things.get_mut(h.id) {
         t.quantity = left;
     }
+    quantity_shown(s, net, world, h.id);
     let contained = inv::contain_stamp(s, new);
     net.send(
         world,
@@ -355,7 +356,6 @@ fn split<S: Store>(
         ..answer
     };
     progress::private(net, world, &reorganize_done(&m));
-    quantity_shown(s, net, world, h.id);
     if let Some(t) = s.things.get(new) {
         let create = ServerMessage::CreateObject(inv::item_create(t));
         net.send(world, queue::EVENT, BlobKind::UNORDERED, create.encode());
@@ -474,8 +474,9 @@ pub(crate) fn paid_for<S: Store>(
 }
 
 /// So many of an item of the pack go into the money bag: "Adding %1 pieces of Gold.", the money
-/// up by their worth, the stack down by as many or the item gone, then `done` answered (with the
-/// item when some is left, else none). An item worth nothing stays, refused.
+/// up by their worth, the stack down by as many or the item destroyed, then `done` answered (with
+/// the item when some is left, else none; 2017, by the order sent: the item destroyed, then its
+/// discrete destroy, then the answer, 843 of 844). An item worth nothing stays, refused.
 fn into_money_bag<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -523,12 +524,12 @@ fn into_money_bag<S: Store>(
         quantity_shown(s, net, world, item);
         progress::private(net, world, &done(0));
     } else {
+        let me = p.character;
+        destroyed(s, net, world, item, Place::Pack(me));
         let gone =
             session::call(inv::function::DISCRETE_DESTROY, &[Arg::LongInt(item)]).expect("packs");
         progress::private(net, world, &gone);
         progress::private(net, world, &done(0));
-        let me = p.character;
-        destroyed(s, net, world, item, Place::Pack(me));
         if let Some(p) = s.players.get_mut(&world) {
             inv::close_up(&mut p.play.items);
         }
@@ -884,7 +885,6 @@ pub fn took_all<S: Store>(
                 split_item: 0,
                 ..m
             };
-            progress::private(net, world, &move_done(&m));
             let total = had + quantity;
             if let Some(h) = s
                 .players
@@ -897,6 +897,7 @@ pub fn took_all<S: Store>(
                 t.quantity = total;
             }
             quantity_shown(s, net, world, stack);
+            progress::private(net, world, &move_done(&m));
             destroyed(s, net, world, item, from);
         } else {
             let full = s
@@ -925,8 +926,8 @@ pub fn took_all<S: Store>(
                 merge_slot: item_slot(slot),
                 ..m
             };
-            progress::private(net, world, &move_done(&m));
             contained_again(s, net, world, item, player);
+            progress::private(net, world, &move_done(&m));
         }
         taken.push(item);
         crate::quests::took(s, net, world, template, clock);

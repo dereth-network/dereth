@@ -929,8 +929,8 @@ fn take_off<S: Store>(
     take_off_to(s, net, world, item, made_room, 0)
 }
 
-/// Take off a worn item into the pack at a slot: answered, the look without it, the wearer
-/// cleared. Refused (the pack full) when there is no room: returns whether it came off.
+/// Take off a worn item into the pack at a slot: the look without it, the wearer cleared, then
+/// answered. Refused (the pack full) when there is no room: returns whether it came off.
 fn take_off_to<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -953,12 +953,6 @@ fn take_off_to<S: Store>(
         .and_then(|t| fit_of(&t.props))
         .unwrap_or_default();
     let full = crate::inventory::pack_full(&p.play.items, &crate::inventory::rooms_of(s, p));
-    // Its effects go just before the answer, unless it cannot come off.
-    let stopped = if full {
-        Vec::new()
-    } else {
-        effects::take_off_worn(s, net, world, item)
-    };
     let done = session::call(
         function::UNEQUIP_DONE,
         &[desc(&Answer {
@@ -979,11 +973,10 @@ fn take_off_to<S: Store>(
         })],
     )
     .expect("packs");
-    progress::private(net, world, &done);
     if full {
+        progress::private(net, world, &done);
         return false;
     }
-    effects::stop_fx(s, net, world, &stopped);
     let look = s
         .catalog
         .get(h.template)
@@ -1003,6 +996,11 @@ fn take_off_to<S: Store>(
     }
     let m = iid_update(s, item, q::EQUIPPER, 0);
     crate::inventory::to_holder(s, net, world, item, &m);
+    // Its effects go just before the answer, and the answer after the look and the item's holder
+    // (2017, by the order sent: its holder before the answer 1,052 of 1,052).
+    let stopped = effects::take_off_worn(s, net, world, item);
+    progress::private(net, world, &done);
+    effects::stop_fx(s, net, world, &stopped);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
     }
@@ -1106,10 +1104,11 @@ fn wield<S: Store>(
         .get(&world)
         .and_then(|p| p.play.items.iter().find(|h| h.id == item))
         .map_or(0, |h| h.slot);
-    // Its effects come on just before the answer.
-    effects_on(s, net, world, item, clock);
-    // The answer first, while the item is still in the pack where the client looks for it
-    // (2017's order: the answer, then the weapon drawn and the item's moves).
+    // The answer goes after the item's holders and the weapon drawn (2017, by the order sent: its
+    // holders before the answer 1,076 of 1,076, the weapon drawn 699 of 700); its attaching goes
+    // on a stream of its own, in no order with the answer. The client keeps its own list of the
+    // pack's contents and changes it only at the answer, so the item is still in the pack where
+    // the client looks for it when the answer comes.
     let done = session::call(
         function::EQUIP_DONE,
         &[desc(&Answer {
@@ -1134,25 +1133,20 @@ fn wield<S: Store>(
         })],
     )
     .expect("packs");
-    progress::private(net, world, &done);
-    if binds_on_use(s, item) {
-        progress::private(net, world, &binds_warning());
-    }
     // The weapon drawn: only for the primary hand, and only it takes a stamp: the client waits for
     // each stamp in turn before it plays what comes after.
     if location == PRIMARY_HAND {
-        let Some((_, stamp)) = player_stamp(s, world) else {
-            return;
-        };
-        let drawn = ServerMessage::MoveSlider(ObjectEvent {
-            sender: stamp,
-            action: Slide {
-                slider: WEAPON_DRAWN,
-                value: 0.0,
-                time: 0.1,
-            },
-        });
-        to_all_seeing(s, net, player, &drawn);
+        if let Some((_, stamp)) = player_stamp(s, world) {
+            let drawn = ServerMessage::MoveSlider(ObjectEvent {
+                sender: stamp,
+                action: Slide {
+                    slider: WEAPON_DRAWN,
+                    value: 0.0,
+                    time: 0.1,
+                },
+            });
+            to_all_seeing(s, net, player, &drawn);
+        }
     }
     // The wielder, and those who see it and know the item, are told the item's holders and see it
     // attached; those who do not know it have it made in the hand (below).
@@ -1181,6 +1175,12 @@ fn wield<S: Store>(
     }
     for (c, _) in watching.iter().filter(|(_, knows)| *knows) {
         crate::presence::on_its_stream(s, net, *c, item, attach.clone());
+    }
+    // Its effects come on just before the answer.
+    effects_on(s, net, world, item, clock);
+    progress::private(net, world, &done);
+    if binds_on_use(s, item) {
+        progress::private(net, world, &binds_warning());
     }
     if let Some(p) = s.players.get_mut(&world) {
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -1291,8 +1291,6 @@ fn put_away<S: Store>(
             ServerMessage::Contain(auberean_protocol::physics::ObjectOnly(c)).encode(),
         );
     }
-    // Its effects go just before the answer.
-    let stopped = effects::take_off_worn(s, net, world, item);
     let done = session::call(
         function::UNEQUIP_DONE,
         &[desc(&Answer {
@@ -1312,22 +1310,19 @@ fn put_away<S: Store>(
         })],
     )
     .expect("packs");
-    progress::private(net, world, &done);
-    effects::stop_fx(s, net, world, &stopped);
     // The weapon slider: only for the primary hand.
     if location == PRIMARY_HAND {
-        let Some((_, stamp)) = player_stamp(s, world) else {
-            return;
-        };
-        let sheathed = ServerMessage::MoveSlider(ObjectEvent {
-            sender: stamp,
-            action: Slide {
-                slider: WEAPON_DRAWN,
-                value: to.map_or(1.0, |(_, v)| v),
-                time: 0.1,
-            },
-        });
-        to_all_seeing(s, net, player, &sheathed);
+        if let Some((_, stamp)) = player_stamp(s, world) {
+            let sheathed = ServerMessage::MoveSlider(ObjectEvent {
+                sender: stamp,
+                action: Slide {
+                    slider: WEAPON_DRAWN,
+                    value: to.map_or(1.0, |(_, v)| v),
+                    time: 0.1,
+                },
+            });
+            to_all_seeing(s, net, player, &sheathed);
+        }
     }
     let m = iid_update(s, item, q::EQUIPPER, 0).encode();
     net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
@@ -1356,6 +1351,11 @@ fn put_away<S: Store>(
             }
         }
     }
+    // Its effects go just before the answer, and the answer after the item's holder and its
+    // letting go (2017, by the order sent: its holder before the answer 1,052 of 1,052).
+    let stopped = effects::take_off_worn(s, net, world, item);
+    progress::private(net, world, &done);
+    effects::stop_fx(s, net, world, &stopped);
     if let Some(p) = s.players.get_mut(&world) {
         crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {

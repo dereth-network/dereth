@@ -546,6 +546,32 @@ fn a_picked_up_item_goes_to_the_front_of_the_pack() {
     assert_eq!(slot_of(&h, other), Some(1), "the other moved up one");
 }
 
+/// In the order the server sends them, a picked-up item is contained and told held by the player
+/// before the pickup is answered.
+/// Behaviour: server.inventory.answer-after-the-items-state
+#[test]
+fn a_picked_up_item_is_held_before_the_pickup_is_answered() {
+    let (mut h, b, me, _, item) = two_players_and_an_item();
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(steps(2.5));
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &use_item(item, me));
+    h.run(4);
+    h.run(steps(1.9));
+    let sent = h.sent_messages(b, from);
+    let at = |pred: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pred);
+    let contained = at(&|m| matches!(m, ServerMessage::Contain(o) if o.0.id == item));
+    let held = at(&|m| {
+        matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+            if q.object.id == item && q.quality == CONTAINER && q.value == me)
+    });
+    let done = at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == MOVE_DONE));
+    assert!(
+        contained.is_some() && contained < held && held < done,
+        "contained, held, answered: {contained:?} {held:?} {done:?}"
+    );
+}
+
 /// A template that stacks (up to a thousand to a stack), made up for the tests.
 const STACKING: u32 = 0x4700_2109;
 
@@ -622,10 +648,11 @@ fn a_picked_up_item_with_other_numbers_stays_its_own() {
     assert_eq!(h.server.things.get(one).expect("kept").value, 500);
 }
 
-/// An item of a template the player holds a stack of, picked up, joins the stack: the move
-/// answered as merged (no item split off, no slot to merge at), the stack's new quantity, the
-/// item destroyed and out of the world for every client that knew it; the pack still holds the
-/// one stack. Another use while the pickup runs is refused at once, actions locked.
+/// An item of a template the player holds a stack of, picked up, joins the stack: the stack's new
+/// quantity, then the move answered as merged (no item split off, no slot to merge at), then the
+/// item destroyed, in the order the server sent them; it is out of the world and destroyed for
+/// every client that knew it, and the pack still holds the one stack. Another use while the
+/// pickup runs is refused at once, actions locked.
 ///
 /// Behaviour: server.inventory.a-picked-up-item-joins-the-stack-it-matches
 #[test]
@@ -664,17 +691,22 @@ fn a_picked_up_item_joins_the_stack_the_pack_holds_of_it() {
     assert_eq!(done[50].1, u32::MAX, "no slot to merge at");
     assert_eq!((done[28].1, done[29].1), (0, 0), "nothing split off");
     let msgs = h.world_messages(b, from);
-    let at = |pred: &dyn Fn(&ServerMessage) -> bool| msgs.iter().position(pred);
+    let sent = h.sent_messages(b, from);
+    let at = |pred: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pred);
     let moved = at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == MOVE_DONE));
     let more = at(&|m| {
         matches!(m, ServerMessage::UpdateIntVisual(q)
             if q.object.id == stack && q.quality == 262 && q.value == 5)
     });
     let gone = at(&|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == one));
-    let left = at(&|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == one));
     assert!(
-        moved.is_some() && moved < more && more < gone && gone < left,
-        "answered, the stack grown, the item destroyed, out of the world: {moved:?} {more:?} {gone:?} {left:?}"
+        more.is_some() && more < moved && moved < gone,
+        "the stack grown, answered, the item destroyed: {more:?} {moved:?} {gone:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == one)),
+        "out of the world"
     );
     assert!(
         !msgs

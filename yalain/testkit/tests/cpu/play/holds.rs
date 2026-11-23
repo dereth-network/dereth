@@ -489,3 +489,34 @@ fn a_weapon_put_away_past_every_segment_goes_to_the_packs_front() {
     slots.dedup();
     assert_eq!(slots.len(), items.len(), "every slot its own item's");
 }
+
+/// In the order the server sends them, a weapon wielded is told held by its wielder before the
+/// equipping is answered, and a weapon put away is told held by no wielder before the putting away
+/// is answered.
+/// Behaviour: server.inventory.answer-after-the-items-state
+#[test]
+fn a_weapon_is_told_held_or_let_go_before_its_equipping_is_answered() {
+    let (mut h, b, me, world) = player();
+    let sword = id_of(&h, world, SWORD);
+    let wielder = |m: &ServerMessage, value: u64| {
+        matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+            if q.object.id == sword && q.quality == equip::q::EQUIPPER && q.value == value)
+    };
+    let call =
+        |m: &ServerMessage, f: u32| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == f);
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, sword);
+    let sent = h.sent_messages(b, from);
+    let held = sent.iter().position(|m| wielder(m, me));
+    let done = sent.iter().position(|m| call(m, function::EQUIP_DONE));
+    assert!(held.is_some() && held < done, "wielded: {held:?} {done:?}");
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, sword);
+    let sent = h.sent_messages(b, from);
+    let let_go = sent.iter().position(|m| wielder(m, 0));
+    let done = sent.iter().position(|m| call(m, function::UNEQUIP_DONE));
+    assert!(
+        let_go.is_some() && let_go < done,
+        "put away: {let_go:?} {done:?}"
+    );
+}

@@ -1845,3 +1845,183 @@ fn a_jump_takes_everything_from_a_corpse_at_once() {
     h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 3);
     assert_eq!(took(&h, b, from), [(0, 2, 0)], "in the air");
 }
+
+/// Where among the messages sent to a client since `from`, in the order the server sent them, the
+/// first that `pick` accepts is.
+fn sent_at(
+    h: &Harness,
+    b: usize,
+    from: usize,
+    pick: impl Fn(&ServerMessage) -> bool,
+) -> Option<usize> {
+    h.sent_messages(b, from).iter().position(pick)
+}
+
+fn is_call(m: &ServerMessage, function: u32) -> bool {
+    matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function)
+}
+
+fn is_holder(m: &ServerMessage, item: u64) -> bool {
+    matches!(m, ServerMessage::UpdateInstanceIdVisual(q) if q.object.id == item && q.quality == CONTAINER)
+}
+
+fn is_count(m: &ServerMessage, item: u64) -> bool {
+    matches!(m, ServerMessage::UpdateIntVisual(q) if q.object.id == item && q.quality == QUANTITY)
+}
+
+fn is_contained(m: &ServerMessage, item: u64) -> bool {
+    matches!(m, ServerMessage::Contain(o) if o.0.id == item)
+}
+
+fn is_made(m: &ServerMessage, item: u64) -> bool {
+    matches!(m, ServerMessage::CreateObject(o) if o.id == item)
+}
+
+fn is_destroyed(m: &ServerMessage, item: u64) -> bool {
+    matches!(m, ServerMessage::ForgetObject(o) if o.0.id == item)
+}
+
+/// In the order the server sends them, a move about the pack's answer comes after what it tells of
+/// the items it changes, and before an item it makes or destroys: a plain move's holder updates,
+/// then the answer; a split's count left and the new stack contained, then the answer, then the
+/// new stack made; a merge's kept stack's count, then the answer, then the moved stack destroyed.
+/// Behaviour: server.inventory.answer-after-the-items-state
+#[test]
+fn a_move_about_the_pack_is_answered_after_its_items_state_and_before_any_made_or_destroyed() {
+    let (mut h, b, me, world) = player();
+    let order = give(&mut h, world, TEST_ITEM, 3);
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, order[0], 1, 0, 2)],
+        4,
+    );
+    let held = sent_at(&h, b, from, |m| is_holder(m, order[0]));
+    let done = sent_at(&h, b, from, |m| is_call(m, function::REORGANIZE_DONE));
+    assert!(held.is_some() && held < done, "moved: {held:?} {done:?}");
+
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 5);
+    h.run(2);
+    let stack = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, stack, 2, 0, 1)],
+        4,
+    );
+    let d = &reorganized(&h, b, from)[0];
+    let new = u64::from(d[29].1) << 32 | u64::from(d[28].1);
+    let left = sent_at(&h, b, from, |m| is_count(m, stack));
+    let contained = sent_at(&h, b, from, |m| is_contained(m, new));
+    let done = sent_at(&h, b, from, |m| is_call(m, function::REORGANIZE_DONE));
+    let made = sent_at(&h, b, from, |m| is_made(m, new));
+    assert!(
+        left.is_some() && left < contained && contained < done && done < made,
+        "split: {left:?} {contained:?} {done:?} {made:?}"
+    );
+
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 4);
+    give(&mut h, world, TEST_ITEM, 1);
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 3);
+    h.run(2);
+    let order = pack_order(&h, world);
+    let (moved, kept) = (order[0], order[2]);
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, moved, 3, 0, 1)],
+        4,
+    );
+    let count = sent_at(&h, b, from, |m| is_count(m, kept));
+    let done = sent_at(&h, b, from, |m| is_call(m, function::REORGANIZE_DONE));
+    let gone = sent_at(&h, b, from, |m| is_destroyed(m, moved));
+    assert!(
+        count.is_some() && count < done && done < gone,
+        "merged: {count:?} {done:?} {gone:?}"
+    );
+}
+
+/// In the order the server sends them, an item sold to the money bag is destroyed before the
+/// drag's answer; each item a transmute turns into money is let go of, contained, its move
+/// answered and destroyed, all before the transmute's answer.
+/// Behaviour: server.inventory.answer-after-the-items-state
+#[test]
+fn an_item_turned_into_money_is_destroyed_before_the_answer() {
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, VALUED, 1);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::TO_MONEY_BAG,
+        &[
+            Arg::LongInt(me),
+            Arg::Int(0),
+            Arg::Int(1),
+            Arg::LongInt(item),
+        ],
+        4,
+    );
+    let gone = sent_at(&h, b, from, |m| is_destroyed(m, item));
+    let done = sent_at(&h, b, from, |m| is_call(m, function::TO_MONEY_BAG_DONE));
+    assert!(gone.is_some() && gone < done, "sold: {gone:?} {done:?}");
+
+    let (mut h, b, me, _, corpse) = worth_ten();
+    let items = h
+        .server
+        .things
+        .get(corpse)
+        .expect("corpse")
+        .corpse
+        .as_ref()
+        .expect("a corpse")
+        .contents
+        .clone();
+    let from = h.bots[b].inbox.len();
+    ask_transmute(&mut h, b, me, corpse);
+    through(&mut h);
+    let done = sent_at(&h, b, from, |m| {
+        is_call(m, inventory::function::TRANSMUTE_ALL_DONE)
+    });
+    assert!(done.is_some(), "answered");
+    for item in items {
+        let sent = h.sent_messages(b, from);
+        let let_go = sent.iter().position(|m| {
+            matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && q.quality == CONTAINER && q.value == 0)
+        });
+        let contained = sent.iter().position(|m| is_contained(m, item));
+        let moved = sent.iter().position(|m| {
+            is_call(m, inventory::function::MOVE_DONE) && answers_item(m) == Some(item)
+        });
+        let gone = sent.iter().position(|m| is_destroyed(m, item));
+        assert!(
+            let_go.is_some()
+                && let_go < contained
+                && contained < moved
+                && moved < gone
+                && gone < done,
+            "{item:x}: {let_go:?} {contained:?} {moved:?} {gone:?} {done:?}"
+        );
+    }
+}
+
+/// The item a move answer names.
+fn answers_item(m: &ServerMessage) -> Option<u64> {
+    let ServerMessage::PlayerCall(c) = m else {
+        return None;
+    };
+    let v = calls::values(&c.args.as_ref()?.0).ok()?;
+    v.iter().find_map(|x: &Value| match x.root() {
+        Some(Node::Script { slots, .. }) => {
+            Some(u64::from(slots[45].1) << 32 | u64::from(slots[44].1))
+        }
+        _ => None,
+    })
+}

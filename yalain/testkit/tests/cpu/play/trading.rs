@@ -153,7 +153,15 @@ fn both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack() {
     h.ask(a, function::ACCEPT, &[], 10);
     h.ask(b, function::ACCEPT, &[], 10);
     for (x, from) in [(a, fa), (b, fb)] {
-        let f = h.functions(x, from);
+        // In the order the server sent them.
+        let f: Vec<u32> = h
+            .sent_messages(x, from)
+            .iter()
+            .filter_map(|m| match m {
+                auberean_protocol::ServerMessage::PlayerCall(c) => Some(c.function.0),
+                _ => None,
+            })
+            .collect();
         let at = |g: u32| f.iter().position(|y| *y == g);
         let moved = at(0x820E_005E).expect("the move");
         let reset = at(function::RESET).expect("reset");
@@ -172,6 +180,32 @@ fn both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack() {
         "the rest moved down"
     );
     assert!(h.server.trades.list[0].open, "still open");
+}
+
+/// In the order the server sends them, an item traded is contained and told held by its receiver
+/// before the receiver is told of its move.
+/// Behaviour: server.inventory.answer-after-the-items-state
+#[test]
+fn a_traded_item_is_held_by_its_receiver_before_its_move_is_told() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bow = hold(&mut h, aid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    let fb = h.bots[b].inbox.len();
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let sent = h.sent_messages(b, fb);
+    let at = |pred: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pred);
+    let contained = at(&|m| matches!(m, ServerMessage::Contain(o) if o.0.id == bow));
+    let held = at(&|m| {
+        matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+            if q.object.id == bow && q.quality == 258 && q.value == bid)
+    });
+    let moved = at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == 0x820E_005E));
+    assert!(
+        contained.is_some() && contained < held && held < moved,
+        "contained, held, moved: {contained:?} {held:?} {moved:?}"
+    );
 }
 
 /// When both have accepted and the other's pack has no room for what it would receive, both are

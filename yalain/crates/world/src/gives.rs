@@ -679,9 +679,10 @@ pub fn back_and_away<S: Store>(
     }
 }
 
-/// The item is back in the giver's pack, where it was: the move from the person told, and its
-/// container told as the person's, then none, then the player's; a part of a stack, which never
-/// left, merged back with its container untouched (2017: 2 of 2). Returns whether it was.
+/// The item is back in the giver's pack, where it was: its container told as the person's, then
+/// none, then the player's, then the move from the person; a part of a stack, which never left,
+/// merged back with its container untouched (2017: 2 of 2; by the order sent, a returned item's
+/// container before the answer 10 of 10). Returns whether it was.
 pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: &Move) -> bool {
     let Some(p) = s.players.get(&world) else {
         return false;
@@ -721,18 +722,17 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
         item_appearance: appearance,
         ..Move::default()
     };
+    if !part {
+        for holder in [m.target, 0, me] {
+            let held = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+                object: crate::inventory::visual(s, m.item),
+                quality: q::CONTAINER,
+                value: holder,
+            });
+            crate::inventory::to_holder(s, net, world, m.item, &held);
+        }
+    }
     progress::private(net, world, &move_done(&back));
-    if part {
-        return true;
-    }
-    for holder in [m.target, 0, me] {
-        let held = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
-            object: crate::inventory::visual(s, m.item),
-            quality: q::CONTAINER,
-            value: holder,
-        });
-        crate::inventory::to_holder(s, net, world, m.item, &held);
-    }
     true
 }
 

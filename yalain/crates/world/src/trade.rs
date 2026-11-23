@@ -833,7 +833,9 @@ fn give<S: Store>(
         split_quantity: if held.quantity > 1 || !whole { n } else { 0 },
         ..Move::default()
     };
-    both(s, net, t, &inventory::move_done(&m));
+    // The item's containing and its holders before the move's answer, a new stack made after it
+    // (2017, by the order sent: a traded item's container before the answer 296 of 296, its
+    // Contain 219 of 219).
     let contain = ServerMessage::Contain(ObjectOnly(inventory::contain_stamp(s, moved)));
     net.send(rw, queue::EVENT, BlobKind::UNORDERED, contain.encode());
     if whole {
@@ -846,9 +848,13 @@ fn give<S: Store>(
             });
             inventory::to_holder(s, net, rw, moved, &m);
         }
-    } else if let Some(x) = s.things.get(moved) {
-        let m = ServerMessage::CreateObject(inventory::item_create(x));
-        net.send(rw, queue::EVENT, BlobKind::UNORDERED, m.encode());
+    }
+    both(s, net, t, &inventory::move_done(&m));
+    if !whole {
+        if let Some(x) = s.things.get(moved) {
+            let m = ServerMessage::CreateObject(inventory::item_create(x));
+            net.send(rw, queue::EVENT, BlobKind::UNORDERED, m.encode());
+        }
     }
     if let Some(p) = s.players.get_mut(&rw) {
         p.known.insert(
