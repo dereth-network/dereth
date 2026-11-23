@@ -551,9 +551,10 @@ impl Default for CorpseRot {
     }
 }
 
-/// The share of its health at or below which a creature whose template names none heals itself
-/// (every healer of 2017 that names one names 0.65).
-pub const DEFAULT_WARNING_LEVEL: f32 = 0.65;
+/// The share of its health at or below which a creature whose template names none heals itself:
+/// two fifths (every healer of the generic monsters' tables names 0.65; 2017's others healed at
+/// 156 of 735 turns with their heal free under two fifths, 28 of 1,864 at or over it).
+pub const DEFAULT_WARNING_LEVEL: f32 = 0.4;
 
 /// The share of its vigor under which a creature whose template names none restores its vigor (the
 /// client library's default).

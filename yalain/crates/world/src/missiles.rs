@@ -50,7 +50,8 @@
 //! and `Strong` 0.663 and 0.337 over 7,790; the other creatures' 0.331, 0.347, 0.322 over 9,426).
 //!
 //! **Heals and buffs.** At one of its turns, a creature at or below its warning level of health
-//! heals itself about one time in two; one with a buff free buffs itself by one chance a turn for
+//! (two fifths where its template names none) heals itself, three times in five for the generic
+//! monsters and about one time in five for the rest; one with a buff free buffs itself by one chance a turn for
 //! how many of its buffs are free, about one time in six at its first turn of a fight and one in
 //! twelve after with one, one in four and one in six with two or more. One under its vigor warning
 //! level (two fifths of its vigor where its template names none) restores its vigor with a restore
@@ -912,8 +913,21 @@ pub struct HelpSkill {
 }
 
 /// The chance a creature at or below its warning level of health heals itself at one of its turns
-/// (2017: shown at or below 60%, 2,148 of 4,045 turns with the heal free).
-pub const HEAL_CHANCE: f32 = 0.53;
+/// with its heal free: one of the generic monsters' tables (one with a sub class), and any other
+/// (2017, health by its last reading, every one of the first naming 0.65 and none of the others
+/// naming a level: 888 of 1,468 turns under 0.65, 0.58 to 0.63; 94 of 424 under 0.4, 0.19 to 0.26).
+pub const GENERIC_HEAL_CHANCE: f32 = 0.6;
+pub const OLDER_HEAL_CHANCE: f32 = 0.21;
+
+/// The chance a creature at or below its warning level heals itself at a turn.
+#[must_use]
+pub fn heal_chance(generic: bool) -> f32 {
+    if generic {
+        GENERIC_HEAL_CHANCE
+    } else {
+        OLDER_HEAL_CHANCE
+    }
+}
 /// The chance a creature under its vigor warning level restores its vigor at one of its turns, with
 /// a restore free (2017: 14 of 28 turns, drudges' alone).
 pub const RESTORE_CHANCE: f32 = 0.5;
@@ -1084,6 +1098,7 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
         t.max_vigor > 0 && (t.vigor as f32) < c.stats.vigor_warning_level * t.max_vigor as f32;
     let first = c.actions == 0;
     let warning = c.stats.warning_level;
+    let generic = c.stats.sub_class.is_some();
     let protector = c.stats.sub_class == Some(PROTECTOR);
     let healer = s.creature_rows.heals_kin(c.stats.npc_table.as_deref());
     let barred = c.barred.clone();
@@ -1165,7 +1180,7 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
         None
     };
     let pick = match (heal, restore) {
-        (Some(h), _) => s.rng.chance(HEAL_CHANCE).then_some(h),
+        (Some(h), _) => s.rng.chance(heal_chance(generic)).then_some(h),
         (None, Some(h)) => s.rng.chance(RESTORE_CHANCE).then_some(h),
         (None, None) => {
             let buffs: Vec<&HelpSkill> = free.iter().filter(|h| !h.heals && !h.restores).collect();

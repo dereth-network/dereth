@@ -3957,6 +3957,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.heal-at-two-fifths-unnamed",
+        says: "A creature whose template names no warning level heals itself at two fifths of its \
+               health or less; one that names a level, at that.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-HEAL-LEVEL"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_whose_template_names_no_warning_level_heals_at_two_fifths_or_less",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.heal-chance-by-kind-ours",
+        says: "At or below its warning level, a creature of the generic monsters' tables heals itself \
+               at three of five turns with its heal free, any other at about one in five. Our fit.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-HEAL-CHANCE-OURS"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_generic_monster_heals_at_three_turns_in_five_and_any_other_at_one_in_five",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.heal-themselves",
         says: "A creature with a heal, hurt to its warning level, heals itself at one of its turns: its \
                story on itself, then the heal's appearance and the health it gets back; not again \

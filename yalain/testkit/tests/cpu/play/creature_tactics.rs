@@ -934,13 +934,15 @@ fn a_damage_debuff_takes_from_a_creatures_hits() {
 /// A creature with a heal, hurt to its warning level, heals itself at one of its turns: its story
 /// on itself (its own behavior, the skill, a hit on itself), a second later the heal's appearance
 /// and its story of the health it gets back (300 at a rating of 50), its health up; not again for
-/// forty seconds. Unhurt, it does not heal.
+/// forty seconds. Unhurt, it does not heal. (A creature of the generic monsters' tables, at 0.65.)
 /// Behaviour: server.creatures.heal-themselves
 #[test]
 fn a_hurt_creature_heals_itself_and_an_unhurt_one_does_not() {
     let heals = [
         ("NPC_StartingSkill1", Prop::Word(CREATURE_HEAL)),
         ("NPC_StartingSkill1Level", Prop::Int(50)),
+        ("AI_AISubClass", Prop::Word(10)),
+        ("AI_HealthWarningLevel", Prop::Float(0.65)),
     ];
     let (mut h, b, me, id) = noticed(&heals, [61.0, 240.2, -44.6]);
     hardy(&mut h, me);
@@ -988,6 +990,77 @@ fn a_hurt_creature_heals_itself_and_an_unhurt_one_does_not() {
         !h.world_messages(b, again).iter().any(story),
         "barred for forty seconds"
     );
+}
+
+/// How many of `n` turns a creature with its heal free heals itself at, at `health` of a whole
+/// 1,000, the clock held.
+fn heals_at(h: &mut Harness, id: u64, health: i32, n: usize) -> usize {
+    (0..n)
+        .filter(|_| {
+            if let Some(t) = h.server.things.get_mut(id) {
+                t.max_health = 1000;
+                t.health = health;
+                if let Some(c) = t.creature.as_mut() {
+                    c.barred.clear();
+                    c.kin_helped = None;
+                }
+            }
+            let clock = h.clock();
+            missiles::helps(&mut h.server, &mut h.net, id, clock)
+        })
+        .count()
+}
+
+const HEALS: [(&str, Prop); 2] = [
+    ("NPC_StartingSkill1", Prop::Word(CREATURE_HEAL)),
+    ("NPC_StartingSkill1Level", Prop::Int(50)),
+];
+
+/// A creature whose template names no warning level heals itself at two fifths of its health or
+/// less, and never above; one whose template names 0.65 at that.
+/// Behaviour: server.creatures.heal-at-two-fifths-unnamed
+#[test]
+fn a_creature_whose_template_names_no_warning_level_heals_at_two_fifths_or_less() {
+    assert_eq!(stats(&HEALS).warning_level, 0.4);
+    let named = [
+        HEALS[0].clone(),
+        HEALS[1].clone(),
+        ("AI_HealthWarningLevel", Prop::Float(0.65)),
+    ];
+    assert_eq!(stats(&named).warning_level, 0.65);
+    let (mut h, _, me, id) = noticed(&HEALS, [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    assert_eq!(heals_at(&mut h, id, 410, 2_000), 0, "above two fifths");
+    assert!(heals_at(&mut h, id, 400, 2_000) > 0, "at two fifths");
+    assert!(heals_at(&mut h, id, 390, 2_000) > 0, "under");
+    let (mut h, _, me, id) = noticed(&named, [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    assert_eq!(heals_at(&mut h, id, 660, 2_000), 0, "above its 0.65");
+    assert!(heals_at(&mut h, id, 640, 2_000) > 0, "under its 0.65");
+}
+
+/// At or below its warning level, a creature of the generic monsters' tables heals itself at three
+/// of five turns with its heal free, any other at about one in five (this server's fits).
+/// Behaviour: server.creatures.heal-chance-by-kind-ours
+#[test]
+fn a_generic_monster_heals_at_three_turns_in_five_and_any_other_at_one_in_five() {
+    assert_eq!(
+        [missiles::heal_chance(true), missiles::heal_chance(false)],
+        [0.6, 0.21]
+    );
+    let generic = [
+        HEALS[0].clone(),
+        HEALS[1].clone(),
+        ("AI_AISubClass", Prop::Word(10)),
+        ("AI_HealthWarningLevel", Prop::Float(0.65)),
+    ];
+    for (props, health, want) in [(&HEALS[..], 300, 0.21), (&generic[..], 500, 0.6)] {
+        let (mut h, _, me, id) = noticed(props, [61.0, 240.2, -44.6]);
+        hardy(&mut h, me);
+        #[allow(clippy::cast_precision_loss)]
+        let got = heals_at(&mut h, id, health, 20_000) as f32 / 20_000.0;
+        assert!((got - want).abs() < 0.012, "{want}: {got}");
+    }
 }
 
 /// A creature with a buff uses it on itself in its fight, and its appearance shows for its ten
