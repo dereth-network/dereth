@@ -16663,6 +16663,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.completion-text-even-at-nothing",
+        says: "A completion of a quest that pays tells what it earned even when the quest's \
+               challenge weighs it down to nothing (\"0 experience points\", and no totals); a \
+               quest that pays nothing tells nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-XP-TEXT-AT-NOTHING"),
+        station: "yalain-testkit::cpu::play::quests::a_completion_tells_its_experience_even_weighed_to_nothing_and_a_quest_that_pays_nothing_says_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.craft-skill-gate",
         says: "A quest step that waits on a craft skill runs only for a player with one of the \
                skills it names at its level, as a making reads the level; a person who would give \

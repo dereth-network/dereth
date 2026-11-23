@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Finishing a quest that pays nothing at your level now says so.
 - Some creatures now wait until they are badly hurt before they heal, as in retail.
 - Creatures now spend vigor on special attacks and get it back after a fight.
 - Creatures now turn on another nearby player when the one they fight dies.

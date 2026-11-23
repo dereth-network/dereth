@@ -2402,6 +2402,13 @@ fn share_of(levels: &LevelTable, share: f32, level: i32) -> u64 {
     (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
 }
 
+/// Whether a quest's completion pays at all: an amount or a share of a level's experience, before
+/// its challenge weighs it.
+#[must_use]
+pub fn pays(def: &QuestDef) -> bool {
+    def.xp > 0 || def.pay.share > 0.0
+}
+
 /// The experience a quest's completion pays a player of a level. A quest may pay a share of what
 /// the player's level takes to reach the next, rounded down, with its limits (2017: 13 of 13
 /// completions of such quests whose player's level was known, exactly, each kind of limit among them);
@@ -2490,7 +2497,10 @@ pub fn apply_led<S: Store>(
             .get(&world)
             .map_or(1, |p| crate::examine::level_of(&p.qualities));
         let paid = completion_pay(&s.levels, &def, level);
-        if paid > 0 {
+        // A quest that pays tells what its completion earned even when its challenge weighs that
+        // down to nothing; one that pays nothing says nothing (2017: of the completions of quests
+        // that pay, 102 of 102 told, 7 of them 0; of quests that pay nothing, 18 told nothing).
+        if paid > 0 || pays(&def) {
             // A hidden quest's pay comes with no text (2017: the vaults' shard quests, 31 of 31).
             let why = if is_hidden(&s.quests, &def) {
                 Award::Step

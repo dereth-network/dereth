@@ -636,6 +636,106 @@ fn a_completion_below_a_level_50_player_is_weighed_as_a_kill_of_that_level_is() 
     assert_eq!(completion_xp(500, -999, 60), 500, "no challenge: whole");
 }
 
+/// The experience a completion's text names, one entry a text, and whether totals were sent.
+fn quest_xp_told(h: &Harness, b: usize, from: usize) -> (Vec<u64>, bool) {
+    use auberean_script::native_object::VariableValue;
+    use yalain_world::calls::Node;
+    use yalain_world::progress::{q, text, var};
+    let mut said = Vec::new();
+    let mut totals = false;
+    for m in h.world_messages(b, from) {
+        match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::session::function::SHOW_TEXT =>
+            {
+                let v = c
+                    .args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())
+                    .unwrap_or_default();
+                for x in &v {
+                    if let Some(Node::TextInfo(t)) = x.root() {
+                        if t.string_id == text::QUEST_XP.0 {
+                            let xp = t.variables.iter().find_map(|v| match v.value {
+                                VariableValue::Long(n) if v.id == var::XP => Some(n),
+                                _ => None,
+                            });
+                            said.push(xp.unwrap_or(u64::MAX));
+                        }
+                    }
+                }
+            }
+            ServerMessage::UpdateLongInt(x) if x.quality == q::TOTAL_XP => totals = true,
+            _ => {}
+        }
+    }
+    (said, totals)
+}
+
+/// A completion of a quest that pays tells what it earned even when the quest's challenge weighs
+/// it down to nothing (an explorer's 80 at challenge 4 is nothing to a level-30 player: "0
+/// experience points", and no totals); one that pays at level 10 tells its 80; a quest that pays
+/// nothing tells nothing.
+/// Behaviour: server.quests.completion-text-even-at-nothing
+#[test]
+fn a_completion_tells_its_experience_even_weighed_to_nothing_and_a_quest_that_pays_nothing_says_nothing(
+) {
+    const PAYS: u32 = 0x8000_0111;
+    const NOTHING: u32 = 0x8000_0112;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(
+            EXPLORER,
+            EXPLORER_TEMPLATE,
+            Kind::Npc,
+            [61.0, 241.0, -44.6],
+        )],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(PAYS, 80, 4), quest(NOTHING, 0, 4)],
+        steps: vec![
+            step(PAYS, 1, Trigger::Use(EXPLORER_TEMPLATE), Update::Complete),
+            step(
+                NOTHING,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            ),
+        ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let mut told = Vec::new();
+    for level in [30, 10] {
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::progress::q::LEVEL, level);
+            p.play.quests.clear();
+        }
+        at_phase(&mut h, PAYS, 1);
+        at_phase(&mut h, NOTHING, 1);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(USE, &[use_on(EXPLORER, 0, me)]),
+        );
+        h.run(20);
+        told.push(quest_xp_told(&h, b, from));
+    }
+    assert_eq!(
+        told,
+        vec![(vec![0], false), (vec![80], true)],
+        "level 30: the paying quest's 0 and no totals; level 10: its 80; the other never"
+    );
+    // A share of a level's experience is a pay too.
+    let mut shared = quest(0x8000_0113, 0, 4);
+    shared.pay.share = 0.02;
+    assert!(yalain_world::quests::pays(&shared));
+    assert!(!yalain_world::quests::pays(&quest(NOTHING, 0, 4)));
+}
+
 /// A level table where a level takes the amounts given to reach the next, from level 1.
 fn level_costs(costs: &[(i32, u64)]) -> LevelTable {
     let top = costs.iter().map(|(l, _)| *l).max().unwrap_or(0) + 1;

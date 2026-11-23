@@ -89,7 +89,8 @@ pub const CREDITS_PER_LEVEL: i32 = 1;
 pub enum Award {
     /// A damager's part of a kill, paid to it (or to its pet's owner).
     Part,
-    /// A quest completed, by its id: its text, naming it, is sent even when it pays nothing.
+    /// A quest completed, by its id: its text names it and what it earned, 0 where the quest's
+    /// challenge weighs its pay down to nothing (a quest that pays nothing is not awarded).
     Quest(u32),
     /// A step of a quest that pays on its way (no text: 2017 sent the totals alone).
     Step,
