@@ -805,6 +805,87 @@ fn a_plugin_window_opened_again_comes_back_where_the_player_left_it() {
     );
 }
 
+/// In a fellowship, a plugin's window over the party list, which the player has moved and
+/// resized, takes the pointer as any window over the HUD does: its button takes a click there,
+/// its title bar a drag, and the party list under it neither.
+#[test]
+fn a_plugin_window_over_the_party_list_takes_a_click_and_a_drag() {
+    use dereth_horizon::ui::game::Vital;
+    let full = Vital {
+        current: 100,
+        max: 100,
+    };
+    let state = GameState {
+        fellowship: vec![
+            ("Tester".into(), full, full, full, true),
+            ("Friend".into(), full, full, full, false),
+        ],
+        ..in_world()
+    };
+    let mut h = Harness::new(Default::default());
+    h.ui.windows.plugins.frame = plugin(true);
+    // The player has moved the party list and made it larger with the HUD Layout.
+    h.ui.hud.layout.placements.insert(
+        "party".into(),
+        dereth_horizon::ui::layout::Placement {
+            dx: 260.0,
+            dy: 140.0,
+            scale: 1.25,
+        },
+    );
+    // The window left over the party list's rows where they are shown.
+    h.ui.windows
+        .plugins
+        .ui
+        .place_hint("test.looter", "main", 300.0, 240.0);
+    h.frame(&state);
+    h.frame(&state);
+    let party =
+        h.ui.hud
+            .layout
+            .outlines
+            .iter()
+            .find(|(name, _)| name == "party")
+            .map(|(_, r)| *r)
+            .expect("the party list is shown in a fellowship");
+    let a = plugin_rect(&h);
+    let layer = plugin_layer(&h);
+    let mut targets: Vec<_> = h
+        .input
+        .nav
+        .last
+        .targets
+        .iter()
+        .filter(|t| t.layer == layer)
+        .map(|t| t.rect)
+        .collect();
+    targets.sort_by(|x, y| x.y.total_cmp(&y.y));
+    let go = targets[0];
+    assert!(
+        party.contains(go.x + go.w / 2.0, go.y + go.h / 2.0),
+        "the window's button {go:?} lies over the party list {party:?}"
+    );
+    let out = click_middle(&mut h, &state, go);
+    assert_eq!(
+        out,
+        vec![Input::Click {
+            plugin: "test.looter".into(),
+            window: "main".into(),
+            node: "go".into(),
+        }]
+    );
+    // Moved by its title bar, over the party list.
+    assert!(party.contains(a.x + a.w / 2.0, a.y + 10.0));
+    drag(
+        &mut h,
+        &state,
+        (a.x + a.w / 2.0, a.y + 10.0),
+        (a.x + a.w / 2.0 + 300.0, a.y + 110.0),
+    );
+    let moved = plugin_rect(&h);
+    assert_eq!((moved.x, moved.y), (a.x + 300.0, a.y + 100.0), "moved");
+}
+
 /// A plugin's window left near the screen's bottom right stays on the screen as the screen
 /// shrinks.
 #[test]

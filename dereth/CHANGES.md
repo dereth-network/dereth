@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Horizon: fixed plugin windows over a moved party list not taking clicks or drags.
 
 ## 0.4.22 (2026-11-23)
 - Fixed Direct3D 12 screenshots showing an older frame, or a black one.
