@@ -20,10 +20,11 @@
 //! both are told items are traded, its move refused, the trade reset and the trouble; nothing
 //! moves, and the trade stays open with nothing offered.
 //!
-//! **Both accepted**: both are told items are traded; each item moves into the other's pack at its
-//! first slot (a part of a stack as a new item, the rest staying), the move told to both and the
-//! item contained for its receiver; the trade is reset and both told it is finished. The trade
-//! stays open for more.
+//! **Both accepted**: each side in turn, the asker first, is told items are traded and its items
+//! move into the other's pack at its first slot (a part of a stack as a new item, the rest staying),
+//! each move told to both and the item contained for its receiver; so the asker reads the line
+//! first, the other after the asker's items have moved. The trade is reset and both told it is
+//! finished. The trade stays open for more.
 //!
 //! **Closing**: by either side (told to both); by the server when the two are too far apart, when
 //! one leaves the world, when one starts a fight.
@@ -655,19 +656,17 @@ pub fn decline<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
 /// Both have accepted: the items change hands, the trade is reset and stays open.
 fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: Clock) {
     let t = s.trades.list[i].clone();
-    both(
-        s,
-        net,
-        &t,
-        &crate::chat::show_text(NOTICE, progress::text(text::TRADING)),
-    );
-    if refuse_attuned(s, net, i, &t) {
+    let trading = crate::chat::show_text(NOTICE, progress::text(text::TRADING));
+    if refuse_attuned(s, net, i, &t, &trading) {
         return;
     }
+    // Each side is told the items are traded just before its own items move, the asker first, one
+    // with nothing offered at its turn (2017, by the order sent: 145 of 145 trades).
     for (giver, items) in [
         (t.master, t.master_items.clone()),
         (t.slave, t.slave_items.clone()),
     ] {
+        to(s, net, giver, &trading);
         let receiver = t.other(giver);
         for (item, n) in items {
             give(s, net, &t, giver, receiver, item, n);
@@ -691,10 +690,16 @@ fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: 
     }
 }
 
-/// An attuned item among the offers stops the trade: its move refused, the first of them alone
-/// told, the trade reset and nothing moved (2017: 5 trades, both sides, the master's offers first;
-/// a second item in one of them told nothing). Returns whether it did.
-fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t: &Trade) -> bool {
+/// An attuned item among the offers stops the trade: both told items are traded, its move refused,
+/// the first of them alone told, the trade reset and nothing moved (2017: 5 trades, both sides, the
+/// master's offers first; a second item in one of them told nothing). Returns whether it did.
+fn refuse_attuned<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    i: usize,
+    t: &Trade,
+    trading: &ServerMessage,
+) -> bool {
     let first = [(t.master, &t.master_items), (t.slave, &t.slave_items)]
         .into_iter()
         .flat_map(|(giver, items)| items.iter().map(move |(item, n)| (giver, *item, *n)))
@@ -706,6 +711,7 @@ fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t:
     let Some((giver, item, n)) = first else {
         return false;
     };
+    both(s, net, t, trading);
     let m = Move {
         move_type: MOVE_TYPE,
         item,

@@ -20303,6 +20303,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.trade.each-side-told-before-its-own-items",
+        says: "When a trade goes through, each side in turn, the asker first, is told its items are \
+               traded just before they move (a side with nothing offered at its turn): the asker \
+               reads the line first, the other after the asker's items have moved and before its \
+               own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-LINE-ORDER"),
+        station: "yalain-testkit::cpu::play::trading::each_side_of_a_trade_is_told_the_items_are_traded_just_before_its_own_items_move",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.kept-whole-across-a-crash",
         says: "A trade is one transaction with everything else a pass of the world did: a \
                server dying at any point of its save leaves the trade done on both sides or \

@@ -182,6 +182,77 @@ fn both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack() {
     assert!(h.server.trades.list[0].open, "still open");
 }
 
+/// What a client was sent since `from`, in the order the server sent it: the trade's "items are
+/// traded" line, and each move by the item it names.
+fn trade_order(h: &Harness, b: usize, from: usize) -> Vec<Option<u64>> {
+    use yalain_world::calls::{self, Node, Value};
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| {
+            let ServerMessage::PlayerCall(c) = m else {
+                return None;
+            };
+            let v = calls::values(&c.args.as_ref()?.0).ok()?;
+            match c.function.0 {
+                f if f == yalain_world::session::function::SHOW_TEXT => v
+                    .iter()
+                    .any(|x| matches!(x.root(), Some(Node::TextInfo(t)) if t.string_id == text::TRADING.0))
+                    .then_some(None),
+                0x820E_005E => v.iter().find_map(|x: &Value| match x.root() {
+                    Some(Node::Script { slots, .. }) => {
+                        Some(Some(u64::from(slots[45].1) << 32 | u64::from(slots[44].1)))
+                    }
+                    _ => None,
+                }),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// In the order the server sends them, each side of a trade is told its items are traded just
+/// before its own items move, the asker first: the asker reads the line, then its item's move and
+/// the other's; the other reads the asker's item's move, then the line, then its own item's.
+/// Behaviour: server.trade.each-side-told-before-its-own-items
+#[test]
+fn each_side_of_a_trade_is_told_the_items_are_traded_just_before_its_own_items_move() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bow = hold(&mut h, aid, BOW, 1);
+    let other = hold(&mut h, bid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(b, function::OFFER, &[Arg::Int(1), Arg::LongInt(other)], 10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert_eq!(
+        trade_order(&h, a, fa),
+        [None, Some(bow), Some(other)],
+        "the asker: the line first"
+    );
+    assert_eq!(
+        trade_order(&h, b, fb),
+        [Some(bow), None, Some(other)],
+        "the other: after the asker's item, before its own"
+    );
+}
+
+/// An asker that offers nothing is told the items are traded at its turn, first; the other is told
+/// just before its own items move.
+/// Behaviour: server.trade.each-side-told-before-its-own-items
+#[test]
+fn an_asker_offering_nothing_is_told_the_items_are_traded_first() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let other = hold(&mut h, bid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(b, function::OFFER, &[Arg::Int(1), Arg::LongInt(other)], 10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert_eq!(trade_order(&h, a, fa), [None, Some(other)], "the asker");
+    assert_eq!(trade_order(&h, b, fb), [None, Some(other)], "the other");
+}
+
 /// In the order the server sends them, an item traded is contained and told held by its receiver
 /// before the receiver is told of its move.
 /// Behaviour: server.inventory.answer-after-the-items-state
