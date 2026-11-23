@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Creatures now spend vigor on special attacks and get it back after a fight.
 - Creatures now turn on another nearby player when the one they fight dies.
 - Some quest characters now pause partway through a hand-in, as in retail.
 - People now turn to face you before they talk to you.

@@ -8,8 +8,8 @@
 //!
 //! **Creatures asleep.** Where the walls are known (as they are to a running server), a creature at
 //! rest (in its peaceful mode, not walking off, not about to join a fight, not sent at a defended
-//! device, whole and done regaining health), with no player near its place or its home, sleeps:
-//! the step does not act it. Awake it would have done nothing anyone sees: it would notice no one,
+//! device, whole and done regaining health, its vigor full), with no player near its place or its
+//! home, sleeps: the step does not act it. Awake it would have done nothing anyone sees: it would notice no one,
 //! walk nowhere (where the walls are known, a creature no player could see rests:
 //! [`crate::ai`]), and play its idle behaviors to no client. A player coming near wakes it, and so does anything that
 //! changes it (a hurt, a fight its kin call it to, an effect coming and going).
@@ -142,13 +142,14 @@ fn blocks_of(t: &Thing) -> Option<[u16; 2]> {
     Some([block(&at), block(&home)])
 }
 
-/// Does a creature rest: alive, no pet, whole and done regaining health, in its peaceful mode,
-/// neither walking off, nor at a waypoint it is to leave, nor about to join a fight, nor sent at a
-/// defended device?
+/// Does a creature rest: alive, no pet, whole and done regaining health, its vigor full, in its
+/// peaceful mode, neither walking off, nor at a waypoint it is to leave, nor about to join a fight,
+/// nor sent at a defended device?
 fn rests<S: Store>(s: &Server<S>, t: &Thing) -> bool {
     if !t.alive()
         || s.pets.is_pet(t.id)
         || t.health < t.max_health
+        || t.vigor < t.max_vigor
         || t.regen_since != 0.0
         || t.regained != 0
     {

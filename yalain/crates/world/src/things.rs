@@ -133,6 +133,8 @@ pub struct Creature {
     pub after_idle: Option<u64>,
     /// When (world seconds) it last attacked or was attacked this fight.
     pub last_blow: f64,
+    /// When (world seconds) its next step of vigor regained in a fight comes (none out of a fight).
+    pub next_vigor_step: f64,
     /// Until when (world seconds) it stands where a fight left it before it sets off home.
     pub home_after: f64,
     /// The players (character ids) it dropped all its threat on, and when: it takes none of them on

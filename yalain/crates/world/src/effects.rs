@@ -995,6 +995,11 @@ pub fn apply_on<S: Store>(
                 let amount = heal_scaled(s, on, vital::HEALTH, amount);
                 creature_health(s, net, id, amount, cast.caster, clock);
             }
+            if flags & vital::VIGOR != 0 {
+                if let Some(t) = s.things.get_mut(id).filter(|t| t.alive()) {
+                    t.vigor = (t.vigor + amount).clamp(0, t.max_vigor.max(0));
+                }
+            }
             true
         }
         (

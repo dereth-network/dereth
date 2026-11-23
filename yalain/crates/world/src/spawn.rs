@@ -590,6 +590,7 @@ pub fn make<S: Store>(
         idle_until: f64::NEG_INFINITY,
         after_idle: None,
         last_blow: f64::NEG_INFINITY,
+        next_vigor_step: f64::NEG_INFINITY,
         home_after: f64::NEG_INFINITY,
         lost_interest: Vec::new(),
     });

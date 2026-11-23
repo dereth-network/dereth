@@ -4274,13 +4274,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.creatures.restores-of-vigor-not-used-yet",
-        says: "2017's creatures used a restore of their vigor rarely, on themselves; this server's \
-               don't yet, on themselves or another, and one holding a buff besides buffs as one with \
-               the buff alone.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-NO-VIGOR-RESTORE"),
-        station: "yalain-testkit::cpu::play::creature_tactics::this_servers_creatures_do_not_yet_use_a_restore_of_vigor",
+        id: "server.creatures.regain-vigor-in-a-fight-by-their-combat-share",
+        says: "In a fight a creature regains vigor by its template's combat share of its greatest \
+               (GameplayStatistics_CombatVigorRegenRate), hurt or not, and none where the template \
+               sets none; its peaceful share is no part of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-COMBAT-SHARE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_fighting_creature_regains_its_combat_share_of_vigor_in_steps_of_ten_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.restores-its-vigor-when-short",
+        says: "A creature under its vigor warning level (two fifths of its vigor where its template \
+               names none) with a restore of its vigor free restores itself at one of its turns about \
+               one time in two, the turn its restore's alone; at the level or above it never does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-RESTORE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_short_of_vigor_restores_it_about_one_time_in_two",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4373,6 +4383,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.specials-cost-vigor",
+        says: "A creature's special costs it its skill's share of its greatest vigor, reckoned in \
+               single precision and cut to a whole number, less the skill's add; one it lacks the \
+               vigor for is not at hand, and one used takes its cost from its vigor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SPECIAL-VIGOR"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creatures_special_costs_its_vigor_and_one_it_cannot_pay_for_is_not_used",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.spots-doubled-when-short",
         says: "A camp with fewer spots than creatures places them all: each spot is held, and the rest \
                share them. Our choice.",
@@ -4388,6 +4408,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CAMP-SPOTS-HOLD-ONE"),
         station: "yalain-testkit::cpu::play::creatures::a_camp_as_many_as_its_spots_fills_every_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.start-with-all-their-vigor",
+        says: "A creature is made with all its vigor, as it is made with all its health.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-START"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_starts_with_all_its_vigor_and_fights_by_its_combat_share",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4484,6 +4512,35 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY"),
         station: "yalain-testkit::dat::effects::a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.vigor-full-again-after-a-fight",
+        says: "Out of a fight a creature's vigor holds, then is all back at once, however long the \
+               fight was and wherever it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-AFTER-FIGHT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_out_of_a_fight_has_all_its_vigor_again_eight_seconds_after_its_last_blow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.vigor-full-eight-seconds-after-the-last-blow",
+        says: "A creature out of a fight has all its vigor back once eight seconds have gone with no \
+               blow by it or on it: this server's fit to 2017's median of 12 s after the last story \
+               naming it, whose readings 3.5 s apart can't tell a fast fill from a jump.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-AFTER-REST"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_out_of_a_fight_has_all_its_vigor_again_eight_seconds_after_its_last_blow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.vigor-in-a-fight-comes-in-steps",
+        says: "In a fight a creature regains its combat share of its greatest vigor a minute, in steps \
+               every ten seconds: this server's fit to 2017's steps a median 10.5 s apart, summed at \
+               least 1.14 times the share a minute.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VIGOR-STEPS"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_fighting_creature_regains_its_combat_share_of_vigor_in_steps_of_ten_seconds",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.creatures.wander-and-stop-standing",

@@ -32,8 +32,11 @@
 //! two, the others this server's own: [`SPECIAL_CHANCES`]), the start area's two by their own
 //! measured chances. A use
 //! bars it for 40 s (2017: 1,013 of 1,027 gaps between one creature's uses 38 s or more), so most
-//! fights see it once. It is told like a basic attack without the basic-attack flag; a special that
-//! throws nothing strikes where the creature stands. A harming missile's hit also drains the
+//! fights see it once. A special costs the creature the vigor its skill names, a share of its
+//! greatest vigor less the skill's own add, and one it lacks the vigor for is not at hand (2017:
+//! the install's cost exact 251 of 332 times, nearly every miss a player's drain besides; 777 of
+//! 782 specials begun with the vigor for them). It is told like a basic attack without the
+//! basic-attack flag; a special that throws nothing strikes where the creature stands. A harming missile's hit also drains the
 //! target (an instant vital effect: its effect, then a story of the drain).
 //!
 //! **What an attack puts on.** A strike or a missile that lands puts its skill's target effects on
@@ -49,9 +52,10 @@
 //! **Heals and buffs.** At one of its turns, a creature at or below its warning level of health
 //! heals itself about one time in two; one with a buff free buffs itself by one chance a turn for
 //! how many of its buffs are free, about one time in six at its first turn of a fight and one in
-//! twelve after with one, one in four and one in six with two or more. A restore of vigor or focus
-//! is not used yet: this server's own choice (2017 used one of vigor rarely: 14 uses, by 8 creatures
-//! of 3 templates, each on itself). A protector buffs one of its kin in a fight near it, by one
+//! twelve after with one, one in four and one in six with two or more. One under its vigor warning
+//! level (two fifths of its vigor where its template names none) restores its vigor with a restore
+//! free about one time in two (2017: 14 of 28 such turns, drudges' alone); a restore of focus is
+//! not used. A protector buffs one of its kin in a fight near it, by one
 //! chance a turn for how many are near (about one in five at its first turn, one in fifty after), the kin drawn evenly,
 //! and next turn buffs that kin again a little under one time in two; a healer heals its badly hurt
 //! kin now and then. Heals on kin are otherwise not made (2017: 56 of 3,306 heals on kin, too few
@@ -376,9 +380,11 @@ pub fn pick_special<S: Store>(
         .and_then(|t| t.creature.as_ref())
         .map(|c| (c.barred.clone(), c.stats.sub_class.is_some()))
         .unwrap_or_default();
+    let vigor = s.things.get(id).map_or(0, |t| t.vigor);
     let at_hand: Vec<AttackSkill> = specials
         .iter()
         .copied()
+        .filter(|a| special_cost(s, id, a.skill) <= vigor)
         .filter(|a| distance <= a.max_range.max(crate::ai::MELEE_REACH) + SPECIAL_SLACK)
         .filter(|a| {
             !barred
@@ -400,6 +406,10 @@ pub fn pick_special<S: Store>(
     } else {
         own.iter().copied().find(|a| s.rng.chance(a.special_chance))
     }?;
+    let cost = special_cost(s, id, pick.skill);
+    if let Some(t) = s.things.get_mut(id) {
+        t.vigor = (t.vigor - cost).max(0);
+    }
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.barred
             .retain(|(k, until)| *k != pick.skill && *until > now);
@@ -408,6 +418,21 @@ pub fn pick_special<S: Store>(
         }
     }
     Some(pick)
+}
+
+/// What a special costs a creature in vigor: its skill's share of the creature's greatest vigor, in
+/// single precision and cut to a whole number, less the skill's own add (stored below nothing for a
+/// cost), nothing below nothing.
+#[must_use]
+pub fn special_cost<S: Store>(s: &Server<S>, id: u64, skill: u32) -> i32 {
+    let max = s.things.get(id).map_or(0, |t| t.max_vigor);
+    s.skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.as_ref())
+        .map_or(0, |u| {
+            crate::skill_use::vigor_cost(u, max, crate::skill_use::HeldVigor::default()).max(0)
+        })
 }
 
 /// How far beyond a special's greatest range a creature still uses it, in meters (2017: 0-5% of
@@ -882,11 +907,16 @@ pub struct HelpSkill {
     pub rating: i64,
     /// It heals (else it is a buff).
     pub heals: bool,
+    /// It restores its user's vigor, and helps no other way.
+    pub restores: bool,
 }
 
 /// The chance a creature at or below its warning level of health heals itself at one of its turns
 /// (2017: shown at or below 60%, 2,148 of 4,045 turns with the heal free).
 pub const HEAL_CHANCE: f32 = 0.53;
+/// The chance a creature under its vigor warning level restores its vigor at one of its turns, with
+/// a restore free (2017: 14 of 28 turns, drudges' alone).
+pub const RESTORE_CHANCE: f32 = 0.5;
 /// The chance a creature buffs itself at a turn, by how many of its buffs are free (one, two or
 /// more), at its first turn of a fight and at a later one; one draw for the turn, the buff drawn
 /// evenly from those free (2017, every action a turn, a fight's first after 20 s without one, the
@@ -916,9 +946,8 @@ pub const HELP_RECOVERY: f64 = 2.3;
 /// animation hook.
 pub const SELF_HOOK: u32 = 0x381;
 
-/// A creature's heals and buffs: its skills (numbered 100 and up) that help, with their effects. A
-/// restore of vigor or focus alone is none of them: this server doesn't use one yet, its own choice
-/// (2017 used one of vigor rarely: 14 uses, by 8 creatures of 3 templates, each on itself).
+/// A creature's heals, buffs and restores of vigor: its skills (numbered 100 and up) that help, with
+/// their effects. A restore of focus alone is none of them.
 #[must_use]
 pub fn helps_of(
     table: &crate::skills::SkillTable,
@@ -935,14 +964,17 @@ pub fn helps_of(
             if !d.helps || u.target_effects.is_empty() {
                 return None;
             }
-            let restores = u.target_effects.iter().all(|e| {
-                matches!(
-                    effects.get(*e).map(|d| &d.kind),
-                    Some(crate::effect_defs::Kind::InstantVital { flags, .. })
-                        if flags & crate::effect_defs::vital::HEALTH == 0
-                )
-            });
-            if restores {
+            let restores_only = |vital: u32| {
+                u.target_effects.iter().all(|e| {
+                    matches!(
+                        effects.get(*e).map(|d| &d.kind),
+                        Some(crate::effect_defs::Kind::InstantVital { flags, .. })
+                            if flags & crate::effect_defs::vital::HEALTH == 0 && flags & vital != 0
+                    )
+                })
+            };
+            let restores = restores_only(crate::effect_defs::vital::VIGOR);
+            if !restores && restores_only(crate::effect_defs::vital::FOCUS) {
                 return None;
             }
             let heals = u.target_effects.iter().any(|e| {
@@ -960,6 +992,7 @@ pub fn helps_of(
                 effects: u.target_effects.clone(),
                 rating: *rating,
                 heals,
+                restores,
             })
         })
         .collect()
@@ -1046,6 +1079,9 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
     };
     #[allow(clippy::cast_precision_loss)]
     let share = t.health as f32 / t.max_health.max(1) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let short_of_vigor =
+        t.max_vigor > 0 && (t.vigor as f32) < c.stats.vigor_warning_level * t.max_vigor as f32;
     let first = c.actions == 0;
     let warning = c.stats.warning_level;
     let protector = c.stats.sub_class == Some(PROTECTOR);
@@ -1089,7 +1125,11 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
     }
     // A protector buffs a kin of its in a fight.
     if protector {
-        let buffs: Vec<HelpSkill> = all.iter().filter(|h| !h.heals).cloned().collect();
+        let buffs: Vec<HelpSkill> = all
+            .iter()
+            .filter(|h| !h.heals && !h.restores)
+            .cloned()
+            .collect();
         if !buffs.is_empty() {
             let h = buffs[s.rng.below(buffs.len())].clone();
             let kin: Vec<u64> = kin_near(s, id, h.range)
@@ -1112,15 +1152,23 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
                 .any(|(k, until)| *k == h.skill && *until > now)
         })
         .collect();
-    let pick = if wounded {
+    // A wounded one with a heal free, or one short of vigor with a restore free, takes the turn for
+    // it by its chance; else a buff by its own.
+    let heal = if wounded {
         free.iter().find(|h| h.heals).cloned()
     } else {
         None
     };
-    let pick = match pick {
-        Some(h) => s.rng.chance(HEAL_CHANCE).then_some(h),
-        None => {
-            let buffs: Vec<&HelpSkill> = free.iter().filter(|h| !h.heals).collect();
+    let restore = if short_of_vigor {
+        free.iter().find(|h| h.restores).cloned()
+    } else {
+        None
+    };
+    let pick = match (heal, restore) {
+        (Some(h), _) => s.rng.chance(HEAL_CHANCE).then_some(h),
+        (None, Some(h)) => s.rng.chance(RESTORE_CHANCE).then_some(h),
+        (None, None) => {
+            let buffs: Vec<&HelpSkill> = free.iter().filter(|h| !h.heals && !h.restores).collect();
             if buffs.is_empty() {
                 None
             } else {

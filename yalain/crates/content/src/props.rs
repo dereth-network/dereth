@@ -388,6 +388,9 @@ pub struct CreatureStats {
     /// Health and vigor regained a second at rest.
     pub health_regen: f32,
     pub vigor_regen: f32,
+    /// The share of its greatest vigor it regains a minute in a fight (none where its template sets
+    /// none).
+    pub combat_vigor_regen: f32,
     /// The share of its greatest health it regains a minute in a fight, if its template sets one
     /// (a group monster's tenth, a big one's 0.15).
     pub combat_health_regen: Option<f32>,
@@ -436,6 +439,8 @@ pub struct CreatureStats {
     pub sub_class: Option<u32>,
     /// The share of its health at or below which it heals itself.
     pub warning_level: f32,
+    /// The share of its vigor under which it restores its vigor.
+    pub vigor_warning_level: f32,
     /// The share of an effect's slowing of its attacks that it takes (all of it when the template
     /// names none).
     pub speed_resistance: f32,
@@ -459,6 +464,7 @@ pub mod creature_property {
     pub const DEATH_FOCUS: &str = "GameplayStatistics_DeathFocus";
     pub const HEALTH_REGEN: &str = "GameplayStatistics_HealthRegenRate";
     pub const VIGOR_REGEN: &str = "GameplayStatistics_VigorRegenRate";
+    pub const COMBAT_VIGOR_REGEN: &str = "GameplayStatistics_CombatVigorRegenRate";
     pub const COMBAT_HEALTH_REGEN: &str = "GameplayStatistics_CombatHealthRegenRate";
     pub const NATURAL_DAMAGE: &str = "AICombat_NaturalDamage";
     pub const NATURAL_VARIANCE: &str = "AICombat_NaturalVariance";
@@ -489,6 +495,7 @@ pub mod creature_property {
     pub const WIELDS: &str = "AICombat_WieldImplements";
     pub const SUB_CLASS: &str = "AI_AISubClass";
     pub const WARNING_LEVEL: &str = "AI_HealthWarningLevel";
+    pub const VIGOR_WARNING_LEVEL: &str = "AI_VigorWarningLevel";
     pub const SPEED_RESISTANCE: &str = "NPC_CombatSpeedResistance";
     pub const NPC_TABLE: &str = "AI_NPCTable";
     pub const SUPER_CLASS: &str = "AI_AISuperClass";
@@ -547,6 +554,10 @@ impl Default for CorpseRot {
 /// The share of its health at or below which a creature whose template names none heals itself
 /// (every healer of 2017 that names one names 0.65).
 pub const DEFAULT_WARNING_LEVEL: f32 = 0.65;
+
+/// The share of its vigor under which a creature whose template names none restores its vigor (the
+/// client library's default).
+pub const DEFAULT_VIGOR_WARNING_LEVEL: f32 = 0.4;
 
 /// Friend tables (what a creature thinks of whom).
 pub mod friend_table {
@@ -629,6 +640,10 @@ impl CreatureStats {
             armor_threshold: p.float(k::ARMOR_THRESHOLD).filter(|t| *t > 0.0),
             health_regen: p.float(k::HEALTH_REGEN).unwrap_or(0.0),
             vigor_regen: p.float(k::VIGOR_REGEN).unwrap_or(0.0),
+            combat_vigor_regen: p
+                .float(k::COMBAT_VIGOR_REGEN)
+                .filter(|r| *r > 0.0)
+                .unwrap_or(0.0),
             combat_health_regen: p.float(k::COMBAT_HEALTH_REGEN).filter(|r| *r >= 0.0),
             attacks_first: match p.get(k::FREE_ATTACKING) {
                 Some(Prop::Bool(b)) => *b,
@@ -660,6 +675,10 @@ impl CreatureStats {
                 .float(k::WARNING_LEVEL)
                 .filter(|w| *w > 0.0)
                 .unwrap_or(DEFAULT_WARNING_LEVEL),
+            vigor_warning_level: p
+                .float(k::VIGOR_WARNING_LEVEL)
+                .filter(|w| *w > 0.0)
+                .unwrap_or(DEFAULT_VIGOR_WARNING_LEVEL),
             speed_resistance: p
                 .float(k::SPEED_RESISTANCE)
                 .filter(|r| *r >= 0.0)

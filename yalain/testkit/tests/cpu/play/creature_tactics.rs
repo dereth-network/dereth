@@ -1671,12 +1671,21 @@ fn a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free() {
     assert!(!each.contains_key(&CREATURE_ABSORB), "not the barred one");
 }
 
-/// This server's creatures don't use a restore of vigor yet, where 2017's used one rarely: here a
-/// creature holding one and a buff buffs as one with the buff alone, and one holding only the
-/// restore doesn't help itself.
-/// Behaviour: server.creatures.restores-of-vigor-not-used-yet
+/// Set a creature's greatest vigor and its vigor now.
+fn vigor(h: &mut Harness, id: u64, now: i32, most: i32) {
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.max_vigor = most;
+        t.vigor = now;
+    }
+}
+
+/// A creature under two fifths of its vigor (the warning level where its template names none) with
+/// a restore free restores itself about one time in two, the turn its restore's alone; at two fifths
+/// or above it never does, and one holding a buff besides buffs as one with the buff alone. The
+/// restore puts its vigor back.
+/// Behaviour: server.creatures.restores-its-vigor-when-short
 #[test]
-fn this_servers_creatures_do_not_yet_use_a_restore_of_vigor() {
+fn a_creature_short_of_vigor_restores_it_about_one_time_in_two() {
     let with_buff = [
         ("NPC_StartingSkill1", Prop::Word(CREATURE_ABSORB)),
         ("NPC_StartingSkill1Level", Prop::Int(20)),
@@ -1684,18 +1693,85 @@ fn this_servers_creatures_do_not_yet_use_a_restore_of_vigor() {
         ("NPC_StartingSkill2Level", Prop::Int(20)),
     ];
     let (mut h, _, _, one, _) = pair(&with_buff);
-    let (got, each) = self_turns(&mut h, one, &[], false, 20_000);
-    assert!((got - 0.084).abs() < 0.01, "as the buff alone: {got}");
-    assert!(!each.contains_key(&CREATURE_RESTORE_VIGOR), "{each:?}");
-    let alone = [
-        ("NPC_StartingSkill1", Prop::Word(CREATURE_RESTORE_VIGOR)),
-        ("NPC_StartingSkill1Level", Prop::Int(20)),
-    ];
-    let (mut h, _, _, one, _) = pair(&alone);
-    for first in [true, false] {
-        let (got, _) = self_turns(&mut h, one, &[], first, 5_000);
-        assert!(got == 0.0, "first turn {first}: {got}");
+    for at in [1000, 400] {
+        vigor(&mut h, one, at, 1000);
+        let (got, each) = self_turns(&mut h, one, &[], false, 20_000);
+        assert!(
+            (got - 0.084).abs() < 0.01,
+            "{at} of 1000: as the buff alone: {got}"
+        );
+        assert!(
+            !each.contains_key(&CREATURE_RESTORE_VIGOR),
+            "{at}: {each:?}"
+        );
     }
+    vigor(&mut h, one, 399, 1000);
+    let (got, each) = self_turns(&mut h, one, &[], false, 20_000);
+    assert!((got - 0.5).abs() < 0.02, "short of vigor: {got}");
+    assert!(
+        !each.contains_key(&CREATURE_ABSORB),
+        "its restore's turn: {each:?}"
+    );
+    // Used, its vigor comes back.
+    vigor(&mut h, one, 100, 1000);
+    let clock = h.clock();
+    let mut used = false;
+    for _ in 0..200 {
+        if missiles::helps(&mut h.server, &mut h.net, one, clock) {
+            used = true;
+            break;
+        }
+    }
+    assert!(used, "it restores itself");
+    h.run(30);
+    let after = h.server.things.get(one).map_or(0, |t| t.vigor);
+    assert!(after > 100, "its vigor back: {after}");
+}
+
+/// What a creature's special costs in vigor: its skill's share of its greatest vigor, reckoned in
+/// single precision and cut to a whole number (37,500 x 0.01 is 375), less the skill's add; one it
+/// lacks the vigor for is never used, and one used takes its cost from its vigor.
+/// Behaviour: server.creatures.specials-cost-vigor
+#[test]
+fn a_creatures_special_costs_its_vigor_and_one_it_cannot_pay_for_is_not_used() {
+    const COSTLY: u32 = 905;
+    let (mut h, _, _, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    h.server.skill_table.skills.insert(
+        COSTLY,
+        yalain_world::skills::SkillDef {
+            id: COSTLY,
+            usage: Some(yalain_world::skills::Usage {
+                vigor_mult: 0.01,
+                vigor_add: -5.0,
+                ..yalain_world::skills::Usage::default()
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    vigor(&mut h, id, 37_500, 37_500);
+    assert_eq!(missiles::special_cost(&h.server, id, COSTLY), 380);
+    let special = [AttackSkill {
+        skill: COSTLY,
+        special_chance: 0.0,
+        barred_after: false,
+        max_range: 40.0,
+        ..CREATURE_ATTACKS[3]
+    }];
+    let now = h.now.0;
+    vigor(&mut h, id, 379, 37_500);
+    let used = (0..2_000)
+        .filter(|_| missiles::pick_special(&mut h.server, id, &special, 5.0, now).is_some())
+        .count();
+    assert_eq!(used, 0, "short of its cost");
+    vigor(&mut h, id, 380, 37_500);
+    let used = (0..2_000)
+        .find(|_| missiles::pick_special(&mut h.server, id, &special, 5.0, now).is_some());
+    assert!(used.is_some(), "with its cost, it is used");
+    assert_eq!(
+        h.server.things.get(id).map(|t| t.vigor),
+        Some(0),
+        "its cost spent"
+    );
 }
 
 /// A creature that is neither a protector buffs only itself.
@@ -2872,4 +2948,107 @@ fn after_its_targets_death_a_creature_draws_the_next_player_by_nearness() {
         "one over the distance: {share}"
     );
     assert!(taken[&Some(eight)] > 0);
+}
+
+/// A creature's vigor and greatest vigor now.
+fn vigor_of(h: &Harness, id: u64) -> (i32, i32) {
+    h.server
+        .things
+        .get(id)
+        .map(|t| (t.vigor, t.max_vigor))
+        .expect("a creature")
+}
+
+/// A creature made has all its vigor; its template's combat share of vigor is the one it fights by,
+/// its peaceful one no part of it.
+/// Behaviour: server.creatures.start-with-all-their-vigor
+/// Behaviour: server.creatures.regain-vigor-in-a-fight-by-their-combat-share
+#[test]
+fn a_creature_starts_with_all_its_vigor_and_fights_by_its_combat_share() {
+    let (h, _b, _me, id) = noticed(
+        &[("GameplayStatistics_MaxVigor", Prop::Int(6000))],
+        [61.0, 240.2, -44.6],
+    );
+    assert_eq!(vigor_of(&h, id), (6000, 6000), "all of it as it is made");
+    let s = stats(&[
+        ("GameplayStatistics_CombatVigorRegenRate", Prop::Float(0.02)),
+        ("GameplayStatistics_VigorRegenRate", Prop::Float(0.5)),
+    ]);
+    assert!(
+        (s.combat_vigor_regen - 0.02).abs() < 1e-6,
+        "{}",
+        s.combat_vigor_regen
+    );
+    let s = stats(&[("GameplayStatistics_VigorRegenRate", Prop::Float(0.5))]);
+    assert!(s.combat_vigor_regen == 0.0, "none where it sets none");
+}
+
+/// In a fight a creature regains its combat share of its greatest vigor a minute in steps every ten
+/// seconds, hurt or not: 0.02 of 6,000 is 20 a step, none before the first; with no combat share it
+/// regains nothing in a fight.
+/// Behaviour: server.creatures.regain-vigor-in-a-fight-by-their-combat-share
+/// Behaviour: server.creatures.vigor-in-a-fight-comes-in-steps
+#[test]
+fn a_fighting_creature_regains_its_combat_share_of_vigor_in_steps_of_ten_seconds() {
+    for share in [0.02_f32, 0.0] {
+        let (mut h, _b, me, id) = noticed(
+            &[("GameplayStatistics_MaxVigor", Prop::Int(6000))],
+            [61.0, 240.2, -44.6],
+        );
+        hardy(&mut h, me);
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.vigor = 1000;
+            if let Some(c) = t.creature.as_mut() {
+                c.stats.combat_vigor_regen = share;
+            }
+        }
+        h.run(1);
+        let start = h.now.0;
+        h.run(steps(9.5));
+        assert_eq!(
+            vigor_of(&h, id).0,
+            1000,
+            "{share}: none before the first step"
+        );
+        h.run_to(yalain_net::LocalTime(start + 31.0));
+        assert_eq!(mode_of(&h, id), Some(Mode::Chasing), "still fighting");
+        let want = if share > 0.0 { 1060 } else { 1000 };
+        assert_eq!(vigor_of(&h, id).0, want, "{share}: three steps");
+    }
+}
+
+/// Out of a fight a creature's vigor holds until eight seconds have gone with no blow by it or on
+/// it, then is all back at once (at the next second's regaining).
+/// Behaviour: server.creatures.vigor-full-again-after-a-fight
+/// Behaviour: server.creatures.vigor-full-eight-seconds-after-the-last-blow
+#[test]
+fn a_creature_out_of_a_fight_has_all_its_vigor_again_eight_seconds_after_its_last_blow() {
+    let (mut h, _b, me, id) = noticed(
+        &[("GameplayStatistics_MaxVigor", Prop::Int(6000))],
+        [61.0, 240.2, -44.6],
+    );
+    hardy(&mut h, me);
+    let home = h
+        .server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.home)
+        .expect("a creature");
+    stand_off(&mut h, me, home, 80.0);
+    assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)));
+    let now = h.now.0;
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.vigor = 100;
+        // Hurt two seconds ago, its last blow struck now.
+        t.last_hurt = now - 2.0;
+        if let Some(c) = t.creature.as_mut() {
+            c.last_blow = now;
+        }
+    }
+    h.run_to(yalain_net::LocalTime(now + 7.5));
+    assert_eq!(vigor_of(&h, id).0, 100, "held");
+    // Regaining comes at the world's next look at it after the eight seconds.
+    h.run_to(yalain_net::LocalTime(now + 9.5));
+    assert_eq!(vigor_of(&h, id), (6000, 6000), "all of it back");
 }

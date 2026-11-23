@@ -33,6 +33,16 @@
 //! the template sets one: a group monster's tenth of its greatest a minute, a big one's 0.15 (2017:
 //! in a fight, unhurt, the big creatures whose templates set 0.15 regained a median 0.16 a minute,
 //! 8 pairs; at peace, or fighting with no rate set, creatures regained about their greatest).
+//!
+//! **A creature's vigor** is all there as it is made. In a fight it regains its template's combat
+//! share of its greatest vigor a minute (none where the template sets none), in steps every ten
+//! seconds, hurt or not (2017: with no such share, vigor rose in 20 of 3,559 pairs of readings in a
+//! fight going on, with 0.02 in 653 of 3,040; the steps a median 10.5 s apart, summed at least 1.14
+//! times the share of the greatest a minute: the amount and the steps are this server's fit). Out
+//! of a fight, with no blow by it or on it for eight seconds, it has all its vigor again at once
+//! (2017: held, then full with no step seen, a median 12 s after the last story naming it, 15.5 s
+//! with a combat share, how long the fight was or where it stood no matter; full in 24,388 of 24,388
+//! readings a minute or more after any: the delay is this server's fit).
 
 use yalain_net::ServerNet;
 use yalain_store::Store;
@@ -60,6 +70,43 @@ pub mod rate {
 /// Seconds a creature must go unhurt before it regains health, and the share a second.
 pub const CREATURE_REST: f64 = 8.0;
 pub const CREATURE_HEALTH_RATE: f64 = 1.0 / 60.0;
+/// Seconds between a creature's steps of vigor regained in a fight (2017: a median 10.5 s apart).
+pub const CREATURE_VIGOR_STEP: f64 = 10.0;
+
+/// A creature's vigor coming back: in a fight its template's combat share of its greatest a minute,
+/// in steps every [`CREATURE_VIGOR_STEP`], hurt or not; out of a fight, with no blow by it or on it
+/// for [`CREATURE_REST`], all of it at once.
+fn creature_vigor(t: &mut crate::things::Thing, now: f64) {
+    let (vigor, most, hurt, alive) = (t.vigor, t.max_vigor, t.last_hurt, t.alive());
+    let Some(c) = t.creature.as_mut() else {
+        return;
+    };
+    if !alive || vigor >= most {
+        c.next_vigor_step = f64::NEG_INFINITY;
+        return;
+    }
+    if c.mode != crate::things::Mode::Chasing {
+        c.next_vigor_step = f64::NEG_INFINITY;
+        if now - hurt.max(c.last_blow) >= CREATURE_REST {
+            t.vigor = most;
+        }
+        return;
+    }
+    if c.next_vigor_step == f64::NEG_INFINITY {
+        c.next_vigor_step = now + CREATURE_VIGOR_STEP;
+        return;
+    }
+    if now < c.next_vigor_step {
+        return;
+    }
+    c.next_vigor_step += CREATURE_VIGOR_STEP;
+    // Reckoned in single precision, as the share is held.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    let gain = dereth_primitives::num::floor_to_i32(
+        most as f32 * c.stats.combat_vigor_regen * (CREATURE_VIGOR_STEP / 60.0) as f32,
+    );
+    t.vigor = (vigor + gain.max(0)).min(most);
+}
 
 /// What a player's vitals regained in the `away` seconds since it was last kept, as it enters: for
 /// each vital a world's row names and the player holds (focus only a hero's), the row's points for
@@ -269,13 +316,17 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
     for world in drowned {
         crate::death::player_dies(s, net, world, None, clock);
     }
-    // Only a creature awake can be short of health: one asleep is whole and done regaining
-    // ([`crate::rest`]), and anything that hurts it wakes it.
+    // Only a creature awake can be short of health or vigor: one asleep is whole and done
+    // regaining ([`crate::rest`]), and anything that hurts it wakes it.
     let awake: Vec<u64> = s.things.awake().collect();
     for id in awake {
+        let pet = s.pets.is_pet(id);
         let Some(t) = s.things.get_mut(id) else {
             continue;
         };
+        if !pet {
+            creature_vigor(t, now);
+        }
         if !t.alive() || t.health >= t.max_health || now - t.last_hurt < CREATURE_REST {
             t.regen_since = 0.0;
             t.regained = 0;
