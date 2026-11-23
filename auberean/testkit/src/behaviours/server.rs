@@ -8409,6 +8409,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.holder-cleared-once-ours",
+        says: "A client is told an item in a container has no holder once: at the first take that \
+               names it, or else before the answer of a take that joins it to a stack the player \
+               holds; never again. Our fit.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOLDER-ONCE-OURS"),
+        station: "yalain-testkit::cpu::play::pack::an_item_taken_onto_a_held_stack_is_told_it_has_no_holder_before_the_answer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.inscribing-an-item",
         says: "A weapon, armor, a shield, jewelry or a tool takes an inscription and the player is \
                told it is inscribed; any other item is refused with a text.",

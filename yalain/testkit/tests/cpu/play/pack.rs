@@ -630,13 +630,24 @@ fn a_stack_kept_with_no_value_of_its_own_still_takes_new_pieces_of_a_template_it
 /// A corpse beside the player holding `n` test items, opened by it; returns the corpse and its
 /// items in order.
 fn opened_corpse(h: &mut Harness, world: ConnId, me: u64, n: usize) -> (u64, Vec<u64>) {
+    opened_corpse_of(h, world, me, TEST_ITEM, n)
+}
+
+/// A corpse of `n` items of a template beside the player, open to it.
+fn opened_corpse_of(
+    h: &mut Harness,
+    world: ConnId,
+    me: u64,
+    template: u32,
+    n: usize,
+) -> (u64, Vec<u64>) {
     let t = h.server.catalog.get(TEST_ITEM).cloned().expect("template");
     let id = h.server.things.new_id();
     let mut corpse = Thing::of(id, &t, Kind::Corpse);
     corpse.at = Some(h.server.players[&world].position);
     let items: Vec<u64> = (0..n)
         .map(|_| {
-            let item = inventory::make_item(&mut h.server, TEST_ITEM, 1, 0).expect("made");
+            let item = inventory::make_item(&mut h.server, template, 1, 0).expect("made");
             h.server.things.get_mut(item).expect("item").container = Some(id);
             item
         })
@@ -2024,4 +2035,155 @@ fn answers_item(m: &ServerMessage) -> Option<u64> {
         }
         _ => None,
     })
+}
+
+/// Where, in the order the server sent them since `from`, each message telling a client an item's
+/// holder is, with the holder it names.
+fn holders_told(h: &Harness, b: usize, from: usize, item: u64) -> Vec<(usize, u64)> {
+    h.sent_messages(b, from)
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| match m {
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && q.quality == CONTAINER =>
+            {
+                Some((i, q.value))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// An item that stacks, taken out of a corpse by taking everything onto a stack the player holds,
+/// is told to have no holder once, before its move's answer.
+/// Behaviour: server.inventory.holder-cleared-once-ours
+#[test]
+fn an_item_taken_onto_a_held_stack_is_told_it_has_no_holder_before_the_answer() {
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 3);
+    h.run(2);
+    let (corpse, items) = opened_corpse_of(&mut h, world, me, STACKING, 1);
+    let from = h.bots[b].inbox.len();
+    take_all_through(&mut h, b, me, corpse);
+    let done = sent_at(&h, b, from, |m| is_call(m, inventory::function::MOVE_DONE));
+    let told = holders_told(&h, b, from, items[0]);
+    assert_eq!(
+        told.iter().map(|x| x.1).collect::<Vec<_>>(),
+        [0],
+        "once, no holder"
+    );
+    assert!(
+        done.is_some() && Some(told[0].0) < done,
+        "{told:?} {done:?}"
+    );
+    assert!(h.server.things.get(items[0]).is_none(), "joined its stack");
+}
+
+/// An item a player takes by itself is told to have no holder as the take begins, and not again
+/// when the take is through and the item joins its stack.
+/// Behaviour: server.inventory.holder-cleared-once-ours
+#[test]
+fn an_item_told_it_has_no_holder_as_its_take_begins_is_not_told_again_as_it_joins_its_stack() {
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 3);
+    h.run(2);
+    let (_, items) = opened_corpse_of(&mut h, world, me, STACKING, 1);
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(items[0], me)],
+        8,
+    );
+    assert!(
+        sent_at(&h, b, from, |m| is_call(m, inventory::function::MOVE_DONE)).is_none(),
+        "under way"
+    );
+    let begun = holders_told(&h, b, from, items[0]);
+    assert_eq!(
+        begun.iter().map(|x| x.1).collect::<Vec<_>>(),
+        [0],
+        "as it begins"
+    );
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run(((inventory::TAKING_SECONDS + 1.0) / STEP).ceil() as usize);
+    let done = sent_at(&h, b, from, |m| is_call(m, inventory::function::MOVE_DONE));
+    assert!(h.server.things.get(items[0]).is_none(), "joined its stack");
+    assert_eq!(holders_told(&h, b, from, items[0]), begun, "not again");
+    assert!(
+        done.is_some() && Some(begun[0].0) < done,
+        "{begun:?} {done:?}"
+    );
+}
+
+/// An item told it has no holder at a take refused for want of room is not told again when a
+/// second take brings it onto its stack.
+/// Behaviour: server.inventory.holder-cleared-once-ours
+#[test]
+fn an_item_taken_a_second_time_is_not_told_again_it_has_no_holder() {
+    const FIVES: u32 = 0x4700_210C;
+    let (mut h, b, me, world) = player();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(5));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(FIVES, 0x200, props));
+    inventory::give(&mut h.server, &mut h.net, world, FIVES, 5);
+    while inventory::fits_in_pack(
+        &h.server.players[&world].play.items,
+        &inventory::SEGMENTS,
+        1,
+    ) {
+        inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    }
+    h.run(2);
+    let stack = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|x| x.template == FIVES)
+        .map(|x| x.id)
+        .expect("the stack");
+    let (corpse, items) = opened_corpse_of(&mut h, world, me, FIVES, 1);
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(items[0], me)],
+        2,
+    );
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run(((inventory::TAKING_SECONDS + 1.0) / STEP).ceil() as usize);
+    assert!(
+        h.server.things.get(items[0]).is_some(),
+        "left for want of room"
+    );
+    assert_eq!(
+        holders_told(&h, b, from, items[0]).len(),
+        1,
+        "told at the first"
+    );
+    // Room on the stack again.
+    if let Some(x) = h
+        .server
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.play.items.iter_mut().find(|x| x.id == stack))
+    {
+        x.quantity = 4;
+    }
+    if let Some(t) = h.server.things.get_mut(stack) {
+        t.quantity = 4;
+    }
+    let again = h.bots[b].inbox.len();
+    take_all_through(&mut h, b, me, corpse);
+    assert!(h.server.things.get(items[0]).is_none(), "joined its stack");
+    assert!(
+        sent_at(&h, b, again, |m| is_call(m, inventory::function::MOVE_DONE)).is_some(),
+        "answered"
+    );
+    assert!(
+        holders_told(&h, b, again, items[0]).is_empty(),
+        "not told again"
+    );
 }

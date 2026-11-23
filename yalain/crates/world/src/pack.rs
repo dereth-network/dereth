@@ -149,6 +149,9 @@ fn destroyed<S: Store>(
     if let Some(p) = s.players.get_mut(&world) {
         p.known.remove(&item);
     }
+    for p in s.players.values_mut() {
+        p.holder_cleared.remove(&item);
+    }
     let instance = holding::destroy_item(s, item, from).map_or(0, |t| t.instance);
     let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id: item,
@@ -896,6 +899,7 @@ pub fn took_all<S: Store>(
             if let Some(t) = s.things.get_mut(stack) {
                 t.quantity = total;
             }
+            inv::holder_cleared(s, net, world, item);
             quantity_shown(s, net, world, stack);
             progress::private(net, world, &move_done(&m));
             destroyed(s, net, world, item, from);

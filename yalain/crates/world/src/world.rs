@@ -122,6 +122,8 @@ pub struct Player {
     pub view_owed: bool,
     /// The objects and players its client has been told of, by id.
     pub known: BTreeMap<u64, Seen>,
+    /// The items in a container its client has been told have no holder, each told once.
+    pub holder_cleared: std::collections::BTreeSet<u64>,
     pub options: Options,
     pub qualities: Vec<u8>,
     /// The client has drawn the world.
@@ -533,6 +535,7 @@ pub fn enter<S: Store>(
         position_stream: net.new_stream(world).unwrap_or(0),
         head_stream: net.new_stream(world).unwrap_or(0),
         known: BTreeMap::new(),
+        holder_cleared: std::collections::BTreeSet::new(),
         options,
         qualities: st.qualities.clone(),
         scene_drawn: false,

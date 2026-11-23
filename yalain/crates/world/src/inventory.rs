@@ -1912,13 +1912,35 @@ pub fn take<S: Store>(
     });
     let id = p.character;
     crate::combat::to_all_seeing(s, net, id, &behave);
+    holder_cleared(s, net, world, item);
+    s.after(clock, TAKING_SECONDS, Timer::Take { world, item, from });
+}
+
+/// A player's client is told an item in a container has no holder, once: at the first take that
+/// names it, or else before the answer of a take that joins it to a stack in the pack; never again
+/// to that client (2017, takes joining a stack: 247 of 283 so, against 176 for never; the other
+/// 34, 32 of them in taking everything, told none, and no reading of their items set them apart).
+/// An item turned into money is told no second holder, the player's: 2017 told one for 327 of
+/// 5,023 such items, and nothing read of them sets those apart.
+pub(crate) fn holder_cleared<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+) {
+    if !s
+        .players
+        .get_mut(&world)
+        .is_some_and(|p| p.holder_cleared.insert(item))
+    {
+        return;
+    }
     let left = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
         object: visual(s, item),
         quality: q::CONTAINER,
         value: 0,
     });
     to_holder(s, net, world, item, &left);
-    s.after(clock, TAKING_SECONDS, Timer::Take { world, item, from });
 }
 
 /// The taking behavior is through: the item is the player's.
@@ -2093,6 +2115,7 @@ fn joined_stack<S: Store>(
     crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
     for p in s.players.values_mut() {
         p.known.remove(&item);
+        p.holder_cleared.remove(&item);
     }
     crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
