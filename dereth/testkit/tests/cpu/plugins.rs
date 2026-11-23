@@ -96,6 +96,8 @@ dereth_testkit::scenarios! {
     scenario_the_plugin_bar_shows_each_plugin_and_toggles_its_main_window => the_plugin_bar_shows_each_plugin_and_toggles_its_main_window ["plugins.ui.the-plugin-bar-shows-each-plugin-and-toggles-its-main-window"],
     scenario_a_resizable_window_takes_the_players_size_within_its_bounds => a_resizable_window_takes_the_players_size_within_its_bounds ["plugins.ui.a-resizable-window-takes-the-players-size-within-its-bounds"],
     scenario_a_node_stretches_across_its_container_unless_it_keeps_its_own_size => a_node_stretches_across_its_container_unless_it_keeps_its_own_size ["plugins.ui.a-node-stretches-across-its-container-unless-it-keeps-its-own-size"],
+    scenario_a_nodes_own_width_bounds_win_over_its_least_width => a_nodes_own_width_bounds_win_over_its_least_width ["plugins.ui.a-nodes-own-width-bounds-win-over-its-least-width"],
+    scenario_a_button_or_toggle_shows_a_game_icon_and_a_toggle_its_state => a_button_or_toggle_shows_a_game_icon_and_a_toggle_its_state ["plugins.ui.a-button-or-toggle-shows-a-game-icon-and-a-toggle-its-state"],
     scenario_growing_nodes_share_the_room_left_in_proportion_within_their_bounds => growing_nodes_share_the_room_left_in_proportion_within_their_bounds ["plugins.ui.growing-nodes-share-the-room-left-in-proportion-within-their-bounds"],
     scenario_where_nothing_says_the_last_list_or_text_box_grows => where_nothing_says_the_last_list_or_text_box_grows ["plugins.ui.where-nothing-says-the-last-list-or-text-box-grows"],
     scenario_a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits => a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits ["plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits"],
@@ -722,6 +724,16 @@ fn growing_nodes_share_the_room_left_in_proportion_within_their_bounds() {
     assert_case("ui", "layout-grow");
     assert_case("ui", "layout-bounds");
     note_asserted("plugins.ui.growing-nodes-share-the-room-left-in-proportion-within-their-bounds");
+}
+
+fn a_nodes_own_width_bounds_win_over_its_least_width() {
+    assert_case("ui", "layout-width-floor");
+    note_asserted("plugins.ui.a-nodes-own-width-bounds-win-over-its-least-width");
+}
+
+fn a_button_or_toggle_shows_a_game_icon_and_a_toggle_its_state() {
+    assert_case("ui", "icon-controls");
+    note_asserted("plugins.ui.a-button-or-toggle-shows-a-game-icon-and-a-toggle-its-state");
 }
 
 fn a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits() {

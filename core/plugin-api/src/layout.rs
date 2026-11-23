@@ -153,13 +153,15 @@ impl Span {
         }
     }
 
-    /// Kept within a least and a most, the natural between them.
+    /// Kept within a least and a most, the natural between them: a most given lowers the least
+    /// to it too, and a least given raises all three to it, winning over a most below it.
     fn bounded(mut self, least: Option<f32>, most: Option<f32>) -> Self {
-        if let Some(l) = least {
-            self.least = self.least.max(l);
-        }
         if let Some(m) = most {
             self.most = self.most.min(m);
+            self.least = self.least.min(self.most);
+        }
+        if let Some(l) = least {
+            self.least = self.least.max(l);
         }
         self.most = self.most.max(self.least);
         self.natural = self.natural.clamp(self.least, self.most);
@@ -302,6 +304,16 @@ pub fn headings(n: &UiNode) -> Vec<String> {
         .collect()
 }
 
+/// The game icon a button or toggle shows, by id, when it names one (0 is none).
+#[must_use]
+pub fn icon(n: &UiNode) -> Option<u32> {
+    n.props
+        .get("icon")
+        .and_then(Value::as_i64)
+        .and_then(|i| u32::try_from(i).ok())
+        .filter(|i| *i != 0)
+}
+
 /// Whether any of a list's rows names an icon.
 #[must_use]
 pub fn has_icons(n: &UiNode) -> bool {
@@ -430,17 +442,27 @@ fn want_node(n: &UiNode, m: &Metrics, measure: &dyn Measure, auto: &[*const UiNo
             Span::fixed(m.line),
         ),
         NodeKind::Button => {
-            let natural = hint(n, m).unwrap_or_else(|| {
-                (measure.label(n.text("text")) + 2.0 * m.button_end()).max(3.0 * m.cell)
+            let text = n.text("text");
+            let natural = hint(n, m).unwrap_or_else(|| match (icon(n), text.is_empty()) {
+                // An icon alone: a square a control high.
+                (Some(_), true) => m.control,
+                // An icon and its label: the icon's square, a gap, the label and a button's end.
+                (Some(_), false) => m.control + m.gap + measure.label(text) + m.button_end(),
+                (None, _) => (measure.label(text) + 2.0 * m.button_end()).max(3.0 * m.cell),
             });
             Want::leaf(Span::fixed(natural.ceil()), Span::fixed(m.control))
         }
-        NodeKind::Toggle => Want::leaf(
-            Span::fixed(
-                (m.check + 2.0 * m.gap + measure.text(n.text("text")) + m.cell / 2.0).ceil(),
-            ),
-            Span::fixed(m.control),
-        ),
+        NodeKind::Toggle => {
+            let text = n.text("text");
+            let natural = match (icon(n), text.is_empty()) {
+                // An icon in the check box's place: a square a control high, alone or before its
+                // text.
+                (Some(_), true) => m.control,
+                (Some(_), false) => m.control + m.gap + measure.text(text) + m.cell / 2.0,
+                (None, _) => m.check + 2.0 * m.gap + measure.text(text) + m.cell / 2.0,
+            };
+            Want::leaf(Span::fixed(natural.ceil()), Span::fixed(m.control))
+        }
         NodeKind::Meter => Want::leaf(
             Span::fixed(hint(n, m).unwrap_or(20.0 * m.cell)),
             Span::fixed((m.line * 0.9).max(12.0).ceil()),
@@ -636,8 +658,14 @@ fn want_list(n: &UiNode, m: &Metrics, measure: &dyn Measure) -> Want {
     let natural_w = (chrome + bar + columns.iter().map(|c| c.span.natural).sum::<f32>())
         .max(8.0 * m.cell)
         .ceil();
+    // At least 8 cells wide, unless the list says how narrow it may be.
+    let floor = if int(n, "min_width").is_some() {
+        0.0
+    } else {
+        8.0 * m.cell
+    };
     let least_w = (chrome + bar + columns.iter().map(|c| c.span.least).sum::<f32>())
-        .max(8.0 * m.cell)
+        .max(floor)
         .min(natural_w)
         .ceil();
     let rows_h = |shown: usize| {

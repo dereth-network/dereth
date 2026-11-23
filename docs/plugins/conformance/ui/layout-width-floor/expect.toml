@@ -1,0 +1,19 @@
+says = "A node's own width bounds win over its least width: a list no wider than its max_width (in cells) is that wide though a list is otherwise at least 8 cells wide, and one whose min_width is under 8 cells narrows to it."
+[[step]]
+after = 0
+bar = "conformance.layout-width-floor"
+[[step]]
+after = 1
+resize = "main"
+width = 20
+height = 10
+[expect]
+status = "running"
+layout = """
+window conformance.layout-width-floor main
+window #main 140x160
+  row 0,0 140x160
+    list #most 0,0 35x160 columns=25 rows=7
+    list #least 41,0 37x160 columns=27 rows=7
+    list #plain 84,0 56x160 columns=46 rows=7
+"""

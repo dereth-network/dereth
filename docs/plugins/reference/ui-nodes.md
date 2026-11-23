@@ -15,8 +15,8 @@ Every node may also have an `id`, a string unique within its window; a node that
 | [`group`](#group) | yes | `title`, `grow`, `min_width`, `max_width`, `min_height`, `max_height`, `gap`, `align`, `justify` |
 | [`separator`](#separator) | no | `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`label`](#label) | no | `text`, `color`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
-| [`button`](#button) | no | `text`, `enabled`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
-| [`toggle`](#toggle) | no | `text`, `value`, `enabled`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
+| [`button`](#button) | no | `text`, `enabled`, `icon`, `color`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
+| [`toggle`](#toggle) | no | `text`, `value`, `enabled`, `icon`, `color`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`meter`](#meter) | no | `value`, `max`, `style`, `text`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`list`](#list) | no | `columns`, `rows`, `selected`, `height`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`image`](#image) | no | `src`, `icon`, `height`, `text`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
@@ -142,6 +142,8 @@ A button; a click is a `ui.clicked` event and a player gesture.
 |---|---|
 | `text` | a string |
 | `enabled` | a boolean |
+| `icon` | a number |
+| `color` | a colour, "#RRGGBB" or a number 0xRRGGBB |
 | `width` | a whole number from 0 to 10000 |
 | `tooltip` | a string |
 | `grow` | a number from 0 to 1000 |
@@ -159,6 +161,8 @@ A box the player ticks; a change is a `ui.changed` event and a player gesture.
 | `text` | a string |
 | `value` | a boolean |
 | `enabled` | a boolean |
+| `icon` | a number |
+| `color` | a colour, "#RRGGBB" or a number 0xRRGGBB |
 | `tooltip` | a string |
 | `grow` | a number from 0 to 1000 |
 | `min_width` | a whole number from 0 to 10000 |

@@ -7,7 +7,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | profile | cases |
 |---|---|
 | [Core](#core) | 25 |
-| [UI](#ui) | 17 |
+| [UI](#ui) | 19 |
 | [Overlay](#overlay) | 9 |
 | [Nav](#nav) | 20 |
 | [Pregame](#pregame) | 3 |
@@ -56,6 +56,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`hotkeys`](../conformance/ui/hotkeys/) | A hotkey runs its plugin's command as if the player had typed it, a gesture; a hotkey whose command the plugin has not claimed (the host's own `/plugin` among them) is told to the player and runs nothing, and a hotkey with no Ctrl or Alt is refused. | the host's frames alone |
 | [`hud`](../conformance/ui/hud/) | A HUD is kept as a tree with its anchor, its nodes change like a window's, and a bad anchor, a HUD inside a window or a control in a HUD other than a button, a toggle or a list is refused. | the host's frames alone |
 | [`hud-unlock`](../conformance/ui/hud-unlock/) | While the player has the HUDs unlocked (the plugin panel's toggle, or /plugin huds unlock), a HUD's controls take no input: a press on one moves the HUD, and its plugin hears nothing; locked again, they answer. | the host's frames alone |
+| [`icon-controls`](../conformance/ui/icon-controls/) | A button or toggle that names a game icon (icon) shows it on a face a control square with no text, or in a square before its text: a strip of icon toggles is a control high and each a control wide. | the host's frames alone |
 | [`image`](../conformance/ui/image/) | An image node shows a PNG from the plugin's package, or one it fetched as an image, by name; a fetched file that is not a PNG fails, and a picture over 1024 pixels a side is not kept, from the package or fetched. | a scripted world |
 | [`inputs`](../conformance/ui/inputs/) | Text typed in an input, a slider moved and text typed in a text box reach the plugin as changes and stay on their nodes; list cells carry their own colour and icon, nodes their tooltips, and a toast shows with the plugin's name and goes when its time is up. | the host's frames alone |
 | [`layout-auto`](../conformance/ui/layout-auto/) | Where no node says grow, the last list or text box of the window, and of each tab's page, grows; what holds a growing node grows with it. | the host's frames alone |
@@ -65,6 +66,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`layout-scroll`](../conformance/ui/layout-scroll/) | A window shorter than its nodes' least height scrolls through them: they are laid out at their least height (a list at three rows), as wide as the body less the scrollbar's room. | the host's frames alone |
 | [`layout-stretch`](../conformance/ui/layout-stretch/) | Across a column every node is as wide as the column but a picture, which keeps its own size; in a row a list is as tall as the row and a button stands in its middle; a row's justify end puts the room its nodes leave before them, and a column's align center keeps its nodes at their natural width in its middle. | the host's frames alone |
 | [`layout-tabs-scroll`](../conformance/ui/layout-tabs-scroll/) | A window with tabs shorter than its page keeps its row of tabs where it is and scrolls the page alone: the body does not scroll, and the page's nodes are laid out at their least height, as wide as the page less the scrollbar's room. | the host's frames alone |
+| [`layout-width-floor`](../conformance/ui/layout-width-floor/) | A node's own width bounds win over its least width: a list no wider than its max_width (in cells) is that wide though a list is otherwise at least 8 cells wide, and one whose min_width is under 8 cells narrows to it. | the host's frames alone |
 | [`resize`](../conformance/ui/resize/) | A window declared resizable takes the size the player gives it, within the bounds it declared (cells wide, lines high), keeps it when the plugin declares the window again, and the plugin hears ui.resized. | the host's frames alone |
 
 ## Overlay

@@ -254,11 +254,20 @@ impl NodeKind {
             Self::Row | Self::Column | Self::Separator => &[],
             Self::Group => &[("title", PropType::Text)],
             Self::Label => &[("text", PropType::Text), ("color", PropType::Color), W, T],
-            Self::Button => &[("text", PropType::Text), ("enabled", PropType::Bool), W, T],
+            Self::Button => &[
+                ("text", PropType::Text),
+                ("enabled", PropType::Bool),
+                ("icon", PropType::Number),
+                ("color", PropType::Color),
+                W,
+                T,
+            ],
             Self::Toggle => &[
                 ("text", PropType::Text),
                 ("value", PropType::Bool),
                 ("enabled", PropType::Bool),
+                ("icon", PropType::Number),
+                ("color", PropType::Color),
                 T,
             ],
             Self::Meter => &[

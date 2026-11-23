@@ -362,6 +362,76 @@ fn opaque(c: u32) -> Argb {
     c | 0xFF00_0000
 }
 
+/// A button's or toggle's accent colour (`color`), when it names one.
+fn accent(n: &UiNode) -> Option<Argb> {
+    n.props
+        .get("color")
+        .and_then(|c| dereth_plugin_api::draw::color(c).ok())
+        .map(opaque)
+}
+
+/// How an icon is drawn on a toggle that is off, or on a control that is disabled: dimmed.
+pub(crate) const ICON_DIM: Argb = 0xFF60_6060;
+
+/// A button's or toggle's face showing game icon `icon` over `r`: a button's face (lit while
+/// `lit`), the icon in a square at its start (the whole face when it has no `text`), dimmed unless
+/// `bright`, and the text after it; a ring of `accent` round it, faint unless `lit`. Answers
+/// whether it was clicked.
+#[allow(clippy::too_many_arguments)] // the face, its look and its parts
+fn icon_face(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    style: &TextStyle,
+    r: Rect,
+    icon: u32,
+    text: &str,
+    on: (bool, bool, bool),
+    accent: Option<Argb>,
+) -> bool {
+    let (enabled, lit, bright) = on;
+    let k = p.scale;
+    let clicked = kit::button_lit(p, ctx, r, "", enabled, lit);
+    let square = if text.is_empty() {
+        r
+    } else {
+        Rect::new(r.x, r.y, r.h.min(r.w), r.h)
+    };
+    let side = (square.h - 6.0 * k).min(square.w - 6.0 * k).max(1.0);
+    let at = Rect::new(
+        (square.x + (square.w - side) / 2.0).floor(),
+        (square.y + (square.h - side) / 2.0).floor(),
+        side,
+        side,
+    );
+    if let Some(s) = p.art.icon(icon) {
+        let tint = if enabled && bright {
+            dereth_ui_kit::draw::WHITE
+        } else {
+            ICON_DIM
+        };
+        p.sprite(&s, at, tint);
+    }
+    if !text.is_empty() {
+        let x = square.right() + 3.0 * k;
+        let label = Rect::new(x, r.y, (r.right() - x).max(0.0), r.h);
+        let colour = if enabled {
+            ctx.colours.text()
+        } else {
+            ctx.colours.dim()
+        };
+        p.text_in(&style.colour(colour), label, Align::Left, text);
+    }
+    if let Some(c) = accent {
+        let ring = if lit {
+            c
+        } else {
+            (c & 0x00FF_FFFF) | 0x5000_0000
+        };
+        p.outline(r, (2.0 * k).max(1.0).floor(), ring);
+    }
+    clicked
+}
+
 impl PluginUi {
     #[must_use]
     pub fn new() -> Self {
@@ -1116,11 +1186,50 @@ impl PluginUi {
                 self.tip(ctx, n, id, r);
             }
             NodeKind::Button => {
-                if kit::button(p, ctx, r, n.text("text"), enabled(n)) {
+                let clicked = match layout::icon(n) {
+                    Some(icon) => icon_face(
+                        p,
+                        ctx,
+                        &style,
+                        r,
+                        icon,
+                        n.text("text"),
+                        (enabled(n), false, true),
+                        accent(n),
+                    ),
+                    None => {
+                        let clicked = kit::button(p, ctx, r, n.text("text"), enabled(n));
+                        if let Some(c) = accent(n) {
+                            p.outline(r, (2.0 * k).max(1.0).floor(), c);
+                        }
+                        clicked
+                    }
+                };
+                if clicked {
                     self.inputs.push(Input::Click {
                         plugin,
                         window,
                         node: node_name,
+                    });
+                }
+                self.tip(ctx, n, id, r);
+            }
+            NodeKind::Toggle if layout::icon(n).is_some() => {
+                // An icon in the check box's place: lit, bright and ringed in its accent while
+                // on, dimmed while off; a click turns it.
+                let on = n
+                    .props
+                    .get("value")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let icon = layout::icon(n).unwrap_or(0);
+                let face = (enabled(n), on, on);
+                if icon_face(p, ctx, &style, r, icon, n.text("text"), face, accent(n)) {
+                    self.inputs.push(Input::Toggle {
+                        plugin,
+                        window,
+                        node: node_name,
+                        value: !on,
                     });
                 }
                 self.tip(ctx, n, id, r);
@@ -1135,10 +1244,11 @@ impl PluginUi {
                 let boxr = Rect::new(r.x, r.y, check, r.h);
                 let text_x = r.x + p.art.palette().check_side * k + 6.0 * k;
                 let label = Rect::new(text_x, r.y, (r.right() - text_x).max(0.0), r.h);
-                let colour = if enabled(n) {
-                    ctx.colours.text()
-                } else {
-                    ctx.colours.dim()
+                // An accent colours the text while it is on.
+                let colour = match (enabled(n), accent(n)) {
+                    (false, _) => ctx.colours.dim(),
+                    (true, Some(c)) if on => c,
+                    (true, _) => ctx.colours.text(),
                 };
                 p.text_in(&style.colour(colour), label, Align::Left, n.text("text"));
                 if enabled(n) {

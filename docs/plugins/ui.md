@@ -74,8 +74,8 @@ it was.
 | `group` | `title`, `gap`, `align`, `justify` | yes |
 | `separator` | none | no |
 | `label` | `text`, `color` (a colour), `width` | no |
-| `button` | `text`, `enabled`, `width` | no |
-| `toggle` | `text`, `value` (boolean), `enabled` | no |
+| `button` | `text`, `enabled`, `icon` (an icon from the game's data, by id), `color` (a colour), `width` | no |
+| `toggle` | `text`, `value` (boolean), `enabled`, `icon` (an icon from the game's data, by id), `color` (a colour) | no |
 | `meter` | `value`, `max`, `style` (`neutral`, `health`, `stamina`, `mana`), `text`, `width` | no |
 | `list` | `columns` (each a heading, or `{ title, width, grow, min_width }`), `rows` (lists of cells: a string, a number, or `{ text, color, icon }`), `selected` (a row from 1, or nil), `height`, `width` | no |
 | `image` | `src`, `icon` (an icon from the game's data, by id), `text`, `width`, `height` | no |
@@ -122,6 +122,13 @@ line the host shows when the pointer rests on it.
 An `image` with an `icon` shows that icon from the game's data (`obj.icon` of an object, a spell's
 icon) instead of a picture, where the host has the game's data (`ui.icons`); a list cell's `icon`
 is drawn at its row's start.
+
+A `button` or `toggle` with an `icon` shows that icon on its face: with no `text`, the face is a
+square a control high, so a row of them makes a narrow strip of controls; with text, the icon is in
+a square at the start and the text after it. A toggle's icon stands in its check box's place: bright
+while the toggle is on and dimmed while it is off. Its `color` is an accent: an icon toggle is ringed
+in it while on and faintly while off, a plain toggle's text is drawn in it while on, and a button is
+ringed in it. A host without the game's data draws the face without the icon.
 
 **The game's own panels** (`retail_ui`, a host that draws the game's interface): a plugin hides,
 shows or moves the game's panels by name: `retail_ui.hide("radar")`,
@@ -219,22 +226,22 @@ of 7, a line of 16, a check box of 11 and a scrollbar of 8 (so a control is 22 a
 **What a node asks for.** Each node has, across and down, a **least** size it is never made
 smaller than, a **natural** size it asks for, and a **most** size (none unless it says). `width`
 (cells) and `height` (lines) set the natural size; `min_width`, `max_width` (cells) and
-`min_height`, `max_height` (lines) bound all three. A labelled control's label is its text and a
+`min_height`, `max_height` (lines) bound all three, over any least the node has of itself (a `max_width` under it lowers it; a `min_width` over a `max_width` wins). A labelled control's label is its text and a
 cell (nothing when it has no text).
 
 | node | natural width | natural height | least |
 |---|---|---|---|
 | `label` | its text and half a cell | a line | its natural size |
 | `hotkey` | its text, its key and a cell | a line | its natural size |
-| `button` | its label, in the face the host draws a button's label in, and at each end half a control and a gap; at least 3 cells | a control | its natural size |
-| `toggle` | its check box, two gaps, its text and half a cell | a control | its natural size |
+| `button` | its label, in the face the host draws a button's label in, and at each end half a control and a gap; at least 3 cells. With an `icon`: a control with no text, else a control, a gap, its label and half a control and a gap | a control | its natural size |
+| `toggle` | its check box, two gaps, its text and half a cell; with an `icon`, a control in the check box's place (and a gap and its text and half a cell, when it has text) | a control | its natural size |
 | `meter` | 20 cells | 0.9 of a line, at least 12 | its natural size |
 | `number` | its label and 14 cells | a control | its natural size |
 | `choice` | its label and its box: the longest of its options and its value (at most 40 cells), two cells and a control; at least 8 cells | a control | its natural size |
 | `input` | its label and 20 cells | a control | its natural size |
 | `slider` | its label, 20 cells for its track and 7 for its value | a control | its natural size |
 | `textbox` | 30 cells | its lines (4) and 8 | 10 cells; a line and 8 |
-| `list` | its columns (below), a cell between each two, a line and a gap where a row has an icon, its rim and a gap at each side, and a scrollbar and a gap when it has more rows than it shows; at least 8 cells | a line and 2 for its headings (when it has any), its rows (its `height`, else as many as it has, 1 to 8), and its rim above and below | its columns at their least; three rows, or fewer where it asks for fewer |
+| `list` | its columns (below), a cell between each two, a line and a gap where a row has an icon, its rim and a gap at each side, and a scrollbar and a gap when it has more rows than it shows; at least 8 cells, unless its `min_width` or `max_width` is less | a line and 2 for its headings (when it has any), its rows (its `height`, else as many as it has, 1 to 8), and its rim above and below | its columns at their least; three rows, or fewer where it asks for fewer |
 | `image` | 24 cells | 12 lines | its natural size |
 | `canvas`, `chart` | its own pixels | its own pixels | its natural size |
 | `canvas` with `fit` | its own pixels | its own pixels | a quarter of them each way, at least 16 |

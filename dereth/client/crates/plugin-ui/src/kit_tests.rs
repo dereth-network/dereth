@@ -781,3 +781,116 @@ fn a_canvas_that_fits_is_drawn_as_large_as_the_window_the_player_gives_it() {
         "made again as its room changed"
     );
 }
+
+/// The game's icons as the tests have them: every one a white square of 8 pixels.
+#[derive(Debug)]
+struct Squares;
+
+impl dereth_ui_kit::art::ArtSource for Squares {
+    fn icon(&self, _did: u32) -> Option<dereth_ui_kit::art::Image> {
+        Some(dereth_ui_kit::art::Image {
+            width: 8,
+            height: 8,
+            bgra: vec![0xFF; 8 * 8 * 4],
+        })
+    }
+    fn fresh(&self) -> Arc<dyn dereth_ui_kit::art::ArtSource> {
+        Arc::new(Squares)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// The colours the pictures drawn within `r` are drawn in, in the window `window`.
+fn pictures_in(h: &Harness, window: &str, r: Rect) -> Vec<dereth_ui_kit::draw::Argb> {
+    h.drawn()
+        .windows
+        .iter()
+        .filter(|((_, w), _, _)| w == window)
+        .flat_map(|(_, _, list)| list.quads.iter())
+        .filter(|q| {
+            q.tex.is_some()
+                && q.dst.x >= r.x
+                && q.dst.y >= r.y
+                && q.dst.right() <= r.right()
+                && q.dst.bottom() <= r.bottom()
+        })
+        .map(|q| q.colour)
+        .collect()
+}
+
+/// A button and a toggle that name a game icon show it on a face a control square, with no text;
+/// a toggle's icon is bright while it is on and dimmed while it is off, and a click turns it; the
+/// button's click reaches the plugin.
+/// Behaviour: plugins.ui.a-button-or-toggle-shows-a-game-icon-and-a-toggle-its-state
+#[test]
+fn an_icon_toggle_shows_its_state_and_turns_and_an_icon_button_is_clicked() {
+    let art = Art::empty();
+    art.set_source(Arc::new(Squares));
+    let mut h = Harness::with_art(art);
+    let toggle = |id: &str, on: bool| {
+        node("toggle")
+            .with("id", id)
+            .with("icon", 0x0600_1234_i64)
+            .with("color", "#40C0FF")
+            .with("value", on)
+    };
+    let views = [view(
+        window(
+            "strip",
+            vec![node("row").with(
+                "children",
+                vec![
+                    toggle("lit", true),
+                    toggle("unlit", false),
+                    node("button")
+                        .with("id", "go")
+                        .with("icon", 0x0600_1235_i64),
+                ],
+            )],
+        ),
+        1,
+    )];
+    h.frame(&views);
+    h.frame(&views);
+    let c = controls(&h);
+    let [lit, unlit, go] = c[..] else {
+        panic!("three controls: {c:?}");
+    };
+    for r in [lit, unlit, go] {
+        assert!((r.w - r.h).abs() < 0.5, "a control square: {r:?}");
+    }
+    assert_eq!(
+        pictures_in(&h, "strip", lit),
+        vec![dereth_ui_kit::draw::WHITE]
+    );
+    assert_eq!(
+        pictures_in(&h, "strip", unlit),
+        vec![crate::window::ICON_DIM]
+    );
+    assert_eq!(
+        pictures_in(&h, "strip", go),
+        vec![dereth_ui_kit::draw::WHITE]
+    );
+    let at = |r: Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    let (x, y) = at(unlit);
+    let toggled = |node: &str, value: bool| Input::Toggle {
+        plugin: "test.kit".into(),
+        window: "strip".into(),
+        node: node.into(),
+        value,
+    };
+    assert_eq!(h.click(&views, x, y), vec![toggled("unlit", true)]);
+    let (x, y) = at(lit);
+    assert_eq!(h.click(&views, x, y), vec![toggled("lit", false)]);
+    let (x, y) = at(go);
+    assert_eq!(
+        h.click(&views, x, y),
+        vec![Input::Click {
+            plugin: "test.kit".into(),
+            window: "strip".into(),
+            node: "go".into(),
+        }]
+    );
+}

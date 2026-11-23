@@ -1,0 +1,18 @@
+says = "A button or toggle that names a game icon (icon) shows it on a face a control square with no text, or in a square before its text: a strip of icon toggles is a control high and each a control wide."
+[[step]]
+after = 0
+bar = "conformance.icon-controls"
+[expect]
+status = "running"
+layout = """
+window conformance.icon-controls main
+window #main 116x47
+  row 0,0 116x22
+    toggle #a 0,0 22x22
+    toggle #b 24,0 22x22
+    toggle #c 48,0 22x22
+    toggle #d 72,0 22x22
+  row 0,25 116x22
+    button #go 0,0 53x22
+    toggle #e 59,0 57x22
+"""

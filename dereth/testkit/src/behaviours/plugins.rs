@@ -3504,6 +3504,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.ui.a-button-or-toggle-shows-a-game-icon-and-a-toggle-its-state",
+        says: "A `button` or `toggle` that names a game icon (`icon`) shows it, on a face a \
+               control square when it has no text and in a square before its text when it has; \
+               an icon toggle is bright and ringed in its `color` while on and dimmed while off, \
+               and a click turns it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-ICON-CONTROLS"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_button_or_toggle_shows_a_game_icon_and_a_toggle_its_state",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.ui.a-canvas-and-a-chart-draw-what-a-plugin-gives-them",
         says: "A canvas keeps a plugin's draw commands (lines, rectangles, circles, text) and takes \
                new ones, a chart keeps its series, both draw as solid fills and placed text, and a \
@@ -3594,6 +3606,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-LAYOUT-STRETCH"),
         station: "dereth-testkit::cpu::plugins::scenario_a_node_stretches_across_its_container_unless_it_keeps_its_own_size",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.ui.a-nodes-own-width-bounds-win-over-its-least-width",
+        says: "A node's own `min_width` and `max_width` bound its least, natural and most width, \
+               winning over the least it would have of itself: a list is at least 8 cells wide \
+               unless its bounds say otherwise.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-LAYOUT-WIDTH-FLOOR"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_nodes_own_width_bounds_win_over_its_least_width",
         tier: Tier::Cpu,
     },
     behaviour! {

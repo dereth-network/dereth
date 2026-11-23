@@ -485,3 +485,27 @@ fn a_canvas_that_fits_takes_the_room_left_and_draws_its_pixels_as_large_as_fit()
         (1.0, (0.0, 0.0))
     );
 }
+
+/// A list's own width bounds win over the 8 cells it is otherwise at least: no wider than 5 cells,
+/// it is 5 cells at its least, natural and most; as narrow as 5 cells, its least is 5 cells.
+/// Behaviour: plugins.ui.a-nodes-own-width-bounds-win-over-its-least-width
+#[test]
+fn a_lists_own_width_bounds_win_over_its_least_width() {
+    let m = Metrics::reference();
+    let list = |k: &str| {
+        window(vec![node("list")
+            .with("columns", Value::List(vec![Value::from("A")]))
+            .with("rows", rows(0, "r"))
+            .with("height", 2_i64)
+            .with(k, 5_i64)])
+    };
+    let width_of = |t: &UiNode| {
+        let w = want(&t.children[0], &m, &Cells(m.cell));
+        (w.w.least, w.w.natural, w.w.most)
+    };
+    assert_eq!(width_of(&list("max_width")), (35.0, 35.0, 35.0));
+    let (least, natural, _) = width_of(&list("min_width"));
+    assert_eq!((least, natural), (35.0, 56.0));
+    let (least, ..) = width_of(&list("height"));
+    assert_eq!(least, 56.0, "without bounds, at least 8 cells");
+}
