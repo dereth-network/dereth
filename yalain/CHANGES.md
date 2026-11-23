@@ -29,6 +29,7 @@ what they see, not how it was done.
 - A fall that hurts now says how much: "You suffer 18 impact damage!"
 - Outdoors you now have your region's chat channel, as in retail.
 - Creatures finish an idle before attacking, and drudges sometimes pause before charging.
+- Fixed a rank lost when a vassal broke away being announced again at login.
 
 ## 0.7.0 (2026-11-21)
 - Examining a mine shows what it requires, and an architect its building project.

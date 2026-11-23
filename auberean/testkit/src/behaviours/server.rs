@@ -597,6 +597,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.a-rank-a-break-changes-in-the-world-is-not-told-again",
+        says: "A rank that falls at a break while its member is in the world is told no line, and \
+               the member is not told of it as it next enters, nor is any other member in the \
+               world whose rank the break changed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-BREAK-RANK-SEEN"),
+        station: "yalain-testkit::cpu::play::allegiance::a_rank_fallen_at_a_break_while_in_the_world_is_not_told_at_the_next_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.a-rank-changed-while-away-told-at-entry",
         says: "A member whose rank rose while it was away is told \"Your rank has increased!\" as \
                it enters, and one whose rank fell \"Your rank has decreased.\", each with its new \

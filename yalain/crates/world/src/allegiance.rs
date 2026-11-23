@@ -47,7 +47,8 @@
 //! **Breaking** with a patron, or a patron with a vassal: each told who broke with whom ("You have
 //! broken your allegiance to your patron %s.", "Your vassal %s has broken allegiance with you.";
 //! "You have broken allegiance with your vassal %s.", "Your patron %s has broken allegiance with
-//! you."), the profile as it now stands, the monarch gone from the player's object.
+//! you."), the profile as it now stands, the monarch gone from the player's object. A rank the
+//! break changes for a member in the world is told no line, and is not told again as it enters.
 //!
 //! **Ranks**: a member with no vassals is of rank 1; one with vassals is of its highest vassal's
 //! rank, one more when two or more vassals hold it, ten at most. A rank's title is by species,
@@ -1715,6 +1716,15 @@ pub fn break_with<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     };
     let (pname, vname) = (facts(s, patron).name, facts(s, vassal).name);
     unlink(s, vassal);
+    // Those in the world keep their ranks as the break leaves them, as ranks they were told:
+    // only a change while away is told at an entry.
+    for (id, rank) in s.allegiances.ranks() {
+        if world_of(s, id).is_some() {
+            if let Some(n) = s.allegiances.nodes.get_mut(&id) {
+                n.rank_seen = rank;
+            }
+        }
+    }
     keep(s);
     if let Some(vw) = world_of(s, vassal) {
         let told = if vassal == me {

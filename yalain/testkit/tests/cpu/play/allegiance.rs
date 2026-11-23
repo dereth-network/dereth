@@ -1062,3 +1062,71 @@ fn a_rank_changed_and_experience_earned_while_away_are_sent_before_the_profile_a
         }
     }
 }
+
+/// A patron and its vassal in the world whose ranks fall as the vassal's own vassal breaks with it
+/// are told no rank then, nor as they next enter.
+/// Behaviour: server.allegiance.a-rank-a-break-changes-in-the-world-is-not-told-again
+#[test]
+fn a_rank_fallen_at_a_break_while_in_the_world_is_not_told_at_the_next_entry() {
+    let (mut h, a, b) = two();
+    let (va, vid) = a;
+    let (pa, pid) = b;
+    let first = h.player_in_world("three", "Firstvassal");
+    let second = h.player_in_world("four", "Secondvassal");
+    sworn(&mut h, a, b);
+    // A level of two vassals.
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == vid)
+        .expect("in the world");
+    yalain_world::quals::set_int(&mut p.qualities, 302, 4);
+    sworn(&mut h, first, a);
+    sworn(&mut h, second, a);
+    assert_eq!(
+        (
+            h.server.allegiances.rank(pid),
+            h.server.allegiances.rank(vid)
+        ),
+        (2, 2),
+        "two vassals of a rank under the vassal"
+    );
+    let rank_lines = |h: &Harness, x: usize, from: usize| -> Vec<(u32, u32)> {
+        h.texts(x, from)
+            .into_iter()
+            .filter(|(_, t)| [text::RANK_UP.0, text::RANK_DOWN.0].contains(t))
+            .collect()
+    };
+    let (fp, fv) = (h.bots[pa].inbox.len(), h.bots[va].inbox.len());
+    h.ask(second.0, function::BREAK, &[Arg::LongInt(vid)], 10);
+    assert_eq!(
+        (
+            h.server.allegiances.rank(pid),
+            h.server.allegiances.rank(vid)
+        ),
+        (1, 1),
+        "both fell"
+    );
+    assert_eq!(
+        rank_lines(&h, pa, fp),
+        vec![],
+        "the patron told nothing at the break"
+    );
+    assert_eq!(
+        rank_lines(&h, va, fv),
+        vec![],
+        "the vassal told nothing at the break"
+    );
+    for (x, id, account) in [(pa, pid, "two"), (va, vid, "one")] {
+        logged_off(&mut h, x, id);
+        let from = h.bots[x].inbox.len();
+        h.enter_world(x, account, id);
+        h.run(5);
+        assert_eq!(
+            rank_lines(&h, x, from),
+            vec![],
+            "{account}: nothing told again"
+        );
+    }
+}
