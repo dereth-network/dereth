@@ -353,7 +353,12 @@ mod imp {
             scene.set_remaster_look_file(self.look_file.clone());
             #[cfg(feature = "remaster")]
             // Each picture names the folder of the pack it came from, if any.
-            scene.set_remaster_pack(self.art_pack.clone(), None);
+            scene.set_remaster_pack(
+                self.art_pack
+                    .as_ref()
+                    .map(|p| crate::art_pack::ArtPack::for_store(p, store)),
+                None,
+            );
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is

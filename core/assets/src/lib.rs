@@ -41,6 +41,7 @@ pub mod error;
 /// The escape pass every string-table row goes through before it is shown. Here, beside
 /// [`ui::StringTable`], so the UI and the headless client unescape a row the same way.
 pub mod escape;
+pub mod fingerprint;
 pub mod geometry;
 pub mod hook;
 pub mod material;

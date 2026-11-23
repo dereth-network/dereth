@@ -131,8 +131,8 @@ pub(crate) struct PackAssets {
     folder: Option<PathBuf>,
     /// Each model's place in the pack, by the retail object it stands for.
     by_id: HashMap<u32, u32>,
-    /// Each material's place in the pack, by the retail picture it stands for.
-    by_texture: HashMap<u32, u32>,
+    /// The places in the pack of the materials for each retail picture, in the pack's order.
+    by_texture: HashMap<u32, Vec<u32>>,
     /// Each model's levels drawn into the view, by their place among its levels.
     view_levels: Vec<Vec<usize>>,
     /// The cut-out pictures made again, by their place in the pack: made on a thread of their own
@@ -188,12 +188,12 @@ impl PackAssets {
             .zip(0u32..)
             .map(|(m, i)| (m.id.0, i))
             .collect();
-        let by_texture = pack
-            .materials
-            .iter()
-            .zip(0u32..)
-            .flat_map(|(m, i)| m.textures.iter().map(move |t| (t.0, i)))
-            .collect();
+        let mut by_texture: HashMap<u32, Vec<u32>> = HashMap::new();
+        for (m, i) in pack.materials.iter().zip(0u32..) {
+            for t in &m.textures {
+                by_texture.entry(t.0).or_default().push(i);
+            }
+        }
         let view_levels = pack
             .models
             .iter()
@@ -728,13 +728,31 @@ impl PackAssets {
         }
     }
 
-    /// The picture the pack draws in place of the retail picture (texture record) `texture`,
-    /// when it has a material for it; the material's normal picture (bent already by its
-    /// strength); and its roughness and occlusion, in glTF's layout ([`orm_of_surface`]).
-    pub(crate) fn material_picture(&self, texture: u32) -> Option<(TextureKey, MaterialMaps)> {
-        let i = self.by_texture.get(&texture)?;
+    /// The pack's material for the retail picture (texture record) `texture` drawn in the
+    /// palettes `palettes`: the first that names one of them, else the first that names none.
+    /// Its picture, which is none where it keeps the retail picture; its normal picture (bent
+    /// already by its strength); and its roughness and occlusion, in glTF's layout
+    /// ([`orm_of_surface`]).
+    pub(crate) fn material_picture(
+        &self,
+        texture: u32,
+        palettes: &[u32],
+    ) -> Option<(Option<TextureKey>, MaterialMaps)> {
+        let of = self.by_texture.get(&texture)?;
+        let named = |i: &&u32| {
+            self.pack.materials[**i as usize]
+                .palettes
+                .iter()
+                .any(|p| palettes.contains(&p.0))
+        };
+        let plain = |i: &&u32| self.pack.materials[**i as usize].palettes.is_empty();
+        let i = *of.iter().find(named).or_else(|| of.iter().find(plain))?;
+        let albedo = self.pack.materials[i as usize]
+            .albedo
+            .is_some()
+            .then(|| picture_key(MATERIAL_PICTURES + i));
         Some((
-            picture_key(MATERIAL_PICTURES + i),
+            albedo,
             MaterialMaps {
                 normal: Some(picture_key(MATERIAL_NORMALS + i)),
                 orm: Some(picture_key(MATERIAL_SURFACES + i)),
@@ -962,7 +980,7 @@ impl PackAssets {
         }
         if k >= MATERIAL_PICTURES {
             let m = self.pack.materials.get((k - MATERIAL_PICTURES) as usize)?;
-            return texture_of(&m.albedo);
+            return texture_of(m.albedo.as_ref()?);
         }
         let made = self.pack.images.get(k as usize)?;
         let source = self.pack.image_sources.get(k as usize);
@@ -1148,15 +1166,30 @@ fn texture_of(image: &Image) -> Option<TextureData> {
 
 /// A pack's surface picture (the roughness in red and the occlusion in green, as the pack's
 /// loader makes a material's or a ground's) in glTF's layout: the occlusion in red, the roughness
-/// in green, and no metalness in blue. A block picture holds the two parts as two blocks of eight
-/// bytes, red's first, so swapping them swaps the parts exactly; blue reads as nothing.
+/// in green, and no metalness in blue. A BC5 picture holds the two parts as two blocks of eight
+/// bytes, red's first, so swapping them swaps the parts exactly; blue reads as nothing. A BC7
+/// picture (a material's, which holds its height and dampness in blue and alpha as well) is
+/// read and its two parts written again as BC5.
 pub(crate) fn orm_of_surface(surface: &Image) -> Image {
+    let format = match surface.format {
+        Some(BlockFormat::Bc7) => Some(BlockFormat::Bc5),
+        f => f,
+    };
     let levels = surface
         .levels
         .iter()
-        .map(|l| {
+        .enumerate()
+        .map(|(k, l)| {
             let mut l = l.as_ref().clone();
             match surface.format {
+                Some(BlockFormat::Bc7) => {
+                    let (w, h) = ((surface.width >> k).max(1), (surface.height >> k).max(1));
+                    let mut rgba = dereth_render::block_codec::decode(BlockFormat::Bc7, w, h, &l);
+                    for t in rgba.as_chunks_mut::<4>().0 {
+                        *t = [t[1], t[0], 0, 255];
+                    }
+                    l = dereth_render::block_codec::encode(BlockFormat::Bc5, w, h, &rgba);
+                }
                 Some(BlockFormat::Bc5) => {
                     for block in l.as_chunks_mut::<16>().0 {
                         let (red, green) = block.split_at_mut(8);
@@ -1175,6 +1208,7 @@ pub(crate) fn orm_of_surface(surface: &Image) -> Image {
         .collect();
     Image {
         levels,
+        format,
         ..surface.clone()
     }
 }
@@ -1507,6 +1541,8 @@ mod tests {
                 shadows_only: false,
             }],
             bounds: ([0.0, 0.0, 5.0], 6.0),
+            fingerprint: None,
+            draws_on: dereth_assets::art_pack::DrawsOn::Matching,
             credit: dereth_assets::art_pack::Credit::default(),
         };
         // Green, kept on its left half and cut away on its right.
@@ -1835,6 +1871,18 @@ detail_strength = 0
         let blocks = images::compressed(plain.clone(), BlockFormat::Bc5);
         assert_eq!(blocks.format, Some(BlockFormat::Bc5));
         let before = dereth_render::block_codec::decode(BlockFormat::Bc5, 4, 4, &blocks.levels[0]);
+        // A material's surface: BC7, its height and dampness in blue and alpha, turned to BC5.
+        let full = images::compressed(plain.clone(), BlockFormat::Bc7);
+        let held = dereth_render::block_codec::decode(BlockFormat::Bc7, 4, 4, &full.levels[0]);
+        assert_eq!(orm_of_surface(&full).format, Some(BlockFormat::Bc5));
+        let turned = orm_of_surface(&full);
+        let back = dereth_render::block_codec::decode(BlockFormat::Bc5, 4, 4, &turned.levels[0]);
+        for (t, s) in back.as_chunks::<4>().0.iter().zip(held.as_chunks::<4>().0) {
+            assert!(
+                t[0].abs_diff(s[1]) <= 6 && t[1].abs_diff(s[0]) <= 6,
+                "{t:?} {s:?}"
+            );
+        }
         for (image, surface) in [
             (orm_of_surface(&plain), rgba),
             (orm_of_surface(&blocks), before),
@@ -2160,5 +2208,75 @@ detail_strength = 0
                 None
             );
         }
+    }
+
+    /// The material for a picture drawn in a palette one material names is that one; in any other
+    /// palette, the one that names none. One that keeps the retail picture gives no picture of its
+    /// own.
+    #[test]
+    fn a_picture_takes_the_material_named_for_its_palette() {
+        let block = Image {
+            width: 4,
+            height: 4,
+            srgb: false,
+            levels: vec![Arc::new(vec![0; 16])],
+            format: Some(BlockFormat::Bc7),
+        };
+        let material = |palettes: &[u32], albedo: bool| crate::art_pack::TextureMaterial {
+            textures: vec![dereth_primitives::DataId(0x0500_1310)],
+            albedo: albedo.then(|| block.clone()),
+            normal: block.clone(),
+            surface: block.clone(),
+            fingerprints: vec![None],
+            draws_on: dereth_assets::art_pack::DrawsOn::Matching,
+            palettes: palettes
+                .iter()
+                .map(|&p| dereth_primitives::DataId(p))
+                .collect(),
+            credit: dereth_assets::art_pack::Credit::default(),
+        };
+        let pack = ArtPack {
+            name: "Palettes".into(),
+            serial: 0,
+            hash: String::new(),
+            models: Vec::new(),
+            skins: Vec::new(),
+            keep: std::collections::BTreeSet::new(),
+            keep_launchers: false,
+            images: Vec::new(),
+            image_sources: Vec::new(),
+            grounds: Vec::new(),
+            materials: vec![
+                material(&[0x0400_0BA1], false),
+                material(&[], true),
+                material(&[0x0400_0BA5], false),
+            ],
+            covers: Vec::new(),
+            problems: Vec::new(),
+            lighting: None,
+        };
+        let assets = PackAssets::new(Arc::new(pack), None);
+        let chosen = |palettes: &[u32]| {
+            assets
+                .material_picture(0x0500_1310, palettes)
+                .map(|(own, maps)| (own.is_some(), maps.normal))
+        };
+        assert_eq!(
+            chosen(&[0x0400_0BA5]),
+            Some((false, Some(picture_key(MATERIAL_NORMALS + 2))))
+        );
+        assert_eq!(
+            chosen(&[0x0400_0BA1]),
+            Some((false, Some(picture_key(MATERIAL_NORMALS))))
+        );
+        assert_eq!(
+            chosen(&[0x0400_0001]),
+            Some((true, Some(picture_key(MATERIAL_NORMALS + 1))))
+        );
+        assert_eq!(
+            chosen(&[]),
+            Some((true, Some(picture_key(MATERIAL_NORMALS + 1))))
+        );
+        assert!(assets.material_picture(0x0500_0001, &[]).is_none());
     }
 }
