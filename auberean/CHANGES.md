@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.12 (2026-11-23)
 - macOS: fixed arrow keys typing odd characters into text fields.
 - Home, End and the page keys now move the cursor in text fields.
 
