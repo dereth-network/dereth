@@ -1647,10 +1647,10 @@ fn killer_name<S: Store>(s: &Server<S>, killer: Option<u64>) -> TextInfo {
     )
 }
 
-/// A player dies: in one tick a craft under way cut short, its death message (the last attacker's
-/// name), and for everyone who sees it, it is dead, wounded, its killer announced, unselectable,
-/// stopped if a movement order still held, in a death pose, playing its death; a creature that
-/// killed it may play its victory. Its corpse is made ten seconds later.
+/// A player dies: in one tick a craft under way cut short; for everyone who sees it, it is dead and
+/// wounded; its death message (the last attacker's name); then for everyone who sees it, its killer
+/// announced, unselectable, stopped if a movement order still held, in a death pose, playing its
+/// death; a creature that killed it may play its victory. Its corpse is made ten seconds later.
 pub fn player_dies<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1671,12 +1671,36 @@ pub fn player_dies<S: Store>(
         .is_some_and(|k| k != me && crate::social::world_of(s, k).is_some());
     crate::pk_points::died(s, world, by_player, clock.local.0);
     crate::places::walk_cut_short(s, net, world);
-    crate::fellowship::died(s, net, me);
     // Its quests that fail when it dies fail first (2017: in the death's tick, before its
     // message).
     crate::quests::died(s, net, world, clock);
     // A craft under way is cut short before the message (2017: 1 of 1).
     crate::craft::interrupt(s, net, world);
+    // Dead and wounded before its message, who killed it after (2017, by the order sent, 220
+    // deaths: the dead flag before the message 211 of 211, the wounded look 219 of 219; who killed
+    // it, unselectable, the pose's slider and the death after it, each 219 or 220 of as many). Its
+    // fellows are told it died after its dead flag: it itself before its wounded look, the others
+    // after (2017: after the flag 392 of 392; its own before its look 130 of 130, the others'
+    // after 262 of 262).
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let dead = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: player_stamp(p),
+        quality: q::DEAD,
+        value: 1,
+    });
+    let wounded = ServerMessage::DoFx(ObjectEvent {
+        sender: player_stamp(p),
+        action: auberean_protocol::physics::Fx {
+            fx: look::WOUNDED,
+            scalar: 1.0,
+        },
+    });
+    to_all_seeing(s, net, me, &dead);
+    crate::fellowship::died_told_itself(s, net, me);
+    to_all_seeing(s, net, me, &wounded);
+    crate::fellowship::died_told_others(s, net, me);
     let name = killer_name(s, killer);
     let said = session::call(
         player_fn::DEATH_MESSAGE,
@@ -1718,18 +1742,6 @@ pub fn player_dies<S: Store>(
         corpse: None,
     });
     let id = p.character;
-    let dead = ServerMessage::UpdateBoolVisual(VisualQuality {
-        object: player_stamp(p),
-        quality: q::DEAD,
-        value: 1,
-    });
-    let wounded = ServerMessage::DoFx(ObjectEvent {
-        sender: player_stamp(p),
-        action: auberean_protocol::physics::Fx {
-            fx: look::WOUNDED,
-            scalar: 1.0,
-        },
-    });
     let who = ServerMessage::VisualObjectCall(ObjectCall {
         object: player_stamp(p),
         call: ClientCall {
@@ -1777,7 +1789,7 @@ pub fn player_dies<S: Store>(
         sender: player_stamp(p),
         action: b,
     });
-    let tick = [dead, wounded, who, unselectable]
+    let tick = [who, unselectable]
         .into_iter()
         .chain(stop)
         .chain([slide, behave]);

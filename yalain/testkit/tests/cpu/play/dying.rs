@@ -126,6 +126,58 @@ fn a_player_killed_by_a_creature_dies_and_its_corpse_is_made_ten_seconds_later()
     assert_eq!(corpse.weenie.objects[3], me, "the player's corpse");
 }
 
+/// A player killed by a creature is told its death tick in 2017's order, as the server sends it:
+/// dead, wounded, its death message, its killer announced, unselectable, its pose, its death.
+/// Behaviour: server.death.player-dies-dead-before-its-message
+#[test]
+fn a_players_death_tick_is_dead_wounded_message_killer_unselectable_pose_death() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    run_to_death(&mut h, b, from);
+    let tick: Vec<&str> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateBoolVisual(q)
+                if q.object.id == me && q.quality == DEAD && q.value == 1 =>
+            {
+                Some("dead")
+            }
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == 0x4100_0002 => {
+                Some("wounded")
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == DEATH_MESSAGE => Some("message"),
+            ServerMessage::VisualObjectCall(c)
+                if c.object.id == me && c.call.function.0 == WHO_KILLED =>
+            {
+                Some("killer")
+            }
+            ServerMessage::UpdateBoolVisual(q)
+                if q.object.id == me && q.quality == SELECTABLE && q.value == 0 =>
+            {
+                Some("unselectable")
+            }
+            ServerMessage::MoveSlider(e) if e.sender.id == me => Some("pose"),
+            ServerMessage::PlayBehavior(e) if e.sender.id == me => Some("death"),
+            _ => None,
+        })
+        .collect();
+    let at = tick.iter().position(|t| *t == "dead").expect("dead");
+    assert_eq!(
+        tick[at..at + 7],
+        [
+            "dead",
+            "wounded",
+            "message",
+            "killer",
+            "unselectable",
+            "pose",
+            "death"
+        ]
+    );
+}
+
 /// The player's own death tick as its client takes it, from its death message, in the order of
 /// the visual stamps: unselectable, a movement order (its flags and stamp), the pose, the death
 /// behavior.
@@ -1716,4 +1768,82 @@ fn a_player_killed_while_attacking_is_told_its_death_before_its_attack_ends() {
         ]
     );
     assert!(h.server.players[&world].attacking.is_none(), "no run");
+}
+
+/// A player dying in a fellowship: in the order sent, it is told dead, then that it died (a notice
+/// of its own), then wounded, then its death message; a fellow beside it sees it dead, then
+/// wounded, then is told it died.
+/// Behaviour: server.death.player-dies-dead-before-its-message
+#[test]
+fn a_dying_fellows_notice_comes_after_its_dead_flag() {
+    use yalain_world::fellowship::{text, Fellow, Fellowship, Vitals};
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let (c, other) = h.player_in_world("two", "Bram");
+    scene_drawn(&mut h, c);
+    h.run(5);
+    h.server.fellowships.list.push(Fellowship {
+        name: "The Band".into(),
+        leader: me,
+        flags: 0x1,
+        room: 1,
+        fellows: [me, other]
+            .iter()
+            .map(|id| Fellow {
+                id: *id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::MAX,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    let (fb, fc) = (h.bots[b].inbox.len(), h.bots[c].inbox.len());
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(w, _)| w)
+        .expect("in the world");
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(3);
+    let told = |bot: usize, from: usize| -> Vec<&'static str> {
+        h.sent_messages(bot, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateBoolVisual(q)
+                    if q.object.id == me && q.quality == DEAD && q.value == 1 =>
+                {
+                    Some("dead")
+                }
+                ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == 0x4100_0002 => {
+                    Some("wounded")
+                }
+                ServerMessage::PlayerCall(c) if c.function.0 == DEATH_MESSAGE => Some("message"),
+                ServerMessage::PlayerCall(c)
+                    if c.args
+                        .as_ref()
+                        .and_then(|a| calls::values(&a.0).ok())
+                        .is_some_and(|v| {
+                            v.iter().any(|x| {
+                                matches!(x.root(), Some(yalain_world::calls::Node::TextInfo(t))
+                                    if t.string_id == text::FELLOW_DIED.0)
+                            })
+                        }) =>
+                {
+                    Some("notice")
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        told(b, fb),
+        ["dead", "notice", "wounded", "message"],
+        "the dying player"
+    );
+    assert_eq!(told(c, fc), ["dead", "wounded", "notice"], "its fellow");
 }

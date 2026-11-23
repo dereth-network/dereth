@@ -930,15 +930,29 @@ pub fn disband<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
     }
 }
 
-/// A fellow has died: every fellow is told, the dead one too, as a notice of its own (2017: a
-/// player seen in a fellowship was told so at each of its 131 deaths, before its death message;
-/// the 333 lines of other fellows' deaths were notices).
-pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+/// A fellow has died: the dead one is told, as a notice of its own (2017: a player seen in a
+/// fellowship was told so at each of its 131 deaths, before its death message).
+pub fn died_told_itself<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    told_died(s, net, id, true);
+}
+
+/// A fellow has died: every other fellow is told (2017: the 333 lines of other fellows' deaths were
+/// notices).
+pub fn died_told_others<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    told_died(s, net, id, false);
+}
+
+fn told_died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, itself: bool) {
     let Some(i) = s.fellowships.of(id) else {
         return;
     };
     let name = fellow_name(s, id);
-    let fellows: Vec<u64> = s.fellowships.list[i].fellows.iter().map(|x| x.id).collect();
+    let fellows: Vec<u64> = s.fellowships.list[i]
+        .fellows
+        .iter()
+        .map(|x| x.id)
+        .filter(|o| (*o == id) == itself)
+        .collect();
     for o in fellows {
         let kind = if o == id {
             social::NOTICE_OF_ONESELF

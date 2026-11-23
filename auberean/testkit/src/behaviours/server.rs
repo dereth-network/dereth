@@ -5083,13 +5083,23 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.death.player-dies",
-        says: "A player killed by a creature: in one tick its death message and, for all who see \
-               it, dead, its killer announced, unselectable, posed, playing its death; ten \
-               seconds later its client is told it is dead and an empty corpse that looks like \
-               it is made where it fell.",
+        says: "A player killed by a creature: in one tick, for all who see it, dead and wounded, \
+               then its death message, then its killer announced, unselectable, posed, playing its \
+               death; ten seconds later its client is told it is dead and an empty corpse that \
+               looks like it is made where it fell.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-DEATH"),
         station: "yalain-testkit::cpu::play::dying::a_player_killed_by_a_creature_dies_and_its_corpse_is_made_ten_seconds_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.player-dies-dead-before-its-message",
+        says: "A player's death tick goes, in the order sent: dead, wounded, its death message, its \
+               killer announced, unselectable, its pose, its death. In a fellowship it is told it \
+               died after its dead flag and before its wounded look, its fellows after the look.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-DEATH-TICK"),
+        station: "yalain-testkit::cpu::play::dying::a_players_death_tick_is_dead_wounded_message_killer_unselectable_pose_death",
         tier: Tier::Cpu,
     },
     behaviour! {

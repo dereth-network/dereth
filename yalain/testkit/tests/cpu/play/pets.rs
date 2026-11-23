@@ -1152,8 +1152,8 @@ fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
     assert_eq!(h.server.things.get(beetle).map(|t| t.last_hurt), hurt);
 }
 
-/// An owner's death takes its pets in its death tick, in the order sent: the owner told dead, its
-/// death message and who killed it, then each pet told dead, its death played, and off the list.
+/// An owner's death takes its pets in its death tick, in the order sent: the owner told dead, then
+/// its death message and who killed it, then each pet told dead, its death played, and off the list.
 /// Behaviour: server.pets.die-with-their-owner
 /// Behaviour: server.pets.falls-then-leaves-the-list
 #[test]
@@ -1180,7 +1180,7 @@ fn an_owners_death_takes_its_pets() {
     let (dead, death, removed) = fell_then_removed(&h, b, from, pet);
     assert!(
         owner_dead.is_some()
-            && message.is_some()
+            && owner_dead < message
             && message < who
             && owner_dead < who
             && who < dead
