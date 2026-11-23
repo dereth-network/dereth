@@ -10,6 +10,7 @@
 
 mod blended;
 mod instances;
+mod sky_veil;
 mod sway;
 mod trees;
 

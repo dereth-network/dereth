@@ -190,6 +190,36 @@ key points, not a curve.
 Those two sentinel values are the easiest thing on this page to get wrong, and both produce a sky that
 looks subtly wrong rather than obviously broken.
 
+### 5.4 A world's sky tints (`0x13000001`, this client's own)
+
+No retail file holds this record. A world's overlay may carry it beside the region, and Dereth
+colors the world's sky by it in both looks; a world without it draws its sky as the region alone
+says, and a client that does not read it keeps it unread. It gives each sky object a color at
+each time of day, which the region's replacements have no field for. All values are
+little-endian.
+
+| size | field | meaning |
+|---:|---|---|
+| 4 | id | `0x13000001`. |
+| 4 | version | 1. |
+| 4 | days | One for each of the region's day groups, in their order. |
+
+Then each day:
+
+| size | field | meaning |
+|---:|---|---|
+| 4 | times | One for each of the day group's times of day, in their order. |
+| 4 | objects | The day group's count of sky objects. |
+| times x (4 + 4 x objects) | rows | Each time's veil, a float, then each object's tint, `0xAARRGGBB`. |
+
+- A tint's color multiplies the object's drawn color, and its alpha the object's opacity: white,
+  `0xFFFFFFFF`, leaves the object as the region draws it.
+- The veil is the share, 0 to 1, of the time's fog color laid over the whole sky once the objects
+  drawn before the land are drawn. The classic look draws it; the remaster draws its own air.
+- Both are carried straight across between two times of day, each channel on its own, as the
+  time of day's other values are.
+- A day whose counts are not its day group's is not used: that day's sky is drawn untinted.
+
 ## 6. Ambient sound and scene tables
 
 The sound block is a count and that many entries, each a [sound table](21-sound-tables.md) id, a

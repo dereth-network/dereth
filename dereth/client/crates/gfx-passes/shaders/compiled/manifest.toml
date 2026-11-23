@@ -11,7 +11,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 
 [sources]
 "ao.slang" = "679e2095efc49c53db1553ab14c3ce87c2c097f2a2126ecb1c8b6a4e2712a88f"
-"atmosphere.slang" = "c65ff5ef2e28b74d8b01db53e73f0eeaf1354f86846f01ed559285e15567f324"
+"atmosphere.slang" = "4f585fce5ea9be4f0a9c738d5dc0c8d112483b02cf6409e7d7d8da8ac452ec2f"
 "bindless.slang" = "9cd85b9ab864f2c9dc38e3dc8021643b24e0b649512bd09a274cd2e2ff2cd5d7"
 "frame.slang" = "ab21a4896f0dfe75970b4c75561350991e41824465c7e981b00f0c9342e57c30"
 "fullscreen.slang" = "0645f8fe5464b824856e3f04be1e9aaef0dea951957e03e52825f2c68dc6e49e"
@@ -22,7 +22,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "rt_shadow.slang" = "44afb7591a4bb4c0d3075ed83469f3e9813f4eeeff91a1f4f0d677c6ceabe794"
 "shaders.toml" = "05557d6c21fefb6a6b49e5a9ec810c14cfbacee92736b9bd4cb7449893c3c104"
 "shadow_mask.slang" = "ae469e9fb2e3dfd829e726c18e00afd5c4c00e478e2e7371b0bdfab1a04d39d3"
-"sky.slang" = "e4dcd28966ab39b96262f334eff3f76d53ba6c3f189a6336f84aa85e4d57ec36"
+"sky.slang" = "668cfad125721b67475d53e5883dd02bb2b5aa59a795f6be33a50aa085755a31"
 "sky_tables.slang" = "5d58a577cbf7f098e3172d8b74c460494134caafe2a76767df108225a3203aec"
 "weather.slang" = "539214950c50104af8afe18c929e0a6f8e330259e955db7eb9562a9bf1dc6e6f"
 
@@ -41,7 +41,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/post.fs_tonemap.dxil" = { sha256 = "8e00676c7052272fed44a3cc745023f8df85b48f5a6de2c5aba1725b38af0255", bytes = 7312 }
 "dxil/shadow_mask.fs_main.dxil" = { sha256 = "79b726ab228136c9d8492bfcfe4c82186529dd93803b20df2487e5a9da539edc", bytes = 8592 }
 "dxil/sky.fs_sky.dxil" = { sha256 = "50a557c638a089f14ab5d410aa3bb889bd8132be3a89edefff17c6c12651c348", bytes = 6800 }
-"dxil/sky.fs_veil.dxil" = { sha256 = "04b386d9bf70d29d15bf1abe83fb2de2a8690b5531d67be2396719593ac5c6fd", bytes = 8388 }
+"dxil/sky.fs_veil.dxil" = { sha256 = "4da3f235e237cfefd8c35fbecbc5cb04b87fdc4c766537fa7613cb2bd4343cd4", bytes = 8496 }
 "dxil/sky_tables.fs_multiple.dxil" = { sha256 = "dc1cff85dfbb5b134d08e85afd9bb3df89f19920b25ad993eff17f65153a6989", bytes = 7432 }
 "dxil/sky_tables.fs_sky_view.dxil" = { sha256 = "4ec033ed7b8dde94970590a7993e044b2bbcb84dbc1d27e9a2724c526a98d87d", bytes = 7116 }
 "dxil/sky_tables.fs_transmittance.dxil" = { sha256 = "e263a17cd79b29b50a52c2ef3f220697e865224531f02e10c25955f4e3415b94", bytes = 5364 }
@@ -59,7 +59,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/post.fs_tonemap.spv" = { sha256 = "e944bf1d3fe0404865e5afd831e66df688e1d091e7bcb481d8d979fdaf25e30a", bytes = 9108 }
 "spirv/shadow_mask.fs_main.spv" = { sha256 = "6995ae78ba64846e3676038d8f6700068c1989a3c389866fc4f1b1aa7d50cbb9", bytes = 26496 }
 "spirv/sky.fs_sky.spv" = { sha256 = "9f46a4cd67ecea37aa0dff4b9507dac69287d993061feb498cf6005f176026bc", bytes = 15152 }
-"spirv/sky.fs_veil.spv" = { sha256 = "6975f09b736aa34faad4317e47c01b479b5969b64aee2c8d00025038b8953eab", bytes = 28516 }
+"spirv/sky.fs_veil.spv" = { sha256 = "ad53ca28883cc0a2dcdbce9c45f437942fbb388809152d367d31e415dda222f6", bytes = 29316 }
 "spirv/sky_tables.fs_multiple.spv" = { sha256 = "165605ed95d82708c1bbcf8b6973664ee871006a091b8bcb849c7571d14977ed", bytes = 18128 }
 "spirv/sky_tables.fs_sky_view.spv" = { sha256 = "65d2afd1517a7537aa42c15a28736c9319ce7cd825fad44a013106912e1d5c61", bytes = 17112 }
 "spirv/sky_tables.fs_transmittance.spv" = { sha256 = "834b1bd889ce1c95b5932f5a240429018541bb5858f393e19dad9da20bec9da5", bytes = 7144 }

@@ -1242,6 +1242,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
 
     // --- the sky --------------------------------------------------------------------------
     if let Some(sky) = draw.sky.as_ref() {
+        frame.sky_veil = sky.veil().unwrap_or(0.0);
         let views: Vec<_> = sky.views().collect();
         frame.sky = sky
             .drawn(ws.camera.position, ws.viewer_cell().is_none())
@@ -1262,6 +1263,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                 material: material(o.material),
                 uv_offset: [o.uv_offset.0, o.uv_offset.1],
                 fogged: sky.override_enabled,
+                tint: o.tint,
             })
             .collect();
     }

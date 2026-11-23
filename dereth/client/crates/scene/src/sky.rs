@@ -12,6 +12,12 @@
 //! | the heading-then-rotation frame | `sky::calc_frame` |
 //! | the two passes and pass 0's three skip rules | `sky::SkyPass`, `sky::draws_in_pass_0` |
 //!
+//! A world may color its sky by the hour (client divergence CD-world-sky-tints): its overlay's sky
+//! tints ([`dereth_assets::sky_tints`]) give each sky object a color at each time of day, which
+//! multiplies the object's drawn color and its opacity, and a share of the time's fog color laid
+//! over the sky drawn before the land. A world without them, as every retail world is, draws its
+//! sky exactly as the region says: nothing of the tints is made, bound or drawn.
+//!
 //! and the drawing is the ordinary object path: **the sky is not a shader and not a procedural
 //! dome**, it is a handful of ordinary physics objects — a dome, two cloud layers, the sun, two
 //! moons and a star field — living in two environment cells pinned to the viewer.
@@ -37,10 +43,12 @@ mod imp {
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
+    use dereth_assets::sky_tints::{SkyTints, Tint};
     use dereth_assets::Region;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{DataId, Frame, Vec3};
-    use dereth_render::device::{Gpu, PerFrameConstants, TextureSlot};
+    use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants, TextureSlot};
+    use dereth_render::pso::{PipelineKey, SurfaceContext};
     use dereth_render::{DrawConstants, RenderError, ViewParams, ZFunc};
     use dereth_world_render::sky::{self, SkyPass, SKY_ZFAR_MULTIPLIER};
 
@@ -64,6 +72,9 @@ mod imp {
     ///
     /// This also explains bit 3: it means *do not drop this weather object to the floor*.
     const WEATHER_FLOOR_Z: f32 = -120.0;
+
+    /// The veil over the sky: the fog's color, and the share of it laid over the sky.
+    type Veil = ([u8; 3], f32);
 
     /// The sky objects and the two cells they live in.
     ///
@@ -307,6 +318,14 @@ mod imp {
         /// Regional fog state used by pass 0's skip predicate.
         pub fog_enabled: bool,
         pub stats: SkyStats,
+        /// The world's sky tints, when its overlay carries them and the sky drawn is its own.
+        tints: Option<SkyTints>,
+        /// The veil laid over the sky this frame: the fog's color and how much of it, from the
+        /// tints; `None` without them.
+        veil: Option<Veil>,
+        /// What the veil is drawn with, a white texel and its pipeline: made only for a world
+        /// with tints.
+        veil_draw: Option<(TextureSlot, PipelineKey)>,
     }
 
     /// One live sky object: sky object `[i]` plus its properties.
@@ -343,6 +362,8 @@ mod imp {
         material: Option<dereth_animation::parts::MaterialOverride>,
         /// The accumulated mesh UV delta for this object's `tex_velocity`.
         uv_offset: (f32, f32),
+        /// The world's tint for it at this time of day; `None` without tints.
+        tint: Option<Tint>,
         meshes: Arc<Vec<PartMesh>>,
     }
 
@@ -362,6 +383,9 @@ mod imp {
         pub material: Option<dereth_animation::parts::MaterialOverride>,
         /// How far its texture has scrolled.
         pub uv_offset: (f32, f32),
+        /// The world's tint for it at this time of day, red, green, blue and alpha; `None`
+        /// without tints.
+        pub tint: Option<Tint>,
     }
 
     /// What the sky loaded and what it costs, for the log line and the acceptance test.
@@ -423,13 +447,15 @@ mod imp {
                 .total
         }
 
-        /// Build every sky object's geometry, for every day group the region carries.
+        /// Build every sky object's geometry, for every day group the region carries, colored by
+        /// `tints` when the world has them.
         ///
         /// # Errors
         /// [`RenderError`] when a device resource cannot be created.
         pub(crate) fn load(
             store: &RetailDatStore,
             region: &Region,
+            tints: Option<SkyTints>,
             gpu: &mut Gpu,
             cache: &mut BakeCache,
         ) -> Result<Self, RenderError> {
@@ -490,6 +516,10 @@ mod imp {
                 shapes.insert(id, shape_of(&built));
                 meshes.insert(id, Arc::new(built));
             }
+            let veil_draw = match &tints {
+                Some(_) => Some(veil_pipeline(gpu)?),
+                None => None,
+            };
             Ok(Self {
                 tex_totals: BTreeMap::new(),
                 meshes,
@@ -500,6 +530,9 @@ mod imp {
                 override_enabled: false,
                 fog_enabled: false,
                 stats,
+                tints,
+                veil: None,
+                veil_draw,
             })
         }
 
@@ -526,6 +559,8 @@ mod imp {
                 return;
             };
             let positions = sky::get_sky(group, t);
+            let (tints, veil) = self.tints_at(region, group, t).unzip();
+            self.veil = veil;
             // Nothing to carry across the rebuild: the UV offset is a constant per object, not an
             // accumulator, so re-deriving it from `tex_velocity` below reproduces it exactly. See
             // the note at the assignment.
@@ -636,13 +671,15 @@ mod imp {
                 // per frame with no `dt` made the sky stream past at frame rate; removing the
                 // accumulation stopped it dead. A person watching it caught each in turn.
                 let uv_offset = self.tex_velocity_total(cp.gfx_id, cp.tex_velocity);
+                let tint = tints.as_ref().and_then(|t| t.get(i).copied());
                 self.objects.push(SkyObject {
                     gfx: cp.gfx_id,
                     properties: cp.properties,
                     frame,
-                    no_draw,
+                    no_draw: no_draw || tint.is_some_and(|t| t[3] <= 0.0),
                     material,
                     uv_offset,
+                    tint,
                     meshes,
                 });
             }
@@ -740,7 +777,18 @@ mod imp {
                 // (diffuse colour sourced from the material, `draw_params.w`), and
                 // `material_lighting` carries `Emissive` and `Diffuse`.
                 let factor = crate::world_scene::material_texture_factor(o.material);
-                let lighting = crate::world_scene::material_lighting(o.material);
+                let mut lighting = crate::world_scene::material_lighting(o.material);
+                // The world's tint for the object rides in the texture factor beside the bound
+                // material's alpha, and the material's fourth value says it is there: its color
+                // multiplies the lit color, and its alpha the alpha. Without one, nothing of this.
+                let texture_factor = match o.tint {
+                    None => factor,
+                    Some(t) => {
+                        lighting[3] = 1.0;
+                        Some(tinted_texture_factor(o.material, t))
+                    }
+                };
+                let translucent = factor.is_some() || o.tint.is_some_and(|t| t[3] < 1.0);
                 for m in o.meshes.iter() {
                     let mut world = base;
                     world.material_lighting = lighting;
@@ -758,7 +806,7 @@ mod imp {
                     if let Some(slot) = m.texture {
                         gpu.bind_texture(slot, m.sampler);
                     }
-                    let mut key = if factor.is_some() {
+                    let mut key = if translucent {
                         m.key_material_alpha
                     } else {
                         m.key
@@ -771,7 +819,7 @@ mod imp {
                         &key,
                         &DrawConstants {
                             alpha_ref: m.alpha_ref,
-                            texture_factor: factor.unwrap_or(0),
+                            texture_factor: texture_factor.unwrap_or(0),
                             uv_offset_bits: [o.uv_offset.0.to_bits(), o.uv_offset.1.to_bits()],
                             ..DrawConstants::default()
                         },
@@ -781,7 +829,65 @@ mod imp {
                     )?;
                 }
             }
+            if pass == SkyPass::Before {
+                self.draw_veil(gpu, per_frame)?;
+            }
             Ok(())
+        }
+
+        /// The world's tints for `group` of `region` at `t`: each object's, and the veil's
+        /// color and share. `None` without tints, or with none that fit the day group.
+        fn tints_at(
+            &self,
+            region: &Region,
+            group: &dereth_assets::region::SkyDayPreset,
+            t: f32,
+        ) -> Option<(Vec<Tint>, Veil)> {
+            let tints = self.tints.as_ref()?;
+            let k = region
+                .sky_info
+                .as_ref()?
+                .day_groups
+                .iter()
+                .position(|g| std::ptr::eq(g, group))?;
+            let day = tints
+                .days
+                .get(k)
+                .filter(|d| d.fits(group.sky_objects.len(), group.sky_time.len()))?;
+            let (a, b, f) = sky::get_time_of_day(&group.sky_time, t)?;
+            let (objects, share) = day.between(a, b, f)?;
+            let color = sky::lerp_color(
+                group.sky_time[a].world_fog_color,
+                group.sky_time[b].world_fog_color,
+                f,
+            );
+            Some((objects, (color, share)))
+        }
+
+        /// The veil over the sky drawn before the land: the fog's color over the whole view, as
+        /// much of it as the world's tints say. Nothing without tints.
+        fn draw_veil(
+            &self,
+            gpu: &mut Gpu,
+            per_frame: &PerFrameConstants,
+        ) -> Result<(), RenderError> {
+            let (Some(([r, g, b], share)), Some((white, key))) = (self.veil, self.veil_draw) else {
+                return Ok(());
+            };
+            if share <= 0.0 {
+                return Ok(());
+            }
+            let mut screen = *per_frame;
+            screen.view_proj = crate::gpu::glam_identity();
+            screen.view = crate::gpu::glam_identity();
+            gpu.bind_texture(white, 1);
+            gpu.draw_dynamic(
+                &key,
+                &DrawConstants::default(),
+                &screen,
+                &PerDrawConstants::identity(),
+                &veil_vertices(veil_color([r, g, b], share)),
+            )
         }
 
         /// The bytes one frame's sky pushes through the dynamic upload arena. Both passes together,
@@ -800,6 +906,24 @@ mod imp {
         #[must_use]
         pub fn live(&self) -> usize {
             self.objects.len()
+        }
+
+        /// Whether the sky is drawn with the world's tints.
+        #[must_use]
+        pub fn has_tints(&self) -> bool {
+            self.tints.is_some()
+        }
+
+        /// How many of the objects present now the world's tints color.
+        #[must_use]
+        pub fn tinted(&self) -> usize {
+            self.objects.iter().filter(|o| o.tint.is_some()).count()
+        }
+
+        /// The share of the fog's color laid over the sky now; `None` without tints.
+        #[must_use]
+        pub fn veil(&self) -> Option<f32> {
+            self.veil.map(|(_, share)| share)
         }
 
         /// Every sky object present at this time of day, in the order they are drawn, as
@@ -829,6 +953,7 @@ mod imp {
                     after: !o.no_draw && outside && self.weather_enabled && o.properties & 1 != 0,
                     material: o.material,
                     uv_offset: o.uv_offset,
+                    tint: o.tint,
                 }
             })
         }
@@ -847,6 +972,110 @@ mod imp {
                 }
             })
         }
+    }
+
+    /// The sky tints the world `store` holds carries in its overlay ([`dereth_assets::sky_tints`]);
+    /// `None` for a world without them, as every retail world is, or with a record that does not
+    /// read.
+    #[must_use]
+    pub fn world_tints(store: &RetailDatStore) -> Option<SkyTints> {
+        let bytes = store
+            .read_portal(dereth_assets::sky_tints::SKY_TINTS)
+            .ok()?;
+        match SkyTints::decode(&bytes) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::warn!(
+                    "the world's sky tints do not read, and the sky is drawn without them: {e}"
+                );
+                None
+            }
+        }
+    }
+
+    /// A share from 0 to 1 as a color byte, truncated as the client quantises an alpha.
+    fn share_byte(v: f32) -> u32 {
+        let b = dereth_primitives::num::to_i32(v.clamp(0.0, 1.0) * 255.0).clamp(0, 255);
+        #[allow(clippy::cast_sign_loss)]
+        // LINT-OK: clamped to 0..=255 on the line above. Not a float conversion.
+        let b = b as u32;
+        b
+    }
+
+    /// The texture factor a tinted sky object is drawn with: the tint's color, and its alpha times
+    /// the bound material's opacity (`1 - translucency`), which with no material is the tint's
+    /// alpha alone.
+    #[must_use]
+    pub(crate) fn tinted_texture_factor(
+        material: Option<dereth_animation::parts::MaterialOverride>,
+        tint: Tint,
+    ) -> u32 {
+        let opacity = 1.0
+            - material.map_or(dereth_animation::parts::DEFAULT_TRANSLUCENCY, |m| {
+                m.translucency
+            });
+        share_byte(tint[3] * opacity) << 24
+            | share_byte(tint[0]) << 16
+            | share_byte(tint[1]) << 8
+            | share_byte(tint[2])
+    }
+
+    /// The veil's vertex color: the fog's color, its alpha the share of it laid over the sky.
+    fn veil_color([r, g, b]: [u8; 3], share: f32) -> u32 {
+        share_byte(share) << 24 | u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b)
+    }
+
+    /// The veil's pipeline, a picture blended by its alpha over the whole view with no depth, and
+    /// the white texel it is drawn with.
+    fn veil_pipeline(gpu: &mut Gpu) -> Result<(TextureSlot, PipelineKey), RenderError> {
+        use dereth_render::surface::{surface_type as st, Surface};
+        let white = gpu.upload_texture(&dereth_primitives::TextureData {
+            width: 1,
+            height: 1,
+            format: dereth_primitives::TextureFormat::Bgra8,
+            levels: vec![vec![0xFF, 0xFF, 0xFF, 0xFF]],
+        })?;
+        let surf = Surface {
+            r#type: st::BASE1_IMAGE,
+            ..Surface::default()
+        };
+        let ctx = SurfaceContext {
+            vertex_format: dereth_render::vertex::VertexFormat::XyzDiffuseTex1,
+            ..SurfaceContext::default()
+        };
+        let (mut key, _) = PipelineKey::from_surface(&surf, ctx);
+        key.z_func = ZFunc::Always;
+        key.z_write = false;
+        key.fog = false;
+        key.cull = dereth_render::pso::Cull::None;
+        key.alpha_blend = true;
+        key.src_blend = dereth_render::pso::Blend::SrcAlpha;
+        key.dst_blend = dereth_render::pso::Blend::InvSrcAlpha;
+        Ok((white, key))
+    }
+
+    /// Two triangles over the whole view in `color`, as `XYZ | DIFFUSE | TEX1` records.
+    fn veil_vertices(color: u32) -> Vec<u8> {
+        let corner = |x: f32, y: f32| {
+            let mut v = Vec::with_capacity(24);
+            for f in [x, y, 0.5] {
+                v.extend_from_slice(&f.to_le_bytes());
+            }
+            v.extend_from_slice(&color.to_le_bytes());
+            v.extend_from_slice(&[0; 8]);
+            v
+        };
+        [
+            (-1.0, -1.0),
+            (-1.0, 1.0),
+            (1.0, 1.0),
+            (-1.0, -1.0),
+            (1.0, 1.0),
+            (1.0, -1.0),
+        ]
+        .into_iter()
+        .flat_map(|(x, y)| corner(x, y))
+        .collect()
     }
 
     /// [`crate::world_scene::OBJECT_VERTEX_STRIDE`], the FVF `0x152` layout every graphics-object

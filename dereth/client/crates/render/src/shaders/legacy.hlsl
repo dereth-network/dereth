@@ -36,7 +36,8 @@ cbuffer PerDraw : register(b1)
     // fixed-function lit colour is Emissive + Diffuse * lights, and the vertex colour here is that
     // lit colour for the default material (Emissive 0, Diffuse 1), so the diffuse source becomes
     // saturate(colour * y + x). The selection blink uses (0.99, 1.0) /
-    // (0.0, 0.35); with z = 0 the colour is untouched.
+    // (0.0, 0.35); with z = 0 the color is untouched. w = 1 when the texture factor carries a
+    // world's tint for a sky object, which multiplies the lit color and alpha.
     float4 g_materialLighting;
     // The fixed-function vertex lighting the client turns on for every mesh subset
     // (its own disable flag is never set, so it is on for every mesh).
@@ -188,7 +189,13 @@ VSOut vs_main(VSIn i)
         }
         float3 lit = saturate(Me + Ma * g_ambient.rgb + Md * sum);
         // Select vertex alpha or the bound material alpha carried in the texture factor.
-        o.color = float4(lit, lerp(i.color.a, g_textureFactor.a, g_drawParams.w));
+        float alpha = lerp(i.color.a, g_textureFactor.a, g_drawParams.w);
+        // A world's tint for a sky object (g_materialLighting.w = 1) rides in the texture factor:
+        // its color multiplies the lit color, and its alpha the vertex alpha (a bound material's
+        // alpha already carries it). Off, both factors are one and nothing changes.
+        float3 tint = lerp(float3(1.0, 1.0, 1.0), g_textureFactor.rgb, g_materialLighting.w);
+        alpha *= lerp(1.0, g_textureFactor.a, g_materialLighting.w * (1.0 - g_drawParams.w));
+        o.color = float4(lit * tint, alpha);
     }
 #endif
     o.uv0 = i.uv0 + g_uvOffset.xy;

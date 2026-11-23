@@ -83,6 +83,9 @@ pub struct SkyLight {
     pub fog: Option<(f32, Vec3)>,
     /// The frame's colors are linear light (else display values).
     pub linear: bool,
+    /// How much of the fog's color is laid over the whole sky before the land, 0 to 1: a world's
+    /// sky tints' veil; 0 for every other world.
+    pub sky_veil: f32,
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
@@ -149,7 +152,12 @@ pub fn rows(light: &SkyLight) -> Vec<u8> {
             0.0,
         ),
         Vec4::new(SKY_VIEW.0 as f32, SKY_VIEW.1 as f32, 0.0, SKY_VIEW.2 as f32),
-        Vec4::new(band, day, NIGHT_VEIL + (1.0 - NIGHT_VEIL) * day, 0.0),
+        Vec4::new(
+            band,
+            day,
+            NIGHT_VEIL + (1.0 - NIGHT_VEIL) * day,
+            light.sky_veil,
+        ),
     ];
     let mut out = Vec::with_capacity(16 * 16);
     for f in ray_from_ndc(light.view, light.projection).to_cols_array() {
@@ -596,6 +604,7 @@ mod tests {
             cover: 0.8,
             fog: None,
             linear: false,
+            sky_veil: 0.0,
         }
     }
 

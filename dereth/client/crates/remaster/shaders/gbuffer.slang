@@ -67,6 +67,10 @@ static const uint DRAW_TWO_SIDED = 2;
 // The bucket of an item that adds to what is drawn.
 static const uint BUCKET_ADDITIVE = 3;
 
+// An override row's last value when a row of its object's tint follows it (`TINTED_OVERRIDE` in
+// `render/scene.rs`); a bound material's is 1.
+static const float TINTED_OVERRIDE = 2.0;
+
 [[vk::push_constant]]
 ConstantBuffer<Push> push;
 
@@ -83,6 +87,9 @@ struct Varyings
     float4 tangent : TEXCOORD4;
     // The vertex's color, which a surface flagged for it is drawn under.
     float4 color : TEXCOORD5;
+    // The color its object's tint multiplies it by: white for every object but a world's tinted
+    // sky objects.
+    float3 tint : TEXCOORD6;
     nointerpolation uint item : ITEM;
 };
 
@@ -238,6 +245,15 @@ Varyings vs_main(uint vertex : SV_VertexID
     // A bound material's translucency replaces the surface's own alpha only when it is not the
     // default: a material that changes only the light leaves a translucent surface's alpha be.
     out.alpha = bound > 0.5 && o.z != 0.0 ? 1.0 - o.z : float(m.w) / 255.0;
+    // A world's tint for a sky object rides in the override's next row: its color multiplies the
+    // surface's, and its alpha the surface's opacity.
+    out.tint = float3(1.0, 1.0, 1.0);
+    if (it.override_ != 0xFFFFFFFF && o.w > TINTED_OVERRIDE - 0.5)
+    {
+        float4 tint = row(push.overrides, it.override_ + 1);
+        out.tint = tint.rgb;
+        out.alpha *= tint.a;
+    }
     out.tangent = float4(T, r2.w);
     out.color = row(push.vertices, v * VERTEX_ROWS + 3);
     out.item = item;
@@ -314,6 +330,7 @@ Targets fs_main(Varyings in)
     uint4 m = row_u(push.materials, it.material * 2);
     float4 mf = row(push.materials, it.material * 2 + 1);
     float4 t = texel(it, m, in.uv, in.alpha);
+    t.rgb *= in.tint;
     if ((m.y & VERTEX_COLORED) != 0)
     {
         t *= in.color;
@@ -421,6 +438,7 @@ float4 forward_color(Varyings in)
     Item it = item_at(in.item);
     uint4 m = row_u(push.materials, it.material * 2);
     float4 t = texel(it, m, in.uv, in.alpha);
+    t.rgb *= in.tint;
     float a = t.a * in.alpha;
     if ((m.y & 1) != 0 && a - float(m.z) / 255.0 + 1e-6 < 0.0)
     {
@@ -456,6 +474,7 @@ float4 edge_color(Varyings in)
     Item it = item_at(in.item);
     uint4 m = row_u(push.materials, it.material * 2);
     float4 t = texel(it, m, in.uv, in.alpha);
+    t.rgb *= in.tint;
     float a = t.a * in.alpha;
     if (a - float(m.z) / 255.0 + 1e-6 < 0.0 || !partial(m, a))
     {

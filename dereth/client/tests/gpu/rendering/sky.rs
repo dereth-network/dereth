@@ -654,3 +654,216 @@ fn the_sky_scrolls_by_elapsed_time_and_not_by_frame_count() {
          the scroll is counting frames, not seconds"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// A world's sky tints.
+// ---------------------------------------------------------------------------------------------
+
+/// The world key the tinted test worlds are written for.
+const TINTED_WORLD: &str = "a tinted sky";
+
+/// Sky tints for every day group of the retail region: every object `tint` and the veil `veil`
+/// at every time of day.
+fn tints_for(store: &RetailDatStore, tint: u32, veil: f32) -> dereth_assets::sky_tints::SkyTints {
+    use dereth_assets::sky_tints::{SkyTints, TintedDay, TintedTime};
+    let id = dereth_primitives::DataId(0x1300_0000);
+    let bytes = store
+        .read_typed(dereth_dat::DbType::Region, id)
+        .expect("the region record");
+    let region = <dereth_assets::Region as dereth_assets::Decode>::decode_payload(id, &bytes)
+        .expect("the region decodes");
+    let sky = region.sky_info.expect("the region has a sky");
+    SkyTints {
+        days: sky
+            .day_groups
+            .iter()
+            .map(|g| TintedDay {
+                objects: g.sky_objects.len(),
+                times: g
+                    .sky_time
+                    .iter()
+                    .map(|_| TintedTime {
+                        veil,
+                        tints: vec![tint; g.sky_objects.len()],
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// The retail world with an overlay holding `tints` as its sky tints, in `scratch`.
+fn tinted_world(
+    scratch: &dereth_dat::testing::ScratchDir,
+    name: &str,
+    tints: &dereth_assets::sky_tints::SkyTints,
+) -> RetailDatStore {
+    use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+    let dir = OverlayDir::new(&scratch.path().join(name)).expect("an overlay folder");
+    let plain = store();
+    let portal = plain.portal().base();
+    let revision = dereth_dat::decompose::revision_over(&portal);
+    let mut w = OverlayWriter::open_or_create(
+        &dir.container(dereth_dat::ModernDat::Portal),
+        &portal,
+        "client_portal.dat",
+        TINTED_WORLD,
+        1,
+    )
+    .expect("the portal overlay");
+    w.save(
+        &portal,
+        dereth_assets::sky_tints::SKY_TINTS,
+        &tints.encode(),
+        1,
+        revision,
+        1,
+    )
+    .expect("the tints saved");
+    w.add_iteration(revision, 1).expect("the revision");
+    w.flush(1).expect("flushed");
+    drop(w);
+    store()
+        .with_overlay(&dir, Some(TINTED_WORLD))
+        .expect("the overlay over the world")
+}
+
+/// The top eighth of a 400 x 300 frame, which from `scene_at`'s camera is sky alone.
+fn sky_band(frame: &[u8]) -> &[[u8; 4]] {
+    frame[..(400 * 300 / 8) * 4].as_chunks::<4>().0
+}
+
+/// Each channel's mean over `pixels`.
+fn means(pixels: &[[u8; 4]]) -> [f64; 3] {
+    let mut sum = [0.0f64; 3];
+    for p in pixels {
+        for k in 0..3 {
+            sum[k] += f64::from(p[k]);
+        }
+    }
+    #[allow(clippy::cast_precision_loss)] // a frame's pixels
+    let n = pixels.len().max(1) as f64;
+    sum.map(|s| s / n)
+}
+
+/// Behaviour: rendering.sky.a-worlds-sky-tints-color-its-sky-objects-by-the-hour
+/// **A world's tints color its sky.** The retail world at noon is drawn as it is, then with an
+/// overlay whose tints make every sky object red, then with one whose tints leave the objects as
+/// they are and lay the whole of the fog's color over them. The red sky keeps its red and loses
+/// nearly all its green and blue; the veiled one is the fog's color, one color across the band,
+/// and the land under it is the land of the untinted frame.
+///
+/// Oracle: the retail region and sky objects, and tints written for them; a GPU device.
+#[test]
+fn a_worlds_sky_tints_color_its_sky_and_veil_it() {
+    let scratch = dereth_dat::testing::ScratchDir::new("sky-tints").expect("scratch");
+    let mut gpu = crate::common::test_gpu(400, 300);
+    let plain = std::sync::Arc::new(store());
+    let (_, untinted) = draw_and_count(&scene_at(&plain, &mut gpu, 0.5), &mut gpu);
+
+    let red = std::sync::Arc::new(tinted_world(
+        &scratch,
+        "red",
+        &tints_for(&plain, 0xFFFF_0000, 0.0),
+    ));
+    let scene = scene_at(&red, &mut gpu, 0.5);
+    let sky = scene.sky().expect("a sky");
+    assert!(sky.has_tints());
+    assert_eq!(sky.tinted(), sky.live(), "every object present is tinted");
+    assert_eq!(sky.veil(), Some(0.0));
+    let (_, reddened) = draw_and_count(&scene, &mut gpu);
+    let (was, now) = (means(sky_band(&untinted)), means(sky_band(&reddened)));
+    eprintln!("sky band, untinted {was:?}, red {now:?}");
+    assert!(
+        was[1] + was[2] > 60.0,
+        "the untinted sky has green and blue: {was:?}"
+    );
+    assert!(
+        now[1] + now[2] < (was[1] + was[2]) * 0.1,
+        "the red tint left green and blue: {was:?} against {now:?}"
+    );
+    assert!(
+        now[0] > was[0] * 0.5,
+        "the red tint lost the red: {was:?} against {now:?}"
+    );
+
+    let veiled_world = std::sync::Arc::new(tinted_world(
+        &scratch,
+        "veiled",
+        &tints_for(&plain, 0xFFFF_FFFF, 1.0),
+    ));
+    let scene = scene_at(&veiled_world, &mut gpu, 0.5);
+    assert_eq!(scene.sky().and_then(|s| s.veil()), Some(1.0));
+    let fog = scene.world_fog().color;
+    let (_, veiled) = draw_and_count(&scene, &mut gpu);
+    let want = [(fog >> 16) & 0xFF, (fog >> 8) & 0xFF, fog & 0xFF].map(f64::from);
+    for p in sky_band(&veiled) {
+        for k in 0..3 {
+            assert!(
+                (f64::from(p[k]) - want[k]).abs() <= 3.0,
+                "a veiled sky pixel {p:?} is not the fog's color {want:?}"
+            );
+        }
+    }
+    // The land: every drawn pixel the red tint left as it was, which is no sky object's.
+    let (mut land, mut changed) = (0usize, 0usize);
+    for ((u, r), v) in untinted
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(reddened.as_chunks::<4>().0)
+        .zip(veiled.as_chunks::<4>().0)
+    {
+        if u == r && u[..3].iter().map(|&c| u32::from(c)).sum::<u32>() > 24 {
+            land += 1;
+            changed += usize::from(u != v);
+        }
+    }
+    assert!(land > 400 * 300 / 8, "only {land} pixels of land");
+    assert!(
+        changed * 50 < land,
+        "the veil reached the land: {changed} of {land} of its pixels changed"
+    );
+}
+
+/// Behaviour: rendering.sky.a-world-without-sky-tints-draws-its-sky-as-the-region-says
+/// **A world without tints draws its sky as the region says.** The retail world has none: its sky
+/// has no tints, tints no object and lays no veil. And tints that change nothing (every object
+/// white, no veil) draw the very same frame as none at all, at noon and at midnight: the tints'
+/// path leaves an object's color as it is unless the world's tint changes it.
+///
+/// Oracle: the retail region and sky objects; a GPU device.
+#[test]
+fn a_world_without_sky_tints_draws_its_sky_as_the_region_says() {
+    let scratch = dereth_dat::testing::ScratchDir::new("sky-no-tints").expect("scratch");
+    let mut gpu = crate::common::test_gpu(400, 300);
+    let plain = std::sync::Arc::new(store());
+    let white = std::sync::Arc::new(tinted_world(
+        &scratch,
+        "white",
+        &tints_for(&plain, 0xFFFF_FFFF, 0.0),
+    ));
+    for t in [0.5, 0.02] {
+        let scene = scene_at(&plain, &mut gpu, t);
+        let sky = scene.sky().expect("a sky");
+        assert!(!sky.has_tints());
+        assert_eq!(sky.tinted(), 0);
+        assert_eq!(sky.veil(), None);
+        let (_, untinted) = draw_and_count(&scene, &mut gpu);
+        let scene = scene_at(&white, &mut gpu, t);
+        assert_eq!(
+            scene.sky().map(|s| s.tinted()),
+            scene.sky().map(|s| s.live())
+        );
+        let (_, whitened) = draw_and_count(&scene, &mut gpu);
+        let differing = untinted
+            .iter()
+            .zip(&whitened)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differing, 0,
+            "at {t}, white tints and no veil changed {differing} bytes of the frame"
+        );
+    }
+}

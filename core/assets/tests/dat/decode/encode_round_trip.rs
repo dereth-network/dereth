@@ -4,7 +4,7 @@
 
 use dereth_assets::{
     Animation, CellLandblock, Decode, EnvCell, Environment, GfxObj, LandblockInfo,
-    ParticleEmitterInfo, PhysicsScript, RenderSurface, Setup, Surface, SurfaceTexture,
+    ParticleEmitterInfo, PhysicsScript, Region, RenderSurface, Setup, Surface, SurfaceTexture,
 };
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
@@ -230,4 +230,36 @@ fn the_character_creation_table_encodes_back_to_its_own_bytes() {
         first.map(|i| &got[i.saturating_sub(8)..(i + 8).min(got.len())]),
         first.map(|i| &bytes[i.saturating_sub(8)..(i + 8).min(bytes.len())]),
     );
+}
+
+#[test]
+fn the_region_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::Region);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::Region, id).unwrap(),
+        |id, b| Region::decode_payload(id, b).unwrap().encode().unwrap(),
+    );
+    assert_eq!(n, 1, "the one region");
+}
+
+/// A sky of another size moves everything after it, and the record still reads back whole: the
+/// region with its first day group dropped, one more sky object and one more replacement.
+#[test]
+fn the_region_with_another_sky_reads_back_as_written() {
+    let s = store();
+    let id = DataId(0x1300_0000);
+    let mut r = Region::decode_payload(id, &s.read_portal(id).unwrap()).unwrap();
+    let sky = r.sky_info.as_mut().expect("the region has a sky");
+    let first = sky.day_groups.remove(0);
+    let g = &mut sky.day_groups[0];
+    g.day_name = "Odd".into();
+    g.sky_objects.push(first.sky_objects[0].clone());
+    let row = first.sky_time[0].sky_obj_replace[0].clone();
+    g.sky_time[0].sky_obj_replace.push(row);
+    let bytes = r.encode().unwrap();
+    let back = Region::decode_payload(id, &bytes).unwrap();
+    assert_eq!(back, r);
+    assert_eq!(back.encode().unwrap(), bytes);
 }

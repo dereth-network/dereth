@@ -137,6 +137,7 @@ pub fn light(
             Vec3::new(linear(f.r), linear(f.g), linear(f.b)),
         )),
         linear: false,
+        sky_veil: 0.0,
     }
 }
 

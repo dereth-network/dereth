@@ -82,5 +82,14 @@ float4 fs_veil(float4 position : SV_Position) : SV_Target0
         veil = max(veil, row(a, ATM_SUN_LIGHT).w * toward_sun * 0.75 * exp(-up / (band * 5.0)));
         light = haze_light(a, push.sky_view, push.sampler, dir, 1.0) * v.z;
     }
+    // A world's sky tints lay the fog's color over the whole sky as well, over the horizon's veil.
+    float tinted = v.w;
+    if (tinted > 0.0)
+    {
+        float3 fog = row(a, ATM_FOG).rgb;
+        float alpha = tinted + veil * (1.0 - tinted);
+        light = (fog * tinted + light * veil * (1.0 - tinted)) / max(alpha, 1e-4);
+        veil = alpha;
+    }
     return float4(drawn_as(a, encode(light), position.xy), veil);
 }

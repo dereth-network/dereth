@@ -603,6 +603,18 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A Mac window is expected to resize.",
     },
     Divergence {
+        id: "CD-world-sky-tints",
+        title: "A world can color its sky by the hour",
+        change: "A world whose overlay carries sky tints gives each of its sky objects a color \
+                 at each time of day, which multiplies the object's own color and opacity, and \
+                 lays a share of the time's fog color over the sky before the land is drawn. \
+                 Both looks color the sky's objects; the classic look lays the fog over them. A \
+                 world without them, as every retail world is, draws its sky as before. The \
+                 final client's sky had no colors of its own.",
+        why: "A world with a sky of its own, such as one built from Asheron's Call 2, can show \
+              a blue day, an orange dusk and a dark night with its own pictures.",
+    },
+    Divergence {
         id: "CD-world-starting-areas",
         title: "A world's own starting towns are on the creation map",
         change: "On a world whose character-creation table names starting areas of its own, \

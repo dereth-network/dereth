@@ -62,7 +62,7 @@ use dereth_gfx::{
 use glam::{Vec3, Vec4Swizzles};
 
 use self::light::{LightMode, LightSet};
-use self::scene::{Bucket, GpuScene, NONE};
+use self::scene::{Bucket, GpuScene, NONE, TINTED_OVERRIDE};
 use crate::assets::{AssetSource, AssetTables, MeshKey};
 use crate::scene::{BlockId, FrameDelta, SceneDelta};
 use crate::shaders::{spirv, Entry};
@@ -2221,12 +2221,32 @@ impl Renderer {
                 if sky::is_dome(index, o) {
                     out.sky_dome_items = s.items.len();
                 }
-                let over = o.material.map_or(NONE, |m| {
-                    let i = u32::try_from(out.overrides.len()).unwrap_or(0);
-                    out.overrides
-                        .push([m.luminosity, m.diffusion, m.translucency, 1.0]);
-                    i
-                });
+                let over = match o.tint {
+                    None => o.material.map_or(NONE, |m| {
+                        let i = u32::try_from(out.overrides.len()).unwrap_or(0);
+                        out.overrides
+                            .push([m.luminosity, m.diffusion, m.translucency, 1.0]);
+                        i
+                    }),
+                    // A world's tint for the object: its material (the defaults where it has
+                    // none) marked as followed by a row of the tint.
+                    Some(tint) => {
+                        let i = u32::try_from(out.overrides.len()).unwrap_or(0);
+                        let m = o.material.unwrap_or(crate::scene::Material {
+                            translucency: 0.0,
+                            diffusion: 1.0,
+                            luminosity: 0.0,
+                        });
+                        out.overrides.push([
+                            m.luminosity,
+                            m.diffusion,
+                            m.translucency,
+                            TINTED_OVERRIDE,
+                        ]);
+                        out.overrides.push(tint);
+                        i
+                    }
+                };
                 // With the atmosphere drawn, the sky's own objects stand over the eye: as far off
                 // as the sky, they move neither as the eye walks nor when the frame's block
                 // changes. Retail stands them at the corner of the viewer's block.

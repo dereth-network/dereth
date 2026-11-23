@@ -47,6 +47,7 @@ pub mod material;
 pub mod motion;
 pub mod packed_art;
 pub mod region;
+pub mod sky_tints;
 pub mod subids;
 pub mod tables;
 pub mod texture_lookup;

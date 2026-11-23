@@ -58,7 +58,14 @@ const LIGHTING: &str = "    if (g_draw.lighting_params.x > 0.5) {
         // The alpha is the diffuse source's: the vertex's (the surface setup's current alpha) or,
         // with a material bound, the clone's `1 - translucency`, which is carried in the
         // texture factor's alpha byte and selects with draw_params.w.
-        o.color = vec4<f32>(lit, mix(color.a, g_draw.texture_factor.a, g_draw.draw_params.w));
+        var alpha = mix(color.a, g_draw.texture_factor.a, g_draw.draw_params.w);
+        // A world's tint for a sky object (material_lighting.w = 1) rides in the texture factor:
+        // its color multiplies the lit color, and its alpha the vertex alpha (a bound material's
+        // alpha already carries it). Off, both factors are one and nothing changes.
+        let tint = mix(vec3<f32>(1.0), g_draw.texture_factor.rgb, g_draw.material_lighting.w);
+        alpha = alpha * mix(1.0, g_draw.texture_factor.a,
+            g_draw.material_lighting.w * (1.0 - g_draw.draw_params.w));
+        o.color = vec4<f32>(lit * tint, alpha);
     }
 ";
 

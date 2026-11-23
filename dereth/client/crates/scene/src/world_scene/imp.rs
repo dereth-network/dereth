@@ -4466,6 +4466,12 @@ pub trait SceneReads: sealed::SceneHalves {
         draw.world_fog()
     }
 
+    /// [`SceneDraw::sky`] on the scene.
+    fn sky(&self) -> Option<&crate::sky::SkyScene> {
+        let (_, draw) = self.halves();
+        draw.sky()
+    }
+
     /// [`SceneDraw::detail_texturing`] on the scene.
     fn detail_texturing(&self) -> dereth_world_render::detail::DetailTexturing {
         let (_, draw) = self.halves();

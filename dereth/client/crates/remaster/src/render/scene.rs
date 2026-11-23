@@ -29,6 +29,10 @@ use crate::scene::{
 /// No index: no block, no override, no texture.
 pub const NONE: u32 = u32::MAX;
 
+/// An override row's last value when a row of the object's tint follows it (a bound material's
+/// is 1): `shaders/gbuffer.slang` reads it as `TINTED_OVERRIDE`.
+pub const TINTED_OVERRIDE: f32 = 2.0;
+
 /// How many rooms can be held at once, each with its own key in the material target's two
 /// bytes; the last value is left for a room without one.
 pub const ROOM_KEYS: u32 = 0xFFFF;

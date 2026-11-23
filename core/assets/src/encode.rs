@@ -2,7 +2,8 @@
 //! and buildings, an indoor cell, a surface, an image texture and an image, a model (`GfxObj`), a
 //! composite object (`Setup`), an animation (each frame's part frames and hooks), a particle
 //! emitter and the script that starts it (its timed hooks), an environment
-//! with its cell shapes, and the character-creation table with the world's own starter areas.
+//! with its cell shapes, the character-creation table with the world's own starter areas, and the
+//! region with its sky.
 //!
 //! Each `encode` is the exact inverse of its type's decoder: decoding a record and encoding the
 //! value gives back the record's bytes, for every record of the kind the retail files hold. The
@@ -31,6 +32,9 @@ use crate::geometry::{Animation, CellStruct, Environment, GfxObj, Setup};
 use crate::hook::{AnimHook, HookData};
 use crate::material::{pre_tod_image_format, PFID_CUSTOM_B8G8R8, PFID_INDEX16, PFID_P8};
 use crate::motion::{GfxObjDegradeInfo, PhysicsScript};
+use crate::region::{
+    GameTime, LandDefs, LandSurf, Region, RegionMisc, SkyInfo, LAND_HEIGHT_TABLE_LEN,
+};
 use crate::tables::{CharGen, GearItem, ObjDesc, SexCg};
 use crate::world::{
     BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
@@ -63,6 +67,20 @@ impl Out {
     }
     fn f64(&mut self, v: f64) {
         self.0.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    /// A record's string: its windows-1252 length in 16 bits (`0xFFFF` then 32 bits when longer),
+    /// its bytes with no terminator, then zero bytes to four.
+    fn packobj_string(&mut self, s: &str) {
+        let b = dereth_primitives::text::cp1252::encode_lossy(s);
+        match u16::try_from(b.len()) {
+            Ok(n) if n != 0xFFFF => self.u16(n),
+            _ => {
+                self.u16(0xFFFF);
+                self.count(b.len());
+            }
+        }
+        self.0.extend_from_slice(&b);
+        self.align();
     }
     fn vec3(&mut self, v: Vec3) {
         self.f32(v.x);
@@ -1123,6 +1141,219 @@ impl GfxObjDegradeInfo {
     }
 }
 
+impl Region {
+    /// The `0x13000000` region record in the end of retail's layout: the id, number, version and
+    /// name; the land definitions; the calendar; the parts mask; then, as the mask says, the sky
+    /// (each sky object with its particle-script id), the sound descriptions and the scene
+    /// descriptions; the terrain types; the texture-merging land surface; and the map and test
+    /// record ids.
+    ///
+    /// # Errors
+    /// [`AssetError::Unsupported`] for a palette-shift land surface, which the end of retail's
+    /// files cannot hold, and for a land-height table that is not 256 long.
+    pub fn encode(&self) -> Result<Vec<u8>, AssetError> {
+        let mut o = Out(Vec::with_capacity(32 * 1024));
+        o.id(self.id);
+        o.u32(self.region_number);
+        o.u32(self.version);
+        o.packobj_string(&self.region_name);
+        land_defs(&mut o, &self.land_defs)?;
+        game_time(&mut o, &self.game_time);
+        o.u32(self.parts_mask);
+        if self.parts_mask & 0x10 != 0 {
+            sky_info(&mut o, self.sky_info.as_ref());
+        }
+        if self.parts_mask & 0x01 != 0 {
+            let sounds = self.sound_info.as_deref().unwrap_or_default();
+            o.count(sounds.len());
+            for s in sounds {
+                o.id(s.stb_id);
+                o.count(s.ambient_sounds.len());
+                for a in &s.ambient_sounds {
+                    o.u32(a.stype);
+                    o.f32(a.volume);
+                    o.f32(a.base_chance);
+                    o.f32(a.min_rate);
+                    o.f32(a.max_rate);
+                }
+            }
+        }
+        if self.parts_mask & 0x02 != 0 {
+            let scenes = self.scene_info.as_deref().unwrap_or_default();
+            o.count(scenes.len());
+            for s in scenes {
+                o.i32(s.stb_index);
+                o.count(s.scenes.len());
+                for id in &s.scenes {
+                    o.id(*id);
+                }
+            }
+        }
+        o.count(self.terrain_types.len());
+        for t in &self.terrain_types {
+            o.packobj_string(&t.terrain_name);
+            o.u32(t.terrain_color);
+            o.count(t.scene_types.len());
+            for s in &t.scene_types {
+                o.i32(*s);
+            }
+        }
+        land_surface(&mut o, &self.land_surf)?;
+        if self.parts_mask & 0x200 != 0 {
+            let m = self.region_misc.unwrap_or(RegionMisc {
+                version: 0,
+                game_map: DataId(0),
+                autotest_map: DataId(0),
+                autotest_map_size: 0,
+                clear_cell: DataId(0),
+                clear_monster: DataId(0),
+            });
+            o.u32(m.version);
+            o.id(m.game_map);
+            o.id(m.autotest_map);
+            o.u32(m.autotest_map_size);
+            o.id(m.clear_cell);
+            o.id(m.clear_monster);
+        }
+        Ok(o.0)
+    }
+}
+
+fn land_defs(o: &mut Out, d: &LandDefs) -> Result<(), AssetError> {
+    if d.land_height_table.len() != LAND_HEIGHT_TABLE_LEN {
+        return Err(AssetError::Unsupported {
+            what: "land-height table length",
+            value: u32::try_from(d.land_height_table.len()).unwrap_or(u32::MAX),
+        });
+    }
+    o.u32(d.num_block_length);
+    o.u32(d.num_block_width);
+    o.f32(d.square_length);
+    o.u32(d.lblock_length);
+    o.u32(d.vertex_per_cell);
+    o.f32(d.max_obj_height);
+    o.f32(d.sky_height);
+    o.f32(d.road_width);
+    for h in &d.land_height_table {
+        o.f32(*h);
+    }
+    Ok(())
+}
+
+fn game_time(o: &mut Out, g: &GameTime) {
+    o.f64(g.zero_time_of_year);
+    o.u32(g.zero_year);
+    o.f32(g.day_length);
+    o.u32(g.days_per_year);
+    o.packobj_string(&g.year_spec);
+    o.count(g.times_of_day.len());
+    for t in &g.times_of_day {
+        o.f32(t.begin);
+        o.u32(t.is_night);
+        o.packobj_string(&t.name);
+    }
+    o.count(g.days_of_the_week.len());
+    for d in &g.days_of_the_week {
+        o.packobj_string(d);
+    }
+    o.count(g.seasons.len());
+    for s in &g.seasons {
+        o.u32(s.begin);
+        o.packobj_string(&s.name);
+    }
+}
+
+/// The sky: the two tick sizes, then each day group's chance and name, its sky objects (nine words
+/// each, the particle-script id among them) and its times of day with their replacements. A region
+/// whose mask names a sky it does not carry is written with an empty one.
+fn sky_info(o: &mut Out, sky: Option<&SkyInfo>) {
+    let empty = SkyInfo {
+        tick_size: 0.0,
+        light_tick_size: 0.0,
+        day_groups: Vec::new(),
+    };
+    let sky = sky.unwrap_or(&empty);
+    o.f64(sky.tick_size);
+    o.f64(sky.light_tick_size);
+    o.align();
+    o.count(sky.day_groups.len());
+    for g in &sky.day_groups {
+        o.f32(g.chance_of_occur);
+        o.packobj_string(&g.day_name);
+        o.count(g.sky_objects.len());
+        for s in &g.sky_objects {
+            o.f32(s.begin_time);
+            o.f32(s.end_time);
+            o.f32(s.begin_angle);
+            o.f32(s.end_angle);
+            o.f32(s.tex_velocity.0);
+            o.f32(s.tex_velocity.1);
+            o.id(s.default_gfx_object);
+            o.id(s.default_pes_object);
+            o.u32(s.properties);
+            o.align();
+        }
+        o.count(g.sky_time.len());
+        for t in &g.sky_time {
+            o.f32(t.begin);
+            o.f32(t.dir_bright);
+            o.f32(t.dir_heading);
+            o.f32(t.dir_pitch);
+            o.u32(t.dir_color);
+            o.f32(t.amb_bright);
+            o.u32(t.amb_color);
+            o.f32(t.min_world_fog);
+            o.f32(t.max_world_fog);
+            o.u32(t.world_fog_color);
+            o.u32(t.world_fog);
+            o.align();
+            o.count(t.sky_obj_replace.len());
+            for r in &t.sky_obj_replace {
+                o.u32(r.object_index);
+                o.id(r.gfx_obj_id);
+                o.f32(r.rotate);
+                o.f32(r.transparent);
+                o.f32(r.luminosity);
+                o.f32(r.max_bright);
+                o.align();
+            }
+        }
+    }
+}
+
+fn land_surface(o: &mut Out, s: &LandSurf) -> Result<(), AssetError> {
+    let Some(t) = s.tex_merge.as_ref().filter(|_| s.surf_type == 0) else {
+        return Err(AssetError::Unsupported {
+            what: "land-surface type (PalShift)",
+            value: s.surf_type,
+        });
+    };
+    o.u32(0);
+    o.u32(t.base_tex_size);
+    for maps in [&t.corner_terrain_maps, &t.side_terrain_maps, &t.road_maps] {
+        o.count(maps.len());
+        for m in maps {
+            o.u32(m.code);
+            o.id(m.tex_gid);
+        }
+    }
+    o.count(t.terrain_desc.len());
+    for d in &t.terrain_desc {
+        o.u32(d.terrain_type);
+        o.id(d.tex_gid);
+        o.u32(d.tex_tiling);
+        o.u32(d.max_vert_bright);
+        o.u32(d.min_vert_bright);
+        o.u32(d.max_vert_saturate);
+        o.u32(d.min_vert_saturate);
+        o.u32(d.max_vert_hue);
+        o.u32(d.min_vert_hue);
+        o.u32(d.detail_tex_tiling);
+        o.id(d.detail_tex_gid);
+    }
+    Ok(())
+}
+
 /// A table's keys in `order` when it names exactly the table's keys, else in key order.
 fn in_order<V>(table: &std::collections::BTreeMap<u32, V>, order: &[u32]) -> Vec<u32> {
     let same = order.len() == table.len() && order.iter().all(|k| table.contains_key(k));
@@ -1826,5 +2057,166 @@ mod tests {
         };
         let b = cg.encode();
         assert_eq!(CharGen::decode_payload(cg.id, &b).unwrap(), cg);
+    }
+
+    /// A small region: names of odd lengths, a sky of one day with two objects and two times, one
+    /// sound description, one scene description and one terrain type.
+    fn small_region() -> Region {
+        use crate::region::*;
+        let object = |begin: f32, gfx: u32| SkyObject {
+            begin_time: begin,
+            end_time: begin + 0.5,
+            begin_angle: -30.0,
+            end_angle: 210.0,
+            tex_velocity: (0.01, -0.02),
+            default_gfx_object: DataId(gfx),
+            default_pes_object: DataId(0x3300_0001),
+            properties: 5,
+        };
+        let time = |begin: f32, transparent: f32| SkyTime {
+            begin,
+            dir_bright: 0.65,
+            dir_heading: 90.0,
+            dir_pitch: 30.0,
+            dir_color: 0x00FF_EECC,
+            amb_bright: 0.25,
+            amb_color: 0xFF80_8080,
+            min_world_fog: -50.0,
+            max_world_fog: 1500.0,
+            world_fog_color: 0xFF40_5060,
+            world_fog: 1,
+            sky_obj_replace: vec![SkyObjectReplace {
+                object_index: 1,
+                gfx_obj_id: DataId(0),
+                rotate: 270.0,
+                transparent,
+                luminosity: 100.0,
+                max_bright: -1.0,
+            }],
+        };
+        Region {
+            id: DataId(0x1300_0000),
+            region_number: 1,
+            version: 3,
+            region_name: "Odd".into(),
+            land_defs: LandDefs {
+                num_block_length: 255,
+                num_block_width: 255,
+                square_length: 24.0,
+                lblock_length: 8,
+                vertex_per_cell: 3,
+                max_obj_height: 200.0,
+                sky_height: 1000.0,
+                road_width: 5.0,
+                land_height_table: (0..256u16).map(|i| f32::from(i) * 2.0).collect(),
+            },
+            game_time: GameTime {
+                zero_time_of_year: 3600.5,
+                zero_year: 10,
+                day_length: 7620.0,
+                days_per_year: 360,
+                year_spec: "PY".into(),
+                times_of_day: vec![TimeOfDay {
+                    begin: 0.25,
+                    is_night: 0,
+                    name: "Dawnsong".into(),
+                }],
+                days_of_the_week: vec!["Snowreap".into(), "Morn".into()],
+                seasons: vec![Season {
+                    begin: 0,
+                    name: "Spring".into(),
+                }],
+            },
+            parts_mask: 0x21B,
+            sky_info: Some(SkyInfo {
+                tick_size: 1.0,
+                light_tick_size: 30.0,
+                day_groups: vec![SkyDayPreset {
+                    chance_of_occur: 6.0,
+                    day_name: "Clear".into(),
+                    sky_objects: vec![object(0.0, 0x0200_0001), object(0.25, 0x0100_0002)],
+                    sky_time: vec![time(0.0, 100.0), time(0.5, 0.0)],
+                }],
+            }),
+            sound_info: Some(vec![SoundDesc {
+                stb_id: DataId(0x2000_0001),
+                ambient_sounds: vec![AmbientSound {
+                    stype: 3,
+                    volume: 0.5,
+                    base_chance: 0.1,
+                    min_rate: 2.0,
+                    max_rate: 9.0,
+                }],
+            }]),
+            scene_info: Some(vec![SceneDesc {
+                stb_index: -1,
+                scenes: vec![DataId(0x1200_0001)],
+            }]),
+            terrain_types: vec![TerrainType {
+                terrain_name: "Grassland".into(),
+                terrain_color: 0x0022_AA22,
+                scene_types: vec![0, 1, 2],
+            }],
+            land_surf: LandSurf {
+                surf_type: 0,
+                tex_merge: Some(TexMerge {
+                    base_tex_size: 512,
+                    corner_terrain_maps: vec![CodeTexture {
+                        code: 1,
+                        tex_gid: DataId(0x0500_0001),
+                    }],
+                    side_terrain_maps: Vec::new(),
+                    road_maps: vec![CodeTexture {
+                        code: 5,
+                        tex_gid: DataId(0x0500_0002),
+                    }],
+                    terrain_desc: Vec::new(),
+                }),
+                pal_shift: None,
+            },
+            region_misc: Some(RegionMisc {
+                version: 1,
+                game_map: DataId(0x0600_127D),
+                autotest_map: DataId(0),
+                autotest_map_size: 0,
+                clear_cell: DataId(0),
+                clear_monster: DataId(0),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_region_reads_back_as_written() {
+        let r = small_region();
+        let b = r.encode().unwrap();
+        assert!(b.len().is_multiple_of(4));
+        assert_eq!(Region::decode_payload(r.id, &b).unwrap(), r);
+    }
+
+    #[test]
+    fn a_region_string_is_its_length_its_bytes_and_padding_to_four() {
+        let b = small_region().encode().unwrap();
+        // id, number, version, then the name.
+        assert_eq!(&b[12..14], &3u16.to_le_bytes());
+        assert_eq!(&b[14..17], b"Odd");
+        assert_eq!(b[17..20], [0, 0, 0]);
+        assert_eq!(
+            &b[20..24],
+            &255u32.to_le_bytes(),
+            "the land definitions follow"
+        );
+    }
+
+    #[test]
+    fn a_region_with_a_palette_shift_land_surface_is_refused() {
+        let mut r = small_region();
+        r.land_surf = crate::region::LandSurf {
+            surf_type: 1,
+            tex_merge: None,
+            pal_shift: Some(crate::region::PalShift {
+                textures: Vec::new(),
+            }),
+        };
+        assert!(r.encode().is_err());
     }
 }

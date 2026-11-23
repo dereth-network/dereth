@@ -346,6 +346,9 @@ pub struct FrameDelta {
     /// The sky's objects, in the order they are drawn, each saying which of the passes before
     /// and after the ground draws it; neither is drawn without [`Self::landscape`].
     pub sky: Vec<SkyObject>,
+    /// How much of the fog's color a world's sky tints lay over the sky drawn before the ground,
+    /// 0 to 1; 0 for a world without them, as every retail world is.
+    pub sky_veil: f32,
     /// The level each degrading placement draws at, for every block whose levels changed since
     /// the last frame, and for every block sent in this frame's deltas.
     pub levels: Vec<BlockLevels>,
@@ -810,6 +813,10 @@ pub struct SkyObject {
     pub fogged: bool,
     /// Its picture laid flat from above, for a deck of cloud.
     pub deck: Option<SkyDeck>,
+    /// The world's tint for it at this time of day, red, green, blue and alpha 0 to 1: its color
+    /// multiplies the object's and its alpha the object's opacity. `None` for a world without
+    /// sky tints, as every retail world is.
+    pub tint: Option<[f32; 4]>,
 }
 
 /// A deck whose picture is laid flat from above.

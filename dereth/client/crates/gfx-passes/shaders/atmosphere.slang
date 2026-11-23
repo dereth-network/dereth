@@ -29,7 +29,8 @@ import frame;
 //         colors are drawn linear (0 in display values), z the atmosphere's outer radius, km
 //   14    xy the sky-view table's size, w its raymarch's steps
 //   15    x the horizon's veil's band (the sine of an elevation), y how much of the day it is (0
-//         night to 1 day), z how bright the veil is against the fog
+//         night to 1 day), z how bright the veil is against the fog, w how much of the fog's
+//         color a world's sky tints lay over the whole sky (0 for every other world)
 public static const uint ATM_RAY = 0;
 public static const uint ATM_EYE = 4;
 public static const uint ATM_EXTENT = 5;

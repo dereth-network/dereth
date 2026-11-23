@@ -40,7 +40,8 @@ struct PerDraw {
     // fixed-function lit colour is Emissive + Diffuse * lights, and the vertex colour here is that
     // lit colour for the default material (Emissive 0, Diffuse 1), so the diffuse source becomes
     // saturate(colour * y + x). The selection blink uses (0.99, 1.0) /
-    // (0.0, 0.35); with z = 0 the colour is untouched.
+    // (0.0, 0.35); with z = 0 the color is untouched. w = 1 when the texture factor carries a
+    // world's tint for a sky object, which multiplies the lit color and alpha.
     material_lighting: vec4<f32>,
     // The fixed-function vertex lighting the client turns on for every mesh subset
     // (its own disable flag is never set, so it is on for every mesh).

@@ -984,9 +984,17 @@ impl SceneDraw {
                     environment_texture_detail: self.land.bake.environment_texture_detail,
                     ..BakeCache::default()
                 });
-                crate::sky::SkyScene::load(files, region, gpu, cache)
+                crate::sky::SkyScene::load(files, region, None, gpu, cache)
             }
-            None => crate::sky::SkyScene::load(store, region, gpu, &mut self.land.bake),
+            None => {
+                // The world's own sky takes the world's tints; another region's sky takes none.
+                let tints = self
+                    .sky_region
+                    .is_none()
+                    .then(|| crate::sky::world_tints(store))
+                    .flatten();
+                crate::sky::SkyScene::load(store, region, tints, gpu, &mut self.land.bake)
+            }
         }
         .map_err(|e| WorldError::Render(e.to_string()))?;
         self.sky = Some(sky);
@@ -1771,6 +1779,12 @@ impl SceneDraw {
     #[must_use]
     pub fn sky_from_other_files(&self) -> bool {
         self.sky_store.is_some()
+    }
+
+    /// The sky drawn, once it is built.
+    #[must_use]
+    pub fn sky(&self) -> Option<&crate::sky::SkyScene> {
+        self.sky.as_ref()
     }
 
     /// The region whose sky, light and fog are drawn.

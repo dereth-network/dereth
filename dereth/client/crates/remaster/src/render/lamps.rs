@@ -846,7 +846,8 @@ pub fn lamps_of(
             });
         }
     }
-    let n = night(l);
+    // A world that tints its sky may keep the sun up all night: its dome says when it is night.
+    let n = night(l).max(super::sky::tinted_night(frame));
     if settings.outdoor && n > 0.0 {
         let eye = frame.camera.eye;
         let (mut outdoors, placed) = placed_lamps(frame, outdoor, n, t);

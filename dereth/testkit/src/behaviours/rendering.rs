@@ -1121,6 +1121,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.sky.a-world-without-sky-tints-draws-its-sky-as-the-region-says",
+        says: "A world whose overlay carries no sky tints, as every retail world is, draws its \
+               sky exactly as its region says: no sky object is tinted, no veil is laid over the \
+               sky, and the frame is the same as with tints that change nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD-world-sky-tints",
+        evidence: Evidence::Private("AC-EVID-SKY-TINTS-NONE"),
+        station: "dereth-client::gpu::rendering::sky::a_world_without_sky_tints_draws_its_sky_as_the_region_says",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.sky.a-worlds-sky-tints-color-its-sky-objects-by-the-hour",
+        says: "A world whose overlay carries sky tints colors each sky object by them at each \
+               time of day, carried straight across between the times as the sky's other \
+               values are: the tint's color multiplies the object's, its alpha the object's \
+               opacity, and the time's fog color is laid over the sky drawn before the land by \
+               the share the tints give.",
+        since: THIS_CLIENT,
+        divergence: "CD-world-sky-tints",
+        evidence: Evidence::Private("AC-EVID-SKY-TINTS"),
+        station: "dereth-client::gpu::rendering::sky::a_worlds_sky_tints_color_its_sky_and_veil_it",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.sky.the-light-tick-builds-no-block-again",
         says: "Every 15 seconds the land is re-lit for the hour, every loaded block where it \
                stands: between those moments nothing of the land changes, and at each one no \

@@ -219,23 +219,41 @@ pub fn is_dome(index: usize, o: &SkyObject) -> bool {
 
 /// How much of the day it is, 0 night to 1 day: the sun's elevation shapes dawn and dusk, and
 /// the dome's own brightness says when the authored day is night (retail keeps a low sun through
-/// the night).
+/// the night; a world that tints its sky may keep the sun up all night and darken the dome).
 #[must_use]
 pub fn day_weight(frame: &FrameDelta) -> f32 {
     let sun = smoothstep(-4.0, 6.0, elevation(frame.light.sun));
-    let night = frame
-        .sky
-        .first()
-        .filter(|o| is_dome(0, o))
-        .and_then(|o| o.material)
-        .map_or(1.0, |m| {
-            if m.luminosity < 0.0 {
-                1.0
-            } else {
-                smoothstep(0.12, 0.40, m.luminosity)
-            }
-        });
-    sun * night
+    sun * dome_day(frame)
+}
+
+/// How much of the day the dome says it is, 0 night to 1 day: 1 with no dome, or one whose
+/// brightness is left as it is; else its brightness, which a world's tint for it darkens by the
+/// tint's own brightness and opacity.
+fn dome_day(frame: &FrameDelta) -> f32 {
+    let Some(o) = frame.sky.first().filter(|o| is_dome(0, o)) else {
+        return 1.0;
+    };
+    let own = o
+        .material
+        .and_then(|m| (m.luminosity >= 0.0).then_some(m.luminosity));
+    match o.tint {
+        None => own.map_or(1.0, |l| smoothstep(0.12, 0.40, l)),
+        Some(t) => {
+            let opacity = t[3] * (1.0 - o.material.map_or(0.0, |m| m.translucency));
+            let tinted = 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2];
+            smoothstep(0.12, 0.40, own.unwrap_or(1.0) * tinted * opacity)
+        }
+    }
+}
+
+/// How much of the night a world's tint for the dome says it is, 0 to 1: 0 with no tint, as for
+/// every retail world, whose night the sun's elevation tells.
+#[must_use]
+pub fn tinted_night(frame: &FrameDelta) -> f32 {
+    match frame.sky.first().filter(|o| is_dome(0, o)) {
+        Some(o) if o.tint.is_some() => 1.0 - dome_day(frame),
+        _ => 0.0,
+    }
 }
 
 /// How far into the low sun of dawn or dusk the day is: 1 with the sun 4 degrees up or lower, 0
@@ -277,8 +295,24 @@ pub fn ray_from_ndc(camera: &Camera) -> Mat4 {
     dereth_gfx_passes::sky::ray_from_ndc(camera.view, camera.projection)
 }
 
+/// How much of a world's tinted dome the physical sky covers by day, against an untinted one's: the
+/// world's own colors are its sky, with a little of the remaster's air over them.
+const TINTED_DOME_COVER: f32 = 0.2;
+
+/// How much of the authored dome the physical sky covers: the weather's share of the day, and of a
+/// dome a world tints only [`TINTED_DOME_COVER`] of that.
+#[must_use]
+pub fn dome_cover(frame: &FrameDelta, day: f32, weather: Weather) -> f32 {
+    let cover = day * weather.sky_share();
+    match frame.sky.first().filter(|o| is_dome(0, o)) {
+        Some(o) if o.tint.is_some() => cover * TINTED_DOME_COVER,
+        _ => cover,
+    }
+}
+
 /// What the shared sky is drawn from for `frame`: its weather's air, the authored dome covered by
-/// the weather's share of the day, and the fog the frame's intent gives.
+/// the weather's share of the day ([`dome_cover`]), the fog the frame's intent gives, and the veil
+/// a world's sky tints lay over the sky.
 #[must_use]
 pub fn sky_light(frame: &FrameDelta, extent: (u32, u32), linear: bool) -> SkyLight {
     let cam = &frame.camera;
@@ -294,12 +328,13 @@ pub fn sky_light(frame: &FrameDelta, extent: (u32, u32), linear: bool) -> SkyLig
         twilight: twilight(frame),
         air: weather.sky_air(),
         day,
-        cover: day * weather.sky_share(),
+        cover: dome_cover(frame, day, weather),
         fog: frame
             .light
             .fog
             .map(|f| (f.end, srgb_bytes_to_linear(f.color))),
         linear,
+        sky_veil: frame.sky_veil.clamp(0.0, 1.0),
     }
 }
 
@@ -1070,6 +1105,7 @@ mod tests {
                 uv_offset: [1.25, -0.25],
                 fogged: false,
                 deck,
+                tint: None,
             });
         }
         f
@@ -1168,7 +1204,114 @@ mod tests {
             uv_offset: [0.0; 2],
             fogged: false,
             deck: None,
+            tint: None,
         });
         assert!(day_weight(&f) < 1e-6, "a dark dome");
+    }
+
+    /// A world that tints its sky keeps its sun high all night and darkens the dome by the hour:
+    /// the day follows the dome's tint, its brightness and its opacity, and the outdoor lamps
+    /// light with the night it says. Untinted, the dome's own brightness alone, as before.
+    #[test]
+    fn a_tinted_dome_says_when_it_is_night_under_a_sun_that_never_sets() {
+        let dome = |tint: Option<[f32; 4]>, translucency: f32| SkyObject {
+            gfx: 1,
+            properties: 0,
+            frame: Mat4::IDENTITY,
+            before: true,
+            after: false,
+            material: Some(crate::scene::Material {
+                translucency,
+                diffusion: 1.0,
+                luminosity: 1.0,
+            }),
+            uv_offset: [0.0; 2],
+            fogged: false,
+            deck: None,
+            tint,
+        };
+        let at = |o: SkyObject| {
+            let mut f = FrameDelta::default();
+            // Past the zenith, as a sun that crosses the whole sky and back stands at midnight.
+            f.light.sun = Vec3::new(0.0, -0.5, 0.56);
+            f.sky.push(o);
+            f
+        };
+        let rgb = |c: u32| {
+            let ch = |s: u32| ((c >> s) & 0xFF) as f32 / 255.0;
+            [ch(16), ch(8), ch(0), 1.0]
+        };
+        // Noon's pale blue dome, opaque: day.
+        let noon = at(dome(Some(rgb(0x008E_8BCC)), 0.0));
+        assert!((day_weight(&noon) - 1.0).abs() < 1e-6);
+        assert_eq!(tinted_night(&noon), 0.0);
+        // Midnight's dome, near black and wholly clear: night, and the lamps are lit.
+        let midnight = at(dome(Some(rgb(0x000E_1426)), 1.0));
+        assert!(day_weight(&midnight) < 1e-6);
+        assert!((tinted_night(&midnight) - 1.0).abs() < 1e-6);
+        assert_eq!(
+            crate::render::lamps::night(&midnight.light),
+            0.0,
+            "the sun alone says day"
+        );
+        // Dusk's dark violet, half clear: night has nearly come.
+        let dusk = at(dome(Some(rgb(0x0036_3F67)), 0.56));
+        assert!(day_weight(&dusk) < 0.05, "{}", day_weight(&dusk));
+        // With no tint, a bright dome under the same high sun is day, and it says nothing of night.
+        let retail = at(dome(None, 1.0));
+        assert!((day_weight(&retail) - 1.0).abs() < 1e-6);
+        assert_eq!(tinted_night(&retail), 0.0);
+    }
+
+    /// A world that tints its dome shows it by day: the physical sky covers a tinted dome only
+    /// [`TINTED_DOME_COVER`] as much as an untinted one, and the tints' veil reaches the sky's
+    /// constants. Without tints the sky's constants are what they were, the veil's share 0.
+    #[test]
+    fn a_tinted_dome_shows_through_the_air_and_its_veil_reaches_the_sky() {
+        let dome = |tint: Option<[f32; 4]>| SkyObject {
+            gfx: 1,
+            properties: 0,
+            frame: Mat4::IDENTITY,
+            before: true,
+            after: false,
+            material: Some(crate::scene::Material {
+                translucency: 0.0,
+                diffusion: 1.0,
+                luminosity: 1.0,
+            }),
+            uv_offset: [0.0; 2],
+            fogged: false,
+            deck: None,
+            tint,
+        };
+        let mut f = FrameDelta {
+            day_group: "Clear".into(),
+            sky: vec![dome(None)],
+            ..FrameDelta::default()
+        };
+        f.light.sun = Vec3::new(0.3, 0.0, 0.9);
+        let plain = sky_light(&f, (64, 48), false);
+        assert!((plain.cover - Weather::Clear.sky_share()).abs() < 1e-6);
+        assert_eq!(plain.sky_veil, 0.0);
+        let rows = constants(&f, (64, 48), false);
+        f.sky[0] = dome(Some([0.56, 0.55, 0.8, 1.0]));
+        f.sky_veil = 0.5;
+        let tinted = sky_light(&f, (64, 48), false);
+        assert!((tinted.cover - plain.cover * TINTED_DOME_COVER).abs() < 1e-6);
+        assert_eq!(tinted.sky_veil, 0.5);
+        // The veil's share is the veil row's last value, and the rows are the untinted frame's
+        // otherwise but for the cover.
+        let tinted_rows = constants(&f, (64, 48), false);
+        let float =
+            |b: &[u8], k: usize| f32::from_le_bytes(b[k * 4..k * 4 + 4].try_into().unwrap());
+        // After the ray's sixteen floats, row k of the atmosphere's (from 4) is four floats.
+        let at = |row: usize, lane: usize| 16 + (row - 4) * 4 + lane;
+        let (cover, veil_share) = (at(13, 0), at(15, 3));
+        assert_eq!(float(&rows, veil_share), 0.0);
+        assert_eq!(float(&tinted_rows, veil_share), 0.5);
+        let differing: Vec<usize> = (0..rows.len() / 4)
+            .filter(|&k| float(&rows, k) != float(&tinted_rows, k))
+            .collect();
+        assert_eq!(differing, vec![cover, veil_share]);
     }
 }

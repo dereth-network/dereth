@@ -356,7 +356,8 @@ pub struct PerDrawConstants {
     /// fixed-function pipeline, whose lit colour is `Emissive + Diffuse * lights`; the vertex colour
     /// this renderer carries is that lit colour for the default material, so the shader applies
     /// `rgb * y + x` when z is set and leaves the colour alone otherwise. All-zero (the `Default`)
-    /// is "no material bound".
+    /// is "no material bound". `w` = 1 says the texture factor carries a world's tint for a sky
+    /// object, whose color multiplies the lit color and whose alpha the alpha.
     pub material_lighting: [f32; 4],
     /// `x` = `D3DRS_LIGHTING`, which the client turns on for every mesh
     /// subset; `y` = how many of the eight `D3DLIGHT9` slots the light-enable pass left enabled
