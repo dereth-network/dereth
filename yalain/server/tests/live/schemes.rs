@@ -27,7 +27,7 @@ use dereth_primitives::num::math;
 use yalain_testkit::authored;
 use yalain_testkit::session::{self as play, Drive};
 
-use super::session::{must, scratch, serving, start_server, LIFE};
+use super::session::{must, scratch, serving, start_server, unless_lost, LIFE};
 
 /// Shift: with forward, a walk.
 const SHIFT: ControlId = ControlId(0x4000_000E);
@@ -216,6 +216,11 @@ impl Schemed {
             let (dx, dy) = (to[0] - at[0], to[1] - at[1]);
             if math::hypotf(dx, dy) <= reach {
                 break;
+            }
+            if let Err(e) = play::lost(self.client_ref(), &format!("{to:?}")) {
+                self.hold(&[]);
+                self.aim = None;
+                return Err(e);
             }
             if self.now() >= end {
                 self.hold(&[]);
@@ -425,13 +430,7 @@ fn plays(scheme: Scheme, name: &str) -> Option<Vec<Row>> {
         });
         play::attack_until_dead(s, sentinel.id)
     });
-    match fought {
-        Err(e) if e.contains(play::LOST_THE_FIGHT) => {
-            eprintln!("{e}; played again");
-            return None;
-        }
-        r => must(r, &dir),
-    }
+    unless_lost(fought, &dir)?;
     s.client().act(Action::Attack { start: false });
 
     // To the town through the shard: the trip's placement is the server's to make.
@@ -442,13 +441,14 @@ fn plays(scheme: Scheme, name: &str) -> Option<Vec<Row>> {
         (authored::HALL >> 24) as f32 * BLOCK + at[0],
         ((authored::HALL >> 16) & 0xFF) as f32 * BLOCK + at[1],
     ];
-    must(
+    // A player that falls after its creature, or in the same moment, plays the session again.
+    unless_lost(
         measure(&mut s, &dir, &mut rows, "close in on the portal", |s| {
             s.go_to(spot, 3.0, 30.0)
         }),
         &dir,
-    );
-    must(play::take_portal(&mut s, shard.id, authored::TOWN), &dir);
+    )?;
+    unless_lost(play::take_portal(&mut s, shard.id, authored::TOWN), &dir)?;
     play::wait(&mut s, 2.0);
     let (home, _) = s.ground();
 

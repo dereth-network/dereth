@@ -252,6 +252,50 @@ pub fn until(
     Ok(())
 }
 
+/// Step until `done` holds, at most `seconds`, the player alive throughout: a player dead while it
+/// waits (as it falls after its creature, or in the same moment) fails it at once.
+///
+/// # Errors
+/// The player died ([`LOST_THE_FIGHT`]), or `done` did not hold in time.
+pub fn until_alive(
+    d: &mut impl Drive,
+    seconds: f64,
+    what: &str,
+    done: impl Fn(&Client) -> bool,
+) -> Result<(), String> {
+    let end = d.now() + seconds;
+    loop {
+        lost(d.client_ref(), what)?;
+        if done(d.client_ref()) {
+            return Ok(());
+        }
+        if d.now() >= end {
+            return Err(timed_out(d, what, seconds));
+        }
+        d.step();
+    }
+}
+
+/// Is the player dead, as the client knows it: its health gone?
+#[must_use]
+pub fn player_dead(c: &Client) -> bool {
+    health(c, c.model.player.unwrap_or(0)).0 == Some(0)
+}
+
+/// [`LOST_THE_FIGHT`] when the player is dead as the client knows it, waiting for `what`.
+///
+/// # Errors
+/// The player is dead.
+pub fn lost(c: &Client, what: &str) -> Result<(), String> {
+    if player_dead(c) {
+        return Err(format!(
+            "{LOST_THE_FIGHT}, waiting for {what} ({})",
+            last_sent(c)
+        ));
+    }
+    Ok(())
+}
+
 /// Step for `seconds`.
 pub fn wait(d: &mut impl Drive, seconds: f64) {
     let end = d.now() + seconds;
@@ -356,7 +400,7 @@ pub fn see(d: &mut impl Drive, templates: &[u32]) -> Result<(), String> {
 /// the walk sent.
 ///
 /// # Errors
-/// The body did not get there.
+/// The body did not get there, or the player died ([`LOST_THE_FIGHT`]).
 pub fn walk_to(d: &mut impl Drive, to: [f32; 3], reach: f32) -> Result<usize, String> {
     let from = d.client_ref().sent().len();
     let end = d.now() + 60.0;
@@ -366,6 +410,7 @@ pub fn walk_to(d: &mut impl Drive, to: [f32; 3], reach: f32) -> Result<usize, St
         if math::hypotf(dx, dy) <= reach {
             break;
         }
+        lost(d.client_ref(), &format!("walking to {to:?}"))?;
         if d.now() >= end {
             return Err(timed_out(d, &format!("walking to {to:?}"), 60.0));
         }
@@ -464,11 +509,12 @@ fn dead(c: &Client, target: u64) -> bool {
     })
 }
 
-/// How [`attack_until_dead`]'s error begins when the player died first.
-pub const LOST_THE_FIGHT: &str = "the player died before the creature";
+/// How an error begins when the player died in a fight: before its creature, in the same moment,
+/// or as the helpers that act after a fight wait ([`until_alive`]).
+pub const LOST_THE_FIGHT: &str = "the player died in the fight";
 
 /// Attack the selection until it is dead. A fight the player loses ends its attack, so the player's
-/// death fails at once.
+/// death fails at once, and it is a fight lost even when the creature dies in the same moment.
 ///
 /// # Errors
 /// The player died first, or the target did not die.
@@ -477,16 +523,15 @@ pub fn attack_until_dead(d: &mut impl Drive, target: u64) -> Result<(), String> 
     let end = d.now() + HANG;
     loop {
         let c = d.client_ref();
-        if dead(c, target) {
-            return Ok(());
-        }
-        let me = c.model.player.unwrap_or(0);
-        if health(c, me).0 == Some(0) {
+        if player_dead(c) {
             return Err(format!(
                 "{LOST_THE_FIGHT} ({}); {}",
                 last_sent(c),
                 standing(c, target)
             ));
+        }
+        if dead(c, target) {
+            return Ok(());
         }
         if d.now() >= end {
             let e = timed_out(d, "the creature dead", HANG);
@@ -530,16 +575,16 @@ pub fn use_object(d: &mut impl Drive, target: u64) {
 /// Open the corpse a creature left by using it; returns the corpse and the first item in it.
 ///
 /// # Errors
-/// No corpse, or nothing in it.
+/// No corpse, or nothing in it, or the player died ([`LOST_THE_FIGHT`]).
 pub fn open_corpse(d: &mut impl Drive) -> Result<(u64, u64), String> {
-    until(d, HANG, "the corpse", |c| {
+    until_alive(d, HANG, "the corpse", |c| {
         find(c, authored::CORPSE).is_some()
     })?;
     let corpse = find(d.client_ref(), authored::CORPSE)
         .map(|o| o.id)
         .ok_or("no corpse")?;
     use_object(d, corpse);
-    until(d, HANG, "what the corpse holds", |c| {
+    until_alive(d, HANG, "what the corpse holds", |c| {
         c.model.objects().any(|o| o.container == Some(corpse))
     })?;
     let item = d
@@ -562,11 +607,12 @@ pub fn have(d: &mut impl Drive, item: u64) -> bool {
 /// Take an item by using it: it leaves the world for the pack the player's scripts keep.
 ///
 /// # Errors
-/// It did not reach the pack.
+/// It did not reach the pack, or the player died ([`LOST_THE_FIGHT`]).
 pub fn take(d: &mut impl Drive, item: u64) -> Result<(), String> {
     use_object(d, item);
     let end = d.now() + 15.0;
     while !have(d, item) {
+        lost(d.client_ref(), "the item in the pack")?;
         if d.now() >= end {
             return Err(timed_out(d, "the item in the pack", 15.0));
         }
@@ -585,11 +631,11 @@ pub fn take(d: &mut impl Drive, item: u64) -> Result<(), String> {
 /// Use a person, and hear it tell the player something.
 ///
 /// # Errors
-/// No tell came.
+/// No tell came, or the player died ([`LOST_THE_FIGHT`]).
 pub fn talk_to(d: &mut impl Drive, person: u64) -> Result<(), String> {
     let heard = d.client_ref().observed.len();
     use_object(d, person);
-    until(d, HANG, "the person's tell", |c| {
+    until_alive(d, HANG, "the person's tell", |c| {
         c.observed[heard..]
             .iter()
             .any(|(_, f, _, _)| *f == call::HEAR_TELL)
@@ -599,11 +645,11 @@ pub fn talk_to(d: &mut impl Drive, person: u64) -> Result<(), String> {
 /// Say something, and hear it said.
 ///
 /// # Errors
-/// It was not heard.
+/// It was not heard, or the player died ([`LOST_THE_FIGHT`]).
 pub fn say(d: &mut impl Drive, text: &str) -> Result<(), String> {
     let heard = d.client_ref().observed.len();
     d.client().act(Action::Say { text: text.into() });
-    until(d, HANG, "the saying heard", |c| {
+    until_alive(d, HANG, "the saying heard", |c| {
         c.observed[heard..]
             .iter()
             .any(|(_, f, _, _)| *f == call::SAYING)
@@ -614,12 +660,12 @@ pub fn say(d: &mut impl Drive, text: &str) -> Result<(), String> {
 /// observed calls' start.
 ///
 /// # Errors
-/// The trip did not happen.
+/// The trip did not happen, or the player died ([`LOST_THE_FIGHT`]).
 pub fn take_portal(d: &mut impl Drive, portal: u64, to: u32) -> Result<(), String> {
     let trip = d.client_ref().observed.len();
     use_object(d, portal);
-    until(d, HANG, "the portal's destination", |c| c.body.cell == to)?;
-    until(d, HANG, "out of portal space", |c| {
+    until_alive(d, HANG, "the portal's destination", |c| c.body.cell == to)?;
+    until_alive(d, HANG, "out of portal space", |c| {
         let n = |f| {
             c.observed[trip..]
                 .iter()

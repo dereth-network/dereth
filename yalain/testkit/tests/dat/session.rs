@@ -587,3 +587,75 @@ fn our_clients_scripts_read_a_sale_running_out_of_time() {
         s.client_ref().script_stops()
     );
 }
+
+/// A player that dies in the same moment as the creature it fights has lost the fight, though the
+/// creature is dead too. A portal it then uses is refused at once, the player kept out of portal
+/// space, and the session's helpers that act after a fight fail at once with the fight lost.
+/// Behaviour: session.server.a-death-in-its-creatures-moment-is-a-fight-lost
+/// Behaviour: server.places.actions-locked
+#[test]
+fn a_player_dying_in_the_moment_its_creature_dies_has_lost_the_fight() {
+    use yalain_world::player::quality::HEALTH;
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::SHARD, authored::SENTINEL]));
+    let sentinel = play::find(s.client_ref(), authored::SENTINEL).expect("a sentinel");
+    let shard = play::find(s.client_ref(), authored::SHARD).expect("the shard");
+    // Both die in one step: the sentinel to the player, the player to the sentinel.
+    let clock = s.h.clock();
+    let world = *s.h.server.players.keys().next().expect("the player");
+    if let Some(t) = s.h.server.things.get_mut(sentinel.id) {
+        t.health = 0;
+    }
+    yalain_world::death::creature_dies(&mut s.h.server, &mut s.h.net, sentinel.id, me, clock);
+    if let Some(p) = s.h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
+    }
+    yalain_world::progress::send_int(&mut s.h.net, world, HEALTH, 0);
+    yalain_world::death::player_dies(
+        &mut s.h.server,
+        &mut s.h.net,
+        world,
+        Some(sentinel.id),
+        clock,
+    );
+    let fight = play::attack_until_dead(&mut s, sentinel.id);
+    assert!(
+        fight
+            .as_ref()
+            .is_err_and(|e| e.starts_with(play::LOST_THE_FIGHT)),
+        "a fight lost: {fight:?}"
+    );
+    // The shard used: answered at once, refused, no portal space.
+    let used = yalain_world::places::function::USE_DONE;
+    s.client().observe.push(used);
+    let from = s.client_ref().observed.len();
+    let asked = s.now();
+    play::use_object(&mut s, shard.id);
+    ok(play::until(&mut s, 1.0, "the use answered", |c| {
+        c.observed[from..].iter().any(|(_, f, _, _)| *f == used)
+    }));
+    play::wait(&mut s, 3.0);
+    assert!(
+        !s.client_ref().observed[from..]
+            .iter()
+            .any(|(_, f, _, _)| *f == play::call::ENTER_PORTAL_SPACE),
+        "kept out of portal space"
+    );
+    assert!(
+        s.h.server.players[&world].trip.is_none(),
+        "on no trip, {} s after the use",
+        s.now() - asked
+    );
+    // The helpers that act after a fight fail at once.
+    let before = s.now();
+    let trip = play::take_portal(&mut s, shard.id, authored::TOWN);
+    assert!(
+        trip.as_ref()
+            .is_err_and(|e| e.starts_with(play::LOST_THE_FIGHT)),
+        "the trip fails with the fight lost: {trip:?}"
+    );
+    assert!(s.now() - before < 1.0, "at once");
+}

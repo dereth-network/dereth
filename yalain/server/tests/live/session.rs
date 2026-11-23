@@ -254,6 +254,18 @@ pub(crate) fn must<T>(r: Result<T, String>, dir: &Path) -> T {
     })
 }
 
+/// [`must`], except that the player's death in or after a fight is no failure but `None`: the
+/// session is played again.
+pub(crate) fn unless_lost<T>(r: Result<T, String>, dir: &Path) -> Option<T> {
+    match r {
+        Err(e) if e.contains(play::LOST_THE_FIGHT) => {
+            eprintln!("{e}; played again");
+            None
+        }
+        r => Some(must(r, dir)),
+    }
+}
+
 /// The server's executable, started on loopback with the install and an authored world, plays a
 /// whole session with our client over real sockets: the character list, a character made and
 /// entered, a walk, the people and creatures around, a creature selected, examined and killed,
@@ -315,23 +327,23 @@ fn plays_a_whole_session() -> bool {
         order,
         [sent::SET_SELECTION, sent::QUERY_EXAMINATION, sent::LOOK_AT]
     );
-    match play::attack_until_dead(&mut s, sentinel.id) {
-        Err(e) if e.starts_with(play::LOST_THE_FIGHT) => {
-            eprintln!("{e}; played again");
-            return false;
-        }
-        r => must(r, &dir),
+    // A player that dies in the fight, or as it falls after its creature, plays the session again.
+    let played = (|| {
+        unless_lost(play::attack_until_dead(&mut s, sentinel.id), &dir)?;
+        let (_, item) = unless_lost(play::open_corpse(&mut s), &dir)?;
+        unless_lost(play::take(&mut s, item), &dir)?;
+        unless_lost(play::say(&mut s, "Well met."), &dir)?;
+        let guard = play::find(s.client_ref(), authored::GUARD).expect("the guard");
+        let at = guard.place.expect("placed").origin;
+        unless_lost(play::walk_to(&mut s, [at.x, at.y, at.z], 2.0), &dir)?;
+        unless_lost(play::talk_to(&mut s, guard.id), &dir)?;
+        let shard = play::find(s.client_ref(), authored::SHARD).expect("the shard");
+        unless_lost(play::walk_to(&mut s, authored::SHARD_AT, 2.0), &dir)?;
+        unless_lost(play::take_portal(&mut s, shard.id, authored::TOWN), &dir)
+    })();
+    if played.is_none() {
+        return false;
     }
-    let (_, item) = must(play::open_corpse(&mut s), &dir);
-    must(play::take(&mut s, item), &dir);
-    must(play::say(&mut s, "Well met."), &dir);
-    let guard = play::find(s.client_ref(), authored::GUARD).expect("the guard");
-    let at = guard.place.expect("placed").origin;
-    must(play::walk_to(&mut s, [at.x, at.y, at.z], 2.0), &dir);
-    must(play::talk_to(&mut s, guard.id), &dir);
-    let shard = play::find(s.client_ref(), authored::SHARD).expect("the shard");
-    must(play::walk_to(&mut s, authored::SHARD_AT, 2.0), &dir);
-    must(play::take_portal(&mut s, shard.id, authored::TOWN), &dir);
     play::wait(&mut s, 1.0);
     must(play::log_off(&mut s), &dir);
     must(play::enter(&mut s, me), &dir);

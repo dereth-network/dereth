@@ -665,6 +665,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.a-death-in-its-creatures-moment-is-a-fight-lost",
+        says: "The session's helpers count a player that dies in the same moment as the creature it \
+               fights, or while a helper that acts after the fight waits, as a fight lost: they fail \
+               at once, and a session that may be played again is played again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SESS-MUTUAL-KILL"),
+        station: "yalain-testkit::dat::session::a_player_dying_in_the_moment_its_creature_dies_has_lost_the_fight",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say",
         says: "An item whose template keeps its places only in its qualities record, used from the \
                pack, goes on the body where they say and leaves what is in hand there.",
