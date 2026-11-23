@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed Direct3D 12 screenshots showing an older frame, or a black one.
 - Navigator: walks round large objects that come in sight, such as yard walls, instead of into them.
 - Fixed your character getting up and running after dying on a Navigator journey.
 - Navigator: the dungeon map grows with its window.

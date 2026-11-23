@@ -16,5 +16,6 @@ mod shell;
 mod shutdown;
 mod static_event_queue_growth;
 mod sync_to_refresh;
+mod window_capture;
 mod window_position;
 mod world_clock_sync;

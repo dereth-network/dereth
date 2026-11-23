@@ -179,6 +179,9 @@ pub struct Gpu {
     next_fence_value: u64,
     frames: Vec<Frame>,
     frame_index: usize,
+    /// The swap-chain buffer the last frame presented, until the chain's buffers are made again:
+    /// what a capture reads. `frame_index` has moved on to the next back buffer by then.
+    presented: Option<usize>,
     root_signature: ID3D12RootSignature,
     vertex_shaders: HashMap<VertexFormat, Vec<u8>>,
     pixel_shaders: HashMap<PixelShader, Vec<u8>>,
@@ -443,6 +446,7 @@ impl Gpu {
             next_fence_value: 1,
             frames,
             frame_index: 0,
+            presented: None,
             root_signature,
             vertex_shaders,
             pixel_shaders,
@@ -1299,6 +1303,8 @@ impl Gpu {
         // `upload_texture` performed — is what puts them on the clock.
         self.flush_frame_releases(value);
         self.frame_open = false;
+        self.presented =
+            matches!(self.target, Target::SwapChain { .. }).then_some(self.frame_index);
         self.frame_index = match &self.target {
             // SAFETY: GetCurrentBackBufferIndex is a pure query.
             Target::SwapChain { chain, .. } => {
@@ -1363,7 +1369,8 @@ impl Gpu {
         Ok(())
     }
 
-    /// Read the render target back as BGRA8, row by row with the D3D12 row pitch removed.
+    /// Read the render target back as BGRA8, row by row with the D3D12 row pitch removed. On a
+    /// window it is the buffer the last frame presented, not the next one to be drawn into.
     ///
     /// A fixed scene rendered offscreen at 800×600 must read back as the same RGBA8 across three
     /// consecutive runs on the same machine.
@@ -1405,7 +1412,12 @@ impl Gpu {
         })?;
         let readback = readback.ok_or_else(|| RenderError::Device("no readback buffer".into()))?;
 
-        let (_, back) = self.current_rtv();
+        let back = match &self.target {
+            Target::SwapChain { buffers, .. } => {
+                buffers[self.presented.unwrap_or(self.frame_index)].clone()
+            }
+            Target::Offscreen { texture } => texture.clone(),
+        };
         // A one-shot allocator and list of their own, *not* the frame ring's -- the discipline
         // `upload_texture` and the mip readback already follow. Resetting
         // `frames[frame_index].allocator` and waiting for the GPU *afterwards* would be wrong:
@@ -1822,6 +1834,7 @@ impl Gpu {
                 }
                 // SAFETY: a pure query.
                 self.frame_index = (unsafe { chain.GetCurrentBackBufferIndex() }) as usize;
+                self.presented = None;
                 if let Err(e) = resized {
                     // SAFETY: a pure query.
                     let desc = hr("GetDesc1", unsafe { chain.GetDesc1() })?;

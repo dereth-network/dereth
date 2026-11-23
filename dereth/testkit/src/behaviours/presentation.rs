@@ -486,6 +486,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.screenshot.a-window-picture-is-the-frame-just-presented",
+        says: "A picture taken of a window, by the screenshot key or a run's scripted capture, is \
+               the frame the window has just shown, on every graphics device that can read a \
+               window back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-WINDOW-CAPTURE-PRESENTED"),
+        station: "dereth-client::gpu::presentation::window_capture::a_window_picture_is_the_frame_just_presented_on_every_device_that_reads_one_back",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "presentation.screenshot.the-shipped-key-writes-the-next-free-file-beside-preferences",
         says: "The screenshot key saves a picture named ScreenShot with the first free five-digit \
                number into the folder that holds the preferences file, and posts one message \
