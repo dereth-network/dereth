@@ -1699,15 +1699,23 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
     rouse_turrets(s, net, id, clock);
 }
 
-/// A creature's target is dead or gone: it takes the nearest player within its perception that has
-/// hurt it, else it gives up. This server's rule: 2017 also took players that had not hurt it.
-/// The player a creature takes on when the one it fought dies: a living player within its
+/// How much a pet weighs in the draw after a target's death against a player at the same distance
+/// (this server's fit to 2017's 144 takes of one within the radius: 24.3 pets expected against 24
+/// taken, where a pet weighing as a player gives 52.2).
+pub const PET_WEIGHT: f32 = 0.27;
+
+/// Whom a creature takes on when the one it fought dies, if anyone: a living player within its
 /// perception radius that it would take on, one that hurt it or one it would notice (a player it
-/// spares only if that one hurt it), drawn by nearness (each by one over its distance); none when
-/// no such player is within it. (2017, 437 deaths of a creature's target: a player within the
-/// radius was taken 120 of 128 times, hurter or not; with none within it gave up 207 of 217; among
-/// two or more within it no rule named the one taken, and the draw by one over the distance fitted
-/// best, this server's choice.)
+/// spares only if that one hurt it), or another player's living pet within it, hurter or not,
+/// whose owner it may fight; drawn by nearness, a player by one over its distance and a pet by
+/// [`PET_WEIGHT`] over its. None when no such player is within the radius, whatever pets are there.
+/// (2017, 437 deaths of a creature's target: a player within the radius was taken 120 of 128
+/// times, hurter or not; with none within it gave up 207 of 217; among two or more within it no
+/// rule named the one taken, and the draw by one over the distance fitted best, this server's
+/// choice. Of 156 takes, 26 were of a pet, all within the radius, 12 of them pets that had hurt it
+/// and 14 not; with other players' pets within the radius and no player, a pet was taken 0 of 20
+/// times. The dead player's own pet, taken 2 of 111 times it was within the radius, dies with its
+/// owner here, so is never drawn.)
 pub fn after_a_death<S: Store>(
     s: &mut Server<S>,
     id: u64,
@@ -1717,6 +1725,7 @@ pub fn after_a_death<S: Store>(
     let c = s.things.get(id).and_then(|t| t.creature.as_ref())?;
     let hurt_by: Vec<u64> = c.damage_by.iter().map(|(p, _)| *p).collect();
     let lost: Vec<u64> = c.lost_interest.iter().map(|(p, _)| *p).collect();
+    let dead = c.target;
     let attacks_first = c.stats.attacks_first
         && s.creature_rows.may_attack_first(c.stats.friend_table)
         && !only_hated(s, id);
@@ -1736,16 +1745,42 @@ pub fn after_a_death<S: Store>(
                     None => attacks_first || hurt,
                 }
         })
-        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p.character, d)))
-        .filter(|(_, d)| *d <= perception)
+        .filter_map(|p| {
+            presence::distance(at, &p.position).map(|d| (p.character, 1.0 / d.max(0.1)))
+        })
+        .filter(|(_, w)| 1.0 / *w <= perception)
         .collect();
+    if near.is_empty() {
+        return None;
+    }
+    let pets: Vec<(u64, f32)> = s
+        .pets
+        .by_id
+        .values()
+        .filter(|pet| {
+            Some(pet.owner) != dead
+                && !lost.contains(&pet.id)
+                && s.players.values().any(|p| {
+                    p.character == pet.owner
+                        && p.admin.attackable == Attackable::Normal
+                        && may_take_on(s, id, p)
+                })
+        })
+        .filter_map(|pet| {
+            let t = s.things.get(pet.id).filter(|t| t.alive())?;
+            let d = presence::distance(at, &t.at?)?;
+            (d <= perception).then_some((pet.id, PET_WEIGHT / d.max(0.1)))
+        })
+        .collect();
+    near.extend(pets);
     // In a set order, so a seeded draw is the same each time.
     near.sort_by_key(|(p, _)| *p);
-    let i = s.rng.weighted(near.iter().map(|(_, d)| 1.0 / d.max(0.1)))?;
+    let i = s.rng.weighted(near.iter().map(|(_, w)| *w))?;
     Some(near[i].0)
 }
 
-/// A creature whose target died takes on another player ([`after_a_death`]), else gives up.
+/// A creature whose target died takes on another player or a pet ([`after_a_death`]), else gives
+/// up.
 fn took_another_or_home<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,

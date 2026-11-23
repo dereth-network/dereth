@@ -2950,6 +2950,123 @@ fn after_its_targets_death_a_creature_draws_the_next_player_by_nearness() {
     assert!(taken[&Some(eight)] > 0);
 }
 
+/// A pet of `owner`, alive, `east` meters east of the creature.
+fn a_pet(h: &mut Harness, id: u64, owner: u64, east: f32) -> u64 {
+    let creature = h.server.things.get(id).expect("the creature");
+    let mut at = creature.at.expect("placed");
+    let template = h
+        .server
+        .catalog
+        .get(creature.template)
+        .cloned()
+        .expect("its template");
+    at.origin[0] += east;
+    let pet = h.server.things.new_id();
+    let mut t =
+        yalain_world::things::Thing::of(pet, &template, yalain_world::things::Kind::Creature);
+    t.at = Some(at);
+    t.health = 100;
+    t.max_health = 100;
+    h.server.things.insert(t);
+    h.server.pets.by_id.insert(
+        pet,
+        yalain_world::pets::Pet {
+            id: pet,
+            owner,
+            template: template.id,
+            class: 0,
+            flags: 0,
+            mode: 0,
+            name: None,
+            order: yalain_world::pets::Order::Follow,
+            next_plan: f64::MAX,
+            goal: None,
+            effect: 0,
+            assist: None,
+            next_tend: f64::MAX,
+            asked_tend: false,
+            asked_buff: false,
+            missed: false,
+            closing: None,
+            vigor: None,
+            turn_to: None,
+        },
+    );
+    pet
+}
+
+/// Whom 20,000 draws after the target's death took, and how often.
+fn drawn_after(
+    h: &mut Harness,
+    id: u64,
+    at: &yalain_store::StoredPosition,
+) -> std::collections::HashMap<Option<u64>, u32> {
+    let mut taken = std::collections::HashMap::new();
+    for _ in 0..20_000 {
+        let p = ai::after_a_death(&mut h.server, id, at, ai::DEFAULT_PERCEPTION);
+        *taken.entry(p).or_insert(0u32) += 1;
+    }
+    taken
+}
+
+/// Another player's pet within the radius joins the draw after the target's death, whether or not
+/// it hurt the creature, weighing a quarter of a player at its distance: beside a player at 4 m, a
+/// pet at 4 m is taken 0.27 in 1.27 times.
+/// Behaviour: server.creatures.a-targets-death-draws-a-pet-at-a-quarter
+/// Behaviour: server.creatures.a-targets-death-takes-a-pet-hurter-or-not
+#[test]
+fn after_its_targets_death_a_creature_draws_another_players_pet_at_a_quarter_of_a_player() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let near = another_player(&mut h, "two", "Torvald");
+    let owner = another_player(&mut h, "three", "Brannoc");
+    let at = put_east(&mut h, id, &[(near, 4.0), (owner, 30.0)]);
+    let pet = a_pet(&mut h, id, owner, -4.0);
+    dies(&mut h, me);
+    let taken = drawn_after(&mut h, id, &at);
+    #[allow(clippy::cast_precision_loss)]
+    let share = taken.get(&Some(pet)).copied().unwrap_or(0) as f32 / 20_000.0;
+    assert!(
+        (share - 0.27 / 1.27).abs() < 0.015,
+        "a quarter of a player: {share} {taken:?}"
+    );
+    assert_eq!(
+        taken.get(&Some(near)).copied().unwrap_or(0) + taken.get(&Some(pet)).copied().unwrap_or(0),
+        20_000,
+        "the player or the pet: {taken:?}"
+    );
+}
+
+/// With no player within the radius a pet there keeps no creature whose target died: it takes no
+/// one, however near the pet.
+/// Behaviour: server.creatures.a-targets-death-takes-a-pet-only-beside-a-player
+#[test]
+fn after_its_targets_death_a_creature_takes_no_pet_with_no_player_within_its_radius() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let owner = another_player(&mut h, "two", "Torvald");
+    let at = put_east(&mut h, id, &[(owner, 30.0)]);
+    a_pet(&mut h, id, owner, 2.0);
+    dies(&mut h, me);
+    let taken = drawn_after(&mut h, id, &at);
+    assert_eq!(taken.get(&None), Some(&20_000), "no one: {taken:?}");
+}
+
+/// The dead player's own pet, still standing, is never drawn after its owner's death.
+/// Behaviour: server.creatures.a-targets-death-draws-a-pet-at-a-quarter
+#[test]
+fn after_its_targets_death_a_creature_never_draws_the_dead_players_own_pet() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let other = another_player(&mut h, "two", "Torvald");
+    let at = put_east(&mut h, id, &[(other, 8.0)]);
+    dies(&mut h, me);
+    let pet = a_pet(&mut h, id, me, 1.0);
+    let taken = drawn_after(&mut h, id, &at);
+    assert!(
+        !taken.contains_key(&Some(pet)),
+        "never the dead's pet: {taken:?}"
+    );
+    assert_eq!(taken.get(&Some(other)), Some(&20_000), "{taken:?}");
+}
+
 /// A creature's vigor and greatest vigor now.
 fn vigor_of(h: &Harness, id: u64) -> (i32, i32) {
     h.server

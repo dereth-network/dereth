@@ -3416,6 +3416,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-targets-death-draws-a-pet-at-a-quarter",
+        says: "Another player's living pet within its perception radius joins the draw of a \
+               creature whose target died, weighing 0.27 over its distance against a player's one \
+               over its. This server's fit: 24.3 pets expected against 24 taken, where a pet \
+               weighing as a player gives 52.2. The dead player's own pet dies with its owner and is \
+               never drawn; 2017 took it 2 of 111 times it stood within the radius, not built.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-PET-WEIGHT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::after_its_targets_death_a_creature_draws_another_players_pet_at_a_quarter_of_a_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-targets-death-draws-the-next-by-nearness",
         says: "Among two or more players within its perception radius, a creature whose target died \
                takes one drawn by nearness, each by one over its distance. This server's fit: no rule \
@@ -3423,6 +3435,26 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-DRAW"),
         station: "yalain-testkit::cpu::play::creature_tactics::after_its_targets_death_a_creature_draws_the_next_player_by_nearness",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-targets-death-takes-a-pet-hurter-or-not",
+        says: "A pet a creature whose target died may take needs no hurt or notice: any living pet \
+               of another player within the radius, whose owner it may fight, is a candidate (2017: \
+               of 26 pets taken, 12 had hurt it and 14 had not).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-PET-ANY"),
+        station: "yalain-testkit::cpu::play::creature_tactics::after_its_targets_death_a_creature_draws_another_players_pet_at_a_quarter_of_a_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-targets-death-takes-a-pet-only-beside-a-player",
+        says: "A creature whose target died takes a pet only while a player it would take on is \
+               within its perception radius too; with pets alone within it, it gives up (2017: 0 of \
+               20).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-PET-ALONE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::after_its_targets_death_a_creature_takes_no_pet_with_no_player_within_its_radius",
         tier: Tier::Cpu,
     },
     behaviour! {
