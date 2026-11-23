@@ -361,6 +361,17 @@ pub fn image_key(id: DataId, op: Option<SurfaceOp>) -> dereth_render::TextureKey
         // Full-strength Colorize ignores the input alpha; all 24 hue/saturation RGB
         // bits remain in this key. Target sprites are distinct DAT images from icons.
         Some(SurfaceOp::Colorize(c)) => 0x8000_0001 | ((c & 0x00FF_FFFF) << 1),
+        // Both rectangles change the pixels, so both go into the key.
+        Some(SurfaceOp::Zoom(z)) => {
+            let mut h = 0x200D_0000_u64;
+            for v in z.from.into_iter().chain(z.into) {
+                h = h.rotate_left(11) ^ u64::from(v.cast_unsigned());
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                ((h ^ (h >> 32)) as u32) | 1
+            }
+        }
         // **Every** surface of the recipe goes into the key, because every one of them changes the
         // pixels. The client's per-object icon recipe is keyed by object id, and its icon update
         // rebuilds the recipe when any of the five fields moves; a key that left
@@ -512,6 +523,16 @@ pub fn derive(
     op: SurfaceOp,
 ) -> dereth_primitives::TextureData {
     if data.format != dereth_primitives::TextureFormat::Bgra8 {
+        return data;
+    }
+    if let SurfaceOp::Zoom(zoom) = op {
+        // The first level stretched, at the size the zoom is measured on, and the rest made again
+        // from it where the picture is drawn.
+        if let Some(first) = data.levels.first() {
+            let (width, height, level) = zoom.apply(data.width, data.height, first);
+            (data.width, data.height) = (width, height);
+            data.levels = vec![level];
+        }
         return data;
     }
     for level in &mut data.levels {

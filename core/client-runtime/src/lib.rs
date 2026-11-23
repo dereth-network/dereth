@@ -150,10 +150,10 @@ pub mod audio;
 /// The animation-hook drain and its counters.
 pub mod anim_hooks;
 
-/// `--nav-proof`: the player walked along a planned route, a developer run.
 pub mod map_places;
 /// The wire's movement buffer as the motion runtime calls it.
 pub mod movement;
+/// `--nav-proof`: the player walked along a planned route, a developer run.
 pub mod nav_proof;
 /// The travel's planning, off the frame: on a thread of its own, or a slice of each frame.
 pub mod planning;

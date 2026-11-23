@@ -171,6 +171,7 @@ impl Hud {
             }
         }
         self.era.world_dats = store.era();
+        self.era.own_places = own_places(store);
         if !self.era.era_announced {
             self.era.era = dereth_client_contract::EraView::era_of_dats(self.era.world_dats);
         }
@@ -636,4 +637,12 @@ pub(crate) fn skill_values(
     let vitae =
         dereth_presentation::inforegion::vitae_modifier(level, Some(q.enchantments.vitae_value()));
     (level, effective, vitae)
+}
+
+/// The towns and landmarks the world `store` holds names itself, for its map pages.
+pub(crate) fn own_places(
+    store: &dereth_dat::RetailDatStore,
+) -> Option<dereth_client_contract::panels::map::WorldPlaces> {
+    crate::map_places::own_places_of(store)
+        .map(|places| dereth_client_contract::panels::map::WorldPlaces(places.into()))
 }

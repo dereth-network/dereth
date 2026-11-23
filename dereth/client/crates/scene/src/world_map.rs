@@ -7,7 +7,9 @@
 //!
 //! A [`MapGrid`] holds the landblocks' vertices as read; [`MapGrid::prepare`] leaves out the
 //! placeholder land and works out the shore and the shading once, into a [`WorldMap`], which draws
-//! any window of the picture or the whole shrunk to [`OVERVIEW`]. [`MapBuild`] does the reading,
+//! any window of the picture or the whole shrunk to [`OVERVIEW`], and says which part of the
+//! picture the land takes ([`WorldMap::frame`]): a world whose land fills a corner of it is framed
+//! to its land. [`MapBuild`] does the reading,
 //! the preparing and the overview off the frame: on a thread of its own, or where there are no
 //! threads a slice of each frame. It reads the landblocks' buildings too, for the places the map
 //! names ([`places`]). The drawing both games' maps share (the light, the shrink, the build off
@@ -23,6 +25,7 @@ pub use dereth_map_picture::Pixels;
 use dereth_map_picture::{mix, smoothstep, spans, Rows};
 
 pub mod places;
+pub use dereth_client_contract::panels::map::MapFrame;
 pub use places::{Building, Place, PlaceKind};
 
 /// Landcell vertices to a side of the world.
@@ -342,6 +345,31 @@ impl MapGrid {
         dereth_map_picture::relief_light((VERTS, VERTS), CELL_M, RELIEF, h)
     }
 
+    /// The land's bounds in the picture's pixels, the pixels its vertices are drawn in: west,
+    /// north, east, south; `None` with no land.
+    fn land_bounds(&self, water: &[bool]) -> Option<[f64; 4]> {
+        let (mut x0, mut y0, mut x1, mut y1) = (VERTS, VERTS, 0, 0);
+        for i in (0..VERTS * VERTS).filter(|&i| !self.wet(water, i)) {
+            let (x, y) = (i % VERTS, i / VERTS);
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+        }
+        if x0 > x1 {
+            return None;
+        }
+        // Vertex `v` is drawn as the three pixels from `3v` across, and from `3 (LAST - v)` down.
+        #[allow(clippy::cast_precision_loss)] // LINT-OK: pixels within the picture.
+        let px = |v: usize| (v * CELL_PX) as f64;
+        Some([px(x0), px(LAST - y1), px(x1 + 1), px(LAST - y0 + 1)])
+    }
+
+    /// The square the map frames, with the placeholder land left out: the frame of the picture
+    /// [`Self::prepare`] makes ([`WorldMap::frame`]), without drawing it.
+    #[must_use]
+    pub fn frame(mut self) -> Square {
+        self.drop_placeholder_land();
+        land_frame(self.land_bounds(&self.water_kinds()))
+    }
+
     /// The placeholder land left out, and the shore and the shading worked out: everything the
     /// picture is drawn from.
     #[must_use]
@@ -386,8 +414,66 @@ fn index(i: usize) -> u32 {
     u32::try_from(i).unwrap_or(u32::MAX)
 }
 
+/// How much room the map's frame leaves about the land on each side, as a share of the land's
+/// longer side.
+pub const FRAME_MARGIN: f64 = 0.04;
+
+/// A square of the picture, in its pixels: its west and north edges and its side.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Square {
+    pub x: f64,
+    pub y: f64,
+    pub side: f64,
+}
+
+impl Square {
+    /// The whole picture.
+    pub const WHOLE: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        #[allow(clippy::cast_precision_loss)] // LINT-OK: 6123.
+        side: SIDE as f64,
+    };
+
+    /// The square of the world the picture's square shows, in map coordinates: a vertex is
+    /// [`CELL_PX`] pixels and a tenth of a unit across, drawn from its own coordinate east and
+    /// south, and the picture's rows run from the north.
+    #[must_use]
+    pub fn coords(self) -> MapFrame {
+        #[allow(clippy::cast_precision_loss)] // LINT-OK: 3 and 2041.
+        let (cell, verts) = (CELL_PX as f64, VERTS as f64);
+        let px = cell * 10.0;
+        MapFrame {
+            west: self.x / px + at(0),
+            south: (verts * cell - self.y - self.side) / px + at(0),
+            side: self.side / px,
+        }
+    }
+}
+
+/// The part of the picture the map frames, from the land's bounds in the picture's pixels (west,
+/// north, east, south; `None` with no land): a square about their middle, their longer side with
+/// [`FRAME_MARGIN`] each way, held inside the picture; the whole picture when that square is as
+/// large as it.
+#[must_use]
+pub fn land_frame(bounds: Option<[f64; 4]>) -> Square {
+    let Some([west, north, east, south]) = bounds else {
+        return Square::WHOLE;
+    };
+    let side = (east - west).max(south - north) * (1.0 + 2.0 * FRAME_MARGIN);
+    if side >= Square::WHOLE.side {
+        return Square::WHOLE;
+    }
+    let hold = |lo: f64| lo.clamp(0.0, Square::WHOLE.side - side);
+    Square {
+        x: hold((west + east - side) / 2.0),
+        y: hold((north + south - side) / 2.0),
+        side,
+    }
+}
+
 /// The world as the picture is drawn from it: each vertex's terrain, road, distance from the shore
-/// and light, and the colours.
+/// and light, the colors, and the part of the picture the land takes.
 pub struct WorldMap {
     kind: Vec<u8>,
     road: Vec<bool>,
@@ -399,6 +485,8 @@ pub struct WorldMap {
     /// Which of the picture's columns and rows are grid lines.
     grid_col: Vec<bool>,
     grid_row: Vec<bool>,
+    /// The part of the picture the map frames ([`land_frame`]).
+    frame: Square,
 }
 
 impl std::fmt::Debug for WorldMap {
@@ -415,6 +503,7 @@ fn colour(c: [u8; 3]) -> [f32; 3] {
 
 impl WorldMap {
     fn new(grid: MapGrid, water: Vec<bool>, distance: Vec<f32>, shade: Vec<f32>) -> Self {
+        let frame = land_frame(grid.land_bounds(&water));
         let land = grid
             .names
             .iter()
@@ -445,6 +534,7 @@ impl WorldMap {
             water,
             grid_col,
             grid_row,
+            frame,
         }
     }
 
@@ -453,6 +543,12 @@ impl WorldMap {
             .get(usize::from(self.kind[i]))
             .copied()
             .unwrap_or(true)
+    }
+
+    /// The part of the picture the map frames: the land with a margin about it ([`land_frame`]).
+    #[must_use]
+    pub const fn frame(&self) -> Square {
+        self.frame
     }
 }
 
@@ -630,7 +726,8 @@ impl dereth_map_picture::build::Steps for Steps {
             Stage::Shading(grid, distance) => {
                 let shade = grid.shading();
                 let water = grid.water_kinds();
-                let places = Arc::new(grid.places());
+                let naming = places::Naming::read(&self.store);
+                let places = Arc::new(places::places_named(&grid.buildings, &naming));
                 let map = Arc::new(WorldMap::new(grid, water, distance, shade));
                 if !self.overview {
                     return Some(Ok(Built {
@@ -714,6 +811,109 @@ impl MapBuild {
     /// The data holds no world, or the build's thread stopped.
     pub fn wait(self) -> Result<Built, String> {
         self.0.wait()
+    }
+}
+
+/// The work of a [`FrameBuild`], a column of landblocks at a time.
+struct FrameSteps {
+    store: Arc<RetailDatStore>,
+    grid: Option<(MapGrid, i32)>,
+}
+
+impl dereth_map_picture::build::Steps for FrameSteps {
+    type Done = Square;
+
+    fn step(&mut self) -> Option<Result<Square, String>> {
+        match self.grid.take() {
+            None => match MapGrid::start_read(&self.store) {
+                Ok(grid) => self.grid = Some((grid, 0)),
+                Err(e) => return Some(Err(e)),
+            },
+            Some((mut grid, bx)) if bx < BLOCKS => {
+                grid.read_column(&self.store, bx);
+                self.grid = Some((grid, bx + 1));
+            }
+            Some((grid, _)) => return Some(grid.finish_read().map(MapGrid::frame)),
+        }
+        None
+    }
+}
+
+/// The square a world's map frames ([`MapGrid::frame`]), worked out off the frame from its
+/// landblocks, for a map that frames the world without drawing the picture.
+pub struct FrameBuild(OffFrame<FrameSteps>);
+
+impl std::fmt::Debug for FrameBuild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FrameBuild")
+    }
+}
+
+impl FrameBuild {
+    /// Work out the frame of `store`'s world.
+    #[must_use]
+    pub fn start(store: Arc<RetailDatStore>) -> Self {
+        Self(OffFrame::start(
+            "world map frame",
+            FrameSteps { store, grid: None },
+        ))
+    }
+
+    /// The frame, once it is worked out. Where there are no threads this is where a share of the
+    /// frame's time works it out.
+    pub fn poll(&mut self) -> Option<Result<Square, String>> {
+        self.0.poll()
+    }
+
+    /// The frame, waited for.
+    ///
+    /// # Errors
+    /// The data holds no world, or the build's thread stopped.
+    pub fn wait(self) -> Result<Square, String> {
+        self.0.wait()
+    }
+}
+
+/// The frame a world's map pages take from its land: worked out once for each world whose map
+/// asks for it, and handed on as the part of the world they show ([`MapFrame`]); `None` while it
+/// is being worked out, for a world that does not ask, and where the land fills the world.
+#[derive(Debug, Default)]
+pub struct FrameKeeper {
+    /// The data the frame is for, by its address.
+    data: Option<usize>,
+    build: Option<FrameBuild>,
+    frame: Option<MapFrame>,
+}
+
+impl FrameKeeper {
+    /// The frame of `store`'s world when `wanted`, worked out the first time it is asked for and
+    /// again for other data.
+    pub fn keep(&mut self, store: &Arc<RetailDatStore>, wanted: bool) -> Option<MapFrame> {
+        let data = Arc::as_ptr(store) as usize;
+        if !wanted || self.data.is_some_and(|d| d != data) {
+            *self = Self::default();
+        }
+        if !wanted {
+            return None;
+        }
+        if self.data.is_none() {
+            self.data = Some(data);
+            self.build = Some(FrameBuild::start(Arc::clone(store)));
+        }
+        if let Some(build) = &mut self.build {
+            match build.poll() {
+                Some(Ok(square)) => {
+                    self.build = None;
+                    self.frame = (square != Square::WHOLE).then(|| square.coords());
+                }
+                Some(Err(e)) => {
+                    tracing::warn!("the world map's frame was not worked out: {e}");
+                    self.build = None;
+                }
+                None => {}
+            }
+        }
+        self.frame
     }
 }
 

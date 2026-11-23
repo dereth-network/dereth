@@ -13,7 +13,7 @@ mod events;
 /// The property names inside one `Option_Placement` struct.
 mod placement;
 mod sync;
-mod tables;
+pub(crate) mod tables;
 mod view;
 
 use chat::{failure_line, fellowship_ui_line, speech, utc_offset_secs, wall_clock_unix};

@@ -196,6 +196,8 @@ pub struct ClientShell<H: Host> {
     pub(crate) plugins: plugins::PluginSurface,
     /// Explore mode's keys and corner line (`--explore`), in place of every interface.
     pub(crate) explore: explore::ExploreFace,
+    /// The part of the world the map pages show, for a world whose land is its own.
+    map_frame: dereth_scene::world_map::FrameKeeper,
 }
 
 /// Widget state, dialogs and preview caches owned by the modern interface.
@@ -387,6 +389,7 @@ impl<H: Host> ClientShell<H> {
             horizon: horizon::HorizonFace::default(),
             plugins: plugins::PluginSurface::default(),
             explore: explore::ExploreFace::default(),
+            map_frame: dereth_scene::world_map::FrameKeeper::default(),
         }
     }
 }
@@ -2384,6 +2387,11 @@ impl<H: Host> Shell for ClientShell<H> {
         self.follow_interface(cx);
         cx.set_chat_interface(self.shown_interface());
         self.follow_plugins(cx);
+        // A world that names its own places draws its own map: its pages are framed to its land
+        // as its Horizon map is.
+        let own = cx.hud().era.own_places.is_some();
+        let frame = self.map_frame.keep(cx.store(), own);
+        cx.hud_mut().era.map_frame = frame;
         if self.classic.active {
             self.sync_classic_input(cx, false, None, false);
             if let Some(input) = self.shared.input.as_mut() {

@@ -137,7 +137,8 @@ pub(super) fn modern_map_press<H: Host>(
         return;
     };
     let (x, y) = shell.plugins.layer.input.mouse;
-    let Some((ns, ew)) = modern_map_at(&ui.ui, x, y) else {
+    let frame = cx.hud().era.map_frame;
+    let Some((ns, ew)) = modern_map_at(&ui.ui, frame, x, y) else {
         return;
     };
     let (ctrl, shift, alt) = shell.plugins.modifiers;
@@ -157,8 +158,13 @@ pub(super) fn modern_map_press<H: Host>(
 /// middle by the projection its marks are placed with: `None` unless the page shows and the point
 /// is on its picture of the world, with nothing that takes the pointer over the picture there (a
 /// place's note on the map and the page itself are the map's own).
-fn modern_map_at(ui: &dereth_ui::UiSystem, x: f32, y: f32) -> Option<(f64, f64)> {
-    use dereth_ui_screens::mapradar::map::{child, map_coords_at, SHIPPED_NOTE_BINDING};
+fn modern_map_at(
+    ui: &dereth_ui::UiSystem,
+    frame: Option<dereth_client_contract::panels::map::MapFrame>,
+    x: f32,
+    y: f32,
+) -> Option<(f64, f64)> {
+    use dereth_ui_screens::mapradar::map::{child, framed_coords_at, SHIPPED_NOTE_BINDING};
     let root = ui.root();
     let image = ui
         .get_child_recursive(root, child::MAP_IMAGE)
@@ -185,8 +191,9 @@ fn modern_map_at(ui: &dereth_ui::UiSystem, x: f32, y: f32) -> Option<(f64, f64)>
         }
     }
     let b = ui.screen_box(image);
-    map_coords_at(
+    framed_coords_at(
         SHIPPED_NOTE_BINDING.2,
+        frame,
         f64::from(px - b.x0) + 0.5,
         f64::from(py - b.y0) + 0.5,
     )

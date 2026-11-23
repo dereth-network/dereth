@@ -136,14 +136,28 @@ impl Travel {
         );
     }
 
+    /// The towns and landmarks the server publishes as the names the world gives its own places
+    /// ([`PlaceStore::own_names`]), which the maps name in place of the game's map's notes; `None`
+    /// until it publishes such places, and for a world whose places it does not say are its own.
+    #[must_use]
+    pub fn published_own_places(
+        &self,
+    ) -> Option<&dereth_client_contract::panels::map::WorldPlaces> {
+        self.published_own_places.as_ref()
+    }
+
     /// Take in the places the server publishes (the place store's text form, its places of
     /// source `published`): merged now under what the character saw, and into each world's
-    /// places as they load, and never written. How many it publishes.
+    /// places as they load, and never written; and, when it says its towns and landmarks are the
+    /// world's own names, those for the maps ([`Self::published_own_places`]). How many it
+    /// publishes.
     ///
     /// # Errors
     /// The text is not a place store.
     pub fn set_published_places(&mut self, text: &str) -> Result<usize, String> {
         let table = PlaceStore::from_text(text).map_err(|e| e.to_string())?;
+        self.published_own_places = crate::map_places::published_own_places(&table)
+            .map(|own| dereth_client_contract::panels::map::WorldPlaces(own.into()));
         self.published_places = table
             .places()
             .iter()

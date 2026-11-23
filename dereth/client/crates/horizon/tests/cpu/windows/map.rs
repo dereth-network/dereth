@@ -39,24 +39,38 @@ fn opened(art: &Arc<Art>, state: &GameState) -> (Harness, Rect) {
     (h, area)
 }
 
-/// A world of one island about Holtburg, drawn once for every test, with Holtburg, two cottages
-/// and a villa on it.
+/// A world of one island about Holtburg, and with `corners` a rock near each of two opposite
+/// corners of the world, so the map frames all of it.
+fn world(corners: bool) -> WorldMap {
+    let mut heights = [0.0; 256];
+    for (i, h) in heights.iter_mut().enumerate() {
+        *h = f32::from(u8::try_from(i).unwrap_or(0)) * 2.0;
+    }
+    let names = ["WaterDeepSea", "Grassland", "Snow"].map(str::to_owned);
+    let mut grid = MapGrid::new(names.to_vec(), heights);
+    for x in 1300..1400 {
+        for y in 1400..1500 {
+            let height = u8::try_from((x + y) % 50).unwrap_or(0);
+            grid.set((x, y), if x < 1350 { 1 } else { 2 }, height, y == 1450);
+        }
+    }
+    let rocks: &[usize] = if corners { &[20, 2017] } else { &[] };
+    for &at in rocks {
+        for x in at..at + 3 {
+            for y in at..at + 3 {
+                grid.set((x, y), 2, u8::try_from(x + y).unwrap_or(0), false);
+            }
+        }
+    }
+    grid.prepare()
+}
+
+/// The world of [`world`] with its rocks, drawn once for every test, with Holtburg, two cottages
+/// and a villa on its island.
 fn drawn() -> Built {
     static DRAWN: OnceLock<(Arc<WorldMap>, Pixels)> = OnceLock::new();
     let (map, overview) = DRAWN.get_or_init(|| {
-        let mut heights = [0.0; 256];
-        for (i, h) in heights.iter_mut().enumerate() {
-            *h = f32::from(u8::try_from(i).unwrap_or(0)) * 2.0;
-        }
-        let names = ["WaterDeepSea", "Grassland", "Snow"].map(str::to_owned);
-        let mut grid = MapGrid::new(names.to_vec(), heights);
-        for x in 1300..1400 {
-            for y in 1400..1500 {
-                let height = u8::try_from((x + y) % 50).unwrap_or(0);
-                grid.set((x, y), if x < 1350 { 1 } else { 2 }, height, y == 1450);
-            }
-        }
-        let map = grid.prepare();
+        let map = world(true);
         let overview = map.overview();
         (Arc::new(map), overview)
     });
@@ -124,6 +138,63 @@ fn a_player_s_wheel_zooms_about_the_pointer_and_the_buttons_step_and_fit() {
     assert!((h.ui.windows.map_view.zoom - zoom).abs() < 0.01);
     click(&mut h, &state, middle(fit));
     assert_eq!(h.ui.windows.map_view.zoom, 1.0);
+}
+
+/// A world whose land is one island is framed to it: fully zoomed out the map shows the island
+/// with a margin about it, zooms out no further and pans no further; Holtburg's town is marked on
+/// it. A world whose land reaches across it is framed by the whole picture.
+#[test]
+fn a_world_s_map_is_framed_to_its_land() {
+    let (state, art) = (player(), Arc::new(Art::empty()));
+    let (mut h, area) = opened(&art, &state);
+    let whole = Rect::new(0.0, 0.0, 6123.0, 6123.0);
+    assert_eq!(
+        h.ui.windows.map_view.shown(),
+        whole,
+        "the whole until it is drawn"
+    );
+    let map = world(false);
+    let frame = map.frame();
+    assert!(frame.side < 400.0, "the island's: {frame:?}");
+    h.ui.windows.map_view.show(Built {
+        overview: Some(map.overview()),
+        map: Arc::new(map),
+        places: drawn().places,
+    });
+    h.frame(&state);
+    #[allow(clippy::cast_possible_truncation)]
+    let want = Rect::new(
+        frame.x as f32,
+        frame.y as f32,
+        frame.side as f32,
+        frame.side as f32,
+    );
+    assert_eq!(h.ui.windows.map_view.shown(), want);
+    let holtburg = map_pixel(42.2, 33.8);
+    assert!(
+        want.contains(holtburg.0, holtburg.1),
+        "Holtburg's on the island"
+    );
+    // No further out, and nowhere to pan to.
+    wheel(
+        &mut h,
+        &state,
+        (area.x + area.w / 2.0, area.y + area.h / 2.0),
+        -4.0,
+    );
+    assert_eq!(h.ui.windows.map_view.shown(), want);
+    let icons = art.lookup("map.town").flatten().map_or(0, |t| {
+        h.list.quads.iter().filter(|q| q.tex == Some(t.tex)).count()
+    });
+    assert_eq!(icons, 1, "Holtburg's town");
+
+    h.ui.windows.map_view.show(drawn());
+    h.frame(&state);
+    assert_eq!(
+        h.ui.windows.map_view.shown(),
+        whole,
+        "land across the world: the whole"
+    );
 }
 
 #[test]

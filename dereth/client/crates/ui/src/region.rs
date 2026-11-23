@@ -175,6 +175,132 @@ pub enum SurfaceOp {
     /// **Several** dat surfaces blitted into one local surface, which is what an inventory slot's
     /// picture actually is. See [`IconRecipe`].
     Icon(IconRecipe),
+    /// One part of the picture stretched over another, the rest as it is: a map's picture of the
+    /// whole world showing only the part a world's land takes. See [`Zoom`].
+    Zoom(Zoom),
+}
+
+/// A part of a picture stretched over another part of it: [`SurfaceOp::Zoom`].
+///
+/// Both parts are measured on a picture of [`Self::size`], and the result is made at that size. A
+/// picture drawn larger than that (the same picture with more texels) is read as that size
+/// scaled: the stretched part takes its colors from the larger picture's own texels, and the
+/// rest each the mean of the texels under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Zoom {
+    /// The part shown, in [`Zoom::UNIT`]ths of a texel: left, top, right and bottom.
+    pub from: [i32; 4],
+    /// The texels it is drawn over: left, top, and right and bottom past the last.
+    pub into: [i32; 4],
+    /// The picture's size the two are measured on, across and down: the element's.
+    pub size: [i32; 2],
+}
+
+impl Zoom {
+    /// How finely [`Self::from`] is measured: this many to a texel.
+    pub const UNIT: i32 = 256;
+
+    /// The whole of a picture of `size`, shown as it is.
+    #[must_use]
+    pub const fn whole(size: [i32; 2]) -> Self {
+        Self {
+            from: [0, 0, size[0] * Self::UNIT, size[1] * Self::UNIT],
+            into: [0, 0, size[0], size[1]],
+            size,
+        }
+    }
+
+    /// `bgra`, a `width` by `height` picture at four bytes a texel, made [`Self::size`] with
+    /// [`Self::from`] stretched over [`Self::into`]: each texel there takes the color under its
+    /// middle, blended from the four texels about that point; the rest are as they were, or, of a
+    /// larger picture, the mean of the texels under each. The size made, and its texels.
+    #[must_use]
+    pub fn apply(self, width: u32, height: u32, bgra: &[u8]) -> (u32, u32, Vec<u8>) {
+        let (w, h) = (width as usize, height as usize);
+        if w == 0 || h == 0 || bgra.len() < w * h * 4 {
+            return (width, height, bgra.to_vec());
+        }
+        let size = |v: i32, own: usize| usize::try_from(v).ok().filter(|&v| v > 0).unwrap_or(own);
+        let (ow, oh) = (size(self.size[0], w), size(self.size[1], h));
+        // LINT-OK: a picture's size.
+        #[allow(clippy::cast_precision_loss)]
+        let (sx, sy) = (w as f64 / ow as f64, h as f64 / oh as f64);
+        let texel = |x: usize, y: usize, c: usize| f64::from(bgra[(y * w + x) * 4 + c]);
+        let mut out = if (ow, oh) == (w, h) {
+            bgra.to_vec()
+        } else {
+            let mut out = vec![0u8; ow * oh * 4];
+            // The texels whose middles fall under a texel made, at least the nearest one.
+            let span = |o: usize, k: f64, n: usize| {
+                // LINT-OK: inside the picture, as held below.
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
+                let (lo, hi) = (
+                    ((o as f64 * k - 0.5).ceil().max(0.0) as usize).min(n - 1),
+                    (((o + 1) as f64 * k - 0.5).ceil().max(0.0) as usize).min(n),
+                );
+                (lo, hi.max(lo + 1))
+            };
+            for y in 0..oh {
+                let (y0, y1) = span(y, sy, h);
+                for x in 0..ow {
+                    let (x0, x1) = span(x, sx, w);
+                    // LINT-OK: a count of texels.
+                    #[allow(clippy::cast_precision_loss)]
+                    let n = ((y1 - y0) * (x1 - x0)) as f64;
+                    for c in 0..4 {
+                        let sum: f64 = (y0..y1)
+                            .flat_map(|yy| (x0..x1).map(move |xx| (xx, yy)))
+                            .map(|(xx, yy)| texel(xx, yy, c))
+                            .sum();
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        // LINT-OK: a mean of bytes.
+                        let mean = (sum / n).round().clamp(0.0, 255.0) as u8;
+                        out[(y * ow + x) * 4 + c] = mean;
+                    }
+                }
+            }
+            out
+        };
+        let unit = f64::from(Self::UNIT);
+        let [fx0, fy0, fx1, fy1] = self.from.map(|v| f64::from(v) / unit);
+        let [ix0, iy0, ix1, iy1] = self.into;
+        let (iw, ih) = (f64::from(ix1 - ix0), f64::from(iy1 - iy0));
+        let made = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+        if iw <= 0.0 || ih <= 0.0 {
+            return (made(ow), made(oh), out);
+        }
+        #[allow(clippy::cast_precision_loss)] // LINT-OK: a picture's size.
+        let (last_x, last_y) = ((w - 1) as f64, (h - 1) as f64);
+        for y in iy0.max(0)..iy1.min(i32::try_from(oh).unwrap_or(i32::MAX)) {
+            let v = fy0 + (f64::from(y - iy0) + 0.5) * (fy1 - fy0) / ih;
+            let v = (v * sy - 0.5).clamp(0.0, last_y);
+            for x in ix0.max(0)..ix1.min(i32::try_from(ow).unwrap_or(i32::MAX)) {
+                let u = fx0 + (f64::from(x - ix0) + 0.5) * (fx1 - fx0) / iw;
+                let u = (u * sx - 0.5).clamp(0.0, last_x);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // LINT-OK: clamped inside the picture above.
+                let (x0, y0) = (u.floor() as usize, v.floor() as usize);
+                let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+                #[allow(clippy::cast_precision_loss)] // LINT-OK: as above.
+                let (fx, fy) = (u - x0 as f64, v - y0 as f64);
+                #[allow(clippy::cast_sign_loss)] // LINT-OK: inside the picture made.
+                let at = (y as usize * ow + x as usize) * 4;
+                for c in 0..4 {
+                    let top = texel(x0, y0, c) * (1.0 - fx) + texel(x1, y0, c) * fx;
+                    let bottom = texel(x0, y1, c) * (1.0 - fx) + texel(x1, y1, c) * fx;
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    // LINT-OK: a blend of bytes.
+                    let blended = (top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8;
+                    out[at + c] = blended;
+                }
+            }
+        }
+        (made(ow), made(oh), out)
+    }
 }
 
 /// The surface the weenie's icon accessor answers, described rather than drawn.
@@ -375,7 +501,8 @@ impl SurfaceOp {
             // texel. The host recognises this variant before it reaches here; see
             // [`composite`]. Returning the texel unchanged keeps a caller that
             // does not from corrupting the base image, which is what a `todo!()` here would not.
-            Self::Icon(_) => texel,
+            // A zoom is a function of the whole picture too ([`Zoom::apply`]).
+            Self::Icon(_) | Self::Zoom(_) => texel,
         }
     }
 
@@ -1254,5 +1381,140 @@ mod tests {
         r.add_child(front2, z);
         r.add_child(back, z);
         assert_eq!(r.children, vec![back, front, front2]);
+    }
+
+    /// A zoom stretches its part of the picture over the texels it names, each taking the color
+    /// under its middle, and leaves the rest of the picture as it was.
+    ///
+    /// Behaviour: none (this client's own map pages, for a world whose land is its own)
+    #[test]
+    fn a_zoom_stretches_its_part_over_its_texels_and_keeps_the_rest() {
+        // A four by four picture whose texel (x, y) is `x * 10 + y * 50` in every channel.
+        let bgra: Vec<u8> = (0..16u8)
+            .flat_map(|i| [(i % 4) * 10 + (i / 4) * 50; 4])
+            .collect();
+        let u = Zoom::UNIT;
+        // The middle two by two over itself, moved by half a texel's sampling: unchanged.
+        let zoom = Zoom {
+            from: [u, u, 3 * u, 3 * u],
+            into: [1, 1, 3, 3],
+            size: [4, 4],
+        };
+        let (_, _, out) = zoom.apply(4, 4, &bgra);
+        assert_eq!(out, bgra);
+        // The middle two by two over the top-left two by two.
+        let zoom = Zoom {
+            from: [u, u, 3 * u, 3 * u],
+            into: [0, 0, 2, 2],
+            size: [4, 4],
+        };
+        let (_, _, out) = zoom.apply(4, 4, &bgra);
+        let at = |x: usize, y: usize| out[(y * 4 + x) * 4];
+        assert_eq!([at(0, 0), at(1, 0), at(0, 1), at(1, 1)], [60, 70, 110, 120]);
+        // The rest is untouched.
+        for (x, y) in [(2, 0), (3, 0), (0, 3), (3, 3), (2, 1), (3, 2)] {
+            assert_eq!(at(x, y), bgra[(y * 4 + x) * 4], "({x}, {y})");
+        }
+        // The whole left half over the whole picture: the columns blend between their sources.
+        let (_, _, half) = Zoom {
+            from: [0, 0, 2 * u, 4 * u],
+            into: [0, 0, 4, 4],
+            size: [4, 4],
+        }
+        .apply(4, 4, &bgra);
+        let row: Vec<u8> = (0..4).map(|x| half[x * 4]).collect();
+        assert_eq!(row, [0, 3, 8, 13], "{row:?}");
+        // One texel alone is no zoom.
+        assert_eq!(SurfaceOp::Zoom(zoom).apply(0x1234_5678), 0x1234_5678);
+    }
+
+    /// A picture drawn twice as large as the element measures it is made the element's size:
+    /// shown whole, each texel the mean of the four under it; the part stretched takes its
+    /// colors from the larger picture's own texels, finer than the element's.
+    ///
+    /// Behaviour: none (this client's own map pages, for a world whose land is its own)
+    #[test]
+    fn a_zoom_of_a_larger_picture_is_made_at_the_elements_size_from_its_own_texels() {
+        // An eight by eight picture whose texel (x, y) is `x * 10 + y` in every channel.
+        let bgra: Vec<u8> = (0..64u8).flat_map(|i| [(i % 8) * 10 + i / 8; 4]).collect();
+        let (w, h, whole) = Zoom::whole([4, 4]).apply(8, 8, &bgra);
+        assert_eq!((w, h, whole.len()), (4, 4, 64));
+        let at = |p: &[u8], x: usize, y: usize| p[(y * 4 + x) * 4];
+        // Texel (1, 2) is the mean of (2..4, 4..6): 24, 34, 25 and 35.
+        assert_eq!(at(&whole, 1, 2), 30);
+        // The element's top-left texel over the whole: the larger picture's top-left two by two
+        // spread over four by four, so its first row climbs ten for each texel made in two.
+        let u = Zoom::UNIT;
+        let (_, _, zoomed) = Zoom {
+            from: [0, 0, u, u],
+            into: [0, 0, 4, 4],
+            size: [4, 4],
+        }
+        .apply(8, 8, &bgra);
+        let row: Vec<u8> = (0..4).map(|x| at(&zoomed, x, 0)).collect();
+        assert_eq!(row, [0, 3, 8, 13], "{row:?}");
+    }
+
+    /// The same picture made once, twice or four times as large is framed the same: the part
+    /// shown over the element's whole box takes the same colors from each; and an element twice
+    /// as large (an interface drawn twice as large) frames the same part, at its own size.
+    ///
+    /// Behaviour: none (this client's own map pages, for a world whose land is its own)
+    #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )] // LINT-OK: levels and sizes of a picture of a few texels.
+    fn a_zoom_frames_the_same_part_of_a_picture_made_at_any_size_into_an_element_of_any_size() {
+        // A picture four by four as the element measures it, its color climbing twenty a texel
+        // across and ten down, made `k` times as large.
+        let made = |k: usize| -> Vec<u8> {
+            let side = 4 * k;
+            (0..side * side)
+                .flat_map(|i| {
+                    let (x, y) = ((i % side) as f64 + 0.5, (i / side) as f64 + 0.5);
+                    let v = (20.0 * x / k as f64 + 10.0 * y / k as f64).round() as u8;
+                    [v; 4]
+                })
+                .collect()
+        };
+        let u = Zoom::UNIT;
+        // The picture's middle half over an element's whole box, `side` across and down: measured
+        // on the element, a quarter of its side in from each edge.
+        let framed = |side: i32| Zoom {
+            from: [
+                side * u / 4,
+                side * u / 4,
+                3 * side * u / 4,
+                3 * side * u / 4,
+            ],
+            into: [0, 0, side, side],
+            size: [side, side],
+        };
+        // What the part is at the middle of each texel of an element `side` across.
+        let truth = |side: i32| -> Vec<u8> {
+            let s = f64::from(side);
+            (0..side * side)
+                .map(|i| {
+                    let (x, y) = (f64::from(i % side) + 0.5, f64::from(i / side) + 0.5);
+                    (20.0 * (1.0 + 2.0 * x / s) + 10.0 * (1.0 + 2.0 * y / s)).round() as u8
+                })
+                .collect()
+        };
+        let near = |got: &[u8], want: &[u8]| {
+            got.chunks(4)
+                .zip(want)
+                .all(|(p, &w)| p.iter().all(|&c| c.abs_diff(w) <= 1))
+        };
+        for k in [1, 2, 4] {
+            let side = (4 * k) as u32;
+            let (w, h, out) = framed(4).apply(side, side, &made(k));
+            assert_eq!((w, h), (4, 4), "made {k} times as large");
+            assert!(near(&out, &truth(4)), "made {k} times as large: {out:?}");
+        }
+        let (w, h, out) = framed(8).apply(16, 16, &made(4));
+        assert_eq!((w, h), (8, 8), "the element's own size");
+        assert!(near(&out, &truth(8)), "an element twice as large: {out:?}");
     }
 }

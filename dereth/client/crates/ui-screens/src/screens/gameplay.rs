@@ -421,6 +421,9 @@ pub struct MapChildren {
     pub coordinate_text: Option<ElemHandle>,
     /// The map marker area, attributes `0x1000004E`…`0x10000051`.
     pub marker_area: crate::mapradar::map::MarkerArea,
+    /// The part of the world the picture and the marks are drawn for, where the world's map is
+    /// framed to its land ([`crate::mapradar::map::framed_marker`]).
+    pub frame: Option<crate::mapradar::map::MapFrame>,
     /// The `MapPanel` element itself, [`crate::mapradar::map::MAP_PAGE`].
     ///
     /// The client's `0x18` arm only acts when the source is the page itself, so
@@ -742,7 +745,7 @@ pub struct GamePlayScreen {
     /// station that re-derives them by walking the map image's children cannot tell a note from the
     /// player icon.
     pub map_notes: Vec<ElemHandle>,
-    map_profile: Option<dereth_primitives::EraId>,
+    map_profile: Option<dereth_client_contract::panels::map::PageNames>,
     /// The client's own change guards: the text is set only when it differs. Kept
     /// per element so a redundant write is not counted as a write, the way the radar keeps
     /// `last_coords`.

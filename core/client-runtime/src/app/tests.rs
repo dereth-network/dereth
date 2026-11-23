@@ -1501,3 +1501,105 @@ fn set_at_reads_the_remasters_boxes_as_the_preferences_file_spells_them() {
     );
     assert_eq!(scripted_preference("Fidelity.Remaster=lots"), None);
 }
+
+/// Behaviour: none (this client's own map names, not a behaviour of the retail client).
+/// Online, the maps name the towns and landmarks a server publishes only when it says they are the
+/// world's own: a retail world's maps keep the names its data gives them, and a world that names
+/// its own has those on both maps, its houses kept, until the server publishes places that are
+/// not its own names.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_maps_name_a_worlds_own_places_from_its_server_and_a_retail_worlds_from_its_data() {
+    use dereth_client_contract::panels::map::MapPlaceKind;
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    app.read_map_places_now();
+    let data = app.map_places.clone().expect("the data's places");
+    assert!(
+        data.iter().any(|p| p.name == "Holtburg"),
+        "the notes name it"
+    );
+    let houses = data
+        .iter()
+        .filter(|p| !matches!(p.kind, MapPlaceKind::Town | MapPlaceKind::Landmark))
+        .count();
+    assert!(houses > 0, "the data's houses");
+    assert_eq!(app.hud.era.own_places, None);
+
+    let retail = "dereth-places-store\t1\nworld\tServer\n\
+place\ttown\tpublished\t-\tNowhere\t0xA9B40011 40.000 10.000 0.000\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t509\tLife Stone\t0xA9B40011 10.000 10.000 0.000\t0\t0\t-\t-\n";
+    let own = "dereth-places-store\t1\nworld\tServer\nnaming\town\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\t0\t0\t-\t-\n";
+
+    assert_eq!(app.travel.take_published(retail), Ok(2));
+    app.name_own_places();
+    let shown = app.map_places.clone().expect("the map's places");
+    assert!(
+        std::sync::Arc::ptr_eq(&shown, &data),
+        "a retail world's maps are the data's"
+    );
+    assert_eq!(app.hud.era.own_places, None, "and its map page the notes");
+
+    assert_eq!(app.travel.take_published(own), Ok(2));
+    app.name_own_places();
+    let shown = app.map_places.clone().expect("the map's places");
+    let named: Vec<&str> = shown
+        .iter()
+        .filter(|p| matches!(p.kind, MapPlaceKind::Town | MapPlaceKind::Landmark))
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(
+        named,
+        ["Kehan", "Drudge Windmill"],
+        "the server's own names"
+    );
+    assert_eq!(shown.len(), 2 + houses, "the houses kept");
+    let page: Vec<String> = app
+        .hud
+        .era
+        .own_places
+        .as_ref()
+        .expect("the map page's own names")
+        .0
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    assert_eq!(page, ["Kehan", "Drudge Windmill"]);
+    app.name_own_places();
+    assert!(
+        std::sync::Arc::ptr_eq(&shown, app.map_places.as_ref().expect("kept")),
+        "named once"
+    );
+
+    assert_eq!(app.travel.take_published(retail), Ok(2));
+    app.name_own_places();
+    assert!(std::sync::Arc::ptr_eq(
+        app.map_places.as_ref().expect("the data's again"),
+        &data
+    ));
+    assert_eq!(app.hud.era.own_places, None);
+}

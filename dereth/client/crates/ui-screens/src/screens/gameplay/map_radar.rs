@@ -26,8 +26,11 @@ impl GamePlayScreen {
         self.map.player_icon = find(ui, child::PLAYER_LOCATION_ICON);
         self.map.house_icon = find(ui, child::HOUSE_LOCATION_ICON);
         self.map.map_image = find(ui, child::MAP_IMAGE);
+        self.map.frame = None;
         self.map_notes.clear();
-        self.map_profile = Some(dereth_primitives::EraId::Eor);
+        self.map_profile = Some(dereth_client_contract::panels::map::PageNames::Notes(
+            dereth_primitives::EraId::Eor,
+        ));
         if let Some(m) = self.map.map_image {
             let a = |name| attr_int(ui, m, name).unwrap_or(0);
             self.map.marker_area = crate::mapradar::map::MarkerArea {
@@ -49,20 +52,56 @@ impl GamePlayScreen {
         self.last_map_coords = None;
     }
 
-    /// Rebuild location rollovers when world content changes, independently of feature flags.
+    /// Rebuild location rollovers when world content changes, independently of feature flags; a
+    /// world that names its own places has those in their place. A world framed to its land has
+    /// its picture and its notes drawn for the frame.
     pub fn refresh_map_profile(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        let profile = dereth_client_contract::panels::map::profile(view);
-        if self.map_profile == Some(profile) {
+        use dereth_client_contract::panels::map::{map_frame, page_names, PageNames};
+        let names = page_names(view);
+        let frame = map_frame(view);
+        if self.map_profile.as_ref() == Some(&names) && self.map.frame == frame {
             return false;
         }
-        self.map_profile = Some(profile);
+        if self.map.frame != frame {
+            self.map.frame = frame;
+            // The player's mark moves with the frame at the next poll, not five seconds on.
+            self.next_map_update = 0.0;
+        }
+        // A world's own picture is drawn at the image's size, whatever size it was made at: framed
+        // to the land, or whole.
+        let area = self.map.marker_area;
+        let own = matches!(names, PageNames::Own(_));
+        if let Some(n) = self.map.map_image.and_then(|m| ui.node_mut(m)) {
+            let b = n.region.box_;
+            let size = [b.x1 - b.x0 + 1, b.y1 - b.y0 + 1];
+            if let Some(g) = n.region.image.as_mut() {
+                g.op = match frame {
+                    Some(frame) => Some(crate::mapradar::map::framed_picture(area, frame, size)),
+                    None if own => Some(dereth_ui::region::Zoom::whole(size)),
+                    None => None,
+                }
+                .map(dereth_ui::region::SurfaceOp::Zoom);
+            }
+        }
         for note in self.map_notes.drain(..) {
             ui.clear_tooltip(note);
             ui.remove_and_delete_root(note);
         }
         if let Some(map) = self.map.map_image {
-            self.map_notes = crate::mapradar::map::create_map_notes(ui, map, profile);
+            self.map_notes = match &names {
+                PageNames::Notes(profile) => {
+                    crate::mapradar::map::create_map_notes(ui, map, *profile)
+                }
+                PageNames::Own(own) => crate::mapradar::map::create_own_notes(
+                    ui,
+                    map,
+                    self.map.marker_area,
+                    self.map.frame,
+                    &own.0,
+                ),
+            };
         }
+        self.map_profile = Some(names);
         true
     }
 
@@ -96,7 +135,7 @@ impl GamePlayScreen {
 
     /// See [`Self::map_update_due`] for the caller's guard.
     pub fn update_map(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        use crate::mapradar::map::{date_time_text, place_marker_on_map, UPDATE_INTERVAL_SECONDS};
+        use crate::mapradar::map::{date_time_text, framed_marker, UPDATE_INTERVAL_SECONDS};
         // Next update = now + 5.0 — the client, the first thing
         // `Update` does, before it has looked at a single element.
         self.next_map_update = ui.now.0 + f64::from(UPDATE_INTERVAL_SECONDS);
@@ -152,14 +191,32 @@ impl GamePlayScreen {
                     // (16/2 = 8, 15/2 = 7), so **the green circle would sit one pixel below where
                     // retail puts it** in every position on the map.
                     let size = (b.width(), b.height());
-                    let (x, y) = place_marker_on_map(self.map.marker_area, ew, ns, size);
-                    if (b.x0, b.y0) != (x, y) {
-                        ui.move_to(icon_h, x, y);
-                        wrote = true;
+                    // On a world framed to its land, off the frame is off the map.
+                    let at = match self.map.frame {
+                        None => Some(crate::mapradar::map::place_marker_on_map(
+                            self.map.marker_area,
+                            ew,
+                            ns,
+                            size,
+                        )),
+                        frame => framed_marker(
+                            self.map.marker_area,
+                            frame,
+                            f64::from(ew),
+                            f64::from(ns),
+                            size,
+                        ),
+                    };
+                    if let Some((x, y)) = at {
+                        if (b.x0, b.y0) != (x, y) {
+                            ui.move_to(icon_h, x, y);
+                            wrote = true;
+                        }
                     }
                     // The make-visible half of `place_marker_on_map`'s tail.
-                    if !ui.node(icon_h).is_some_and(|n| n.region.flags.visible) {
-                        ui.set_visible(icon_h, true);
+                    let visible = at.is_some();
+                    if ui.node(icon_h).is_some_and(|n| n.region.flags.visible) != visible {
+                        ui.set_visible(icon_h, visible);
                         wrote = true;
                     }
                 }

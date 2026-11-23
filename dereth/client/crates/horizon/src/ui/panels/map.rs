@@ -5,7 +5,9 @@
 //! and the picture of the whole at a third of that size ([`OVERVIEW`]) drawn off the frame when
 //! the map first opens, and tiles of it at its own size ([`TILE`]) are drawn as a view first needs
 //! them, one a frame, and let go when no view has needed them for a while. Closing the map lets
-//! the world and the tiles go and keeps the picture of the whole.
+//! the world and the tiles go and keeps the picture of the whole. Fully zoomed out, the map frames
+//! the world's land with a margin about it, and pans no further: the whole picture for a world
+//! whose land fills it, the land alone for one whose land lies in part of it.
 //!
 //! The picture names nothing: the places are drawn over it, read from the same data
 //! ([`dereth_scene::world_map::places`]) and the places the player has learned of the world. The
@@ -204,8 +206,12 @@ type LearnedFrom = (String, u64, usize);
 /// Which part of the picture the map window shows.
 #[derive(Debug)]
 pub struct MapView {
-    /// How many times the fit: 1 shows the whole picture.
+    /// How many times the fit: 1 shows the whole of [`Self::frame`].
     pub zoom: f32,
+    /// The part of the picture shown fully zoomed out, a square: the land with a margin about it,
+    /// as the world's picture frames it ([`WorldMap::frame`]); the whole picture until the
+    /// picture says.
+    pub frame: Rect,
     /// The picture's pixel in the middle of the view.
     pub centre: (f32, f32),
     /// Where the out, in and fit buttons were drawn this frame.
@@ -233,6 +239,7 @@ impl Default for MapView {
     fn default() -> Self {
         Self {
             zoom: 1.0,
+            frame: Rect::new(0.0, 0.0, MAP_SIZE, MAP_SIZE),
             centre: (MAP_SIZE / 2.0, MAP_SIZE / 2.0),
             buttons: None,
             named: Vec::new(),
@@ -251,7 +258,7 @@ impl MapView {
     /// The part of the picture shown, in its pixels.
     #[must_use]
     pub fn shown(&self) -> Rect {
-        let span = MAP_SIZE / self.zoom;
+        let span = self.frame.w / self.zoom;
         Rect::new(
             self.centre.0 - span / 2.0,
             self.centre.1 - span / 2.0,
@@ -283,7 +290,20 @@ impl MapView {
     pub fn detail(&self, area: Rect) -> f32 {
         #[allow(clippy::cast_possible_truncation)] // LINT-OK: 30.
         let per_unit = PER_UNIT as f32;
-        self.zoom * area.w / MAP_SIZE * per_unit
+        self.zoom * area.w / self.frame.w * per_unit
+    }
+
+    /// The most `area` zooms the frame: a picture pixel at [`MOST_MAGNIFIED`] screen pixels.
+    #[must_use]
+    pub fn most_zoom(&self, area: Rect) -> f32 {
+        (MOST_MAGNIFIED * self.frame.w / area.w.max(1.0)).max(1.0)
+    }
+
+    /// Frame `frame` fully zoomed out from now on ([`Self::frame`]).
+    pub fn frame_to(&mut self, frame: dereth_scene::world_map::Square) {
+        #[allow(clippy::cast_possible_truncation)] // LINT-OK: pixels within the picture.
+        let (x, y, side) = (frame.x as f32, frame.y as f32, frame.side as f32);
+        self.frame = Rect::new(x, y, side, side);
     }
 
     /// Whether the view over `area` marks a place of `kind`: the whole world its towns alone.
@@ -298,12 +318,21 @@ impl MapView {
         self.marks(area, kind) && named_from(kind).is_some_and(|d| self.detail(area) >= d)
     }
 
-    /// The view held on the picture, at a zoom `area` can show.
+    /// The view held inside its frame, at a zoom `area` can show.
     fn settle(&mut self, area: Rect) {
-        self.zoom = self.zoom.clamp(1.0, most_zoom(area));
-        let half = MAP_SIZE / self.zoom / 2.0;
-        self.centre.0 = self.centre.0.clamp(half, MAP_SIZE - half);
-        self.centre.1 = self.centre.1.clamp(half, MAP_SIZE - half);
+        self.zoom = self.zoom.clamp(1.0, self.most_zoom(area));
+        let f = self.frame;
+        let half = f.w / self.zoom / 2.0;
+        // Fully zoomed out the bounds meet, and rounding can cross them: the frame's middle.
+        let hold = |at: f32, lo: f32, hi: f32| {
+            if lo < hi {
+                at.clamp(lo, hi)
+            } else {
+                (lo + hi) / 2.0
+            }
+        };
+        self.centre.0 = hold(self.centre.0, f.x + half, f.right() - half);
+        self.centre.1 = hold(self.centre.1, f.y + half, f.bottom() - half);
     }
 
     /// Zoom to `zoom`, picture pixel `anchor` staying where it is on the screen.
@@ -348,6 +377,7 @@ impl MapView {
 
     /// Draw from `built` rather than the data the art holds: a world drawn elsewhere.
     pub fn show(&mut self, built: Built) {
+        self.frame_to(built.map.frame());
         self.picture = Picture::Ready(built.map);
         self.data = None;
         self.given_overview = built.overview;
@@ -404,6 +434,7 @@ impl MapView {
             self.picture = Picture::None;
             self.data = data;
             self.places = None;
+            self.frame = Self::default().frame;
             art.let_go(OVERVIEW_KEY);
         }
         if let Picture::Building(build) = &mut self.picture {
@@ -413,6 +444,7 @@ impl MapView {
                         art.let_go(OVERVIEW_KEY);
                         art.cached(OVERVIEW_KEY, || Some(image(overview)));
                     }
+                    self.frame_to(built.map.frame());
                     self.picture = Picture::Ready(built.map);
                     self.places = Some(built.places);
                 }
@@ -509,11 +541,6 @@ pub fn town_icon() -> Image {
     }
 }
 
-/// The most `area` zooms the picture.
-fn most_zoom(area: Rect) -> f32 {
-    (MOST_MAGNIFIED * MAP_SIZE / area.w.max(1.0)).max(1.0)
-}
-
 /// What tile `(col, row)` is kept under.
 #[must_use]
 pub fn tile_key(col: u32, row: u32) -> String {
@@ -603,7 +630,7 @@ impl Windows {
             .map(|(n, e)| map_pixel(f64::from(n), f64::from(e)))
             .filter(|(x, y)| shown.contains(*x, *y))
             .unwrap_or(view.centre);
-        let most = most_zoom(area);
+        let most = view.most_zoom(area);
         let y = area.bottom() + 4.0 * k;
         let mut x = body.x + 8.0 * k;
         let mut next = |w: f32| {
@@ -656,7 +683,7 @@ impl Windows {
     fn draw_map(&mut self, p: &mut Painter<'_>, ctx: &Ctx<'_>, area: Rect) {
         let view = &mut self.map_view;
         let shown = view.shown();
-        let close = area.w * view.zoom > OVERVIEW * OVERVIEW_STRETCH;
+        let close = area.w * MAP_SIZE / shown.w > OVERVIEW * OVERVIEW_STRETCH;
         view.keep_picture(p.art, close);
         let overview = p.art.lookup(OVERVIEW_KEY).flatten();
         let draw_overview = |p: &mut Painter<'_>| match &overview {
@@ -977,7 +1004,7 @@ mod tests {
             (vec![PlaceKind::Town], vec![PlaceKind::Town])
         );
         for side in [SMALL, LARGE] {
-            let most = most_zoom(Rect::new(0.0, 0.0, side, side));
+            let most = MapView::default().most_zoom(Rect::new(0.0, 0.0, side, side));
             assert!(
                 shown_at(side, most).1.contains(&PlaceKind::Npc),
                 "{side} pixels across: the people are not named at the closest, {most}"
@@ -994,7 +1021,7 @@ mod tests {
             );
         }
         assert!(
-            most_zoom(Rect::new(0.0, 0.0, LARGE, LARGE)) < 10.0,
+            MapView::default().most_zoom(Rect::new(0.0, 0.0, LARGE, LARGE)) < 10.0,
             "the larger picture's closest is under the zoom that marked the people before"
         );
     }
@@ -1058,9 +1085,68 @@ mod tests {
         assert!(shown.right() <= MAP_SIZE && shown.bottom() <= MAP_SIZE);
         view.zoom_about(area, 1e6, (0.0, 0.0));
         assert!(
-            (view.zoom - most_zoom(area)).abs() < 1e-3,
+            (view.zoom - view.most_zoom(area)).abs() < 1e-3,
             "held at the most"
         );
+    }
+
+    /// A world whose land lies in part of the picture is framed to it: fully zoomed out the view
+    /// is the frame, it pans no further, a step of detail is the same as over the whole picture,
+    /// and the closest view is the same.
+    #[test]
+    fn a_view_framed_to_its_land_zooms_out_no_further_and_pans_inside_it() {
+        let area = Rect::new(0.0, 0.0, 514.0, 514.0);
+        let frame = dereth_scene::world_map::Square {
+            x: 1000.0,
+            y: 2000.0,
+            side: 1500.0,
+        };
+        let mut view = MapView::default();
+        view.frame_to(frame);
+        view.zoom = 0.5;
+        view.centre = (0.0, 0.0);
+        view.settle(area);
+        assert_eq!(view.zoom, 1.0, "no further out than the frame");
+        assert_eq!(view.shown(), Rect::new(1000.0, 2000.0, 1500.0, 1500.0));
+        view.zoom_about(area, 4.0, (1000.0, 2000.0));
+        let shown = view.shown();
+        assert!(shown.x >= 1000.0 && shown.y >= 2000.0, "{shown:?}");
+        assert!(
+            shown.right() <= 2500.0 && shown.bottom() <= 3500.0,
+            "{shown:?}"
+        );
+        // Detail is screen pixels to a unit, whatever the frame.
+        let whole = MapView {
+            zoom: MAP_SIZE / 1500.0 * 4.0,
+            ..MapView::default()
+        };
+        assert!((view.detail(area) - whole.detail(area)).abs() < 1e-3);
+        assert!((view.most_zoom(area) * MAP_SIZE / 1500.0 - whole.most_zoom(area)).abs() < 1e-2);
+    }
+
+    /// Fully zoomed out on any frame, the view settles on the frame's middle, however its edges
+    /// round.
+    #[test]
+    fn a_view_fully_zoomed_out_settles_on_any_frame_s_middle() {
+        let area = Rect::new(0.0, 0.0, 514.0, 514.0);
+        for i in 0..400u16 {
+            let i = f64::from(i);
+            let (x, y, side) = (7.31 * i, 3.07 * i + 0.1, 1000.0 + 9.377 * i);
+            let mut view = MapView::default();
+            view.frame_to(dereth_scene::world_map::Square { x, y, side });
+            for zoom in [1.0, 1.000_001, 0.5] {
+                view.zoom = zoom;
+                view.settle(area);
+                let f = view.frame;
+                let middle = (f.x + f.w / 2.0, f.y + f.h / 2.0);
+                assert!(
+                    (view.centre.0 - middle.0).abs() < 0.01
+                        && (view.centre.1 - middle.1).abs() < 0.01,
+                    "{f:?} at {zoom}: {:?}",
+                    view.centre
+                );
+            }
+        }
     }
 
     /// The tiles under the view cover it exactly, and a view of the whole is every tile.

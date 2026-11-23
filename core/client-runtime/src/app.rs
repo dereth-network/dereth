@@ -844,9 +844,20 @@ pub struct App<S: Shell> {
     pub travel_status: crate::travel::TravelStatus,
     /// The places the game's data names (its towns, landmarks and houses), as the world map marks
     /// them: read from the data off the frame ([`crate::map_places`]) under every interface and
-    /// host, so the frame hook's plugins and the map share one set.
+    /// host, so the frame hook's plugins and the map share one set. Its towns and landmarks are
+    /// the server's when it publishes the world's own ([`crate::travel::Travel::published_own_places`]).
     pub(crate) map_places:
         Option<std::sync::Arc<Vec<dereth_client_contract::panels::map::MapPlace>>>,
+    /// The places as the data alone names them, once read.
+    pub(crate) map_places_read:
+        Option<std::sync::Arc<Vec<dereth_client_contract::panels::map::MapPlace>>>,
+    /// What [`Self::map_places`] was last made of: the places read, and the server's own names.
+    pub(crate) map_places_of: (
+        Option<std::sync::Arc<Vec<dereth_client_contract::panels::map::MapPlace>>>,
+        Option<dereth_client_contract::panels::map::WorldPlaces>,
+    ),
+    /// The era view's own places are the server's.
+    pub(crate) own_places_published: bool,
     /// The read of [`Self::map_places`] under way, for the data files open now (known by their
     /// store), until it is done.
     pub(crate) map_places_build: Option<(usize, Option<crate::map_places::MapPlacesBuild>)>,

@@ -1310,6 +1310,9 @@ pub struct Travel {
     /// portal table, and its places.
     published: Vec<dereth_navigation::PortalEdge>,
     published_places: Vec<dereth_navigation::KnownPlace>,
+    /// The towns and landmarks of the places the server publishes, when it says they are the
+    /// names the world gives its own places: the maps name them.
+    published_own_places: Option<dereth_client_contract::panels::map::WorldPlaces>,
     /// A place package taken in as text ([`Self::take_hints`]): the portals and places of the
     /// world's era, as hints.
     hinted: Vec<dereth_navigation::PortalEdge>,
@@ -1391,6 +1394,7 @@ impl Travel {
             recall_watch: recalls::RecallWatch::default(),
             published: Vec::new(),
             published_places: Vec::new(),
+            published_own_places: None,
             hinted: Vec::new(),
             hinted_places: Vec::new(),
             dats: None,

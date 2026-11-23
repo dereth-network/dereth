@@ -913,6 +913,214 @@ fn map_notes_rebuild_for_profile_changes_with_identical_features_and_snapshot_vi
     }
 }
 
+/// A note on the map page: its name, its box from the map's corner, how many fills mark it, and
+/// whether every one is in a mark's colors.
+type NoteRow = (String, (i32, i32, i32, i32), usize, bool);
+
+fn note_rows(ui: &UiSystem, s: &GamePlayScreen) -> Vec<NoteRow> {
+    use dereth_client_contract::panels::map::{MARK_INSIDE, MARK_RIM};
+    let map = ui.screen_box(s.map.map_image.expect("the map element"));
+    s.map_notes
+        .iter()
+        .map(|h| {
+            let node = ui.node(*h).unwrap();
+            let b = ui.screen_box(*h);
+            let fills = &node.region.surface_fills;
+            (
+                node.tooltip_text.clone().unwrap_or_default(),
+                (b.x0 - map.x0, b.y0 - map.y0, b.width(), b.height()),
+                fills.len(),
+                fills
+                    .iter()
+                    .all(|f| f.color == MARK_RIM || f.color == MARK_INSIDE),
+            )
+        })
+        .collect()
+}
+
+/// Behaviour: none (this client's own map page, for a world that names its own places)
+#[test]
+fn a_world_s_own_places_are_the_map_s_notes_marked_by_kind_and_a_world_naming_none_keeps_its_53() {
+    use dereth_client_contract::panels::map::{mark_runs, MapPlace, MapPlaceKind, WorldPlaces};
+    use dereth_ui_screens::mapradar::map::place_marker_on_map;
+    let (mut ui, _flow, store) =
+        crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
+    ui.assets = Some(store);
+    let mut s = GamePlayScreen::default();
+    s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
+        .expect("gameplay layout");
+    pump(&mut ui, &mut s);
+    let place = |kind, name: &str, ns, ew| MapPlace {
+        kind,
+        name: name.to_owned(),
+        ns,
+        ew,
+    };
+    let own = WorldPlaces(
+        vec![
+            place(MapPlaceKind::Town, "Kehan", -20.0, -30.0),
+            place(MapPlaceKind::Landmark, "Drudge Windmill", 10.0, 60.0),
+        ]
+        .into(),
+    );
+    let mut w = MapWorld {
+        era: EraView {
+            own_places: Some(own),
+            ..EraView::default()
+        },
+        coords: (0.0, 0.0),
+    };
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    let area = s.map.marker_area;
+    let (tx, ty) = place_marker_on_map(area, -30.0, -20.0, (9, 8));
+    let (lx, ly) = place_marker_on_map(area, 60.0, 10.0, (5, 5));
+    assert_eq!(
+        note_rows(&ui, &s),
+        [
+            (
+                "Drudge Windmill".to_owned(),
+                (lx, ly, 5, 5),
+                mark_runs(MapPlaceKind::Landmark).len(),
+                true
+            ),
+            (
+                "Kehan".to_owned(),
+                (tx, ty, 9, 8),
+                mark_runs(MapPlaceKind::Town).len(),
+                true
+            ),
+        ]
+    );
+    assert!(!s.refresh_map_profile(&mut ui, &w), "unchanged, untouched");
+
+    // On the open page, the town under the pointer is framed as a note is, and its mark lies
+    // inside the frame.
+    let maps = s
+        .panels
+        .pages
+        .iter()
+        .find(|p| p.element == dereth_ui::ElementId(0x1000_018C))
+        .expect("the maps page")
+        .panel_id;
+    s.recv_set_panel_visibility(&mut ui, maps, true);
+    pump(&mut ui, &mut s);
+    let town = s.map_notes[1];
+    let b = ui.screen_box(town);
+    ui.mouse_move(
+        dereth_primitives::LocalTime(0.0),
+        (b.x0 + b.x1) / 2,
+        (b.y0 + b.y1) / 2,
+    );
+    let mut back = dereth_ui::RecordingDrawBackend::default();
+    ui.draw(&mut back);
+    let edges = back
+        .calls
+        .iter()
+        .filter(|c| c.image == Some(dereth_ui_screens::mapradar::map::graphic::NOTE_EDGE))
+        .count();
+    assert_eq!(edges, 4, "framed");
+    let fills: Vec<_> = back
+        .calls
+        .iter()
+        .filter(|c| c.who == town)
+        .flat_map(|c| c.fills.iter())
+        .collect();
+    assert!(!fills.is_empty());
+    assert!(fills
+        .iter()
+        .all(|f| f.x > b.x0 && f.y > b.y0 && f.x + f.w - 1 < b.x1 && f.y < b.y1));
+
+    // A world naming none of its own: the 53 notes, unmarked, as the picture marks them.
+    w.era = EraView::default();
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    let notes = note_rows(&ui, &s);
+    assert_eq!(notes.len(), 53);
+    assert!(notes.iter().all(|(_, _, fills, _)| *fills == 0));
+    assert!(notes.iter().any(|(name, _, _, _)| name == "Holtburg"));
+}
+
+/// A world framed to its land has its map picture drawn with the frame's part over the marker
+/// area, and its places and the player where the frame puts them; before its frame is known its
+/// picture is drawn whole at the image's size; a world shown whole keeps the picture as it is
+/// and retail's placement.
+///
+/// Behaviour: none (this client's own map page, for a world whose land is its own)
+#[test]
+fn a_world_framed_to_its_land_fills_the_map_page_with_the_frame() {
+    use dereth_client_contract::panels::map::{MapFrame, MapPlace, MapPlaceKind, WorldPlaces};
+    use dereth_ui::region::{SurfaceOp, Zoom};
+    use dereth_ui_screens::mapradar::map::{framed_marker, framed_picture, place_marker_on_map};
+    let (mut ui, _flow, store) =
+        crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
+    ui.assets = Some(store);
+    let mut s = GamePlayScreen::default();
+    s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
+        .expect("gameplay layout");
+    pump(&mut ui, &mut s);
+    let frame = MapFrame {
+        west: -60.0,
+        south: 10.0,
+        side: 40.0,
+    };
+    let own = WorldPlaces(
+        vec![MapPlace {
+            kind: MapPlaceKind::Town,
+            name: "Kehan".to_owned(),
+            ns: 30.0,
+            ew: -40.0,
+        }]
+        .into(),
+    );
+    let mut w = MapWorld {
+        era: EraView {
+            own_places: Some(own.clone()),
+            map_frame: None,
+            ..EraView::default()
+        },
+        coords: (30.0, -40.0),
+    };
+    let image = s.map.map_image.expect("the map image");
+    let op = |ui: &UiSystem| ui.node(image).and_then(|n| n.region.image.as_ref()?.op);
+    let b = ui.node(image).expect("the map image").region.box_;
+    let size = [b.x1 - b.x0 + 1, b.y1 - b.y0 + 1];
+    assert_eq!(size, [257, 267], "the picture's own size");
+    // Before the frame is worked out: the world's whole picture, at the image's size.
+    s.update_map(&mut ui, &w);
+    assert_eq!(op(&ui), Some(SurfaceOp::Zoom(Zoom::whole(size))));
+    assert!(!s.map_update_due(ui.now.0));
+    w.era.map_frame = Some(frame);
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    let area = s.map.marker_area;
+    assert_eq!(
+        op(&ui),
+        Some(SurfaceOp::Zoom(framed_picture(area, frame, size)))
+    );
+    // The player's mark is placed again at once, not at the page's next turn.
+    assert!(s.map_update_due(ui.now.0));
+    // The town in the frame's middle, in the middle of the marker area.
+    let at = framed_marker(area, Some(frame), -40.0, 30.0, (9, 8)).expect("in the frame");
+    assert_eq!(note_rows(&ui, &s)[0].1, (at.0, at.1, 9, 8));
+    let middle = ((area.x0 + area.x1) / 2, (area.y0 + area.y1) / 2);
+    assert!((at.0 + 4 - middle.0).abs() <= 1 && (at.1 + 4 - middle.1).abs() <= 1);
+    // The player too, and off the frame not at all.
+    s.update_map(&mut ui, &w);
+    let icon = s.map.player_icon.expect("the player icon");
+    let shown = |ui: &UiSystem| ui.node(icon).is_some_and(|n| n.region.flags.visible);
+    assert!(shown(&ui));
+    w.coords = (0.0, 0.0);
+    s.update_map(&mut ui, &w);
+    assert!(!shown(&ui));
+    assert!(!s.refresh_map_profile(&mut ui, &w), "unchanged, untouched");
+
+    // Shown whole: the picture whole at the image's size, and the notes where retail places
+    // them.
+    w.era.map_frame = None;
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    assert_eq!(op(&ui), Some(SurfaceOp::Zoom(Zoom::whole(size))));
+    let (x, y) = place_marker_on_map(area, -40.0, 30.0, (9, 8));
+    assert_eq!(note_rows(&ui, &s)[0].1, (x, y, 9, 8));
+}
+
 /// Behaviour: map.coordinates.zero-has-no-hemisphere
 #[test]
 fn map_coordinate_widget_uses_empty_zero_suffix_and_preserves_tiny_signs() {

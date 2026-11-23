@@ -1205,6 +1205,12 @@ pub struct EraView {
     /// The rules the world plays by over the end of retail's, from the world profile the launcher
     /// names: what an appraisal or character creation shows, what selecting an item asks for.
     pub world_rules: dereth_primitives::WorldRules,
+    /// The towns and landmarks the world names itself, which its map pages name in place of the
+    /// game's map's notes; `None` for a world that names none of its own.
+    pub own_places: Option<crate::panels::map::WorldPlaces>,
+    /// The part of the world its maps frame, its land with a margin about it, where that is less
+    /// than the whole world; `None` for a world whose land fills it, and until it is worked out.
+    pub map_frame: Option<crate::panels::map::MapFrame>,
 }
 
 impl EraView {

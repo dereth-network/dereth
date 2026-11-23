@@ -2076,6 +2076,229 @@ fn map_rollovers_follow_profile_and_never_reuse_a_stale_hover() {
         .any(|t| t == "Fiun Outpost"));
 }
 
+/// A world that names its own places has them on the map page in place of the notes: each marked
+/// over the picture by its kind, named under the pointer, and the notes gone; a world naming none
+/// keeps the notes and has no marks.
+#[test]
+fn a_world_s_own_places_are_marked_and_named_on_the_map_page_in_place_of_the_notes() {
+    use dereth_client_contract::panels::map::{
+        mark_runs, MapPlace, MapPlaceKind, WorldPlaces, MARK_INSIDE, MARK_RIM,
+    };
+    let place = |kind, name: &str, ns, ew| MapPlace {
+        kind,
+        name: name.to_owned(),
+        ns,
+        ew,
+    };
+    let own = WorldPlaces(
+        vec![
+            place(MapPlaceKind::Town, "Kehan", -20.0, -30.0),
+            place(MapPlaceKind::Landmark, "Drudge Windmill", 10.0, 60.0),
+        ]
+        .into(),
+    );
+    let marks = |f: &PanelFrame| {
+        f.screen
+            .commands
+            .iter()
+            .filter(|c| {
+                matches!(c, Command::Fill { color, .. } if *color == MARK_RIM || *color == MARK_INSIDE)
+            })
+            .count()
+    };
+    let hover = |panel: &mut dyn Panel, v: &View, (x, y): (i32, i32)| {
+        event(
+            panel,
+            ControlEvent::Pointer {
+                x,
+                y: y + 25,
+                pressed: false,
+            },
+            v,
+        );
+        with_context(v, |c| texts(&panel.frame(c)))
+    };
+    let mut panel = make("map").unwrap();
+    let mut v = View {
+        era: Some(dereth_client_contract::EraView {
+            own_places: Some(own),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let picture = |f: &PanelFrame| {
+        f.screen.commands.iter().find_map(|c| match c {
+            Command::Image { did, .. } if did.ends_with("0600127D") => Some(did.clone()),
+            _ => None,
+        })
+    };
+    let frame = with_context(&v, |c| panel.frame(c));
+    assert_eq!(picture(&frame).as_deref(), Some("world:0600127D"));
+    assert_eq!(
+        marks(&frame),
+        mark_runs(MapPlaceKind::Town).len() + mark_runs(MapPlaceKind::Landmark).len()
+    );
+    assert!(hover(&mut *panel, &v, world::map_marker(-20.0, -30.0)).contains(&"Kehan".to_owned()));
+    let (wx, wy) = world::map_marker(10.0, 60.0);
+    assert!(hover(&mut *panel, &v, (wx + 1, wy - 1)).contains(&"Drudge Windmill".to_owned()));
+    assert!(!hover(&mut *panel, &v, (wx + 3, wy)).contains(&"Drudge Windmill".to_owned()));
+    // Where a note would be, nothing.
+    assert!(!hover(&mut *panel, &v, (78, 46)).contains(&"Fiun Outpost".to_owned()));
+
+    // A world naming none of its own: the notes, and no marks.
+    v.era = Some(dereth_client_contract::EraView::default());
+    let frame = with_context(&v, |c| panel.frame(c));
+    assert_eq!(marks(&frame), 0);
+    assert_eq!(picture(&frame).as_deref(), Some("0600127D"));
+    assert!(!hover(&mut *panel, &v, world::map_marker(-20.0, -30.0)).contains(&"Kehan".to_owned()));
+    assert!(hover(&mut *panel, &v, (78, 46)).contains(&"Fiun Outpost".to_owned()));
+}
+
+/// An island of land in a corner of the world, framed as its Horizon map frames it.
+fn framed_island() -> dereth_client_contract::panels::map::MapFrame {
+    let mut grid = dereth_scene::world_map::MapGrid::new(
+        vec!["WaterDeepSea".to_owned(), "Grassland".to_owned()],
+        std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap_or(0)) * 4.0),
+    );
+    for x in 300..700 {
+        for y in 1500..1900 {
+            grid.set((x, y), 1, u8::try_from((x + y) % 7).unwrap_or(0), false);
+        }
+    }
+    let square = grid.clone().prepare().frame();
+    assert_eq!(
+        grid.frame(),
+        square,
+        "the pages' frame is the Horizon map's"
+    );
+    assert_ne!(square, dereth_scene::world_map::Square::WHOLE);
+    square.coords()
+}
+
+/// A world framed to its land has the frame's part of its picture over the part of the map page
+/// that shows the world, its border kept, and its places and the player where the frame puts
+/// them; a world shown whole is drawn as before.
+///
+/// Behaviour: none (this client's own map pages, for a world whose land is its own)
+#[test]
+fn a_world_framed_to_its_land_fills_the_map_page_with_the_frame_its_horizon_map_shows() {
+    use dereth_client_contract::panels::map::{MapPlace, MapPlaceKind, WorldPlaces};
+    let frame = framed_island();
+    let (north, west) = (frame.south + frame.side, frame.west);
+    let middle = (
+        frame.south + frame.side / 2.0,
+        frame.west + frame.side / 2.0,
+    );
+    let own = WorldPlaces(
+        vec![MapPlace {
+            kind: MapPlaceKind::Town,
+            name: "Kehan".to_owned(),
+            ns: middle.0,
+            ew: middle.1,
+        }]
+        .into(),
+    );
+    let pictures = |f: &PanelFrame| {
+        f.screen
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Image {
+                    did,
+                    x,
+                    y,
+                    width,
+                    height,
+                    clip,
+                    ..
+                } if did.ends_with("0600127D") => Some((*x, *y, *width, *height, *clip)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let green_circle = |f: &PanelFrame| {
+        f.screen.commands.iter().find_map(|c| match c {
+            Command::Image { did, x, y, .. } if did == "0600127C" => Some((*x + 8, *y + 8 - 25)),
+            _ => None,
+        })
+    };
+    let mut panel = make("map").unwrap();
+    #[allow(clippy::cast_possible_truncation)] // LINT-OK: map coordinates.
+    let mut v = View {
+        coords: Some((middle.0 as f32, middle.1 as f32)),
+        era: Some(dereth_client_contract::EraView {
+            own_places: Some(own),
+            map_frame: Some(frame),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let f = with_context(&v, |c| panel.frame(c));
+    let drawn = pictures(&f);
+    assert_eq!(drawn.len(), 2, "{drawn:?}");
+    // The whole picture first, its border showing about the world...
+    assert_eq!(drawn[0], (22, 33 + 25, 257, 267, None));
+    // ...then the frame's part of it over the world's part of the page, clipped to that part.
+    let (x, y, w, h, clip) = drawn[1];
+    assert_eq!(clip, Some([28, 44 + 25, 28 + 245, 44 + 25 + 245]));
+    // The frame's north-west corner is drawn on the picture where a mark of it would be put on the
+    // whole picture; stretched, that picture pixel lands on the corner of the world's part, to
+    // within one of the picture's pixels stretched.
+    let (cx, cy) = world::map_marker(north, west);
+    let (px, py) = (f64::from(cx - 22), f64::from(cy - 33));
+    let (kx, ky) = (f64::from(w) / 257.0, f64::from(h) / 267.0);
+    assert!(kx > 4.0 && (kx - ky).abs() < 0.05, "{kx}, {ky}");
+    let corner = (f64::from(x) + px * kx, f64::from(y - 25) + py * ky);
+    assert!(
+        (corner.0 - 28.0).abs() <= kx && (corner.1 - 44.0).abs() <= ky,
+        "{corner:?}"
+    );
+    // The frame's side across the world's 245 pixels.
+    let span = f64::from(world::map_marker(north, west + frame.side).0 - cx) * kx;
+    assert!((span - 245.0).abs() <= kx, "{span}");
+    // The player and the town in the frame's middle, in the middle of the world's part.
+    let (mx, my) = green_circle(&f).expect("the player is marked");
+    assert!((mx - 150).abs() <= 1 && (my - 166).abs() <= 1, "{mx}, {my}");
+    let named = event(
+        &mut *panel,
+        ControlEvent::Pointer {
+            x: mx,
+            y: my + 25,
+            pressed: false,
+        },
+        &v,
+    );
+    assert!(named.is_empty());
+    assert!(with_context(&v, |c| texts(&panel.frame(c))).contains(&"Kehan".to_owned()));
+    // A press there is told to the plugins as the frame's middle.
+    let pressed = event(
+        &mut *panel,
+        ControlEvent::Pointer {
+            x: mx,
+            y: my + 25,
+            pressed: true,
+        },
+        &v,
+    );
+    let Some(PanelAction::Host(HostAction::MapClick { ns, ew, .. })) = pressed.last() else {
+        panic!("{pressed:?}");
+    };
+    assert!(
+        (ns - middle.0).abs() < 1.0 && (ew - middle.1).abs() < 1.0,
+        "{ns}, {ew}"
+    );
+    // Off the frame the player is not marked.
+    v.coords = Some((0.0, 0.0));
+    assert_eq!(green_circle(&with_context(&v, |c| panel.frame(c))), None);
+
+    // A world shown whole: the one picture, and the player where the page always put it.
+    v.era = Some(dereth_client_contract::EraView::default());
+    v.coords = Some((42.5, 33.5));
+    let f = with_context(&v, |c| panel.frame(c));
+    assert_eq!(pictures(&f), [(22, 33 + 25, 257, 267, None)]);
+    assert_eq!(green_circle(&f), Some(world::map_marker(42.5, 33.5)));
+}
+
 /// Behaviour: map.coordinates.zero-has-no-hemisphere
 #[test]
 fn map_frame_formats_zero_and_tiny_signed_coordinates() {

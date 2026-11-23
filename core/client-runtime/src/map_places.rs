@@ -3,6 +3,14 @@
 //! landblocks stand near where that map puts it, and every house by its building's model. The
 //! world map draws them and the frame hook's plugins read them, one set. Portals, lifestones,
 //! vendors and the rest the server places are not in the data: the client learns them per world.
+//!
+//! A world may name its own towns and landmarks ([`Naming`]): a places document in its overlay
+//! folder ([`WORLD_PLACES_FILE`]), in the form a server publishes its places in, whose `town` and
+//! `landmark` lines name them in place of the game's map's notes. Online, the places the world's
+//! server publishes name them instead, when it says they are the world's own
+//! ([`published_own_places`]): a client the server patched has the world's data but not that
+//! folder's document. A world whose land lies on a finer grid than retail's and names none has
+//! none: the notes name retail's places, which are not where the notes put them there.
 
 use std::sync::Arc;
 
@@ -136,10 +144,137 @@ fn within(b: &Building, (ns, ew): (f64, f64), reach: f64) -> bool {
     (b.ns - ns).powi(2) + (b.ew - ew).powi(2) <= reach * reach
 }
 
-/// Every place the data names: the towns and landmarks, then the houses.
+/// The file in a world's overlay folder that names its own towns and landmarks: a places
+/// document (`dereth-places-store`), of which the `town` and `landmark` lines are read.
+pub const WORLD_PLACES_FILE: &str = "places.tsv";
+
+/// What names a world's towns and landmarks.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Naming {
+    /// The game's map's notes, each placed on the buildings that stand near it ([`named_places`]).
+    Notes,
+    /// The world's own: these, and nothing else.
+    Own(Vec<Place>),
+}
+
+impl Naming {
+    /// The naming of a world whose places document is `document` (`None` without one): the
+    /// document's towns and landmarks where it reads, else the notes.
+    #[must_use]
+    pub fn of(document: Option<&str>) -> Self {
+        match document.and_then(own_places) {
+            Some(own) => Self::Own(own),
+            None => Self::Notes,
+        }
+    }
+
+    /// The naming of the world `store` holds, by its overlay folder's places document
+    /// ([`WORLD_PLACES_FILE`]).
+    #[must_use]
+    pub fn read(store: &RetailDatStore) -> Self {
+        Self::of(world_document(store).as_deref())
+    }
+}
+
+/// The places document in the overlay folder of the world `store` holds, `None` without one.
+fn world_document(store: &RetailDatStore) -> Option<String> {
+    store
+        .overlay_dir()
+        .and_then(|dir| read_whole(&*dir.folder().open(WORLD_PLACES_FILE).ok()?))
+}
+
+/// The towns and landmarks the world `store` holds names itself (its overlay folder's places
+/// document, [`WORLD_PLACES_FILE`]); `None` when it names none of its own.
+#[must_use]
+pub fn own_places_of(store: &RetailDatStore) -> Option<Vec<Place>> {
+    world_document(store).as_deref().and_then(own_places)
+}
+
+/// All of `file` as text; `None` when it is not UTF-8.
+fn read_whole(file: &dyn dereth_dat::DatStorage) -> Option<String> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    // The storage fills whole buffers only: past the last whole one, a byte at a time.
+    while file.read_exact_at(bytes.len() as u64, &mut chunk).is_ok() {
+        bytes.extend_from_slice(&chunk);
+    }
+    let mut byte = [0u8; 1];
+    while file.read_exact_at(bytes.len() as u64, &mut byte).is_ok() {
+        bytes.push(byte[0]);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// The towns and landmarks a places document names, in its order, at map coordinates; `None` for
+/// text that is not a places document.
+fn own_places(document: &str) -> Option<Vec<Place>> {
+    let store = dereth_navigation::PlaceStore::from_text(document).ok()?;
+    Some(towns_and_landmarks(&store))
+}
+
+/// The towns and landmarks the places a world's server publishes name as the world's own
+/// ([`dereth_navigation::PlaceStore::own_names`]), in their order, at map coordinates; `None`
+/// when the server says they are not its own, as a retail world's are not.
+#[must_use]
+pub fn published_own_places(published: &dereth_navigation::PlaceStore) -> Option<Vec<Place>> {
+    published.own_names.then(|| towns_and_landmarks(published))
+}
+
+/// The towns and landmarks of `store`, in its order, at map coordinates.
+fn towns_and_landmarks(store: &dereth_navigation::PlaceStore) -> Vec<Place> {
+    use dereth_navigation::PlaceKind as Kind;
+    // A landblock is 192 meters across and each step of the map coordinates 240 meters; 0 stands
+    // 101.95 steps in.
+    let unit = |block: u32, m: f32| (f64::from(block) * 192.0 + f64::from(m)) / 240.0 - 101.95;
+    store
+        .places()
+        .iter()
+        .filter_map(|p| {
+            let kind = match p.kind {
+                Kind::Town => PlaceKind::Town,
+                Kind::Landmark => PlaceKind::Landmark,
+                _ => return None,
+            };
+            let (bx, by) = (p.at.cell.0 >> 24, (p.at.cell.0 >> 16) & 0xFF);
+            Some(Place {
+                kind,
+                name: p.name.clone(),
+                ns: unit(by, p.at.frame.origin.y),
+                ew: unit(bx, p.at.frame.origin.x),
+            })
+        })
+        .collect()
+}
+
+/// The places the data names (`named`, as [`places_named`] gives them) with their towns and
+/// landmarks named by `own` instead: `own`, then the houses and the rest.
+#[must_use]
+pub fn with_own_names(named: &[Place], own: &[Place]) -> Vec<Place> {
+    own.iter()
+        .cloned()
+        .chain(
+            named
+                .iter()
+                .filter(|p| !matches!(p.kind, PlaceKind::Town | PlaceKind::Landmark))
+                .cloned(),
+        )
+        .collect()
+}
+
+/// Every place the data names: the towns and landmarks the game's map's notes name, then the
+/// houses.
 #[must_use]
 pub fn places(buildings: &[Building]) -> Vec<Place> {
-    let mut places = named_places(buildings);
+    places_named(buildings, &Naming::Notes)
+}
+
+/// Every place the data names: the towns and landmarks as `naming` names them, then the houses.
+#[must_use]
+pub fn places_named(buildings: &[Building], naming: &Naming) -> Vec<Place> {
+    let mut places = match naming {
+        Naming::Notes => named_places(buildings),
+        Naming::Own(own) => own.clone(),
+    };
     places.extend(buildings.iter().filter_map(|b| {
         let kind = house_kind(b.model)?;
         // A mansion is marked at its first building alone.
@@ -204,7 +339,8 @@ impl Steps {
             self.column += 1;
             return None;
         }
-        Some(Arc::new(places(&self.buildings)))
+        let naming = Naming::read(&self.store);
+        Some(Arc::new(places_named(&self.buildings, &naming)))
     }
 }
 
@@ -294,5 +430,98 @@ impl MapPlacesBuild {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (this client's own map places, not a behaviour of the retail client)
+    use super::*;
+
+    const DOCUMENT: &str = "dereth-places-store\t1\nworld\tElsewhere\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 46.000 0.000\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x76970031 150.000 10.000 0.000\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t-\tLife Stone\t0x76970031 150.000 10.000 0.000\t0\t0\t-\t-\n";
+
+    /// A world's own document names its towns and landmarks, and nothing else of it, at the map
+    /// coordinates its landblock and the place in it give.
+    #[test]
+    fn a_world_s_own_places_name_its_towns_and_landmarks() {
+        let Naming::Own(own) = Naming::of(Some(DOCUMENT)) else {
+            panic!("its own");
+        };
+        let names: Vec<(&str, PlaceKind)> = own.iter().map(|p| (p.name.as_str(), p.kind)).collect();
+        assert_eq!(
+            names,
+            [
+                ("Kehan", PlaceKind::Town),
+                ("Drudge Windmill", PlaceKind::Landmark)
+            ]
+        );
+        let kehan = &own[0];
+        let want = |block: f64, m: f64| (block * 192.0 + m) / 240.0 - 101.95;
+        assert!((kehan.ew - want(118.0, 54.0)).abs() < 1e-9, "{kehan:?}");
+        assert!((kehan.ns - want(151.0, 46.0)).abs() < 1e-9, "{kehan:?}");
+    }
+
+    /// Without a document of its own, a world is named by the game's map's notes; text that is no
+    /// places document is none.
+    #[test]
+    fn without_its_own_a_world_has_the_notes() {
+        assert_eq!(Naming::of(None), Naming::Notes);
+        assert_eq!(Naming::of(Some("not a places document")), Naming::Notes);
+    }
+
+    /// A world's own names stand in for the notes, and the houses its buildings make are still
+    /// named.
+    #[test]
+    fn a_world_s_own_names_stand_in_for_the_notes_and_its_houses_stay() {
+        // Holtburg's buildings, where the game's map's note puts it, and a cottage.
+        let mut buildings: Vec<Building> = (0..6)
+            .map(|i| Building {
+                model: 0x0100_1000 + i,
+                ns: 42.0 + f64::from(i) * 0.05,
+                ew: 33.6,
+            })
+            .collect();
+        buildings.push(Building {
+            model: COTTAGES[0],
+            ns: -50.0,
+            ew: -50.0,
+        });
+        let notes = places(&buildings);
+        assert!(notes.iter().any(|p| p.name == "Holtburg"), "{notes:?}");
+        let named = places_named(&buildings, &Naming::of(Some(DOCUMENT)));
+        let names: Vec<&str> = named.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Kehan", "Drudge Windmill", "Cottage"]);
+    }
+
+    /// The places a server publishes name the world's towns and landmarks only when it says they
+    /// are the world's own; they then stand in for those the data names, and the houses stay.
+    #[test]
+    fn a_servers_places_name_the_world_s_towns_only_when_it_says_they_are_its_own() {
+        let mut published = dereth_navigation::PlaceStore::from_text(DOCUMENT).expect("reads");
+        assert_eq!(published_own_places(&published), None, "a retail world's");
+        published.own_names = true;
+        let own = published_own_places(&published).expect("the world's own");
+        assert_eq!(Some(own.clone()), own_places(DOCUMENT), "as the folder's");
+        let buildings: Vec<Building> = (0..6)
+            .map(|i| Building {
+                model: 0x0100_1000 + i,
+                ns: 42.0 + f64::from(i) * 0.05,
+                ew: 33.6,
+            })
+            .chain([Building {
+                model: COTTAGES[0],
+                ns: -50.0,
+                ew: -50.0,
+            }])
+            .collect();
+        let read = places(&buildings);
+        assert!(read.iter().any(|p| p.name == "Holtburg"), "{read:?}");
+        let named = with_own_names(&read, &own);
+        let names: Vec<&str> = named.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Kehan", "Drudge Windmill", "Cottage"]);
+        assert_eq!(with_own_names(&read, &[]).len(), 1, "the houses alone");
     }
 }

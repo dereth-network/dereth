@@ -172,6 +172,74 @@ fn island() -> WorldMap {
     grid.prepare()
 }
 
+/// The island's land takes vertices 300..700 across and 1500..1900 up: the frame is a square about
+/// it with the margin, inside the picture.
+#[test]
+fn the_map_frames_a_world_s_land_with_a_margin_about_it() {
+    let frame = island().frame();
+    // The land's pixels: 900 to 2100 across, 423 to 1623 down.
+    let side = 1200.0 * (1.0 + 2.0 * FRAME_MARGIN);
+    assert!((frame.side - side).abs() < 1e-9, "{frame:?}");
+    assert!((frame.x - (1500.0 - side / 2.0)).abs() < 1e-9, "{frame:?}");
+    assert!((frame.y - (1023.0 - side / 2.0)).abs() < 1e-9, "{frame:?}");
+    assert_eq!(world(&NAMES).prepare().frame(), Square::WHOLE, "no land");
+}
+
+/// The map pages take their frame from the same land by the same rule as the map's picture, the
+/// placeholder land left out of both, and say it in map coordinates: a square of the picture is
+/// the square of the world its vertices stand on.
+#[test]
+fn the_map_pages_frame_a_world_as_the_map_s_picture_does() {
+    let mut grid = world(&NAMES);
+    land(&mut grid, 300..700, 1500..1900, |x, y| {
+        (GRASS, u8::try_from((x + y) % 7).unwrap_or(0))
+    });
+    // A placeholder: flat land of one terrain, a landblock and more.
+    land(&mut grid, 1500..1520, 300..320, |_, _| (SNOW, 0));
+    let picture = grid.clone().prepare().frame();
+    assert_eq!(grid.frame(), picture);
+    let side = 1200.0 * (1.0 + 2.0 * FRAME_MARGIN);
+    assert!((picture.side - side).abs() < 1e-9, "{picture:?}");
+    // The whole picture is the world from the first vertex's coordinates to past the last's.
+    let whole = Square::WHOLE.coords();
+    assert!((whole.west - at(0)).abs() < 1e-9 && (whole.south - at(0)).abs() < 1e-9);
+    assert!((whole.side - 204.1).abs() < 1e-9, "{whole:?}");
+    // The land: vertex 300 across is drawn from pixel 900, vertex 1899 up from pixel 423 down,
+    // and vertex 1500 up down to pixel 1623.
+    let land_only = Square {
+        x: 900.0,
+        y: 423.0,
+        side: 1200.0,
+    }
+    .coords();
+    assert!((land_only.west - at(300)).abs() < 1e-9, "{land_only:?}");
+    assert!((land_only.south - at(1500)).abs() < 1e-9, "{land_only:?}");
+    assert!((land_only.side - 40.0).abs() < 1e-9, "{land_only:?}");
+}
+
+/// Land near the picture's corner is framed inside the picture; land across nearly all of it is
+/// framed by the whole picture.
+#[test]
+fn a_frame_stays_inside_the_picture_and_land_across_it_is_the_whole() {
+    let corner = land_frame(Some([10.0, 30.0, 610.0, 430.0]));
+    assert_eq!((corner.x, corner.y), (0.0, 0.0), "{corner:?}");
+    assert!((corner.side - 600.0 * 1.08).abs() < 1e-9);
+    let far = land_frame(Some([5900.0, 5950.0, 6120.0, 6110.0]));
+    assert!(
+        (far.x + far.side - Square::WHOLE.side).abs() < 1e-9,
+        "{far:?}"
+    );
+    assert!(
+        (far.y + far.side - Square::WHOLE.side).abs() < 1e-9,
+        "{far:?}"
+    );
+    assert_eq!(
+        land_frame(Some([100.0, 400.0, 5800.0, 5000.0])),
+        Square::WHOLE
+    );
+    assert_eq!(land_frame(None), Square::WHOLE);
+}
+
 #[test]
 fn the_tiles_are_the_picture_cut_up_and_the_last_are_short() {
     let map = island();
@@ -242,7 +310,8 @@ fn rgb_hash(p: &Pixels) -> u64 {
     h
 }
 
-/// The later data draws the pictures the map was first drawn with offline, to the byte.
+/// The later data draws the pictures the map was first drawn with offline, to the byte, and its
+/// land fills the picture, so the map frames the whole of it.
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
@@ -250,10 +319,15 @@ fn rgb_hash(p: &Pixels) -> u64 {
 )]
 fn the_retail_data_draws_the_map_s_first_pictures() {
     let store = Arc::new(dereth_dat::testing::open_store().expect("the retail dats"));
-    let built = MapBuild::start(store, true).wait().expect("the map builds");
+    let built = MapBuild::start(Arc::clone(&store), true)
+        .wait()
+        .expect("the map builds");
     assert_eq!(rgb_hash(&built.map.tile((3, 2))), 0x253a_3e35_21ac_301c);
     let overview = built.overview.expect("the overview");
     assert_eq!(rgb_hash(&overview), 0x10b8_2333_5c20_6c04);
+    assert_eq!(built.map.frame(), Square::WHOLE);
+    // The map pages' frame is the picture's, so they show the whole world as they always have.
+    assert_eq!(FrameBuild::start(store).wait(), Ok(Square::WHOLE));
 }
 
 /// How long the map takes to build from each data set there is, and what it leaves out; with

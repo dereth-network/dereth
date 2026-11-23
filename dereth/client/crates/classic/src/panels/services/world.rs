@@ -2,7 +2,7 @@ use super::*;
 use dereth_primitives::num::to_i32;
 
 mod housing;
-use dereth_client_contract::panels::map::{self as shared_map, MapNote};
+use dereth_client_contract::panels::map::{self as shared_map, MapFrame, MapNote};
 use dereth_presentation::coordinates::format_coordinate as coord;
 use dereth_primitives::EraId;
 mod minigame;
@@ -97,7 +97,8 @@ impl Panel for Link {
 struct MapHouse {
     house: bool,
     queried: bool,
-    hover: Option<(EraId, MapNote)>,
+    /// The name of the note the pointer is on, and what the page named when it was.
+    hover: Option<(shared_map::PageNames, String)>,
 }
 /// The map's picture on the map page, from the map's origin: `(x, y, w, h)`.
 pub const MAP_AREA: (i32, i32, i32, i32) = (22, 33, 257, 267);
@@ -135,10 +136,75 @@ pub fn map_coords(x: i32, y: i32) -> Option<(f64, f64)> {
     Some(((ly - 1024.0) / 10.0 + 0.5, (lx - 1024.0) / 10.0 + 0.5))
 }
 
+/// The square of the world the map page's picture shows, where [`map_marker`] puts the world's
+/// landscape cells: 2048 of them across, the first half a unit in from the west and the south.
+pub const PAGE_WORLD: MapFrame = MapFrame {
+    west: -101.9,
+    south: -101.9,
+    side: 204.8,
+};
+
+/// Where the page draws `(north, east)`, from the map's origin: on a world framed to its land
+/// ([`shared_map::map_frame`]) the frame is stretched over the picture's world, and a point
+/// outside it is not drawn.
+#[must_use]
+pub fn page_marker(frame: Option<MapFrame>, north: f64, east: f64) -> Option<(i32, i32)> {
+    let Some(frame) = frame else {
+        return Some(map_marker(north, east));
+    };
+    if !frame.contains((north, east)) {
+        return None;
+    }
+    let (north, east) = frame.stretched(PAGE_WORLD, (north, east));
+    Some(map_marker(north, east))
+}
+
+/// The coordinates north and east under the page's pixel `(x, y)`, from the map's origin, as
+/// [`page_marker`] draws them: [`map_coords`] on a world shown whole.
+#[must_use]
+pub fn page_coords(frame: Option<MapFrame>, x: i32, y: i32) -> Option<(f64, f64)> {
+    let at = map_coords(x, y)?;
+    Some(frame.map_or(at, |frame| frame.unstretched(PAGE_WORLD, at)))
+}
+
+/// The part of the page that shows the world, from the map's origin: its corner and side.
+const WORLD_ON_PAGE: (i32, i32, i32) = (28, 44, 245);
+
+/// Where the picture is drawn for the frame's part of it to fill the part of the page that shows
+/// the world, and that part as a clip, from the map's origin.
+#[must_use]
+pub fn framed_picture(frame: MapFrame) -> (Rect, [i32; 4]) {
+    let (ax, ay, side) = WORLD_ON_PAGE;
+    // The same on the picture.
+    let (px, py) = (f64::from(ax - MAP_AREA.0), f64::from(ay - MAP_AREA.1));
+    let clip = [ax, ay, ax + side, ay + side];
+    let (ax, ay, side) = (f64::from(ax), f64::from(ay), f64::from(side));
+    let world = PAGE_WORLD;
+    let scale = side / world.side;
+    let x0 = px + (frame.west - world.west) * scale;
+    let y0 = py + (world.south + world.side - frame.south - frame.side) * scale;
+    let k = world.side / frame.side;
+    let round = |v: f64| dereth_primitives::num::to_i32_f64(v.round());
+    (
+        rect(
+            round(ax - x0 * k),
+            round(ay - y0 * k),
+            round(f64::from(MAP_AREA.2) * k),
+            round(f64::from(MAP_AREA.3) * k),
+        ),
+        clip,
+    )
+}
+
 /// A press of `button` on the map page at `(x, y)`, from the map's origin, told to the plugins
 /// where it falls on the world.
-fn map_press(x: i32, y: i32, button: shared_map::MapButton) -> Option<PanelAction> {
-    let (ns, ew) = map_coords(x, y)?;
+fn map_press(
+    frame: Option<MapFrame>,
+    x: i32,
+    y: i32,
+    button: shared_map::MapButton,
+) -> Option<PanelAction> {
+    let (ns, ew) = page_coords(frame, x, y)?;
     Some(PanelAction::Host(HostAction::MapClick { ns, ew, button }))
 }
 impl Panel for MapHouse {
@@ -154,7 +220,11 @@ impl Panel for MapHouse {
             return None;
         }
         let (north, east) = c.game.player_coords()?;
-        let (x, y) = map_marker(f64::from(north), f64::from(east));
+        let (x, y) = page_marker(
+            shared_map::map_frame(c.game),
+            f64::from(north),
+            f64::from(east),
+        )?;
         rect(x - 8, y - 8 + 25, 17, 16)
             .contains(at.x, at.y)
             .then(|| Hover::line("Your location is marked with a green circle"))
@@ -168,17 +238,28 @@ impl Panel for MapHouse {
             housing::house(c)
         } else {
             let mut f = tiled(300, c.layout.side_height() - 25, "06001398");
+            let names = shared_map::page_names(c.game);
+            let frame = shared_map::map_frame(c.game);
             for (did, r) in [
                 ("06001273", rect(0, 0, 300, 33)),
                 ("06001270", rect(0, 300, 300, 32)),
                 ("06001271", rect(0, 33, 22, 267)),
                 ("06001272", rect(279, 33, 21, 267)),
                 (
-                    "0600127D",
+                    map_picture(&names),
                     rect(MAP_AREA.0, MAP_AREA.1, MAP_AREA.2, MAP_AREA.3),
                 ),
             ] {
                 f.image(did, r, false, false);
+            }
+            // A world framed to its land: the frame's part of the picture over the part that shows
+            // the world, the picture's own border kept about it.
+            if let Some(frame) = frame {
+                let (r, clip) = framed_picture(frame);
+                f.image(map_picture(&names), r, false, false);
+                if let Some(Command::Image { clip: c, .. }) = f.screen.commands.last_mut() {
+                    *c = Some(clip);
+                }
             }
             let (date, time) = c.game.game_date_time().unwrap_or((" ".into(), " ".into()));
             label_color(
@@ -195,24 +276,37 @@ impl Panel for MapHouse {
                 "14-5",
                 0xff080808,
             );
-            if let Some((_, note)) = self
-                .hover
-                .filter(|(profile, _)| *profile == shared_map::profile(c.game))
-            {
+            // A world's own places are marked over the picture, which draws none of them.
+            if let shared_map::PageNames::Own(own) = &names {
+                for note in own_notes(frame, &own.0) {
+                    for (x, y, w, color) in shared_map::mark_runs(note.kind) {
+                        let (mx, my) = (MAP_AREA.0 + note.x + x, MAP_AREA.1 + note.y + y);
+                        f.fill(rect(mx, my, w, 1), color);
+                    }
+                }
+            }
+            if let Some((_, name)) = self.hover.as_ref().filter(|(shown, _)| *shown == names) {
                 label_color(
                     &mut f,
                     rect(120, 300, 140, 20),
-                    note.name,
+                    name.clone(),
                     "15-6",
                     0xff080808,
                 );
             }
             if c.game.player_outside() {
                 if let Some((north, east)) = c.game.player_coords() {
-                    let lx = to_i32(((east - 0.5) * 10.0 + 1024.0).round());
-                    let ly = to_i32(((north - 0.5) * 10.0 + 1024.0).round());
-                    let (x, y) = marker(lx, ly);
-                    f.image("0600127C", rect(x - 8, y - 8, 17, 16), false, true);
+                    let at = match frame {
+                        Some(frame) => page_marker(Some(frame), f64::from(north), f64::from(east)),
+                        None => {
+                            let lx = to_i32(((east - 0.5) * 10.0 + 1024.0).round());
+                            let ly = to_i32(((north - 0.5) * 10.0 + 1024.0).round());
+                            Some(marker(lx, ly))
+                        }
+                    };
+                    if let Some((x, y)) = at {
+                        f.image("0600127C", rect(x - 8, y - 8, 17, 16), false, true);
+                    }
                     label_color(
                         &mut f,
                         rect(30, 300, 90, 20),
@@ -227,8 +321,14 @@ impl Panel for MapHouse {
                 .house_data()
                 .filter(|_| has_house)
                 .and_then(|h| h.location)
+                .and_then(|(x, y)| match frame {
+                    None => Some(marker(x, y)),
+                    Some(frame) => {
+                        let unit = |v: i32| (f64::from(v) - 1024.0) / 10.0 + 0.5;
+                        page_marker(Some(frame), unit(y), unit(x))
+                    }
+                })
             {
-                let (x, y) = marker(x, y);
                 f.image("06002279", rect(x - 4, y - 4, 8, 8), false, true);
             }
             f
@@ -271,13 +371,17 @@ impl Panel for MapHouse {
     fn input(
         &mut self,
         input: &crate::widgets::Input,
-        _context: &Context<'_>,
+        context: &Context<'_>,
     ) -> Option<Vec<PanelAction>> {
         // A right press on the map is told to the plugins; the map does nothing else with it.
         match *input {
-            crate::widgets::Input::RightClick { x, y } if !self.house => {
-                map_press(x, y - 25, shared_map::MapButton::Right).map(|a| vec![a])
-            }
+            crate::widgets::Input::RightClick { x, y } if !self.house => map_press(
+                shared_map::map_frame(context.game),
+                x,
+                y - 25,
+                shared_map::MapButton::Right,
+            )
+            .map(|a| vec![a]),
             _ => None,
         }
     }
@@ -289,16 +393,33 @@ impl Panel for MapHouse {
             let y = y - 25;
             let mut out = Vec::new();
             if !self.house {
-                let profile = shared_map::profile(c.game);
-                self.hover = map_region(x, y, profile).map(|note| (profile, note));
+                let names = shared_map::page_names(c.game);
+                let frame = shared_map::map_frame(c.game);
+                let name = match &names {
+                    shared_map::PageNames::Notes(profile) => {
+                        map_region(x, y, *profile).map(|note| note.name.to_owned())
+                    }
+                    shared_map::PageNames::Own(own) => own_region(frame, x, y, &own.0),
+                };
+                self.hover = name.map(|name| (names, name));
                 if pressed && c.map_teleport_allowed {
-                    if let Some((lx, ly)) = map_destination(x, y) {
+                    let destination = match frame {
+                        None => map_destination(x, y),
+                        Some(frame) => page_coords(Some(frame), x, y).map(|(north, east)| {
+                            let cell = |v: f64| {
+                                let v = ((v - 0.5) * 10.0 + 1024.0).round().clamp(0.0, 2047.0);
+                                u32::try_from(dereth_primitives::num::to_i32_f64(v)).unwrap_or(0)
+                            };
+                            (cell(east), cell(north))
+                        }),
+                    };
+                    if let Some((lx, ly)) = destination {
                         out.push(PanelAction::Host(HostAction::MapTeleport { lx, ly }));
                     }
                 }
                 // Every press on the map is told to the plugins as well.
                 if pressed {
-                    out.extend(map_press(x, y, shared_map::MapButton::Left));
+                    out.extend(map_press(frame, x, y, shared_map::MapButton::Left));
                 }
             }
             return out;
@@ -327,6 +448,40 @@ fn map_region(x: i32, y: i32, profile: EraId) -> Option<MapNote> {
         .rev()
         .find(|note| note.contains(x - 22, y - 33))
 }
+/// The map page's picture: this interface's own, of retail's world, unless the world names its
+/// own places, when the picture is the world's.
+fn map_picture(names: &shared_map::PageNames) -> &'static str {
+    if matches!(names, shared_map::PageNames::Own(_)) {
+        "world:0600127D"
+    } else {
+        "0600127D"
+    }
+}
+
+/// The notes of a world's own `places`, in the map picture's own pixels: each centered where
+/// [`page_marker`] puts its coordinates.
+fn own_notes(frame: Option<MapFrame>, places: &[shared_map::MapPlace]) -> Vec<shared_map::OwnNote> {
+    shared_map::own_notes(places, |ns, ew| {
+        let (x, y) = page_marker(frame, ns, ew)?;
+        Some((x - MAP_AREA.0, y - MAP_AREA.1))
+    })
+}
+
+/// The name of the last of a world's own `places` whose note is under `(x, y)`, from the map's
+/// origin, as [`map_region`] finds the game's.
+fn own_region(
+    frame: Option<MapFrame>,
+    x: i32,
+    y: i32,
+    places: &[shared_map::MapPlace],
+) -> Option<String> {
+    own_notes(frame, places)
+        .into_iter()
+        .rev()
+        .find(|note| note.contains(x - MAP_AREA.0, y - MAP_AREA.1))
+        .map(|note| note.name)
+}
+
 fn map_destination(x: i32, y: i32) -> Option<(u32, u32)> {
     if !(28..273).contains(&x) || !(44..289).contains(&y) {
         None

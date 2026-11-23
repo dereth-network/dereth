@@ -159,6 +159,11 @@ const fn block(at: &Position) -> u32 {
 pub struct PlaceStore {
     /// The world these places are of: the server's own identity, never mixed with another's.
     pub world: String,
+    /// Whether its towns and landmarks are the names the world gives its own places, which its
+    /// maps name in place of the game's map's notes (a `naming own` line): a world's server says
+    /// so of a world that names its own. Otherwise they are what the world's content was read to
+    /// name, which the maps do not show.
+    pub own_names: bool,
     places: Vec<KnownPlace>,
     /// Each kind's places by the landblock they stand in, so a place is found among its
     /// neighbours alone: a world's server may publish thousands.
@@ -185,6 +190,7 @@ impl PlaceStore {
         }
         Self {
             world,
+            own_names: false,
             places,
             index,
             revision,
@@ -286,15 +292,18 @@ impl PlaceStore {
     /// The store less the places of one source.
     #[must_use]
     pub fn without(&self, source: EdgeSource) -> Self {
-        Self::of(
-            self.world.clone(),
-            self.places
-                .iter()
-                .filter(|p| p.source != source)
-                .cloned()
-                .collect(),
-            self.revision,
-        )
+        Self {
+            own_names: self.own_names,
+            ..Self::of(
+                self.world.clone(),
+                self.places
+                    .iter()
+                    .filter(|p| p.source != source)
+                    .cloned()
+                    .collect(),
+                self.revision,
+            )
+        }
     }
 
     /// The store as text:
@@ -302,17 +311,22 @@ impl PlaceStore {
     /// ```text
     /// dereth-places-store<TAB>1
     /// world<TAB><identity>
+    /// naming<TAB>own
     /// place<TAB>kind<TAB>source<TAB>wcid<TAB>name<TAB>at<TAB>first seen<TAB>last seen<TAB>owner<TAB>to
     /// ```
     ///
-    /// A position is `0xCELLID x y z`; an absent value is `-`; names have their tabs, line
-    /// breaks and backslashes escaped.
+    /// The `naming` line is written only for a store whose towns and landmarks are the world's
+    /// own names ([`Self::own_names`]). A position is `0xCELLID x y z`; an absent value is `-`;
+    /// names have their tabs, line breaks and backslashes escaped.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut out = format!(
             "dereth-places-store\t{PLACES_VERSION}\nworld\t{}\n",
             escape(&self.world)
         );
+        if self.own_names {
+            out.push_str("naming\town\n");
+        }
         for p in &self.places {
             let _ = writeln!(
                 out,
@@ -362,6 +376,8 @@ impl PlaceStore {
             let bad = |what: &str| StoreError::Line(n + 1, what.to_owned());
             match f.first().copied() {
                 Some("world") => store.world = unescape(f.get(1).copied().unwrap_or("")),
+                // A naming other than `own` is the world's content's.
+                Some("naming") => store.own_names = f.get(1) == Some(&"own"),
                 Some("place") if f.len() == 10 => {
                     let Some(kind) = PlaceKind::parse(f[1]) else {
                         continue;
@@ -386,7 +402,10 @@ impl PlaceStore {
                 _ => {}
             }
         }
-        Ok(Self::of(store.world, store.places, store.revision))
+        Ok(Self {
+            own_names: store.own_names,
+            ..Self::of(store.world, store.places, store.revision)
+        })
     }
 }
 

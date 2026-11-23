@@ -369,6 +369,54 @@ fn the_places_a_server_publishes_load_under_those_seen_and_are_never_written() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A town the content of a retail world was read to name, as a server publishes it.
+const RETAIL_TOWN: &str =
+    "place\ttown\tpublished\t-\tHoltburg\t0xA9B40011 40.000 10.000 0.000\t0\t0\t-\t-\n";
+
+/// What a server publishes of a world that names its own places: they are its own names.
+const OWN_NAMES: &str = "dereth-places-store\t1\nworld\tServer\nnaming\town\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t-\tLife Stone\t0x76970012 60.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\t0\t0\t-\t-\n";
+
+#[test]
+fn a_server_saying_its_places_are_the_worlds_own_names_gives_the_maps_its_towns_and_landmarks() {
+    use dereth_client_contract::panels::map::MapPlaceKind;
+    let dir = folder("own-names");
+    let mut t = travel_in(&dir);
+    assert_eq!(t.published_own_places(), None, "until the server publishes");
+    let retail = format!("{PUBLISHED}{RETAIL_TOWN}");
+    assert_eq!(t.take_published(&retail), Ok(4));
+    assert_eq!(
+        t.published_own_places(),
+        None,
+        "a retail world's towns are no names for its maps"
+    );
+    assert_eq!(t.take_published(OWN_NAMES), Ok(3));
+    let own = t.published_own_places().expect("the world's own names");
+    let names: Vec<(MapPlaceKind, &str)> =
+        own.0.iter().map(|p| (p.kind, p.name.as_str())).collect();
+    assert_eq!(
+        names,
+        [
+            (MapPlaceKind::Town, "Kehan"),
+            (MapPlaceKind::Landmark, "Drudge Windmill")
+        ]
+    );
+    t.note_world("Server@10.0.0.1:9000");
+    assert_eq!(t.places().places().len(), 3, "taken in as places too");
+    t.save_places();
+    assert!(
+        !std::fs::read_to_string(dir.join("navigation-places-Server_10_0_0_1_9000.tsv"))
+            .unwrap_or_default()
+            .contains("naming"),
+        "what the character learned is not the server's naming"
+    );
+    assert_eq!(t.take_published(&retail), Ok(4));
+    assert_eq!(t.published_own_places(), None, "published again without");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The place package of a world's era: its portals and places are taken in as hints, under what
 /// the character learned there, and never written into the world's own files.
 #[test]

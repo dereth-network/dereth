@@ -11,7 +11,7 @@ use dereth_primitives::num::to_i32_f64;
 use dereth_primitives::DataId;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
-pub use dereth_client_contract::panels::map::{notes, MapNote};
+pub use dereth_client_contract::panels::map::{notes, MapFrame, MapNote};
 use dereth_primitives::EraId;
 
 /// A location row is `ulong X, Y, Width, Height; wchar_t* Name` = 20 bytes.
@@ -149,6 +149,25 @@ pub fn add_map_note(
     element: ElementId,
     note: MapNote,
 ) -> Option<ElemHandle> {
+    add_note(
+        ui,
+        map,
+        layout,
+        element,
+        (note.x, note.y, note.w, note.h),
+        note.name,
+    )
+}
+
+/// [`add_map_note`] for a note at `(x, y, w, h)` named `name`.
+fn add_note(
+    ui: &mut UiSystem,
+    map: ElemHandle,
+    layout: DataId,
+    element: ElementId,
+    (x, y, width, height): (i32, i32, i32, i32),
+    name: &str,
+) -> Option<ElemHandle> {
     let created = ui.env().cloned().map(|e| {
         e.with_assets(|assets| ui.create_child_by_data_id(assets, map, layout, element))
     })?;
@@ -157,9 +176,9 @@ pub fn add_map_note(
     // [`dereth_ui::UiSystem::initialize_tree`] itself does, for every creator in the client, so
     // this site needs no private walk.
     ui.initialize_tree(h);
-    ui.move_to(h, note.x, note.y);
-    ui.resize_to(h, note.w, note.h);
-    ui.set_tooltip(h, Some(note.name.to_owned()));
+    ui.move_to(h, x, y);
+    ui.resize_to(h, width, height);
+    ui.set_tooltip(h, Some(name.to_owned()));
     Some(h)
 }
 
@@ -202,6 +221,47 @@ pub fn create_map_notes(ui: &mut UiSystem, map: ElemHandle, profile: EraId) -> V
     let element = ElementId(element);
     notes(profile)
         .filter_map(|n| add_map_note(ui, map, layout, element, n))
+        .collect()
+}
+
+/// The notes of a world's own `places`, made as [`create_map_notes`] makes the game's: each where
+/// [`place_marker_on_map`] puts a mark of its size in `area`, named for its place, and marked
+/// with its kind's mark ([`dereth_client_contract::panels::map::mark`]), since the world's own
+/// picture draws none. In `places`' order; none when the map image carries no note binding.
+pub fn create_own_notes(
+    ui: &mut UiSystem,
+    map: ElemHandle,
+    area: MarkerArea,
+    frame: Option<MapFrame>,
+    places: &[dereth_client_contract::panels::map::MapPlace],
+) -> Vec<ElemHandle> {
+    use dereth_client_contract::panels::map::{mark_runs, own_notes};
+    let Some(element) = crate::bind::attr_enum(ui, map, attr::NOTE_ELEMENT_ENUM) else {
+        return Vec::new();
+    };
+    let Some(layout) = crate::bind::attr_data_id(ui, map, attr::NOTE_LAYOUT_DID) else {
+        return Vec::new();
+    };
+    let element = ElementId(element);
+    let at = |ns: f64, ew: f64| framed_marker(area, frame, ew, ns, (0, 0));
+    own_notes(places, at)
+        .into_iter()
+        .filter_map(|n| {
+            let h = add_note(ui, map, layout, element, (n.x, n.y, n.w, n.h), &n.name)?;
+            if let Some(node) = ui.node_mut(h) {
+                node.region.surface_fills = mark_runs(n.kind)
+                    .into_iter()
+                    .map(|(x, y, w, color)| dereth_ui::UiFill {
+                        x,
+                        y,
+                        w,
+                        h: 1,
+                        color,
+                    })
+                    .collect();
+            }
+            Some(h)
+        })
         .collect()
 }
 
@@ -275,6 +335,75 @@ pub fn place_marker_on_map(area: MarkerArea, ew: f32, ns: f32, size: (i32, i32))
     let x = area.x0 - size.0 / 2 + to_i32_f64(biased(ew) * aw / 2048.0);
     let y = area.y0 - size.1 / 2 + to_i32_f64((2047.0 - biased(ns)) * ah / 2048.0);
     (x, y)
+}
+
+/// The square of the world the map image's marker area shows, where [`place_marker_on_map`] puts
+/// it: 2048 tenths of a unit across, from 102.4 west and, the rows running down from the north,
+/// 102.5 south.
+pub const PAGE_WORLD: MapFrame = MapFrame {
+    west: -102.4,
+    south: -102.5,
+    side: 204.8,
+};
+
+/// [`place_marker_on_map`] on a world framed to its land
+/// ([`dereth_client_contract::panels::map::map_frame`]): the frame stretched over the marker
+/// area, and nothing for a point outside it. On a world shown whole, the placement itself.
+#[must_use]
+pub fn framed_marker(
+    area: MarkerArea,
+    frame: Option<MapFrame>,
+    ew: f64,
+    ns: f64,
+    size: (i32, i32),
+) -> Option<(i32, i32)> {
+    let (ns, ew) = match frame {
+        None => (ns, ew),
+        Some(frame) if frame.contains((ns, ew)) => frame.stretched(PAGE_WORLD, (ns, ew)),
+        Some(_) => return None,
+    };
+    #[allow(clippy::cast_possible_truncation)] // LINT-OK: map coordinates, within a hundred or so.
+    Some(place_marker_on_map(area, ew as f32, ns as f32, size))
+}
+
+/// [`map_coords_at`] on a world framed to its land, as [`framed_marker`] places it.
+#[must_use]
+pub fn framed_coords_at(
+    area: MarkerArea,
+    frame: Option<MapFrame>,
+    x: f64,
+    y: f64,
+) -> Option<(f64, f64)> {
+    let at = map_coords_at(area, x, y)?;
+    Some(frame.map_or(at, |frame| frame.unstretched(PAGE_WORLD, at)))
+}
+
+/// How the map image, `size` across and down, is drawn for `frame`: the frame's part of the
+/// picture stretched over the marker area, as [`framed_marker`] places the marks, the picture's
+/// border kept about it. A picture made larger than the image is drawn at the image's size, the
+/// frame's part from its own finer texels.
+#[must_use]
+pub fn framed_picture(
+    area: MarkerArea,
+    frame: MapFrame,
+    size: [i32; 2],
+) -> dereth_ui::region::Zoom {
+    use dereth_ui::region::Zoom;
+    let (aw, ah) = (
+        f64::from(area.x1 - area.x0 + 1),
+        f64::from(area.y1 - area.y0 + 1),
+    );
+    let world = PAGE_WORLD;
+    let x0 = f64::from(area.x0) + (frame.west - world.west) / world.side * aw;
+    let y0 = f64::from(area.y0)
+        + (world.south + world.side - frame.south - frame.side) / world.side * ah;
+    let (w, h) = (frame.side / world.side * aw, frame.side / world.side * ah);
+    let unit = |v: f64| to_i32_f64((v * f64::from(Zoom::UNIT)).round());
+    Zoom {
+        from: [unit(x0), unit(y0), unit(x0 + w), unit(y0 + h)],
+        into: [area.x0, area.y0, area.x1 + 1, area.y1 + 1],
+        size,
+    }
 }
 
 /// The map coordinates `(ns, ew)` under a point `(x, y)` of the map image's own pixel space: the
@@ -590,5 +719,56 @@ mod tests {
         assert_eq!(TIME_PREFIX, "Time: ");
         // The absence is the assertion: nothing in this module takes an "indoors" argument or a
         // cell id, because indoors the panel only hides the marker.
+    }
+
+    /// On a world framed to its land, the frame is stretched over the marker area: its corners
+    /// on the area's, the picture's part under it the part the whole picture shows the frame in,
+    /// a point outside it not marked, and a point read back where it was marked; a world shown
+    /// whole is placed as retail places it.
+    ///
+    /// Behaviour: none (this client's own map pages, for a world whose land is its own)
+    #[test]
+    fn a_frame_is_stretched_over_the_marker_area_picture_and_marks_alike() {
+        let area = SHIPPED_NOTE_BINDING.2;
+        let frame = MapFrame {
+            west: -60.0,
+            south: 10.0,
+            side: 40.0,
+        };
+        let (north, east) = (frame.south + frame.side, frame.west + frame.side);
+        assert_eq!(
+            framed_marker(area, Some(frame), frame.west, north, (0, 0)),
+            Some((area.x0, area.y0))
+        );
+        let (x, y) = framed_marker(area, Some(frame), east, frame.south, (0, 0)).unwrap();
+        assert!(
+            (x - area.x1 - 1).abs() <= 1 && (y - area.y1 - 1).abs() <= 1,
+            "{x}, {y}"
+        );
+        assert_eq!(framed_marker(area, Some(frame), 0.0, 0.0, (0, 0)), None);
+        let middle = (frame.south + 20.0, frame.west + 20.0);
+        let (mx, my) = framed_marker(area, Some(frame), middle.1, middle.0, (0, 0)).unwrap();
+        let (ns, ew) =
+            framed_coords_at(area, Some(frame), f64::from(mx) + 0.5, f64::from(my) + 0.5).unwrap();
+        assert!(
+            (ns - middle.0).abs() < 0.2 && (ew - middle.1).abs() < 0.2,
+            "{ns}, {ew}"
+        );
+
+        // The picture's part: where the whole picture marks the frame's corners.
+        let zoom = framed_picture(area, frame, [257, 267]);
+        assert_eq!(zoom.into, [area.x0, area.y0, area.x1 + 1, area.y1 + 1]);
+        let unit = dereth_ui::region::Zoom::UNIT;
+        let (wx, wy) = framed_marker(area, None, frame.west, north, (0, 0)).unwrap();
+        let (ex, ey) = framed_marker(area, None, east, frame.south, (0, 0)).unwrap();
+        for (got, want) in zoom.from.iter().zip([wx, wy, ex, ey]) {
+            assert!((got - want * unit).abs() <= unit, "{:?}", zoom.from);
+        }
+
+        // Shown whole: retail's placement.
+        assert_eq!(
+            framed_marker(area, None, 33.8, 42.2, (17, 16)),
+            Some(place_marker_on_map(area, 33.8, 42.2, (17, 16)))
+        );
     }
 }

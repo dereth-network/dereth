@@ -851,6 +851,7 @@ impl<S: Shell> App<S> {
                                             objects: &mut self.objects,
                                             ddd: &mut self.ddd,
                                             generation: &mut self.store_generation,
+                                            era: &mut self.hud.era,
                                         },
                                         std::sync::Arc::new(fresh),
                                     ),
@@ -1233,6 +1234,7 @@ impl<S: Shell> App<S> {
                 objects: &mut self.objects,
                 ddd: &mut self.ddd,
                 generation: &mut self.store_generation,
+                era: &mut self.hud.era,
             },
             fresh,
         );
@@ -1889,6 +1891,7 @@ pub(super) struct StoreHolders<'a> {
     pub objects: &'a mut crate::objects::ObjectStream,
     pub ddd: &'a mut crate::ddd::DddPatcher,
     pub generation: &'a mut u64,
+    pub era: &'a mut dereth_client_contract::EraView,
 }
 
 /// [`App::adopt_store`] on its holders, for a caller that holds the link at the same time.
@@ -1901,6 +1904,7 @@ pub(super) fn adopt_store_into(
     ));
     holders.objects.set_store(std::sync::Arc::clone(&fresh));
     holders.ddd.set_bases(&fresh);
+    holders.era.own_places = crate::hud::tables::own_places(&fresh);
     *holders.store = fresh;
     *holders.generation += 1;
 }

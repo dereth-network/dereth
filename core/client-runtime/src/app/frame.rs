@@ -554,9 +554,10 @@ impl<S: Shell> App<S> {
     /// asks for them before a read off the frame could finish (a headless run with plugins).
     pub fn read_map_places_now(&mut self) {
         let key = std::sync::Arc::as_ptr(&self.store) as usize;
-        self.map_places =
+        self.map_places_read =
             crate::map_places::MapPlacesBuild::start(std::sync::Arc::clone(&self.store)).wait();
         self.map_places_build = Some((key, None));
+        self.name_own_places();
     }
 
     /// The places the game's data names, read off the frame for the data files open now and kept
@@ -570,11 +571,11 @@ impl<S: Shell> App<S> {
                     .and_then(crate::map_places::MapPlacesBuild::poll)
                 {
                     *build = None;
-                    self.map_places = Some(places);
+                    self.map_places_read = Some(places);
                 }
             }
             _ => {
-                self.map_places = None;
+                self.map_places_read = None;
                 self.map_places_build = Some((
                     key,
                     Some(crate::map_places::MapPlacesBuild::start(
@@ -583,5 +584,50 @@ impl<S: Shell> App<S> {
                 ));
             }
         }
+        self.name_own_places();
+    }
+
+    /// The world's own towns and landmarks, for both maps: the server's when it publishes them
+    /// ([`crate::travel::Travel::published_own_places`]), else those of the overlay folder the
+    /// data files were opened with, as the store gave the era view them.
+    pub(crate) fn name_own_places(&mut self) {
+        use std::sync::Arc;
+        let published = self.travel.published_own_places().cloned();
+        match &published {
+            Some(own)
+                if !self
+                    .hud
+                    .era
+                    .own_places
+                    .as_ref()
+                    .is_some_and(|shown| Arc::ptr_eq(&shown.0, &own.0)) =>
+            {
+                self.hud.era.own_places = Some(own.clone());
+            }
+            None if self.own_places_published => {
+                self.hud.era.own_places = crate::hud::tables::own_places(&self.store);
+            }
+            _ => {}
+        }
+        self.own_places_published = published.is_some();
+        // Both are held while they name the map, so one told by where it is held is that one.
+        let (read, own) = &self.map_places_of;
+        let same = match (read, &self.map_places_read) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        } && match (own, &published) {
+            (Some(a), Some(b)) => Arc::ptr_eq(&a.0, &b.0),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if same {
+            return;
+        }
+        self.map_places = match (&self.map_places_read, &published) {
+            (Some(read), Some(own)) => {
+                Some(Arc::new(crate::map_places::with_own_names(read, &own.0)))
+            }
+            (read, _) => read.clone(),
+        };
+        self.map_places_of = (self.map_places_read.clone(), published);
     }
 }

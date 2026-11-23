@@ -213,6 +213,31 @@ fn the_store_reads_back_as_written_and_names_another_world() {
 }
 
 #[test]
+fn a_store_says_when_its_towns_and_landmarks_are_the_worlds_own_names() {
+    let mut s = PlaceStore::new("w");
+    s.see(seen(PlaceKind::Town, "Kehan", 54.0, 0));
+    assert!(!s.own_names);
+    assert!(!s.to_text().contains("naming"), "{}", s.to_text());
+    assert!(
+        !PlaceStore::from_text(&s.to_text())
+            .expect("reads")
+            .own_names
+    );
+    s.own_names = true;
+    let text = s.to_text();
+    assert!(
+        text.starts_with("dereth-places-store\t1\nworld\tw\nnaming\town\n"),
+        "{text}"
+    );
+    let back = PlaceStore::from_text(&text).expect("reads");
+    assert!(back.own_names);
+    assert_eq!(back.places(), s.places());
+    assert!(back.without(EdgeSource::Hint).own_names);
+    let other = "dereth-places-store\t1\nworld\tw\nnaming\tcontent\n";
+    assert!(!PlaceStore::from_text(other).expect("reads").own_names);
+}
+
+#[test]
 fn a_line_of_a_kind_the_reader_does_not_know_is_passed_over_and_the_places_around_it_kept() {
     let text = "dereth-places-store\t1\nworld\tw\n\
         place\tlifestone\tpublished\t509\tLifestone\t0xDA55001D 10 103 20\t0\t0\t-\t-\n\

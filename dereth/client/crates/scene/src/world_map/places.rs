@@ -7,7 +7,8 @@
 //!   server's to say.
 //! - **The towns and landmarks** the game's own map names (its rollover notes), each placed on the
 //!   buildings that stand near where that map puts it, and left out where the data has none: data
-//!   from before a town was built does not name it.
+//!   from before a town was built does not name it. A world that names its own towns and
+//!   landmarks (its overlay folder's places document) is named by those instead ([`Naming`]).
 //!
 //! Portals, lifestones, vendors and anything else the server places are not in the data. The
 //! client learns them per world as the player plays, and [`learned`] turns what it learned into
@@ -16,7 +17,8 @@
 pub use dereth_client_contract::panels::map::{MapPlace as Place, MapPlaceKind as PlaceKind};
 
 pub use dereth_client_runtime::map_places::{
-    house_kind, named_places, note_coords, places, Building, COTTAGES, MANSIONS, VILLAS,
+    house_kind, named_places, note_coords, places, places_named, Building, Naming, COTTAGES,
+    MANSIONS, VILLAS, WORLD_PLACES_FILE,
 };
 
 /// Map coordinates `(ns, ew)` of `at`, as its landblock and the place in it give them: a building's
