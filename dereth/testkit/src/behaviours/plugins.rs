@@ -970,6 +970,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-large-object-across-the-way-ahead-is-walked-round",
+        says: "An object that comes in sight across the way ahead is found in the way by its own \
+               shapes, wherever they reach, not only by where it stands, and the walk is planned \
+               again round it before the body walks into it: a fence or a wall in a villa's yard \
+               whose middle is well off the way.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-LARGE-OBSTACLE"),
+        station: "dereth-client-runtime::lib::travel::tests::a_large_object_whose_shapes_cross_the_way_ahead_sends_the_walk_round_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-move-chained-on-arrival-keeps-the-run-lock",
         says: "A plugin's move to a place started within a frame or two of its last one's arrival \
                takes the run lock over: moves in a row set it once, and it is let go once, after \

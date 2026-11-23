@@ -7,7 +7,8 @@
 //! object is stepped over where that is shortest, and a creature standing in the way is walked
 //! round once the route knows of it, up a shop's stairs past the people standing in it too.
 //! Fixtures: the rooms of pillars and furniture of block `0x0106` and other dungeons, Holtburg's
-//! streets (`0xA9B4`) and its scriveners' shop (`0xA9B3`), from the retail dats; the shop's people
+//! streets (`0xA9B4`), its scriveners' shop (`0xA9B3`) and the land the Unified Heart Villas
+//! portal sets a body down on (`0x9390`), from the retail dats; the shop's people
 //! where the server's world database stands them.
 
 use std::sync::Arc;
@@ -633,4 +634,95 @@ fn a_shop_s_stairs_are_climbed_round_the_people_standing_in_it_at_every_frame_ra
             );
         }
     }
+}
+
+/// Where the Unified Heart Villas portal sets a body down (`0x9390`), on the walk south-west
+/// toward Sylsfear Dungeon: a fence of posts 8 m long that comes in sight across the planned way,
+/// its middle 3.5 m off it (where it stands is more than 3 m from every place the way passes
+/// through), is found in the way by its posts, and the walk planned again round it keeps a
+/// body's width clear of every post.
+#[test]
+fn a_fence_across_the_walk_from_the_villas_portal_is_found_in_the_way_and_walked_round() {
+    const BLOCK: u16 = 0x9390;
+    let mut d = outdoors(BLOCK, 1);
+    let ground = |d: &Dungeon, block: u16, x: f32, y: f32| {
+        let z = d
+            .nav
+            .source()
+            .land
+            .ground_height(dereth_primitives::LandblockId(block), x, y)
+            .expect("terrain");
+        let mut c = dereth_primitives::CellId((u32::from(block) << 16) | 1);
+        let mut o = Vec3::new(x, y, z);
+        assert!(dereth_physics::landdefs::adjust_to_outside(&mut c, &mut o));
+        Position::new(c, Frame::new(o, Quat::IDENTITY))
+    };
+    // The portal's landing, and a place a landblock south-west, toward the dungeon.
+    let (from, to) = (
+        ground(&d, BLOCK, 123.574, 79.763),
+        ground(&d, 0x928F, 120.0, 100.0),
+    );
+    let route = d.nav.plan(&from, &to).expect("a route");
+    let (a, b) = route
+        .waypoints
+        .windows(2)
+        .map(|w| (w[0].position, w[1].position))
+        .find(|(a, b)| dereth_navigation::global_distance(a, b) > 12.0)
+        .expect("a long straight leg");
+    let (ga, gb) = (dereth_navigation::global(&a), dereth_navigation::global(&b));
+    // Across the leg's middle, posts a metre apart along the line square to it.
+    let (dx, dy) = (gb.x - ga.x, gb.y - ga.y);
+    let len = dereth_primitives::num::math::hypotf(dx, dy);
+    let (ax, ay) = (-dy / len, dx / len);
+    let (mx, my) = ((ga.x + gb.x) * 0.5, (ga.y + gb.y) * 0.5);
+    let (bx, by) = (
+        f32::from(BLOCK >> 8) * 192.0,
+        f32::from(BLOCK & 0xFF) * 192.0,
+    );
+    let middle = ground(&d, BLOCK, mx + ax * 3.5 - bx, my + ay * 3.5 - by);
+    let setup = Arc::new(SetupGeometry {
+        cyl_spheres: (0..9)
+            .map(|i| CylSphere {
+                low_pt: Vec3::new(ax * (i as f32 - 4.0), ay * (i as f32 - 4.0), -1.0),
+                radius: 0.3,
+                height: 3.0,
+            })
+            .collect(),
+        ..SetupGeometry::default()
+    });
+    let fence = Obstacle {
+        id: ObjectId(0x7A00_1235),
+        position: middle,
+        setup,
+        scale: 1.0,
+        kind: ObstacleKind::Solid,
+    };
+    let way: Vec<Position> = route.waypoints.iter().map(|w| w.position).collect();
+    let m = dereth_navigation::global(&middle);
+    let nearest_to_middle = route
+        .legs
+        .iter()
+        .flatten()
+        .chain(&way)
+        .map(|q| {
+            let g = dereth_navigation::global(q);
+            dereth_primitives::num::math::hypotf(g.x - m.x, g.y - m.y)
+        })
+        .fold(f32::MAX, f32::min);
+    assert!(
+        nearest_to_middle > 3.0,
+        "where it stands is off the way: {nearest_to_middle:.2} m"
+    );
+    assert!(fence.near_way(&way, 1.0), "its posts are in the way");
+    d.nav.set_obstacle(fence.clone());
+    let round = d.nav.plan(&from, &to).expect("a way round");
+    let round_way: Vec<Position> = round.waypoints.iter().map(|w| w.position).collect();
+    assert!(
+        !fence.near_way(&round_way, 0.48),
+        "the way round keeps a body's width off every post: {:?}",
+        round_way
+            .iter()
+            .map(dereth_navigation::global)
+            .collect::<Vec<_>>()
+    );
 }

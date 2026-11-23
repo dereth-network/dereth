@@ -119,6 +119,68 @@ pub struct Obstacle {
     pub kind: ObstacleKind,
 }
 
+impl Obstacle {
+    /// Whether the object stands within `clear` metres of the way through `way` (places walked
+    /// in order) at a body's height over it: by its own shapes, a wall's, a statue's, wherever
+    /// they reach, not only by where it stands, so a large object whose middle is well off the
+    /// way is in it where its shapes cross it. One with no shapes is in it within `clear` of
+    /// where it stands.
+    #[must_use]
+    pub fn near_way(&self, way: &[Position], clear: f32) -> bool {
+        /// How far apart the way is looked at, metres.
+        const STEP: f32 = 0.5;
+        let mut frame = self.position.frame;
+        frame.origin = global(&self.position);
+        let shapes = object_shapes(&self.setup, &frame, self.scale, FLOOR_Z, |_| {});
+        let agent = crate::source::Agent::human();
+        let heights = agent.test_heights(agent.step_up);
+        // Where its shapes reach, `clear` further out: only the way's places there are looked at.
+        let (lo, hi) = shapes.iter().map(Shape::bounds).fold(
+            (frame.origin, frame.origin),
+            |(lo, hi), (a, b)| {
+                (
+                    Vec3::new(lo.x.min(a.x), lo.y.min(a.y), lo.z.min(a.z)),
+                    Vec3::new(hi.x.max(b.x), hi.y.max(b.y), hi.z.max(b.z)),
+                )
+            },
+        );
+        let near = |p: Vec3| {
+            if p.x < lo.x - clear || p.x > hi.x + clear || p.y < lo.y - clear || p.y > hi.y + clear
+            {
+                return false;
+            }
+            if shapes.is_empty() {
+                let (dx, dy) = (p.x - frame.origin.x, p.y - frame.origin.y);
+                return dx * dx + dy * dy < clear * clear && (p.z - frame.origin.z).abs() < 3.0;
+            }
+            heights.iter().any(|h| {
+                let at = Vec3::new(p.x, p.y, p.z + h);
+                shapes.iter().any(|s| s.dist_sq(at) < clear * clear)
+            })
+        };
+        let points: Vec<Vec3> = way.iter().map(global).collect();
+        if let [only] = points.as_slice() {
+            return near(*only);
+        }
+        points.windows(2).any(|w| {
+            let d = sub(w[1], w[0]);
+            let length = dist(w[0], w[1]);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: a count of half-metre steps along one stretch of a walk.
+            let steps = (length / STEP).ceil().max(1.0) as u32;
+            (0..=steps).any(|i| {
+                #[allow(clippy::cast_precision_loss)]
+                let f = i as f32 / steps as f32;
+                near(Vec3::new(
+                    w[0].x + d.x * f,
+                    w[0].y + d.y * f,
+                    w[0].z + d.z * f,
+                ))
+            })
+        })
+    }
+}
+
 /// The planner over one source.
 #[derive(Debug)]
 pub struct NavWorld<S> {

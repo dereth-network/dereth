@@ -1172,6 +1172,10 @@ pub struct CacheTiles {
 /// The most files kept in one data set's folder: past it the folder is emptied and filled again.
 const CACHE_FILES: usize = 1024;
 
+/// How near the way ahead a new obstacle has to come, metres, for the walk to be planned again
+/// round it: a body's width and a little more.
+const IN_THE_WAY: f32 = 1.0;
+
 /// The longest step a journey's shown way takes between two places along a planned walk,
 /// metres: a long straight stretch of a route is shown as places this far apart at most, so what
 /// draws the way never takes the stretch for a jump (a step past a portal or a recall).
@@ -1915,6 +1919,14 @@ impl Travel {
                     .flatten()
                     .map(global)
                     .collect();
+                // The way the body walks on from the corner it passed last, corner to corner.
+                let way: Vec<Position> = f
+                    .path()
+                    .waypoints
+                    .iter()
+                    .skip(next)
+                    .map(|w| w.position)
+                    .collect();
                 for (o, off) in kept.iter().zip(&kept_off) {
                     let blocks = o.obstacle.kind != ObstacleKind::Door(DoorState::Open) && *off;
                     let known = self.obstacles.iter().any(|k| {
@@ -1923,16 +1935,18 @@ impl Travel {
                     if !blocks || known {
                         continue;
                     }
-                    let q = global(&o.obstacle.position);
-                    let reach = if o.obstacle.kind == ObstacleKind::Creature {
-                        2.0
+                    // A creature by where it stands; anything else by its own shapes, wherever they
+                    // reach: a wall or a statue in a yard whose middle is well off the way is in it
+                    // where they cross it.
+                    let in_the_way = if o.obstacle.kind == ObstacleKind::Creature {
+                        let q = global(&o.obstacle.position);
+                        route
+                            .iter()
+                            .any(|r| hypotf(r.x - q.x, r.y - q.y) < 2.0 && (r.z - q.z).abs() < 3.0)
                     } else {
-                        3.0
+                        o.obstacle.near_way(&way, IN_THE_WAY)
                     };
-                    if route
-                        .iter()
-                        .any(|r| hypotf(r.x - q.x, r.y - q.y) < reach && (r.z - q.z).abs() < 3.0)
-                    {
+                    if in_the_way {
                         t.route_dirty = Some(format!("{} {:08X}", o.name, o.obstacle.id.0));
                         break;
                     }
@@ -4952,6 +4966,93 @@ mod tests {
             sent(&travel),
             vec![2],
             "the one left behind is kept off now"
+        );
+    }
+
+    /// A large object that comes in sight across the way ahead (a fence of posts 8 m long, its
+    /// middle 3.5 m off the way, the way crossing it near its end) sends the walk round it by a new
+    /// route before the body walks into it; the same fence standing 3 m clear of the way does not.
+    ///
+    /// Behaviour: plugins.nav.a-large-object-across-the-way-ahead-is-walked-round
+    #[test]
+    fn a_large_object_whose_shapes_cross_the_way_ahead_sends_the_walk_round_it() {
+        use at_a_door::at;
+        // Nine posts a metre apart, 4 m either side of where it stands, across the way at x = 10.
+        let fence = |id: u32, off: f32| {
+            let posts = (0..9)
+                .map(|i| dereth_primitives::shape::CylSphere {
+                    low_pt: Vec3::new(0.0, i as f32 - 4.0, 0.0),
+                    radius: 0.3,
+                    height: 2.0,
+                })
+                .collect();
+            let setup = SetupGeometry {
+                cyl_spheres: posts,
+                ..SetupGeometry::default()
+            };
+            let mut p = at(10.0);
+            p.frame.origin.y = off;
+            WorldObstacle {
+                obstacle: Obstacle {
+                    id: ObjectId(id),
+                    position: p,
+                    setup: Arc::new(setup),
+                    scale: 1.0,
+                    kind: ObstacleKind::Solid,
+                },
+                name: String::from("Fence"),
+            }
+        };
+        let walking = || {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.planning = Some(Planning::held());
+            let mut trip = Trip::new(
+                1,
+                Purpose::Go,
+                TravelTarget::Place(at(30.0)),
+                TravelAllow::default(),
+                0.0,
+                0.0,
+            );
+            trip.step = Some(Step::Walk {
+                target: at(30.0),
+                last: true,
+            });
+            travel.trip = Some(trip);
+            let straight = NavPath {
+                waypoints: [0.0, 30.0]
+                    .into_iter()
+                    .map(|x| dereth_navigation::Waypoint {
+                        position: at(x),
+                        action: None,
+                    })
+                    .collect(),
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            };
+            travel.follow_route(straight, true);
+            travel
+        };
+        // Its middle 3.5 m off the way: two posts stand half a metre either side of it, though
+        // where it stands is not within 3 m of anything the way passes through.
+        let mut crossing = walking();
+        crossing.set_obstacles(vec![fence(7, 3.5)], Some(&at(0.0)));
+        assert_eq!(
+            crossing
+                .trip
+                .as_ref()
+                .and_then(|t| t.route_dirty.clone())
+                .as_deref(),
+            Some("Fence 00000007"),
+            "planned again round it"
+        );
+        // Its nearest post 3 m off the way: left be.
+        let mut clear = walking();
+        clear.set_obstacles(vec![fence(8, 7.0)], Some(&at(0.0)));
+        assert_eq!(
+            clear.trip.as_ref().and_then(|t| t.route_dirty.clone()),
+            None
         );
     }
 
