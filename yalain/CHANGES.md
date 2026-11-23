@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- No changes of its own; built with the latest shared code.
 
 ## 0.8.0 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.
