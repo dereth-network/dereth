@@ -17,13 +17,15 @@ use std::sync::{mpsc, Arc};
 
 use dereth_assets::Decode as _;
 use dereth_dat::{DbType, RetailDatStore};
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::{DataId, Frame, Vec3};
 use dereth_remaster::scene as rm;
 use dereth_terrain::land::drawn::{
     self, GroundSource, Knob, Knobs, Pin, Point, Vertex, BLOCK_METERS,
 };
 
-/// The world's landscape vertices a side.
+/// The default grid's world's landscape vertices a side.
+#[cfg(test)]
 pub(crate) const WORLD_SIDE: usize = 2041;
 /// The height above a model's base its footprint is taken from: what meets the ground.
 const FOOT: f32 = 2.5;
@@ -99,57 +101,125 @@ const FIELD_KNOBS: [Knob; 18] = [
     Knob::CliffNoiseScale,
 ];
 
-/// The world's landscape vertices, `WORLD_SIDE` a side, row by row from the south.
+/// The world's landscape vertices on its land grid, [`World::side`] a side, row by row from the
+/// south.
 #[derive(Debug)]
 pub(crate) struct World {
+    /// The grid the vertices lie on.
+    pub(crate) grid: LandGrid,
+    /// The vertices along a side.
+    pub(crate) side: usize,
     pub(crate) heights: Arc<Vec<f32>>,
     pub(crate) words: Arc<Vec<u16>>,
-    /// Where the water lies about each vertex and its level (see [`drawn::shore`]).
-    pub(crate) water: Arc<Vec<[f32; 2]>>,
+    /// Where the water lies about each vertex and its level, as [`drawn::shore::held`] holds it.
+    pub(crate) water: Arc<Vec<[u16; 2]>>,
+    /// One bit a vertex, least significant first: set when the square it is the south-west
+    /// corner of is cut from that corner to its north-east one.
+    pub(crate) cuts: Arc<Vec<u8>>,
+}
+
+impl World {
+    /// Vertices of a world on the default grid, its squares cut by the default grid's hash.
+    #[cfg(test)]
+    pub(crate) fn on_default_grid(
+        heights: Vec<f32>,
+        words: Vec<u16>,
+        water: Vec<[u16; 2]>,
+    ) -> Self {
+        let side = drawn::world_vertices(&LandGrid::DEFAULT);
+        Self {
+            grid: LandGrid::DEFAULT,
+            side,
+            heights: Arc::new(heights),
+            words: Arc::new(words),
+            water: Arc::new(water),
+            cuts: Arc::new(rm::DrawnWorld::cut_bits(side, |x, y| {
+                dereth_terrain::land::mesh::sw_to_ne_cut(x, y)
+            })),
+        }
+    }
 }
 
 impl GroundSource for World {
     fn vertex(&self, gx: i32, gy: i32) -> Option<Vertex> {
-        let side = i32::try_from(WORLD_SIDE).ok()?;
+        let side = i32::try_from(self.side).ok()?;
         if !(0..side).contains(&gx) || !(0..side).contains(&gy) {
             return None;
         }
-        let k = usize::try_from(gy).ok()? * WORLD_SIDE + usize::try_from(gx).ok()?;
+        let k = usize::try_from(gy).ok()? * self.side + usize::try_from(gx).ok()?;
         Some(Vertex {
             height: self.heights[k],
             word: self.words[k],
         })
     }
+
+    fn spacing(&self) -> f32 {
+        self.grid.vertex_spacing()
+    }
+
+    fn side(&self) -> i32 {
+        i32::try_from(self.side).unwrap_or(0)
+    }
+
+    fn cut(&self, gx: i32, gy: i32) -> bool {
+        let (Ok(x), Ok(y)) = (usize::try_from(gx), usize::try_from(gy)) else {
+            return false;
+        };
+        let k = y * self.side + x;
+        x < self.side
+            && self
+                .cuts
+                .get(k / 8)
+                .is_some_and(|b| (b >> (k % 8)) & 1 != 0)
+    }
 }
 
-/// Every landblock of the cell file, its heights through `table`: deep sea where the file has
-/// none; and where the water lies about them.
-fn read_world(store: &RetailDatStore, table: &[f32; 256]) -> World {
-    let mut heights = vec![0.0f32; WORLD_SIDE * WORLD_SIDE];
-    let mut words = vec![20u16 << 2; WORLD_SIDE * WORLD_SIDE];
+/// Every landblock of the cell file on the world's land `grid`, its heights through `table`:
+/// deep sea where the file has none; where the water lies about them; and each square's cut, the
+/// record's own where it stores them and the default grid's hash where it does not.
+fn read_world(store: &RetailDatStore, table: &[f32; 256], grid: LandGrid) -> World {
+    let side = drawn::world_vertices(&grid);
+    let squares = grid.squares_per_side();
+    let mut heights = vec![0.0f32; side * side];
+    let mut words = vec![20u16 << 2; side * side];
+    let mut cuts = rm::DrawnWorld::cut_bits(side, dereth_terrain::land::mesh::sw_to_ne_cut);
     for bx in 0..255usize {
         for by in 0..255usize {
             // LINT-OK: block coordinates, 0..255.
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            let Some(lb) =
-                dereth_client_runtime::world_build::read_landblock(store, bx as i32, by as i32)
-            else {
+            let Some(lb) = dereth_client_runtime::world_build::read_landblock_on(
+                store, &grid, bx as i32, by as i32,
+            ) else {
                 continue;
             };
-            for i in 0..9 {
-                for j in 0..9 {
-                    let k = (by * 8 + j) * WORLD_SIDE + bx * 8 + i;
-                    heights[k] = table[usize::from(lb.height[i * 9 + j])];
-                    words[k] = lb.terrain[i * 9 + j];
+            let (h, t) = (lb.grid_height(), lb.grid_terrain());
+            for i in 0..=squares {
+                for j in 0..=squares {
+                    let v = i * (squares + 1) + j;
+                    let k = (by * squares + j) * side + bx * squares + i;
+                    heights[k] = table[usize::from(h[v])];
+                    words[k] = t[v];
+                    let cut = (i < squares && j < squares).then(|| lb.cut(i, j));
+                    if let Some(Some(cut)) = cut {
+                        let bit = 1u8 << (k % 8);
+                        if cut {
+                            cuts[k / 8] |= bit;
+                        } else {
+                            cuts[k / 8] &= !bit;
+                        }
+                    }
                 }
             }
         }
     }
-    let water = drawn::shore::held(&drawn::shore::water_field(WORLD_SIDE, &heights, &words));
+    let water = drawn::shore::held_field_spaced(side, grid.vertex_spacing(), &heights, &words);
     World {
+        grid,
+        side,
         heights: Arc::new(heights),
         words: Arc::new(words),
         water: Arc::new(water),
+        cuts: Arc::new(cuts),
     }
 }
 
@@ -419,6 +489,9 @@ pub(crate) struct RemasterGround {
     knobs_serial: u64,
     /// Whether the offset is drawn this frame.
     pub(crate) active: bool,
+    /// Whether the ground is drawn this frame on a grid finer than a land cell, which lays no
+    /// offset but does lay the water's bed.
+    bed_only: bool,
     /// Where render space's origin lies in the world, meters east and north.
     pub(crate) global: (f32, f32),
     /// The viewer's block.
@@ -427,6 +500,8 @@ pub(crate) struct RemasterGround {
     pub(crate) eye: Vec3,
     /// Where the rock bands on unwalkable ground are drawn.
     pub(crate) cliff_shelves: drawn::CliffShelves,
+    /// The world's land grid, as its region gives it.
+    pub(crate) grid: LandGrid,
 }
 
 impl RemasterGround {
@@ -460,7 +535,9 @@ impl RemasterGround {
         (grid, offset, horizon): (bool, bool, bool),
         store: &Arc<RetailDatStore>,
         table: &[f32; 256],
+        land: LandGrid,
     ) {
+        self.grid = land;
         if self.knobs.on(Knob::Far) != horizon {
             let mut k = self.knobs.clone();
             k.set(Knob::Far, if horizon { 1.0 } else { 0.0 });
@@ -473,7 +550,7 @@ impl RemasterGround {
             let spawned = std::thread::Builder::new()
                 .name("landscape vertices".to_owned())
                 .spawn(move || {
-                    let _ = send.send(read_world(&store, &table));
+                    let _ = send.send(read_world(&store, &table, land));
                 });
             if spawned.is_ok() {
                 self.loading = Some(receive);
@@ -484,7 +561,20 @@ impl RemasterGround {
             self.world_serial += 1;
             self.loading = None;
         }
-        self.active = grid && offset && self.knobs.on(Knob::Ground) && self.world.is_some();
+        let drawn = grid && offset && self.knobs.on(Knob::Ground);
+        let finer = self
+            .world
+            .as_ref()
+            .is_some_and(|w| !drawn::offset_drawn_on(&w.grid));
+        self.active = drawn && !finer && self.world.is_some();
+        self.bed_only = drawn && finer;
+    }
+
+    /// How far in from the water's edge its bed slopes down, where the ground is drawn on a grid
+    /// finer than a land cell with the water drawn as water: there no offset is laid, but the bed
+    /// still lies where physics stands a body in the water. `None` elsewhere.
+    pub(crate) fn bed_without_offset(&self) -> Option<f32> {
+        (self.bed_only && self.knobs.on(Knob::Water)).then(|| self.knobs.get(Knob::BedSlope))
     }
 
     /// Wait for the world's vertices, where they are being read, and take them.
@@ -767,9 +857,12 @@ impl RemasterGround {
         let world = self.world.as_deref()?;
         self.knobs.on(Knob::Water).then(|| drawn::Water {
             shore: drawn::shore::Shore {
-                side: WORLD_SIDE,
+                side: world.side,
+                grid: world.grid,
                 heights: &world.heights,
+                words: &world.words,
                 field: &world.water,
+                cuts: &world.cuts,
             },
             slope: self.knobs.get(Knob::BedSlope),
         })
@@ -1103,7 +1196,12 @@ impl super::SceneDraw {
         store: &Arc<RetailDatStore>,
     ) {
         let wanted = self.remaster_ground_wanted();
-        self.remaster_ground.step(wanted, store, &self.land.table);
+        self.remaster_ground.step(
+            wanted,
+            store,
+            &self.land.table,
+            self.land.region.land_defs.land_grid(),
+        );
         self.place_remaster_ground(ws);
         self.remaster_ground.keep_fields(store);
         self.remaster_far_step(wanted.0, store);
@@ -1162,15 +1260,7 @@ impl super::SceneDraw {
             self.remaster_retail_far.as_deref(),
         );
         let ground = &self.remaster_ground;
-        let land = ground.world().map(|(w, serial)| {
-            (
-                super::far_trees::Land {
-                    heights: Arc::clone(&w.heights),
-                    words: Arc::clone(&w.words),
-                },
-                serial,
-            )
-        });
+        let land = ground.world().map(|(w, serial)| (Arc::clone(w), serial));
         let eye = (
             ground.eye.x + ground.global.0,
             ground.eye.y + ground.global.1,
@@ -1305,11 +1395,7 @@ mod tests {
         let words = vec![1u16 << 2; WORLD_SIDE * WORLD_SIDE];
         let water = drawn::shore::held(&drawn::shore::water_field(WORLD_SIDE, &heights, &words));
         RemasterGround {
-            world: Some(Arc::new(World {
-                heights: Arc::new(heights),
-                words: Arc::new(words),
-                water: Arc::new(water),
-            })),
+            world: Some(Arc::new(World::on_default_grid(heights, words, water))),
             active: true,
             viewer: (100, 100),
             ..RemasterGround::default()
@@ -1466,11 +1552,7 @@ mod tests {
             .collect();
         let water = drawn::shore::held(&drawn::shore::water_field(WORLD_SIDE, &heights, &words));
         let mut g = RemasterGround {
-            world: Some(Arc::new(World {
-                heights: Arc::new(heights),
-                words: Arc::new(words),
-                water: Arc::new(water),
-            })),
+            world: Some(Arc::new(World::on_default_grid(heights, words, water))),
             active: true,
             viewer: (100, 100),
             ..RemasterGround::default()
@@ -1563,7 +1645,11 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let global = (bx as f32 * BLOCK_METERS, by as f32 * BLOCK_METERS);
         let mut g = RemasterGround {
-            world: Some(Arc::new(read_world(&store, &table))),
+            world: Some(Arc::new(read_world(
+                &store,
+                &table,
+                region.land_defs.land_grid(),
+            ))),
             active: true,
             viewer: (bx, by),
             global,

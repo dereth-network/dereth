@@ -180,7 +180,7 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
     let from = &*job.from;
     let spec = job.key.spec;
     let (bx, by) = (spec.block_x, spec.block_y);
-    let lb = read_landblock(&from.store, bx, by)?;
+    let lb = read_landblock_on(&from.store, &from.region.land_defs.land_grid(), bx, by)?;
     let (mesh, filled) = land::landblock_mesh(
         &lb,
         from.drawn,

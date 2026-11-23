@@ -1331,7 +1331,7 @@ pub fn on_road(land: &LandConstants, side: usize, words: &[u32], x: f32, y: f32)
     };
     #[allow(clippy::cast_precision_loss)]
     let (dx, dy) = (x - sx as f32 * step, y - sy as f32 * step);
-    dereth_terrain::road::on_road_cell_with(
+    dereth_primitives::land_grid::on_road_square(
         road(sx, sy),
         road(sx, sy + 1),
         road(sx + 1, sy),

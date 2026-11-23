@@ -74,9 +74,16 @@ pub fn surf_char(word: u16) -> SurfChar {
 /// `(i, j)`, sampled from the full-detail 9x9 grid.
 #[must_use]
 pub fn calc_cell_water(terrain: &[u16; VERTEX_COUNT], i: usize, j: usize) -> (bool, bool) {
-    let at = |a: usize, b: usize| surf_char(terrain[a * SIDE_VERTEX_COUNT + b]) == SurfChar::Water;
-    let corners = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
-    (corners.iter().any(|&w| w), corners.iter().all(|&w| w))
+    calc_square_water(terrain, SIDE_VERTEX_COUNT, i, j)
+}
+
+/// Compute `(any water, all water)` over the four corner terrain words of square `(i, j)` of a
+/// full-detail grid of `side` vertices a side: of land cell `(i, j)` on the default grid.
+#[must_use]
+pub fn calc_square_water(terrain: &[u16], side: usize, i: usize, j: usize) -> (bool, bool) {
+    dereth_primitives::land_grid::water_of(1, |a, b| {
+        surf_char(terrain[(i + a) * side + j + b]) == SurfChar::Water
+    })
 }
 
 /// The block water calculation.
@@ -92,15 +99,28 @@ pub fn calc_water(
     terrain: &[u16; VERTEX_COUNT],
     side_cell_count: usize,
 ) -> (Vec<WaterType>, WaterType) {
+    calc_water_on(terrain, 1, side_cell_count)
+}
+
+/// [`calc_water`] on a grid of `vertex_steps` steps a land cell, per square: `terrain` is the
+/// block's whole grid, x major, and the result has one entry per full-detail square.
+#[must_use]
+pub fn calc_water_on(
+    terrain: &[u16],
+    vertex_steps: usize,
+    side_cell_count: usize,
+) -> (Vec<WaterType>, WaterType) {
     if side_cell_count != 8 {
         return (Vec::new(), WaterType::NotWater);
     }
-    let mut cells = Vec::with_capacity(side_cell_count * side_cell_count);
+    let squares = side_cell_count * vertex_steps.max(1);
+    let side = squares + 1;
+    let mut cells = Vec::with_capacity(squares * squares);
     let mut any_block_water = false;
     let mut all_block_water = true;
-    for i in 0..side_cell_count {
-        for j in 0..side_cell_count {
-            let (any, all) = calc_cell_water(terrain, i, j);
+    for i in 0..squares {
+        for j in 0..squares {
+            let (any, all) = calc_square_water(terrain, side, i, j);
             let w = if any {
                 any_block_water = true;
                 if all {

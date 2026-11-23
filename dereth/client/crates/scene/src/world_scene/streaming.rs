@@ -554,7 +554,7 @@ impl SceneDraw {
     /// adding a new surface initialises it, and surface removal iterates `side_cell_count²` cells.
     /// A 9x9 block whose 64 cells all merge to one surface therefore holds 64 references on
     /// it, and gives all 64 back.
-    pub(super) fn release_block_terrain(&mut self, gpu: &mut Gpu, keys: &[MergeKey]) {
+    pub(super) fn release_block_terrain(&mut self, gpu: &mut Gpu, keys: &[SurfaceKey]) {
         for k in keys {
             self.stats.terrain_surface_releases += 1;
             if let Some(h) = self.land.merge.remove_surface(*k) {
@@ -1674,13 +1674,13 @@ impl SceneDraw {
     /// Every live landscape composite, by merge key, for the tests that compare the device
     /// compositor with the CPU one.
     #[must_use]
-    pub fn terrain_composites(&self) -> Vec<(u32, TextureSlot)> {
+    pub fn terrain_composites(&self) -> Vec<(u64, TextureSlot)> {
         self.land
             .merge
             .surfaces()
             .into_iter()
             .filter(|(_, h)| h.0 != NO_TEXTURE)
-            .map(|(k, h)| (k.0, TextureSlot(h.0)))
+            .map(|(k, h)| (k.key.0, TextureSlot(h.0)))
             .collect()
     }
 
@@ -1840,7 +1840,12 @@ impl SceneDraw {
             {
                 break;
             }
-            let Some(keys) = self.blocks.get(&k).map(|b| b.merge_keys.clone()) else {
+            let steps = self.land.region.land_defs.land_grid().vertices_per_cell;
+            let Some(keys) = self
+                .blocks
+                .get(&k)
+                .map(|b| dereth_terrain::land::merge::square_surfaces(&b.merge_keys, steps))
+            else {
                 continue;
             };
             if splat {

@@ -773,7 +773,7 @@ pub fn land_find_env_collisions(t: &mut Transition, cell: &Cell) -> TransitionSt
     }
 
     let depth = cell.water_depth(low);
-    let is_water = cell.water_type() != WaterType::NotWater;
+    let is_water = cell.water_type_at(low) != WaterType::NotWater;
     let mut s = t.sphere_path.global_sphere[0];
     s.center = s.center.sub(off);
     validate_walkable(t, &s, &plane, is_water, depth, *id)

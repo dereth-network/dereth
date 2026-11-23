@@ -18,8 +18,6 @@ use crate::scene::{Camera, FrameDelta};
 const WATER_WITHIN: f32 = 300.0;
 /// The water's terrain types.
 const WATER_TYPES: std::ops::RangeInclusive<u16> = 16..=20;
-/// The landscape's vertices' spacing, meters.
-const CELL: f32 = 24.0;
 
 /// The mirrored view's picture and its constants.
 #[derive(Debug, Default)]
@@ -56,10 +54,11 @@ pub fn water_level(frame: &FrameDelta) -> Option<f32> {
     }
     let eye = frame.camera.eye;
     let (ex, ey) = (eye.x + drawn.global.x, eye.y + drawn.global.y);
-    let reach = dereth_primitives::num::floor_to_i32(WATER_WITHIN / CELL) + 1;
+    let cell = world.grid.vertex_spacing();
+    let reach = dereth_primitives::num::floor_to_i32(WATER_WITHIN / cell) + 1;
     let (cx, cy) = (
-        dereth_primitives::num::floor_to_i32(ex / CELL),
-        dereth_primitives::num::floor_to_i32(ey / CELL),
+        dereth_primitives::num::floor_to_i32(ex / cell),
+        dereth_primitives::num::floor_to_i32(ey / cell),
     );
     let mut best: Option<(f32, f32)> = None;
     for gy in (cy - reach).max(0)..=(cy + reach).min(side - 1) {
@@ -70,7 +69,7 @@ pub fn water_level(frame: &FrameDelta) -> Option<f32> {
                 continue;
             }
             #[allow(clippy::cast_precision_loss)] // vertex indices
-            let (x, y) = (gx as f32 * CELL, gy as f32 * CELL);
+            let (x, y) = (gx as f32 * cell, gy as f32 * cell);
             let d = ((x - ex) * (x - ex) + (y - ey) * (y - ey)).sqrt();
             if d <= WATER_WITHIN && best.is_none_or(|b| d < b.0) {
                 best = Some((d, world.heights[k]));

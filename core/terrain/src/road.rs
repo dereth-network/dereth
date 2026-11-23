@@ -7,6 +7,7 @@
 //! server collides with has the full table. Every case below decides which trees exist.
 
 use crate::consts::{CELL_SIZE, ROAD_WIDTH, SIDE_VERTEX_COUNT, VERTEX_COUNT};
+use dereth_primitives::land_grid::on_road_square;
 
 /// The landblock's on-road test.
 ///
@@ -18,23 +19,12 @@ use crate::consts::{CELL_SIZE, ROAD_WIDTH, SIDE_VERTEX_COUNT, VERTEX_COUNT};
 /// path and exists so a stray caller cannot panic.
 #[must_use]
 pub fn on_road(terrain: &[u16; VERTEX_COUNT], x: f32, y: f32) -> bool {
-    let cx = dereth_primitives::num::floor_to_i32(x / CELL_SIZE);
-    let cy = dereth_primitives::num::floor_to_i32(y / CELL_SIZE);
-    if !(0..8).contains(&cx) || !(0..8).contains(&cy) {
-        return false;
-    }
-    #[allow(clippy::cast_precision_loss)] // cx, cy are 0..=7
-    let (dx, dy) = (x - CELL_SIZE * cx as f32, y - CELL_SIZE * cy as f32);
-    let base = (cx as usize) * SIDE_VERTEX_COUNT + cy as usize;
-    let a = terrain[base] & 3 != 0; // SW
-    let b = terrain[base + 1] & 3 != 0; // NW  (+y)
-    let c = terrain[base + SIDE_VERTEX_COUNT] & 3 != 0; // SE  (+x)
-    let d = terrain[base + SIDE_VERTEX_COUNT + 1] & 3 != 0; // NE
-    on_road_cell(a, b, c, d, dx, dy)
+    dereth_primitives::land_grid::on_road(terrain, SIDE_VERTEX_COUNT, CELL_SIZE, ROAD_WIDTH, x, y)
 }
 
 /// The 16-case geometry, split out so each case has a unit test that names its corner set: the
-/// default world's, a 24-unit square with a road half-width of 5 ([`on_road_cell_with`]).
+/// default world's, a 24-unit square with a road half-width of 5
+/// ([`dereth_primitives::land_grid::on_road_square`]).
 ///
 /// | corners with road | on-road test |
 /// |---|---|
@@ -56,59 +46,7 @@ pub fn on_road(terrain: &[u16; VERTEX_COUNT], x: f32, y: f32) -> bool {
 /// | B, C, D (no SW) | `dx > 19 or dy > 19` |
 #[must_use]
 pub fn on_road_cell(a: bool, b: bool, c: bool, d: bool, dx: f32, dy: f32) -> bool {
-    on_road_cell_with(a, b, c, d, dx, dy, CELL_SIZE, ROAD_WIDTH)
-}
-
-/// The 16-case table for a square of side `span` and a road half-width of `width`: `W` below is
-/// `width` and `F` is `span - width`, so the default world's table is this one at 24 and 5.
-///
-/// | corners with road | on-road test |
-/// |---|---|
-/// | none | false |
-/// | all four | true |
-/// | A only (SW) | `dx + dy < W` |
-/// | B only (NW) | `dy - dx > F` |
-/// | C only (SE) | `dy - dx < -F` |
-/// | D only (NE) | `dx + dy > span + F` |
-/// | A, B / A, C / C, D / B, D | `dx < W` / `dy < W` / `dx > F` / `dy > F` |
-/// | A, D / B, C | `\|dx - dy\| < W` / `\|dx + dy - span\| < W` |
-/// | three corners | the two edge tests of the missing corner's neighbours, either |
-#[must_use]
-#[allow(clippy::too_many_arguments)] // four corners, a point and the square's two lengths
-pub fn on_road_cell_with(
-    a: bool,
-    b: bool,
-    c: bool,
-    d: bool,
-    dx: f32,
-    dy: f32,
-    span: f32,
-    width: f32,
-) -> bool {
-    let w = width;
-    let f = span - width;
-    match (a, b, c, d) {
-        (false, false, false, false) => false,
-        (true, true, true, true) => true,
-        // one corner
-        (true, false, false, false) => dx + dy < w,
-        (false, true, false, false) => dy - dx > f,
-        (false, false, true, false) => dy - dx < -f,
-        (false, false, false, true) => dx + dy > span + f,
-        // two corners: the four edges
-        (true, true, false, false) => dx < w,
-        (true, false, true, false) => dy < w,
-        (false, false, true, true) => dx > f,
-        (false, true, false, true) => dy > f,
-        // two corners: the two diagonals
-        (true, false, false, true) => (dx - dy).abs() < w,
-        (false, true, true, false) => (dx + dy - span).abs() < w,
-        // three corners
-        (true, true, true, false) => dx < w || dy < w,
-        (true, true, false, true) => dx < w || dy > f,
-        (true, false, true, true) => dx > f || dy < w,
-        (false, true, true, true) => dx > f || dy > f,
-    }
+    on_road_square(a, b, c, d, dx, dy, CELL_SIZE, ROAD_WIDTH)
 }
 
 #[cfg(test)]
@@ -242,14 +180,13 @@ mod tests {
                             for j in 0..=20u8 {
                                 let (dx, dy) =
                                     (f32::from(i) * 0.5 + 0.01, f32::from(j) * 0.5 + 0.02);
-                                let small = on_road_cell_with(a, b, c, d, dx, dy, 10.0, 4.0);
-                                let big =
-                                    on_road_cell_with(a, b, c, d, dx * 2.4, dy * 2.4, 24.0, 9.6);
+                                let small = on_road_square(a, b, c, d, dx, dy, 10.0, 4.0);
+                                let big = on_road_square(a, b, c, d, dx * 2.4, dy * 2.4, 24.0, 9.6);
                                 assert_eq!(small, big, "({a},{b},{c},{d}) at ({dx}, {dy})");
                                 let (x24, y24) = (dx * 2.4, dy * 2.4);
                                 assert_eq!(
                                     on_road_cell(a, b, c, d, x24, y24),
-                                    on_road_cell_with(a, b, c, d, x24, y24, CELL_SIZE, ROAD_WIDTH),
+                                    on_road_square(a, b, c, d, x24, y24, CELL_SIZE, ROAD_WIDTH),
                                 );
                             }
                         }
@@ -258,16 +195,16 @@ mod tests {
             }
         }
         // The west edge of a 10-unit square with a 4-unit road flips exactly at 4, the east at 6.
-        assert!(on_road_cell_with(
+        assert!(on_road_square(
             true, true, false, false, 3.999, 5.0, 10.0, 4.0
         ));
-        assert!(!on_road_cell_with(
+        assert!(!on_road_square(
             true, true, false, false, 4.0, 5.0, 10.0, 4.0
         ));
-        assert!(!on_road_cell_with(
+        assert!(!on_road_square(
             false, false, true, true, 6.0, 5.0, 10.0, 4.0
         ));
-        assert!(on_road_cell_with(
+        assert!(on_road_square(
             false, false, true, true, 6.001, 5.0, 10.0, 4.0
         ));
     }

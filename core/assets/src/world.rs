@@ -22,8 +22,13 @@ use crate::Decode;
 pub const SIDE_VERTEX_COUNT: usize = 9;
 /// `9 * 9`.
 pub const VERTEX_COUNT: usize = SIDE_VERTEX_COUNT * SIDE_VERTEX_COUNT;
-/// Every landblock record is this size, all 65,025 of them.
+/// Every retail landblock record is this size, all 65,025 of them.
 pub const LANDBLOCK_BYTES: usize = 252;
+/// What follows the id and `lbi_exists` in a [`LANDBLOCK_BYTES`] record: the 81 words, the 81
+/// heights and the pad byte. A longer record carries a [`DenseLand`] grid.
+const LANDBLOCK_BODY_BYTES: usize = LANDBLOCK_BYTES - 8;
+/// The most vertex steps a [`DenseLand`] record may cut a land cell side into.
+pub const MAX_DENSE_STEPS: usize = 4;
 
 /// One `{DataID, Frame}` pair. 32 bytes, interleaved.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,7 +50,8 @@ impl ObjectEntry {
 // 0xXXYYFFFF - cell land block
 // ---------------------------------------------------------------------------------------------
 
-/// A decoded `0xXXYYFFFF` landblock: the terrain word and height index per vertex. Always 252 bytes.
+/// A decoded `0xXXYYFFFF` landblock: the terrain word and height index per vertex. 252 bytes in
+/// every retail world; longer when the block carries a [`DenseLand`] grid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellLandblock {
     pub id: DataId,
@@ -58,9 +64,115 @@ pub struct CellLandblock {
     pub terrain: [u16; VERTEX_COUNT],
     /// Height-table index per vertex, same indexing.
     pub height: [u8; VERTEX_COUNT],
+    /// The full vertex grid of a world that cuts each land cell side into more than one vertex
+    /// step. `terrain` and `height` then hold its vertices at the land cell corners, which is what
+    /// readers that work per land cell (scenery, maps, whole-world fields) read; the ground's
+    /// shape, its collision and its water come from this grid. `None` in every retail world.
+    pub dense: Option<Box<DenseLand>>,
+}
+
+/// A landblock's full vertex grid, in a world whose land cell sides are cut into `steps` vertex
+/// steps: `8 * steps + 1` vertices to a block side, indexed x major as the 9 x 9 grid is.
+///
+/// The record holds, after the id and `lbi_exists`: the vertex count, the terrain words, the
+/// height indices, one split bit per square, and zero padding to four bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DenseLand {
+    /// Vertex steps along a land cell side, `2 ..= MAX_DENSE_STEPS`.
+    pub steps: usize,
+    /// Terrain word per vertex, `x * side + y`, in the same 16-bit layout as the 9 x 9 grid.
+    pub terrain: Box<[u16]>,
+    /// Height-table index per vertex, same indexing.
+    pub height: Box<[u8]>,
+    /// One bit per square, x major (`x * squares + y`), least significant bit first in each byte:
+    /// set when the square's shared edge runs south-west to north-east.
+    pub split: Box<[u8]>,
+}
+
+impl DenseLand {
+    /// Vertices along a block side.
+    #[must_use]
+    pub const fn side(&self) -> usize {
+        8 * self.steps + 1
+    }
+
+    /// Squares along a block side.
+    #[must_use]
+    pub const fn squares(&self) -> usize {
+        8 * self.steps
+    }
+
+    /// The bytes of split bits a grid of `steps` carries.
+    #[must_use]
+    pub const fn split_bytes(steps: usize) -> usize {
+        (8 * steps * 8 * steps).div_ceil(8)
+    }
+
+    /// Whether square `(x, y)` is cut south-west to north-east.
+    #[must_use]
+    pub fn split_sw_to_ne(&self, x: usize, y: usize) -> bool {
+        let k = x * self.squares() + y;
+        (self.split[k / 8] >> (k % 8)) & 1 != 0
+    }
+
+    /// The vertices at the land cell corners, `x * 9 + y`.
+    #[must_use]
+    pub fn corners(&self) -> ([u16; VERTEX_COUNT], [u8; VERTEX_COUNT]) {
+        let mut terrain = [0u16; VERTEX_COUNT];
+        let mut height = [0u8; VERTEX_COUNT];
+        let side = self.side();
+        for x in 0..SIDE_VERTEX_COUNT {
+            for y in 0..SIDE_VERTEX_COUNT {
+                let i = x * self.steps * side + y * self.steps;
+                terrain[x * SIDE_VERTEX_COUNT + y] = self.terrain[i];
+                height[x * SIDE_VERTEX_COUNT + y] = self.height[i];
+            }
+        }
+        (terrain, height)
+    }
 }
 
 impl CellLandblock {
+    /// A block carrying a full grid, its corner arrays filled from it.
+    #[must_use]
+    pub fn from_dense(id: DataId, lbi_exists: u32, dense: DenseLand) -> Self {
+        let (terrain, height) = dense.corners();
+        Self {
+            id,
+            lbi_exists,
+            terrain,
+            height,
+            dense: Some(Box::new(dense)),
+        }
+    }
+
+    /// Vertex steps along a land cell side: 1 for a 9 x 9 block.
+    #[must_use]
+    pub fn vertex_steps(&self) -> usize {
+        self.dense.as_ref().map_or(1, |d| d.steps)
+    }
+
+    /// Every terrain word of the block's grid, x major.
+    #[must_use]
+    pub fn grid_terrain(&self) -> &[u16] {
+        self.dense
+            .as_ref()
+            .map_or(&self.terrain[..], |d| &d.terrain)
+    }
+
+    /// Every height index of the block's grid, x major.
+    #[must_use]
+    pub fn grid_height(&self) -> &[u8] {
+        self.dense.as_ref().map_or(&self.height[..], |d| &d.height)
+    }
+
+    /// Whether square `(x, y)` of the block's grid (x major) is cut south-west to north-east, as the
+    /// record stores it; `None` for a 9 x 9 block, whose cuts are a hash of where it lies.
+    #[must_use]
+    pub fn cut(&self, x: usize, y: usize) -> Option<bool> {
+        self.dense.as_ref().map(|d| d.split_sw_to_ne(x, y))
+    }
+
     /// Bits 0-1: non-zero means a road passes through this vertex.
     #[must_use]
     pub fn road(&self, x: usize, y: usize) -> u16 {
@@ -88,6 +200,9 @@ impl Decode for CellLandblock {
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let lbi_exists = c.u32()?;
+        if c.remaining() > LANDBLOCK_BODY_BYTES {
+            return decode_dense(c, id, lbi_exists);
+        }
         let mut terrain = [0u16; VERTEX_COUNT];
         for t in &mut terrain {
             *t = c.u16()?;
@@ -104,8 +219,42 @@ impl Decode for CellLandblock {
             lbi_exists,
             terrain,
             height,
+            dense: None,
         })
     }
+}
+
+/// The rest of a record longer than a 9 x 9 one: its vertex count, which must be a full grid of
+/// `2 ..= MAX_DENSE_STEPS` steps, then the grid.
+fn decode_dense(
+    c: &mut Cursor<'_>,
+    id: DataId,
+    lbi_exists: u32,
+) -> Result<CellLandblock, AssetError> {
+    let count = c.u32()?;
+    let steps = (2..=MAX_DENSE_STEPS)
+        .find(|s| (8 * s + 1) * (8 * s + 1) == count as usize)
+        .ok_or(AssetError::Unsupported {
+            what: "landblock vertex count",
+            value: count,
+        })?;
+    let count = count as usize;
+    let terrain = (0..count)
+        .map(|_| c.u16())
+        .collect::<Result<Box<[u16]>, _>>()?;
+    let height = c.bytes(count)?.into();
+    let split = c.bytes(DenseLand::split_bytes(steps))?.into();
+    c.align_ptr();
+    Ok(CellLandblock::from_dense(
+        id,
+        lbi_exists,
+        DenseLand {
+            steps,
+            terrain,
+            height,
+            split,
+        },
+    ))
 }
 
 // ---------------------------------------------------------------------------------------------

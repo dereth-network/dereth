@@ -92,9 +92,8 @@ const STIR_WITHIN: f32 = 60.0;
 /// How long the clock runs before it starts again, seconds: the puddles' waves repeat over it,
 /// and it keeps the clock's fraction precise.
 const CLOCK_PERIOD: f64 = 3600.0;
-/// A landscape block's side, meters, and a landscape cell's.
+/// A landscape block's side, meters.
 const BLOCK: f64 = 192.0;
-const LAND_CELL: f64 = 24.0;
 /// How near the water's edge the player's own body stands for the wake to follow it, meters.
 const OWN_NEAR: f32 = 8.0;
 
@@ -106,7 +105,8 @@ fn near_water(world: &crate::scene::DrawnWorld, x: f64, y: f64) -> bool {
     if side < 2 || world.water.len() != side * side {
         return false;
     }
-    let (qx, qy) = (x / LAND_CELL, y / LAND_CELL);
+    let spacing = f64::from(world.grid.vertex_spacing());
+    let (qx, qy) = (x / spacing, y / spacing);
     let (cx, cy) = (qx.floor(), qy.floor());
     // LINT-OK: the world's vertices along a side, a few thousand.
     #[allow(clippy::cast_precision_loss)]
@@ -124,7 +124,9 @@ fn near_water(world: &crate::scene::DrawnWorld, x: f64, y: f64) -> bool {
         (cx as usize, cy as usize),
         ((qx - cx) as f32, (qy - cy) as f32),
     );
-    let at = |dx: usize, dy: usize| world.water[(j + dy) * side + i + dx][0];
+    let at = |dx: usize, dy: usize| {
+        dereth_primitives::half::value(world.water[(j + dy) * side + i + dx][0])
+    };
     let inside = (at(0, 0) * (1.0 - fx) + at(1, 0) * fx) * (1.0 - fy)
         + (at(0, 1) * (1.0 - fx) + at(1, 1) * fx) * fy;
     inside > -OWN_NEAR
@@ -803,7 +805,7 @@ mod tests {
                 [12.0, -12.0, -36.0]
                     .repeat(3)
                     .into_iter()
-                    .map(|i| [i, 0.0])
+                    .map(|i| [dereth_primitives::half::bits(i), 0])
                     .collect(),
             ),
             ..Default::default()

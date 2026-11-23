@@ -101,6 +101,10 @@ public struct PackPlace
     public float2 qdy;
     // Meters from the eye.
     public float dist;
+    // Where the pixel's square lies in its cell, in cell coordinates, and the squares a cell side:
+    // the ground pictures repeat across the whole cell, so a square lays its own part of them.
+    public float2 cell_at;
+    public float cell_of;
 };
 
 public PackPlace no_pack_place()
@@ -112,6 +116,8 @@ public PackPlace no_pack_place()
     o.qdx = float2(0.0, 0.0);
     o.qdy = float2(0.0, 0.0);
     o.dist = 0.0;
+    o.cell_at = float2(0.0, 0.0);
+    o.cell_of = 1.0;
     return o;
 }
 
@@ -286,6 +292,9 @@ public SplatSample splat_at(uint splats, uint wrap, uint held, uint at, uint rot
     bool mapped = (b.w & 2) != 0;
     uint4 land = row_u(splats, at + SPLAT_BANK + 1);
     bool as_land = place.land && land.x != 0xFFFFFFFF;
+    float2 cuv = (uv + place.cell_at) / place.cell_of;
+    float2 cdx = dx / place.cell_of;
+    float2 cdy = dy / place.cell_of;
     SplatSample o;
     float4 c = SPLAT_MISSING;
     o.water = (b.w & 1) != 0 ? 1.0 : 0.0;
@@ -311,12 +320,12 @@ public SplatSample splat_at(uint splats, uint wrap, uint held, uint at, uint rot
     {
         if (mapped)
         {
-            pack_layer(tile, t, maps, detail, wrap, rot, uv, dx, dy, place, c, o.bend, o.roughness);
+            pack_layer(tile, t, maps, detail, wrap, rot, cuv, cdx, cdy, place, c, o.bend, o.roughness);
             o.pack = place.varies && maps.x != 0xFFFFFFFF ? 1.0 : 0.0;
         }
         else
         {
-            c = sampled(tile, wrap, uv * t, dx * t, dy * t);
+            c = sampled(tile, wrap, cuv * t, cdx * t, cdy * t);
         }
     }
     for (uint k = 0; k < min(b.z, SPLAT_OVERLAYS); k++)
@@ -349,12 +358,12 @@ public SplatSample splat_at(uint splats, uint wrap, uint held, uint at, uint rot
         {
             if (mapped)
             {
-                pack_layer(tile, t, maps, detail, wrap, rot, uv, dx, dy, place, s, bend, roughness);
+                pack_layer(tile, t, maps, detail, wrap, rot, cuv, cdx, cdy, place, s, bend, roughness);
                 pack = place.varies && maps.x != 0xFFFFFFFF ? 1.0 : 0.0;
             }
             else
             {
-                s = sampled(tile, wrap, uv * t, dx * t, dy * t);
+                s = sampled(tile, wrap, cuv * t, cdx * t, cdy * t);
             }
         }
         if (pack > 0.0 && o.pack > 0.0)
@@ -430,9 +439,12 @@ public SteepSample steep_at(uint splats, uint wrap, uint held, uint at, uint rot
     uint first = at + SPLAT_STEEP + mode * SPLAT_LAYERS;
     uint overlays = min(row_u(splats, at).z, SPLAT_OVERLAYS);
     uint maps = at + 1 + SPLAT_OVERLAYS;
+    float2 cuv = (uv + place.cell_at) / place.cell_of;
+    float2 cdx = dx / place.cell_of;
+    float2 cdy = dy / place.cell_of;
     SteepSample o;
     o.color = float3(0.0, 0.0, 0.0);
-    steep_layer(row_u(splats, first), row_u(splats, first + SPLAT_DETAIL), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps).w, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
+    steep_layer(row_u(splats, first), row_u(splats, first + SPLAT_DETAIL), wrap, rot, cuv, cdx, cdy, on_snow, row_u(splats, maps).w, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
     for (uint k = 0; k < overlays; k++)
     {
         uint4 l = row_u(splats, at + 1 + k);
@@ -448,7 +460,7 @@ public SteepSample steep_at(uint splats, uint wrap, uint held, uint at, uint rot
         float3 bend;
         float roughness;
         float height;
-        steep_layer(row_u(splats, first + 1 + k), row_u(splats, first + 1 + k + SPLAT_DETAIL), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps + 1 + k).w, place, color, cover, own, bend, roughness, height);
+        steep_layer(row_u(splats, first + 1 + k), row_u(splats, first + 1 + k + SPLAT_DETAIL), wrap, rot, cuv, cdx, cdy, on_snow, row_u(splats, maps + 1 + k).w, place, color, cover, own, bend, roughness, height);
         o.color = lerp(color, o.color, a);
         o.cover = lerp(cover, o.cover, a);
         o.own = lerp(own, o.own, a);
@@ -466,7 +478,7 @@ public SteepSample bank_row(uint splats, uint wrap, uint at, uint rot, float2 uv
 {
     SteepSample o;
     o.color = float3(0.0, 0.0, 0.0);
-    steep_layer(row_u(splats, at + SPLAT_BANK + which), row_u(splats, at + SPLAT_BANK + which + SPLAT_DETAIL), wrap, rot, uv, dx, dy, 1.0, 0, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
+    steep_layer(row_u(splats, at + SPLAT_BANK + which), row_u(splats, at + SPLAT_BANK + which + SPLAT_DETAIL), wrap, rot, (uv + place.cell_at) / place.cell_of, dx / place.cell_of, dy / place.cell_of, 1.0, 0, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
     return o;
 }
 

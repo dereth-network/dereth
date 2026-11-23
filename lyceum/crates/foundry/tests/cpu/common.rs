@@ -40,6 +40,7 @@ pub fn terrain(lb: u16, lbi_exists: bool) -> CellLandblock {
         lbi_exists: u32::from(lbi_exists),
         terrain: [1 << 2; 81],
         height: [0; 81],
+        dense: None,
     };
     for x in 0..9u8 {
         for y in 0..9u8 {

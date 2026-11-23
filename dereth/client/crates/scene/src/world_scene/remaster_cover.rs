@@ -19,17 +19,21 @@ use dereth_terrain::land::water::WaterType;
 /// `None` off the block.
 pub(super) type Surface<'a> = Box<dyn Fn(f32, f32) -> Option<(f32, f32)> + 'a>;
 
-/// Whether the cell `cx * 8 + cy` holds water.
-pub(super) type Wet<'a> = Box<dyn Fn(usize) -> bool + 'a>;
+/// Whether the square `(sx, sy)` of the block's full-detail grid holds water.
+pub(super) type Wet<'a> = Box<dyn Fn(usize, usize) -> bool + 'a>;
 
-/// A block's full-detail ground, as cover grows on it.
+/// A block's full-detail ground, as cover grows on it: its surface, which of its squares hold
+/// water, the vertex steps along a land cell side on its grid, and a road's half width there.
 pub(super) struct CoverGround<'a> {
     pub surface: Surface<'a>,
     pub wet: Wet<'a>,
+    pub steps: usize,
+    pub road_width: f32,
 }
 
-/// `mesh` as cover grows on it; `None` where it is not at full detail.
-pub(super) fn ground_of(mesh: &LandblockMesh) -> Option<CoverGround<'_>> {
+/// `mesh` as cover grows on it, roads `road_width` wide on its grid; `None` where it is not at
+/// full detail.
+pub(super) fn ground_of(mesh: &LandblockMesh, road_width: f32) -> Option<CoverGround<'_>> {
     (mesh.side_cell_count == 8).then(|| CoverGround {
         surface: Box::new(move |x: f32, y: f32| {
             let index = dereth_terrain::scenery::outside_cell_index(x, y);
@@ -37,7 +41,11 @@ pub(super) fn ground_of(mesh: &LandblockMesh) -> Option<CoverGround<'_>> {
             let n = plane.normal;
             (n.z > 0.0).then(|| (-(n.x * x + n.y * y + plane.d) / n.z, n.z))
         }),
-        wet: Box::new(move |cell: usize| mesh.cell_water.get(cell) != Some(&WaterType::NotWater)),
+        wet: Box::new(move |sx: usize, sy: usize| {
+            mesh.cell_water.get(sx * mesh.squares_per_side() + sy) != Some(&WaterType::NotWater)
+        }),
+        steps: usize::from(mesh.vertex_steps.max(1)),
+        road_width,
     })
 }
 
@@ -64,13 +72,13 @@ fn unit(h: u32) -> f32 {
 }
 
 /// The cover the block at `at` grows, block-local: `ground` its full-detail ground, `words` its
-/// terrain words, `buildings` where its buildings stand, and `lifts` how far a placement at a
-/// global point is drawn above it.
+/// terrain words (its whole grid's), `buildings` where its buildings stand, and `lifts` how far a
+/// placement at a global point is drawn above it.
 #[cfg(test)]
 pub(super) fn cover_placements(
     at: (i32, i32),
     ground: &CoverGround<'_>,
-    words: &[u16; 81],
+    words: &[u16],
     covers: &[ManifestCover],
     buildings: &[glam::Vec3],
     lifts: &dyn Fn(f32, f32, f32) -> [f32; 2],
@@ -88,12 +96,14 @@ pub(super) fn cover_rows(covers: &[ManifestCover]) -> usize {
     covers.len() * 8
 }
 
-/// Grow row `row` of [`cover_rows`] onto `out`, as the whole block's cover grows it.
+/// Grow row `row` of [`cover_rows`] onto `out`, as the whole block's cover grows it. Each land cell
+/// grows its candidates; what lies under one is its square's on the block's grid (the cell itself
+/// on the default grid).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn grow_row(
     at: (i32, i32),
     ground: &CoverGround<'_>,
-    words: &[u16; 81],
+    words: &[u16],
     covers: &[ManifestCover],
     buildings: &[glam::Vec3],
     lifts: &dyn Fn(f32, f32, f32) -> [f32; 2],
@@ -110,6 +120,12 @@ pub(super) fn grow_row(
     #[allow(clippy::cast_sign_loss)]
     let block = (at.0 as u32) << 16 | (at.1 as u32 & 0xFFFF);
     let area = CELL_SIZE * CELL_SIZE / 100.0;
+    // The squares a land cell side is cut into, their side, and the grid's vertices a side.
+    let steps = ground.steps.max(1);
+    // LINT-OK: a few steps a cell.
+    #[allow(clippy::cast_precision_loss)]
+    let square = CELL_SIZE / steps as f32;
+    let side = 8 * steps + 1;
     {
         let expected = cover.density * area;
         // LINT-OK: a count a cell, from a density a hundred square meters: a few dozen.
@@ -127,9 +143,6 @@ pub(super) fn grow_row(
         {
             for cy in 0..8u32 {
                 let cell = cx * 8 + cy;
-                if (ground.wet)(cell as usize) {
-                    continue;
-                }
                 let seed = hash(block, cell, own, 0);
                 let count = whole + u32::from(unit(seed) < fraction);
                 for k in 1..=count {
@@ -144,17 +157,34 @@ pub(super) fn grow_row(
                     // LINT-OK: 0..8 cells of 24 meters.
                     #[allow(clippy::cast_precision_loss)]
                     let (x, y) = ((cx as f32 + fx) * CELL_SIZE, (cy as f32 + fy) * CELL_SIZE);
+                    // Its square, and where in it.
+                    // LINT-OK: a few steps a cell.
+                    #[allow(clippy::cast_precision_loss)]
+                    let (ux, uy) = (fx * steps as f32, fy * steps as f32);
+                    // LINT-OK: 0..steps, from a fraction under one.
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let (ix, iy) = (ux.floor() as usize, uy.floor() as usize);
+                    let (sx, sy) = (cx as usize * steps + ix, cy as usize * steps + iy);
+                    // LINT-OK: 0..steps.
+                    #[allow(clippy::cast_precision_loss)]
+                    let (gx, gy) = (ux - ix as f32, uy - iy as f32);
+                    if (ground.wet)(sx, sy) {
+                        continue;
+                    }
+                    let word_at = |dx: usize, dy: usize| {
+                        words.get((sx + dx) * side + sy + dy).copied().unwrap_or(0)
+                    };
                     // The type under it: a corner's, by the corners' weights.
                     let corners = [
-                        ((1.0 - fx) * (1.0 - fy), 0, 0),
-                        ((1.0 - fx) * fy, 0, 1),
-                        (fx * (1.0 - fy), 1, 0),
-                        (fx * fy, 1, 1),
+                        ((1.0 - gx) * (1.0 - gy), 0, 0),
+                        ((1.0 - gx) * gy, 0, 1),
+                        (gx * (1.0 - gy), 1, 0),
+                        (gx * gy, 1, 1),
                     ];
                     let mut pick = unit(h3);
                     let mut word = 0;
                     for (w, dx, dy) in corners {
-                        word = words[((cx + dx) * 9 + cy + dy) as usize];
+                        word = word_at(dx, dy);
                         if pick < w {
                             break;
                         }
@@ -164,7 +194,14 @@ pub(super) fn grow_row(
                     if !cover.grounds.contains(&ty) {
                         continue;
                     }
-                    if dereth_terrain::road::on_road(words, x, y) {
+                    if dereth_primitives::land_grid::on_road(
+                        words,
+                        8 * steps + 1,
+                        square,
+                        ground.road_width,
+                        x,
+                        y,
+                    ) {
                         continue;
                     }
                     let Some((z, upright)) = (ground.surface)(x, y) else {
@@ -225,7 +262,7 @@ mod tests {
     fn grow(
         at: (i32, i32),
         rise: f32,
-        words: &[u16; 81],
+        words: &[u16],
         covers: &[ManifestCover],
         buildings: &[glam::Vec3],
     ) -> Vec<rm::Placement> {
@@ -233,10 +270,12 @@ mod tests {
             let r = if x < 96.0 { 0.0 } else { rise };
             Some((10.0 + r * (x - 96.0).max(0.0), math::hypotf(r, 1.0).recip()))
         };
-        let wet = |_: usize| false;
+        let wet = |_: usize, _: usize| false;
         let ground = CoverGround {
             surface: Box::new(surface),
             wet: Box::new(wet),
+            steps: 1,
+            road_width: 5.0,
         };
         cover_placements(at, &ground, words, covers, buildings, &|_, _, _| [0.0; 2])
     }
@@ -298,6 +337,47 @@ mod tests {
             "into the edge cell"
         );
         assert!(ones.iter().any(|p| p.frame.w_axis.x < 4.0 * CELL_SIZE));
+    }
+
+    /// On a grid of three steps a land cell, a cover grows by its squares' types, keeps out of
+    /// its wet squares, and keeps off a road along its squares' edges.
+    #[test]
+    fn on_a_finer_grid_cover_grows_by_its_squares_types_water_and_roads() {
+        // Type 2 everywhere but land cell (1, 1)'s vertices, which are type 1.
+        let mut w = vec![2u16 << 2; 25 * 25];
+        for x in 3..=6 {
+            for y in 3..=6 {
+                w[x * 25 + y] = 1 << 2;
+            }
+        }
+        let surface = |_: f32, _: f32| Some((10.0, 1.0));
+        let wet = |sx: usize, sy: usize| (sx, sy) == (4, 4);
+        let ground = CoverGround {
+            surface: Box::new(surface),
+            wet: Box::new(wet),
+            steps: 3,
+            road_width: 2.0,
+        };
+        let c = [cover(&[1], 40.0)];
+        let ones = cover_placements((5, 5), &ground, &w, &c, &[], &|_, _, _| [0.0; 2]);
+        assert!(ones.len() > 100, "{}", ones.len());
+        let o = |p: &rm::Placement| p.frame.w_axis;
+        // Only on the squares that touch type 1's vertices: squares 2 to 6 each way.
+        assert!(ones
+            .iter()
+            .all(|p| (16.0..56.0).contains(&o(p).x) && (16.0..56.0).contains(&o(p).y)));
+        assert!(ones.iter().any(|p| o(p).x < 24.0) && ones.iter().any(|p| o(p).x >= 48.0));
+        // None in the wet square.
+        assert!(!ones
+            .iter()
+            .any(|p| (32.0..40.0).contains(&o(p).x) && (32.0..40.0).contains(&o(p).y)));
+        // A road on the vertices of column 4: none within two meters of it in the squares beside.
+        for y in 0..25 {
+            w[4 * 25 + y] |= 1;
+        }
+        let roads = cover_placements((5, 5), &ground, &w, &c, &[], &|_, _, _| [0.0; 2]);
+        assert!(roads.len() < ones.len());
+        assert!(roads.iter().all(|p| (o(p).x - 32.0).abs() >= 2.0 - 1e-4));
     }
 
     #[test]

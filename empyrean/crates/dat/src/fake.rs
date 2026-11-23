@@ -436,6 +436,7 @@ pub mod sample {
             lbi_exists: 0,
             terrain: [0; VERTEX_COUNT],
             height: [height_index; VERTEX_COUNT],
+            dense: None,
         }
     }
 }

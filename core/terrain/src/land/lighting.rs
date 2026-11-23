@@ -175,6 +175,7 @@ mod tests {
         LandblockMesh {
             id: LandblockId(0),
             side_cell_count: 8,
+            vertex_steps: 1,
             side_vertex_count: 9,
             trans_dir: crate::land::mesh::Direction::InViewerBlock,
             vertices,

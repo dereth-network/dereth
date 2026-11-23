@@ -459,12 +459,19 @@ impl AssetSource for DatAssets<'_> {
                 format: TextureFormat::Bgra8,
                 levels: vec![argb.to_le_bytes().to_vec()],
             }),
-            TextureKey::Terrain(key) => {
+            TextureKey::Terrain(_) | TextureKey::TerrainPart { .. } => {
                 let tm = self.tex_merge.as_ref()?;
-                let plan = dereth_terrain::land::merge::merge_plan(
+                let place = match *key {
+                    TextureKey::TerrainPart {
+                        column, row, of, ..
+                    } => dereth_terrain::land::merge::Place { column, row, of },
+                    _ => dereth_terrain::land::merge::Place::WHOLE,
+                };
+                let plan = dereth_terrain::land::merge::merge_plan_at(
                     tm,
-                    dereth_terrain::land::merge::MergeKey(*key),
+                    dereth_terrain::land::merge::MergeKey(key.ground_key()?),
                     self.merge_shift,
+                    place,
                 );
                 let mut memo = self.tiles.borrow_mut();
                 let sources = DatTerrainTextures {
@@ -505,7 +512,7 @@ impl AssetSource for DatAssets<'_> {
         }
     }
 
-    fn ground_colors(&mut self) -> Option<[[f32; 4]; 32]> {
+    fn ground_colors(&mut self) -> Option<dereth_remaster::assets::terrain::GroundColors> {
         let tm = self.tex_merge.as_ref()?;
         let mut memo = self.tiles.borrow_mut();
         let sources = DatTerrainTextures {
@@ -515,11 +522,20 @@ impl AssetSource for DatAssets<'_> {
             ),
             memo: RefCell::new(&mut memo),
         };
-        let mut out = [[0.5, 0.5, 0.5, 1.0]; 32];
-        for (t, color) in (0u32..).zip(out.iter_mut()) {
+        // Row `type + 32 * variant`: a variant the region gives no picture of its own draws its
+        // type's, and takes its type's color.
+        let mut out = vec![[0.5, 0.5, 0.5, 1.0]; 32 * dereth_remaster::assets::terrain::VARIANTS];
+        let mut means: HashMap<DataId, [f32; 4]> = HashMap::new();
+        for (k, color) in out.iter_mut().enumerate() {
+            let k = u32::try_from(k).unwrap_or(0);
+            let t = dereth_terrain::land::merge::terrain_kind(k % 32, k / 32);
             let Some(desc) = dereth_terrain::land::merge::get_terrain_tex(tm, t) else {
                 continue;
             };
+            if let Some(mean) = means.get(&desc.tex_gid) {
+                *color = *mean;
+                continue;
+            }
             let Some(img) = sources.image(desc.tex_gid) else {
                 continue;
             };
@@ -534,11 +550,14 @@ impl AssetSource for DatAssets<'_> {
             #[allow(clippy::cast_precision_loss)] // a picture's pixels, at most a few million
             let mean = |s: u64| s as f32 / n as f32 / 255.0;
             *color = [mean(sum[0]), mean(sum[1]), mean(sum[2]), 1.0];
+            means.insert(desc.tex_gid, *color);
         }
         // Where the pack lays a land ground, its tile's: what grows and lies on that ground (the
         // grass, the pebbles) and the ground far off take the color drawn there.
         if let Some((p, _)) = self.pack.as_ref().filter(|(_, on)| on.ground) {
-            for (t, color) in (0u32..).zip(out.iter_mut()) {
+            for (k, color) in (0u32..).zip(out.iter_mut()) {
+                // A pack lays a type's ground over each of its variants.
+                let t = k % 32;
                 if dereth_remaster::assets::kind::is_water_type(t) {
                     continue;
                 }
@@ -559,7 +578,7 @@ impl AssetSource for DatAssets<'_> {
             .unwrap_or_default()
     }
 
-    fn splat(&mut self, key: u32) -> Option<Splat> {
+    fn splat(&mut self, key: u64) -> Option<Splat> {
         let tm = self.tex_merge.as_ref()?;
         let plan = dereth_terrain::land::merge::merge_plan(
             tm,
@@ -604,35 +623,43 @@ impl AssetSource for DatAssets<'_> {
         // their normal and surface pictures: retail's alpha maps blend them as they blend
         // retail's.
         if let Some((p, _)) = self.pack.as_ref().filter(|(_, on)| on.ground) {
-            if let Some((tile, repeats)) = splat.base_ground.and_then(|g| p.ground_tile(g)) {
+            // A ground cell's side, which each picture's repeats span: the land cell's on every
+            // grid, a finer grid's squares each laying their own part of it.
+            let cell = self
+                .region
+                .as_ref()
+                .map_or(dereth_terrain::consts::CELL_SIZE, |r| {
+                    r.land_defs.land_grid().cell_length
+                });
+            if let Some((tile, repeats)) = splat.base_ground.and_then(|g| p.ground_tile(g, cell)) {
                 splat.base_broad = splat.base.take().map(|picture| BroadPicture {
                     picture,
                     tiling: splat.base_tiling,
                 });
                 splat.base = Some(tile);
                 splat.base_tiling = repeats;
-                splat.base_maps = splat.base_ground.and_then(|g| p.ground_maps(g));
+                splat.base_maps = splat.base_ground.and_then(|g| p.ground_maps(g, cell));
             }
             for o in &mut splat.overlays {
-                if let Some((tile, repeats)) = o.ground.and_then(|g| p.ground_tile(g)) {
+                if let Some((tile, repeats)) = o.ground.and_then(|g| p.ground_tile(g, cell)) {
                     o.broad = o.tile.take().map(|picture| BroadPicture {
                         picture,
                         tiling: o.tiling,
                     });
                     o.tile = Some(tile);
                     o.tiling = repeats;
-                    o.maps = o.ground.and_then(|g| p.ground_maps(g));
+                    o.maps = o.ground.and_then(|g| p.ground_maps(g, cell));
                 }
             }
             let grounds: Vec<u32> = std::iter::once(splat.base_ground)
                 .chain(splat.overlays.iter().map(|o| o.ground))
                 .flatten()
                 .collect();
-            splat.bank = p.bank_of(&grounds);
+            splat.bank = p.bank_of(&grounds, cell);
             if self.pack.as_ref().is_some_and(|(_, on)| on.slopes) {
                 splat.slopes = std::iter::once(splat.base_ground)
                     .chain(splat.overlays.iter().map(|o| o.ground))
-                    .map(|g| g.map(|g| p.slopes_of(g)).unwrap_or_default())
+                    .map(|g| g.map(|g| p.slopes_of(g, cell)).unwrap_or_default())
                     .collect();
             }
         }
@@ -717,27 +744,58 @@ impl AssetSource for DatAssets<'_> {
         let Some(region) = self.region.as_ref() else {
             return Vec::new();
         };
-        let lb = CellLandblock {
-            id: dereth_world_data::landblock::landblock_did(block),
-            lbi_exists: 0,
-            terrain: terrain.words,
-            height: [0; 81],
+        // The block's words on its own grid: 9 × 9, or a finer grid's whole.
+        let id = dereth_world_data::landblock::landblock_did(block);
+        let steps = usize::from(terrain.steps.max(1));
+        let lb = match <[u16; 81]>::try_from(terrain.words.as_slice()) {
+            Ok(words) => CellLandblock {
+                id,
+                lbi_exists: 0,
+                terrain: words,
+                height: [0; 81],
+                dense: None,
+            },
+            Err(_) => CellLandblock::from_dense(
+                id,
+                0,
+                dereth_assets::world::DenseLand {
+                    steps,
+                    terrain: terrain.words.clone().into(),
+                    height: vec![0; terrain.words.len()].into(),
+                    split: vec![0; dereth_assets::world::DenseLand::split_bytes(steps)].into(),
+                },
+            ),
         };
         // A vertex whose terrain the land surface has no picture for is keyed as its
         // neighbours are, as the block's mesh is.
         let filled = dereth_terrain::land::fill::fill_undrawn_terrain(&lb, self.drawn);
         let lb = filled.as_ref().unwrap_or(&lb);
         let side = usize::from(terrain.side);
+        // On a grid finer than a square a cell, each square draws its own part of its cell's
+        // pictures, as the classic mesh's squares do; the retail grid's squares are whole cells.
+        // At this detail a land cell side holds the side's squares over the block's eight cells.
+        let per_cell = (side / 8).max(1);
         let mut out = Vec::with_capacity(side * side);
         for i in 0..side {
             for j in 0..side {
                 let (key, rotation, _) =
                     dereth_terrain::land::merge::cell_rotation(lb, region, side, i, j);
+                let place = dereth_terrain::land::merge::Place::of_square(i, j, per_cell);
                 out.push(TerrainCell {
-                    texture: TextureKey::Terrain(key.0),
+                    texture: if place.is_whole() {
+                        TextureKey::Terrain(key.0)
+                    } else {
+                        TextureKey::TerrainPart {
+                            key: key.0,
+                            column: place.column,
+                            row: place.row,
+                            of: place.of,
+                        }
+                    },
                     rotation: u8::try_from(rotation.index()).unwrap_or(0),
                     kind: kind::of_ground(dereth_remaster::assets::terrain::cell_corners(
                         &terrain.words,
+                        terrain.full_squares(),
                         side,
                         i,
                         j,

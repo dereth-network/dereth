@@ -118,12 +118,23 @@ impl Out {
 
 impl CellLandblock {
     /// The `0xXXYYFFFF` record: the id, `lbi_exists`, 81 terrain words, 81 height indices and one
-    /// pad byte, always [`LANDBLOCK_BYTES`].
+    /// pad byte, always [`LANDBLOCK_BYTES`]. A block with a full grid writes the grid instead:
+    /// its vertex count, words, heights and split bits, padded to four.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut o = Out(Vec::with_capacity(LANDBLOCK_BYTES));
         o.id(self.id);
         o.u32(self.lbi_exists);
+        if let Some(d) = &self.dense {
+            o.count(d.terrain.len());
+            for &t in &d.terrain {
+                o.u16(t);
+            }
+            o.0.extend_from_slice(&d.height);
+            o.0.extend_from_slice(&d.split);
+            o.align();
+            return o.0;
+        }
         for t in self.terrain {
             o.u16(t);
         }
@@ -1057,12 +1068,73 @@ mod tests {
             lbi_exists: 1,
             terrain: [0; 81],
             height: [0; 81],
+            dense: None,
         };
         lb.terrain[9] = 0x7804;
         lb.height[80] = 200;
         let b = lb.encode();
         assert_eq!(b.len(), LANDBLOCK_BYTES);
         assert_eq!(CellLandblock::decode_payload(lb.id, &b).unwrap(), lb);
+    }
+
+    fn dense_block() -> CellLandblock {
+        let n: u16 = 17 * 17;
+        let terrain: Box<[u16]> = (0..n).map(|i| i.wrapping_mul(0x0105)).collect();
+        let height: Box<[u8]> = (0..n).map(|i| u8::try_from(i % 251).unwrap_or(0)).collect();
+        let split: Box<[u8]> = (0..32u8).map(|i| i.wrapping_mul(37)).collect();
+        CellLandblock::from_dense(
+            DataId(0x5B79_FFFF),
+            0,
+            crate::world::DenseLand {
+                steps: 2,
+                terrain,
+                height,
+                split,
+            },
+        )
+    }
+
+    #[test]
+    fn a_two_step_landblock_is_912_bytes_and_reads_back() {
+        let lb = dense_block();
+        let b = lb.encode();
+        assert_eq!(b.len(), 912);
+        assert_eq!(u32::from_le_bytes(b[8..12].try_into().unwrap()), 289);
+        let back = CellLandblock::decode_payload(lb.id, &b).unwrap();
+        assert_eq!(back, lb);
+        assert_eq!(back.vertex_steps(), 2);
+    }
+
+    #[test]
+    fn a_two_step_landblock_keeps_its_cell_corners_in_the_nine_by_nine_arrays() {
+        let lb = dense_block();
+        let d = lb.dense.as_ref().unwrap();
+        for x in 0..9 {
+            for y in 0..9 {
+                let i = (2 * x) * 17 + 2 * y;
+                assert_eq!(lb.terrain[x * 9 + y], d.terrain[i]);
+                assert_eq!(lb.height[x * 9 + y], d.height[i]);
+            }
+        }
+        assert_eq!(lb.grid_height().len(), 289);
+    }
+
+    #[test]
+    fn a_landblock_with_a_vertex_count_that_is_no_grid_is_refused() {
+        let mut b = dense_block().encode();
+        b[8..12].copy_from_slice(&290u32.to_le_bytes());
+        assert!(CellLandblock::decode_payload(DataId(0x5B79_FFFF), &b).is_err());
+    }
+
+    #[test]
+    fn a_square_split_bit_reads_least_significant_first() {
+        let mut lb = dense_block();
+        let d = lb.dense.as_mut().unwrap();
+        d.split.fill(0);
+        d.split[2] = 0b0000_0100; // square index 18: x = 1, y = 2
+        assert!(d.split_sw_to_ne(1, 2));
+        assert!(!d.split_sw_to_ne(1, 1));
+        assert!(!d.split_sw_to_ne(2, 1));
     }
 
     #[test]

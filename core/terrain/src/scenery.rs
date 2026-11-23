@@ -374,11 +374,24 @@ pub fn find_terrain_poly(m: &LandblockMesh, cell_index: u16, x: f32, y: f32) -> 
     }
     let idx = usize::from(cell_index - 1);
     let (cx, cy) = (idx / 8, idx % 8);
-    let (a, b) = m.cell_polygons(cx, cy);
-    for p in [a, b] {
-        let v: Vec<Vec3> = p.v.iter().map(|&i| m.vertices[i as usize]).collect();
-        if point_in_poly2d(&v, Vec3::new(x, y, 0.0)) {
-            return Some(&p.plane);
+    // The cell's squares: the cell itself on the default grid. The one the point falls in first.
+    let s = usize::from(m.vertex_steps.max(1));
+    let size = CELL_SIZE / s as f32;
+    // LINT-OK: a block-local place to its square within the cell, 0 to s - 1.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let within =
+        |v: f32, c: usize| ((v / size).floor().max(0.0) as usize).clamp(c * s, c * s + s - 1);
+    let first = (within(x, cx), within(y, cy));
+    let others = (0..s * s)
+        .map(|k| (cx * s + k / s, cy * s + k % s))
+        .filter(|&q| q != first);
+    for (i, j) in std::iter::once(first).chain(others) {
+        let (a, b) = m.cell_polygons(i, j);
+        for p in [a, b] {
+            let v: Vec<Vec3> = p.v.iter().map(|&i| m.vertices[i as usize]).collect();
+            if point_in_poly2d(&v, Vec3::new(x, y, 0.0)) {
+                return Some(&p.plane);
+            }
         }
     }
     None

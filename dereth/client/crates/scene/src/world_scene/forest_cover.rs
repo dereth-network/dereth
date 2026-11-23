@@ -72,10 +72,14 @@ pub(crate) fn forest_cover(
     let mut canopy = vec![0u8; side * side];
     // ORDER-OK: a read memo, only looked up.
     let mut read: HashMap<DataId, Option<Scene>> = HashMap::new();
-    let height = |x: usize, y: usize| world.heights[y.min(side - 1) * side + x.min(side - 1)];
+    // The world's vertex at land cell corner `(x, y)`: every `steps`th of its grid.
+    let steps = world.grid.vertices_per_cell;
+    let corner =
+        |x: usize, y: usize| (y.min(side - 1) * steps) * world.side + x.min(side - 1) * steps;
+    let height = |x: usize, y: usize| world.heights[corner(x, y)];
     for gy in 0..side {
         for gx in 0..side {
-            let w = world.words[gy * side + gx];
+            let w = world.words[corner(gx, gy)];
             if w & 3 != 0 {
                 // A road grows no scenery.
                 continue;

@@ -51,16 +51,18 @@ pub fn drawn_terrain_types(surf: &LandSurf, named: usize) -> u32 {
     mask
 }
 
-/// `lb` with each vertex whose terrain type is not in `drawn` given the type most common among
-/// its eight neighbours that is (the lower type on a tie), its road and scene bits kept. A vertex
+/// `lb` with each vertex of its grid (9x9 on the default grid, every vertex of a finer one) whose
+/// terrain type is not in `drawn` given the type most common among its eight neighbors that is
+/// (the lower type on a tie), its road and scene bits kept. A vertex
 /// none of whose neighbours is drawn takes the most common drawn type in the block, and keeps its
 /// own type when the block has none. `None` when every vertex is already drawn, which is nearly
 /// every block.
 #[must_use]
 pub fn fill_undrawn_terrain(lb: &CellLandblock, drawn: u32) -> Option<CellLandblock> {
-    let type_at = |x: usize, y: usize| u32::from(lb.terrain_type(x, y));
+    let words = lb.grid_terrain();
+    let side = (SIDE_VERTEX_COUNT - 1) * lb.vertex_steps() + 1;
+    let type_at = |x: usize, y: usize| u32::from((words[x * side + y] & TYPE_BITS) >> 2);
     let is_drawn = |t: u32| t < 32 && drawn & (1 << t) != 0;
-    let side = SIDE_VERTEX_COUNT;
     if (0..side).all(|x| (0..side).all(|y| is_drawn(type_at(x, y)))) {
         return None;
     }
@@ -77,7 +79,7 @@ pub fn fill_undrawn_terrain(lb: &CellLandblock, drawn: u32) -> Option<CellLandbl
         (counts[best as usize] > 0).then_some(best)
     };
     let block = majority(&mut (0..side).flat_map(|x| (0..side).map(move |y| (x, y))));
-    let mut out = lb.clone();
+    let mut filled = words.to_vec();
     for x in 0..side {
         for y in 0..side {
             if is_drawn(type_at(x, y)) {
@@ -91,10 +93,19 @@ pub fn fill_undrawn_terrain(lb: &CellLandblock, drawn: u32) -> Option<CellLandbl
             let Some(t) = majority(&mut around).or(block) else {
                 continue;
             };
-            let w = &mut out.terrain[x * side + y];
+            let w = &mut filled[x * side + y];
             // `t` is below 32, so it fits the five type bits.
             *w = (*w & !TYPE_BITS) | (u16::try_from(t).unwrap_or(0) << 2);
         }
+    }
+    let mut out = lb.clone();
+    match &lb.dense {
+        Some(d) => {
+            let mut d = (**d).clone();
+            d.terrain = filled.into();
+            out = CellLandblock::from_dense(lb.id, lb.lbi_exists, d);
+        }
+        None => out.terrain.copy_from_slice(&filled),
     }
     Some(out)
 }
@@ -116,6 +127,7 @@ mod tests {
             lbi_exists: 0,
             terrain,
             height: [0; 81],
+            dense: None,
         }
     }
 

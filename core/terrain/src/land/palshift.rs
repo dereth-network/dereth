@@ -79,7 +79,8 @@ fn corner_palettes(texture: &PalShiftTexture, key: MergeKey) -> Option<[DataId; 
     };
     let mut out = [DataId(0); 5];
     for (k, shift) in TERRAIN_SHIFT.iter().enumerate() {
-        out[k] = palette_of((key.0 >> shift) & 0x1F)?;
+        // Palette shifting is the region before Throne of Destiny's: its keys have no variants.
+        out[k] = palette_of(u32::try_from((key.0 >> shift) & 0x1F).unwrap_or(0))?;
     }
     if road_pattern(key) != 0 {
         out[4] = palette_of(ROAD_TERRAIN_TYPE)?;

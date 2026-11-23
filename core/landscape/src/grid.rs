@@ -11,70 +11,9 @@
 //! [`WorldGrid`] is the whole world on that grid: its landblocks along a side, and every vertex by
 //! its world grid point, which a world builder's brushes, map and terrain edits work in.
 
-/// The shape of the landscape grid. [`LandGrid::DEFAULT`] is the grid this workspace's world uses.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LandGrid {
-    /// A land cell's side, in world units.
-    pub cell_length: f32,
-    /// Land cells along a landblock side.
-    pub cells_per_side: usize,
-    /// Vertex steps along a land cell side: 1 puts a vertex only at each cell corner.
-    pub vertices_per_cell: usize,
-}
-
-impl LandGrid {
-    /// The default grid: eight 24-unit land cells to a 192-unit landblock side, a vertex at every
-    /// cell corner, so 9 x 9 vertices per block.
-    pub const DEFAULT: Self = Self {
-        cell_length: 24.0,
-        cells_per_side: 8,
-        vertices_per_cell: 1,
-    };
-
-    /// A landblock side, in world units: `cells_per_side * cell_length`.
-    #[must_use]
-    #[allow(clippy::cast_precision_loss)] // a handful of cells per side
-    pub const fn block_length(&self) -> f32 {
-        self.cells_per_side as f32 * self.cell_length
-    }
-
-    /// Vertex steps along a landblock side (the squares a side is cut into).
-    #[must_use]
-    pub const fn squares_per_side(&self) -> usize {
-        self.cells_per_side * self.vertices_per_cell
-    }
-
-    /// Vertices along a landblock side: one more than the squares.
-    #[must_use]
-    pub const fn vertices_per_side(&self) -> usize {
-        self.squares_per_side() + 1
-    }
-
-    /// Vertices in a landblock: the length of its per-vertex height and terrain arrays.
-    #[must_use]
-    pub const fn vertex_count(&self) -> usize {
-        self.vertices_per_side() * self.vertices_per_side()
-    }
-
-    /// The distance between neighboring vertices: `cell_length / vertices_per_cell`.
-    #[must_use]
-    #[allow(clippy::cast_precision_loss)] // a handful of steps per cell
-    pub const fn vertex_spacing(&self) -> f32 {
-        self.cell_length / self.vertices_per_cell as f32
-    }
-
-    /// The index of vertex `(x, y)` in a block's per-vertex arrays, x major.
-    #[must_use]
-    pub const fn vertex_index(&self, x: usize, y: usize) -> usize {
-        x * self.vertices_per_side() + y
-    }
-}
-
-impl Default for LandGrid {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
+/// The shape of the landscape grid: the world's land grid, which this crate shares with every
+/// other piece that works on the land's vertices. [`LandGrid::DEFAULT`] is the retail worlds'.
+pub use dereth_primitives::land_grid::LandGrid;
 
 /// The world's grid of vertices: `blocks_per_side²` landblocks of one [`LandGrid`], every vertex
 /// named by its world grid point `(gx, gy)`, counted in vertex steps from the world's south-west
@@ -322,6 +261,7 @@ mod tests {
             cell_length: 20.0,
             cells_per_side: 8,
             vertices_per_cell: 2,
+            road_width: 5.0,
         };
         assert_eq!(g.block_length(), 160.0);
         assert_eq!(g.squares_per_side(), 16);
@@ -412,6 +352,7 @@ mod world_tests {
                 cell_length: 20.0,
                 cells_per_side: 8,
                 vertices_per_cell: 2,
+                road_width: 5.0,
             },
             blocks_per_side: 256,
         };

@@ -490,3 +490,144 @@ fn a_body_in_the_water_is_drawn_as_deep_as_retail_sinks_it_and_out_of_it_moves_w
     let s = shift(held_from(retail + 0.01, retail), raised, 1.0);
     assert!((s - 0.34).abs() < 1e-5, "{s}");
 }
+
+/// A landscape on a finer grid: vertices `spacing` meters apart, every square cut the same way.
+struct Fine<F: Fn(i32, i32) -> f32> {
+    height: F,
+    spacing: f32,
+    cut: bool,
+}
+
+impl<F: Fn(i32, i32) -> f32> GroundSource for Fine<F> {
+    fn vertex(&self, gx: i32, gy: i32) -> Option<Vertex> {
+        Some(Vertex {
+            height: (self.height)(gx, gy),
+            word: 1 << 2,
+        })
+    }
+
+    fn spacing(&self) -> f32 {
+        self.spacing
+    }
+
+    fn side(&self) -> i32 {
+        6121
+    }
+
+    fn cut(&self, _: i32, _: i32) -> bool {
+        self.cut
+    }
+}
+
+#[test]
+fn retail_height_on_a_finer_grid_lies_on_its_own_vertices_and_its_own_cuts() {
+    // Eight meters apart, one vertex raised: retail's height is the vertex's own there, half of
+    // it halfway to a neighbor, and across the square the cut it carries decides the plane.
+    let peak = |gx: i32, gy: i32| if (gx, gy) == (101, 101) { 8.0 } else { 0.0 };
+    for cut in [false, true] {
+        let src = Fine {
+            height: peak,
+            spacing: 8.0,
+            cut,
+        };
+        assert_eq!(retail_height(&src, 808.0, 808.0), 8.0);
+        assert!((retail_height(&src, 804.0, 808.0) - 4.0).abs() < 1e-5);
+        assert_eq!(retail_height(&src, 790.0, 790.0), 0.0, "two squares off");
+        // The middle of the square south-west of the peak: on the cut through the peak it is
+        // halfway up; across the other diagonal, on the plane of three low corners.
+        let mid = retail_height(&src, 804.0, 804.0);
+        let want = if cut { 4.0 } else { 0.0 };
+        assert!((mid - want).abs() < 1e-5, "cut {cut}: {mid}");
+    }
+}
+
+#[test]
+fn the_offset_is_drawn_only_over_a_world_whose_vertices_are_a_cell_apart() {
+    assert!(offset_drawn_on(&LandGrid::DEFAULT));
+    assert!(!offset_drawn_on(&LandGrid::with_steps(3, 4.0)));
+    assert_eq!(world_vertices(&LandGrid::DEFAULT), 2041);
+    assert_eq!(world_vertices(&LandGrid::with_steps(3, 4.0)), 6121);
+}
+
+#[test]
+fn on_retails_grid_the_cover_goes_by_retails_own_triangles() {
+    let src = rolling();
+    for k in 0..400u16 {
+        let (x, y) = (
+            900.0 + f32::from(k % 20) * 5.3,
+            1300.0 + f32::from(k / 20) * 4.7,
+        );
+        let p = Point::at(&src, x, y);
+        assert_eq!(p.cover, p.gradient, "at ({x}, {y})");
+    }
+}
+
+#[test]
+fn on_a_finer_grid_the_cover_slope_runs_on_across_triangle_and_cell_edges() {
+    // Eight meters apart, a crest one square wide: the triangles on either side of a square's
+    // diagonal rise very differently, and so do those on either side of a cell's edge.
+    let crest = |gx: i32, gy: i32| {
+        let d = (gx - 100).abs().min(4);
+        // LINT-OK: small integers.
+        #[allow(clippy::cast_precision_loss)]
+        let h = 20.0 - 5.0 * d as f32 + (gy as f32) * 0.5;
+        h
+    };
+    for cut in [false, true] {
+        let src = Fine {
+            height: crest,
+            spacing: 8.0,
+            cut,
+        };
+        let across = |a: (f32, f32), b: (f32, f32)| {
+            let (pa, pb) = (Point::at(&src, a.0, a.1), Point::at(&src, b.0, b.1));
+            let tri =
+                ((pa.gradient.0 - pb.gradient.0).abs()).max((pa.gradient.1 - pb.gradient.1).abs());
+            let cov = ((pa.cover.0 - pb.cover.0).abs()).max((pa.cover.1 - pb.cover.1).abs());
+            (tri, cov)
+        };
+        // The diagonal of the square whose south-west vertex is (99, 100): south-west to
+        // north-east when cut, else north-west to south-east.
+        let (a, b) = if cut {
+            (
+                (796.0 + 4.001, 800.0 + 3.999),
+                (796.0 + 3.999, 800.0 + 4.001),
+            )
+        } else {
+            (
+                (796.0 + 3.999, 800.0 + 3.999),
+                (796.0 + 4.001, 800.0 + 4.001),
+            )
+        };
+        let (tri, cov) = across(a, b);
+        assert!(
+            tri > 0.2,
+            "cut {cut}: the triangles differ across the diagonal: {tri}"
+        );
+        assert!(cov < 1e-3, "cut {cut}: the cover runs on across it: {cov}");
+        // The crest's own cell edge at x = 800.
+        let (tri, cov) = across((799.999, 803.0), (800.001, 803.0));
+        assert!(
+            tri > 0.5,
+            "cut {cut}: the triangles differ across the cell edge: {tri}"
+        );
+        assert!(cov < 1e-3, "cut {cut}: the cover runs on across it: {cov}");
+    }
+    // On a plane, the cover rises as the plane does.
+    let plane = Fine {
+        height: |gx: i32, gy: i32| {
+            // LINT-OK: small integers.
+            #[allow(clippy::cast_precision_loss)]
+            let h = 0.3 * 8.0 * gx as f32 - 0.2 * 8.0 * gy as f32;
+            h
+        },
+        spacing: 8.0,
+        cut: true,
+    };
+    let p = Point::at(&plane, 813.0, 1201.0);
+    assert!(
+        (p.cover.0 - 0.3).abs() < 1e-4 && (p.cover.1 + 0.2).abs() < 1e-4,
+        "{:?}",
+        p.cover
+    );
+}

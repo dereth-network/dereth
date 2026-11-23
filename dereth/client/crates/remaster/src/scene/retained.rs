@@ -214,7 +214,8 @@ mod tests {
             side: 1,
             vertices: vec![Vec3::ZERO; 4],
             cuts: vec![true],
-            words: [0; 81],
+            words: vec![0; 81],
+            steps: 1,
         }
     }
 

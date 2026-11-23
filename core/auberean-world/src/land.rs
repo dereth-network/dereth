@@ -154,6 +154,7 @@ impl LandConstants {
                     cell_length: l.cell_side,
                     cells_per_side: cells,
                     vertices_per_cell: steps,
+                    road_width: l.road_width,
                 },
                 split: sw_to_ne_cut,
                 height_max,

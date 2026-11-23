@@ -126,11 +126,18 @@ pub struct SplatOverlay {
     pub broad: Option<BroadPicture>,
 }
 
+/// The terrain variants a type can carry (a terrain word's bits 7-10), its own the first.
+pub const VARIANTS: usize = 16;
+
+/// Each terrain type's color far off, and each of its variants': row `type + 32 * variant`,
+/// [`VARIANTS`] times 32 rows. A variant the ground gives no picture of its own has its type's.
+pub type GroundColors = Vec<[f32; 4]>;
+
 /// The splat a ground cell's merge key draws: the key without its detail level, which changes the
 /// composite's size and nothing of its layers.
 #[must_use]
-pub const fn splat_key(merge_key: u32) -> u32 {
-    merge_key & 0x0FFF_FFFF
+pub const fn splat_key(merge_key: u64) -> u64 {
+    merge_key & !0xF000_0000
 }
 
 /// One drawn ground cell: its picture, the quarter turns its corners' texture coordinates are
@@ -143,11 +150,14 @@ pub struct TerrainCell {
 }
 
 /// The terrain words at the four corners of drawn cell `(i, j)` of a grid of `side` cells, SW,
-/// SE, NE and NW, from the block's full 9 × 9 words.
+/// SE, NE and NW, from the block's full-detail words, `full` squares a side (9 × 9 words, 8
+/// squares, on the default grid).
 #[must_use]
-pub fn cell_corners(words: &[u16; 81], side: usize, i: usize, j: usize) -> [u16; 4] {
-    let step = 8 / side.clamp(1, 8);
-    let at = |x: usize, y: usize| words.get(x * step * 9 + y * step).copied().unwrap_or(0);
+pub fn cell_corners(words: &[u16], full: usize, side: usize, i: usize, j: usize) -> [u16; 4] {
+    let full = full.max(1);
+    let step = full / side.clamp(1, full);
+    let n = full + 1;
+    let at = |x: usize, y: usize| words.get(x * step * n + y * step).copied().unwrap_or(0);
     [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)]
 }
 
@@ -242,7 +252,8 @@ mod tests {
             side,
             vertices,
             cuts: vec![cut; n * n],
-            words: [0; 81],
+            words: vec![0; 81],
+            steps: 1,
         }
     }
 
@@ -278,6 +289,33 @@ mod tests {
                 assert!(d.length() < 1e-6, "{n:?} against {want:?}");
             }
         }
+    }
+
+    /// **A drawn cell's corners are its own on the block's grid**: on a grid of three steps a land
+    /// cell (25 × 25 words), a cell of the full-detail grid takes the words of its own square's
+    /// corners, and a cell of a coarser one every second, fourth or eighth square's; on the default
+    /// grid's 9 × 9, the land cell's.
+    #[test]
+    fn a_cells_corners_are_its_own_squares_on_the_blocks_grid() {
+        let fine: Vec<u16> = (0..25 * 25)
+            .map(|k| u16::try_from(k).unwrap_or(0))
+            .collect();
+        let at = |x: u16, y: u16| x * 25 + y;
+        assert_eq!(
+            cell_corners(&fine, 24, 24, 5, 7),
+            [at(5, 7), at(6, 7), at(6, 8), at(5, 8)]
+        );
+        assert_eq!(
+            cell_corners(&fine, 24, 12, 5, 7),
+            [at(10, 14), at(12, 14), at(12, 16), at(10, 16)]
+        );
+        assert_eq!(
+            cell_corners(&fine, 24, 3, 2, 1),
+            [at(16, 8), at(24, 8), at(24, 16), at(16, 16)]
+        );
+        let retail: Vec<u16> = (0..81).collect();
+        assert_eq!(cell_corners(&retail, 8, 8, 3, 4), [31, 40, 41, 32]);
+        assert_eq!(cell_corners(&retail, 8, 4, 1, 2), [22, 40, 42, 24]);
     }
 
     /// **Each triangle weighs the same, whatever its size, and the block's edge sees only the

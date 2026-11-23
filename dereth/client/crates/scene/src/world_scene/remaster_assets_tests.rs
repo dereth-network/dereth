@@ -89,7 +89,7 @@ fn stations(store: &RetailDatStore) -> [(&'static str, u16); 2] {
 
 /// Every resident block's drawn grid as the remaster is sent it, with its id, Retail Look's own
 /// normals for it and the merge keys Retail Look drew its cells with.
-fn grids(scene: &WorldScene) -> Vec<(u16, Terrain, Vec<Vec3>, Vec<u32>)> {
+fn grids(scene: &WorldScene) -> Vec<(u16, Terrain, Vec<Vec3>, Vec<u64>)> {
     let window = &scene.world.streamer.window;
     let mut out = Vec::new();
     for xi in 0..window.mid_width() {
@@ -111,14 +111,15 @@ fn grids(scene: &WorldScene) -> Vec<(u16, Terrain, Vec<Vec3>, Vec<u32>)> {
                 continue;
             };
             let terrain = Terrain {
-                side: mesh.side_cell_count,
+                side: u8::try_from(mesh.squares_per_side()).unwrap_or(8),
                 vertices: mesh
                     .vertices
                     .iter()
                     .map(|v| glam::Vec3::new(v.x, v.y, v.z))
                     .collect(),
                 cuts: mesh.sw_to_ne_cut.clone(),
-                words: block.terrain,
+                words: block.terrain.to_vec(),
+                steps: mesh.vertex_steps,
             };
             let normals = dereth_terrain::land::lighting::vertex_normals(mesh);
             let keys = block.merge_keys.iter().map(|k| k.0).collect();
@@ -152,7 +153,7 @@ fn the_grounds_normals_and_cell_pictures_are_retail_looks_at_the_stations() {
                 assert_eq!(*a, [b.x, b.y, b.z], "{name} {id:04X} vertex {k}");
             }
             let cells = src.terrain_cells(*id, terrain);
-            let ours: Vec<u32> = cells
+            let ours: Vec<u64> = cells
                 .iter()
                 .map(|c| match c.texture {
                     TextureKey::Terrain(k) => k,
@@ -175,6 +176,80 @@ fn the_grounds_normals_and_cell_pictures_are_retail_looks_at_the_stations() {
         assert_eq!(t.levels.len(), 1 + t.width.max(t.height).ilog2() as usize);
         scene.release_textures(&mut gpu);
     }
+}
+
+/// **On a grid finer than a square a cell, each square's ground picture is its own part of its
+/// cell's**: a square names its cell's merge key and its place in the cell, and composes a picture
+/// of its own, so the cell's pictures repeat across the whole cell rather than once a square. (The
+/// test above holds the retail grid's squares to whole cells, keyed as Retail Look keys them.)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn on_a_finer_grid_each_squares_ground_picture_is_its_part_of_its_cells() {
+    const STEPS: usize = 3;
+    let store = store();
+    let mut gpu = device();
+    let mut scene = station(&store, &mut gpu, HOLTBURG);
+    let mut src = DatAssets::for_scene(&store, &scene.draw);
+    let (id, coarse, _, _) = grids(&scene)
+        .into_iter()
+        .find(|(id, ..)| *id == HOLTBURG)
+        .expect("Holtburg's block is resident");
+    // A block of the station's first ground, on a grid of three squares a cell.
+    let side = 8 * STEPS;
+    let words = vec![coarse.words[0]; (side + 1) * (side + 1)];
+    let fine = Terrain {
+        side: u8::try_from(side).expect("a side"),
+        vertices: vec![glam::Vec3::ZERO; (side + 1) * (side + 1)],
+        cuts: vec![false; side * side],
+        words,
+        steps: u8::try_from(STEPS).expect("steps"),
+    };
+    let cells = src.terrain_cells(id, &fine);
+    assert_eq!(cells.len(), side * side);
+    let mut parts = Vec::new();
+    for (n, c) in cells.iter().enumerate() {
+        let (i, j) = (n / side, n % side);
+        match c.texture {
+            TextureKey::TerrainPart {
+                key,
+                column,
+                row,
+                of,
+            } => {
+                assert_eq!(
+                    (usize::from(column), usize::from(row), usize::from(of)),
+                    (i % STEPS, j % STEPS, STEPS),
+                    "square ({i}, {j})"
+                );
+                if j == 0 && i < STEPS {
+                    parts.push((key, c.texture.clone()));
+                }
+            }
+            ref other => panic!("square ({i}, {j}) names {other:?}"),
+        }
+    }
+    // The first cell's three squares across: one cell, three parts, none of them the whole.
+    assert!(parts.iter().all(|(k, _)| *k == parts[0].0), "{parts:?}");
+    let mut level = |t: &TextureKey| {
+        src.texture(t, false)
+            .expect("the square's picture composes")
+            .levels
+            .swap_remove(0)
+    };
+    let whole = level(&TextureKey::Terrain(parts[0].0));
+    let drawn: Vec<Vec<u8>> = parts.iter().map(|(_, t)| level(t)).collect();
+    for (k, d) in drawn.iter().enumerate() {
+        assert_ne!(
+            d, &whole,
+            "the part in column {k} is not the whole cell's picture"
+        );
+    }
+    assert_ne!(drawn[0], drawn[1]);
+    assert_ne!(drawn[1], drawn[2]);
+    scene.release_textures(&mut gpu);
 }
 
 /// What Retail Look resolved: each surface group as the remaster keys its material.
@@ -495,7 +570,7 @@ impl dereth_remaster::assets::AssetSink for Counted {
     ) {
         *self.handed.entry("terrain").or_insert(0) += 1;
     }
-    fn splat(&mut self, _: u32, _: &dereth_remaster::assets::terrain::Splat) {
+    fn splat(&mut self, _: u64, _: &dereth_remaster::assets::terrain::Splat) {
         *self.handed.entry("splats").or_insert(0) += 1;
     }
     fn release(&mut self, _: &dereth_remaster::assets::AssetKey) {
@@ -641,7 +716,7 @@ fn at_the_stations_the_tables_hold_what_retail_look_holds() {
 
         // The ground as its splats: one a merge key without its detail level, every picture they
         // blend decoding, and no composite left.
-        let keys: BTreeSet<u32> = changes
+        let keys: BTreeSet<u64> = changes
             .deltas
             .iter()
             .filter_map(|d| match d {

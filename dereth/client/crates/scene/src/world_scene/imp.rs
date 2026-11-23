@@ -175,7 +175,7 @@ use {
 use {
     dereth_terrain::land::merge::land_texture_scale_shift, dereth_terrain::land::merge::Bgra8,
     dereth_terrain::land::merge::MergeKey, dereth_terrain::land::merge::MergePlan,
-    dereth_terrain::land::merge::TerrainMergeCache,
+    dereth_terrain::land::merge::SurfaceKey, dereth_terrain::land::merge::TerrainMergeCache,
     dereth_terrain::land::merge::TerrainTextureSource,
 };
 use {
@@ -212,7 +212,7 @@ use dereth_client_runtime::character::RenderSpace;
 use dereth_client_runtime::models::{build_gfxobj, resolve_parts};
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_client_runtime::world_build::{
-    self, interior_content, land_content, read_landblock, BlockStatics, LandContent,
+    self, interior_content, land_content, read_landblock_on, BlockStatics, LandContent,
 };
 use dereth_client_runtime::world_objects;
 use dereth_client_runtime::world_state::WorldState;
@@ -498,10 +498,10 @@ struct BlockDraw {
     /// The landscape block origin, viewer-block-relative. Recomputed on
     /// every scroll; nothing else about the block changes.
     origin: (f32, f32),
-    /// `CellLandblock::terrain`, one 16-bit word per vertex, indexed `row * 9 + col`. Terrain
-    /// lighting reads exactly this and nothing else —
-    /// no day/night term, no weather, no season — so the block has to keep it.
-    terrain: [u16; dereth_assets::world::VERTEX_COUNT],
+    /// `CellLandblock::grid_terrain`, one 16-bit word per vertex of the block's whole grid,
+    /// indexed `row * side + col` (9 × 9 on the default grid). Terrain lighting reads exactly this
+    /// and nothing else — no day/night term, no weather, no season — so the block has to keep it.
+    terrain: Box<[u16]>,
     /// The landscape surface-cache entry for each cell, indexed `i * side_cell_count + j`. Rebuilt whenever
     /// the slot changes LOD ring, because the cell count changes with it.
     cell_texture: Vec<Option<TextureSlot>>,
@@ -516,7 +516,7 @@ struct BlockDraw {
     /// Kept beside `cell_texture` rather than folded into it because a cell whose merged
     /// texture failed to upload still took a reference — `get_or_build` increments
     /// the surface's cell count on every call — so a `None` texture is not a cell with no link.
-    cell_keys: Vec<MergeKey>,
+    cell_keys: Vec<SurfaceKey>,
     /// Every cell's merge key, in draw order, whether or not the block holds composites.
     /// [`Self::cell_keys`] is the same list while it does and empty while it does not, because
     /// that one is the reference book the release paths read.
@@ -2795,7 +2795,7 @@ struct LandContext {
     gpu_merge: bool,
     /// Those sources resident on the device for its compositor, by dat id. `None` is a source
     /// the dat does not carry. Emptied with [`Self::sources`].
-    gpu_merge_sources: HashMap<DataId, Option<MergeSource>>,
+    gpu_merge_sources: HashMap<land::PlacedSource, Option<MergeSource>>,
     /// Builds compressed textures' mip chains off the main thread for the landscape's bakes;
     /// see [`crate::mip_worker`]. Asked only when [`Self::defer_mips`] is set.
     mip_worker: crate::mip_worker::MipWorker,
@@ -2840,9 +2840,9 @@ struct LandContext {
     splat_wanted: bool,
     composites_wanted: bool,
     /// The same sources as ordinary textures, for the splat draw. One link each, held here.
-    splat_sources: HashMap<DataId, Option<TextureSlot>>,
+    splat_sources: HashMap<land::PlacedSource, Option<TextureSlot>>,
     /// Each merge key's splat layers, made once.
-    splats: HashMap<MergeKey, Arc<TerrainSplat>>,
+    splats: HashMap<SurfaceKey, Arc<TerrainSplat>>,
     /// Decoded setup part lists, graphics-object triangulations and resolved surfaces, shared by
     /// every block for the same reason.
     bake: BakeCache,
@@ -3225,7 +3225,7 @@ pub(crate) struct PaletteComposition {
 type GeneratedBlock = (
     LandblockMesh,
     Vec<Option<TextureSlot>>,
-    Vec<MergeKey>,
+    Vec<SurfaceKey>,
     Vec<MergeKey>,
     Vec<Option<Arc<TerrainSplat>>>,
 );
@@ -3339,7 +3339,7 @@ impl WorldScene {
 
     /// [`SceneDraw::terrain_composites`] on this scene.
     #[must_use]
-    pub fn terrain_composites(&self) -> Vec<(u32, TextureSlot)> {
+    pub fn terrain_composites(&self) -> Vec<(u64, TextureSlot)> {
         self.draw.terrain_composites()
     }
 

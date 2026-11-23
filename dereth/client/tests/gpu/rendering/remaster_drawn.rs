@@ -14,7 +14,10 @@
 //!   particles outdoors are drawn lifted onto it; the far trees' impostor cards stand on its mesh,
 //!   near the switch and far out.
 //! - **The water's bed lies where bodies stand.** Over the valley, a body standing in the river
-//!   where physics stands it is drawn there, on the bed the device draws. In the lake's shallows
+//!   where physics stands it is drawn there, on the bed the device draws. Over a river on a grid
+//!   three vertices a land cell, the bed lies where physics stands a body in its wading water and
+//!   in its deep, and no water is drawn on its bank above the water's level; on retail's grid all
+//!   of it is. In the lake's shallows
 //!   and out where it is deep, a body is drawn where physics puts it, water drawn or not, with the
 //!   bed under its feet; a pillar standing in the water and a lily pad on it are drawn where
 //!   retail places them, and a body on a boardwalk over the water, the boardwalk and its posts
@@ -31,6 +34,7 @@ use std::sync::Arc;
 
 use dereth_client_runtime::report::VisualReport;
 use dereth_dat::RetailDatStore;
+use dereth_primitives::land_grid::LandGrid;
 use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_scene::world_scene::remaster as rm;
 use dereth_scene::world_scene::RemasterTerrain;
@@ -167,7 +171,7 @@ impl GroundSource for Valley {
 
 /// The valley's ground as the remaster draws it with `knobs`: the valley, its water field, its
 /// block's offset and the ground for the device.
-fn valley_ground(knobs: &Knobs) -> (Valley, Vec<[f32; 2]>, drawn::BlockField, rm::DrawnGround) {
+fn valley_ground(knobs: &Knobs) -> (Valley, Vec<[u16; 2]>, drawn::BlockField, rm::DrawnGround) {
     let valley = Valley::new();
     let field = shore::held(&shore::water_field(SIDE, &valley.heights, &valley.words));
     let block = drawn::block_field(&valley, BLOCK, &[], knobs);
@@ -179,6 +183,7 @@ fn valley_ground(knobs: &Knobs) -> (Valley, Vec<[f32; 2]>, drawn::BlockField, rm
             heights: Arc::new(valley.heights.clone()),
             words: Arc::new(valley.words.clone()),
             water: Arc::new(field.clone()),
+            ..rm::DrawnWorld::default()
         }),
         tiles: vec![rm::DrawnTile {
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // block coordinates
@@ -270,11 +275,7 @@ fn the_ground_beside_and_under_the_water_is_drawn_where_the_scene_stands_bodies(
     let knobs = valley_knobs();
     let (valley, field, block, ground) = valley_ground(&knobs);
     let water = drawn::Water {
-        shore: shore::Shore {
-            side: SIDE,
-            heights: &valley.heights,
-            field: &field,
-        },
+        shore: shore::Shore::on_default_grid(SIDE, &valley.heights, &field),
         slope: knobs.get(Knob::BedSlope),
     };
     #[allow(clippy::cast_precision_loss)] // block coordinates, exact in f32
@@ -338,6 +339,247 @@ fn the_ground_beside_and_under_the_water_is_drawn_where_the_scene_stands_bodies(
     assert!(
         depths[1] > 5 && depths[2] > 20,
         "bodies stand on the bed in the shallows and the deep: {depths:?}"
+    );
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+}
+
+/// The block the made-up river on a finer grid runs through, and the world's blocks a side.
+const RIVER_BLOCK: (usize, usize) = (4, 4);
+const RIVER_BLOCKS: usize = 10;
+/// Its grid: three vertices a land cell, eight meters apart.
+const RIVER_STEPS: usize = 3;
+
+/// A river running north through [`RIVER_BLOCK`] on a grid three vertices a land cell: a steep
+/// bank rising three meters a vertex to the west, the water at 20 meters, wading water along
+/// both banks and deep water between, and a gentle bank rising to the east. Each vertex's height
+/// is a step of the height table, half a meter a step.
+struct River {
+    side: usize,
+    steps: Vec<u8>,
+    words: Vec<u16>,
+}
+
+impl River {
+    fn new() -> Self {
+        let side = RIVER_BLOCKS * 8 * RIVER_STEPS + 1;
+        let mut steps = vec![60u8; side * side];
+        let mut words = vec![1u16 << 2; side * side];
+        let x0 = RIVER_BLOCK.0 * 8 * RIVER_STEPS;
+        for gy in 0..side {
+            for gx in 0..side {
+                let (step, t) = match gx.checked_sub(x0) {
+                    Some(x @ 0..=5) => (40 + 6 * u8::try_from(6 - x).unwrap(), 1),
+                    Some(6..=9 | 15..=18) => (40, 18 + u16::from(gx % 2 == 0)),
+                    Some(10..=14) => (40, 20),
+                    Some(x @ 19..=40) => (40 + u8::try_from(x - 18).unwrap(), 1),
+                    _ => (60, 1),
+                };
+                steps[gy * side + gx] = step;
+                words[gy * side + gx] = t << 2;
+            }
+        }
+        Self { side, steps, words }
+    }
+
+    fn table() -> [f32; 256] {
+        std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap()) * 0.5)
+    }
+
+    fn heights(&self) -> Vec<f32> {
+        let table = Self::table();
+        self.steps.iter().map(|s| table[usize::from(*s)]).collect()
+    }
+
+    /// The river's ground for the device, on `grid`.
+    fn ground(&self, grid: LandGrid, knobs: &Knobs) -> rm::DrawnGround {
+        let spacing = grid.vertex_spacing();
+        let heights = self.heights();
+        let field = shore::held(&shore::water_field_spaced(
+            self.side,
+            spacing,
+            &heights,
+            &self.words,
+        ));
+        rm::DrawnGround {
+            world: Arc::new(rm::DrawnWorld {
+                serial: 2_000_000 + u64::from(spacing.to_bits()),
+                side: u32::try_from(self.side).unwrap(),
+                grid,
+                heights: Arc::new(heights),
+                words: Arc::new(self.words.clone()),
+                water: Arc::new(field),
+                cuts: Arc::new(rm::DrawnWorld::cut_bits(self.side, |_, _| false)),
+            }),
+            tiles: Vec::new(),
+            reach: 1,
+            global: Vec2::ZERO,
+            knobs: rm::DrawnKnobs {
+                micro: (0.0, 0.7),
+                water: Some(knobs.get(Knob::BedSlope)),
+                ..rm::DrawnKnobs::default()
+            },
+            bodies: Vec::new(),
+        }
+    }
+
+    /// The river's block as physics stands bodies on it.
+    fn collision(&self) -> dereth_physics::LandblockCollision {
+        let svc = 8 * RIVER_STEPS + 1;
+        let (x0, y0) = (
+            RIVER_BLOCK.0 * 8 * RIVER_STEPS,
+            RIVER_BLOCK.1 * 8 * RIVER_STEPS,
+        );
+        // Physics holds a block's vertices east by east, each a column from the south.
+        let at = |i: usize| (y0 + i % svc) * self.side + x0 + i / svc;
+        let steps: Vec<u8> = (0..svc * svc).map(|i| self.steps[at(i)]).collect();
+        let words: Vec<u16> = (0..svc * svc).map(|i| self.words[at(i)]).collect();
+        dereth_physics::LandblockCollision::build_in(
+            &dereth_primitives::land_grid::LandGrid::with_steps(RIVER_STEPS, 4.0),
+            river_block(),
+            steps.into(),
+            words.into(),
+            |_, _| None,
+            false,
+            &Self::table(),
+        )
+        .expect("the river's block")
+    }
+}
+
+fn river_block() -> dereth_primitives::LandblockId {
+    dereth_primitives::LandblockId::new(
+        u8::try_from(RIVER_BLOCK.0).unwrap(),
+        u8::try_from(RIVER_BLOCK.1).unwrap(),
+    )
+}
+
+/// How far physics stands a body under retail's ground at global `(x, y)` of the river's block.
+fn river_sink(b: &dereth_physics::LandblockCollision, x: f32, y: f32) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // block coordinates, exact in f32
+    let (ox, oy) = (RIVER_BLOCK.0 as f32 * 192.0, RIVER_BLOCK.1 as f32 * 192.0);
+    let local = dereth_primitives::Vec3::new(x - ox, y - oy, 0.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside the block
+    let (cx, cy) = ((local.x / 24.0) as u16, (local.y / 24.0) as u16);
+    b.get_water_depth(river_block().cell(cx * 8 + cy + 1), local)
+}
+
+/// Points across the river's block, its steep bank, its water and its far bank, along three lines
+/// clear of where one depth eases into the next; the distance from the eye near.
+fn across_the_river() -> Vec<[f32; 3]> {
+    #[allow(clippy::cast_precision_loss)] // block coordinates, exact in f32
+    let (ox, oy) = (RIVER_BLOCK.0 as f32 * 192.0, RIVER_BLOCK.1 as f32 * 192.0);
+    let mut points = Vec::new();
+    for row in [50.5, 98.3, 141.7] {
+        for k in 0..600u16 {
+            points.push([ox + 20.0 + f32::from(k) * 0.25, oy + row, 30.0]);
+        }
+    }
+    points
+}
+
+/// **On a finer grid a body's feet meet the bed in wading water and in deep, and no water is
+/// drawn on a bank above the water's level; on retail's grid its pictures' water is drawn
+/// everywhere they lay it**: over a river laid three vertices a land cell, the device draws the
+/// bed 0.45 m under the ground in the wading water along its banks and 0.9 m in the deep
+/// between, where physics stands a body; on the steep bank, where the
+/// square between a water vertex and the land beside it climbs over the water's level, the
+/// device keeps none of the water its pictures lay, and in the water all of it. The same land
+/// laid on retail's grid keeps all of it, its bank included.
+#[test]
+fn on_a_finer_grid_feet_meet_the_bed_in_wading_water_and_no_water_is_drawn_above_its_level() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let station = remaster_frames::stations(&store, &["holtburg"])
+        .pop()
+        .expect("the town");
+    let (mut gpu, shot) = opened(&store, &station, None, every_piece());
+    let knobs = valley_knobs();
+    let river = River::new();
+    let collision = river.collision();
+    let ground = river.ground(LandGrid::with_steps(RIVER_STEPS, 4.0), &knobs);
+    let points = across_the_river();
+    let heights = shot
+        .scene
+        .draw
+        .remaster_drawn_heights(&mut gpu, Some(&ground), &points);
+    let kept = shot
+        .scene
+        .draw
+        .remaster_drawn_water_kept(&mut gpu, Some(&ground), &points);
+    assert_eq!(heights.len(), points.len(), "the probe read back");
+    assert_eq!(kept.len(), points.len(), "the probe read back");
+    let world = &ground.world;
+    let field = &world.water;
+    let shore = shore::Shore {
+        side: river.side,
+        grid: LandGrid::with_steps(RIVER_STEPS, 4.0),
+        heights: &world.heights,
+        words: &world.words,
+        field,
+        cuts: &world.cuts,
+    };
+    let slope = knobs.get(Knob::BedSlope);
+    let seam = |v: f32| (v - (v / 4.0).round() * 4.0).abs() < shore::SINK_EASE;
+    let (mut depths, mut bank, mut water) = ([0usize; 3], 0, 0);
+    for ((q, &drawn_h), &kept) in points.iter().zip(&heights).zip(&kept) {
+        let (x, y) = (q[0], q[1]);
+        let inside = shore.distance(x, y, 0.0);
+        let level = shore.level(x, y);
+        let sink = river_sink(&collision, x, y);
+        #[allow(clippy::cast_precision_loss)] // block coordinates, exact in f32
+        let east = x - RIVER_BLOCK.0 as f32 * 192.0;
+        if (48.0..=144.0).contains(&east) && inside > slope && !seam(x) && !seam(y) {
+            // Physics stands a body `sink` under retail's ground, which between the water's
+            // vertices lies at its level: the bed is drawn there.
+            assert!(
+                (level - sink - drawn_h).abs() < 5e-3,
+                "at ({x}, {y}) physics sinks a body {sink} m, the bed is drawn {} m down",
+                level - drawn_h
+            );
+            depths[usize::from(sink > 0.1) + usize::from(sink > 0.5)] += 1;
+        }
+        if drawn_h - level > 0.15 {
+            assert!(
+                kept == 0.0,
+                "at ({x}, {y}) ground {} m over the water keeps {kept} of its water",
+                drawn_h - level
+            );
+            if inside > -8.0 {
+                bank += 1;
+            }
+        } else if drawn_h < level - 0.05 {
+            assert!(kept == 1.0, "at ({x}, {y}) in the water {kept} of it kept");
+            water += 1;
+        }
+    }
+    println!(
+        "{} points; feet on the bed sunk 0.1, 0.45, 0.9 m: {depths:?}; {bank} on the bank by \
+         the water drawn dry, {water} in it",
+        points.len()
+    );
+    assert!(
+        depths[1] > 100 && depths[2] > 100,
+        "bodies stand on the bed in the wading water and the deep: {depths:?}"
+    );
+    assert!(bank > 20 && water > 500, "bank {bank}, water {water}");
+    // Retail's grid: the same vertices a land cell apart keep all their water, bank or not.
+    let retail = river.ground(LandGrid::DEFAULT, &knobs);
+    let on_retail: Vec<[f32; 3]> = points
+        .iter()
+        .map(|q| [q[0] * 3.0, q[1] * 3.0, q[2]])
+        .collect();
+    let kept = shot
+        .scene
+        .draw
+        .remaster_drawn_water_kept(&mut gpu, Some(&retail), &on_retail);
+    assert_eq!(kept.len(), on_retail.len(), "the probe read back");
+    assert!(
+        kept.iter().all(|k| *k == 1.0),
+        "retail's grid keeps all its water: {:?}",
+        kept.iter().filter(|k| **k != 1.0).count()
     );
     drop(shot);
     drop(gpu);

@@ -745,15 +745,14 @@ impl PackAssets {
     }
 
     /// The pack's tile for the retail ground `ground` (a terrain type, or the road's), and how
-    /// many times it repeats across a ground cell, when the pack lays that ground.
-    pub(crate) fn ground_tile(&self, ground: u32) -> Option<(TextureKey, u32)> {
+    /// many times it repeats across a ground cell `cell` meters a side, when the pack lays that
+    /// ground.
+    pub(crate) fn ground_tile(&self, ground: u32, cell: f32) -> Option<(TextureKey, u32)> {
         let i = self.ground_of(ground)?;
         let size = self.pack.grounds[i].size.max(0.01);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // A cell's repeats of a picture of a few metres, a small whole number.
-        let repeats = (dereth_terrain::consts::CELL_SIZE / size)
-            .round()
-            .clamp(1.0, 64.0) as u32;
+        let repeats = (cell / size).round().clamp(1.0, 64.0) as u32;
         Some((
             picture_key(GROUND_PICTURES + u32::try_from(i).ok()?),
             repeats,
@@ -776,13 +775,13 @@ impl PackAssets {
 
     /// The normal and surface pictures of the pack's tile for the retail ground `ground`, laid
     /// as [`Self::ground_tile`]'s picture is.
-    pub(crate) fn ground_maps(&self, ground: u32) -> Option<GroundMaps> {
+    pub(crate) fn ground_maps(&self, ground: u32, cell: f32) -> Option<GroundMaps> {
         let i = self.ground_of(ground)?;
         let at = u32::try_from(i).ok()?;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // A strength of a few at most, in thousandths.
         let normal_scale = (self.pack.grounds[i].normal_scale.max(0.0) * 1000.0).round() as u32;
-        let (detail, detail_repeats, detail_strength) = self.detail_of(i);
+        let (detail, detail_repeats, detail_strength) = self.detail_of(i, cell);
         Some(GroundMaps {
             normal: Some(picture_key(GROUND_NORMALS + at)),
             surface: Some(picture_key(GROUND_SURFACES + at)),
@@ -793,10 +792,10 @@ impl PackAssets {
         })
     }
 
-    /// The pack's ground `i`'s detail picture, its repeats across a ground cell and its
-    /// strength, both in thousandths; none and nought where it has none or its strength is
-    /// nought.
-    fn detail_of(&self, i: usize) -> (Option<TextureKey>, u32, u32) {
+    /// The pack's ground `i`'s detail picture, its repeats across a ground cell `cell` meters a
+    /// side and its strength, both in thousandths; none and nought where it has none or its
+    /// strength is nought.
+    fn detail_of(&self, i: usize, cell: f32) -> (Option<TextureKey>, u32, u32) {
         let (Some(Some(slot)), Some(g)) = (self.detail_slots.get(i), self.pack.grounds.get(i))
         else {
             return (None, 0, 0);
@@ -805,7 +804,7 @@ impl PackAssets {
         // A cell's repeats of a picture of a meter or a few, in thousandths: a few hundred
         // thousand at most; and a strength of a few at most.
         let (repeats, strength) = (
-            (dereth_terrain::consts::CELL_SIZE / g.detail_size.max(0.01) * 1000.0)
+            (cell / g.detail_size.max(0.01) * 1000.0)
                 .round()
                 .clamp(1.0, 2_400_000.0) as u32,
             (g.detail_strength.max(0.0) * 1000.0)
@@ -851,7 +850,7 @@ impl PackAssets {
     /// muddy bank the first of them neither water nor mud nor marsh, or the grass the knobs name;
     /// in place of retail's water the first of them that is not water, or the bed; and the bed the
     /// knobs name. `None` where the pack lays neither the grass nor the bed.
-    pub(crate) fn bank_of(&self, grounds: &[u32]) -> Option<SplatBank> {
+    pub(crate) fn bank_of(&self, grounds: &[u32], cell: f32) -> Option<SplatBank> {
         use dereth_remaster::assets::kind::{is_mud_type, is_water_type};
         use dereth_terrain::land::drawn::{Knob, Knobs};
         let knobs = Knobs::default();
@@ -860,7 +859,10 @@ impl PackAssets {
             knobs.get(Knob::BankGrass) as u32,
             knobs.get(Knob::WaterBed) as u32,
         );
-        let laid = |g: u32| self.ground_of(g).and_then(|i| self.steep_tile(i, false));
+        let laid = |g: u32| {
+            self.ground_of(g)
+                .and_then(|i| self.steep_tile(i, false, cell))
+        };
         let beside = |keep: &dyn Fn(u32) -> bool| {
             grounds
                 .iter()
@@ -877,19 +879,17 @@ impl PackAssets {
     }
 
     /// The pack's ground `i` as a picture laid on steep ground; `own` when it is a ground's own
-    /// material for its slopes.
-    fn steep_tile(&self, i: usize, own: bool) -> Option<SteepTile> {
+    /// material for its slopes; repeated across a ground cell `cell` meters a side.
+    fn steep_tile(&self, i: usize, own: bool, cell: f32) -> Option<SteepTile> {
         let at = u32::try_from(i).ok()?;
         let g = self.pack.grounds.get(i)?;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // A cell's repeats of a picture of a few metres, and a strength of a few at most.
         let (tiling, normal_scale) = (
-            (dereth_terrain::consts::CELL_SIZE / g.size.max(0.01))
-                .round()
-                .clamp(1.0, 64.0) as u32,
+            (cell / g.size.max(0.01)).round().clamp(1.0, 64.0) as u32,
             (g.normal_scale.max(0.0) * 1000.0).round() as u32,
         );
-        let (detail, detail_repeats, detail_strength) = self.detail_of(i);
+        let (detail, detail_repeats, detail_strength) = self.detail_of(i, cell);
         Some(SteepTile {
             tile: picture_key(GROUND_PICTURES + at),
             tiling,
@@ -908,7 +908,7 @@ impl PackAssets {
     /// What the pack lays on the steep ground of the retail ground `ground`: its own material for
     /// that ground's slopes where it has one, otherwise the generic scree and rock; nothing where
     /// the pack does not lay that ground.
-    pub(crate) fn slopes_of(&self, ground: u32) -> LayerSlopes {
+    pub(crate) fn slopes_of(&self, ground: u32, cell: f32) -> LayerSlopes {
         if self.ground_of(ground).is_none() {
             return LayerSlopes::default();
         }
@@ -923,8 +923,8 @@ impl PackAssets {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a terrain type
         let generic = |k| self.ground_of(knobs.get(k) as u32);
         let laid = |generic_ground: Option<usize>| match own {
-            Some(i) => self.steep_tile(i, true),
-            None => generic_ground.and_then(|i| self.steep_tile(i, false)),
+            Some(i) => self.steep_tile(i, true, cell),
+            None => generic_ground.and_then(|i| self.steep_tile(i, false, cell)),
         };
         LayerSlopes {
             scree: laid(generic(dereth_terrain::land::drawn::Knob::ScreeGround)),
@@ -1732,9 +1732,12 @@ detail_strength = 0
         let p = PackAssets::new(Arc::new(pack), None);
         let road = dereth_terrain::consts::ROAD_TERRAIN_TYPE;
         let (grass, road_maps, patchy) = (
-            p.ground_maps(1).expect("type 1's maps"),
-            p.ground_maps(road).expect("the road's maps"),
-            p.ground_maps(9).expect("type 9's maps"),
+            p.ground_maps(1, dereth_terrain::consts::CELL_SIZE)
+                .expect("type 1's maps"),
+            p.ground_maps(road, dereth_terrain::consts::CELL_SIZE)
+                .expect("the road's maps"),
+            p.ground_maps(9, dereth_terrain::consts::CELL_SIZE)
+                .expect("type 9's maps"),
         );
         assert!(grass.detail.is_some());
         assert_eq!(
@@ -1752,7 +1755,9 @@ detail_strength = 0
             "as made unless named"
         );
         assert_eq!((patchy.detail, patchy.detail_repeats), (None, 0));
-        let unseen = p.ground_maps(12).expect("type 12's maps");
+        let unseen = p
+            .ground_maps(12, dereth_terrain::consts::CELL_SIZE)
+            .expect("type 12's maps");
         assert_eq!(
             (unseen.detail, unseen.detail_strength),
             (None, 0),

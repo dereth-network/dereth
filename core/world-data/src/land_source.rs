@@ -41,6 +41,7 @@ use dereth_physics::globals::LAND_HEIGHT_TABLE_LEN;
 use dereth_physics::land::LandblockCollision;
 use dereth_physics::source::{BuildingGeometry, EnvCellGeometry, LandSource, PhysicsPart};
 use dereth_physics::PlaneExt;
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::{CellId, LandblockId, Position};
 
 use crate::env_cells::{gfxobj_physics_bsp, physics_geometry, CellLoadStats, EnvCellLoader};
@@ -96,6 +97,8 @@ pub enum LandSourceError {
 pub struct DatLandSource {
     store: Arc<RetailDatStore>,
     table: Box<[f32; LAND_HEIGHT_TABLE_LEN]>,
+    /// The world's land grid, from its region record.
+    grid: LandGrid,
     /// `None` is cached too: the world edge is asked about on every step near it.
     blocks: Mutex<BTreeMap<u16, Option<Arc<LandblockCollision>>>>,
     /// The interior cells of every block that has been prefetched,
@@ -150,6 +153,7 @@ impl DatLandSource {
         Ok(Self {
             store,
             table: Box::new(table),
+            grid: region.land_defs.land_grid(),
             blocks: Mutex::new(BTreeMap::new()),
             cells: Mutex::new(BTreeMap::new()),
             building_cells: Mutex::new(BTreeMap::new()),
@@ -558,20 +562,33 @@ impl DatLandSource {
             Err(_) => return None,
         };
         let lb = CellLandblock::decode_payload_in(self.store().era_of(did), did, &bytes).ok()?;
-        // `side_cell_count` is 8 for every physics landblock: the LOD rings are a *rendering*
-        // reduction, and `LandblockCollision::build` refuses anything else because a degenerate
-        // block carries no physics geometry at all.
-        LandblockCollision::build(
-            id,
-            Box::new(lb.height),
-            Box::new(lb.terrain),
-            lb.lbi_exists != 0,
-            8,
-            &self.table,
-        )
-        .ok()
-        .map(Arc::new)
+        land_collision(&self.grid, id, &lb, &self.table).map(Arc::new)
     }
+}
+
+/// One landblock record's collision geometry in a world laid on `grid`: `None` for a record not on
+/// the world's grid ([`crate::landblock::on_world_grid`]).
+#[must_use]
+pub fn land_collision(
+    grid: &LandGrid,
+    id: LandblockId,
+    lb: &CellLandblock,
+    table: &[f32; LAND_HEIGHT_TABLE_LEN],
+) -> Option<LandblockCollision> {
+    if !crate::landblock::on_world_grid(lb, grid) {
+        return None;
+    }
+    // Every physics landblock is at full detail: the LOD rings are a *rendering* reduction.
+    LandblockCollision::build_in(
+        grid,
+        id,
+        lb.grid_height().into(),
+        lb.grid_terrain().into(),
+        |i, j| lb.cut(i, j),
+        lb.lbi_exists != 0,
+        table,
+    )
+    .ok()
 }
 
 impl LandSource for DatLandSource {
@@ -648,6 +665,89 @@ mod tests {
         }));
         let region = crate::landblock::load_region(&store).expect("the region decodes");
         DatLandSource::new(store, &region).expect("the retail height table is valid")
+    }
+
+    /// Behaviour: none (a world's files at fault: a record on another land grid than its world's)
+    #[test]
+    fn a_record_not_on_its_worlds_grid_has_no_collision() {
+        let table = [0.0f32; LAND_HEIGHT_TABLE_LEN];
+        let two = LandGrid::with_steps(2, 4.0);
+        let id = LandblockId::new(0x5B, 0x79);
+        let n = 17 * 17;
+        let dense = CellLandblock::from_dense(
+            dereth_primitives::DataId(0x5B79_FFFF),
+            0,
+            dereth_assets::DenseLand {
+                steps: 2,
+                terrain: vec![0; n].into(),
+                height: vec![0; n].into(),
+                split: vec![0; 32].into(),
+            },
+        );
+        let retail = CellLandblock {
+            dense: None,
+            ..dense.clone()
+        };
+        use crate::landblock::on_world_grid;
+        assert!(on_world_grid(&dense, &two) && on_world_grid(&retail, &LandGrid::DEFAULT));
+        assert!(!on_world_grid(&dense, &LandGrid::DEFAULT) && !on_world_grid(&retail, &two));
+        assert!(land_collision(&two, id, &dense, &table).is_some());
+        assert!(land_collision(&LandGrid::DEFAULT, id, &retail, &table).is_some());
+        assert!(land_collision(&LandGrid::DEFAULT, id, &dense, &table).is_none());
+        assert!(land_collision(&two, id, &retail, &table).is_none());
+    }
+
+    /// Behaviour: none (the land both Empyrean and the client stand bodies on, from a finer grid's
+    /// record: each square's water, and the cell and block summaries of them)
+    #[test]
+    fn a_finer_records_land_is_wet_by_its_squares_and_its_cells_sum_them_up() {
+        use dereth_physics::globals::{
+            WATER_DEPTH_ENTIRELY, WATER_DEPTH_NONE, WATER_DEPTH_PARTIAL_SOLID_VERTEX,
+        };
+        use dereth_physics::WaterType;
+        let table = [0.0f32; LAND_HEIGHT_TABLE_LEN];
+        let three = LandGrid::with_steps(3, 4.0);
+        let id = LandblockId::new(0x5B, 0x79);
+        // Deep sea over vertices 0..=4 each way, inside land cell (1, 1)'s south-west square, and
+        // dry land beyond: cell (0, 0) all water, cells (0, 1), (1, 0) and (1, 1) a shore.
+        let n = 25 * 25;
+        let mut terrain = vec![1u16 << 2; n];
+        for x in 0..=4 {
+            for y in 0..=4 {
+                terrain[x * 25 + y] = 20 << 2;
+            }
+        }
+        let record = CellLandblock::from_dense(
+            dereth_primitives::DataId(0x5B79_FFFF),
+            0,
+            dereth_assets::DenseLand {
+                steps: 3,
+                terrain: terrain.into(),
+                height: vec![0; n].into(),
+                split: vec![0; dereth_assets::DenseLand::split_bytes(3)].into(),
+            },
+        );
+        let b = land_collision(&three, id, &record, &table).expect("the record's land");
+        let cell = |x: u16, y: u16| x * 8 + y + 1;
+        assert_eq!(
+            b.cell_water_type(cell(0, 0)),
+            Some(WaterType::EntirelyWater)
+        );
+        for c in [cell(0, 1), cell(1, 0), cell(1, 1)] {
+            assert_eq!(b.cell_water_type(c), Some(WaterType::PartiallyWater));
+        }
+        assert_eq!(b.cell_water_type(cell(2, 2)), Some(WaterType::NotWater));
+        assert_eq!(b.water_type, WaterType::PartiallyWater);
+        // In cell (1, 1): its south-west square, from vertex (3, 3) to (4, 4), all water and deep;
+        // the square east of it a shore; its north-east square dry.
+        let at = |x: f32, y: f32| dereth_primitives::Vec3::new(x, y, 0.0);
+        let c = id.cell(cell(1, 1));
+        assert_eq!(b.get_water_depth(c, at(28.0, 28.0)), WATER_DEPTH_ENTIRELY);
+        assert_eq!(
+            b.get_water_depth(c, at(39.0, 25.0)),
+            WATER_DEPTH_PARTIAL_SOLID_VERTEX
+        );
+        assert_eq!(b.get_water_depth(c, at(44.0, 44.0)), WATER_DEPTH_NONE);
     }
 
     // Oracle: the retail cell dat, through `LandblockCollision::build`, whose own tests cover

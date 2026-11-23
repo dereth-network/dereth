@@ -2274,6 +2274,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.terrain.a-squares-ground-continues-across-its-cell",
+        says: "On a landscape grid finer than one square a land cell, each square draws its own part of \
+               its cell's ground pictures, so a picture repeats across the whole cell as it does on the \
+               world's own grid and runs on unbroken from square to square.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-GROUND-PLACE"),
+        station: "dereth-terrain::lib::land::merge::tests::a_square_draws_its_part_of_its_cells_ground_picture",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.terrain.neighbouring-blocks-share-their-edge-on-any-grid",
         says: "On a landscape grid of any shape, a landblock and its east and north neighbors put every \
                vertex of their shared edge at the same place and height, so the ground has no \
@@ -2281,6 +2291,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-EDGES"),
         station: "dereth-terrain::lib::land::mesh::tests::neighbouring_blocks_share_their_edge_on_a_two_step_grid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.the-default-grid-draws-each-cell-whole",
+        says: "On the world's own landscape grid every land square is a whole cell, at every level of \
+               detail, so each cell's ground is its pictures tiled across the whole cell, exactly as \
+               the world draws it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LAND-GROUND-WHOLE"),
+        station: "dereth-terrain::lib::land::merge::tests::the_default_grid_draws_every_cell_whole",
         tier: Tier::Cpu,
     },
     behaviour! {

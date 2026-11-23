@@ -555,6 +555,7 @@ fn loading_with_adjacents_caches_only_loaded_neighbours() {
                 lbi_exists: 1,
                 terrain: [0; 81],
                 height: [0; 81],
+                dense: None,
             },
         )
         .with_cell(

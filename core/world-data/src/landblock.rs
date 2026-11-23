@@ -9,6 +9,30 @@ use dereth_assets::{decode_any_in, DecodedAsset, Region};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
+/// Whether landblock record `lb` lies on its world's land `grid`. A record on another grid is a
+/// fault in the world's files, logged the first time one is found, and every reader treats the
+/// block as missing.
+#[must_use]
+pub fn on_world_grid(
+    lb: &dereth_assets::CellLandblock,
+    grid: &dereth_primitives::land_grid::LandGrid,
+) -> bool {
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    let on = lb.vertex_steps() == grid.vertices_per_cell;
+    if !on {
+        LOGGED.call_once(|| {
+            tracing::warn!(
+                "landblock {:?} has {} vertex steps a cell where its world has {}; such blocks are \
+                 left out (logged once)",
+                lb.id,
+                lb.vertex_steps(),
+                grid.vertices_per_cell
+            );
+        });
+    }
+    on
+}
+
 /// The retail region record. The client loads exactly one, and Dereth is it.
 pub const DERETH_REGION: DataId = DataId(0x1300_0000);
 

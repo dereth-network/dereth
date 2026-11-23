@@ -264,7 +264,9 @@ pub struct GroundGpu {
     pub cuts: Vec<bool>,
     /// The block's terrain words, kept so its cells can be written again and the weather can read
     /// its land.
-    pub words: [u16; 81],
+    pub words: Vec<u16>,
+    /// Squares along a side of the block's full-detail grid, which `words` holds the vertices of.
+    pub full: usize,
 }
 
 /// The bytes of one mesh vertex: its position, normal and texture coordinates, then its
@@ -361,7 +363,7 @@ pub struct GpuScene {
     pub ground_cells: Pooled,
     /// The ground's splats, [`SPLAT_ROWS`] rows each, and each one's place by its key.
     pub splats: Pooled,
-    pub splat_index: BTreeMap<u32, u32>,
+    pub splat_index: BTreeMap<u64, u32>,
     pub meshes: BTreeMap<MeshKey, MeshGpu>,
     /// Counts each change to [`Self::meshes`]: a mesh held, made again or let go.
     pub mesh_generation: u64,
@@ -1176,12 +1178,11 @@ impl GpuScene {
             .and_then(|c| self.textures.get(&c.texture))
             .map_or(NONE, |(_, i)| *i);
         let splat = cell
-            .and_then(|c| match c.texture {
-                TextureKey::Terrain(k) => self
-                    .splat_index
+            .and_then(|c| c.texture.ground_key())
+            .and_then(|k| {
+                self.splat_index
                     .get(&crate::assets::terrain::splat_key(k))
-                    .copied(),
-                _ => None,
+                    .copied()
             })
             .unwrap_or(NONE);
         let rotation = cell.map_or(0, |c| u32::from(c.rotation.wrapping_add(self.turn) & 3));
@@ -1215,7 +1216,8 @@ impl GpuScene {
             let side = g.side as usize;
             let mut cb = Vec::with_capacity(g.cuts.len() * 16);
             for (c, cut) in g.cuts.iter().enumerate() {
-                let corners = cell_corners(&g.words, side, c / side.max(1), c % side.max(1));
+                let corners =
+                    cell_corners(&g.words, g.full, side, c / side.max(1), c % side.max(1));
                 cb.extend(words(&self.cell_words(surface.cells.get(c), *cut, corners)));
             }
             self.ground_cells.write(d, start, &cb)?;
@@ -1284,7 +1286,7 @@ impl GpuScene {
         let mut cb = Vec::with_capacity(cells as usize * 16);
         let s = (side as usize).max(1);
         for (c, cut) in cuts.iter().enumerate() {
-            let corners = cell_corners(&terrain.words, s, c / s, c % s);
+            let corners = cell_corners(&terrain.words, terrain.full_squares(), s, c / s, c % s);
             cb.extend(words(&self.cell_words(surface.cells.get(c), *cut, corners)));
         }
         self.ground_vertices.write(d, vertices.start, &vb)?;
@@ -1304,7 +1306,8 @@ impl GpuScene {
                 side,
                 z,
                 cuts,
-                words: terrain.words,
+                words: terrain.words.clone(),
+                full: terrain.full_squares(),
             },
         );
         self.static_generation += 1;
@@ -1560,7 +1563,7 @@ impl Sink<'_> {
     /// One splat's rows: its base's picture, tiling, overlay count and whether it is water, then
     /// each overlay's alpha map, quarter turns (with whether it is water from bit 2), tile and
     /// tiling, every picture by its index (`NONE` when not held).
-    fn splat_in(&mut self, key: u32, s: &Splat) -> Result<(), dereth_gfx::Error> {
+    fn splat_in(&mut self, key: u64, s: &Splat) -> Result<(), dereth_gfx::Error> {
         let index = match self.scene.splat_index.get(&key) {
             Some(i) => *i,
             None => self.scene.splats.take(self.d, 1)?.start,
@@ -1947,7 +1950,7 @@ impl AssetSink for Sink<'_> {
         self.scene.pending_ground.insert(block, surface.clone());
     }
 
-    fn splat(&mut self, key: u32, splat: &Splat) {
+    fn splat(&mut self, key: u64, splat: &Splat) {
         if let Err(e) = self.splat_in(key, splat) {
             tracing::warn!(target: "dereth::remaster", "a ground splat was not made: {e}");
         }

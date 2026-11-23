@@ -21,6 +21,7 @@ import bindless;
 import ground;
 import retail;
 import weather;
+import world;
 
 struct Push
 {
@@ -75,12 +76,23 @@ static const uint D_GRASS = 142;  // x 1 while the grass field is drawn, y how f
 static const uint D_GRASS_TYPES = 143; // 32 rows: each terrain type's x share of grass, y height, z dryness, w how patchy
 static const uint D_FLOWERS = 175; // x 1 while the flowers are drawn, y how far they reach
 static const uint D_PALETTE = 176; // 8 rows: the flowers' colors
+static const uint D_VARIANT_COLORS = 184; // 480 rows: each terrain type's variants' colors far off, 32 a variant from the first
+
+// The color far off of the ground a terrain word names: its type's, or its variant's (bits 7-10).
+float4 ground_color(uint word)
+{
+    uint t = (word >> 2) & 0x1F;
+    uint v = (word >> 7) & 0xF;
+    return v == 0 ? row(push.drawn, D_COLORS + t) : row(push.drawn, D_VARIANT_COLORS + (v - 1) * 32 + t);
+}
 static const uint BODIES = 32;
 
 static const uint CELLS = 16;
+// A land cell's side, meters: what the forest cover's picture (a texel a land cell corner,
+// COVER_SIDE a side) and a pack's patterns are laid by.
 static const float CELL = 24.0;
 static const float BLOCK = 192.0;
-static const int SIDE = 2041;
+static const int COVER_SIDE = 2041;
 static const float WALKABLE_Z = 0.6641741;
 // How far the ground is drawn below where it is, so that what stands on it wins the depth test.
 static const float BELOW = 0.01;
@@ -92,33 +104,34 @@ static const float SURFACE_FROM = 0.02;
 
 // --- the world's vertices ---------------------------------------------------------------------
 
+// The meters between the world's neighboring vertices: a land cell's side on the default grid.
+float vertex_spacing()
+{
+    return world_spacing(push.heights);
+}
+
 float vertex_height(int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    return asfloat(buffers[NonUniformResourceIndex(push.heights)].Load(uint(c.y * SIDE + c.x) * 4));
+    return world_height(push.heights, g);
 }
 
 uint vertex_word(int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    uint k = uint(c.y * SIDE + c.x);
-    uint pair = buffers[NonUniformResourceIndex(push.words)].Load((k / 2) * 4);
-    return (k & 1) != 0 ? pair >> 16 : pair & 0xFFFF;
+    return world_word(push.heights, push.words, g);
 }
 
-// Whether the cell's shared edge runs south-west to north-east: retail's hash of the cell.
+// Whether the square whose south-west vertex is `c` has its shared edge run south-west to
+// north-east.
 bool sw_to_ne(int2 c)
 {
-    uint x = asuint(c.x);
-    uint y = asuint(c.y);
-    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
-    return (v >> 31) != 0;
+    return world_cut(push.heights, push.words, c);
 }
 
 // Retail's height at world `p`, and its triangle's rise east and north.
 float3 retail_at(float2 p)
 {
-    float2 q = p / CELL;
+    float cell = vertex_spacing();
+    float2 q = p / cell;
     int2 c = int2(floor(q));
     float2 f = clamp(q - float2(c), 0.0, 1.0);
     float h00 = vertex_height(c);
@@ -129,15 +142,41 @@ float3 retail_at(float2 p)
     {
         if (f.x >= f.y)
         {
-            return float3(h00 + f.x * (h10 - h00) + f.y * (h11 - h10), (h10 - h00) / CELL, (h11 - h10) / CELL);
+            return float3(h00 + f.x * (h10 - h00) + f.y * (h11 - h10), (h10 - h00) / cell, (h11 - h10) / cell);
         }
-        return float3(h00 + f.y * (h01 - h00) + f.x * (h11 - h01), (h11 - h01) / CELL, (h01 - h00) / CELL);
+        return float3(h00 + f.y * (h01 - h00) + f.x * (h11 - h01), (h11 - h01) / cell, (h01 - h00) / cell);
     }
     if (f.x + f.y <= 1.0)
     {
-        return float3(h00 + f.x * (h10 - h00) + f.y * (h01 - h00), (h10 - h00) / CELL, (h01 - h00) / CELL);
+        return float3(h00 + f.x * (h10 - h00) + f.y * (h01 - h00), (h10 - h00) / cell, (h01 - h00) / cell);
     }
-    return float3(h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11), (h11 - h01) / CELL, (h11 - h10) / CELL);
+    return float3(h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11), (h11 - h01) / cell, (h11 - h10) / cell);
+}
+
+// The rise east and north the ground cover goes by at world `p`, `triangle` being retail's
+// triangle's there: on retail's grid, the triangle's; on a finer grid, whose triangles differ far
+// more in slope from one to the next, each corner's rise (the central difference over its
+// neighbors) blended across the cell, so the cover thins with the slope without showing single
+// triangles. The terrain's `cover_gradient` is the same rule.
+float2 cover_gradient(float2 p, float2 triangle)
+{
+    float cell = vertex_spacing();
+    if (cell >= CELL)
+    {
+        return triangle;
+    }
+    float2 q = p / cell;
+    int2 c = int2(floor(q));
+    float2 f = clamp(q - float2(c), 0.0, 1.0);
+    float2 g[4];
+    int2 at[4] = { c, c + int2(1, 0), c + int2(0, 1), c + int2(1, 1) };
+    for (uint k = 0; k < 4; k++)
+    {
+        int2 v = at[k];
+        g[k] = float2(vertex_height(v + int2(1, 0)) - vertex_height(v - int2(1, 0)),
+                      vertex_height(v + int2(0, 1)) - vertex_height(v - int2(0, 1))) / (2.0 * cell);
+    }
+    return lerp(lerp(g[0], g[1], f.x), lerp(g[2], g[3], f.x), f.y);
 }
 
 float4 catmull(float t)
@@ -150,7 +189,7 @@ float4 catmull(float t)
 // The smooth surface through retail's vertices at world `p`.
 float smooth_height(float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / vertex_spacing();
     int2 c = int2(floor(q));
     float2 f = clamp(q - float2(c), 0.0, 1.0);
     float4 wx = catmull(f.x);
@@ -197,7 +236,7 @@ float hermite(float h0, float h1, float m0, float m1, float t)
 // level, at world `p`: the scene's own arithmetic.
 float eased_height(float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / vertex_spacing();
     int2 c = int2(floor(q));
     float2 f = clamp(q - float2(c), 0.0, 1.0);
     float rows[4];
@@ -279,8 +318,7 @@ static const float BED_IN = 20.0;
 
 float2 shore_texel(int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    return asfloat(buffers[NonUniformResourceIndex(push.water)].Load2(uint(c.y * SIDE + c.x) * 8));
+    return world_water(push.heights, push.water, g);
 }
 
 float shore_noise(float2 p, float cell)
@@ -298,7 +336,7 @@ float shore_wander(float2 p, float foot)
 // How far inside the water world `p` lies, meters, negative on land.
 float shore_distance(float2 p, float foot)
 {
-    float2 q = p / SHORE_CELL;
+    float2 q = p / vertex_spacing();
     int2 c = int2(floor(q));
     float2 f = clamp(q - float2(c), 0.0, 1.0);
     float a = shore_texel(c).x;
@@ -326,7 +364,7 @@ float shore_distance(float2 p, float foot)
 }
 
 // How far physics stands a body under retail's ground at a point standing on it, meters, by its
-// cell's water corners: in a cell of water corners alone, its deepest; in one with some, by
+// square's water corners: in a square of water corners alone, its deepest; in one with some, by
 // whether the corner nearest is water; in one with none, nought.
 static const float SINK_DEEP = 0.9;
 static const float SINK_WET = 0.45;
@@ -334,24 +372,38 @@ static const float SINK_DRY = 0.1;
 // How far either side of where two of those depths meet the bed eases from one to the other.
 static const float SINK_EASE = 0.75;
 
-// How far physics stands a body under retail's ground in quarter `q` of a cell (two a cell each
-// way), from `wet`, whether each of the 3 by 3 vertices from vertex `from` is water.
+// Whether the world's vertices lie on a grid finer than a land cell.
+bool finer_grid()
+{
+    return world_steps(push.heights) > 1;
+}
+
+// How far physics stands a body under retail's ground in quarter `q` of a square (two a square
+// each way), from `wet`, whether each of the 3 by 3 vertices from vertex `from` is water: by the
+// square's own corners. On a grid finer than a land cell physics stands a body in a square all
+// of water as at a shore where the vertex nearest it is wading water.
 float quarter_sink(int2 q, int2 from, bool wet[3][3])
 {
-    int2 c = int2(floor(float2(q) * 0.5)) - from;
+    int2 square = int2(floor(float2(q) * 0.5));
+    int2 c = square - from;
+    int2 near = c + (q - square * 2);
     bool a = wet[c.x][c.y];
     bool b = wet[c.x + 1][c.y];
     bool d = wet[c.x][c.y + 1];
     bool e = wet[c.x + 1][c.y + 1];
     if (a && b && d && e)
     {
+        if (finer_grid())
+        {
+            uint t = (vertex_word(from + near) >> 2) & 0x1F;
+            return t == 18 || t == 19 ? SINK_WET : SINK_DEEP;
+        }
         return SINK_DEEP;
     }
     if (!(a || b || d || e))
     {
         return 0.0;
     }
-    int2 near = c + (q - int2(floor(float2(q) * 0.5)) * 2);
     return wet[near.x][near.y] ? SINK_WET : SINK_DRY;
 }
 
@@ -359,7 +411,7 @@ float quarter_sink(int2 q, int2 from, bool wet[3][3])
 // over `SINK_EASE` either side of where quarters meet.
 float shore_sink(float2 p)
 {
-    float half_cell = 0.5 * SHORE_CELL;
+    float half_cell = 0.5 * vertex_spacing();
     float2 b = round(p / half_cell);
     float2 t = float2(smoothstep(-SINK_EASE, SINK_EASE, p.x - b.x * half_cell),
                       smoothstep(-SINK_EASE, SINK_EASE, p.y - b.y * half_cell));
@@ -397,7 +449,7 @@ float shore_floor(float level, float inside)
 // The water's level at world `p`, across retail's triangles.
 float level_at(float2 p)
 {
-    float2 q = p / SHORE_CELL;
+    float2 q = p / vertex_spacing();
     int2 c = int2(floor(q));
     float2 f = clamp(q - float2(c), 0.0, 1.0);
     float h00 = vertex_height(c) - shore_texel(c).y;
@@ -417,6 +469,24 @@ float level_at(float2 p)
         return h00 + f.x * (h10 - h00) + f.y * (h01 - h00);
     }
     return h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11);
+}
+
+// How far over the water's level ground on a grid finer than a land cell may stand and keep the
+// water its pictures lay, meters; and over how much more that water fades out.
+static const float ABOVE_FROM = 0.02;
+static const float ABOVE_FADE = 0.1;
+
+// How much of the water its pictures lay at world `p` is drawn over ground standing at `ground`
+// there. On retail's grid, all of it. On a finer grid, where a square's water corner lies at the
+// water's level and its land corner up the bank, none on the ground standing over the water's
+// level, so a bank's slope is never drawn as water.
+float water_kept(float2 p, float ground)
+{
+    if (!finer_grid())
+    {
+        return 1.0;
+    }
+    return 1.0 - smoothstep(ABOVE_FROM, ABOVE_FROM + ABOVE_FADE, ground - level_at(p));
 }
 
 // --- the offset -------------------------------------------------------------------------------
@@ -557,7 +627,7 @@ float canopy(float2 p, float dist)
     int2 offs[4] = { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) };
     for (int i = 0; i < 4; i++)
     {
-        int2 at = clamp(c + offs[i], int2(0, 0), int2(SIDE - 1, SIDE - 1));
+        int2 at = clamp(c + offs[i], int2(0, 0), int2(COVER_SIDE - 1, COVER_SIDE - 1));
         h[i] = textures[NonUniformResourceIndex(picture)].Load(int3(at, 0)).r;
     }
     return lerp(lerp(h[0], h[1], f.x), lerp(h[2], h[3], f.x), f.y) * k.x * rise;
@@ -635,7 +705,7 @@ float4 patch_vertex(uint vi, uint patch, out float level)
     uint qy = quad / CELLS;
     float spacing = at.z;
     float2 center = at.xy + (float2(float(qx), float(qy)) + 0.5) * spacing;
-    bool cut = sw_to_ne(int2(floor(center / CELL)));
+    bool cut = sw_to_ne(int2(floor(center / vertex_spacing())));
     uint2 ne[6] = { uint2(0, 0), uint2(1, 0), uint2(1, 1), uint2(0, 0), uint2(1, 1), uint2(0, 1) };
     uint2 nw[6] = { uint2(0, 0), uint2(1, 0), uint2(0, 1), uint2(1, 0), uint2(1, 1), uint2(0, 1) };
     uint2 c = cut ? ne[corner] : nw[corner];
@@ -802,6 +872,12 @@ float4 picture(float2 p, float2 dx, float2 dy, float3 steep, float dist, float f
                 bool banks = (flags & SPLAT_HAS_BANK) != 0 && waters.x > 0.5;
                 float2 inside = clamp(uv, 0.0, 1.0);
                 PackPlace place = no_pack_place();
+                // On a grid finer than a square a cell, the square's place in its cell, in the
+                // cell's own coordinates turned as the square's are.
+                float of = float(world_steps(push.heights));
+                uint2 k = ij % uint(of);
+                place.cell_of = of;
+                place.cell_at = float(k.x) * e + float(k.y) * n + (of - 1.0) * a;
                 if ((flags & SPLAT_HAS_BANK) != 0)
                 {
                     float2 w = fmod(fmod(p / CELL, PACK_PERIOD_CELLS) + PACK_PERIOD_CELLS, PACK_PERIOD_CELLS);
@@ -929,7 +1005,7 @@ float4 picture(float2 p, float2 dx, float2 dy, float3 steep, float dist, float f
         }
     }
     // Far off: the corners' terrain's colors across the cell.
-    float2 q = p / CELL;
+    float2 q = p / vertex_spacing();
     int2 g = int2(floor(q));
     float2 f = clamp(q - float2(g), 0.0, 1.0);
     float4 corners[4];
@@ -939,7 +1015,7 @@ float4 picture(float2 p, float2 dx, float2 dy, float3 steep, float dist, float f
     {
         uint w = vertex_word(g + offs[k]);
         uint t = (w >> 2) & 0x1F;
-        float4 col = row(push.drawn, D_COLORS + t);
+        float4 col = ground_color(w);
         corners[k] = float4(col.rgb, (t >= 16 && t <= 20) ? 1.0 : 0.0);
         weights[k] = puddle_weight(w);
     }
@@ -972,7 +1048,7 @@ float3 forest(float3 albedo, float2 p, float dist, float steep)
     {
         return albedo;
     }
-    float2 at = (p / CELL + float2(0.5, 0.5)) / float(SIDE);
+    float2 at = (p / CELL + float2(0.5, 0.5)) / float(COVER_SIDE);
     float4 c = textures[NonUniformResourceIndex(row_u(push.drawn, D_COVER_PICTURES).x)].SampleLevel(
         samplers[NonUniformResourceIndex(push.clamp)], at, 0.0);
     if (c.a <= 0.0)
@@ -1000,12 +1076,12 @@ float3 flower_specks(float3 c, float2 p, float dist, float foot, float reach)
     float3 unused;
     float4 grows = grass_ground(p, unused);
     float cluster = value_noise(p, 9.0) * 0.7 + value_noise(p + float2(41.0, 13.0), 3.0) * 0.3;
-    float share = grows.x * smoothstep(0.5, 0.64, cluster) * (1.0 - smoothstep(0.4, 0.6, length(retail_at(p).yz)));
+    float share = grows.x * smoothstep(0.5, 0.64, cluster) * (1.0 - smoothstep(0.4, 0.6, length(cover_gradient(p, retail_at(p).yz))));
     if (share <= 0.0)
     {
         return c;
     }
-    uint scene = vertex_word(int2(round(p / CELL))) >> 11;
+    uint scene = vertex_word(int2(round(p / vertex_spacing()))) >> 11;
     uint k = grass_hash(uint(floor(p.x / 9.0)) * 7919u ^ uint(floor(p.y / 9.0)) * 104729u);
     float3 a = row(push.drawn, D_PALETTE + (scene + (k & 3)) % 8).rgb;
     float3 b = row(push.drawn, D_PALETTE + (scene + (k & 3) + 2) % 8).rgb;
@@ -1119,6 +1195,21 @@ Targets fs_ground(Varyings in)
     {
         kind = KIND_WATER;
     }
+    // Ground standing over the water's level keeps less of its water, or none (all of it on
+    // retail's grid). A water share of nought means all of the pixel is water.
+    if (kind == KIND_WATER)
+    {
+        float kept = water_kept(p, parts.x);
+        if (kept < 1.0)
+        {
+            t.a = (t.a > 0.0 ? t.a : 1.0) * kept;
+            if (t.a * 255.0 < 0.5)
+            {
+                kind = 0;
+                t.a = 0.0;
+            }
+        }
+    }
     // Ground left dry, where its bed still stands over the water's level, has no water over it.
     if (kind != KIND_WATER)
     {
@@ -1160,7 +1251,8 @@ float4 vs_caster(uint vertex : SV_VertexID, uint instance : SV_InstanceID) : SV_
 
 // The drawn height at points: each point's world x and y and its distance from the eye in, its
 // height out (no fine relief), for the checks that the ground is drawn where the scene stands
-// what is on it. `patches` holds the points, `cells` takes the heights.
+// what is on it; or, asked for, how much water is drawn over it. `patches` holds the points,
+// `cells` takes the heights.
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void cs_probe(uint3 id : SV_DispatchThreadID)
@@ -1172,6 +1264,12 @@ void cs_probe(uint3 id : SV_DispatchThreadID)
     }
     float4 q = asfloat(buffers[NonUniformResourceIndex(push.patches)].Load4(16 + id.x * 16));
     float h = drawn_at(q.xy, q.z, 0.0, 0.0).x;
+    // Asked for in a point's fourth float: in place of the height, how much of the water its
+    // pictures lay is drawn over the ground there.
+    if (q.w > 0.5)
+    {
+        h = water_kept(q.xy, h);
+    }
     rw_buffers[NonUniformResourceIndex(push.cells)].Store(id.x * 4, asuint(h));
 }
 // --- the grass field --------------------------------------------------------------------------
@@ -1215,13 +1313,12 @@ float grass_unit(uint h)
     return float(h & 0xFFFFFFu) / 16777216.0;
 }
 
-// How far inside a road point (`dx`, `dy`) of a cell lies, meters, negative outside: the cell's
-// four corners' road bits (south-west, north-west, south-east, north-east) shape it as the
-// game's own on-road test does, a road half-width of 5 meters.
-float road_inside(bool a, bool b, bool c, bool d, float dx, float dy)
+// How far inside a road point (`dx`, `dy`) of a square `cell` meters a side lies, meters, negative
+// outside: the square's four corners' road bits (south-west, north-west, south-east, north-east)
+// shape it as the game's own on-road test does, a road half-width of `W` meters.
+float road_inside(bool a, bool b, bool c, bool d, float dx, float dy, float cell, float W)
 {
-    static const float W = 5.0;
-    static const float F = CELL - 5.0;
+    float F = cell - W;
     static const float R = 0.70710678;
     uint n = uint(a) + uint(b) + uint(c) + uint(d);
     if (n == 0)
@@ -1246,7 +1343,7 @@ float road_inside(bool a, bool b, bool c, bool d, float dx, float dy)
         {
             return (dx - dy - F) * R;
         }
-        return (dx + dy - CELL - F) * R;
+        return (dx + dy - cell - F) * R;
     }
     if (n == 2)
     {
@@ -1270,7 +1367,7 @@ float road_inside(bool a, bool b, bool c, bool d, float dx, float dy)
         {
             return (W - abs(dx - dy)) * R;
         }
-        return (W - abs(dx + dy - CELL)) * R;
+        return (W - abs(dx + dy - cell)) * R;
     }
     if (!d)
     {
@@ -1291,7 +1388,8 @@ float road_inside(bool a, bool b, bool c, bool d, float dx, float dy)
 // dryness, w how patchy; and the ground's own color there.
 float4 grass_ground(float2 p, out float3 color)
 {
-    float2 q = p / CELL;
+    float cell = vertex_spacing();
+    float2 q = p / cell;
     int2 c = int2(floor(q));
     float2 f = q - float2(c);
     uint words[4] = { vertex_word(c), vertex_word(c + int2(1, 0)), vertex_word(c + int2(0, 1)), vertex_word(c + int2(1, 1)) };
@@ -1307,12 +1405,12 @@ float4 grass_ground(float2 p, out float3 color)
         sum.x += w * kind.x;
         sum.yzw += w * kind.x * kind.yzw;
         grows += w * kind.x;
-        color += w * row(push.drawn, D_COLORS + t).rgb;
+        color += w * ground_color(words[k]).rgb;
     }
     sum.yzw /= max(grows, 1e-4);
     // No grass on the road, the edge wandering a little.
     float inside = road_inside((words[0] & 3) != 0, (words[2] & 3) != 0, (words[1] & 3) != 0,
-                               (words[3] & 3) != 0, f.x * CELL, f.y * CELL)
+                               (words[3] & 3) != 0, f.x * cell, f.y * cell, cell, world_road_width(push.heights))
         + (value_noise(p, 1.7) - 0.5) * 0.9;
     sum.x *= smoothstep(0.3, -1.2, inside);
     return sum;
@@ -1393,7 +1491,7 @@ void cs_grass(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
         share *= smoothstep(lo, lo + 0.12, n);
         // Less on slopes, none on what is steep enough to be scree.
         float3 r = retail_at(p);
-        float slope = length(r.yz);
+        float slope = length(cover_gradient(p, r.yz));
         share *= 1.0 - smoothstep(0.45, 0.67, slope);
         // A clump comes in by growing from nothing as the share kept passes its own number, never
         // whole at once.
@@ -1524,12 +1622,13 @@ void cs_scatter(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
         float3 ground_color;
         float4 grows = grass_ground(p, ground_color);
         float3 r = retail_at(p);
-        float slope = length(r.yz);
+        float slope = length(cover_gradient(p, r.yz));
         // Flowers: where grass grows, in clusters.
         float cluster = value_noise(p, 9.0) * 0.7 + value_noise(p + float2(41.0, 13.0), 3.0) * 0.3;
         float flowers = grows.x * smoothstep(0.5, 0.64, cluster) * (1.0 - smoothstep(0.4, 0.6, slope));
         // Pebbles: on bare ground by its type, and along the road's edge.
-        float2 q = p / CELL;
+        float cell = vertex_spacing();
+        float2 q = p / cell;
         int2 cc = int2(floor(q));
         float2 f = q - float2(cc);
         uint words[4] = { vertex_word(cc), vertex_word(cc + int2(1, 0)), vertex_word(cc + int2(0, 1)), vertex_word(cc + int2(1, 1)) };
@@ -1552,7 +1651,7 @@ void cs_scatter(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
             }
         }
         float inside = road_inside((words[0] & 3) != 0, (words[2] & 3) != 0, (words[1] & 3) != 0,
-                                   (words[3] & 3) != 0, f.x * CELL, f.y * CELL);
+                                   (words[3] & 3) != 0, f.x * cell, f.y * cell, cell, world_road_width(push.heights));
         pebbles = max(pebbles, row(g, G_ROADSIDE).x * 0.5 * (smoothstep(-3.0, -1.2, inside) - smoothstep(0.0, 1.5, inside)));
         pebbles += lie * 0.4 * smoothstep(0.5, 0.8, slope);
         flowers *= kept;

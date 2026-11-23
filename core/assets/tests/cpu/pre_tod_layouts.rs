@@ -113,6 +113,7 @@ fn launch_asset_encoding_is_explicitly_unavailable() {
         lbi_exists: 0,
         terrain: [0; 81],
         height: [0; 81],
+        dense: None,
     };
     assert!(matches!(
         block.encode_for(EraId::Launch),

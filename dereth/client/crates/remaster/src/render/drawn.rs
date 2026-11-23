@@ -24,7 +24,7 @@ use glam::{Mat4, Vec2, Vec3};
 use super::scene::{GpuScene, NONE};
 use super::terrain::TerrainSettings;
 use super::{push_words, shader, PerFrame};
-use crate::scene::{DrawnGround, FrameDelta};
+use crate::scene::{DrawnGround, DrawnWorld, FrameDelta};
 use crate::shaders::Entry;
 
 /// Quads along a patch's side.
@@ -63,9 +63,12 @@ const CASTER_REACH: f32 = 2500.0;
 /// depths a hair from the far plane's own.
 const FAR_SHARE: f32 = 0.97;
 /// The constants' rows, as the shader's `D_*` lay them out.
-const ROWS: usize = 142 + 1 + 32 + 1 + 8;
-/// The world's landscape vertices a side.
-pub const WORLD_SIDE: u32 = 2041;
+const ROWS: usize = 142 + 1 + 32 + 1 + 8 + VARIANT_ROWS;
+/// The colors of the terrain variants past each type's own, after the rows before them:
+/// `D_VARIANT_COLORS` in the shader.
+const VARIANT_ROWS: usize = 32 * (crate::assets::terrain::VARIANTS - 1);
+/// The bytes before the world's heights on the device: the grid they lie on (`world.slang`).
+const WORLD_HEADER: u32 = 16;
 
 /// One patch of the ground.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -156,12 +159,12 @@ pub fn sw_to_ne(c: (i32, i32)) -> bool {
     (v >> 31) != 0
 }
 
-/// Retail's height at world `p` over `heights` (the world's vertices, [`WORLD_SIDE`] a side): the
-/// plane of the triangle `p` stands on, as the shader works it out.
+/// Retail's height at world `p` over `world`'s vertices: the plane of the triangle `p` stands on,
+/// as the shader works it out.
 #[must_use]
-pub fn retail_height(heights: &[f32], p: Vec2) -> f32 {
-    #[allow(clippy::cast_possible_wrap)]
-    let side = WORLD_SIDE as i32; // LINT-OK: an integer, 2041
+pub fn retail_height(world: &DrawnWorld, p: Vec2) -> f32 {
+    let side = i32::try_from(world.side).unwrap_or(0).max(1);
+    let heights = &world.heights;
     let at = |x: i32, y: i32| {
         let (x, y) = (x.clamp(0, side - 1), y.clamp(0, side - 1));
         #[allow(clippy::cast_sign_loss)] // clamped to the world
@@ -170,7 +173,7 @@ pub fn retail_height(heights: &[f32], p: Vec2) -> f32 {
             .copied()
             .unwrap_or(0.0)
     };
-    let q = p / CELL_METERS;
+    let q = p / world.grid.vertex_spacing();
     let c = (q.x.floor(), q.y.floor());
     let (cx, cy) = (to_i32(c.0), to_i32(c.1));
     let f = Vec2::new((q.x - c.0).clamp(0.0, 1.0), (q.y - c.1).clamp(0.0, 1.0));
@@ -180,7 +183,7 @@ pub fn retail_height(heights: &[f32], p: Vec2) -> f32 {
         at(cx, cy + 1),
         at(cx + 1, cy + 1),
     );
-    if sw_to_ne((cx, cy)) {
+    if world.cut(cx, cy) {
         if f.x >= f.y {
             return h00 + f.x * (h10 - h00) + f.y * (h11 - h10);
         }
@@ -192,8 +195,6 @@ pub fn retail_height(heights: &[f32], p: Vec2) -> f32 {
     h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11)
 }
 
-/// A side of retail's cells, meters.
-const CELL_METERS: f32 = 24.0;
 /// How far under the drawn height the ground's mesh is laid, meters.
 const BELOW: f32 = 0.01;
 
@@ -204,7 +205,7 @@ const BELOW: f32 = 0.01;
 #[must_use]
 pub fn mesh_triangle(
     patches: &[Patch],
-    heights: &[f32],
+    world: &DrawnWorld,
     eye: Vec3,
     p: Vec2,
 ) -> Option<([[f32; 3]; 3], [f32; 3])> {
@@ -230,10 +231,10 @@ pub fn mesh_triangle(
         let (x, y) = (x as u32, y as u32);
         #[allow(clippy::cast_precision_loss)] // 0..16
         let centre = patch.at + (Vec2::new(x as f32, y as f32) + 0.5) * patch.spacing;
-        let cut = sw_to_ne((
-            floor_to_i32(centre.x / CELL_METERS),
-            floor_to_i32(centre.y / CELL_METERS),
-        ));
+        let cut = world.cut(
+            floor_to_i32(centre.x / world.grid.vertex_spacing()),
+            floor_to_i32(centre.y / world.grid.vertex_spacing()),
+        );
         let triangles: [[(u32, u32); 3]; 2] = if cut {
             [[(0, 0), (1, 0), (1, 1)], [(0, 0), (1, 1), (0, 1)]]
         } else {
@@ -252,7 +253,7 @@ pub fn mesh_triangle(
             let worst = w.iter().copied().fold(f32::MAX, f32::min);
             if best.as_ref().is_none_or(|b| worst > b.2) {
                 let placed = v.map(|q| {
-                    let h = retail_height(heights, q);
+                    let h = retail_height(world, q);
                     [q.x, q.y, (q - eye.truncate()).extend(h - eye.z).length()]
                 });
                 best = Some((placed, w, worst));
@@ -434,6 +435,98 @@ fn floats(values: &[f32]) -> Vec<u8> {
     values.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
+/// The world's terrain words as the device holds them, a little-endian word a vertex: the
+/// vertex's terrain word, and above it the cut of the square it is the south-west corner of
+/// (bit 16). The water a body stands in is each square's, by its corners' words.
+struct WorldWords<'a> {
+    w: &'a DrawnWorld,
+    side: i32,
+}
+
+impl<'a> WorldWords<'a> {
+    fn new(w: &'a DrawnWorld) -> Self {
+        let side = i32::try_from(w.side).unwrap_or(0).max(1);
+        Self { w, side }
+    }
+
+    /// Vertex `k`'s word.
+    fn word(&self, k: usize) -> u32 {
+        let x = self.w.words[k];
+        let k = i32::try_from(k).unwrap_or(0);
+        let (gx, gy) = (k % self.side, k / self.side);
+        u32::from(x) | u32::from(self.w.cut(gx, gy)) << 16
+    }
+}
+
+/// The vertices one write of the world's buffers to the device takes: the buffers are written a
+/// part at a time, so their bytes are never all held at once beside the world's own.
+const PART: usize = 1 << 20;
+
+/// What one of the world's buffers on the device holds, a little-endian word a vertex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Held {
+    /// Each vertex's height.
+    Heights,
+    /// Each vertex's word ([`WorldWords`]).
+    Words,
+    /// Each vertex's pair of half floats of the water field, how far inside the water in the low
+    /// half.
+    Water,
+}
+
+impl Held {
+    /// The vertices the buffer holds.
+    fn vertices(self, w: &DrawnWorld) -> usize {
+        match self {
+            Self::Heights | Self::Water => w.heights.len(),
+            Self::Words => w.words.len(),
+        }
+    }
+
+    /// The bytes of `vertices` of the buffer, after `out`'s.
+    fn write(
+        self,
+        w: &DrawnWorld,
+        words: &WorldWords<'_>,
+        vertices: std::ops::Range<usize>,
+        out: &mut Vec<u8>,
+    ) {
+        match self {
+            Self::Heights => {
+                for h in &w.heights[vertices] {
+                    out.extend(h.to_le_bytes());
+                }
+            }
+            Self::Words => {
+                for k in vertices {
+                    out.extend(words.word(k).to_le_bytes());
+                }
+            }
+            Self::Water if w.water.len() == w.heights.len() => {
+                for [a, b] in &w.water[vertices] {
+                    out.extend(a.to_le_bytes());
+                    out.extend(b.to_le_bytes());
+                }
+            }
+            Self::Water => {
+                // No water anywhere: every vertex far outside it.
+                let far = dereth_primitives::half::bits(-1000.0).to_le_bytes();
+                for _ in vertices {
+                    out.extend(far);
+                    out.extend(0u16.to_le_bytes());
+                }
+            }
+        }
+    }
+}
+
+/// The parts of `count` vertices `part` at a time.
+fn parts(count: usize, part: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
+    (0..count)
+        .step_by(part.max(1))
+        .map(move |start| start..count.min(start + part.max(1)))
+}
+
 /// A device buffer, bound, written once.
 #[derive(Debug, Clone, Copy)]
 struct Bound {
@@ -456,6 +549,40 @@ fn bound(d: &mut Device, label: &'static str, bytes: &[u8]) -> Result<Bound, der
         buffer,
         index: d.bind_buffer(buffer)?,
         bytes: (bytes.len() as u64).max(16),
+    })
+}
+
+/// A device buffer of `header` then the world's `held` vertices, bound, written a part at a time.
+fn bound_world(
+    d: &mut Device,
+    label: &'static str,
+    header: &[u8],
+    held: Held,
+    w: &DrawnWorld,
+    words: &WorldWords<'_>,
+) -> Result<Bound, dereth_gfx::Error> {
+    let count = held.vertices(w);
+    let size = header.len() as u64 + count as u64 * 4;
+    let buffer = d.create_buffer(&BufferDesc {
+        label,
+        size: size.max(16),
+        usage: BufferUsage::STORAGE,
+        location: Location::Gpu,
+    })?;
+    if !header.is_empty() {
+        d.write_buffer(buffer, 0, header)?;
+    }
+    let mut bytes = Vec::with_capacity(PART.min(count) * 4);
+    for part in parts(count, PART) {
+        let at = header.len() as u64 + part.start as u64 * 4;
+        bytes.clear();
+        held.write(w, words, part, &mut bytes);
+        d.write_buffer(buffer, at, &bytes)?;
+    }
+    Ok(Bound {
+        buffer,
+        index: d.bind_buffer(buffer)?,
+        bytes: size.max(16),
     })
 }
 
@@ -495,7 +622,7 @@ pub struct DrawnPass {
     patches: PerFrame,
     blocks: PerFrame,
     /// Each terrain type's color far off, as linear-free display values, once worked out.
-    pub(crate) colors: [[f32; 4]; 32],
+    pub(crate) colors: crate::assets::terrain::GroundColors,
     /// Whether the grass field is drawn: the ground is then shaded under it and takes its color
     /// past it.
     pub(crate) grass: bool,
@@ -595,7 +722,7 @@ impl DrawnPass {
                 (TABLE_SIDE * TABLE_SIDE * 16) as u64,
                 BufferUsage::default(),
             )?,
-            colors: [[0.5, 0.5, 0.5, 1.0]; 32],
+            colors: vec![[0.5, 0.5, 0.5, 1.0]; 32 * crate::assets::terrain::VARIANTS],
             grass: false,
             grass_kinds: super::grass::kinds(),
             flowers: false,
@@ -604,7 +731,7 @@ impl DrawnPass {
         })
     }
 
-    /// The world's vertex heights on the device, [`WORLD_SIDE`] a side, once they are read.
+    /// The world's vertex heights on the device, after the grid they lie on, once they are read.
     #[must_use]
     pub fn heights(&self) -> Option<u32> {
         self.world.as_ref().map(|w| w.heights.index)
@@ -630,14 +757,14 @@ impl DrawnPass {
         let (view, eye) = self.view.clone();
         let triangles: Vec<_> = points
             .iter()
-            .map(|p| mesh_triangle(&view, &ground.world.heights, eye, *p))
+            .map(|p| mesh_triangle(&view, &ground.world, eye, *p))
             .collect();
         let vertices: Vec<[f32; 3]> = triangles
             .iter()
             .flatten()
             .flat_map(|(v, _)| v.iter().copied())
             .collect();
-        let heights = self.heights_at(d, scene, frame, settings, &vertices)?;
+        let heights = self.heights_at(d, scene, frame, settings, &vertices, false)?;
         let mut at = heights.as_chunks::<3>().0.iter();
         Ok(triangles
             .iter()
@@ -673,32 +800,40 @@ impl DrawnPass {
                 d.destroy_buffer(b.buffer);
             }
         }
-        let heights = floats(&w.heights);
-        let mut words = Vec::with_capacity(w.words.len() * 2 + 2);
-        for x in w.words.iter() {
-            words.extend_from_slice(&x.to_le_bytes());
-        }
-        if words.len() % 4 != 0 {
-            words.extend_from_slice(&[0, 0]);
-        }
-        let mut water = Vec::with_capacity(w.heights.len() * 8);
-        if w.water.len() == w.heights.len() {
-            for [a, b] in w.water.iter() {
-                water.extend(a.to_le_bytes());
-                water.extend(b.to_le_bytes());
-            }
-        } else {
-            // No water anywhere: every vertex far outside it.
-            for _ in 0..w.heights.len() {
-                water.extend((-1000.0f32).to_le_bytes());
-                water.extend(0.0f32.to_le_bytes());
-            }
-        }
+        // The heights after the grid they lie on: the vertices a side, the meters between them,
+        // a road's half width and the vertex steps a land cell side; every reader of the world's
+        // vertices takes the grid from here.
+        let mut header = Vec::with_capacity(WORLD_HEADER as usize);
+        header.extend(w.side.to_le_bytes());
+        header.extend(floats(&[w.grid.vertex_spacing(), w.grid.road_width]));
+        header.extend(
+            u32::try_from(w.grid.vertices_per_cell)
+                .unwrap_or(1)
+                .to_le_bytes(),
+        );
+        let words = WorldWords::new(w);
+        let heights = bound_world(
+            d,
+            "remaster world heights",
+            &header,
+            Held::Heights,
+            w,
+            &words,
+        )?;
+        let terrain = bound_world(
+            d,
+            "remaster world terrain words",
+            &[],
+            Held::Words,
+            w,
+            &words,
+        )?;
+        let water = bound_world(d, "remaster world water", &[], Held::Water, w, &words)?;
         self.world = Some(World {
             serial: w.serial,
-            heights: bound(d, "remaster world heights", &heights)?,
-            words: bound(d, "remaster world terrain words", &words)?,
-            water: bound(d, "remaster world water", &water)?,
+            heights,
+            words: terrain,
+            water,
         });
         Ok(())
     }
@@ -789,7 +924,8 @@ impl DrawnPass {
         let Some(ground) = frame.drawn.as_ref() else {
             return Ok(None);
         };
-        if ground.world.heights.len() != (WORLD_SIDE * WORLD_SIDE) as usize {
+        let side = ground.world.side as usize;
+        if side < 2 || ground.world.heights.len() != side * side {
             return Ok(None);
         }
         self.hold_world(d, ground)?;
@@ -866,7 +1002,10 @@ impl DrawnPass {
         };
         #[allow(clippy::cast_precision_loss)] // a body count, at most 32
         f.extend([far_scale, k.cliff_fade.0, k.cliff_fade.1, bodies as f32]);
-        match (offset, k.water) {
+        // The water's bed, where the offset is drawn; and on a grid finer than a land cell, which
+        // lays no offset, wherever the ground is drawn.
+        let finer = !ground.world.grid.is_default();
+        match (offset || (settings.drawn && finer), k.water) {
             (true, Some(slope)) => f.extend([1.0, slope, 0.0, 0.0]),
             _ => f.extend([0.0; 4]),
         }
@@ -889,8 +1028,8 @@ impl DrawnPass {
         for i in 0..SLOTS {
             out.extend(slots.get(i).copied().unwrap_or(-1).to_le_bytes());
         }
-        for c in &self.colors {
-            out.extend(floats(c));
+        for k in 0..32 {
+            out.extend(floats(&self.color(k)));
         }
         match k.slope {
             Some(s) => {
@@ -922,6 +1061,9 @@ impl DrawnPass {
         out.extend(floats(&[flowers, super::grass::SCATTER_REACH, 0.0, 0.0]));
         for c in super::grass::PALETTE {
             out.extend(floats(&[c[0], c[1], c[2], 1.0]));
+        }
+        for k in 32..32 + VARIANT_ROWS {
+            out.extend(floats(&self.color(k)));
         }
         self.constants.write(d, &out)?;
 
@@ -981,9 +1123,20 @@ impl DrawnPass {
         }))
     }
 
+    /// Row `k` of the ground's colors (`type + 32 * variant`): its type's where the table is short.
+    fn color(&self, k: usize) -> [f32; 4] {
+        self.colors
+            .get(k)
+            .or_else(|| self.colors.get(k % 32))
+            .copied()
+            .unwrap_or([0.5, 0.5, 0.5, 1.0])
+    }
+
     /// The drawn height at `points` (world x and y, and the distance from the eye), worked out on
     /// the device with `frame`'s ground: what the vertex stage puts under each, without the fine
-    /// relief. For the checks that the ground is drawn where the scene stands what is on it.
+    /// relief. For the checks that the ground is drawn where the scene stands what is on it. With
+    /// `water`, in place of each height, how much of the water its pictures lay is drawn over
+    /// the ground there (0 to 1).
     ///
     /// # Errors
     /// What the device refuses.
@@ -994,6 +1147,7 @@ impl DrawnPass {
         frame: &FrameDelta,
         settings: TerrainSettings,
         points: &[[f32; 3]],
+        water: bool,
     ) -> Result<Vec<f32>, dereth_gfx::Error> {
         // The frame's own patches stand: the probe's are chosen for no eye.
         let (view, last) = (self.view.clone(), self.last_patches);
@@ -1012,8 +1166,9 @@ impl DrawnPass {
         };
         let count = u32::try_from(points.len()).unwrap_or(0);
         let mut input = push_words(&[count, 0, 0, 0]);
+        let asked = if water { 1.0 } else { 0.0 };
         for p in points {
-            input.extend(floats(&[p[0], p[1], p[2], 0.0]));
+            input.extend(floats(&[p[0], p[1], p[2], asked]));
         }
         let points_buffer = bound(d, "remaster drawn probe points", &input)?;
         let out = d.create_buffer(&BufferDesc {
@@ -1155,6 +1310,44 @@ mod tests {
         true
     }
 
+    /// A world `side` vertices a side, `spacing` meters apart, one vertex raised 8 m, every square
+    /// cut by `cut` (or by the default grid's hash, with none).
+    fn peaked(side: u32, steps: usize, cut: Option<bool>) -> DrawnWorld {
+        let n = side as usize;
+        let mut heights = vec![0.0; n * n];
+        heights[11 * n + 11] = 8.0;
+        let cuts = cut.map_or_else(Vec::new, |c| DrawnWorld::cut_bits(n, |_, _| c));
+        DrawnWorld {
+            side,
+            grid: dereth_primitives::land_grid::LandGrid::with_steps(steps, 4.0),
+            heights: std::sync::Arc::new(heights),
+            words: std::sync::Arc::new(vec![4; n * n]),
+            cuts: std::sync::Arc::new(cuts),
+            ..DrawnWorld::default()
+        }
+    }
+
+    /// **Retail's height lies on the world's own grid**: vertices as far apart as its grid lays
+    /// them, each square cut as the world says; with no cuts held, by the default grid's hash.
+    #[test]
+    fn retail_height_lies_on_the_worlds_own_grid_and_cuts() {
+        for cut in [false, true] {
+            let w = peaked(40, 3, Some(cut));
+            assert_eq!(retail_height(&w, Vec2::new(88.0, 88.0)), 8.0);
+            assert!((retail_height(&w, Vec2::new(84.0, 88.0)) - 4.0).abs() < 1e-5);
+            let mid = retail_height(&w, Vec2::new(84.0, 84.0));
+            assert!(
+                (mid - if cut { 4.0 } else { 0.0 }).abs() < 1e-5,
+                "{cut}: {mid}"
+            );
+        }
+        let w = peaked(40, 1, None);
+        let mid = retail_height(&w, Vec2::new(10.5 * 24.0, 10.5 * 24.0));
+        let want = if sw_to_ne((10, 10)) { 4.0 } else { 0.0 };
+        assert!((mid - want).abs() < 1e-5);
+        assert_eq!(w.cut(10, 10), sw_to_ne((10, 10)));
+    }
+
     /// **Patches grow coarser away from the eye, and neighbors differ by one level at most**, so
     /// the slides that close the seams between levels always meet a level just one coarser.
     #[test]
@@ -1247,6 +1440,118 @@ mod tests {
             }
         }
         assert!(checked > 0, "an edge between levels was checked");
+    }
+
+    /// The device's word of vertex `k` of `bytes`.
+    fn word_at(bytes: &[u8], k: usize) -> u32 {
+        u32::from_le_bytes(bytes[k * 4..k * 4 + 4].try_into().unwrap())
+    }
+
+    /// A world `side` vertices a side, `spacing` meters apart, of grass but for the vertices `wet`
+    /// names, which are fresh water, each square cut as `cut` says.
+    /// The world's terrain words as the device holds them, written in one part.
+    fn world_words(w: &DrawnWorld) -> Vec<u8> {
+        let mut out = Vec::new();
+        Held::Words.write(w, &WorldWords::new(w), 0..w.words.len(), &mut out);
+        out
+    }
+
+    /// **The world's buffers are the same bytes however many parts they are written in**: each
+    /// part takes the vertices after the last one's, every vertex once, the last part short.
+    #[test]
+    fn the_worlds_buffers_are_the_same_bytes_in_any_number_of_parts() {
+        let wet: Vec<(usize, usize)> = (3..9).flat_map(|x| (2..7).map(move |y| (x, y))).collect();
+        let mut w = wet_world(13, 3, &wet, true);
+        w.heights = std::sync::Arc::new((0..169u16).map(|k| f32::from(k) * 0.37).collect());
+        let field = (0..169u16).map(|k| [k, k ^ 0x8001]).collect();
+        let dry = w.clone();
+        w.water = std::sync::Arc::new(field);
+        for w in [&w, &dry] {
+            let words = WorldWords::new(w);
+            for held in [Held::Heights, Held::Words, Held::Water] {
+                let mut whole = Vec::new();
+                held.write(w, &words, 0..held.vertices(w), &mut whole);
+                assert_eq!(whole.len(), 169 * 4, "{held:?}");
+                for part in [1, 5, 7, 168, 169, 400] {
+                    let mut parted = Vec::new();
+                    for range in parts(held.vertices(w), part) {
+                        assert!(range.len() <= part && !range.is_empty(), "{range:?}");
+                        held.write(w, &words, range, &mut parted);
+                    }
+                    assert_eq!(parted, whole, "{held:?} in parts of {part}");
+                }
+            }
+        }
+        // The pairs, how far inside the water in each word's low half.
+        let mut water = Vec::new();
+        Held::Water.write(&w, &WorldWords::new(&w), 0..169, &mut water);
+        assert_eq!(word_at(&water, 5), 5 | (5 ^ 0x8001) << 16);
+        let mut far = Vec::new();
+        Held::Water.write(&dry, &WorldWords::new(&dry), 0..169, &mut far);
+        assert_eq!(
+            word_at(&far, 0),
+            u32::from(dereth_primitives::half::bits(-1000.0))
+        );
+    }
+
+    fn wet_world(side: u32, steps: usize, wet: &[(usize, usize)], cut: bool) -> DrawnWorld {
+        let n = side as usize;
+        let mut words = vec![1u16 << 2; n * n];
+        for &(x, y) in wet {
+            words[y * n + x] = 17 << 2;
+        }
+        DrawnWorld {
+            side,
+            grid: dereth_primitives::land_grid::LandGrid::with_steps(steps, 4.0),
+            heights: std::sync::Arc::new(vec![0.0; n * n]),
+            words: std::sync::Arc::new(words),
+            cuts: std::sync::Arc::new(DrawnWorld::cut_bits(n, |_, _| cut)),
+            ..DrawnWorld::default()
+        }
+    }
+
+    /// **On retail's grid the device holds each vertex's terrain word and its square's cut, and
+    /// nothing more**: water there or not, the words are as they were, so retail's ground draws
+    /// as it did.
+    #[test]
+    fn on_retails_grid_the_device_holds_each_word_and_its_squares_cut_alone() {
+        let wet: Vec<(usize, usize)> = (2..6).flat_map(|x| (2..6).map(move |y| (x, y))).collect();
+        for cut in [false, true] {
+            let w = wet_world(9, 1, &wet, cut);
+            let bytes = world_words(&w);
+            assert_eq!(bytes.len(), 81 * 4);
+            for (k, word) in w.words.iter().enumerate() {
+                assert_eq!(
+                    word_at(&bytes, k),
+                    u32::from(*word) | u32::from(cut) << 16,
+                    "vertex {k}"
+                );
+            }
+        }
+    }
+
+    /// **On a finer grid too the device holds each vertex's terrain word and its square's cut
+    /// alone**: the water a body stands in is each square's, which its corners' words say, so no
+    /// vertex carries its land cell's water.
+    #[test]
+    fn on_a_finer_grid_the_device_holds_each_word_and_its_squares_cut_alone_too() {
+        // Thirteen vertices a side, three a cell: cell (1, 1) all water and a lone water vertex
+        // inside cell (3, 3).
+        let mut wet: Vec<(usize, usize)> =
+            (3..=6).flat_map(|x| (3..=6).map(move |y| (x, y))).collect();
+        wet.push((10, 10));
+        for cut in [false, true] {
+            let w = wet_world(13, 3, &wet, cut);
+            let bytes = world_words(&w);
+            assert_eq!(bytes.len(), 169 * 4);
+            for (k, word) in w.words.iter().enumerate() {
+                assert_eq!(
+                    word_at(&bytes, k),
+                    u32::from(*word) | u32::from(cut) << 16,
+                    "vertex {k}"
+                );
+            }
+        }
     }
 
     /// A block takes the slot its coordinates name, wrapping.

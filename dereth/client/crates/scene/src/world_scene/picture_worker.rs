@@ -75,19 +75,21 @@ impl LandContext {
             return Vec::new();
         }
         let mut missing: Vec<DataId> = Vec::new();
-        for (key, _) in &mesh.cell_keys {
+        for key in &mesh.surface_keys() {
             if self.splats.contains_key(key) {
                 continue;
             }
             let plan =
-                dereth_terrain::land::merge::merge_plan(&self.tex_merge, *key, self.merge.shift);
+                dereth_terrain::land::merge::merge_plan(&self.tex_merge, key.key, self.merge.shift);
             let ids = plan.base.into_iter().chain(
                 plan.overlays
                     .iter()
                     .flat_map(|o| std::iter::once(o.alpha).chain(o.tex)),
             );
             for id in ids {
-                if !self.splat_sources.contains_key(&id)
+                if !self
+                    .splat_sources
+                    .contains_key(&land::PlacedSource::whole(id))
                     && !self.sources.contains_key(&id)
                     && !missing.contains(&id)
                 {
@@ -138,7 +140,10 @@ impl LandContext {
 
     /// Whether picture `id` is decoded, or held for the splat draw.
     pub(super) fn picture_ready(&self, id: DataId) -> bool {
-        self.sources.contains_key(&id) || self.splat_sources.contains_key(&id)
+        self.sources.contains_key(&id)
+            || self
+                .splat_sources
+                .contains_key(&land::PlacedSource::whole(id))
     }
 
     /// Throw away what the thread is asked for: the pictures decoded are being thrown away too.

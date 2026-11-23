@@ -45,8 +45,6 @@ use crate::shaders::Entry;
 
 /// A block's side, meters.
 const BLOCK: f32 = 192.0;
-/// A landscape cell's side, meters.
-const CELL: f32 = 24.0;
 /// The period the weather's clock wraps over, seconds. The shaders fit a whole number of cycles
 /// of every motion into it, so the wrap is never seen.
 pub const TIME_PERIOD: f64 = 1200.0;
@@ -103,27 +101,31 @@ pub fn falls(frame: &FrameDelta, rainy: bool) -> bool {
 }
 
 /// The share of the land round `eye` (the frame's space, its origin at block `origin`) that is
-/// snow and ice: every landscape vertex of the held blocks within [`SNOW_REACH`] of the eye, the
-/// nearer the more it counts. `None` with no land in reach.
+/// snow and ice: every landscape vertex of the held blocks (each block's full-detail words and the
+/// squares along that grid's side) within [`SNOW_REACH`] of the eye, the nearer the more it counts. `None` with no
+/// land in reach.
 #[must_use]
 pub fn snow_share<'a>(
-    blocks: impl Iterator<Item = (BlockId, &'a [u16; 81])>,
+    blocks: impl Iterator<Item = (BlockId, &'a [u16], usize)>,
     eye: Vec3,
     origin: [i32; 2],
 ) -> Option<f32> {
     let (mut snow, mut all) = (0.0f32, 0.0f32);
-    for (id, words) in blocks {
+    for (id, words, squares) in blocks {
         let o = block_offset(id, origin);
         let (cx, cy) = (o.x + BLOCK * 0.5, o.y + BLOCK * 0.5);
         let half = BLOCK * 0.5 + SNOW_REACH;
         if (cx - eye.x).abs() > half || (cy - eye.y).abs() > half {
             continue;
         }
+        let squares = squares.max(1);
+        #[allow(clippy::cast_precision_loss)] // a block's squares, a few dozen
+        let spacing = BLOCK / squares as f32;
         for (i, w) in words.iter().enumerate() {
-            #[allow(clippy::cast_precision_loss)] // a vertex's place in its block, 0..9
-            let (e, n) = ((i / 9) as f32, (i % 9) as f32);
-            let x = o.x + e * CELL - eye.x;
-            let y = o.y + n * CELL - eye.y;
+            #[allow(clippy::cast_precision_loss)] // a vertex's place in its block
+            let (e, n) = ((i / (squares + 1)) as f32, (i % (squares + 1)) as f32);
+            let x = o.x + e * spacing - eye.x;
+            let y = o.y + n * spacing - eye.y;
             let weight = 1.0 - (x * x + y * y).sqrt() / SNOW_REACH;
             if weight <= 0.0 {
                 continue;
@@ -525,7 +527,7 @@ impl WeatherPass {
         &mut self,
         frame: &FrameDelta,
         rainy: bool,
-        ground: impl Iterator<Item = (BlockId, &'a [u16; 81])>,
+        ground: impl Iterator<Item = (BlockId, &'a [u16], usize)>,
     ) {
         if !self.settings.on {
             self.drawing = false;
@@ -1022,11 +1024,11 @@ mod tests {
         let grassy = [grass_word; 81];
         let id: BlockId = 0x1020;
         let eye = Vec3::new(96.0, 96.0, 0.0);
-        let all = snow_share([(id, &snowy)].into_iter(), eye, [0x10, 0x20]).expect("land");
+        let all = snow_share([(id, &snowy[..], 8)].into_iter(), eye, [0x10, 0x20]).expect("land");
         assert!((all - 1.0).abs() < 1e-6);
-        let none = snow_share([(id, &grassy)].into_iter(), eye, [0x10, 0x20]).expect("land");
+        let none = snow_share([(id, &grassy[..], 8)].into_iter(), eye, [0x10, 0x20]).expect("land");
         assert_eq!(none, 0.0);
-        let far = snow_share([(id, &snowy)].into_iter(), eye, [0x40, 0x20]);
+        let far = snow_share([(id, &snowy[..], 8)].into_iter(), eye, [0x40, 0x20]);
         assert_eq!(far, None);
         // A road over snow is a road.
         assert!(!is_snow(snow_word | 1));

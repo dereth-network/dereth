@@ -445,6 +445,19 @@ impl SceneDraw {
         remaster(gpu).map_or_else(Vec::new, |r| r.renderer().drawn_heights(ground, points))
     }
 
+    /// How much of the water the ground's pictures lay is drawn over the ground at `points`, 0 to
+    /// 1, as the remaster's device works it out for `ground`; as
+    /// [`Self::remaster_drawn_heights`] takes them.
+    #[cfg(feature = "test-support")]
+    pub fn remaster_drawn_water_kept(
+        &self,
+        gpu: &mut Gpu,
+        ground: Option<&dereth_remaster::scene::DrawnGround>,
+        points: &[[f32; 3]],
+    ) -> Vec<f32> {
+        remaster(gpu).map_or_else(Vec::new, |r| r.renderer().drawn_water_kept(ground, points))
+    }
+
     /// Whether the remaster's ground wants the world's vertices for its grid; the visual offset,
     /// with what stands on the ground drawn on it; and the far ground out to the horizon: only
     /// while the remaster is on.

@@ -26,8 +26,11 @@ pub(super) fn landblock_mesh(
         spec.dir,
     );
     if filled.is_some() {
-        (mesh.cell_water, mesh.water_type) =
-            dereth_terrain::land::water::calc_water(&lb.terrain, usize::from(mesh.side_cell_count));
+        (mesh.cell_water, mesh.water_type) = dereth_terrain::land::water::calc_water_on(
+            lb.grid_terrain(),
+            usize::from(mesh.vertex_steps),
+            usize::from(mesh.side_cell_count),
+        );
     }
     (mesh, filled)
 }
@@ -55,21 +58,23 @@ impl LandContext {
             return Ok((
                 mesh,
                 cell_texture,
-                merge_keys.clone(),
+                merge_keys.iter().map(|&k| SurfaceKey::from(k)).collect(),
                 merge_keys,
                 Vec::new(),
             ));
         }
+        // Each square draws its own part of its cell's ground pictures.
+        let surface_keys = mesh.surface_keys();
         let (cell_texture, cell_keys) = if self.composites_wanted {
             (
-                self.composites(store, gpu, &merge_keys)?,
-                merge_keys.clone(),
+                self.composites(store, gpu, &surface_keys)?,
+                surface_keys.clone(),
             )
         } else {
             (Vec::new(), Vec::new())
         };
         let cell_splat = if self.splat_wanted {
-            self.splat_layers(store, gpu, &merge_keys)?
+            self.splat_layers(store, gpu, &surface_keys)?
         } else {
             Vec::new()
         };
@@ -86,7 +91,7 @@ impl LandContext {
         &mut self,
         store: &RetailDatStore,
         gpu: &mut Gpu,
-        keys: &[MergeKey],
+        keys: &[SurfaceKey],
     ) -> Result<Vec<Option<TextureSlot>>, WorldError> {
         let ground_store = self.ground_store.clone();
         let store = ground_store.as_ref().unwrap_or(store);
@@ -176,7 +181,7 @@ impl LandContext {
         let ground_store = self.ground_store.clone();
         let store = ground_store.as_ref().unwrap_or(store);
         let lookup = dereth_assets::texture_lookup::TextureLookup::new(store, 0);
-        let side = usize::from(mesh.side_cell_count);
+        let side = mesh.squares_per_side();
         let mut out = Vec::with_capacity(side * side);
         let mut error: Option<String> = None;
         for i in 0..side {
@@ -246,7 +251,7 @@ impl LandContext {
         &mut self,
         store: &RetailDatStore,
         gpu: &mut Gpu,
-        keys: &[MergeKey],
+        keys: &[SurfaceKey],
     ) -> Result<Vec<Option<Arc<TerrainSplat>>>, WorldError> {
         let ground_store = self.ground_store.clone();
         let store = ground_store.as_ref().unwrap_or(store);
@@ -273,8 +278,12 @@ impl LandContext {
             let splat = match splats.get(key) {
                 Some(s) => Arc::clone(s),
                 None => {
-                    let plan =
-                        dereth_terrain::land::merge::merge_plan(tex_merge, *key, merge.shift);
+                    let plan = dereth_terrain::land::merge::merge_plan_at(
+                        tex_merge,
+                        key.key,
+                        merge.shift,
+                        key.place,
+                    );
                     // The texels a composite at this detail level would hold for a cell,
                     // before the distance reduction the splat draw leaves to the mips.
                     let size = dereth_terrain::land::merge::merged_texture_size(
@@ -623,15 +632,12 @@ impl LandContext {
         };
         // The cells each static is registered in, which are the cells that draw it: the
         // static cross-cell search, over this block's own land and interior cells.
-        let land = dereth_physics::LandblockCollision::build(
+        let land = dereth_world_data::land_source::land_collision(
+            &self.region.land_defs.land_grid(),
             dereth_primitives::LandblockId(block),
-            Box::new(lb.height),
-            Box::new(lb.terrain),
-            lb.lbi_exists != 0,
-            8,
+            lb,
             &self.table,
         )
-        .ok()
         .map(Arc::new);
         let source = dereth_world_data::env_cells::BlockCellSource::new(
             dereth_primitives::LandblockId(block),
@@ -1271,51 +1277,93 @@ impl PaletteComposition {
     }
 }
 
+/// A ground picture as a land square lays it: the picture `id`, or, for a square that is part of a
+/// cell, its part of the picture tiled `tiling` times across the cell. Alpha maps and whole-cell
+/// pictures are `id` alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PlacedSource {
+    pub(super) id: DataId,
+    pub(super) tiling: u32,
+    pub(super) place: dereth_terrain::land::merge::Place,
+}
+
+impl PlacedSource {
+    /// The picture itself.
+    pub(super) const fn whole(id: DataId) -> Self {
+        Self {
+            id,
+            tiling: 0,
+            place: dereth_terrain::land::merge::Place::WHOLE,
+        }
+    }
+
+    /// Picture `id` tiled `tiling` times across a cell, as the square at `place` lays it.
+    fn of(id: DataId, tiling: u32, place: dereth_terrain::land::merge::Place) -> Self {
+        if place.is_whole() {
+            Self::whole(id)
+        } else {
+            Self { id, tiling, place }
+        }
+    }
+
+    /// Its pixels from `src`.
+    fn image(self, src: &dyn TerrainTextureSource) -> Option<Arc<Bgra8>> {
+        let img = src.image(self.id)?;
+        Some(
+            dereth_terrain::land::merge::placed_picture(&img, self.tiling, self.place)
+                .map_or(img, Arc::new),
+        )
+    }
+}
+
 /// Build `plan`'s composite with the device's compositor, making each source it names
 /// resident on first use. A missing alpha map drops its overlay and a missing texture is the
 /// debug colour, exactly as [`dereth_terrain::land::merge::execute_merge_plan`] does, so the
 /// result is bit-identical to the CPU composite.
 pub(super) fn merge_on_device(
     gpu: &mut Gpu,
-    resident: &mut HashMap<DataId, Option<MergeSource>>,
+    resident: &mut HashMap<PlacedSource, Option<MergeSource>>,
     src: &dyn TerrainTextureSource,
     plan: &MergePlan,
 ) -> Result<TextureSlot, RenderError> {
-    let mut get = |id: DataId| -> Result<Option<MergeSource>, RenderError> {
-        if let Some(r) = resident.get(&id) {
+    use dereth_terrain::land::merge::placed_tiling;
+    let mut get = |key: PlacedSource| -> Result<Option<MergeSource>, RenderError> {
+        if let Some(r) = resident.get(&key) {
             return Ok(*r);
         }
-        let r = match src.image(id) {
+        let r = match key.image(src) {
             Some(img) => {
                 Some(gpu.upload_merge_source(img.width, img.height, img.pixels.as_flattened())?)
             }
             None => None,
         };
-        resident.insert(id, r);
+        resident.insert(key, r);
         Ok(r)
     };
     let base = match plan.base {
-        Some(id) => get(id)?,
+        Some(id) => get(PlacedSource::of(id, plan.base_tiling, plan.place))?,
         None => None,
     };
     let mut overlays = Vec::with_capacity(plan.overlays.len());
     for o in &plan.overlays {
-        let Some(alpha) = get(o.alpha)? else { continue };
+        let Some(alpha) = get(PlacedSource::whole(o.alpha))? else {
+            continue;
+        };
         let tex = match o.tex {
-            Some(id) => get(id)?,
+            Some(id) => get(PlacedSource::of(id, o.tiling, plan.place))?,
             None => None,
         };
         overlays.push(TerrainMergeOverlay {
             alpha,
             rotation: o.rotation as u32,
             tex,
-            tiling: o.tiling,
+            tiling: placed_tiling(o.tiling, plan.place),
         });
     }
     let job = TerrainMergeJob {
         size: plan.size,
         base,
-        base_tiling: plan.base_tiling,
+        base_tiling: placed_tiling(plan.base_tiling, plan.place),
         overlays,
     };
     gpu.merge_terrain_texture(dereth_render::TextureKey::UNCACHED, &job)
@@ -1325,19 +1373,20 @@ pub(super) fn merge_on_device(
 /// on first use.
 pub(super) fn splat_of(
     gpu: &mut Gpu,
-    resident: &mut HashMap<DataId, Option<TextureSlot>>,
+    resident: &mut HashMap<PlacedSource, Option<TextureSlot>>,
     src: &dyn TerrainTextureSource,
     plan: &MergePlan,
     size: u32,
 ) -> Result<TerrainSplat, WorldError> {
+    use dereth_terrain::land::merge::placed_tiling;
     // Each source is uploaded at the texels the composite at `size` carries of it
     // (`Render.LandscapeTextureDetail`), so the setting lowers the splat draw's detail as it
     // does the composites'. A change of the setting flushes these, as it does the composites.
-    let mut get = |id: DataId, tiling: u32| -> Result<Option<TextureSlot>, WorldError> {
-        if let Some(r) = resident.get(&id) {
+    let mut get = |key: PlacedSource, tiling: u32| -> Result<Option<TextureSlot>, WorldError> {
+        if let Some(r) = resident.get(&key) {
             return Ok(*r);
         }
-        let r = match src.image(id) {
+        let r = match key.image(src) {
             Some(img) => {
                 let shrunk = dereth_terrain::land::merge::source_at_scale(&img, size, tiling);
                 let img = shrunk.as_ref().unwrap_or(&img);
@@ -1356,32 +1405,37 @@ pub(super) fn splat_of(
             }
             None => None,
         };
-        resident.insert(id, r);
+        resident.insert(key, r);
         Ok(r)
     };
+    let base_tiling = placed_tiling(plan.base_tiling, plan.place);
     let base = match plan.base {
-        Some(id) => get(id, plan.base_tiling)?,
+        Some(id) => get(
+            PlacedSource::of(id, plan.base_tiling, plan.place),
+            base_tiling,
+        )?,
         None => None,
     };
     let mut overlays = Vec::with_capacity(plan.overlays.len());
     for o in &plan.overlays {
-        let Some(alpha) = get(o.alpha, 1)? else {
+        let Some(alpha) = get(PlacedSource::whole(o.alpha), 1)? else {
             continue;
         };
+        let tiling = placed_tiling(o.tiling, plan.place);
         let tex = match o.tex {
-            Some(id) => get(id, o.tiling)?,
+            Some(id) => get(PlacedSource::of(id, o.tiling, plan.place), tiling)?,
             None => None,
         };
         overlays.push(TerrainSplatOverlay {
             alpha,
             rotation: o.rotation as u32,
             tex,
-            tiling: o.tiling,
+            tiling,
         });
     }
     Ok(TerrainSplat {
         base,
-        base_tiling: plan.base_tiling,
+        base_tiling,
         overlays,
     })
 }
@@ -1581,90 +1635,94 @@ impl SceneDraw {
                 if visited >> cell.min(63) & 1 == 0 {
                     continue;
                 }
-                let (i, j) = (
+                let (ci, cj) = (
                     usize::from(cell) / usize::from(n),
                     usize::from(cell) % usize::from(n),
                 );
-                // Only a walk that draws rebuilds the cell's triangles.
-                let tris = if self.submits() {
-                    visible_triangles(mesh, i, j, viewpoint)
-                } else {
-                    Vec::new()
-                };
-                if !tris.is_empty() {
-                    vertices.clear();
-                    for p in &tris {
-                        for v in triangle_vertices(mesh, p) {
-                            vertices.extend_from_slice(&v.to_bytes());
-                        }
-                    }
-                    // The current mode's representation, or the other one while a switch is
-                    // still converting this block.
-                    let has_composites = !block.cell_keys.is_empty();
-                    let splat = if self.terrain_splat || !has_composites {
-                        block
-                            .cell_splat
-                            .get(usize::from(cell))
-                            .and_then(Option::as_ref)
+                // The cell's squares, each with its own surface: the cell itself on the default
+                // grid, `steps²` of them on a finer one.
+                let steps = usize::from(mesh.vertex_steps.max(1));
+                let squares = mesh.squares_per_side();
+                for k in 0..steps * steps {
+                    let (i, j) = (ci * steps + k / steps, cj * steps + k % steps);
+                    let square = i * squares + j;
+                    // Only a walk that draws rebuilds the cell's triangles.
+                    let tris = if self.submits() {
+                        visible_triangles(mesh, i, j, viewpoint)
                     } else {
-                        None
+                        Vec::new()
                     };
-                    if let Some(splat) = splat {
-                        gpu.draw_terrain_splat(
-                            &self.terrain_key,
-                            splat,
-                            per_frame,
-                            &world,
-                            &vertices,
-                        )?;
-                    } else {
-                        if let Some(slot) =
-                            block.cell_texture.get(usize::from(cell)).copied().flatten()
-                        {
-                            // Sampler 1 = linear / clamp: a merged land surface covers exactly
-                            // one cell and the UVs are exactly [0, 1], so wrapping would fetch
-                            // across the seam.
-                            gpu.bind_texture(slot, 1);
-                        }
-                        gpu.draw_dynamic(
-                            &self.terrain_key,
-                            &DrawConstants::default(),
-                            per_frame,
-                            &world,
-                            &vertices,
-                        )?;
-                    }
-                    // The landscape detail pass: a block at full detail draws each cell's
-                    // triangles again with the detail texture right after the ground.
-                    if let (Some((slot, tiling)), true) = (
-                        land_detail,
-                        dereth_world_render::detail::block_takes_landscape_detail(u32::from(n)),
-                    ) {
-                        detail_vertices.clear();
+                    if !tris.is_empty() {
+                        vertices.clear();
                         for p in &tris {
                             for v in triangle_vertices(mesh, p) {
-                                let eye = dereth_physics::math::globaltolocal(
-                                    &camera,
-                                    Vec3::new(
-                                        block.origin.0 + v.pos[0],
-                                        block.origin.1 + v.pos[1],
-                                        v.pos[2],
-                                    ),
-                                );
-                                detail_vertices
-                                    .extend_from_slice(&detail_vertex(v, eye.y, tiling).to_bytes());
+                                vertices.extend_from_slice(&v.to_bytes());
                             }
                         }
-                        // Sampler 0 = linear / wrap: the detail texture repeats across the
-                        // cell.
-                        gpu.bind_texture(slot, 0);
-                        gpu.draw_dynamic(
-                            &self.terrain_detail_key,
-                            &DrawConstants::default(),
-                            per_frame,
-                            &world,
-                            &detail_vertices,
-                        )?;
+                        // The current mode's representation, or the other one while a switch is
+                        // still converting this block.
+                        let has_composites = !block.cell_keys.is_empty();
+                        let splat = if self.terrain_splat || !has_composites {
+                            block.cell_splat.get(square).and_then(Option::as_ref)
+                        } else {
+                            None
+                        };
+                        if let Some(splat) = splat {
+                            gpu.draw_terrain_splat(
+                                &self.terrain_key,
+                                splat,
+                                per_frame,
+                                &world,
+                                &vertices,
+                            )?;
+                        } else {
+                            if let Some(slot) = block.cell_texture.get(square).copied().flatten() {
+                                // Sampler 1 = linear / clamp: a merged land surface covers exactly
+                                // one cell and the UVs are exactly [0, 1], so wrapping would fetch
+                                // across the seam.
+                                gpu.bind_texture(slot, 1);
+                            }
+                            gpu.draw_dynamic(
+                                &self.terrain_key,
+                                &DrawConstants::default(),
+                                per_frame,
+                                &world,
+                                &vertices,
+                            )?;
+                        }
+                        // The landscape detail pass: a block at full detail draws each cell's
+                        // triangles again with the detail texture right after the ground.
+                        if let (Some((slot, tiling)), true) = (
+                            land_detail,
+                            dereth_world_render::detail::block_takes_landscape_detail(u32::from(n)),
+                        ) {
+                            detail_vertices.clear();
+                            for p in &tris {
+                                for v in triangle_vertices(mesh, p) {
+                                    let eye = dereth_physics::math::globaltolocal(
+                                        &camera,
+                                        Vec3::new(
+                                            block.origin.0 + v.pos[0],
+                                            block.origin.1 + v.pos[1],
+                                            v.pos[2],
+                                        ),
+                                    );
+                                    detail_vertices.extend_from_slice(
+                                        &detail_vertex(v, eye.y, tiling).to_bytes(),
+                                    );
+                                }
+                            }
+                            // Sampler 0 = linear / wrap: the detail texture repeats across the
+                            // cell.
+                            gpu.bind_texture(slot, 0);
+                            gpu.draw_dynamic(
+                                &self.terrain_detail_key,
+                                &DrawConstants::default(),
+                                per_frame,
+                                &world,
+                                &detail_vertices,
+                            )?;
+                        }
                     }
                 }
 

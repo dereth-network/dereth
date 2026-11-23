@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use dereth_physics::globals::LAND_HEIGHT_TABLE_LEN;
 use dereth_physics::land::LandblockCollision;
 use dereth_physics::source::{BuildingGeometry, EnvCellGeometry, LandSource, PhysicsPart};
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::{CellId, LandblockId, Position};
 
 use super::convert::{
@@ -47,6 +48,8 @@ pub struct DatLandSource {
     /// ([`Self::set_dats`]).
     dats: std::sync::RwLock<Arc<DatManager>>,
     table: Box<[f32; LAND_HEIGHT_TABLE_LEN]>,
+    /// The world's land grid, from its region record.
+    grid: LandGrid,
     blocks: Mutex<BTreeMap<u16, Option<Arc<LandblockCollision>>>>,
     loaded: Mutex<BTreeSet<u16>>,
     cells: Mutex<BTreeMap<u32, Arc<EnvCellGeometry>>>,
@@ -73,14 +76,20 @@ impl DatLandSource {
     ///
     /// The portal dat has no region, or its height table is not valid.
     pub fn new(dats: Arc<DatManager>) -> Result<Self, LandSourceError> {
-        let region = dats
-            .portal_dat()
-            .try_region_desc()
-            .ok_or(LandSourceError::NoRegion)?;
-        let table =
-            dereth_physics::landdefs::validate_height_table(&region.land_defs.land_height_table)
-                .ok_or(LandSourceError::BadHeightTable)?;
-        Ok(Self::with_height_table(dats, table))
+        let (table, grid) = {
+            let region = dats
+                .portal_dat()
+                .try_region_desc()
+                .ok_or(LandSourceError::NoRegion)?;
+            let table = dereth_physics::landdefs::validate_height_table(
+                &region.land_defs.land_height_table,
+            )
+            .ok_or(LandSourceError::BadHeightTable)?;
+            (table, region.land_defs.land_grid())
+        };
+        let mut source = Self::with_height_table(dats, table);
+        source.grid = grid;
+        Ok(source)
     }
 
     /// A source with an explicit height table, for dats without a region (a `FakeDats`).
@@ -89,6 +98,7 @@ impl DatLandSource {
         Self {
             dats: std::sync::RwLock::new(dats),
             table: Box::new(table),
+            grid: LandGrid::DEFAULT,
             blocks: Mutex::new(BTreeMap::new()),
             loaded: Mutex::new(BTreeSet::new()),
             cells: Mutex::new(BTreeMap::new()),
@@ -226,16 +236,8 @@ impl DatLandSource {
             .dats()
             .cell_dat()
             .read_from_dat::<CellLandblock>(id.terrain_id().0)?;
-        LandblockCollision::build(
-            id,
-            Box::new(lb.height),
-            Box::new(lb.terrain),
-            lb.lbi_exists != 0,
-            8,
-            &self.table,
-        )
-        .ok()
-        .map(Arc::new)
+        dereth_world_data::land_source::land_collision(&self.grid, id, &lb, &self.table)
+            .map(Arc::new)
     }
 }
 

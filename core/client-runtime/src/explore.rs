@@ -154,9 +154,10 @@ pub fn ground_under(window: &crate::world_stream::LandblockWindow, x: f32, y: f3
     // LINT-OK: a block index, at most the window's radius from the window's own block.
     #[allow(clippy::cast_precision_loss)]
     let (lx, ly) = (x - bx as f32 * BLOCK, y - by as f32 * BLOCK);
-    let side = mesh.side_cell_count.max(1);
+    // The squares a side: the cells on the default grid.
+    let side = u8::try_from(mesh.squares_per_side()).unwrap_or(8).max(1);
     let size = BLOCK / f32::from(side);
-    // LINT-OK: a block-local place to its square, 0 to 7.
+    // LINT-OK: a block-local place to its square, from 0 to one less than the squares a side.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let square = |v: f32| ((v / size).floor().max(0.0) as usize).min(usize::from(side) - 1);
     let (i, j) = (square(lx), square(ly));

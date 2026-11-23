@@ -19,7 +19,7 @@ use dereth_primitives::{LandblockId, Vec3};
 use crate::consts::{
     LAND_HEIGHT_MAX, LAND_HEIGHT_TABLE_LEN, NE_CORNER, NW_CORNER, SE_CORNER, SW_CORNER,
 };
-use crate::land::water::{calc_water, WaterType};
+use crate::land::water::{calc_water_on, WaterType};
 use crate::narrow::{i32_of, u16_of, u16_of_i32, u32_of, u8_of};
 use crate::Plane;
 
@@ -88,24 +88,28 @@ pub const BOTH_STIPPLING: u8 = 3;
 #[derive(Debug, Clone, PartialEq)]
 pub struct LandblockMesh {
     pub id: LandblockId,
-    /// 8, 4, 2 or 1 — the LOD ring. `side_polygon_count` is the same number in the client.
+    /// 8, 4, 2 or 1 — the LOD ring, in land cells a side.
     pub side_cell_count: u8,
-    /// `side_cell_count + 1`.
+    /// Vertex steps along a land cell side: the world's grid's, 1 on the default grid.
+    pub vertex_steps: u8,
+    /// `side_cell_count * vertex_steps + 1`: one more than the squares a side.
     pub side_vertex_count: u8,
     /// Direction this block was stitched for; [`Direction::InViewerBlock`] when it was not.
     pub trans_dir: Direction,
     /// `side_vertex_count²` vertices, index `v(a, b) = a * side_vertex_count + b`. **True** z: the
     /// z-fight adjustment is applied at emission, not here.
     pub vertices: Vec<Vec3>,
-    /// The SW-to-NE cut, `side_cell_count²` flags indexed `i * side_cell_count + j`.
+    /// The SW-to-NE cut per square, [`Self::squares_per_side`]² flags indexed
+    /// `i * squares_per_side + j`. On the default grid a square is a land cell.
     pub sw_to_ne_cut: Vec<bool>,
-    /// `2 * side_cell_count²` triangles, in emission order: cell `(i, j)` owns `[2n]` and `[2n+1]`
-    /// with `n = i * side_cell_count + j`.
+    /// Two triangles per square, in emission order: square `(i, j)` owns `[2n]` and `[2n+1]`
+    /// with `n = i * squares_per_side + j`.
     pub polygons: Vec<LandPolygon>,
-    /// The merge key and rotation the cell-rotation lookup produced per cell, same indexing as
+    /// The merge key and rotation the cell-rotation lookup produced per square, same indexing as
     /// [`Self::sw_to_ne_cut`]. Kept so the compositor never has to re-derive them.
     pub cell_keys: Vec<(crate::land::merge::MergeKey, Rotation)>,
-    /// Per-cell water, `side_cell_count²`. Always `NotWater` unless `side_cell_count == 8`.
+    /// Per-square water, same indexing. Empty, and the block `NotWater`, unless the block is at
+    /// full detail (`side_cell_count == 8`).
     pub cell_water: Vec<WaterType>,
     /// The whole-block summary from the water calculation.
     pub water_type: WaterType,
@@ -126,11 +130,37 @@ impl LandblockMesh {
         a * self.side_vertex_count as usize + b
     }
 
-    /// The two triangles of cell `(i, j)`.
+    /// The squares along a side: the polygon count along a side, `side_cell_count` on the default
+    /// grid.
+    #[inline]
+    #[must_use]
+    pub fn squares_per_side(&self) -> usize {
+        usize::from(self.side_cell_count) * usize::from(self.vertex_steps.max(1))
+    }
+
+    /// The two triangles of square `(i, j)`: of land cell `(i, j)` on the default grid.
     #[must_use]
     pub fn cell_polygons(&self, i: usize, j: usize) -> (&LandPolygon, &LandPolygon) {
-        let n = i * self.side_cell_count as usize + j;
+        let n = i * self.squares_per_side() + j;
         (&self.polygons[2 * n], &self.polygons[2 * n + 1])
+    }
+
+    /// Each square's surface, in square order (the order of [`Self::cell_keys`]): its merge key
+    /// and its place in its cell, whose part of the ground pictures it draws.
+    #[must_use]
+    pub fn surface_keys(&self) -> Vec<crate::land::merge::SurfaceKey> {
+        let keys: Vec<_> = self.cell_keys.iter().map(|&(k, _)| k).collect();
+        crate::land::merge::square_surfaces(&keys, usize::from(self.vertex_steps.max(1)))
+    }
+
+    /// The square that land cell `(cx, cy)` (full-detail cells, `0..8`) is drawn in first: the
+    /// south-west square of the cell, or of the reduced cell holding it.
+    #[must_use]
+    pub fn square_of_cell(&self, cx: usize, cy: usize) -> (usize, usize) {
+        let cells = usize::from(self.side_cell_count).max(1);
+        let step = (8 / cells).max(1);
+        let s = usize::from(self.vertex_steps.max(1));
+        ((cx / step) * s, (cy / step) * s)
     }
 }
 
@@ -327,6 +357,35 @@ pub fn land_geometry(
     side_cell_count: usize,
     hole_vertices: Option<&[bool]>,
 ) -> LandGeometry {
+    land_geometry_cut(
+        spec,
+        height,
+        height_table,
+        block_x,
+        block_y,
+        side_cell_count,
+        hole_vertices,
+        |_, _| None,
+    )
+}
+
+/// [`land_geometry`] with each square's cut given: `cut` gives square `(i, j)`'s (x major), `true`
+/// when it runs south-west to north-east, in place of `spec.split` where it gives one.
+///
+/// # Panics
+/// As [`land_geometry`].
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn land_geometry_cut(
+    spec: &TerrainSpec,
+    height: &[u8],
+    height_table: &[f32; LAND_HEIGHT_TABLE_LEN],
+    block_x: i32,
+    block_y: i32,
+    side_cell_count: usize,
+    hole_vertices: Option<&[bool]>,
+    cut: impl Fn(usize, usize) -> Option<bool>,
+) -> LandGeometry {
     let grid = &spec.grid;
     let vertices = land_vertices(grid, height, side_cell_count, height_table);
     let squares = side_cell_count * grid.vertices_per_cell;
@@ -342,7 +401,8 @@ pub fn land_geometry(
     for i in 0..squares {
         for j in 0..squares {
             // LINT-OK: index arithmetic bounded by the squares of one block.
-            let cut = (spec.split)(gx_base + i32_of(i), gy_base + i32_of(j));
+            let cut =
+                cut(i, j).unwrap_or_else(|| (spec.split)(gx_base + i32_of(i), gy_base + i32_of(j)));
             sw_to_ne_cut.push(cut);
             for tri in cell_triangles(svc, i, j, cut) {
                 let [a, b, c] = tri;
@@ -477,8 +537,9 @@ pub fn cell_uv_indices(cut: bool, r: Rotation) -> [[u8; 3]; 2] {
 /// `lod_div` is 1, 2, 4 or 8, giving `side_cell_count = 8 / lod_div`.
 ///
 /// # Panics
-/// Never: `lod_div` is validated and any other value is treated as 1, matching the client having no
-/// other caller than the block-orientation step.
+/// When `lb` is not on `region`'s land grid, which its readers refuse as they load it. `lod_div` is
+/// validated and any other value is treated as 1, matching the client having no other caller than
+/// the block-orientation step.
 #[must_use]
 pub fn generate_landblock(
     lb: &CellLandblock,
@@ -510,32 +571,39 @@ pub fn generate_landblock_with_table(
         8 => 1,
         _ => 8,
     };
-    let svc = side_cell_count + 1;
-    // The geometry is the shared core's on the default grid, where a land cell is one square, so
-    // its squares are the cells below in the same order.
-    let geometry = land_geometry(
-        &TerrainSpec::DEFAULT,
-        &lb.height,
+    let grid = region.land_defs.land_grid();
+    let steps = grid.vertices_per_cell;
+    let squares = side_cell_count * steps;
+    let svc = squares + 1;
+    let spec = TerrainSpec {
+        grid,
+        ..TerrainSpec::DEFAULT
+    };
+    // The stored cuts are the full-detail squares'; a reduced block cuts by the hash.
+    let full = side_cell_count == grid.cells_per_side;
+    let geometry = land_geometry_cut(
+        &spec,
+        lb.grid_height(),
         table,
         block_x,
         block_y,
         side_cell_count,
         None,
+        |i, j| lb.cut(i, j).filter(|_| full),
     );
     debug_assert_eq!(geometry.vertices_per_side, svc);
 
     // The polygon construction interleaved with the UV construction and the cell rotation: the
     // client runs them as three passes over the same cells, and the
     // per-cell results are independent, so one pass produces identical output.
-    let mut polygons = Vec::with_capacity(2 * side_cell_count * side_cell_count);
-    let mut cell_keys = Vec::with_capacity(side_cell_count * side_cell_count);
-    for i in 0..side_cell_count {
-        for j in 0..side_cell_count {
-            let n = i * side_cell_count + j;
+    let mut polygons = Vec::with_capacity(2 * squares * squares);
+    let mut cell_keys = Vec::with_capacity(squares * squares);
+    for i in 0..squares {
+        for j in 0..squares {
+            let n = i * squares + j;
             let cut = geometry.sw_to_ne_cut[n];
 
-            let (key, rot, uniform) =
-                crate::land::merge::cell_rotation(lb, region, side_cell_count, i, j);
+            let (key, rot, uniform) = crate::land::merge::cell_rotation(lb, region, squares, i, j);
             cell_keys.push((key, rot));
 
             let uvs = cell_uv_indices(cut, rot);
@@ -543,7 +611,7 @@ pub fn generate_landblock_with_table(
             // The array is per-region and installed for each block draw; first use allocates the
             // index. This crate carries the merge key instead and lets the compositor own
             // the index, so `surface` here is the cell's slot within the block's key list.
-            // LINT-OK: index arithmetic, bounded by the 8x8 cell grid.
+            // LINT-OK: index arithmetic, bounded by the block's squares.
             let surface = u16_of(n);
             for (k, uv_indices) in uvs.into_iter().enumerate() {
                 let tri = geometry.triangles[2 * n + k];
@@ -563,17 +631,18 @@ pub fn generate_landblock_with_table(
         ..
     } = geometry;
 
-    let (cell_water, water_type) = calc_water(&lb.terrain, side_cell_count);
+    let (cell_water, water_type) = calc_water_on(lb.grid_terrain(), steps, side_cell_count);
 
-    // The land limits, over the full 9x9 height array regardless of LOD.
-    let max_h = lb.height.iter().copied().max().unwrap_or(0);
-    let min_h = lb.height.iter().copied().min().unwrap_or(0);
+    // The land limits, over the full height array regardless of LOD.
+    let max_h = lb.grid_height().iter().copied().max().unwrap_or(0);
+    let min_h = lb.grid_height().iter().copied().min().unwrap_or(0);
 
     let mut mesh = LandblockMesh {
         // LINT-OK: a landblock id is two bytes, one per axis, each 0..=0xFE.
         id: LandblockId((u16_of_i32(block_x & 0xFF) << 8) | u16_of_i32(block_y & 0xFF)),
         // LINT-OK: side_cell_count is 1, 2, 4 or 8.
         side_cell_count: u8_of(side_cell_count),
+        vertex_steps: u8_of(steps),
         side_vertex_count: u8_of(svc),
         trans_dir: dir,
         vertices,
@@ -601,7 +670,7 @@ pub fn generate_landblock_with_table(
     // guard inside it is `generate`'s own, so a full-detail or `InViewerBlock` slot is untouched
     // and this is a no-op for every caller that asks for one — physics included, which never calls
     // this function at all.
-    crate::land::stitch::trans_adjust(&mut mesh, &lb.height, table, dir);
+    crate::land::stitch::trans_adjust(&mut mesh, lb.grid_height(), table, dir);
     mesh
 }
 
@@ -865,6 +934,7 @@ mod tests {
         cell_length: 20.0,
         cells_per_side: 8,
         vertices_per_cell: 2,
+        road_width: 5.0,
     };
 
     /// A split that depends only on its global square coordinates and is easy to predict.

@@ -20,7 +20,7 @@ use std::sync::{mpsc, Arc, Condvar, Mutex, PoisonError};
 use dereth_assets::region::Region;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
-use dereth_terrain::land::drawn::{self, GroundSource, Knob, Knobs, Point, Vertex, BLOCK_METERS};
+use dereth_terrain::land::drawn::{self, Knob, Knobs, Point, BLOCK_METERS};
 use dereth_terrain::scenery::{generate_scenery, outside_cell_index, SceneryEnv, WithinBlockShape};
 
 use super::forest_cover::{cover_models, forest_cover, Cover};
@@ -28,30 +28,13 @@ use super::forest_cover::{cover_models, forest_cover, Cover};
 /// The blocks a side of the world.
 const WORLD_BLOCKS: i32 = 255;
 
-/// The world's landscape vertices a side.
+/// The world's land cell corners a side: what the forest cover is worked out over, a texel a
+/// corner.
 pub(crate) const WORLD_SIDE: usize = 2041;
 
-/// The world's landscape vertices the far trees stand on and the forest cover is worked out from,
-/// [`WORLD_SIDE`] a side, row by row from the south.
-#[derive(Debug, Clone)]
-pub(crate) struct Land {
-    pub(crate) heights: Arc<Vec<f32>>,
-    pub(crate) words: Arc<Vec<u16>>,
-}
-
-impl GroundSource for Land {
-    fn vertex(&self, gx: i32, gy: i32) -> Option<Vertex> {
-        let side = i32::try_from(WORLD_SIDE).ok()?;
-        if !(0..side).contains(&gx) || !(0..side).contains(&gy) {
-            return None;
-        }
-        let k = usize::try_from(gy).ok()? * WORLD_SIDE + usize::try_from(gx).ok()?;
-        Some(Vertex {
-            height: self.heights[k],
-            word: self.words[k],
-        })
-    }
-}
+/// The world's landscape vertices the far trees stand on and the forest cover is worked out from:
+/// the remaster's own, on the world's land grid.
+pub(crate) type Land = Arc<super::remaster_ground::World>;
 
 /// One tree far off, as a presentation draws it: the far trees' thread writes them so, and each
 /// block's list is handed over as it is.
@@ -87,17 +70,22 @@ fn mix(mut v: u32) -> u32 {
     v ^ (v >> 16)
 }
 
-/// The drawn ground's far surface at world `(x, y)`.
+/// The drawn ground's far surface at world `(x, y)`: retail's, and the far offset over it where
+/// the world's grid draws one.
 fn foot(world: &Land, knobs: &Knobs, x: f32, y: f32) -> f32 {
-    let p = Point::at(world, x, y);
-    p.retail + drawn::far_offset(&p, x, y, knobs)
+    let p = Point::at(world.as_ref(), x, y);
+    if drawn::offset_drawn_on(&world.grid) {
+        p.retail + drawn::far_offset(&p, x, y, knobs)
+    } else {
+        p.retail
+    }
 }
 
 /// Block `(bx, by)`'s trees that the art pack has far pictures for, where retail's scenery
 /// places them.
 fn block_trees<T: Tree>(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<T> {
-    use dereth_client_runtime::world_build::{read_landblock, read_lbi, read_scene};
-    let Some(lb) = read_landblock(&src.store, bx, by) else {
+    use dereth_client_runtime::world_build::{read_landblock_on, read_lbi, read_scene};
+    let Some(lb) = read_landblock_on(&src.store, &src.region.land_defs.land_grid(), bx, by) else {
         return Vec::new();
     };
     let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(

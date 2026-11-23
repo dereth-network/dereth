@@ -276,6 +276,7 @@ mod tests {
             lbi_exists: 0,
             terrain: [0; 81],
             height: [heights; 81],
+            dense: None,
         }
     }
 

@@ -604,7 +604,9 @@ impl SceneDraw {
                 )
             }
             None => {
-                let Some(lb) = read_landblock(store, bx, by) else {
+                let Some(lb) =
+                    read_landblock_on(store, &self.land.region.land_defs.land_grid(), bx, by)
+                else {
                     // Landblock lookup returns no record for a block the dat does not
                     // carry -- the world edge. Nothing is drawn there and nothing is an error.
                     // The block still has to hand its bake's links back, exactly as one
@@ -805,7 +807,7 @@ impl SceneDraw {
             (bx, by),
             BlockDraw {
                 origin: ws.streamer.window.block_frame_origin(xi, yi),
-                terrain: lb.terrain,
+                terrain: lb.grid_terrain().into(),
                 cell_texture,
                 // The references `generate` just took, so that whichever of the
                 // two release sites this block eventually leaves through can give them back.

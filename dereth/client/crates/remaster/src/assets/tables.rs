@@ -35,7 +35,7 @@ struct Holdings {
     materials: BTreeSet<MaterialKey>,
     textures: BTreeSet<TextureKey>,
     groups: BTreeSet<Group>,
-    splats: BTreeSet<u32>,
+    splats: BTreeSet<u64>,
     terrain: bool,
 }
 
@@ -104,7 +104,7 @@ pub struct AssetTables {
     terrain: BTreeMap<BlockId, TerrainSurface>,
     /// Whether the ground is held as its splats' layers rather than as composite pictures.
     splat: bool,
-    splats: BTreeMap<u32, Held<Option<Splat>>>,
+    splats: BTreeMap<u64, Held<Option<Splat>>>,
     users: BTreeMap<User, Holdings>,
     /// Each interior cell's materials, by the slot its piece's subsets name.
     cell_materials: BTreeMap<u32, Vec<MaterialKey>>,
@@ -428,7 +428,7 @@ impl AssetTables {
         let old_textures: Vec<TextureKey> = h
             .textures
             .iter()
-            .filter(|t| matches!(t, TextureKey::Terrain(_) | TextureKey::TerrainSource { .. }))
+            .filter(|t| t.is_ground())
             .cloned()
             .collect();
         for t in &old_textures {
@@ -652,12 +652,15 @@ impl AssetTables {
     /// Hold one ground cell's picture: its composite, or its splat and the splat's layers.
     fn hold_ground_cell(&mut self, h: &mut Holdings, key: &TextureKey, src: &mut dyn AssetSource) {
         match key {
-            TextureKey::Terrain(k) if self.splat => self.hold_splat(h, terrain::splat_key(*k), src),
+            k if self.splat && k.ground_key().is_some() => {
+                let k = k.ground_key().unwrap_or_default();
+                self.hold_splat(h, terrain::splat_key(k), src);
+            }
             _ => self.hold_texture(h, key, false, src),
         }
     }
 
-    fn hold_splat(&mut self, h: &mut Holdings, key: u32, src: &mut dyn AssetSource) {
+    fn hold_splat(&mut self, h: &mut Holdings, key: u64, src: &mut dyn AssetSource) {
         if !h.splats.insert(key) {
             return;
         }
@@ -742,7 +745,7 @@ impl AssetTables {
             let ground: Vec<TextureKey> = h
                 .textures
                 .iter()
-                .filter(|t| matches!(t, TextureKey::Terrain(_) | TextureKey::TerrainSource { .. }))
+                .filter(|t| t.is_ground())
                 .cloned()
                 .collect();
             for t in ground {
@@ -766,7 +769,7 @@ impl AssetTables {
 
     /// A ground cells' splat, when it is held.
     #[must_use]
-    pub fn splat_of(&self, key: u32) -> Option<&Splat> {
+    pub fn splat_of(&self, key: u64) -> Option<&Splat> {
         self.splats.get(&key)?.value.as_ref()
     }
 
@@ -1021,7 +1024,7 @@ impl AssetTables {
             c.textures += 1;
             match k {
                 TextureKey::Solid(_) => c.solid_textures += 1,
-                TextureKey::Terrain(_) => c.terrain_textures += 1,
+                TextureKey::Terrain(_) | TextureKey::TerrainPart { .. } => c.terrain_textures += 1,
                 TextureKey::TerrainSource { .. } => c.terrain_sources += 1,
                 TextureKey::Dat { .. } | TextureKey::Shifted { .. } => {}
             }

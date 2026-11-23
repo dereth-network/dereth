@@ -80,7 +80,7 @@ pub use ui::{
     PropertyAsset, StringTable,
 };
 pub use verify::{exhaustive_decode, exhaustive_decode_file, VerifyReport};
-pub use world::{CellLandblock, EnvCell, LandblockInfo, ParticleEmitterInfo, Scene};
+pub use world::{CellLandblock, DenseLand, EnvCell, LandblockInfo, ParticleEmitterInfo, Scene};
 
 /// Every decoder is a pure function of bytes. No clock, no RNG, no I/O, no allocation policy.
 pub trait Decode: Sized {

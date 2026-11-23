@@ -951,6 +951,27 @@ impl Renderer {
         ground: Option<&crate::scene::DrawnGround>,
         points: &[[f32; 3]],
     ) -> Vec<f32> {
+        self.drawn_probe(ground, points, false)
+    }
+
+    /// How much of the water the ground's pictures lay is drawn over the ground at `points`, 0 to
+    /// 1, as the device works it out for `ground` (the last frame's, when `None`); as
+    /// [`Self::drawn_heights`] takes them.
+    pub fn drawn_water_kept(
+        &mut self,
+        ground: Option<&crate::scene::DrawnGround>,
+        points: &[[f32; 3]],
+    ) -> Vec<f32> {
+        self.drawn_probe(ground, points, true)
+    }
+
+    /// [`Self::drawn_heights`], or with `water` [`Self::drawn_water_kept`].
+    fn drawn_probe(
+        &mut self,
+        ground: Option<&crate::scene::DrawnGround>,
+        points: &[[f32; 3]],
+        water: bool,
+    ) -> Vec<f32> {
         let Some(ground) = ground.or(self.last_drawn.as_ref()).cloned() else {
             return Vec::new();
         };
@@ -972,7 +993,7 @@ impl Renderer {
             ..self.terrain
         };
         self.drawn_ground
-            .heights_at(&mut self.gfx, &self.scene, &frame, settings, points)
+            .heights_at(&mut self.gfx, &self.scene, &frame, settings, points, water)
             .unwrap_or_default()
     }
 
@@ -1043,7 +1064,7 @@ impl Renderer {
         };
         points
             .iter()
-            .map(|p| drawn::retail_height(&ground.world.heights, *p + ground.global))
+            .map(|p| drawn::retail_height(&ground.world, *p + ground.global))
             .collect()
     }
 

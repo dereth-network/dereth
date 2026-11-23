@@ -21,53 +21,86 @@ use dereth_assets::region::{Region, TerrainDesc, TexMerge};
 use dereth_assets::world::CellLandblock;
 use dereth_primitives::{DataId, RenderBackend, TextureData, TextureFormat, TextureHandle};
 
-use crate::consts::{IMAGE_SHIFT, MIN_TEX_SIZE, ROAD_TERRAIN_TYPE, SIDE_VERTEX_COUNT};
+use crate::consts::{IMAGE_SHIFT, MIN_TEX_SIZE, ROAD_TERRAIN_TYPE};
 use crate::land::mesh::Rotation;
 use crate::narrow::{u16_of, u32_of, u8_of_u32, usize_of_i64};
 
-/// `TexMerge`'s 32-bit surface key.
+/// `TexMerge`'s surface key.
 ///
 /// Bits 0-19 are the four terrain types, five bits each, in the order SW, SE, NE, NW from the top
-/// of that field; bits 20-27 are the four 2-bit road values in the same corner order; bits 28+ are
-/// the LOD/detail code (`palLod`), from which surface restoration re-derives the texture size.
+/// of that field; bits 20-27 are the four 2-bit road values in the same corner order; bits 28-31
+/// are the LOD/detail code (`palLod`), from which surface restoration re-derives the texture size.
+/// Those 32 bits are retail's key. Bits 32-47 are this client's: the four corners' terrain
+/// variants ([`VARIANT_SHIFT`]), four bits each in the same order from the top. Retail's words
+/// carry no variant, so its keys are its own 32 bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct MergeKey(pub u32);
+pub struct MergeKey(pub u64);
+
+/// A terrain word's variant (bits 7-10, which retail leaves clear) tells grounds apart that share
+/// a terrain type. A corner's terrain is its type with its variant above this shift, so it never
+/// meets the road's type, and a region names a variant's own picture by that number
+/// ([`get_terrain_tex`]). A road's kind is named the same way ([`road_type`]).
+pub const VARIANT_SHIFT: u32 = 8;
 
 impl MergeKey {
     /// `key(a, b, c, d)` uses corner order SW, SE, NE, NW.
     #[must_use]
     pub const fn new(types: [u16; 4], roads: [u16; 4], pal_lod: u32) -> Self {
-        let r = (roads[0] as u32) * 64
-            + (roads[1] as u32) * 16
-            + (roads[2] as u32) * 4
-            + roads[3] as u32;
+        let r = (roads[0] as u64) * 64
+            + (roads[1] as u64) * 16
+            + (roads[2] as u64) * 4
+            + roads[3] as u64;
         Self(
             (r << 20)
-                | ((types[0] as u32) << 15)
-                | ((types[1] as u32) << 10)
-                | ((types[2] as u32) << 5)
-                | (types[3] as u32)
-                | (pal_lod << 28),
+                | ((types[0] as u64) << 15)
+                | ((types[1] as u64) << 10)
+                | ((types[2] as u64) << 5)
+                | (types[3] as u64)
+                | ((pal_lod as u64) << 28),
         )
+    }
+
+    /// The key with its corners' terrain variants (SW, SE, NE, NW), four bits each.
+    #[must_use]
+    pub const fn with_variants(self, variants: [u16; 4]) -> Self {
+        let v = ((variants[0] as u64 & 0xF) << 12)
+            | ((variants[1] as u64 & 0xF) << 8)
+            | ((variants[2] as u64 & 0xF) << 4)
+            | (variants[3] as u64 & 0xF);
+        Self((self.0 & 0xFFFF_FFFF) | (v << 32))
+    }
+
+    /// The four corners' terrain variants, SW, SE, NE, NW: 0 on every retail key.
+    #[must_use]
+    pub const fn corner_variants(self) -> [u32; 4] {
+        let v = (self.0 >> 32) as u32;
+        [(v >> 12) & 0xF, (v >> 8) & 0xF, (v >> 4) & 0xF, v & 0xF]
     }
 
     /// The four corner terrain types, as re-extracts them:
     /// `t[0] = (key>>15)&0x1F` (SW), `t[1] = (key>>10)&0x1F` (SE), `t[2] = (key>>5)&0x1F` (NE),
     /// `t[3] = key&0x1F` (NW).
+    ///
+    /// A corner with a variant has it above [`VARIANT_SHIFT`]: two corners of one type but
+    /// different variants are different terrain.
     #[must_use]
     pub const fn corner_types(self) -> [u32; 4] {
+        // LINT-OK: retail's 32 bits of the key; the variants are read on their own.
+        #[allow(clippy::cast_possible_truncation)]
+        let k = self.0 as u32;
+        let v = self.corner_variants();
         [
-            (self.0 >> 15) & 0x1F,
-            (self.0 >> 10) & 0x1F,
-            (self.0 >> 5) & 0x1F,
-            self.0 & 0x1F,
+            terrain_kind((k >> 15) & 0x1F, v[0]),
+            terrain_kind((k >> 10) & 0x1F, v[1]),
+            terrain_kind((k >> 5) & 0x1F, v[2]),
+            terrain_kind(k & 0x1F, v[3]),
         ]
     }
 
     /// `key >> 28` — the palette-LOD code the surface restore reads the size back out of.
     #[must_use]
     pub const fn pal_lod(self) -> u32 {
-        self.0 >> 28
+        ((self.0 >> 28) & 0xF) as u32
     }
 }
 
@@ -129,15 +162,19 @@ pub fn cell_rotation_keys(
     i: usize,
     j: usize,
 ) -> ([MergeKey; 4], bool) {
-    let step = crate::consts::BLOCK_SIDE / side_cell_count;
+    // `side_cell_count` counts the squares a side at this detail: the cells, on the default grid.
+    let full = crate::consts::BLOCK_SIDE * lb.vertex_steps();
+    let step = full / side_cell_count;
     // Palette shifting (type 1) is the land surface of the software region of a dat set from before
     // Throne of Destiny.
     let pal_shifted = is_pal_shifted(region);
     let pal_lod = if pal_shifted || step == 1 { 1 } else { 4 };
 
-    // The 9x9 terrain grid, sampled at the LOD step. The client writes the index as
-    // `(a*9 + b) * step`, which is the same thing as `(a*step)*9 + b*step`.
-    let word = |a: usize, b: usize| lb.terrain[(a * SIDE_VERTEX_COUNT + b) * step];
+    // The record's whole grid (9x9 on the default grid), sampled at the LOD step. The client
+    // writes the index as `(a*9 + b) * step`, which is the same thing as `(a*step)*9 + b*step`.
+    let side = full + 1;
+    let words = lb.grid_terrain();
+    let word = |a: usize, b: usize| words[(a * side + b) * step];
     let corners = [
         word(i, j),
         word(i + 1, j),
@@ -146,6 +183,7 @@ pub fn cell_rotation_keys(
     ];
     let roads = corners.map(|w| w & 3);
     let types = corners.map(|w| (w >> 2) & 0x1F);
+    let variants = corners.map(|w| (w >> 7) & 0xF);
 
     let rot = |k: usize| {
         MergeKey::new(
@@ -163,10 +201,17 @@ pub fn cell_rotation_keys(
             ],
             pal_lod,
         )
+        .with_variants([
+            variants[k % 4],
+            variants[(k + 1) % 4],
+            variants[(k + 2) % 4],
+            variants[(k + 3) % 4],
+        ])
     };
     let keys = [rot(0), rot(1), rot(2), rot(3)];
     let uniform = roads.iter().all(|&r| r == roads[0])
         && types.iter().all(|&t| t == types[0])
+        && variants.iter().all(|&v| v == variants[0])
         && roads[0] == 0;
     (keys, uniform)
 }
@@ -398,13 +443,57 @@ pub fn find_road_alpha(tm: &TexMerge, code: u32, key: MergeKey) -> Option<AlphaM
     None
 }
 
+/// The number a region's terrain description of terrain type `t` in `variant` goes by: the type
+/// itself for variant 0, retail's every number; a corner's terrain ([`MergeKey::corner_types`])
+/// and a road ([`road_type`]) are both numbered so.
+#[must_use]
+pub const fn terrain_kind(t: u32, variant: u32) -> u32 {
+    t | variant << VARIANT_SHIFT
+}
+
+/// The terrain type of a corner's terrain ([`MergeKey::corner_types`]), a road's ([`road_type`]) or
+/// a region's terrain description: the type itself, or a variant's type.
+#[must_use]
+pub const fn terrain_type_of(t: u32) -> u32 {
+    t & ((1 << VARIANT_SHIFT) - 1)
+}
+
+/// The road a cell's road layer draws: the road's type for road 1, and for road `n` above it the
+/// road's type with `n - 1` above [`VARIANT_SHIFT`], which a region may give a picture of its own
+/// ([`get_terrain_tex`]; without one it draws the road's). The road is the value most of the
+/// cell's road corners carry, the first of them (SW, SE, NE, NW) on a tie.
+#[must_use]
+pub fn road_type(key: MergeKey) -> u32 {
+    // SW, SE, NE, NW: bits 26-27, 24-25, 22-23, 20-21.
+    let roads = [26, 24, 22, 20].map(|shift| u32::try_from((key.0 >> shift) & 3).unwrap_or(0));
+    let count = |v: u32| roads.iter().filter(|&&r| r == v).count();
+    let mut road = 0;
+    for &r in &roads {
+        if r != 0 && (road == 0 || count(r) > count(road)) {
+            road = r;
+        }
+    }
+    if road <= 1 {
+        ROAD_TERRAIN_TYPE
+    } else {
+        terrain_kind(ROAD_TERRAIN_TYPE, road - 1)
+    }
+}
+
 /// Select `terrain_desc[k]` for the entry whose `terrain_type == t`, falling
 /// back to `terrain_desc[0]` when the type is absent.
+///
+/// A terrain with a variant ([`VARIANT_SHIFT`]) that the region gives no picture of its own
+/// draws its type's.
 #[must_use]
 pub fn get_terrain_tex(tm: &TexMerge, t: u32) -> Option<&TerrainDesc> {
-    tm.terrain_desc
-        .iter()
-        .find(|d| d.terrain_type == t)
+    let find = |t: u32| tm.terrain_desc.iter().find(|d| d.terrain_type == t);
+    find(t)
+        .or_else(|| {
+            (t >> VARIANT_SHIFT != 0)
+                .then(|| find(terrain_type_of(t)))
+                .flatten()
+        })
         .or_else(|| tm.terrain_desc.first())
 }
 
@@ -637,6 +726,127 @@ pub fn fill_temp_tex_buffer(
     execute_merge_plan(&merge_plan(tm, key, shift), src)
 }
 
+/// Where a land square lies in its cell, for a land grid finer than one square a cell: its column
+/// (counted east) and row (counted north) of `of` a side. A cell's ground pictures repeat across
+/// the whole cell, as on the retail grid, so each square draws its own part of them and they run on
+/// unbroken from square to square. [`Place::WHOLE`] is the whole cell: every square on the retail
+/// grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Place {
+    pub column: u8,
+    pub row: u8,
+    pub of: u8,
+}
+
+impl Place {
+    /// The whole cell.
+    pub const WHOLE: Self = Self {
+        column: 0,
+        row: 0,
+        of: 1,
+    };
+
+    /// Square `(i, j)` of a block (`i` counted east, `j` north) on a grid of `steps` squares a
+    /// cell side.
+    #[must_use]
+    pub fn of_square(i: usize, j: usize, steps: usize) -> Self {
+        let steps = steps.max(1);
+        Self {
+            column: u8::try_from(i % steps).unwrap_or(0),
+            row: u8::try_from(j % steps).unwrap_or(0),
+            of: u8::try_from(steps).unwrap_or(1),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_whole(self) -> bool {
+        self.of <= 1
+    }
+}
+
+/// A landscape surface: the merge key's composite, drawn for the square at `place` in its cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SurfaceKey {
+    pub key: MergeKey,
+    pub place: Place,
+}
+
+impl From<MergeKey> for SurfaceKey {
+    fn from(key: MergeKey) -> Self {
+        Self {
+            key,
+            place: Place::WHOLE,
+        }
+    }
+}
+
+/// The surfaces of a block's squares from their merge keys in square order (`i` east major, `j`
+/// north), on a grid of `steps` squares a cell side: each with its place in its cell.
+#[must_use]
+pub fn square_surfaces(keys: &[MergeKey], steps: usize) -> Vec<SurfaceKey> {
+    let side = keys.len().isqrt().max(1);
+    keys.iter()
+        .enumerate()
+        .map(|(n, &key)| SurfaceKey {
+            key,
+            place: Place::of_square(n / side, n % side, steps),
+        })
+        .collect()
+}
+
+/// The part of a ground picture tiled `tiling` times across a cell that the square at `place`
+/// shows, as a picture of its own to lay once across the square; `None` for the whole cell, which
+/// lays the picture itself `tiling` times.
+///
+/// The square's part runs from `column * tiling / of` repeats to `(column + 1) * tiling / of`
+/// across (rows from the top, the picture's north edge), cut at whole texels so the parts of
+/// neighboring squares meet without a gap or an overlap; a part running past the picture's edge
+/// wraps, as the repeat does.
+#[must_use]
+pub fn placed_picture(img: &Bgra8, tiling: u32, place: Place) -> Option<Bgra8> {
+    if place.is_whole() || img.width == 0 || img.height == 0 {
+        return None;
+    }
+    let (t, of) = (u64::from(tiling.max(1)), u64::from(place.of));
+    let bound = |k: u64, side: u32| k * t * u64::from(side) / of;
+    let span = |k: u64, side: u32| {
+        let lo = bound(k, side);
+        (lo, (bound(k + 1, side) - lo).max(1))
+    };
+    let (x0, w) = span(u64::from(place.column), img.width);
+    // Rows run from the north edge down; a square's row counts from the south.
+    let (y0, h) = span(of - 1 - u64::from(place.row).min(of - 1), img.height);
+    let (iw, ih) = (u64::from(img.width), u64::from(img.height));
+    let mut out = Bgra8::new(u32_of_u64(w), u32_of_u64(h));
+    for y in 0..h {
+        for x in 0..w {
+            out.pixels[usize_of_u64(y * w + x)] =
+                img.get(u32_of_u64((x0 + x) % iw), u32_of_u64((y0 + y) % ih));
+        }
+    }
+    Some(out)
+}
+
+/// How often a layer tiled `tiling` times across a cell repeats across the square at `place`:
+/// once, its part ([`placed_picture`]) laid across it, unless the square is the whole cell.
+#[must_use]
+pub const fn placed_tiling(tiling: u32, place: Place) -> u32 {
+    if place.is_whole() {
+        tiling
+    } else {
+        1
+    }
+}
+
+/// A count of texels, which is a picture's side or less.
+fn u32_of_u64(v: u64) -> u32 {
+    u32::try_from(v).unwrap_or(u32::MAX)
+}
+
+fn usize_of_u64(v: u64) -> usize {
+    usize::try_from(v).unwrap_or(usize::MAX)
+}
+
 /// One overlay pass of a [`MergePlan`]: `tex` tiled `tiling` times, blended in through the alpha
 /// map `alpha` walked at `rotation`. `tex` is `None` when the terrain type names no texture, which
 /// blends the debug colour, exactly as a missing image does.
@@ -658,15 +868,24 @@ pub struct MergePlan {
     pub base: Option<DataId>,
     pub base_tiling: u32,
     pub overlays: Vec<MergeOverlay>,
+    /// The square the composite is drawn for: each ground picture (not the alpha maps) is laid as
+    /// its part at this place ([`placed_picture`]).
+    pub place: Place,
 }
 
-/// The layers `key` composites, in the order the client applies them.
+/// The layers `key` composites, in the order the client applies them, for a whole cell.
 #[must_use]
 pub fn merge_plan(tm: &TexMerge, key: MergeKey, shift: u32) -> MergePlan {
+    merge_plan_at(tm, key, shift, Place::WHOLE)
+}
+
+/// [`merge_plan`] for the square at `place` in its cell.
+#[must_use]
+pub fn merge_plan_at(tm: &TexMerge, key: MergeKey, shift: u32, place: Place) -> MergePlan {
     let size = merged_texture_size(tm.base_tex_size, shift, key.pal_lod());
     let choice = get_terrain(key);
     let road = get_road_code(key);
-    let road_tex = get_terrain_tex(tm, ROAD_TERRAIN_TYPE);
+    let road_tex = get_terrain_tex(tm, road_type(key));
 
     let desc_of = |t: Option<u32>| t.and_then(|t| get_terrain_tex(tm, t));
     let base_desc = if road.all_road && road_tex.is_some() {
@@ -679,6 +898,7 @@ pub fn merge_plan(tm: &TexMerge, key: MergeKey, shift: u32) -> MergePlan {
         base: base_desc.map(|d| d.tex_gid),
         base_tiling: base_desc.map_or(1, |d| d.tex_tiling),
         overlays: Vec::new(),
+        place,
     };
 
     if !road.all_road {
@@ -737,18 +957,19 @@ pub struct GroundPlan {
 }
 
 /// The ground `key` lays, layer for layer as [`merge_plan`] composites it, each layer named by the
-/// terrain type of the description whose picture it draws.
+/// terrain type of the description whose picture it draws: a variant's picture by its type
+/// ([`terrain_type_of`]), whose kind of ground it is.
 #[must_use]
 pub fn ground_plan(tm: &TexMerge, key: MergeKey) -> GroundPlan {
     let choice = get_terrain(key);
     let road = get_road_code(key);
-    let road_tex = get_terrain_tex(tm, ROAD_TERRAIN_TYPE);
+    let road_tex = get_terrain_tex(tm, road_type(key));
     let ground_of = |t: Option<u32>| {
         t.and_then(|t| get_terrain_tex(tm, t))
-            .map(|d| d.terrain_type)
+            .map(|d| terrain_type_of(d.terrain_type))
     };
     let base = if road.all_road && road_tex.is_some() {
-        road_tex.map(|d| d.terrain_type)
+        road_tex.map(|d| terrain_type_of(d.terrain_type))
     } else {
         ground_of(choice.tex[0])
     };
@@ -781,7 +1002,7 @@ pub fn ground_plan(tm: &TexMerge, key: MergeKey) -> GroundPlan {
                 plan.overlays.push(GroundOverlay {
                     alpha: map.tex_gid,
                     rotation: map.rotation,
-                    ground: Some(rd.terrain_type),
+                    ground: Some(terrain_type_of(rd.terrain_type)),
                 });
             }
         }
@@ -793,14 +1014,25 @@ pub fn ground_plan(tm: &TexMerge, key: MergeKey) -> GroundPlan {
 /// texture blends the debug colour.
 #[must_use]
 pub fn execute_merge_plan(plan: &MergePlan, src: &dyn TerrainTextureSource) -> Bgra8 {
-    let base_img = plan.base.and_then(|id| src.image(id));
-    let mut dst = copy_and_tile(plan.size, base_img.as_deref(), plan.base_tiling);
+    // A ground picture as the plan's square lays it, and how often.
+    let picture = |id: Option<DataId>, tiling: u32| -> (Option<Arc<Bgra8>>, u32) {
+        let img = id.and_then(|id| src.image(id));
+        let img = match img {
+            Some(i) => placed_picture(&i, tiling, plan.place)
+                .map(Arc::new)
+                .or(Some(i)),
+            None => None,
+        };
+        (img, placed_tiling(tiling, plan.place))
+    };
+    let (base_img, base_tiling) = picture(plan.base, plan.base_tiling);
+    let mut dst = copy_and_tile(plan.size, base_img.as_deref(), base_tiling);
     for o in &plan.overlays {
         let Some(alpha) = src.image(o.alpha) else {
             continue;
         };
-        let img = o.tex.and_then(|id| src.image(id));
-        merge_overlay(&mut dst, &alpha, o.rotation, img.as_deref(), o.tiling);
+        let (img, tiling) = picture(o.tex, o.tiling);
+        merge_overlay(&mut dst, &alpha, o.rotation, img.as_deref(), tiling);
     }
     dst
 }
@@ -812,14 +1044,14 @@ pub struct TerrainMergeCache {
     // The client's own container is a hash table; the observable surface
     // index comes from `order` below, not from this map's iteration.
     // ORDER-OK: keyed by MergeKey and only ever looked up, never iterated for output.
-    surfaces: HashMap<MergeKey, (u16, TextureHandle)>,
+    surfaces: HashMap<SurfaceKey, (u16, TextureHandle)>,
     /// Surface-array slots allocated by this cache. `None` is
     /// retail's `NULL` slot: the surface removal nulls the surface-array slot when the last cell
     /// lets go, and the free-slot search returns **the first NULL index it finds** rather than the
     /// end of the array. So a freed index
     /// is reused, and this vector is bounded by the peak number of live surfaces rather than by
     /// the number ever created.
-    order: Vec<Option<MergeKey>>,
+    order: Vec<Option<SurfaceKey>>,
     /// The surface record's cell count, incremented once per surface-selection call —
     /// on the cache-hit arm (count `+= 1`) as well as by
     /// the surface add, which sets it to 1 -- and decremented once per
@@ -827,7 +1059,7 @@ pub struct TerrainMergeCache {
     /// per **cell** of a destroyed block, which is exactly the granularity
     /// at which [`Self::get_or_build`] operates.
     // ORDER-OK: refcounts are only ever looked up by key; nothing iterates them.
-    refcounts: HashMap<MergeKey, u32>,
+    refcounts: HashMap<SurfaceKey, u32>,
     /// The shift derived from the landscape texture-detail render preference.
     pub shift: u32,
     /// The extent of the surface [`Self::get_or_build`] last composited and uploaded, and the
@@ -868,8 +1100,8 @@ impl TerrainMergeCache {
 
     /// Cached surface index for a key, if it has one.
     #[must_use]
-    pub fn index_of(&self, k: MergeKey) -> Option<u16> {
-        self.surfaces.get(&k).map(|&(i, _)| i)
+    pub fn index_of(&self, k: impl Into<SurfaceKey>) -> Option<u16> {
+        self.surfaces.get(&k.into()).map(|&(i, _)| i)
     }
 
     /// How many distinct surfaces are live.
@@ -900,7 +1132,8 @@ impl TerrainMergeCache {
     /// release it), and the unique-surface count drops by one.
     ///
     /// Returns the handle whose last reference this was, and `None` while any cell still holds it.
-    pub fn remove_surface(&mut self, k: MergeKey) -> Option<TextureHandle> {
+    pub fn remove_surface(&mut self, k: impl Into<SurfaceKey>) -> Option<TextureHandle> {
+        let k = k.into();
         let Some(rc) = self.refcounts.get_mut(&k) else {
             self.unowned_removes += 1;
             return None;
@@ -926,8 +1159,8 @@ impl TerrainMergeCache {
     /// passes unable to see anything at all.
     /// Every live surface's key and handle, in key order.
     #[must_use]
-    pub fn surfaces(&self) -> Vec<(MergeKey, TextureHandle)> {
-        let mut v: Vec<(MergeKey, TextureHandle)> =
+    pub fn surfaces(&self) -> Vec<(SurfaceKey, TextureHandle)> {
+        let mut v: Vec<(SurfaceKey, TextureHandle)> =
             self.surfaces.iter().map(|(&k, &(_, h))| (k, h)).collect();
         v.sort_by_key(|&(k, _)| k);
         v
@@ -960,7 +1193,7 @@ impl TerrainMergeCache {
     pub fn get_or_build(
         &mut self,
         tm: &TexMerge,
-        k: MergeKey,
+        k: impl Into<SurfaceKey>,
         r: &mut dyn RenderBackend,
         src: &dyn TerrainTextureSource,
     ) -> TextureHandle {
@@ -984,12 +1217,13 @@ impl TerrainMergeCache {
     pub fn get_or_build_with(
         &mut self,
         tm: &TexMerge,
-        k: MergeKey,
+        k: impl Into<SurfaceKey>,
         build: &mut dyn FnMut(&MergePlan) -> TextureHandle,
     ) -> TextureHandle {
         let shift = self.shift;
+        let k = k.into();
         self.get_or_build_keyed(k, &mut || {
-            let plan = merge_plan(tm, k, shift);
+            let plan = merge_plan_at(tm, k.key, shift, k.place);
             let handle = build(&plan);
             (handle, plan.size)
         })
@@ -1001,9 +1235,10 @@ impl TerrainMergeCache {
     /// [`Self::get_or_build_with`].
     pub fn get_or_build_keyed(
         &mut self,
-        k: MergeKey,
+        k: impl Into<SurfaceKey>,
         build: &mut dyn FnMut() -> (TextureHandle, u32),
     ) -> TextureHandle {
+        let k = k.into();
         self.surface_requests += 1;
         *self.refcounts.entry(k).or_insert(0) += 1;
         if let Some(&(_, h)) = self.surfaces.get(&k) {
@@ -1416,6 +1651,167 @@ mod tests {
         assert_eq!(rc.codes, [9, 12]);
     }
 
+    /// A key's variants lie above retail's 32 bits: a key without them is retail's, bit for bit,
+    /// and one with them keeps retail's bits and reads its variants back. A corner's terrain is its
+    /// type with its variant above [`VARIANT_SHIFT`], so corners of one type and different
+    /// variants are laid as different grounds.
+    #[test]
+    fn variants_lie_above_retails_bits_and_tell_a_types_grounds_apart() {
+        let k = MergeKey::new([5, 9, 17, 30], [3, 0, 2, 1], 4);
+        assert_eq!(k.0 >> 32, 0);
+        assert_eq!(k.with_variants([0; 4]), k);
+        let v = k.with_variants([1, 0, 15, 2]);
+        assert_eq!(v.0 & 0xFFFF_FFFF, k.0);
+        assert_eq!(v.pal_lod(), 4);
+        assert_eq!(v.corner_variants(), [1, 0, 15, 2]);
+        assert_eq!(v.corner_types(), [5 | 1 << 8, 9, 17 | 15 << 8, 30 | 2 << 8]);
+        assert_eq!(get_road_code(v), get_road_code(k));
+
+        let same = MergeKey::new([1; 4], [0; 4], 1);
+        assert_eq!(get_terrain(same).tex, [Some(1), None, None, None]);
+        let split = same.with_variants([0, 0, 1, 1]);
+        let g = get_terrain(split);
+        assert_eq!(g.tex[0], Some(1));
+        assert_eq!(g.tex[1], Some(1 | 1 << 8));
+        assert_ne!(g.code[0], 0);
+    }
+
+    /// A variant the region gives a picture of its own draws it; one without draws its type's;
+    /// and the ground plan names a variant's layer by its type, the kind of ground it is.
+    #[test]
+    fn a_variant_draws_its_own_picture_or_its_types() {
+        let mut tm = tex_merge(16);
+        tm.terrain_desc.push(TerrainDesc {
+            terrain_type: 1 | 1 << VARIANT_SHIFT,
+            tex_gid: DataId(0x0600_0101),
+            ..tm.terrain_desc[0]
+        });
+        let gid = |t: u32| get_terrain_tex(&tm, t).map(|d| d.tex_gid.0);
+        assert_eq!(gid(1), Some(0x0600_0001));
+        assert_eq!(gid(1 | 1 << VARIANT_SHIFT), Some(0x0600_0101));
+        assert_eq!(gid(1 | 2 << VARIANT_SHIFT), Some(0x0600_0001));
+        assert_eq!(gid(2 | 1 << VARIANT_SHIFT), Some(0x0600_0002));
+        assert_eq!(gid(ROAD_TERRAIN_TYPE), Some(0x0600_0020));
+        assert_eq!(terrain_type_of(ROAD_TERRAIN_TYPE), ROAD_TERRAIN_TYPE);
+
+        let key = MergeKey::new([1; 4], [0; 4], 1).with_variants([1; 4]);
+        assert_eq!(merge_plan(&tm, key, 0).base, Some(DataId(0x0600_0101)));
+        assert_eq!(ground_plan(&tm, key).base, Some(1));
+        let retail = MergeKey::new([1; 4], [0; 4], 1);
+        assert_eq!(merge_plan(&tm, retail, 0).base, Some(DataId(0x0600_0001)));
+    }
+
+    /// A cell's road is the value most of its road corners carry, the first on a tie: road 1 the
+    /// road's type, road `n` above it the road's type with `n - 1` above [`VARIANT_SHIFT`].
+    #[test]
+    fn a_cells_road_is_its_road_corners_most_common_value() {
+        let road = |roads: [u16; 4]| road_type(MergeKey::new([1; 4], roads, 1));
+        assert_eq!(road([0; 4]), ROAD_TERRAIN_TYPE);
+        assert_eq!(road([1, 1, 0, 0]), ROAD_TERRAIN_TYPE);
+        assert_eq!(road([2; 4]), ROAD_TERRAIN_TYPE | 1 << VARIANT_SHIFT);
+        assert_eq!(road([0, 3, 3, 2]), ROAD_TERRAIN_TYPE | 2 << VARIANT_SHIFT);
+        assert_eq!(road([1, 2, 2, 1]), ROAD_TERRAIN_TYPE);
+        assert_eq!(road([0, 2, 1, 0]), ROAD_TERRAIN_TYPE | 1 << VARIANT_SHIFT);
+        assert_eq!(
+            terrain_type_of(ROAD_TERRAIN_TYPE | 2 << VARIANT_SHIFT),
+            ROAD_TERRAIN_TYPE
+        );
+    }
+
+    /// A road the region gives a picture of its own draws it, whole or as an overlay; one without
+    /// draws the road's; and the ground plan names it the road.
+    #[test]
+    fn a_road_draws_its_own_picture_or_the_roads() {
+        let mut tm = tex_merge(16);
+        tm.terrain_desc.push(TerrainDesc {
+            terrain_type: ROAD_TERRAIN_TYPE | 1 << VARIANT_SHIFT,
+            tex_gid: DataId(0x0600_0120),
+            ..tm.terrain_desc[0]
+        });
+        let all = |r: u16| MergeKey::new([1; 4], [r; 4], 1);
+        assert_eq!(merge_plan(&tm, all(1), 0).base, Some(DataId(0x0600_0020)));
+        assert_eq!(merge_plan(&tm, all(2), 0).base, Some(DataId(0x0600_0120)));
+        assert_eq!(merge_plan(&tm, all(3), 0).base, Some(DataId(0x0600_0020)));
+        assert_eq!(ground_plan(&tm, all(2)).base, Some(ROAD_TERRAIN_TYPE));
+        let side = MergeKey::new([1; 4], [2, 2, 0, 0], 1);
+        let plan = merge_plan(&tm, side, 0);
+        assert_eq!(
+            plan.overlays.last().map(|o| o.tex),
+            Some(Some(DataId(0x0600_0120)))
+        );
+        let ground = ground_plan(&tm, side);
+        assert_eq!(
+            ground.overlays.last().and_then(|o| o.ground),
+            Some(ROAD_TERRAIN_TYPE)
+        );
+    }
+
+    /// A cell's keys carry each corner's variant from its word (bits 7-10), turned with the
+    /// corners; a word without one gives retail's key.
+    #[test]
+    fn a_cells_keys_carry_its_corners_variants_from_their_words() {
+        let mut lb = CellLandblock {
+            id: DataId(0x0001_FFFF),
+            lbi_exists: 0,
+            terrain: [(1 << 2) | (3 << 11); 81],
+            height: [0; 81],
+            dense: None,
+        };
+        let region = region_with(tex_merge(16));
+        let (retail, uniform) = cell_rotation_keys(&lb, &region, 8, 0, 0);
+        assert!(uniform);
+        assert_eq!(retail[0], MergeKey::new([1; 4], [0; 4], 1));
+        // The cell (0, 0)'s SE corner is vertex (1, 0): variant 5.
+        lb.terrain[9] |= 5 << 7;
+        let (keys, uniform) = cell_rotation_keys(&lb, &region, 8, 0, 0);
+        assert!(!uniform);
+        assert_eq!(keys[0], retail[0].with_variants([0, 5, 0, 0]));
+        assert_eq!(keys[1].corner_variants(), [5, 0, 0, 0]);
+        assert_eq!(keys[3].corner_variants(), [0, 0, 5, 0]);
+    }
+
+    /// A region around `tm`, texture merging, with nothing else it is read for.
+    fn region_with(tm: TexMerge) -> Region {
+        Region {
+            id: DataId(0x1300_0000),
+            region_number: 1,
+            version: 0,
+            region_name: String::new(),
+            land_defs: dereth_assets::region::LandDefs {
+                num_block_length: 255,
+                num_block_width: 255,
+                square_length: 24.0,
+                lblock_length: 8,
+                vertex_per_cell: 1,
+                max_obj_height: 200.0,
+                sky_height: 1000.0,
+                road_width: 5.0,
+                land_height_table: vec![0.0; 256],
+            },
+            game_time: dereth_assets::region::GameTime {
+                zero_time_of_year: 0.0,
+                zero_year: 0,
+                day_length: 1.0,
+                days_per_year: 1,
+                year_spec: String::new(),
+                times_of_day: Vec::new(),
+                days_of_the_week: Vec::new(),
+                seasons: Vec::new(),
+            },
+            parts_mask: 0,
+            sky_info: None,
+            sound_info: None,
+            scene_info: None,
+            terrain_types: Vec::new(),
+            land_surf: dereth_assets::region::LandSurf {
+                surf_type: 0,
+                tex_merge: Some(tm),
+                pal_shift: None,
+            },
+            region_misc: None,
+        }
+    }
+
     /// Oracle: [`get_terrain`], walked case by case. The
     /// asymmetry — mask 9 (NW, SW) is never produced — is the part a "tidier" implementation
     /// silently fixes.
@@ -1627,5 +2023,129 @@ mod tests {
         assert_eq!(all_road.base, Some(ROAD_TERRAIN_TYPE));
         assert!(all_road.overlays.is_empty());
         assert!(overlays > 1000, "the patterns lay overlays: {overlays}");
+    }
+
+    /// A picture whose every texel says where it is: blue its column, green its row.
+    fn gradient(w: u32) -> Bgra8 {
+        let mut img = Bgra8::new(w, w);
+        for y in 0..w {
+            for x in 0..w {
+                img.pixels[(y * w + x) as usize] = [x as u8, y as u8, 0, 255];
+            }
+        }
+        img
+    }
+
+    /// `tm` with every terrain type's picture tiled `tiling` times a cell.
+    fn tiled(mut tm: TexMerge, tiling: u32) -> TexMerge {
+        for d in &mut tm.terrain_desc {
+            d.tex_tiling = tiling;
+        }
+        tm
+    }
+
+    /// Behaviour: world.terrain.a-squares-ground-continues-across-its-cell
+    #[test]
+    fn a_square_draws_its_part_of_its_cells_ground_picture() {
+        let picture = gradient(12);
+        let src = |id: DataId| -> Option<Bgra8> { (id.0 == 0x0600_0001).then(|| picture.clone()) };
+        let key = MergeKey::new([1; 4], [0; 4], 1);
+        // Once a cell, three squares a side: each square shows a third of the picture, the
+        // squares to its east and north the next thirds, and the picture's north edge is the
+        // cell's north edge.
+        let tm = tiled(tex_merge(12), 1);
+        for column in 0..3u8 {
+            for row in 0..3u8 {
+                let place = Place { column, row, of: 3 };
+                let out = execute_merge_plan(&merge_plan_at(&tm, key, 0, place), &src);
+                assert_eq!(out.width, 12, "the composite keeps its size");
+                let (x0, y0) = (4 * column, 4 * (2 - row));
+                assert_eq!(out.get(0, 0)[..2], [x0, y0], "{place:?}");
+                assert_eq!(out.get(11, 11)[..2], [x0 + 3, y0 + 3], "{place:?}");
+            }
+        }
+        // Twice a cell: each square shows two thirds of a repeat, wrapping past the picture's
+        // edge as the repeat does.
+        let tm = tiled(tex_merge(12), 2);
+        let middle = Place {
+            column: 1,
+            row: 2,
+            of: 3,
+        };
+        let out = execute_merge_plan(&merge_plan_at(&tm, key, 0, middle), &src);
+        let columns: Vec<u8> = (0..12).step_by(3).map(|x| out.get(x, 0)[0]).collect();
+        assert_eq!(
+            columns,
+            [8, 10, 0, 2],
+            "texels 8..12 then 0..4 of the picture"
+        );
+        // A device composite or a splat draw lays the same part once across the square.
+        let part = placed_picture(&picture, 2, middle).expect("a part of the cell");
+        assert_eq!((part.width, part.height), (8, 8));
+        assert_eq!(placed_tiling(2, middle), 1);
+    }
+
+    /// Behaviour: world.terrain.the-default-grid-draws-each-cell-whole
+    #[test]
+    fn the_default_grid_draws_every_cell_whole() {
+        // Every square of the world's own grid is a whole cell, at every detail.
+        for side in [8usize, 4, 2, 1] {
+            let keys = vec![MergeKey::new([1; 4], [0; 4], 1); side * side];
+            assert!(square_surfaces(&keys, 1)
+                .iter()
+                .all(|s| s.place == Place::WHOLE));
+        }
+        // And a whole cell's composite is the cell's own: the picture tiled across it, untouched.
+        let picture = gradient(12);
+        let src = |id: DataId| -> Option<Bgra8> { (id.0 == 0x0600_0001).then(|| picture.clone()) };
+        let key = MergeKey::new([1; 4], [0; 4], 1);
+        for tiling in [1, 2, 3] {
+            let tm = tiled(tex_merge(12), tiling);
+            assert_eq!(
+                merge_plan_at(&tm, key, 0, Place::WHOLE),
+                merge_plan(&tm, key, 0)
+            );
+            assert_eq!(
+                execute_merge_plan(&merge_plan(&tm, key, 0), &src),
+                copy_and_tile(12, Some(&picture), tiling)
+            );
+            assert_eq!(placed_picture(&picture, tiling, Place::WHOLE), None);
+            assert_eq!(placed_tiling(tiling, Place::WHOLE), tiling);
+        }
+        // On a finer grid the places run round each cell, east then north.
+        let keys = vec![MergeKey::new([1; 4], [0; 4], 1); 24 * 24];
+        let places = square_surfaces(&keys, 3);
+        assert_eq!(
+            places[0].place,
+            Place {
+                column: 0,
+                row: 0,
+                of: 3
+            }
+        );
+        assert_eq!(
+            places[1].place,
+            Place {
+                column: 0,
+                row: 1,
+                of: 3
+            }
+        );
+        assert_eq!(
+            places[24 + 2].place,
+            Place {
+                column: 1,
+                row: 2,
+                of: 3
+            }
+        );
+        assert_eq!(
+            places[3 * 24 + 3].place,
+            Place {
+                column: 0,
+                row: 0,
+                of: 3
+            }
+        );
     }
 }

@@ -17,13 +17,17 @@
 //!   to and past its edge where the bank rises, and slopes with the ground where the land beside
 //!   it lies lower (a river on a hillside).
 //! - **The bed**, under the water's surface at retail's ground, is drawn where a body standing in
-//!   the water stands: as deep under retail's ground as physics sinks it there, by its cell's
-//!   water corners, eased where one depth meets the next, and sloping up to nought at the
-//!   water's edge. Nothing else by the water is lowered.
-//! - **The values are held as half floats**, as the presentation holds them ([`held`]), so the
-//!   scene and the presentation read the same numbers.
+//!   the water stands: as deep under retail's ground as physics sinks it there, by its square's
+//!   water corners (on the default grid the square is the cell), eased where one depth meets the
+//!   next, and sloping up to nought at the water's edge. On a grid finer than a cell, physics
+//!   stands a body in a square all of water as at a shore where the vertex nearest it is wading
+//!   water, so the bed lies there too. Nothing else by the water is lowered.
+//! - **The values are held as half floats**, as the presentation holds them ([`held`]): each
+//!   value rounded to one, and kept as its 16 bits, which read back exactly as the rounded value.
+//!   So the scene and the presentation read the same numbers, in half the room of single floats.
 
 use super::{lattice_hash, smoothstep};
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::num::floor_to_i32;
 
 /// A landscape cell's side, meters.
@@ -46,6 +50,15 @@ pub const fn is_water(word: u16) -> bool {
     t >= 16 && t <= 20
 }
 
+/// Whether terrain word `word` names wading water, the shallow sea's two kinds: on a grid finer
+/// than a cell, physics stands a body in a square all of water as at a shore where the vertex
+/// nearest it is one of these.
+#[must_use]
+pub const fn is_wading(word: u16) -> bool {
+    let t = (word >> 2) & 0x1F;
+    t == 18 || t == 19
+}
+
 /// How far from the water, in vertices, the land takes the water's level as its own level: so
 /// near the water's edge the level is the water's, whichever side of the edge a point lies, and
 /// where the water is met along a line of sight does not hang on which side a point was taken.
@@ -54,6 +67,31 @@ const LEVEL_REACH: i64 = 3;
 /// Squared distance standing for "none": far past any the world holds, and exact in an f64 with
 /// a squared distance added to it.
 const NONE: f64 = 1e15;
+/// [`NONE`] as a grid of squared distances holds it.
+const FAR: u32 = u32::MAX;
+
+/// A squared distance as a grid holds it: every one the transform makes is a whole number of
+/// vertices squared, at most twice the side's square (well inside a `u32` for any world's side),
+/// or [`NONE`]; so the grid holds each exactly, in half the room of an `f64`.
+fn held_distance(d: f64) -> u32 {
+    if d >= NONE {
+        return FAR;
+    }
+    debug_assert!(d.fract() == 0.0 && d < f64::from(FAR), "{d}");
+    // LINT-OK: a whole number under u32::MAX, as above.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let held = d as u32;
+    held
+}
+
+/// A squared distance a grid holds, as the transform works with it.
+fn distance(d: u32) -> f64 {
+    if d == FAR {
+        NONE
+    } else {
+        f64::from(d)
+    }
+}
 
 #[derive(Default)]
 struct Scratch {
@@ -65,10 +103,10 @@ struct Scratch {
 /// The squared distance, in vertices, from each of the `n` points `stride` apart from `start` in
 /// `grid` to the nearest point along their line at the squared distance `grid` holds for it,
 /// written over them: one pass of the exact distance transform (the lower envelope of parabolas).
-fn transform_line(grid: &mut [f64], start: usize, stride: usize, n: usize, scratch: &mut Scratch) {
+fn transform_line(grid: &mut [u32], start: usize, stride: usize, n: usize, scratch: &mut Scratch) {
     let Scratch { f, v, z } = scratch;
     f.clear();
-    f.extend((0..n).map(|i| grid[start + i * stride]));
+    f.extend((0..n).map(|i| distance(grid[start + i * stride])));
     v.clear();
     v.resize(n, 0);
     z.clear();
@@ -99,15 +137,16 @@ fn transform_line(grid: &mut [f64], start: usize, stride: usize, n: usize, scrat
             k += 1;
         }
         let p = v[k];
-        grid[start + q * stride] = ((at(q) - at(p)) * (at(q) - at(p)) + f[p]).min(NONE);
+        grid[start + q * stride] =
+            held_distance(((at(q) - at(p)) * (at(q) - at(p)) + f[p]).min(NONE));
     }
 }
 
 /// The squared distance, in vertices, from each vertex of a `side` by `side` grid to the nearest
-/// vertex `target` says yes to; [`NONE`] or more where there is none.
-fn squared_distances(side: usize, target: impl Fn(usize) -> bool) -> Vec<f64> {
-    let mut grid: Vec<f64> = (0..side * side)
-        .map(|i| if target(i) { 0.0 } else { NONE })
+/// vertex `target` says yes to, as [`held_distance`] holds it; [`FAR`] where there is none.
+fn squared_distances(side: usize, target: impl Fn(usize) -> bool) -> Vec<u32> {
+    let mut grid: Vec<u32> = (0..side * side)
+        .map(|i| if target(i) { 0 } else { FAR })
         .collect();
     let mut scratch = Scratch::default();
     for row in 0..side {
@@ -119,33 +158,82 @@ fn squared_distances(side: usize, target: impl Fn(usize) -> bool) -> Vec<f64> {
     grid
 }
 
-/// For each vertex of a `side` by `side` grid of landscape vertices, row by row from the south
-/// (`north * side + east`), with heights `heights` and terrain words `words`: how far inside the
-/// water it lies, meters (negative outside it, within [`REACH`] either way), and how far the
-/// water's level there lies below it, meters (nought or more).
+/// For each vertex of a `side` by `side` grid of landscape vertices a land cell apart, row by row
+/// from the south (`north * side + east`), with heights `heights` and terrain words `words`: how
+/// far inside the water it lies, meters (negative outside it, within [`REACH`] either way), and
+/// how far the water's level there lies below it, meters (nought or more).
 #[must_use]
 pub fn water_field(side: usize, heights: &[f32], words: &[u16]) -> Vec<[f32; 2]> {
+    water_field_spaced(side, CELL, heights, words)
+}
+
+/// [`water_field`] over vertices `spacing` meters apart.
+#[must_use]
+pub fn water_field_spaced(
+    side: usize,
+    spacing: f32,
+    heights: &[f32],
+    words: &[u16],
+) -> Vec<[f32; 2]> {
+    field_with(side, spacing, heights, words, |inside, below| {
+        [inside, below]
+    })
+}
+
+/// [`water_field_spaced`] as [`held`] holds it, each pair rounded as it is made, so the single
+/// floats are never held all at once.
+#[must_use]
+pub fn held_field_spaced(
+    side: usize,
+    spacing: f32,
+    heights: &[f32],
+    words: &[u16],
+) -> Vec<[u16; 2]> {
+    field_with(side, spacing, heights, words, |inside, below| {
+        [held_value(inside), held_value(below)]
+    })
+}
+
+/// The field's pair at each vertex, as `pair` makes it of how far inside the water the vertex
+/// lies and how far below it the water's level lies.
+fn field_with<T: Clone>(
+    side: usize,
+    spacing: f32,
+    heights: &[f32],
+    words: &[u16],
+    pair: impl Fn(f32, f32) -> T,
+) -> Vec<T> {
     let count = side * side;
     if side == 0 || heights.len() < count || words.len() < count {
-        return vec![[-REACH, 0.0]; count];
+        return vec![pair(-REACH, 0.0); count];
     }
     let wet = |i: usize| is_water(words[i]);
-    let to_water = squared_distances(side, wet);
-    let to_land = squared_distances(side, |i| !wet(i));
+    // Each vertex's squared distance to the nearest vertex of the other kind: to land from water,
+    // to water from land; the only one of the two each vertex reads.
+    let mut other = squared_distances(side, wet);
+    {
+        let to_land = squared_distances(side, |i| !wet(i));
+        for (i, d) in other.iter_mut().enumerate() {
+            if wet(i) {
+                *d = to_land[i];
+            }
+        }
+    }
     // LINT-OK: three steps squared, exact in f64.
     #[allow(clippy::cast_precision_loss)]
     let level_reach = (LEVEL_REACH * LEVEL_REACH) as f64;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
+        let to_other = distance(other[i]);
         // LINT-OK: a distance within the field's reach, meters.
         #[allow(clippy::cast_possible_truncation)]
         let inside = if wet(i) {
-            ((to_land[i].sqrt() - 0.5) as f32 * CELL).min(REACH)
+            ((to_other.sqrt() - 0.5) as f32 * spacing).min(REACH)
         } else {
-            (-(to_water[i].sqrt() - 0.5) as f32 * CELL).max(-REACH)
+            (-(to_other.sqrt() - 0.5) as f32 * spacing).max(-REACH)
         };
         let mut below = 0.0;
-        if !wet(i) && to_water[i] <= level_reach {
+        if !wet(i) && to_other <= level_reach {
             // The nearest water vertices about it: those no farther than the nearest by more than
             // a step (so a vertex beside the water takes the water beside it and on its
             // diagonals).
@@ -169,7 +257,7 @@ pub fn water_field(side: usize, heights: &[f32], words: &[u16]) -> Vec<[f32; 2]>
                     // LINT-OK: a few steps squared, exact in f64.
                     #[allow(clippy::cast_precision_loss)]
                     let d2 = (dx * dx + dy * dy) as f64;
-                    if wet(j) && d2 <= to_water[i] + 1.0 {
+                    if wet(j) && d2 <= to_other + 1.0 {
                         sum += heights[j];
                         n += 1.0;
                     }
@@ -179,7 +267,7 @@ pub fn water_field(side: usize, heights: &[f32], words: &[u16]) -> Vec<[f32; 2]>
                 below = (heights[i] - sum / n).max(0.0);
             }
         }
-        out.push([inside, below]);
+        out.push(pair(inside, below));
     }
     out
 }
@@ -226,10 +314,25 @@ pub fn half(v: f32) -> f32 {
     sign * fraction * (2.0f32).powi(e - 15)
 }
 
-/// The field as the presentation holds it: each value rounded to a half float.
+/// The field as the presentation holds it: each value rounded to a half float ([`half`]), kept
+/// as the half float's bits ([`dereth_primitives::half`]).
 #[must_use]
-pub fn held(field: &[[f32; 2]]) -> Vec<[f32; 2]> {
-    field.iter().map(|[a, b]| [half(*a), half(*b)]).collect()
+pub fn held(field: &[[f32; 2]]) -> Vec<[u16; 2]> {
+    field
+        .iter()
+        .map(|&[a, b]| [held_value(a), held_value(b)])
+        .collect()
+}
+
+/// `v` rounded to a half float, as its bits.
+fn held_value(v: f32) -> u16 {
+    dereth_primitives::half::bits(half(v))
+}
+
+/// The value of a pair of the field as [`held`] holds it: each value as it was rounded.
+#[must_use]
+pub fn held_pair(pair: [u16; 2]) -> [f32; 2] {
+    pair.map(dereth_primitives::half::value)
 }
 
 /// How far a body standing in a cell all of whose corners are water stands under retail's ground,
@@ -295,38 +398,90 @@ fn wander(x: f32, y: f32, foot: f32) -> f32 {
 pub struct Shore<'a> {
     /// Vertices a side.
     pub side: usize,
+    /// The world's land grid: [`LandGrid::DEFAULT`] for the default grid.
+    pub grid: LandGrid,
     /// Each vertex's height, row by row from the south.
     pub heights: &'a [f32],
+    /// Each vertex's terrain word, in the same order; empty where no water is told apart from
+    /// other water (on the default grid physics tells none apart).
+    pub words: &'a [u16],
     /// Each vertex's pair of the field, as [`held`] holds it, in the same order.
-    pub field: &'a [[f32; 2]],
+    pub field: &'a [[u16; 2]],
+    /// One bit a vertex, in the same order, least significant first: set when the square whose
+    /// south-west corner it is is cut from that corner to its north-east one. Empty for the
+    /// default grid's hash.
+    pub cuts: &'a [u8],
+}
+
+impl<'a> Shore<'a> {
+    /// The water of a world on the default grid, its squares cut by the default grid's hash.
+    #[must_use]
+    pub fn on_default_grid(side: usize, heights: &'a [f32], field: &'a [[u16; 2]]) -> Self {
+        Self {
+            side,
+            grid: LandGrid::DEFAULT,
+            heights,
+            words: &[],
+            field,
+            cuts: &[],
+        }
+    }
+
+    /// The vertices a land cell holds a side: one on the default grid.
+    fn steps(&self) -> i32 {
+        i32::try_from(self.grid.vertices_per_cell)
+            .unwrap_or(1)
+            .max(1)
+    }
+
+    /// The index of vertex `(gx, gy)`, clamped to the world.
+    fn index(&self, gx: i32, gy: i32) -> usize {
+        // LINT-OK: the side, a few thousand.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let last = self.side as i32 - 1;
+        // LINT-OK: clamped to the world.
+        #[allow(clippy::cast_sign_loss)]
+        let k = gy.clamp(0, last.max(0)) as usize * self.side + gx.clamp(0, last.max(0)) as usize;
+        k
+    }
+
+    /// Whether the square whose south-west vertex is `(gx, gy)` is cut from that corner to its
+    /// north-east one.
+    fn cut(&self, gx: i32, gy: i32) -> bool {
+        if self.cuts.is_empty() {
+            return crate::land::mesh::sw_to_ne_cut(gx, gy);
+        }
+        let k = self.index(gx, gy);
+        self.cuts
+            .get(k / 8)
+            .is_some_and(|b| (b >> (k % 8)) & 1 != 0)
+    }
+
+    /// Whether vertex `(gx, gy)` is wading water.
+    fn wading(&self, gx: i32, gy: i32) -> bool {
+        self.words
+            .get(self.index(gx, gy))
+            .is_some_and(|w| is_wading(*w))
+    }
 }
 
 impl Shore<'_> {
     /// The field's pair at vertex `(gx, gy)`, clamped to the world.
     fn texel(&self, gx: i32, gy: i32) -> [f32; 2] {
-        // LINT-OK: the side, a few thousand.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let last = self.side as i32 - 1;
-        // LINT-OK: clamped to the world.
-        #[allow(clippy::cast_sign_loss)]
-        let k = gy.clamp(0, last.max(0)) as usize * self.side + gx.clamp(0, last.max(0)) as usize;
-        self.field.get(k).copied().unwrap_or([-REACH, 0.0])
+        self.field
+            .get(self.index(gx, gy))
+            .map_or([-REACH, 0.0], |p| held_pair(*p))
     }
 
     /// The height of vertex `(gx, gy)`, clamped to the world.
     fn height(&self, gx: i32, gy: i32) -> f32 {
-        // LINT-OK: the side, a few thousand.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let last = self.side as i32 - 1;
-        // LINT-OK: clamped to the world.
-        #[allow(clippy::cast_sign_loss)]
-        let k = gy.clamp(0, last.max(0)) as usize * self.side + gx.clamp(0, last.max(0)) as usize;
-        self.heights.get(k).copied().unwrap_or(0.0)
+        self.heights.get(self.index(gx, gy)).copied().unwrap_or(0.0)
     }
 
-    /// The cell `(x, y)` lies in and where in it, 0..1 each way.
-    fn cell_of(x: f32, y: f32) -> ((i32, i32), (f32, f32)) {
-        let (qx, qy) = (x / CELL, y / CELL);
+    /// The square `(x, y)` lies in (by its south-west vertex) and where in it, 0..1 each way.
+    fn cell_of(&self, x: f32, y: f32) -> ((i32, i32), (f32, f32)) {
+        let spacing = self.grid.vertex_spacing();
+        let (qx, qy) = (x / spacing, y / spacing);
         let c = (floor_to_i32(qx), floor_to_i32(qy));
         // LINT-OK: cell coordinates of points inside the world, exact in f32.
         #[allow(clippy::cast_precision_loss)]
@@ -342,7 +497,7 @@ impl Shore<'_> {
     /// coarse value.
     #[must_use]
     pub fn distance(&self, x: f32, y: f32, foot: f32) -> f32 {
-        let ((cx, cy), (fx, fy)) = Self::cell_of(x, y);
+        let ((cx, cy), (fx, fy)) = self.cell_of(x, y);
         let a = self.texel(cx, cy)[0];
         let b = self.texel(cx + 1, cy)[0];
         let d = self.texel(cx, cy + 1)[0];
@@ -372,23 +527,26 @@ impl Shore<'_> {
         self.texel(gx, gy)[0] > 0.0
     }
 
-    /// How far physics stands a body under retail's ground in quarter `(qx, qy)` of a cell (the
-    /// cells' quarters counted from the world's south-west, two a cell each way): nought in a
-    /// cell with no water corner, [`SINK_DEEP`] in one whose corners are all water, otherwise by
-    /// the corner the quarter holds, [`SINK_WET`] for water and [`SINK_DRY`] for land.
+    /// How far physics stands a body under retail's ground in quarter `(qx, qy)` of a square (the
+    /// squares' quarters counted from the world's south-west, two a square each way), by the
+    /// square's own corners: nought in a square with no water corner; [`SINK_DEEP`] in one all of
+    /// water, but on a grid finer than a cell [`SINK_WET`] where the corner the quarter holds is
+    /// wading water; otherwise by that corner, [`SINK_WET`] for water and [`SINK_DRY`] for land.
     fn quarter_sink(&self, qx: i32, qy: i32) -> f32 {
-        let (cx, cy) = (qx.div_euclid(2), qy.div_euclid(2));
-        let corners = [
-            self.wet(cx, cy),
-            self.wet(cx + 1, cy),
-            self.wet(cx, cy + 1),
-            self.wet(cx + 1, cy + 1),
-        ];
-        if corners.iter().all(|w| *w) {
-            SINK_DEEP
-        } else if !corners.iter().any(|w| *w) {
+        let (sx, sy) = (qx.div_euclid(2), qy.div_euclid(2));
+        let (nx, ny) = (sx + qx.rem_euclid(2), sy + qy.rem_euclid(2));
+        let at = |k: usize| i32::try_from(k).unwrap_or(0);
+        let (any, all) =
+            dereth_primitives::land_grid::water_of(1, |a, b| self.wet(sx + at(a), sy + at(b)));
+        if all {
+            if self.steps() > 1 && self.wading(nx, ny) {
+                SINK_WET
+            } else {
+                SINK_DEEP
+            }
+        } else if !any {
             0.0
-        } else if self.wet(cx + qx.rem_euclid(2), cy + qy.rem_euclid(2)) {
+        } else if self.wet(nx, ny) {
             SINK_WET
         } else {
             SINK_DRY
@@ -400,7 +558,7 @@ impl Shore<'_> {
     /// [`SINK_EASE`] either side of where quarters meet.
     #[must_use]
     pub fn sink(&self, x: f32, y: f32) -> f32 {
-        let half = 0.5 * CELL;
+        let half = 0.5 * self.grid.vertex_spacing();
         let (bx, by) = ((x / half).round(), (y / half).round());
         let tx = smoothstep(-SINK_EASE, SINK_EASE, x - bx * half);
         let ty = smoothstep(-SINK_EASE, SINK_EASE, y - by * half);
@@ -433,7 +591,7 @@ impl Shore<'_> {
     /// the water lies) across retail's triangles, as retail draws its surface.
     #[must_use]
     pub fn level(&self, x: f32, y: f32) -> f32 {
-        let ((cx, cy), (fx, fy)) = Self::cell_of(x, y);
+        let ((cx, cy), (fx, fy)) = self.cell_of(x, y);
         let at = |gx: i32, gy: i32| self.height(gx, gy) - self.texel(gx, gy)[1];
         let (h00, h10, h01, h11) = (
             at(cx, cy),
@@ -441,7 +599,7 @@ impl Shore<'_> {
             at(cx, cy + 1),
             at(cx + 1, cy + 1),
         );
-        if crate::land::mesh::sw_to_ne_cut(cx, cy) {
+        if self.cut(cx, cy) {
             if fx >= fy {
                 return h00 + fx * (h10 - h00) + fy * (h11 - h10);
             }

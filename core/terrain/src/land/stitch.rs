@@ -33,7 +33,7 @@
 //! correct from the viewer, who is always on the fine side — and it is why the test for it asserts
 //! an inequality where the test for fix (a) asserts equality.
 
-use crate::consts::{LAND_HEIGHT_TABLE_LEN, SIDE_VERTEX_COUNT, VERTEX_COUNT};
+use crate::consts::LAND_HEIGHT_TABLE_LEN;
 use crate::land::mesh::{adj_planes, Direction, LandblockMesh};
 
 /// `generate`'s guard: `trans_dir != InViewerBlock && 1 < side_cell_count < 8`.
@@ -50,11 +50,12 @@ pub fn should_trans_adjust(side_cell_count: u8, dir: Direction) -> bool {
 /// the same planes from the same vertices, so this function does that and the caller needs no
 /// special ordering.
 ///
-/// `heights` is the raw 9x9 height-index array from the landblock record; `table` is
-/// the land height table. Fix (b) reads them directly rather than through the LOD-sampled vertices.
+/// `heights` is the raw height-index array from the landblock record (9x9 on the default grid, the
+/// block's whole grid on a finer one); `table` is the land height table. Fix (b) reads them
+/// directly rather than through the LOD-sampled vertices.
 pub fn trans_adjust(
     m: &mut LandblockMesh,
-    heights: &[u8; VERTEX_COUNT],
+    heights: &[u8],
     table: &[f32; LAND_HEIGHT_TABLE_LEN],
     dir: Direction,
 ) {
@@ -82,7 +83,7 @@ pub fn trans_adjust(
 /// | SOUTH (S, SW, SE) | `j = 0` | `v(i, 0).z = (v(i-1, 0).z + v(i+1, 0).z)/2` |
 /// | EAST (E, NE, SE) | max x (`i = spc`) | `v(spc, j).z = (v(spc, j-1).z + v(spc, j+1).z)/2` |
 fn outward_edge_average(m: &mut LandblockMesh, dir: Direction) {
-    let spc = usize::from(m.side_cell_count);
+    let spc = m.squares_per_side();
     let idx = |a: usize, b: usize| a * (spc + 1) + b;
     let mut odd: Vec<usize> = (1..spc).step_by(2).collect();
     odd.retain(|&i| i < spc);
@@ -116,7 +117,9 @@ fn outward_edge_average(m: &mut LandblockMesh, dir: Direction) {
 /// direction.
 ///
 /// The edge that faces the viewer's full-detail (8-cell) ring keeps its own z but is clamped
-/// downwards so the coarse edge can never poke above the fine one, using the raw 9x9 height table:
+/// downwards so the coarse edge can never poke above the fine one, using the raw height array (on
+/// a grid of `s` steps a cell the same rule runs over every odd coarse vertex `n < 4s`, the grid
+/// index `2n` and the edge at `8s`):
 ///
 /// ```text
 /// NorthOfViewer   : for i = 1, 3:  v = vertex(i, 0)   // south edge, grid x = 2i
@@ -130,18 +133,21 @@ fn outward_edge_average(m: &mut LandblockMesh, dir: Direction) {
 /// intermediate vertex, hiding the seam behind the nearer block.
 fn inward_crack_guard(
     m: &mut LandblockMesh,
-    heights: &[u8; VERTEX_COUNT],
+    heights: &[u8],
     table: &[f32; LAND_HEIGHT_TABLE_LEN],
     dir: Direction,
 ) {
-    let h = |a: usize, b: usize| table[heights[a * SIDE_VERTEX_COUNT + b] as usize];
-    let idx = |a: usize, b: usize| a * 5 + b; // side_vertex_count == 5 at side_cell_count 4
-    for n in [1usize, 3] {
+    // At side_cell_count 4 the block has 4 * steps squares a side; the full grid twice that.
+    let sq = m.squares_per_side();
+    let full = 2 * sq;
+    let h = |a: usize, b: usize| table[heights[a * (full + 1) + b] as usize];
+    let idx = |a: usize, b: usize| a * (sq + 1) + b; // 5 x 5 at side_cell_count 4 on the default grid
+    for n in (1..sq).step_by(2) {
         let (vi, along) = match dir {
             Direction::North => (idx(n, 0), Along::X { fixed: 0 }),
-            Direction::South => (idx(n, 4), Along::X { fixed: 8 }),
+            Direction::South => (idx(n, sq), Along::X { fixed: full }),
             Direction::East => (idx(0, n), Along::Y { fixed: 0 }),
-            Direction::West => (idx(4, n), Along::Y { fixed: 8 }),
+            Direction::West => (idx(sq, n), Along::Y { fixed: full }),
             _ => return,
         };
         let g = 2 * n; // the grid index of this coarse vertex along the varying axis
@@ -170,6 +176,7 @@ mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
     use super::*;
+    use crate::consts::{SIDE_VERTEX_COUNT, VERTEX_COUNT};
     use crate::land::mesh::generate_landblock_with_table;
     use dereth_assets::world::CellLandblock;
     use dereth_primitives::DataId;
@@ -191,6 +198,7 @@ mod tests {
             lbi_exists: 0,
             terrain: [0; VERTEX_COUNT],
             height,
+            dense: None,
         }
     }
 
@@ -425,5 +433,125 @@ mod tests {
                 );
             }
         }
+    }
+
+    // A world whose land cells are cut into three vertex steps: 25 x 25 vertices 8 m apart.
+
+    const DENSE_SIDE: usize = 25;
+
+    fn dense_region() -> dereth_assets::region::Region {
+        let mut r = region();
+        r.land_defs.vertex_per_cell = 3;
+        r.land_defs.road_width = 4.0;
+        r
+    }
+
+    fn dense_lb(height: Vec<u8>, split: Vec<u8>) -> CellLandblock {
+        let n = DENSE_SIDE * DENSE_SIDE;
+        CellLandblock::from_dense(
+            DataId(0x0001_FFFF),
+            0,
+            dereth_assets::world::DenseLand {
+                steps: 3,
+                terrain: vec![4u16; n].into(),
+                height: height.into(),
+                split: split.into(),
+            },
+        )
+    }
+
+    fn ripple() -> Vec<u8> {
+        (0..DENSE_SIDE * DENSE_SIDE)
+            .map(|i| ((i * 7) % 23) as u8)
+            .collect()
+    }
+
+    #[test]
+    fn a_three_step_block_draws_two_triangles_on_each_8_metre_square() {
+        let t = table();
+        let mut h = vec![0u8; DENSE_SIDE * DENSE_SIDE];
+        h[4 * DENSE_SIDE + 7] = 15;
+        let m = unstitched(&dense_lb(h, vec![0; 72]), &dense_region(), &t, 1);
+        assert_eq!(
+            (m.side_cell_count, m.vertex_steps, m.side_vertex_count),
+            (8, 3, 25)
+        );
+        assert_eq!(m.squares_per_side(), 24);
+        assert_eq!((m.vertices.len(), m.polygons.len()), (625, 1152));
+        assert_eq!(
+            (m.cell_keys.len(), m.cell_water.len(), m.sw_to_ne_cut.len()),
+            (576, 576, 576)
+        );
+        let v = m.vertices[4 * DENSE_SIDE + 7];
+        assert_eq!((v.x, v.y, v.z), (32.0, 56.0, 30.0));
+    }
+
+    #[test]
+    fn a_three_step_block_cuts_each_square_by_its_stored_bit() {
+        let t = table();
+        let mut bits = vec![0u8; 72];
+        let k = 5 * 24 + 11;
+        bits[k / 8] |= 1 << (k % 8);
+        let m = unstitched(
+            &dense_lb(vec![0; DENSE_SIDE * DENSE_SIDE], bits),
+            &dense_region(),
+            &t,
+            1,
+        );
+        assert!(m.sw_to_ne_cut[k]);
+        assert_eq!(m.sw_to_ne_cut.iter().filter(|&&c| c).count(), 1);
+    }
+
+    #[test]
+    fn a_reduced_three_step_block_samples_the_full_grid() {
+        let t = table();
+        let h = ripple();
+        let m = unstitched(&dense_lb(h.clone(), vec![0; 72]), &dense_region(), &t, 2);
+        // Four cells a side, three squares each: 13 x 13 vertices 16 m apart.
+        assert_eq!(
+            (m.side_cell_count, m.squares_per_side(), m.side_vertex_count),
+            (4, 12, 13)
+        );
+        for i in 0..13 {
+            for j in 0..13 {
+                let v = m.vertices[i * 13 + j];
+                assert_eq!(v.x, i as f32 * 16.0);
+                assert_eq!(v.z, t[h[(2 * i) * DENSE_SIDE + 2 * j] as usize]);
+            }
+        }
+        assert!(m.cell_water.is_empty(), "a reduced block carries no water");
+    }
+
+    #[test]
+    fn a_reduced_three_step_block_stitches_its_outward_edge_to_the_coarser_ring() {
+        let t = table();
+        let lb = dense_lb(ripple(), vec![0; 72]);
+        let m =
+            generate_landblock_with_table(&lb, &dense_region(), &t, 0, 0, 2, Direction::NorthWest);
+        let idx = |a: usize, b: usize| a * 13 + b;
+        for i in (1..12).step_by(2) {
+            let want = (m.vertices[idx(i - 1, 12)].z + m.vertices[idx(i + 1, 12)].z) / 2.0;
+            assert_eq!(m.vertices[idx(i, 12)].z, want, "north edge vertex {i}");
+        }
+        for j in (1..12).step_by(2) {
+            let want = (m.vertices[idx(0, j - 1)].z + m.vertices[idx(0, j + 1)].z) / 2.0;
+            assert_eq!(m.vertices[idx(0, j)].z, want, "west edge vertex {j}");
+        }
+    }
+
+    #[test]
+    fn a_three_step_cell_is_partly_water_square_by_square() {
+        let t = table();
+        let mut lb = dense_lb(vec![0; DENSE_SIDE * DENSE_SIDE], vec![0; 72]);
+        let d = lb.dense.as_mut().unwrap();
+        d.terrain[DENSE_SIDE + 1] = 17 << 2; // vertex (1, 1), inside cell (0, 0)
+        let m = unstitched(&lb, &dense_region(), &t, 1);
+        use crate::land::water::WaterType;
+        let wet: Vec<usize> = (0..576)
+            .filter(|&n| m.cell_water[n] != WaterType::NotWater)
+            .collect();
+        // The four squares around vertex (1, 1).
+        assert_eq!(wet, vec![0, 1, 24, 25]);
+        assert_eq!(m.water_type, WaterType::PartiallyWater);
     }
 }

@@ -203,11 +203,12 @@ impl Cell {
         }
     }
 
-    /// Per-cell water type.
+    /// The water type at block-local `local`: that of the land square it lies in, the cell
+    /// itself on the retail grid.
     #[must_use]
-    pub fn water_type(&self) -> WaterType {
+    pub fn water_type_at(&self, local: Vec3) -> WaterType {
         match self {
-            Self::Land { id, block } => block.cell_water_type(id.index()).unwrap_or_default(),
+            Self::Land { id, block } => block.water_type_at(id.index(), local).unwrap_or_default(),
             Self::Env { .. } | Self::Host { .. } => WaterType::NotWater,
         }
     }

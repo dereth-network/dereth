@@ -23,6 +23,7 @@ import bindless;
 import card;
 import retail;
 import weather;
+import world;
 
 static const float TAU = 6.2831853;
 // A model whose pictures are not on the device yet.
@@ -84,13 +85,10 @@ struct CullPush
     // The draw's command, and where in it its instance count lies.
     uint args;
     uint count_at;
-    // The world's vertex heights (~0 before they are read), SIDE a side, CELL meters apart.
+    // The world's vertex heights (~0 before they are read), on its land grid (`world.slang`).
     uint heights;
 };
 
-// The world's vertices: how many a side, and how far apart.
-static const int SIDE = 2041;
-static const float CELL = 24.0;
 // Past how far a tree on the skyline starts to shrink, and by how far it has shrunk all it does,
 // meters.
 static const float2 SKYLINE = float2(600.0, 1800.0);
@@ -99,16 +97,15 @@ static const float SKYLINE_LOOK = 120.0;
 static const uint SKYLINE_LOOKS = 6;
 
 // The world's height at world `p` (meters), between its four nearest vertices.
-float world_height(uint heights, float2 p)
+float height_at(uint heights, float2 p)
 {
-    float2 g = p / CELL;
+    float2 g = p / world_spacing(heights);
     int2 c = int2(floor(g));
     float2 f = g - float2(c);
     float h[4];
     for (uint k = 0; k < 4; k++)
     {
-        int2 at = clamp(c + int2(k & 1, k >> 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
-        h[k] = asfloat(buffers[NonUniformResourceIndex(heights)].Load(uint(at.y * SIDE + at.x) * 4));
+        h[k] = world_height(heights, c + int2(k & 1, k >> 1));
     }
     return lerp(lerp(h[0], h[1], f.x), lerp(h[2], h[3], f.x), f.y);
 }
@@ -131,7 +128,7 @@ float skyline(uint heights, float3 eye, float3 foot, float top, float2 origin, f
     for (uint k = 0; k < SKYLINE_LOOKS; k++)
     {
         float far = h + s;
-        float ground = world_height(heights, eye.xy + ahead * far + origin);
+        float ground = height_at(heights, eye.xy + ahead * far + origin);
         if ((ground - eye.z) / far >= rises)
         {
             return 1.0;

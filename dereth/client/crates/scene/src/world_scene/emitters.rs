@@ -652,12 +652,16 @@ impl SceneDraw {
                 if mesh.side_cell_count != 8 {
                     continue;
                 }
+                // Each land cell's south-west corner: every `steps`th vertex of the block's grid.
+                let steps = usize::from(mesh.vertex_steps.max(1));
+                let side = 8 * steps + 1;
                 for row in 0..8usize {
                     for col in 0..8usize {
-                        let v = mesh.vertices[mesh.vertex_index(row, col)];
+                        let (x, y) = (row * steps, col * steps);
+                        let v = mesh.vertices[mesh.vertex_index(x, y)];
                         cells.push(TerrainCell {
                             pos: Vec3::new(v.x + block.origin.0, v.y + block.origin.1, v.z),
-                            terrain_word: block.terrain[row * 9 + col],
+                            terrain_word: block.terrain.get(x * side + y).copied().unwrap_or(0),
                         });
                     }
                 }

@@ -115,6 +115,80 @@ fn a_value_is_held_as_the_nearest_half_float() {
     }
 }
 
+/// The field as it is held reads back as exactly the values rounded to half floats, sign, zeros,
+/// subnormal half floats and values past a half float's range among them: so a reader of the
+/// held field sees the same numbers single floats rounded to half floats gave it.
+#[test]
+fn the_held_field_reads_back_as_the_values_rounded() {
+    let mut values: Vec<f32> = (0..=u32::MAX)
+        .step_by(65_521)
+        .map(f32::from_bits)
+        .filter(|v| !v.is_nan())
+        .collect();
+    values.extend([
+        0.0, -0.0, 1e-6, -3.8e-6, 6.1e-5, 65_504.0, 65_520.0, 1e9, -960.0, -1000.0, 0.45, 23.999,
+    ]);
+    for pair in values.chunks(2) {
+        let pair = [pair[0], *pair.last().unwrap_or(&0.0)];
+        let held = held(&[pair]);
+        let back = held_pair(held[0]);
+        for k in 0..2 {
+            assert_eq!(
+                back[k].to_bits(),
+                half(pair[k]).to_bits(),
+                "{} is held as {:#06x}",
+                pair[k],
+                held[0][k]
+            );
+        }
+    }
+}
+
+/// Each vertex's squared distance to the nearest vertex the target names is that of the nearest
+/// one exactly, as a search of every vertex finds it, and none at all is told apart where the grid
+/// names none.
+#[test]
+fn each_vertex_knows_the_squared_distance_to_the_nearest_target_exactly() {
+    let side = 37;
+    let mut seed = 0x2545_f491_u32;
+    let targets: Vec<bool> = (0..side * side)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed.is_multiple_of(23)
+        })
+        .collect();
+    let got = squared_distances(side, |i| targets[i]);
+    for (i, d) in got.iter().enumerate() {
+        let (x, y) = (i % side, i / side);
+        let nearest = (0..side * side)
+            .filter(|&j| targets[j])
+            .map(|j| {
+                let (dx, dy) = (x.abs_diff(j % side), y.abs_diff(j / side));
+                dx * dx + dy * dy
+            })
+            .min()
+            .expect("a target");
+        assert_eq!(*d as usize, nearest, "vertex ({x}, {y})");
+    }
+    let none = squared_distances(side, |_| false);
+    assert!(none.iter().all(|d| distance(*d) == NONE), "no target");
+}
+
+/// The field made pair by pair as it is held is the field made in single floats and then held.
+#[test]
+fn the_field_made_as_it_is_held_is_the_field_held() {
+    let (heights, words) = lake(24, 9);
+    for spacing in [CELL, 8.0, 6.0] {
+        assert_eq!(
+            held_field_spaced(24, spacing, &heights, &words),
+            held(&water_field_spaced(24, spacing, &heights, &words)),
+            "{spacing} meters apart"
+        );
+    }
+}
+
 /// A lake of `side` vertices a side at 10 meters, every vertex west of `shore` water, the land
 /// east of it rising a meter a cell.
 fn lake(side: usize, shore: usize) -> (Vec<f32>, Vec<u16>) {
@@ -138,11 +212,7 @@ fn the_bank_beside_the_water_never_lies_under_its_level_at_the_edge_and_falls_aw
     let side = 24;
     let (heights, words) = lake(side, 8);
     let field = held(&water_field(side, &heights, &words));
-    let shore = Shore {
-        side,
-        heights: &heights,
-        field: &field,
-    };
+    let shore = Shore::on_default_grid(side, &heights, &field);
     // Out from the lake's edge, a bank whose ground the offset lowers by a meter once clear of
     // the water's pins: the floor holds it at the water's level at the edge, and lets it fall
     // away as it goes out, with no step.
@@ -237,11 +307,7 @@ fn the_bed_lies_where_physics_stands_a_body_eased_between_depths_and_sloping_up_
         .collect();
     let (heights, words) = grid(side, 10.0, &wet);
     let field = held(&water_field(side, &heights, &words));
-    let shore = Shore {
-        side,
-        heights: &heights,
-        field: &field,
-    };
+    let shore = Shore::on_default_grid(side, &heights, &field);
     let is_wet = |gx: i32, gy: i32| {
         usize::try_from(gx)
             .ok()
@@ -316,11 +382,7 @@ fn nothing_by_the_water_but_its_bed_is_drawn_lowered_or_raised() {
         }
     }
     let field = held(&water_field(side, &heights, &words));
-    let shore = Shore {
-        side,
-        heights: &heights,
-        field: &field,
-    };
+    let shore = Shore::on_default_grid(side, &heights, &field);
     let water = super::super::Water { shore, slope: 3.0 };
     let knobs = super::super::Knobs::default();
     let src = |gx: i32, gy: i32| {
@@ -369,4 +431,162 @@ fn nothing_by_the_water_but_its_bed_is_drawn_lowered_or_raised() {
         wet > 50 && dry > 50,
         "the line crosses the water ({wet}) and the land ({dry})"
     );
+}
+
+/// How far physics stands a body under retail's ground at world `(x, y)` of a grid `steps`
+/// vertices a land cell, `spacing` meters apart, whose vertices `wet` says are water and `wading`
+/// says are wading water: by the square the point lies in, 0.9 m in a square all of water but
+/// on a finer grid 0.45 m where the vertex nearest is wading water; in a square with some water
+/// 0.45 m or 0.1 m, by whether the vertex nearest is water; none in a square with none.
+fn physics_sink_on(
+    steps: i32,
+    spacing: f32,
+    wet: impl Fn(i32, i32) -> bool,
+    wading: impl Fn(i32, i32) -> bool,
+    x: f32,
+    y: f32,
+) -> f32 {
+    let (sx, sy) = (floor_to_i32(x / spacing), floor_to_i32(y / spacing));
+    let (mut any, mut all) = (false, true);
+    for gy in sy..=sy + 1 {
+        for gx in sx..=sx + 1 {
+            any |= wet(gx, gy);
+            all &= wet(gx, gy);
+        }
+    }
+    // LINT-OK: square coordinates, exact in f32.
+    #[allow(clippy::cast_precision_loss)]
+    let (fx, fy) = (x / spacing - sx as f32, y / spacing - sy as f32);
+    let (nx, ny) = (sx + i32::from(fx > 0.5), sy + i32::from(fy > 0.5));
+    if all {
+        if steps > 1 && wading(nx, ny) {
+            0.45
+        } else {
+            0.9
+        }
+    } else if !any {
+        0.0
+    } else if wet(nx, ny) {
+        0.45
+    } else {
+        0.1
+    }
+}
+
+/// A pond on a grid three vertices a land cell, eight meters apart, `side` vertices a side, with
+/// a ragged edge: deep water in its middle, wading water about it, land beyond.
+fn finer_pond(side: usize) -> (Vec<f32>, Vec<u16>) {
+    let mut heights = vec![10.0; side * side];
+    let mut words = vec![word(1); side * side];
+    for y in 6..side - 6 {
+        for x in 6..side - 6 {
+            if (x == 6 && y % 4 == 0) || (y == side - 7 && x % 5 == 2) {
+                continue;
+            }
+            let deep = (13..side - 13).contains(&x) && (13..side - 13).contains(&y);
+            words[y * side + x] = word(if deep { 20 } else { 18 + u16::from(x % 2 == 0) });
+            heights[y * side + x] = 9.0;
+        }
+    }
+    (heights, words)
+}
+
+#[test]
+fn on_a_finer_grid_the_bed_lies_where_physics_stands_a_body_shallow_in_wading_water_deep_beyond() {
+    let (side, spacing) = (49usize, 8.0f32);
+    let (heights, words) = finer_pond(side);
+    let field = held(&water_field_spaced(side, spacing, &heights, &words));
+    let shore = Shore {
+        side,
+        grid: dereth_primitives::land_grid::LandGrid::with_steps(3, 4.0),
+        heights: &heights,
+        words: &words,
+        field: &field,
+        cuts: &[],
+    };
+    let vertex = |gx: i32, gy: i32| {
+        usize::try_from(gx)
+            .ok()
+            .zip(usize::try_from(gy).ok())
+            .filter(|&(x, y)| x < side && y < side)
+            .map(|(x, y)| words[y * side + x])
+    };
+    let is_wet = |gx: i32, gy: i32| vertex(gx, gy).is_some_and(is_water);
+    let is_wading = |gx: i32, gy: i32| vertex(gx, gy).is_some_and(is_wading);
+    let slope = 3.0;
+    let half = 0.5 * spacing;
+    let to_seam = |v: f32| (v - (v / half).round() * half).abs();
+    let mut seen = [0usize; 4];
+    for j in 0..600u16 {
+        let y = 2.0 * spacing + f32::from(j) * 0.075 * spacing;
+        for i in 0..600u16 {
+            let x = 2.0 * spacing + f32::from(i) * 0.075 * spacing;
+            let inside = shore.distance(x, y, 0.0);
+            if inside < slope || to_seam(x) < SINK_EASE || to_seam(y) < SINK_EASE {
+                continue;
+            }
+            let want = physics_sink_on(3, spacing, is_wet, is_wading, x, y);
+            let bed = shore.bed(x, y, inside, slope);
+            assert!(
+                (bed - want).abs() < 1e-5,
+                "({x}, {y}) the bed {bed} m down where physics sinks a body {want} m"
+            );
+            let k = [0.0, 0.1, 0.45, 0.9]
+                .iter()
+                .position(|d: &f32| (d - want).abs() < 1e-6)
+                .expect("a depth");
+            seen[k] += 1;
+        }
+    }
+    assert!(
+        seen[2] > 5000 && seen[3] > 5000,
+        "the pond holds wading and deep water clear of its edge: {seen:?}"
+    );
+}
+
+#[test]
+fn on_a_finer_grid_the_bed_goes_by_its_own_square_where_its_land_cell_is_a_shore() {
+    // Deep water from vertex 4 to vertex 20 each way, on a grid three vertices a land cell: the
+    // land cells from vertex 3 to vertex 6 have a land vertex, but their squares from vertex 4
+    // on are all water.
+    let (side, spacing) = (25usize, 8.0f32);
+    let mut heights = vec![10.0; side * side];
+    let mut words = vec![word(1); side * side];
+    for y in 4..=20 {
+        for x in 4..=20 {
+            words[y * side + x] = word(20);
+            heights[y * side + x] = 9.0;
+        }
+    }
+    let field = held(&water_field_spaced(side, spacing, &heights, &words));
+    let shore = Shore {
+        side,
+        grid: dereth_primitives::land_grid::LandGrid::with_steps(3, 4.0),
+        heights: &heights,
+        words: &words,
+        field: &field,
+        cuts: &[],
+    };
+    // In square (4, 7), nearest its water corner (4, 7): deep, where its cell would say a shore's
+    // 0.45 m.
+    let (x, y) = (35.0, 59.0);
+    let inside = shore.distance(x, y, 0.0);
+    assert!(inside > 3.0, "{inside}");
+    assert!((shore.bed(x, y, inside, 3.0) - SINK_DEEP).abs() < 1e-6);
+    // In square (3, 7), half water: by its corner nearest, as before.
+    assert!((shore.sink(31.0, 59.0) - SINK_WET).abs() < 1e-6);
+}
+
+#[test]
+fn on_the_default_grid_wading_water_alone_still_sinks_a_body_deep() {
+    let side = 12;
+    let mut words = vec![word(18); side * side];
+    words[0] = word(1);
+    let heights = vec![10.0; side * side];
+    let field = held(&water_field(side, &heights, &words));
+    let shore = Shore {
+        words: &words,
+        ..Shore::on_default_grid(side, &heights, &field)
+    };
+    assert!((shore.sink(6.0 * CELL + 3.0, 6.0 * CELL + 3.0) - SINK_DEEP).abs() < 1e-6);
 }

@@ -54,7 +54,7 @@ fn config(gpu_terrain_merge: bool) -> SceneConfig {
 }
 
 /// Every composite's levels, by merge key.
-fn read_back(gpu: &mut Gpu, scene: &WorldScene) -> BTreeMap<u32, Vec<Vec<u8>>> {
+fn read_back(gpu: &mut Gpu, scene: &WorldScene) -> BTreeMap<u64, Vec<Vec<u8>>> {
     let mut out = BTreeMap::new();
     for (key, slot) in scene.terrain_composites() {
         let mut levels = Vec::new();

@@ -11,6 +11,7 @@ import bindless;
 import intent;
 import lod;
 import retail;
+import world;
 
 struct Push
 {
@@ -59,15 +60,14 @@ float ground_at(float2 xy)
 {
     float4 g = row(push.atmosphere, ATM_LOW_FOG_GROUND);
     uint heights = asuint(g.z);
-    float2 q = (xy + g.xy) / 24.0;
+    float2 q = (xy + g.xy) / world_spacing(heights);
     int2 c = int2(floor(q));
     float2 f = q - floor(q);
     float h[4];
     int2 offs[4] = { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) };
     for (int k = 0; k < 4; k++)
     {
-        int2 v = clamp(c + offs[k], int2(0, 0), int2(2040, 2040));
-        h[k] = asfloat(buffers[NonUniformResourceIndex(heights)].Load(uint(v.y * 2041 + v.x) * 4));
+        h[k] = world_height(heights, c + offs[k]);
     }
     return lerp(lerp(h[0], h[1], f.x), lerp(h[2], h[3], f.x), f.y);
 }

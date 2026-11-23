@@ -190,7 +190,10 @@ impl Renderer {
         self.weather.observe(
             &frame,
             rainy,
-            self.scene.ground.iter().map(|(id, g)| (*id, &g.words)),
+            self.scene
+                .ground
+                .iter()
+                .map(|(id, g)| (*id, g.words.as_slice(), g.full)),
         );
         let mut drawn = self.drawn(&frame);
         self.drawn_sizes = drawn.sizes();

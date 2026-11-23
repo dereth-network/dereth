@@ -36,6 +36,7 @@ pub use knobs::{Knob, KnobSpec, Knobs, KNOBS, KNOB_COUNT};
 use crate::consts::CELL_SIZE;
 use crate::land::mesh::sw_to_ne_cut;
 use crate::road::on_road_cell;
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::num::{floor_to_i32, math};
 
 /// The steepest plane a body stands on: a triangle whose normal leans further from straight up
@@ -62,11 +63,43 @@ pub struct Vertex {
     pub word: u16,
 }
 
-/// Where the landscape's vertices come from: global vertex coordinates, `0..2041` a side, eight
-/// to a block (a block's last vertex is its neighbor's first).
+/// Where the landscape's vertices come from: global vertex coordinates on the world's land grid,
+/// [`GroundSource::side`] a side and [`GroundSource::spacing`] meters apart (on the default grid
+/// `0..2041` a side, eight to a block, a block's last vertex its neighbor's first).
 pub trait GroundSource {
     /// The vertex at `(gx, gy)`, or `None` outside the world or where the records hold none.
     fn vertex(&self, gx: i32, gy: i32) -> Option<Vertex>;
+
+    /// Meters between neighboring vertices: a land cell's side on the default grid.
+    fn spacing(&self) -> f32 {
+        CELL_SIZE
+    }
+
+    /// Vertices along the world's side.
+    fn side(&self) -> i32 {
+        WORLD_VERTICES
+    }
+
+    /// Whether the square whose south-west vertex is `(gx, gy)` is cut from its south-west
+    /// corner to its north-east one: the default grid's hash of the square.
+    fn cut(&self, gx: i32, gy: i32) -> bool {
+        sw_to_ne_cut(gx, gy)
+    }
+}
+
+/// The vertices along the side of a world laid on `grid`: 255 blocks of its squares, and one.
+#[must_use]
+pub const fn world_vertices(grid: &LandGrid) -> usize {
+    255 * grid.squares_per_side() + 1
+}
+
+/// Whether the offset is drawn over a world laid on `grid`: only where its vertices are a land
+/// cell apart. The offset rounds the ground between vertices a cell apart and lays relief between
+/// them; a grid with vertices inside its cells already holds that relief, so its ground is drawn
+/// as its own vertices lay it.
+#[must_use]
+pub fn offset_drawn_on(grid: &LandGrid) -> bool {
+    grid.is_default()
 }
 
 /// Ground kept at retail's height: a footprint, a rectangle turned about its middle, and the
@@ -154,8 +187,12 @@ pub fn soft_cap(x: f32, cap: f32) -> f32 {
 struct Stencil {
     h: [[f32; 6]; 6],
     w: [[u16; 6]; 6],
-    /// The cell, global.
+    /// The square, global: its south-west vertex.
     cell: (i32, i32),
+    /// Meters between the vertices.
+    spacing: f32,
+    /// Whether the square is cut from its south-west corner to its north-east one.
+    cut: bool,
 }
 
 impl Stencil {
@@ -167,8 +204,8 @@ impl Stencil {
                 // LINT-OK: a stencil index, 0..6.
                 #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
                 let (gx, gy) = (
-                    (cell.0 + i as i32 - 2).clamp(0, WORLD_VERTICES - 1),
-                    (cell.1 + j as i32 - 2).clamp(0, WORLD_VERTICES - 1),
+                    (cell.0 + i as i32 - 2).clamp(0, src.side() - 1),
+                    (cell.1 + j as i32 - 2).clamp(0, src.side() - 1),
                 );
                 let vx = src.vertex(gx, gy).unwrap_or(Vertex {
                     height: 0.0,
@@ -178,7 +215,13 @@ impl Stencil {
                 w[i][j] = vx.word;
             }
         }
-        Self { h, w, cell }
+        Self {
+            h,
+            w,
+            cell,
+            spacing: src.spacing(),
+            cut: src.cut(cell.0, cell.1),
+        }
     }
 }
 
@@ -197,6 +240,9 @@ pub struct Point {
     pub eased: f32,
     /// Retail's triangle's rise east and north.
     pub gradient: (f32, f32),
+    /// The rise east and north the ground cover goes by ([`cover_gradient`]): retail's triangle's
+    /// on retail's grid; on a finer one, smooth across the triangles' edges.
+    pub cover: (f32, f32),
     /// Whether retail's triangle is walkable.
     pub walkable: bool,
     /// Whether a road runs there, by the scenery's road test.
@@ -262,6 +308,29 @@ fn eased_height(s: &Stencil, fx: f32, fy: f32) -> f32 {
     )
 }
 
+/// The rise the ground cover goes by in the cell of `s` at `(fx, fy)` across it, `triangle` being
+/// retail's triangle's there. On retail's grid, the triangle's. On a finer grid, whose triangles
+/// differ far more in slope from one to the next, each corner's rise (the central difference
+/// over its neighbors) blended across the cell: it runs on smoothly over the triangles' and the
+/// cells' edges, so the cover thins with the slope without showing single triangles.
+fn cover_gradient(s: &Stencil, triangle: (f32, f32), fx: f32, fy: f32) -> (f32, f32) {
+    if s.spacing >= CELL_SIZE {
+        return triangle;
+    }
+    let corner = |i: usize, j: usize| {
+        (
+            (s.h[i + 1][j] - s.h[i - 1][j]) / (2.0 * s.spacing),
+            (s.h[i][j + 1] - s.h[i][j - 1]) / (2.0 * s.spacing),
+        )
+    };
+    let (a, b, c, d) = (corner(2, 2), corner(3, 2), corner(2, 3), corner(3, 3));
+    let lerp = |p: f32, q: f32, t: f32| p + (q - p) * t;
+    (
+        lerp(lerp(a.0, b.0, fx), lerp(c.0, d.0, fx), fy),
+        lerp(lerp(a.1, b.1, fx), lerp(c.1, d.1, fx), fy),
+    )
+}
+
 /// Catmull-Rom weights at `t`.
 fn catmull(t: f32) -> [f32; 4] {
     let t2 = t * t;
@@ -279,11 +348,11 @@ impl Point {
         // LINT-OK: global cell coordinates, far inside f32's exact range.
         #[allow(clippy::cast_precision_loss)]
         let (fx, fy) = (
-            (x / CELL_SIZE - s.cell.0 as f32).clamp(0.0, 1.0),
-            (y / CELL_SIZE - s.cell.1 as f32).clamp(0.0, 1.0),
+            (x / s.spacing - s.cell.0 as f32).clamp(0.0, 1.0),
+            (y / s.spacing - s.cell.1 as f32).clamp(0.0, 1.0),
         );
         let (h00, h10, h01, h11) = (s.h[2][2], s.h[3][2], s.h[2][3], s.h[3][3]);
-        let (retail, gx, gy) = if sw_to_ne_cut(s.cell.0, s.cell.1) {
+        let (retail, gx, gy) = if s.cut {
             if fx >= fy {
                 (
                     h00 + fx * (h10 - h00) + fy * (h11 - h10),
@@ -310,7 +379,8 @@ impl Point {
                 h11 - h10,
             )
         };
-        let gradient = (gx / CELL_SIZE, gy / CELL_SIZE);
+        let gradient = (gx / s.spacing, gy / s.spacing);
+        let cover = cover_gradient(s, gradient, fx, fy);
         let limit = 1.0 / (WALKABLE_NORMAL_Z * WALKABLE_NORMAL_Z) - 1.0;
         let walkable = gradient.0 * gradient.0 + gradient.1 * gradient.1 <= limit;
         let (wx, wy) = (catmull(fx), catmull(fy));
@@ -326,8 +396,8 @@ impl Point {
             is_road(corner(2, 3)),
             is_road(corner(3, 2)),
             is_road(corner(3, 3)),
-            fx * CELL_SIZE,
-            fy * CELL_SIZE,
+            fx * s.spacing,
+            fy * s.spacing,
         );
         let wet = |i: usize, j: usize| if is_water(corner(i, j)) { 1.0 } else { 0.0 };
         let water = (wet(2, 2) * (1.0 - fx) + wet(3, 2) * fx) * (1.0 - fy)
@@ -344,6 +414,7 @@ impl Point {
             smooth,
             eased: eased_height(s, fx, fy),
             gradient,
+            cover,
             walkable,
             road,
             water,
@@ -355,8 +426,8 @@ impl Point {
     #[must_use]
     pub fn at(src: &dyn GroundSource, x: f32, y: f32) -> Self {
         let cell = (
-            floor_to_i32(x / CELL_SIZE).clamp(0, WORLD_VERTICES - 2),
-            floor_to_i32(y / CELL_SIZE).clamp(0, WORLD_VERTICES - 2),
+            floor_to_i32(x / src.spacing()).clamp(0, src.side() - 2),
+            floor_to_i32(y / src.spacing()).clamp(0, src.side() - 2),
         );
         Self::from_stencil(&Stencil::at(src, cell), x, y)
     }
@@ -813,8 +884,8 @@ pub fn block_field(
         for i in 0..n {
             let x = ox + pos(i);
             let cell = (
-                floor_to_i32(x / CELL_SIZE).clamp(0, WORLD_VERTICES - 2),
-                floor_to_i32(y / CELL_SIZE).clamp(0, WORLD_VERTICES - 2),
+                floor_to_i32(x / src.spacing()).clamp(0, src.side() - 2),
+                floor_to_i32(y / src.spacing()).clamp(0, src.side() - 2),
             );
             if stencil.as_ref().is_none_or(|s| s.cell != cell) {
                 stencil = Some(Stencil::at(src, cell));

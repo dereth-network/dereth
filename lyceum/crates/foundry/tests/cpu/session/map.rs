@@ -21,6 +21,7 @@ fn block(lb: u16) -> CellLandblock {
         lbi_exists: 0,
         terrain,
         height: [10; VERTEX_COUNT],
+        dense: None,
     }
 }
 

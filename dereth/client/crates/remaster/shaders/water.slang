@@ -36,6 +36,7 @@ import intent;
 import lift;
 import retail;
 import rt;
+import world;
 
 // The pass's constants, in buffer `water` as float4 rows:
 //   0  x the scene's clock (seconds), y the waves' strength, z nought, w 1 where puddles are
@@ -119,10 +120,8 @@ static const float FILM = 0.45;
 // How much more steeply the line of sight runs once it enters the water: water's refractive
 // index over the air's.
 static const float REFRACTION = 1.33;
-// The landscape's vertices: a cell's side, meters, and how many a side; the drawn ground's
-// constants' rows of its terrain's colors, each type's, and the water's types.
-static const float CELL = 24.0;
-static const int SIDE = 2041;
+// The drawn ground's constants' rows of its terrain's colors, each type's, and the water's types.
+// The landscape's vertices lie on the world's land grid (`world.slang`).
 static const uint D_COLORS = 104;
 static const uint WATER_FIRST = 16;
 static const uint WATER_LAST = 20;
@@ -296,20 +295,46 @@ float2 on_level(float2 pos, float3 s)
     return eye.xy + r.xy * ((s.z - eye.z) / r.z);
 }
 
+// The world's vertex heights (~0 where the ground is not drawn).
+uint land_heights()
+{
+    return row_u(push.water, WATER_LAND).x;
+}
+
+// The meters between the world's neighboring vertices.
+float land_spacing()
+{
+    uint heights = land_heights();
+    return heights == NONE ? 24.0 : world_spacing(heights);
+}
+
 // The drawn ground's terrain word at landscape vertex `g`.
 uint vertex_word(int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    uint k = uint(c.y * SIDE + c.x);
-    uint pair = buffers[NonUniformResourceIndex(push.words)].Load((k / 2) * 4);
-    return (k & 1) != 0 ? pair >> 16 : pair & 0xFFFF;
+    uint heights = land_heights();
+    return heights == NONE ? 0 : world_word(heights, push.words, g);
+}
+
+// Whether the world's square whose south-west vertex is `c` is cut from that corner to its
+// north-east one; by the default grid's hash of the square where the ground's words are not
+// drawn.
+bool land_cut(uint heights, int2 c)
+{
+    if (push.words != NONE)
+    {
+        return world_cut(heights, push.words, c);
+    }
+    uint x = asuint(c.x);
+    uint y = asuint(c.y);
+    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
+    return (v >> 31) != 0;
 }
 
 // Retail's water hue at world `p`: the water types of the cell's corners, blended across the cell,
 // the land corners leaving their share to the water ones.
 float3 hue_at(float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / land_spacing();
     int2 g = int2(floor(q));
     float2 f = saturate(q - float2(g));
     float3 sum = float3(0.0, 0.0, 0.0);
@@ -564,14 +589,13 @@ float3 lit(uint cls, float3 n, float sun_reach, bool leaf, float3 to_eye)
 // The world's height at landscape vertex `g`.
 float vertex_height(uint heights, int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    return asfloat(buffers[NonUniformResourceIndex(heights)].Load(uint(c.y * SIDE + c.x) * 4));
+    return world_height(heights, g);
 }
 
 // The world's height at world `p`, between its vertices.
 float land_height(uint heights, float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / world_spacing(heights);
     int2 g = int2(floor(q));
     float2 f = q - float2(g);
     float a = vertex_height(heights, g);
@@ -589,7 +613,7 @@ float3 land_color(float2 p)
     {
         return float3(0.3, 0.3, 0.25);
     }
-    float2 q = p / CELL;
+    float2 q = p / land_spacing();
     int2 g = int2(floor(q));
     float2 f = saturate(q - float2(g));
     float3 sum = float3(0.0, 0.0, 0.0);
@@ -661,7 +685,7 @@ bool land_toward(float3 from, float3 dir, float t0, out float3 color)
     }
     float3 x = from + dir * hi;
     float2 w = x.xy + g;
-    float e = max(CELL * 0.5, hi * 0.01);
+    float e = max(world_spacing(heights) * 0.5, hi * 0.01);
     float3 n = normalize(float3(land_height(heights, w - float2(e, 0.0)) - land_height(heights, w + float2(e, 0.0)),
                                 land_height(heights, w - float2(0.0, e)) - land_height(heights, w + float2(0.0, e)),
                                 2.0 * e));
@@ -675,17 +699,14 @@ bool land_toward(float3 from, float3 dir, float t0, out float3 color)
 // Retail's height at world `p`, across its triangles: the water's level where it is water.
 float level_at(uint heights, float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / world_spacing(heights);
     int2 c = int2(floor(q));
     float2 f = saturate(q - float2(c));
     float h00 = vertex_height(heights, c);
     float h10 = vertex_height(heights, c + int2(1, 0));
     float h01 = vertex_height(heights, c + int2(0, 1));
     float h11 = vertex_height(heights, c + int2(1, 1));
-    uint x = asuint(c.x);
-    uint y = asuint(c.y);
-    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
-    if ((v >> 31) != 0)
+    if (land_cut(heights, c))
     {
         return f.x >= f.y ? h00 + f.x * (h10 - h00) + f.y * (h11 - h10)
                           : h00 + f.y * (h01 - h00) + f.x * (h11 - h01);
@@ -695,10 +716,9 @@ float level_at(uint heights, float2 p)
 }
 
 // How far over the water's level the landscape vertex `g` stands: nought in the water.
-float over_level(uint shore, int2 g)
+float over_level(uint heights, uint shore, int2 g)
 {
-    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
-    return asfloat(buffers[NonUniformResourceIndex(shore)].Load(uint(c.y * SIDE + c.x) * 8 + 4));
+    return world_water(heights, shore, g).y;
 }
 
 // How far outside the water the drawn ground draws its edge smoothly and broken by noise, meters:
@@ -732,15 +752,14 @@ float shore_inside(float2 p, float foot)
     {
         return -1000.0;
     }
-    float2 q = p / CELL;
+    uint heights = land_heights();
+    float2 q = p / world_spacing(heights);
     int2 c = int2(floor(q));
     float2 f = saturate(q - float2(c));
-    ByteAddressBuffer b = buffers[NonUniformResourceIndex(shore)];
     float s[16];
     for (int k = 0; k < 16; k++)
     {
-        int2 g = clamp(c + int2(k % 4 - 1, k / 4 - 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
-        s[k] = asfloat(b.Load(uint(g.y * SIDE + g.x) * 8));
+        s[k] = world_water(heights, shore, c + int2(k % 4 - 1, k / 4 - 1)).x;
     }
     if (max(max(s[5], s[6]), max(s[9], s[10])) < -SHORE_NEAR)
     {
@@ -772,17 +791,14 @@ float water_level(uint heights, float2 p)
     {
         return level_at(heights, p);
     }
-    float2 q = p / CELL;
+    float2 q = p / world_spacing(heights);
     int2 c = int2(floor(q));
     float2 f = saturate(q - float2(c));
-    float h00 = vertex_height(heights, c) - over_level(shore, c);
-    float h10 = vertex_height(heights, c + int2(1, 0)) - over_level(shore, c + int2(1, 0));
-    float h01 = vertex_height(heights, c + int2(0, 1)) - over_level(shore, c + int2(0, 1));
-    float h11 = vertex_height(heights, c + int2(1, 1)) - over_level(shore, c + int2(1, 1));
-    uint x = asuint(c.x);
-    uint y = asuint(c.y);
-    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
-    if ((v >> 31) != 0)
+    float h00 = vertex_height(heights, c) - over_level(heights, shore, c);
+    float h10 = vertex_height(heights, c + int2(1, 0)) - over_level(heights, shore, c + int2(1, 0));
+    float h01 = vertex_height(heights, c + int2(0, 1)) - over_level(heights, shore, c + int2(0, 1));
+    float h11 = vertex_height(heights, c + int2(1, 1)) - over_level(heights, shore, c + int2(1, 1));
+    if (land_cut(heights, c))
     {
         return f.x >= f.y ? h00 + f.x * (h10 - h00) + f.y * (h11 - h10)
                           : h00 + f.y * (h01 - h00) + f.x * (h11 - h01);
@@ -1134,7 +1150,7 @@ bool on_surface(float3 bed, float under, out float3 surface)
 // How much of world `p` is water: its cell's water corners, blended across the cell.
 float water_share(float2 p)
 {
-    float2 q = p / CELL;
+    float2 q = p / land_spacing();
     int2 g = int2(floor(q));
     float2 f = saturate(q - float2(g));
     float share = 0.0;
@@ -1644,7 +1660,8 @@ Found traced_scene(float3 from, float3 dir, float dist)
         if (cw.x != NONE)
         {
             // The cell's picture, turned as the cell turns it.
-            float2 f = saturate((local.xy - float2(float(i), float(j)) * CELL) / CELL);
+            float size = 192.0 / float(max(side, 1u));
+            float2 f = saturate((local.xy - float2(float(i), float(j)) * size) / size);
             uint rot = cw.y & 3;
             static const float2 UVS[4] = { float2(0.0, 1.0), float2(1.0, 1.0), float2(1.0, 0.0),
                                            float2(0.0, 0.0) };

@@ -128,7 +128,10 @@ impl AssetSource for Dats {
         self.ask("texture");
         let size = match key {
             TextureKey::Dat { picture, .. } | TextureKey::Shifted { picture, .. } => *picture,
-            TextureKey::Solid(_) | TextureKey::Terrain(_) | TextureKey::TerrainSource { .. } => 1,
+            TextureKey::Solid(_)
+            | TextureKey::Terrain(_)
+            | TextureKey::TerrainPart { .. }
+            | TextureKey::TerrainSource { .. } => 1,
         };
         Some(Texture {
             width: size.max(1),
@@ -148,8 +151,9 @@ impl AssetSource for Dats {
 
     /// Key `k`'s splat: tile `k` under one overlay, whose alpha map every key shares, laying
     /// tile `k + 1`.
-    fn splat(&mut self, key: u32) -> Option<terrain::Splat> {
+    fn splat(&mut self, key: u64) -> Option<terrain::Splat> {
         self.ask("splat");
+        let key = u32::try_from(key).expect("a test's key is a picture's id");
         let source = |picture| TextureKey::TerrainSource {
             picture,
             texels: 512,
@@ -191,7 +195,7 @@ impl AssetSource for Dats {
         let n = usize::from(terrain.side) * usize::from(terrain.side);
         (0..n)
             .map(|i| TerrainCell {
-                texture: TextureKey::Terrain(u32::from(terrain.words[i % 81])),
+                texture: TextureKey::Terrain(u64::from(terrain.words[i % 81])),
                 rotation: 0,
                 kind: Kind::Ground,
             })
@@ -218,7 +222,7 @@ impl AssetSink for Device {
     fn terrain(&mut self, block: crate::scene::BlockId, _surface: &TerrainSurface) {
         self.log.push(format!("terrain {block}"));
     }
-    fn splat(&mut self, key: u32, _splat: &terrain::Splat) {
+    fn splat(&mut self, key: u64, _splat: &terrain::Splat) {
         self.log.push(format!("splat {key}"));
     }
     fn release(&mut self, key: &AssetKey) {
@@ -237,7 +241,8 @@ fn flat(words: u16) -> Terrain {
         side: 8,
         vertices,
         cuts: vec![false; 64],
-        words: [words; 81],
+        words: vec![words; 81],
+        steps: 1,
     }
 }
 

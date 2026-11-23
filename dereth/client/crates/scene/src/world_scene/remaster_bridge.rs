@@ -267,7 +267,7 @@ struct CoverInputs {
     vertices: Vec<Vec3>,
     cuts: Vec<bool>,
     water: Vec<dereth_terrain::land::water::WaterType>,
-    words: [u16; 81],
+    words: Box<[u16]>,
     buildings: Vec<glam::Vec3>,
     covers: Vec<dereth_assets::art_pack::ManifestCover>,
     lifts: u64,
@@ -598,8 +598,10 @@ fn block_delta(
         })
         .collect();
     // The pack's ground cover, on full-detail ground.
-    if let (false, Some(cover_ground)) = (covers.is_empty(), super::remaster_cover::ground_of(mesh))
-    {
+    if let (false, Some(cover_ground)) = (
+        covers.is_empty(),
+        super::remaster_cover::ground_of(mesh, ground.grid.road_width),
+    ) {
         let buildings: Vec<glam::Vec3> = placements
             .iter()
             .filter(|p| p.kind == rm::PlacementKind::Building)
@@ -609,7 +611,7 @@ fn block_delta(
             vertices: mesh.vertices.clone(),
             cuts: mesh.sw_to_ne_cut.clone(),
             water: mesh.cell_water.clone(),
-            words: block.terrain,
+            words: block.terrain.clone(),
             buildings,
             covers: covers.to_vec(),
             lifts: ground.lifts_key(at),
@@ -640,10 +642,13 @@ fn block_delta(
         block: id,
         generation: block.remaster_generation,
         terrain: rm::Terrain {
-            side: mesh.side_cell_count,
+            // LINT-OK: a block's squares a side, at most 8 cells of 4 steps.
+            #[allow(clippy::cast_possible_truncation)]
+            side: mesh.squares_per_side() as u8,
             vertices: mesh.vertices.iter().copied().map(v3).collect(),
             cuts: mesh.sw_to_ne_cut.clone(),
-            words: block.terrain,
+            words: block.terrain.to_vec(),
+            steps: mesh.vertex_steps,
         },
         placements,
         degrades: block_degrades(block).map(degrade).collect(),
@@ -1738,9 +1743,11 @@ fn drawn_ground(
             serial,
             std::sync::Arc::new(rm::DrawnWorld {
                 serial,
-                // LINT-OK: 2041.
+                // LINT-OK: the world's vertices a side, a few thousand.
                 #[allow(clippy::cast_possible_truncation)]
-                side: super::remaster_ground::WORLD_SIDE as u32,
+                side: vertices.side as u32,
+                grid: vertices.grid,
+                cuts: std::sync::Arc::clone(&vertices.cuts),
                 heights: std::sync::Arc::clone(&vertices.heights),
                 words: std::sync::Arc::clone(&vertices.words),
                 water: std::sync::Arc::clone(&vertices.water),
@@ -1753,6 +1760,7 @@ fn drawn_ground(
         ..rm::DrawnGround::default()
     };
     if !d.active {
+        out.knobs.water = d.bed_without_offset();
         return Some(out);
     }
     out.reach = d.reach();
@@ -2040,7 +2048,7 @@ mod tests {
             vertices: Vec::new(),
             cuts: Vec::new(),
             water: Vec::new(),
-            words: [0; 81],
+            words: vec![0; 81].into(),
             buildings: Vec::new(),
             covers: Vec::new(),
             lifts,

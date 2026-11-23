@@ -1571,7 +1571,8 @@ mod tests {
                 side: 8,
                 vertices,
                 cuts: vec![false; 64],
-                words: [4; 81],
+                words: vec![4; 81],
+                steps: 1,
             },
             placements: vec![crate::scene::Placement {
                 id: 0x0100_0001,
@@ -1659,7 +1660,8 @@ mod tests {
                 side: 1,
                 vertices: vec![Vec3::ZERO; 4],
                 cuts: vec![false],
-                words: [4; 81],
+                words: vec![4; 81],
+                steps: 1,
             },
             placements: vec![crate::scene::Placement {
                 id: 0x0100_0001,
@@ -1748,7 +1750,8 @@ mod tests {
                 side: 1,
                 vertices: vec![Vec3::ZERO; 4],
                 cuts: vec![false],
-                words: [4; 81],
+                words: vec![4; 81],
+                steps: 1,
             },
             placements: Vec::new(),
             degrades: vec![
@@ -1900,7 +1903,8 @@ mod tests {
                 side: 1,
                 vertices: vec![Vec3::ZERO; 4],
                 cuts: vec![false],
-                words: [4; 81],
+                words: vec![4; 81],
+                steps: 1,
             },
             placements: vec![crate::scene::Placement {
                 id: 0x0100_0001,
@@ -2041,7 +2045,8 @@ mod tests {
                 side: 1,
                 vertices: vec![Vec3::ZERO; 4],
                 cuts: vec![false],
-                words: [4; 81],
+                words: vec![4; 81],
+                steps: 1,
             },
             placements: vec![crate::scene::Placement {
                 id: 0x0100_0001,
@@ -2118,7 +2123,8 @@ mod tests {
                     side: 1,
                     vertices: vec![Vec3::ZERO; 4],
                     cuts: vec![false],
-                    words: [4; 81],
+                    words: vec![4; 81],
+                    steps: 1,
                 },
                 placements: vec![crate::scene::Placement {
                     id: 0x0100_0001,

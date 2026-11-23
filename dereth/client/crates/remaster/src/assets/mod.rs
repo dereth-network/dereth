@@ -377,10 +377,40 @@ pub enum TextureKey {
     /// The one-texel picture of an untextured surface's color, `0xAARRGGBB`.
     Solid(u32),
     /// A ground cell's picture, composited from its corners' terrain: the cell's merge key.
-    Terrain(u32),
+    Terrain(u64),
+    /// The picture of one square of a ground cell on a land grid finer than a square a cell: the
+    /// cell's composite (its merge key), each ground picture laid as the part the square shows of
+    /// it, the square `column` east and `row` north of `of` a side. The pictures repeat across the
+    /// whole cell, so they run on unbroken from square to square.
+    TerrainPart {
+        key: u64,
+        column: u8,
+        row: u8,
+        of: u8,
+    },
     /// One of the pictures the ground is composited from (a terrain's tile or an alpha map), as
     /// the composite carries it: `texels` a side at most, picked as the composite picks them.
     TerrainSource { picture: u32, texels: u32 },
+}
+
+impl TextureKey {
+    /// The merge key of a ground cell's composite, whole or one square's part of it.
+    #[must_use]
+    pub fn ground_key(&self) -> Option<u64> {
+        match self {
+            Self::Terrain(k) | Self::TerrainPart { key: k, .. } => Some(*k),
+            _ => None,
+        }
+    }
+
+    /// Whether this is a ground cell's picture or one of those it is composited from.
+    #[must_use]
+    pub fn is_ground(&self) -> bool {
+        matches!(
+            self,
+            Self::Terrain(_) | Self::TerrainPart { .. } | Self::TerrainSource { .. }
+        )
+    }
 }
 
 /// What the tables ask for what they do not hold. The scene implements it over the dats.
@@ -409,13 +439,13 @@ pub trait AssetSource {
     fn terrain_cells(&mut self, block: BlockId, terrain: &Terrain) -> Vec<TerrainCell>;
     /// The layers of the ground cells' picture `key` ([`terrain::splat_key`]); `None` when the
     /// region has no ground pictures.
-    fn splat(&mut self, key: u32) -> Option<terrain::Splat> {
+    fn splat(&mut self, key: u64) -> Option<terrain::Splat> {
         let _ = key;
         None
     }
     /// Each terrain type's color as the ground is seen far off: its picture's mean, in display
     /// values; `None` when the region has no ground pictures.
-    fn ground_colors(&mut self) -> Option<[[f32; 4]; 32]> {
+    fn ground_colors(&mut self) -> Option<terrain::GroundColors> {
         None
     }
     /// Where the presentation's own pebbles may lie, as the ground drawn there allows: everywhere
@@ -455,7 +485,7 @@ pub enum AssetKey {
     Texture(TextureKey),
     Terrain(BlockId),
     /// A ground cells' splat, by its key.
-    Splat(u32),
+    Splat(u64),
 }
 
 /// What takes the entries to a device.
@@ -465,7 +495,7 @@ pub trait AssetSink {
     fn mesh(&mut self, key: MeshKey, mesh: &Mesh);
     fn terrain(&mut self, block: BlockId, surface: &TerrainSurface);
     /// A ground cells' splat, after the textures it names.
-    fn splat(&mut self, key: u32, splat: &terrain::Splat);
+    fn splat(&mut self, key: u64, splat: &terrain::Splat);
     /// An entry nothing uses any more.
     fn release(&mut self, key: &AssetKey);
 }

@@ -164,7 +164,8 @@ fn every_retail_landblock_builds_and_its_geometry_matches_the_dat() {
         // Per-cell water from the four corner vertices, recomputed here from the raw words.
         for i in 0..8_usize {
             for j in 0..8_usize {
-                let (any, all) = calc_cell_water(&block.terrain, i, j);
+                let words: &[u16; 81] = (&*block.terrain).try_into().unwrap();
+                let (any, all) = calc_cell_water(words, i, j);
                 let expect = if !any {
                     WaterType::NotWater
                 } else if all {

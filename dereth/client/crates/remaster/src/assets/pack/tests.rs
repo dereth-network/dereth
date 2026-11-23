@@ -85,7 +85,8 @@ fn flat() -> Terrain {
         side: 8,
         vertices,
         cuts: vec![false; 64],
-        words: [4; 81],
+        words: vec![4; 81],
+        steps: 1,
     }
 }
 

@@ -336,10 +336,10 @@ impl AssetSource for WithSkins<'_> {
     ) -> Vec<crate::assets::TerrainCell> {
         self.src.terrain_cells(block, terrain)
     }
-    fn splat(&mut self, key: u32) -> Option<crate::assets::terrain::Splat> {
+    fn splat(&mut self, key: u64) -> Option<crate::assets::terrain::Splat> {
         self.src.splat(key)
     }
-    fn ground_colors(&mut self) -> Option<[[f32; 4]; 32]> {
+    fn ground_colors(&mut self) -> Option<crate::assets::terrain::GroundColors> {
         self.src.ground_colors()
     }
     fn pebble_grounds(&mut self) -> crate::assets::terrain::PebbleGrounds {

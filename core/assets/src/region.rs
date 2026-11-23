@@ -28,6 +28,20 @@ pub struct LandDefs {
     pub land_height_table: Vec<f32>,
 }
 
+impl LandDefs {
+    /// The world's land grid, as this record declares it: the default grid's cells cut into
+    /// `vertex_per_cell` steps, with roads `road_width` wide. Every retail region says one step,
+    /// which is the default grid whatever the file's road width (the retail client takes neither
+    /// value from the file).
+    #[must_use]
+    pub fn land_grid(&self) -> dereth_primitives::land_grid::LandGrid {
+        dereth_primitives::land_grid::LandGrid::with_steps(
+            self.vertex_per_cell as usize,
+            self.road_width,
+        )
+    }
+}
+
 /// One row of `times_of_day`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimeOfDay {

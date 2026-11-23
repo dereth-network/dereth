@@ -43,7 +43,7 @@ fn block_placements(
     (bx, by): (i32, i32),
 ) -> (Vec<land::BakeItem>, Vec<EmitterPlacement>) {
     let region = load_region(store).expect("the region");
-    let lb = read_landblock(store, bx, by).expect("the block");
+    let lb = dereth_client_runtime::world_build::read_landblock(store, bx, by).expect("the block");
     let table = dereth_terrain::land::mesh::height_table(&region);
     let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
         &lb,

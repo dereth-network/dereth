@@ -16,8 +16,8 @@ use dereth_primitives::{DataId, Vec3};
 use dereth_terrain::land::water::WaterType;
 use dereth_terrain::scenery::{generate_scenery, SceneryEnv, WithinBlockShape};
 use {
-    dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN, dereth_terrain::consts::SIDE_VERTEX_COUNT,
-    dereth_terrain::consts::VERTEX_COUNT,
+    dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN, dereth_terrain::consts::ROAD_TERRAIN_TYPE,
+    dereth_terrain::consts::SIDE_VERTEX_COUNT, dereth_terrain::consts::VERTEX_COUNT,
 };
 use {
     dereth_terrain::land::lighting::calc_lighting,
@@ -27,7 +27,8 @@ use {
     dereth_terrain::land::merge::alpha_map_index, dereth_terrain::land::merge::cell_rotation_keys,
     dereth_terrain::land::merge::find_road_alpha, dereth_terrain::land::merge::find_terrain_alpha,
     dereth_terrain::land::merge::get_road_code, dereth_terrain::land::merge::get_terrain,
-    dereth_terrain::land::merge::get_terrain_tex, dereth_terrain::land::merge::MergeKey,
+    dereth_terrain::land::merge::get_terrain_tex, dereth_terrain::land::merge::road_type,
+    dereth_terrain::land::merge::MergeKey, dereth_terrain::land::merge::VARIANT_SHIFT,
 };
 use {
     dereth_terrain::land::mesh::generate_landblock_with_table,
@@ -313,7 +314,7 @@ fn every_producible_alpha_mask_resolves_in_the_retail_tables() {
     );
 
     for code in [1u32, 2, 4, 8, 3, 6, 12] {
-        let k = MergeKey(code.wrapping_mul(0x9E37_79B9)); // an arbitrary key to drive the index hash
+        let k = MergeKey(u64::from(code.wrapping_mul(0x9E37_79B9))); // an arbitrary key to drive the index hash
         assert!(
             find_terrain_alpha(tm, code, k).is_some(),
             "terrain mask {code} has no alpha map"
@@ -340,7 +341,7 @@ fn every_producible_alpha_mask_resolves_in_the_retail_tables() {
         "the ten masks GetRoadCode can produce"
     );
     for code in road_masks {
-        let k = MergeKey(code.wrapping_mul(0x85EB_CA6B));
+        let k = MergeKey(u64::from(code.wrapping_mul(0x85EB_CA6B)));
         assert!(
             find_road_alpha(tm, code, k).is_some(),
             "road mask {code} has no alpha map"
@@ -350,7 +351,7 @@ fn every_producible_alpha_mask_resolves_in_the_retail_tables() {
     // index hash does not always land there.
     let mut needed_scan = 0;
     for n in 0..64u32 {
-        let k = MergeKey(n.wrapping_mul(0xC2B2_AE35));
+        let k = MergeKey(u64::from(n.wrapping_mul(0xC2B2_AE35)));
         if alpha_map_index(k, 3) != 1 && find_road_alpha(tm, 10, k).is_some() {
             needed_scan += 1;
         }
@@ -403,6 +404,76 @@ fn merge_keys_for_every_retail_cell_are_four_rotations_of_one_pattern() {
     assert!(
         uniform_cells > 0,
         "some cells must be uniform, or the stippling flag is dead"
+    );
+}
+
+/// Retail's terrain words leave the variant bits (7-10) clear in every landblock, so every retail
+/// cell's merge key is retail's own 32 bits and its ground draws as retail's.
+#[test]
+fn retail_terrain_words_carry_no_variant_and_every_cell_key_is_retails_own() {
+    let s = store();
+    let r = region(&s);
+    let mut cells = 0u64;
+    for id in s.ids_of(DbType::LandBlock) {
+        let lb = landblock(&s, id);
+        for (k, w) in lb.terrain.iter().enumerate() {
+            assert_eq!(w & 0x0780, 0, "{id} vertex {k}: word {w:#06x}");
+        }
+        for i in 0..8usize {
+            for j in 0..8usize {
+                let (keys, _) = cell_rotation_keys(&lb, &r, 8, i, j);
+                for key in keys {
+                    assert_eq!(key.0 >> 32, 0, "{id} cell ({i},{j}): {key:?}");
+                    assert_eq!(key.corner_variants(), [0; 4]);
+                }
+                cells += 1;
+            }
+        }
+    }
+    assert!(cells > 100_000, "checked {cells} cells");
+}
+
+/// Retail's roads carry the values 1 to 3, and its region names one road picture: every retail cell
+/// with a road, of any value, draws that picture, as retail draws it.
+#[test]
+fn retail_roads_of_every_value_draw_the_regions_one_road_picture() {
+    let s = store();
+    let r = region(&s);
+    let tm = r
+        .land_surf
+        .tex_merge
+        .as_ref()
+        .expect("the retail region merges textures");
+    assert!(
+        tm.terrain_desc
+            .iter()
+            .all(|d| d.terrain_type >> VARIANT_SHIFT == 0),
+        "the retail region names no road or terrain kind of its own"
+    );
+    let road = get_terrain_tex(tm, ROAD_TERRAIN_TYPE)
+        .expect("the road's picture")
+        .tex_gid;
+    let mut by_value = [0u64; 4];
+    for id in s.ids_of(DbType::LandBlock) {
+        let lb = landblock(&s, id);
+        for i in 0..8usize {
+            for j in 0..8usize {
+                let (keys, _) = cell_rotation_keys(&lb, &r, 8, i, j);
+                let roads = (keys[0].0 >> 20) & 0xFF;
+                if roads == 0 {
+                    continue;
+                }
+                for shift in [0, 2, 4, 6] {
+                    by_value[usize::try_from((roads >> shift) & 3).unwrap_or(0)] += 1;
+                }
+                let drawn = get_terrain_tex(tm, road_type(keys[0])).map(|d| d.tex_gid);
+                assert_eq!(drawn, Some(road), "{id} cell ({i},{j}): {:?}", keys[0]);
+            }
+        }
+    }
+    assert!(
+        by_value[2] > 0 && by_value[3] > 0,
+        "retail roads of 2 and 3: {by_value:?}"
     );
 }
 

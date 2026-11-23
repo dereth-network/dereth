@@ -114,10 +114,12 @@ pub enum LampSource {
     Glow,
 }
 
-/// A block's ground as it is drawn: a grid of `side × side` cells.
+/// A block's ground as it is drawn: a grid of `side × side` cells, each a square of the world's
+/// land grid at the block's detail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Terrain {
-    /// Cells a side: 8 at full detail, 4, 2 or 1 farther off.
+    /// Cells a side: the grid's squares a side at full detail (8 on the default grid), and a half,
+    /// a quarter or an eighth of them farther off.
     pub side: u8,
     /// The grid's `(side + 1)²` vertices, block-local, the one `i` cells east and `j` north at
     /// `i * (side + 1) + j`.
@@ -125,9 +127,19 @@ pub struct Terrain {
     /// For each drawn cell, at `i * side + j`, whether its diagonal runs from the south-west
     /// corner to the north-east one.
     pub cuts: Vec<bool>,
-    /// The block's terrain words, one per vertex of the full-detail 9 × 9 grid, row-major as the
-    /// dat stores them.
-    pub words: [u16; 81],
+    /// The block's terrain words, one per vertex of its full-detail grid (9 × 9 on the default
+    /// grid), row-major as the dat stores them.
+    pub words: Vec<u16>,
+    /// Vertex steps along a land cell side on the block's grid: 1 on the default grid.
+    pub steps: u8,
+}
+
+impl Terrain {
+    /// Squares along a side of the block's full-detail grid: 8 on the default grid.
+    #[must_use]
+    pub fn full_squares(&self) -> usize {
+        8 * usize::from(self.steps.max(1))
+    }
 }
 
 /// What kind of placement a [`Placement`] is.
@@ -543,21 +555,79 @@ pub struct Forest {
     pub knobs: FarKnobs,
 }
 
-/// The world's landscape vertices.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// The world's landscape vertices, on its land grid.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DrawnWorld {
     /// Bumped whenever the vertices are read again.
     pub serial: u64,
     /// Vertices along a side.
     pub side: u32,
+    /// The world's land grid: the meters between its vertices and its roads' half width.
+    pub grid: dereth_primitives::land_grid::LandGrid,
+    /// One bit a vertex, in the same order, least significant first: set when the square whose
+    /// south-west corner it is is cut from that corner to its north-east one.
+    pub cuts: std::sync::Arc<Vec<u8>>,
     /// Each vertex's height, meters, row by row from the south: `north * side + east`.
     pub heights: std::sync::Arc<Vec<f32>>,
     /// Each vertex's terrain word, in the same order.
     pub words: std::sync::Arc<Vec<u16>>,
     /// Where the water lies about each vertex, in the same order: how far inside it, meters
-    /// (negative outside it), and how far below the vertex its level lies, meters. Empty for a
-    /// world with no water.
-    pub water: std::sync::Arc<Vec<[f32; 2]>>,
+    /// (negative outside it), and how far below the vertex its level lies, meters, each a half
+    /// float's bits ([`dereth_primitives::half`]). Empty for a world with no water.
+    pub water: std::sync::Arc<Vec<[u16; 2]>>,
+}
+
+impl Default for DrawnWorld {
+    /// No vertices, on the default grid.
+    fn default() -> Self {
+        Self {
+            serial: 0,
+            side: 0,
+            grid: dereth_primitives::land_grid::LandGrid::DEFAULT,
+            cuts: std::sync::Arc::default(),
+            heights: std::sync::Arc::default(),
+            words: std::sync::Arc::default(),
+            water: std::sync::Arc::default(),
+        }
+    }
+}
+
+impl DrawnWorld {
+    /// Whether the square whose south-west vertex is `(gx, gy)` is cut from that corner to its
+    /// north-east one: its bit, or the default grid's hash of the square where the world holds
+    /// no bits.
+    #[must_use]
+    pub fn cut(&self, gx: i32, gy: i32) -> bool {
+        let side = i64::from(self.side);
+        let (x, y) = (i64::from(gx), i64::from(gy));
+        if self.cuts.is_empty() || !(0..side).contains(&x) || !(0..side).contains(&y) {
+            return crate::render::drawn::sw_to_ne((gx, gy));
+        }
+        // LINT-OK: a vertex within the world, checked above.
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let k = (y * side + x) as usize;
+        self.cuts
+            .get(k / 8)
+            .is_some_and(|b| (b >> (k % 8)) & 1 != 0)
+    }
+
+    /// The bits of [`Self::cuts`] for `side` by `side` vertices whose squares are cut by
+    /// `cut(gx, gy)`.
+    #[must_use]
+    pub fn cut_bits(side: usize, cut: impl Fn(i32, i32) -> bool) -> Vec<u8> {
+        let mut bits = vec![0u8; (side * side).div_ceil(8)];
+        for y in 0..side {
+            for x in 0..side {
+                // LINT-OK: vertex coordinates, a few thousand.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                if cut(x as i32, y as i32) {
+                    let k = y * side + x;
+                    bits[k / 8] |= 1 << (k % 8);
+                }
+            }
+        }
+        bits
+    }
 }
 
 /// One block's offset: a sample a meter, 193 a side with both edges, row by row from the south.

@@ -116,6 +116,19 @@ pub fn read_landblock(store: &RetailDatStore, bx: i32, by: i32) -> Option<CellLa
     CellLandblock::decode_payload_in(store.era_of(id), id, &bytes).ok()
 }
 
+/// [`read_landblock`] in a world laid on `grid`: `None` also for a record not on it
+/// ([`dereth_world_data::landblock::on_world_grid`]), which every reader of the land's shape treats
+/// as missing.
+#[must_use]
+pub fn read_landblock_on(
+    store: &RetailDatStore,
+    grid: &dereth_primitives::land_grid::LandGrid,
+    bx: i32,
+    by: i32,
+) -> Option<CellLandblock> {
+    read_landblock(store, bx, by).filter(|lb| dereth_world_data::landblock::on_world_grid(lb, grid))
+}
+
 /// The landblock-information record at block coordinates `(bx, by)`: the block's buildings,
 /// statics and restriction table, when it has any.
 #[must_use]
@@ -278,7 +291,7 @@ pub fn land_content(
 #[must_use]
 pub fn land_placements(store: &RetailDatStore, region: &Region, block: u16) -> Vec<CellStatic> {
     let (bx, by) = dereth_world_data::landblock::block_xy(block);
-    let Some(lb) = read_landblock(store, bx, by) else {
+    let Some(lb) = read_landblock_on(store, &region.land_defs.land_grid(), bx, by) else {
         return Vec::new();
     };
     let table = dereth_terrain::land::mesh::height_table(region);
@@ -902,7 +915,7 @@ impl BlockResidency {
             return;
         };
         let (bx, by, lod_div, dir) = (slot.block_x, slot.block_y, slot.lod_div, slot.trans_dir);
-        let Some(lb) = read_landblock(store, bx, by) else {
+        let Some(lb) = read_landblock_on(store, &self.region.land_defs.land_grid(), bx, by) else {
             // The world edge: nothing is there and nothing is an error.
             self.blocks.remove(&(bx, by));
             return;
