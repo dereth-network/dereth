@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use dereth_assets::geometry::CellStruct;
-use dereth_assets::{BspNode, Environment, GfxObj, Polygon, VertexArray};
+use dereth_assets::{Environment, GfxObj, Polygon, VertexArray};
 use dereth_primitives::frame::V3;
 use dereth_primitives::{DataId, Frame, Vec3};
 
@@ -306,58 +306,8 @@ fn assemble(
         );
     }
     let physics_polygons = polys[..wall_count].to_vec();
-    let physics_bsp = crate::bsp::physics(&va, &physics_polygons, false);
-    let cell_bsp = crate::bsp::cell(&va, &polys);
-    let mut drawing = crate::bsp::drawing(&va, &polys);
-    for i in 0..drawing.nodes.len() {
-        let pairs: Vec<_> = portals
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, poly)| {
-                let poly = i16::try_from(*poly).ok()?;
-                drawing.nodes[i]
-                    .in_polys
-                    .contains(&poly)
-                    .then_some((poly, i16::try_from(slot).ok()?))
-            })
-            .collect();
-        if pairs.is_empty() {
-            continue;
-        }
-        for (poly, _) in &pairs {
-            drawing.nodes[i].in_polys.retain(|p| p != poly);
-        }
-        drawing.nodes[i].tag = 0x504F_5254;
-        drawing.nodes[i].in_portals = pairs;
-        for positive in [true, false] {
-            let missing = if positive {
-                drawing.nodes[i].pos_child.is_none()
-            } else {
-                drawing.nodes[i].neg_child.is_none()
-            };
-            if missing {
-                let index = u32::try_from(drawing.nodes.len()).map_err(|e| e.to_string())?;
-                drawing.nodes.push(BspNode {
-                    tag: 0x4C45_4146,
-                    leaf_index: Some(0),
-                    ..BspNode::default()
-                });
-                if positive {
-                    drawing.nodes[i].pos_child = Some(index);
-                } else {
-                    drawing.nodes[i].neg_child = Some(index);
-                }
-            }
-        }
-    }
-    Ok(CellStruct {
-        cellstruct_id: 0,
-        vertex_array: va,
-        polygons: polys,
-        portals,
-        cell_bsp,
-        physics_polygons,
-        physics_bsp,
-        drawing_bsp: Some(drawing),
-    })
+    let cell_bsp = dereth_builder::bsp::cell(&va, &polys);
+    cell_struct(va, polys, portals, physics_polygons, cell_bsp)
 }
+
+pub use dereth_builder::bsp::cell_struct;

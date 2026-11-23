@@ -1,6 +1,8 @@
 //! The write direction for the records a world builder makes: a landblock's terrain, its statics
 //! and buildings, an indoor cell, a surface, an image texture and an image, a model (`GfxObj`), a
-//! composite object (`Setup`) and an environment with its cell shapes.
+//! composite object (`Setup`), an animation (each frame's part frames and hooks), a particle
+//! emitter and the script that starts it (its timed hooks), an environment
+//! with its cell shapes, and the character-creation table with the world's own starter areas.
 //!
 //! Each `encode` is the exact inverse of its type's decoder: decoding a record and encoding the
 //! value gives back the record's bytes, for every record of the kind the retail files hold. The
@@ -25,13 +27,14 @@ use dereth_primitives::{DataId, EraId, Frame, Vec3};
 
 use crate::common::{BspKind, BspTree, Plane, Polygon, Sphere, VertexArray};
 use crate::error::AssetError;
-use crate::geometry::{CellStruct, Environment, GfxObj, Setup};
+use crate::geometry::{Animation, CellStruct, Environment, GfxObj, Setup};
 use crate::hook::{AnimHook, HookData};
 use crate::material::{pre_tod_image_format, PFID_CUSTOM_B8G8R8, PFID_INDEX16, PFID_P8};
-use crate::motion::GfxObjDegradeInfo;
+use crate::motion::{GfxObjDegradeInfo, PhysicsScript};
+use crate::tables::{CharGen, GearItem, ObjDesc, SexCg};
 use crate::world::{
     BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
-    LANDBLOCK_BYTES,
+    ParticleEmitterInfo, LANDBLOCK_BYTES,
 };
 use crate::{RenderSurface, Surface, SurfaceTexture};
 
@@ -56,6 +59,9 @@ impl Out {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
     fn f32(&mut self, v: f32) {
+        self.0.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    fn f64(&mut self, v: f64) {
         self.0.extend_from_slice(&v.to_bits().to_le_bytes());
     }
     fn vec3(&mut self, v: Vec3) {
@@ -842,6 +848,52 @@ fn hook(o: &mut Out, h: &AnimHook) {
     o.align();
 }
 
+impl Animation {
+    /// The `0x03` record: the id, the flags, the part count and the frame count, a whole-object
+    /// frame per frame when flags bit 0 is set, then each frame's part frames and its hooks. The
+    /// frame count written is the frames held.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let parts = self.part_frames.first().map_or(0, |f| f.frames.len());
+        let mut o = Out(Vec::with_capacity(
+            16 + self.part_frames.len() * (4 + parts * 28),
+        ));
+        o.id(self.id);
+        o.u32(self.flags);
+        o.u32(self.num_parts);
+        o.count(self.part_frames.len());
+        if self.flags & 1 != 0 {
+            for f in self.pos_frames.iter().flatten() {
+                o.frame(f);
+            }
+        }
+        for f in &self.part_frames {
+            for p in &f.frames {
+                o.frame(p);
+            }
+            o.count(f.hooks.len());
+            for h in &f.hooks {
+                hook(&mut o, h);
+            }
+        }
+        o.0
+    }
+
+    /// The record in the layout of the files of `era`: the same in every era there is.
+    ///
+    /// # Errors
+    /// None today; an era whose animations are laid out otherwise may refuse one.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
+            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+        }
+    }
+}
+
 impl Setup {
     /// The `0x02` record: the id, the flags, the parts (with their parents, flags bit 0, and
     /// scales, bit 1), the holding and connection points, the placement frames with their hooks,
@@ -935,6 +987,98 @@ impl Setup {
     ///
     /// # Errors
     /// None today; an era whose composite objects are laid out otherwise may refuse one.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
+            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+        }
+    }
+}
+
+impl PhysicsScript {
+    /// The `0x33` record: the id, then each step's start time and its hook, in order.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(8 + self.script_data.len() * 48));
+        o.id(self.id);
+        o.count(self.script_data.len());
+        for s in &self.script_data {
+            o.f64(s.start_time);
+            hook(&mut o, &s.hook);
+        }
+        o.align();
+        o.0
+    }
+
+    /// The record in the layout of the files of `era`: the same in every era there is.
+    ///
+    /// # Errors
+    /// None today; an era whose scripts are laid out otherwise may refuse one.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
+            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+        }
+    }
+}
+
+impl ParticleEmitterInfo {
+    /// The `0x32` record: the id, the skipped word, the emitter and particle kinds, the two
+    /// models, the birth rate and counts, the time limit and lifespans, the offset's axis and
+    /// reach, the three motion vectors with their ranges, the scale and translucency ranges, and
+    /// whether the particles follow their parent.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(184));
+        o.id(self.id);
+        o.u32(self.unknown_skipped);
+        o.i32(self.emitter_type);
+        o.i32(self.particle_type);
+        o.id(self.gfxobj_id);
+        o.id(self.hw_gfxobj_id);
+        o.f64(self.birthrate);
+        o.i32(self.max_particles);
+        o.i32(self.initial_particles);
+        o.i32(self.total_particles);
+        o.f64(self.total_seconds);
+        o.f64(self.lifespan);
+        o.f64(self.lifespan_rand);
+        o.vec3(self.offset_dir);
+        o.f32(self.min_offset);
+        o.f32(self.max_offset);
+        for (v, lo, hi) in [
+            (self.a, self.min_a, self.max_a),
+            (self.b, self.min_b, self.max_b),
+            (self.c, self.min_c, self.max_c),
+        ] {
+            o.vec3(v);
+            o.f32(lo);
+            o.f32(hi);
+        }
+        for v in [
+            self.start_scale,
+            self.final_scale,
+            self.scale_rand,
+            self.start_trans,
+            self.final_trans,
+            self.trans_rand,
+        ] {
+            o.f32(v);
+        }
+        o.i32(self.is_parent_local);
+        o.0
+    }
+
+    /// The record in the layout of the files of `era`: the same in every era there is.
+    ///
+    /// # Errors
+    /// None today; an era whose emitters are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
             EraId::Launch => Err(AssetError::Unsupported {
@@ -1045,6 +1189,179 @@ impl Environment {
         o.count(self.cells.len());
         for c in &self.cells {
             cell_struct(&mut o, c, layout);
+        }
+        o.0
+    }
+}
+
+impl Out {
+    /// A data id relative to a known `0x0X000000` base: the difference as one `u16` under
+    /// `0x4000`, else its high half with the top bit set, then its low half (the shipped table
+    /// writes a model `0x01004483` in four bytes).
+    fn known_id(&mut self, base: u32, id: DataId) {
+        let d = id.raw().wrapping_sub(base);
+        if d < 0x4000 {
+            self.u16(u16::try_from(d).unwrap_or(0));
+        } else {
+            self.u16(0x8000 | u16::try_from((d >> 16) & 0x3FFF).unwrap_or(0));
+            self.u16(u16::try_from(d & 0xFFFF).unwrap_or(0));
+        }
+    }
+    /// A narrow string: its compressed length, then its windows-1252 bytes (a character with none
+    /// written as `?`).
+    fn archive_string(&mut self, s: &str) {
+        let b = dereth_primitives::text::cp1252::encode_lossy(s);
+        self.compressed(b.len());
+        self.0.extend_from_slice(&b);
+    }
+    fn position(&mut self, p: &dereth_primitives::Position) {
+        self.u32(p.cell.0);
+        self.frame(&p.frame);
+    }
+    fn objdesc(&mut self, d: &ObjDesc) {
+        self.align();
+        self.u8(d.version);
+        for n in [
+            d.subpalettes.len(),
+            d.texture_changes.len(),
+            d.anim_part_changes.len(),
+        ] {
+            self.u8(u8::try_from(n).unwrap_or(u8::MAX));
+        }
+        if !d.subpalettes.is_empty() {
+            self.known_id(0x0400_0000, d.palette.unwrap_or(DataId(0x0400_0000)));
+        }
+        for s in &d.subpalettes {
+            self.known_id(0x0400_0000, s.subpalette);
+            self.u8(u8::try_from(s.offset / 8).unwrap_or(0));
+            let n = s.num_colors / 8;
+            self.u8(if n == 256 {
+                0
+            } else {
+                u8::try_from(n).unwrap_or(0)
+            });
+        }
+        for &(part, old, new) in &d.texture_changes {
+            self.u8(part);
+            self.known_id(0x0500_0000, old);
+            self.known_id(0x0500_0000, new);
+        }
+        for &(part, model) in &d.anim_part_changes {
+            self.u8(part);
+            self.known_id(0x0100_0000, model);
+        }
+        self.align();
+    }
+    fn gear(&mut self, items: &[GearItem]) {
+        self.compressed(items.len());
+        for g in items {
+            self.archive_string(&g.name);
+            self.id(g.clothing_table);
+            self.u32(g.weenie_default);
+        }
+    }
+    fn words(&mut self, v: &[u32]) {
+        self.compressed(v.len());
+        for &w in v {
+            self.u32(w);
+        }
+    }
+    fn sex(&mut self, s: &SexCg) {
+        self.archive_string(&s.name);
+        self.u32(s.scale);
+        self.id(s.setup);
+        self.id(s.sound_table);
+        self.u32(s.icon);
+        self.id(s.base_palette);
+        self.id(s.skin_palset);
+        self.id(s.physics_table);
+        self.id(s.motion_table);
+        self.id(s.combat_table);
+        self.objdesc(&s.base_objdesc);
+        self.words(&s.hair_colors);
+        self.compressed(s.hair_styles.len());
+        for h in &s.hair_styles {
+            self.u32(h.icon);
+            self.u8(h.bald);
+            self.id(h.alternate_setup);
+            self.objdesc(&h.objdesc);
+        }
+        self.words(&s.eye_colors);
+        self.compressed(s.eye_strips.len());
+        for e in &s.eye_strips {
+            self.u32(e.icon);
+            self.u32(e.icon_bald);
+            self.objdesc(&e.objdesc);
+            self.objdesc(&e.objdesc_bald);
+        }
+        for strips in [&s.nose_strips, &s.mouth_strips] {
+            self.compressed(strips.len());
+            for (icon, d) in strips {
+                self.u32(*icon);
+                self.objdesc(d);
+            }
+        }
+        for g in [&s.headgear, &s.shirts, &s.pants, &s.footwear] {
+            self.gear(g);
+        }
+        self.words(&s.clothing_colors);
+    }
+}
+
+impl CharGen {
+    /// The `0x0E000002` record in the end of retail's layout: the two ids, the starter areas
+    /// (each a name and its positions), then the heritage groups with their templates and sexes,
+    /// in the table's own order (key order where it names no other). What only an older layout holds (the help strings, a heritage's
+    /// description, a sex's naming help, a template's presentation for one sex) is not written.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(64 * 1024));
+        o.id(self.id);
+        o.id(self.second_data_id);
+        o.compressed(self.starter_areas.len());
+        for a in &self.starter_areas {
+            o.archive_string(&a.name);
+            o.compressed(a.locations.len());
+            for p in &a.locations {
+                o.position(p);
+            }
+        }
+        o.u8(self.hg_table_marker);
+        o.compressed(self.heritage_groups.len());
+        for key in in_order(&self.heritage_groups, &self.heritage_order) {
+            let h = &self.heritage_groups[&key];
+            o.u32(key);
+            o.archive_string(&h.name);
+            o.u32(h.icon);
+            o.id(h.setup);
+            o.id(h.environment_setup);
+            o.u32(h.attribute_credits);
+            o.u32(h.skill_credits);
+            o.words(&h.primary_start_areas);
+            o.words(&h.secondary_start_areas);
+            o.compressed(h.skills.len());
+            for &(skill, normal, primary) in &h.skills {
+                o.u32(skill);
+                o.i32(normal);
+                o.i32(primary);
+            }
+            o.compressed(h.templates.len());
+            for t in &h.templates {
+                o.archive_string(&t.name);
+                o.u32(t.icon);
+                o.u32(t.title);
+                for &a in &t.attributes {
+                    o.u32(a);
+                }
+                o.words(&t.normal_skills);
+                o.words(&t.primary_skills);
+            }
+            o.u8(h.sex_table_marker);
+            o.compressed(h.sexes.len());
+            for sex_key in in_order(&h.sexes, &h.sex_order) {
+                o.u32(sex_key);
+                o.sex(&h.sexes[&sex_key]);
+            }
         }
         o.0
     }
@@ -1181,6 +1498,48 @@ mod tests {
         let b = lbi.encode();
         assert_eq!(b.len() % 4, 0);
         assert_eq!(LandblockInfo::decode_payload(lbi.id, &b).unwrap(), lbi);
+    }
+
+    #[test]
+    fn an_animation_made_frame_by_frame_reads_back() {
+        let hook = AnimHook {
+            hook_type: 1,
+            direction: 0,
+            data: HookData::Sound {
+                sound_id: DataId(0x0A00_0012),
+            },
+        };
+        let plain = Animation {
+            id: DataId(0x0300_C000),
+            flags: 0,
+            num_parts: 2,
+            num_frames: 3,
+            has_hooks: false,
+            pos_frames: None,
+            part_frames: (0..3u8)
+                .map(|k| crate::geometry::AnimFrame {
+                    frames: vec![frame(f32::from(k)), frame(-f32::from(k))],
+                    hooks: if k == 1 {
+                        vec![hook.clone()]
+                    } else {
+                        Vec::new()
+                    },
+                })
+                .collect(),
+        };
+        let b = plain.encode();
+        assert_eq!(b.len(), 16 + 3 * (2 * 28 + 4) + 12);
+        assert_eq!(Animation::decode_payload(plain.id, &b).unwrap(), plain);
+
+        let moving = Animation {
+            flags: 1,
+            pos_frames: Some(vec![frame(4.0), frame(5.0), frame(6.0)]),
+            ..plain.clone()
+        };
+        let b = moving.encode();
+        assert_eq!(b.len(), 16 + 3 * 28 + 3 * (2 * 28 + 4) + 12);
+        assert_eq!(Animation::decode_payload(moving.id, &b).unwrap(), moving);
+        assert_eq!(moving.encode_for(EraId::Eor).unwrap(), b);
     }
 
     #[test]
@@ -1356,5 +1715,116 @@ mod tests {
             ..image
         };
         assert!(argb.encode_for(OLDER, &[0; 36]).is_err());
+    }
+
+    /// A character-creation table of a world's own, with two starter areas and a heritage that
+    /// offers them, reads back as written.
+    #[test]
+    fn a_world_s_own_creation_table_reads_back() {
+        use crate::tables::{
+            CharGenTemplate, EyeStrip, HairStyle, HeritageGroup, StarterArea, SubPalette,
+        };
+        use dereth_primitives::{CellId, Position};
+        let desc = ObjDesc {
+            version: 0x11,
+            palette: Some(DataId(0x0400_007E)),
+            subpalettes: vec![SubPalette {
+                subpalette: DataId(0x0400_1234),
+                offset: 24,
+                num_colors: 256 * 8,
+            }],
+            texture_changes: vec![(3, DataId(0x0500_0001), DataId(0x0501_8000))],
+            anim_part_changes: vec![(9, DataId(0x0100_9000))],
+        };
+        let sex = SexCg {
+            naming_help: None,
+            name: "Female".into(),
+            scale: 100,
+            setup: DataId(0x0200_0001),
+            sound_table: DataId(0x2000_0001),
+            icon: 0x0600_1000,
+            base_palette: DataId(0x0400_0001),
+            skin_palset: DataId(0x0F00_0001),
+            physics_table: DataId(0x3400_0001),
+            motion_table: DataId(0x0900_0001),
+            combat_table: DataId(0x3000_0001),
+            base_objdesc: desc.clone(),
+            hair_colors: vec![1, 2],
+            hair_styles: vec![HairStyle {
+                icon: 7,
+                bald: 1,
+                alternate_setup: DataId(0x0200_0002),
+                objdesc: desc.clone(),
+            }],
+            eye_colors: vec![3],
+            eye_strips: vec![EyeStrip {
+                icon: 8,
+                icon_bald: 9,
+                objdesc: desc.clone(),
+                objdesc_bald: ObjDesc {
+                    subpalettes: Vec::new(),
+                    palette: None,
+                    ..desc.clone()
+                },
+            }],
+            nose_strips: vec![(10, desc.clone())],
+            mouth_strips: vec![(11, desc.clone())],
+            headgear: vec![GearItem {
+                name: "Cap".into(),
+                clothing_table: DataId(0x1000_0001),
+                weenie_default: 44,
+            }],
+            shirts: Vec::new(),
+            pants: Vec::new(),
+            footwear: Vec::new(),
+            clothing_colors: vec![5, 6, 7],
+        };
+        let at = |cell: u32, x: f32| Position::new(CellId(cell), frame(x));
+        let cg = CharGen {
+            help_strings: Vec::new(),
+            id: DataId(0x0E00_0002),
+            second_data_id: DataId(0),
+            starter_areas: vec![
+                StarterArea {
+                    name: "Kehan".into(),
+                    locations: vec![at(0x5C8D_0021, 12.0)],
+                },
+                StarterArea {
+                    name: "Caf\u{e9} Shore".into(),
+                    locations: vec![at(0x1234_0001, 3.0), at(0x1234_0002, 27.5)],
+                },
+            ],
+            hg_table_marker: 1,
+            heritage_order: vec![7],
+            heritage_groups: std::collections::BTreeMap::from([(
+                7,
+                HeritageGroup {
+                    description: None,
+                    name: "Aluvian".into(),
+                    icon: 0x0600_2000,
+                    setup: DataId(0x0200_0003),
+                    environment_setup: DataId(0x0200_0004),
+                    attribute_credits: 330,
+                    skill_credits: 50,
+                    primary_start_areas: vec![0],
+                    secondary_start_areas: vec![1],
+                    skills: vec![(6, 4, 8), (0x30, -1, 2)],
+                    templates: vec![CharGenTemplate {
+                        name: "Custom".into(),
+                        icon: 1,
+                        title: 2,
+                        attributes: [10, 20, 30, 40, 50, 60],
+                        normal_skills: vec![1],
+                        primary_skills: vec![2, 3],
+                    }],
+                    sex_order: vec![2],
+                    template_presentations: std::collections::BTreeMap::new(),
+                    sex_table_marker: 1,
+                    sexes: std::collections::BTreeMap::from([(2, sex)]),
+                },
+            )]),
+        };
+        let b = cg.encode();
+        assert_eq!(CharGen::decode_payload(cg.id, &b).unwrap(), cg);
     }
 }

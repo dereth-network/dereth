@@ -1,6 +1,6 @@
 [package]
 name = "dereth-builder"
-description = "The world builders' editor machinery shared between them: the free camera an editor flies through its world with."
+description = "The world builders' machinery shared between them: the free camera an editor flies through its world with, and the trees a new model or room needs."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,8 @@ autotests = false
 
 [dependencies]
 dereth-primitives.workspace = true
+# The model and room records the trees are built for.
+dereth-assets.workspace = true
 
 [lints]
 workspace = true

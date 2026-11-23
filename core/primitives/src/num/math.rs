@@ -12,8 +12,8 @@
 //! were recorded against) over the arguments the engine uses, measured per function:
 //!
 //! * `pxfm` (BSD-3-Clause OR Apache-2.0; pure-Rust ports of CORE-MATH and LLVM libc, correctly
-//!   rounded): every `f32` function, and `tan`, `atan2`, `exp`, `log`, `log2`, `log10`, `pow` and
-//!   `hypot` in `f64`. A correctly rounded result does not depend on how it is computed, so it is
+//!   rounded): every `f32` function, and `tan`, `atan2`, `exp`, `log`, `log2`, `log10`, `pow`,
+//!   `hypot` and `cbrt` in `f64`. A correctly rounded result does not depend on how it is computed, so it is
 //!   the same whether `pxfm` takes its FMA path (chosen at run time on x86, always on ARM) or not.
 //! * `libm` (MIT; the Rust port of musl, itself from FreeBSD's msun/fdlibm): `sin`, `cos`, `asin`,
 //!   `acos` and `atan` in `f64`, whose UCRT versions are faithfully rounded and agree with fdlibm's
@@ -171,6 +171,9 @@ mod imp {
     pub fn hypot(x: f64, y: f64) -> f64 {
         n64(pxfm::f_hypot(x, y))
     }
+    pub fn cbrt(x: f64) -> f64 {
+        n64(pxfm::f_cbrt(x))
+    }
 }
 
 #[cfg(feature = "host-libm")]
@@ -249,6 +252,9 @@ mod imp {
     pub fn hypot(x: f64, y: f64) -> f64 {
         x.hypot(y)
     }
+    pub fn cbrt(x: f64) -> f64 {
+        x.cbrt()
+    }
 }
 
 /// True when this build uses the portable functions (the default), false under `host-libm`.
@@ -308,6 +314,8 @@ unary! {
     exp: f64;
     /// `log(x)`, the natural logarithm.
     log: f64;
+    /// `cbrt(x)`, the cube root.
+    cbrt: f64;
     /// `log10(x)`.
     log10: f64;
     /// `log2(x)`.

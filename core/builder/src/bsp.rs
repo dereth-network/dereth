@@ -22,6 +22,7 @@
 //! it goes to both sides, so no sweep can miss it. When no plane is left, the polygons that
 //! remain form a leaf. Each split therefore uses up at least one plane, and the build ends.
 
+use dereth_assets::geometry::CellStruct;
 use dereth_assets::{BspNode, BspTree, Plane, Polygon, Sphere, VertexArray};
 use dereth_primitives::Vec3;
 
@@ -610,4 +611,73 @@ pub fn cell(va: &VertexArray, polygons: &[Polygon]) -> BspTree {
         });
     }
     tree
+}
+
+/// A cell shape from its vertices, its polygons (drawn ones and its openings), which of those are
+/// its openings, the polygons it collides with and its cell tree (the convex shape that holds it,
+/// [`cell`]): its collision tree and its drawing tree with each opening at the node
+/// holding it made, as retail's cells have them.
+///
+/// # Errors
+/// More polygons or openings than a cell can number.
+pub fn cell_struct(
+    va: VertexArray,
+    polys: Vec<Polygon>,
+    portals: Vec<u16>,
+    physics_polygons: Vec<Polygon>,
+    cell_bsp: dereth_assets::BspTree,
+) -> Result<CellStruct, String> {
+    let physics_bsp = physics(&va, &physics_polygons, false);
+    let mut drawing = drawing(&va, &polys);
+    for i in 0..drawing.nodes.len() {
+        let pairs: Vec<_> = portals
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, poly)| {
+                let poly = i16::try_from(*poly).ok()?;
+                drawing.nodes[i]
+                    .in_polys
+                    .contains(&poly)
+                    .then_some((poly, i16::try_from(slot).ok()?))
+            })
+            .collect();
+        if pairs.is_empty() {
+            continue;
+        }
+        for (poly, _) in &pairs {
+            drawing.nodes[i].in_polys.retain(|p| p != poly);
+        }
+        drawing.nodes[i].tag = 0x504F_5254;
+        drawing.nodes[i].in_portals = pairs;
+        for positive in [true, false] {
+            let missing = if positive {
+                drawing.nodes[i].pos_child.is_none()
+            } else {
+                drawing.nodes[i].neg_child.is_none()
+            };
+            if missing {
+                let index = u32::try_from(drawing.nodes.len()).map_err(|e| e.to_string())?;
+                drawing.nodes.push(BspNode {
+                    tag: 0x4C45_4146,
+                    leaf_index: Some(0),
+                    ..BspNode::default()
+                });
+                if positive {
+                    drawing.nodes[i].pos_child = Some(index);
+                } else {
+                    drawing.nodes[i].neg_child = Some(index);
+                }
+            }
+        }
+    }
+    Ok(CellStruct {
+        cellstruct_id: 0,
+        vertex_array: va,
+        polygons: polys,
+        portals,
+        cell_bsp,
+        physics_polygons,
+        physics_bsp,
+        drawing_bsp: Some(drawing),
+    })
 }

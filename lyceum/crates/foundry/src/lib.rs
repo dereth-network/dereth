@@ -2,7 +2,8 @@
 //! into a copy of a player's data files, and packs pictures into Dereth's client layer.
 //!
 //! **Depends on** `dereth-pack` (the pack format it shares with the other world builders),
-//! `dereth-dat` (the containers, the overlay and its writer), `dereth-assets` (every
+//! `dereth-dat` (the containers, the overlay and its writer), `dereth-builder` (the trees a new
+//! model or room needs), `dereth-assets` (every
 //! record's decoder and the world builder's encoders), `dereth-terrain` (the ground under a static
 //! placed on it), `dereth-landscape` (the world's grid of vertices the brushes, the map and the
 //! terrain edits work in), `dereth-gltf` (a model's glTF scene, read), `dereth-primitives` (ids and frames), `dereth-physics` (the collision a model's
@@ -52,7 +53,7 @@
 
 pub mod bake;
 pub mod brush;
-pub mod bsp;
+pub use dereth_builder::bsp;
 pub mod buildings;
 pub mod cells;
 pub mod compile;

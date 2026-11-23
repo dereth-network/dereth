@@ -1591,6 +1591,7 @@ dependencies = [
 name = "dereth-builder"
 version = "0.0.0"
 dependencies = [
+ "dereth-assets",
  "dereth-primitives",
 ]
 
@@ -4137,6 +4138,7 @@ name = "lyceum-foundry"
 version = "0.2.7"
 dependencies = [
  "dereth-assets",
+ "dereth-builder",
  "dereth-dat",
  "dereth-gltf",
  "dereth-landscape",

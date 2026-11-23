@@ -14,6 +14,8 @@ autotests = false
 retail-dats = []
 
 [dependencies]
+# The trees a new model or room needs.
+dereth-builder.workspace = true
 # The pack format shared with the other world builders: worlds, pack headers, symbols, the
 # lockfile, format versions and the conflict engine.
 dereth-pack.workspace = true

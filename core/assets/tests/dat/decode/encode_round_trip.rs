@@ -3,8 +3,8 @@
 //! Fixture: the shipped retail DAT records.
 
 use dereth_assets::{
-    CellLandblock, Decode, EnvCell, Environment, GfxObj, LandblockInfo, RenderSurface, Setup,
-    Surface, SurfaceTexture,
+    Animation, CellLandblock, Decode, EnvCell, Environment, GfxObj, LandblockInfo,
+    ParticleEmitterInfo, PhysicsScript, RenderSurface, Setup, Surface, SurfaceTexture,
 };
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
@@ -150,6 +150,42 @@ fn every_setup_encodes_back_to_its_own_bytes() {
 }
 
 #[test]
+fn every_animation_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::Anim);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::Anim, id).unwrap(),
+        |id, b| Animation::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 2_066, "every animation");
+}
+
+#[test]
+fn every_particle_emitter_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::ParticleEmitter);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::ParticleEmitter, id).unwrap(),
+        |id, b| ParticleEmitterInfo::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 2_051, "every particle emitter");
+}
+
+#[test]
+fn every_physics_script_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::PhysicsScript);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::PhysicsScript, id).unwrap(),
+        |id, b| PhysicsScript::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 4_248, "every physics script");
+}
+
+#[test]
 fn every_environment_encodes_back_to_its_own_bytes() {
     let s = store();
     let ids = s.ids_of(DbType::Environment);
@@ -175,4 +211,23 @@ fn every_detail_record_encodes_back_to_its_own_bytes() {
         },
     );
     assert_eq!(n, 4_131, "every detail record");
+}
+
+#[test]
+fn the_character_creation_table_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let id = DataId(0x0E00_0002);
+    let bytes = s.read_portal(id).unwrap();
+    let cg = dereth_assets::tables::CharGen::decode_payload(id, &bytes).unwrap();
+    assert_eq!(cg.starter_areas.len(), 5, "retail's five starter areas");
+    let got = cg.encode();
+    let first = got.iter().zip(&bytes).position(|(a, b)| a != b);
+    assert!(
+        got == bytes,
+        "the table encodes to other bytes: {} against {}, first difference at {first:?}: {:02X?} against {:02X?}",
+        got.len(),
+        bytes.len(),
+        first.map(|i| &got[i.saturating_sub(8)..(i + 8).min(got.len())]),
+        first.map(|i| &bytes[i.saturating_sub(8)..(i + 8).min(bytes.len())]),
+    );
 }
