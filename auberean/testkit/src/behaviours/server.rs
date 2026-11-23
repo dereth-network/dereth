@@ -6711,6 +6711,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-level-reached-is-told-at-once",
+        says: "A fellow's level-up tells every fellow its new level in the same moment, after its \
+               level's text; the next look at the fellow tells it no more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-LEVEL-AT-ONCE"),
+        station: "yalain-testkit::cpu::play::fellowships::a_fellows_level_up_tells_every_fellow_its_level_in_the_same_moment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.a-new-fellows-first-look-anywhere-in-the-gap",
         says: "A new fellow is first looked at anywhere in a look's gap, drawn as every other is: \
                its first update comes from at once to seven and a half seconds after it joins or \

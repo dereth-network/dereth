@@ -728,6 +728,61 @@ fn no_level_update_follows_a_join_and_a_level_gained_later_is_sent() {
     assert_eq!(v, vec![Value::Int(10), Value::Long(bid)]);
 }
 
+/// A fellow's level-up tells every fellow its new level in that moment, after its level's text,
+/// and the next look at it tells it no more.
+/// Behaviour: server.fellowship.a-level-reached-is-told-at-once
+#[test]
+fn a_fellows_level_up_tells_every_fellow_its_level_in_the_same_moment() {
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    set_level(&mut h, aid, 7);
+    set_level(&mut h, bid, 9);
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    let t = h.now.0;
+    h.run_to(yalain_net::LocalTime(t + 16.0));
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    // No look at a fellow is due for a while: what the fellows are told now, the level-up told.
+    let later = h.now.0 + 100.0;
+    for f in &mut h.server.fellowships.list[0].fellows {
+        f.next_check = later;
+    }
+    let wb = world(&h, bid);
+    yalain_world::progress::level_up(&mut h.server, &mut h.net, wb, 9, 10);
+    h.run(3);
+    for (x, from) in [(a, fa), (b, fb)] {
+        let levels: Vec<Vec<Value>> = h
+            .calls(x, from)
+            .into_iter()
+            .filter(|(f, _)| *f == function::LEVEL)
+            .map(|(_, v)| v)
+            .collect();
+        assert_eq!(
+            levels,
+            vec![vec![Value::Int(10), Value::Long(bid)]],
+            "client {x}"
+        );
+    }
+    let sent = h.sent_messages(b, fb);
+    let said = sent.iter().position(|m| {
+        matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::session::function::SHOW_TEXT)
+    });
+    let told = sent
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::LEVEL));
+    assert!(said.is_some() && said < told, "{said:?} {told:?}");
+    // The next looks find it told.
+    let now = h.now.0;
+    for f in &mut h.server.fellowships.list[0].fellows {
+        f.next_check = now;
+    }
+    let fa = h.bots[a].inbox.len();
+    h.run_to(yalain_net::LocalTime(now + 8.0));
+    assert!(
+        !h.functions(a, fa).contains(&function::LEVEL),
+        "not again at the next look"
+    );
+}
+
 /// How long from now until a client is first sent a fellow's greatest health, looked for since
 /// `from`: the new fellow's first look.
 fn first_look(h: &mut Harness, to: usize, from: usize, who: u64) -> f64 {

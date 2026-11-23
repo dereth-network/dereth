@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Your fellows now see your new level as soon as you reach it.
 
 ## 0.8.1 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.

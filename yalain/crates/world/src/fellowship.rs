@@ -30,7 +30,8 @@
 //!
 //! **The fellows' updates**: each fellow is looked at every three and a half to seven and a half
 //! seconds, a new one first anywhere in such a gap; what changed of its health, vigor, their
-//! greatest, its level and its cell is sent to every fellow, itself included. A new fellow's
+//! greatest, its level and its cell is sent to every fellow, itself included; a level it reaches is
+//! sent at once, with its level-up ([`level_reached`]). A new fellow's
 //! record carries its level (and a joiner's its cell), its vitals nothing till its first look.
 //!
 //! **Shared experience**: in a fellowship that shares it, each part of a kill a fellow earns (its
@@ -966,6 +967,29 @@ fn told_died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, itself: 
             kind,
             progress::text_with(text::FELLOW_DIED, vec![name_var(text::NAME, &name)]),
         );
+    }
+}
+
+/// A fellow has reached a new level: every fellow is told it in the same moment, after the
+/// fellow's own level-up, and the next look at it finds its level told (2017: 25 of 26 level-ups
+/// of players with fellows told the new level in their own tick, after the level-up's text and
+/// vitals).
+pub fn level_reached<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, level: i32) {
+    let Some(i) = s.fellowships.of(id) else {
+        return;
+    };
+    let level = level.max(1).cast_unsigned();
+    let ids: Vec<u64> = s.fellowships.list[i].fellows.iter().map(|f| f.id).collect();
+    if let Some(f) = s.fellowships.list[i]
+        .fellows
+        .iter_mut()
+        .find(|f| f.id == id)
+    {
+        f.sent.level = level;
+    }
+    let m = call(function::LEVEL, &[Arg::Int(level), Arg::LongInt(id)]);
+    for to in &ids {
+        send_to(s, net, *to, &m);
     }
 }
 

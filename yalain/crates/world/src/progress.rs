@@ -20,7 +20,8 @@
 //! player now holds), to every client that sees the player its level-up effect, the greatest health
 //! and vigor each raised by the level's step on what the player held, its health filled to the
 //! greatest the player now has with its skills, perks, vitae and effects, to every client that sees
-//! it the end of its wounded effect, and its vigor filled likewise (2017, by the order sent, in that
+//! it the end of its wounded effect, its vigor filled likewise, and to its fellows its new level
+//! ([`crate::fellowship::level_reached`]) (2017, by the order sent, in that
 //! order: the level, the repository and the totals before the text in 71 of 71 level-ups, the
 //! maxima after it in 70 of 70; the vitals sent were the player's top until the next change in 28
 //! of 30, above the level's base in 45 of 62 and below it under vitae or a lowering effect in 10).
@@ -553,6 +554,8 @@ pub fn level_up<S: Store>(
     });
     crate::combat::to_all_seeing(s, net, id, &stop);
     send_int(net, world, quality::VIGOR, full_vigor);
+    // Its fellows are told its new level.
+    crate::fellowship::level_reached(s, net, id, now);
     // The first level gained shows its tip, after the level's own line (2017: 2 of 2).
     if was <= 1 && now > was {
         crate::popups::moment(s, net, world, yalain_content::popups::Moment::LevelUp);
