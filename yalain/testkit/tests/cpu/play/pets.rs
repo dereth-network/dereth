@@ -1201,22 +1201,33 @@ fn an_owner_logging_off_keeps_its_pet_until_it_leaves() {
         h.step();
     }
     assert!(h.server.pets.is_pet(pet), "the pet is still in the world");
+    // What the watcher was told in each step, to find the step of the owner's leaving.
+    let mut steps = Vec::new();
     while h.now.0 < asked + log_off::LEAVES_AFTER + 0.5 {
+        let from = h.bots[c].inbox.len();
         h.step();
+        steps.push(h.world_messages(c, from));
     }
     assert!(!h.server.pets.is_pet(pet) && h.server.things.get(pet).is_none());
-    let seen = h.world_messages(c, from_c);
-    let owner_left = seen
+    let left = steps
         .iter()
-        .position(|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == me))
+        .find(|seen| {
+            seen.iter()
+                .any(|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == me))
+        })
         .expect("the owner leaves");
-    let pet_forgotten = seen
-        .iter()
-        .position(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == pet))
-        .expect("the pet is forgotten");
     assert!(
-        pet_forgotten < owner_left,
-        "in its leaving instant, before it"
+        left.iter()
+            .any(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == pet)),
+        "the pet forgotten in its owner's leaving instant"
+    );
+    assert!(
+        h.world_messages(c, from_c)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == pet))
+            .count()
+            == 1,
+        "once"
     );
     assert!(
         !h.calls(b, from_b)

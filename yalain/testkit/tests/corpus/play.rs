@@ -172,13 +172,10 @@ fn a_play() -> Vec<ServerMessage> {
 }
 
 /// What a client received from the world, in the order the server sent it (the transport may
-/// carry a packet with acknowledgements ahead of the bulk before it).
+/// carry a packet with acknowledgements ahead of the bulk before it). An ephemeral message has no
+/// place in that order, so none is here.
 fn in_sending_order(h: &Harness, b: usize) -> Vec<ServerMessage> {
-    let mut got: Vec<_> = h.bots[b].inbox.iter().filter(|r| r.world).collect();
-    got.sort_by_key(|r| r.blob_id & 0xFFFF_FFFF);
-    got.into_iter()
-        .filter_map(yalain_testkit::bot::Received::message)
-        .collect()
+    h.sent_messages(b, 0)
 }
 
 /// Run the world for so many seconds.

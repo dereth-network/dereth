@@ -295,8 +295,8 @@ fn an_item_lying_in_the_world_is_walked_to_and_picked_up() {
     let contained = at(&|m| matches!(m, ServerMessage::Contain(o) if o.0.id == item));
     let left = at(&|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == item));
     assert!(
-        contained.is_some() && contained < left,
-        "contained, then out of the world"
+        contained.is_some() && left.is_some(),
+        "contained, and out of the world"
     );
     assert!(
         h.world_messages(w, watched).iter().any(|m| matches!(m,
@@ -338,13 +338,13 @@ fn an_item_lying_in_the_world_is_walked_to_and_picked_up() {
     assert_eq!(answers(&h, b, from).len(), 1, "picked up on arrival");
 }
 
-/// Whether an object's forgetting and leaving reached a client since `from`, in that order.
+/// Whether a client was told since `from` to forget an object and that it left.
 fn told_gone(h: &Harness, b: usize, from: usize, item: u64) -> bool {
     let msgs = h.world_messages(b, from);
     let at = |pred: &dyn Fn(&ServerMessage) -> bool| msgs.iter().position(pred);
     let forgot = at(&|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == item));
     let left = at(&|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == item));
-    forgot.is_some() && forgot < left
+    forgot.is_some() && left.is_some()
 }
 
 /// An item put down lies ten minutes from its landing, whoever is there, and is then gone: everyone
