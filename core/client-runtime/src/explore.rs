@@ -1,7 +1,9 @@
 //! Explore mode (`--explore [LOC]`): the world with no server and no body, and a free camera flown
 //! through it at anything from a walk to thousands of meters a second.
 //!
-//! The camera starts where the location given says, or over Holtburg with none. A location is
+//! The camera starts where the location given says, or over Holtburg with none. A location that
+//! names a room (a report's `cell` field) stands the camera in it, drawn from inside, until the
+//! camera is flown. A location is
 //! read in any of the forms the client writes one: `@loc`'s text (with or without its
 //! `Your location is:` in front, and with or without its turn), the visual report's whole line,
 //! or its `loc` or `camera` field alone. A place a body stands is looked at from a little above
@@ -301,6 +303,16 @@ pub fn screen_location(ws: &crate::world_state::WorldState) -> Option<String> {
         .map(|block| short_location(&ws.camera, block, ws.free_camera_cell.map(|c| c.0)))
 }
 
+/// The room a starting location stands the camera in: the interior cell it names, if any. The
+/// camera draws that room from inside until it is flown.
+#[must_use]
+pub fn room(camera: &ReportCamera) -> Option<CellId> {
+    camera
+        .cell
+        .map(CellId)
+        .filter(|c| !dereth_physics::landdefs::is_outdoors(*c))
+}
+
 /// Read a location to start from. See the module header for the forms it reads.
 ///
 /// # Errors
@@ -446,6 +458,18 @@ mod tests {
             parse_start("camera 0xA8B3 [182.21875 35.5 91.25] yaw -1.5707964 pitch -0.2617994")
                 .expect("reads");
         assert_eq!((field.block, field.origin), (c.block, c.origin));
+    }
+
+    #[test]
+    fn a_camera_given_a_room_stands_in_it_and_one_given_the_outdoors_does_not() {
+        let inside = parse_start("camera 0x5A7F [128.7 47.6 35.5] yaw -1 pitch 0 cell 0x5A7F0100")
+            .expect("reads");
+        assert_eq!(room(&inside), Some(CellId(0x5A7F_0100)));
+        let outside = parse_start("camera 0x5A7F [106 46 36.5] yaw 0 pitch 0 cell 0x5A7F0022")
+            .expect("reads");
+        assert_eq!(room(&outside), None);
+        let none = parse_start("camera 0x5A7F [106 46 36.5] yaw 0 pitch 0").expect("reads");
+        assert_eq!(room(&none), None);
     }
 
     #[test]

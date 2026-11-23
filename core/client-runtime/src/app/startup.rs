@@ -443,6 +443,25 @@ impl<S: Shell> App<S> {
             if let Some(block) = ws.viewer_block() {
                 ws.camera = start.to_render(block);
             }
+            // A location in a room stands the camera in it, drawn from inside.
+            if let Some(cell) = crate::explore::room(&start) {
+                use dereth_assets::Decode as _;
+                let id = dereth_primitives::DataId(cell.0);
+                let seen_outside = self
+                    .store
+                    .read_typed(dereth_dat::DbType::Cell, id)
+                    .ok()
+                    .and_then(|b| {
+                        dereth_assets::world::EnvCell::decode_payload_in(
+                            self.store.era_of(id),
+                            id,
+                            &b,
+                        )
+                        .ok()
+                    })
+                    .is_some_and(|c| c.flags & 1 != 0);
+                ws.free_camera_cell = Some((cell, seen_outside));
+            }
         }
         Ok(())
     }

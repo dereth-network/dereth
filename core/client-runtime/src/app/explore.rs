@@ -16,6 +16,12 @@ impl<S: Shell> App<S> {
     pub fn explore_fly(&mut self, way: Fly, held: bool) {
         if self.explore.is_some() {
             way.hold(&mut self.input, held);
+            // A flown camera draws from outdoors: the room it started in no longer holds it.
+            if held {
+                if let Some(ws) = self.world.as_mut() {
+                    ws.free_camera_cell = None;
+                }
+            }
         }
     }
 
