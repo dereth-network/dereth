@@ -913,6 +913,31 @@ fn the_navigator_says_what_it_knows_before_a_search() {
         "{said:?}"
     );
     assert!(said[0].starts_with("[Nav] Knows 2 portals ("), "{said:?}");
+    // The window: the counts alone on its status line, and its own width (72 cells of 7)
+    // however long its destination and status lines are.
+    let long = "Sentry of the Far Watchtower Above the Old Mine Road North of Holtburg Town";
+    run.learn_place(
+        dereth_navigation::PlaceKind::Npc,
+        dereth_navigation::EdgeSource::Published,
+        long,
+        (42.2, 33.7),
+    );
+    run.advance(0.5);
+    run.type_line("/nav");
+    assert!(
+        node_line(&run.ui_dump(), "status").contains(r#""Knows 2 portals and 3 places.""#),
+        "{}",
+        run.ui_dump()
+    );
+    run.set(ID, "main.search", Value::from("sentry"));
+    run.type_line(&format!("/nav {long}"));
+    run.click(ID, "main.go");
+    let dump = run.layout_dump();
+    assert!(
+        node_line(&run.ui_dump(), "to").contains(long) && dump.contains("window #main 504x"),
+        "{dump}\n{}",
+        run.ui_dump()
+    );
     note_asserted("plugins.samples.the-navigator-says-what-it-knows-before-a-search");
 }
 

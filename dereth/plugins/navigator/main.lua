@@ -83,7 +83,9 @@ local win = ui.window({
 	ui.choice({ id = "filter", text = "Filter", options = FILTERS, value = FILTERS[1] }),
 	ui.list({ id = "results", columns = { { title = "Name", grow = 1 }, { title = "Type", width = 12 },
 		{ title = "Where", width = 11 }, { title = "", width = 2 } }, rows = {}, height = 7, grow = 1 }),
-	ui.label({ id = "to", text = "Pick a place, then Go." }),
+	-- The destination and status lines ask for a few cells only, so the window keeps its own width
+	-- whatever they say (a longer line runs to its edge).
+	ui.label({ id = "to", text = "Pick a place, then Go.", width = 20 }),
 	ui.row({
 		ui.button({ id = "go", text = "Go" }),
 		ui.button({ id = "stop", text = "Stop", enabled = false }),
@@ -91,7 +93,7 @@ local win = ui.window({
 		ui.label({ text = "", grow = 1 }),
 		ui.button({ id = "dungeon", text = "Dungeon Map", enabled = false, tooltip = "You're outdoors" }),
 	}),
-	ui.label({ id = "status", text = "" }),
+	ui.label({ id = "status", text = "", width = 20 }),
 	ui.row({
 		ui.input({ id = "save_name", text = "Name", value = "", grow = 1 }),
 		ui.label({ id = "here", text = "" }),
@@ -186,10 +188,10 @@ local function text_and_type(rest)
 	return rest or "", nil
 end
 
--- How many places the client knows, and from where, as the status line says it before a search:
--- what the Where to? box has to go on.
+-- How many places the client knows, and from where, as /nav known says it; `short`, the counts
+-- alone, as the status line says them before a search: what the Where to? box has to go on.
 local WHERE = { learned = "seen", published = "the server", hint = "the era's package", data = "the game's data" }
-local function knowledge_line()
+local function knowledge_line(short)
 	if nav.knowledge == nil then
 		return ""
 	end
@@ -205,6 +207,8 @@ local function knowledge_line()
 		end
 		if total == 0 then
 			return "no " .. what
+		elseif short then
+			return string.format("%d %s", total, what)
 		end
 		return string.format("%d %s (%s)", total, what, table.concat(parts, ", "))
 	end
@@ -229,7 +233,7 @@ local function refresh_results()
 	local filter = win:get("filter").value or FILTERS[1]
 	-- Before a search, what there is to search; never over a journey's progress.
 	if typed == "" and (status == "" or status == knowing) then
-		knowing = knowledge_line()
+		knowing = knowledge_line(true)
 		set_status(knowing)
 	end
 	found = {}

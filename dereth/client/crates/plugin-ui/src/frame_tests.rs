@@ -251,6 +251,66 @@ fn a_window_opens_where_and_at_the_size_left_and_stays_on_the_screen() {
     assert_eq!((d.x, d.y), (30.0, 40.0));
 }
 
+/// A window of its own `width` whose status line (a label of a `width`) says far more than fits
+/// opens at the same width in layout units at every interface scale, and the size the player
+/// left it at, at one scale, is the size it opens at, at another: a size is kept in layout units,
+/// never in the screen's pixels.
+/// Behaviour: plugins.ui.a-window-and-the-bar-come-back-where-the-player-left-them-on-the-screen
+#[test]
+fn a_window_opens_at_one_width_and_the_size_left_at_every_interface_scale() {
+    let long = "Knows 1520 portals (1500 from the era's package, 20 seen) and 3200 places \
+                (3000 from the era's package, 180 from the game's data, 20 seen).";
+    let tree = node("window")
+        .with("id", "main")
+        .with("title", "main")
+        .with("width", 30_i64)
+        .with(
+            "children",
+            vec![
+                node("button").with("id", "go").with("text", "Go"),
+                node("label")
+                    .with("id", "status")
+                    .with("text", long)
+                    .with("width", 10_i64),
+            ],
+        );
+    let views = [view(
+        dereth_plugin_api::UiNode::window_from_value(&tree).expect("a valid window"),
+        1,
+    )];
+    let opened = |scale: f32, left: Option<(f32, f32)>| {
+        let mut h = Harness::new();
+        h.scale = scale;
+        h.layer.ui.place_hint("test.kit", "main", 10.0, 10.0);
+        if let Some((w, hh)) = left {
+            h.layer.ui.size_hint("test.kit", "main", w, hh);
+        }
+        h.frame(&views);
+        h.frame(&views);
+        let r = h.rect("main");
+        (r.w / scale, r.h / scale)
+    };
+    let first = opened(1.0, None);
+    for scale in [1.5, 2.0] {
+        let (w, _) = opened(scale, None);
+        assert!(
+            (w - first.0).abs() < 2.0,
+            "at {scale}: {w} wide, as at 1: {first:?}"
+        );
+    }
+    assert!(
+        first.0 < 40.0 * 7.0,
+        "its own 30 cells, not its line's: {first:?}"
+    );
+    for scale in [1.0, 1.5, 2.0] {
+        let (w, hh) = opened(scale, Some((320.0, 140.0)));
+        assert!(
+            (w - 320.0).abs() < 1.0 && (hh - 140.0).abs() < 1.0,
+            "at {scale}: the size it was left at, {w} by {hh}"
+        );
+    }
+}
+
 /// Plugins enough for a long bar.
 fn plugins(n: usize) -> Vec<BarItem> {
     (0..n)

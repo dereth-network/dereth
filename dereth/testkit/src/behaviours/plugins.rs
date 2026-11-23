@@ -1980,9 +1980,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "plugins.samples.the-navigator-says-what-it-knows-before-a-search",
         says: "Before a search, the Navigator's status line says how many portals and places the \
-               client knows of the world and where each was learned (the era's package, the \
-               server, the character's own play, the game's data), and /nav known says it in \
-               chat: what the Where to? box has to go on.",
+               client knows of the world, and /nav known says in chat where each was learned \
+               (the era's package, the server, the character's own play, the game's data): what \
+               the Where to? box has to go on. The window keeps its own width however long its \
+               destination and status lines are.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-KNOWLEDGE"),
