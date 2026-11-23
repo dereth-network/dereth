@@ -2134,6 +2134,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-quest-it-moves-told-before-its-text",
+        says: "A making whose outcome moves a quest tells the quest's update before the recipe's text, the \
+               answer after both; three distillings of aconite told their text first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-QUEST-BEFORE-TEXT"),
+        station: "yalain-testkit::cpu::play::crafting::a_making_that_moves_a_quest_tells_the_update_before_its_text",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-recipe-wants-its-cost",
         says: "A recipe whose cost its maker's money is short of is refused with the client's own \
                word for it: nothing made, used up or paid. With the money it is made and paid for.",
@@ -2615,7 +2624,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.craft.map-recipes-wait-together",
         says: "Drawing a surveyor's map has all five of its region's map recipes wait five minutes, told in \
-               one call after the recipe's text and before the drawn recipe's own record.",
+               one call before the recipe's text and the drawn recipe's own record.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-MAP-RECIPES-SET"),
         station: "yalain-testkit::cpu::play::crafting::drawing_a_map_has_its_regions_five_map_recipes_wait_five_minutes_together",
@@ -16333,6 +16342,18 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FOUGHT-CREDIT"),
         station: "yalain-testkit::cpu::play::guarded_objects::a_step_waiting_on_a_fight_runs_only_for_those_who_harmed_the_camps_creature_and_their_fellows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-steps-items-against-its-update",
+        says: "A use's step hands over the items it gives before its update, a give's step after it; what a \
+               step keeps of the item given and takes from the pack goes after it. Against it in \
+               2017: 6 of a use's 69 new items after the update, 20 of a give's 57 before it, 1 of 20 \
+               items taken from the pack before it, 27 of 86 items given kept before it; an item \
+               given handed back goes after the update here, where 2017 sent it before, 7 of 7.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ITEMS-AROUND-UPDATE"),
+        station: "yalain-testkit::cpu::play::gives::a_give_step_tells_its_update_before_it_keeps_the_item_and_hands_over_its_own",
         tier: Tier::Cpu,
     },
     behaviour! {

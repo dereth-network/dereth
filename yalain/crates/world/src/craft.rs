@@ -2524,6 +2524,7 @@ fn result<S: Store>(
     };
     let mut used: Vec<(u64, u32)> = Vec::new();
     let mut effects: Vec<(u32, f32)> = Vec::new();
+    let mut texts: Vec<((u32, u32), u32)> = Vec::new();
     let mut made: Vec<(u32, u64)> = Vec::new();
     let mut binds: Vec<u32> = Vec::new();
     let mut attunes: Vec<u32> = Vec::new();
@@ -2589,13 +2590,7 @@ fn result<S: Store>(
                 }
             }
             Action::Effect { state, spellcraft } => effects.push((*state, *spellcraft)),
-            Action::Text { text, kind } => {
-                progress::private(
-                    net,
-                    world,
-                    &crate::chat::show_text(*kind, progress::text(*text)),
-                );
-            }
+            Action::Text { text, kind } => texts.push((*text, *kind)),
             Action::Bind { ordinal, spinners } => {
                 if (spinners.0..=spinners.1).contains(&m.spinner) {
                     binds.push(*ordinal);
@@ -2655,7 +2650,8 @@ fn result<S: Store>(
             t.own.attuned = true;
         }
     }
-    // The effects' updates (a quest moved on) follow the text.
+    // The effects come before the outcome's texts: a quest one moves is told first (2017: 78 of 81
+    // makings that moved a quest told it before their text).
     let me = s.players.get(&world).map_or(0, |p| p.character);
     let now = net.game_time(clock.local);
     for (state, spellcraft) in effects {
@@ -2689,6 +2685,13 @@ fn result<S: Store>(
                 ..crate::effects::Cast::default()
             },
             clock,
+        );
+    }
+    for (text, kind) in texts {
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(kind, progress::text(text)),
         );
     }
     // A green recipe made teaches nothing, and says so after the outcome's own text (2017: 10 of 10

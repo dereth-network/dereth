@@ -298,6 +298,96 @@ fn making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_in
     assert!(!p.play.items.iter().any(|i| i.template == IRON));
 }
 
+/// A making whose outcome moves a quest tells the quest's update before the recipe's text, and the
+/// answer after both (2017, in send order: 78 of 81 makings that moved a quest).
+/// Behaviour: server.craft.a-quest-it-moves-told-before-its-text
+#[test]
+fn a_making_that_moves_a_quest_tells_the_update_before_its_text() {
+    use yalain_content::quests::{QuestDef, QuestTable};
+    use yalain_testkit::MINES_QUEST;
+    use yalain_world::quests::UPDATE_QUEST;
+    let (mut h, b, me, world) = in_world();
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            duration_by_calendar: false,
+            id: MINES_QUEST,
+            name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
+            description: (0x6C45_9364, 0x2500_17EE),
+            icon: 0x4100_034B,
+            play_fx: true,
+            journals: (1..=6).map(|n| (n, 0x2500_17EE)).collect(),
+            challenge: -999,
+            duration: 72000.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            ranges: Vec::new(),
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+            cancel_wait: None,
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: MINES_QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 3,
+            started: 0,
+            updated: 0,
+        });
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 8.0);
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+        .collect();
+    sent.sort_by_key(|(n, _)| *n);
+    let got: Vec<(u32, Option<u32>)> = sent
+        .iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::PlayerCall(c) => Some((
+                c.function.0,
+                c.args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())
+                    .and_then(|v| match v.last() {
+                        Some(Value::Int(k)) => Some(*k),
+                        _ => None,
+                    }),
+            )),
+            _ => None,
+        })
+        .collect();
+    let update = got.iter().position(|(f, _)| *f == UPDATE_QUEST);
+    let text = got
+        .iter()
+        .position(|(f, k)| *f == 0x8205_0011 && *k == Some(8));
+    let done = got.iter().position(|(f, _)| *f == function::EXECUTED);
+    assert!(update.is_some() && update < text && text < done, "{got:x?}");
+}
+
 /// Making a recipe while attacking is refused at once with the answer alone: not at peace.
 /// A recipe whose product this world can't make uses up nothing: its ingredients stay and it is
 /// answered as failed.
@@ -1100,8 +1190,8 @@ fn drawing_a_map_throws_away_the_maps_of_its_region_held_before() {
 }
 
 /// Drawing a surveyor's map (a recipe whose outcome sets its region's wait) has all five of the
-/// region's map recipes wait five minutes, told in one call after the recipe's text and before the
-/// drawn recipe's own record and the answer.
+/// region's map recipes wait five minutes, told in one call before the recipe's text, the drawn
+/// recipe's own record and the answer.
 /// Behaviour: server.craft.map-recipes-wait-together
 #[test]
 fn drawing_a_map_has_its_regions_five_map_recipes_wait_five_minutes_together() {
@@ -1154,7 +1244,7 @@ fn drawing_a_map_has_its_regions_five_map_recipes_wait_five_minutes_together() {
     let list = at(function::UPDATE_RECIPES).expect("the five");
     let own = at(function::UPDATE_RECIPE).expect("the drawn recipe's record");
     let done = at(function::EXECUTED).expect("the answer");
-    assert!(text < list && list < own && own < done, "{got:x?}");
+    assert!(list < text && text < own && own < done, "{got:x?}");
     assert_eq!(
         objects(&got[list].1),
         vec![(0x1D9, 12); 5],

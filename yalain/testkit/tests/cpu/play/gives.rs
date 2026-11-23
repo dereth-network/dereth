@@ -1253,6 +1253,108 @@ fn an_item_a_give_brings_moves_its_quest_on_after_the_step() {
     );
 }
 
+/// A give's step tells its update, then keeps the item given and hands over the item it gives
+/// (2017, in send order: the item given kept after the update 59 of 86 times, before it 27; a give's
+/// new items after 37 of 57, before 20).
+/// Behaviour: server.quests.a-steps-items-against-its-update
+#[test]
+fn a_give_step_tells_its_update_before_it_keeps_the_item_and_hands_over_its_own() {
+    use yalain_world::quests::UPDATE_QUEST;
+    const CLAIM_QUEST: u32 = 0x4000_032F;
+    const SODDEN: u32 = 0x4700_14FF;
+    const CLAIM: u32 = 0x4700_14F7;
+    let mut h = world();
+    h.server.quests = QuestTable {
+        quests: vec![quest(CLAIM_QUEST, 8)],
+        steps: vec![Step {
+            takes: vec![SODDEN],
+            gives: vec![CLAIM],
+            ..step(
+                CLAIM_QUEST,
+                5,
+                Trigger::Give(SODDEN, PERSON_T),
+                Update::Advance(6),
+            )
+        }],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, CLAIM_QUEST, 5);
+    let (item, slot) = hold(&mut h, me, SODDEN, 1);
+    hold(&mut h, me, CLAIM, 1);
+    let world = world_of(&h, me);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .retain(|x| x.template != CLAIM);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    let order = sent(&h, b, from);
+    let up = order.iter().position(|x| x.0 == UPDATE_QUEST);
+    let kept = order.iter().position(|x| x.0 == gives::DESTROY_CONTAINED);
+    let handed = order
+        .iter()
+        .rposition(|x| x.0 == yalain_world::inventory::function::MOVE_DONE);
+    assert!(up.is_some() && up < kept && up < handed, "{order:X?}");
+}
+
+/// A use's step hands over the item it gives, tells its update, then takes what it takes from the
+/// pack (2017, in send order: a use's new items before the update 63 of 69 times; an item taken
+/// from the pack after it 19 of 20).
+/// Behaviour: server.quests.a-steps-items-against-its-update
+#[test]
+fn a_use_step_hands_over_its_item_before_its_update_and_takes_after_it() {
+    use yalain_world::quests::UPDATE_QUEST;
+    const CLAIM_QUEST: u32 = 0x4000_032F;
+    const SODDEN: u32 = 0x4700_14FF;
+    const CLAIM: u32 = 0x4700_14F7;
+    let mut h = world();
+    let used = Step {
+        takes: vec![SODDEN],
+        gives: vec![CLAIM],
+        ..step(CLAIM_QUEST, 5, Trigger::Use(PERSON_T), Update::Advance(6))
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(CLAIM_QUEST, 8)],
+        steps: vec![used.clone()],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, CLAIM_QUEST, 5);
+    hold(&mut h, me, SODDEN, 1);
+    hold(&mut h, me, CLAIM, 1);
+    let world = world_of(&h, me);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .retain(|x| x.template != CLAIM);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::quests::run(&mut h.server, &mut h.net, world, &used, None, clock);
+    h.run(2);
+    let order = sent(&h, b, from);
+    let up = order.iter().position(|x| x.0 == UPDATE_QUEST);
+    let handed = order
+        .iter()
+        .position(|x| x.0 == yalain_world::inventory::function::MOVE_DONE);
+    let taken = order
+        .iter()
+        .position(|x| x.0 == yalain_world::inventory::function::DISCRETE_DESTROY);
+    assert!(
+        handed.is_some() && handed < up && up.is_some() && up < taken,
+        "{order:X?}"
+    );
+}
+
 /// A step's tap of vitae leaves the player what its share leaves of its vitae (told, with what is
 /// still to earn), the effect's own appearance played on the player.
 ///

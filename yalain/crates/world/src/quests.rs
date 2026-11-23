@@ -8,9 +8,10 @@
 //! again; 62 others were, 115 times). One event runs every step it
 //! triggers, each quest moved on at most once, a step that another of the same event made possible
 //! included (an explorer completes one quest and gives the next). The person used says its line
-//! (a tell naming the player), the step's items are given and taken, then the quest is updated:
+//! (a tell naming the player), the items a use's step gives are given, then the quest is updated:
 //! given (under way at its first phase), moved on to a phase, or completed (its experience paid
-//! first, weighed by the quest's challenge against the player's level as a kill's is). A step that
+//! first, weighed by the quest's challenge against the player's level as a kill's is), then what
+//! the step keeps and takes is taken and the items a give's step gives are given. A step that
 //! takes the player somewhere makes its update when the player arrives. Each update sends the quest's record as the
 //! journal shows it: its name, description and icon, status and phase, the phase's journal entry,
 //! its challenge, when it was given and last done, whether and when it expires, when it may be
@@ -2194,10 +2195,10 @@ pub(crate) fn paused_left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, worl
     s.paused_steps.retain(|(w, _)| *w != world);
 }
 
-/// The rest of what a step does once it has said all it says before its update: the items it
-/// gives and takes (the item given it kept first, where it was not taken at once), its effects and
-/// its update, its share of a level's experience, its fellows' updates. Returns the templates of
-/// the items it gave.
+/// The rest of what a step does once it has said all it says before its update: the items a use's
+/// step gives, its effects and its update, then what it keeps and takes (the item given it kept
+/// first, where it was not taken at once) and the items a give's step gives, its share of a
+/// level's experience, its fellows' updates. Returns the templates of the items it gave.
 fn finish<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2206,35 +2207,14 @@ fn finish<S: Store>(
     clock: Clock,
 ) -> Vec<u32> {
     let (step, who, given) = (&rest.step, rest.who, rest.given);
-    let mut received = Vec::new();
     let kept = given.filter(|g| !rest.taken && step.takes.contains(&g.template));
-    if let Some(g) = kept {
-        crate::gives::keep(s, net, world, g);
-    }
-    for (i, g) in step.gives.iter().enumerate() {
-        let n = step.counts.get(i).copied().unwrap_or(1).max(1);
-        match given {
-            Some(from) => {
-                crate::inventory::give_from(s, net, world, *g, n, from.target);
-                received.push(*g);
-            }
-            None => {
-                crate::inventory::give(s, net, world, *g, n);
-                received.push(*g);
-            }
-        }
-    }
-    // One more item, of several, picked by weight.
-    let pick = s.item_rows.step_pick(step).map(<[(u32, u32)]>::to_vec);
-    if let Some(g) = pick.and_then(|p| crate::makes::pick_one(s, &p)) {
-        match given {
-            Some(from) => crate::inventory::give_from(s, net, world, g, 1, from.target),
-            None => crate::inventory::give(s, net, world, g, 1),
-        };
-        received.push(g);
-    }
-    if !rest.taken {
-        takes_the_rest(s, net, world, step, kept);
+    // What a use's step gives comes before its update, what a give's after it; what it keeps and
+    // takes after it, whatever moved it (2017, in send order: a use's new items before 63 of 69
+    // times, a give's after 37 of 57; an item taken from the pack after 19 of 20; the item given
+    // kept after 59 of 86).
+    let mut received = Vec::new();
+    if given.is_none() {
+        received = hand_over(s, net, world, step, given);
     }
     // What it puts on the item it hands back goes on before the item is back.
     if let Some(g) = given.filter(|g| !step.takes.contains(&g.template)) {
@@ -2257,6 +2237,15 @@ fn finish<S: Store>(
         step_effects(s, net, world, step, who, clock);
         apply_led(s, net, world, up, led, clock);
     }
+    if let Some(g) = kept {
+        crate::gives::keep(s, net, world, g);
+    }
+    if !rest.taken {
+        takes_the_rest(s, net, world, step, kept);
+    }
+    if given.is_some() {
+        received = hand_over(s, net, world, step, given);
+    }
     if step.xp_share > 0.0 {
         let level = s
             .players
@@ -2271,6 +2260,41 @@ fn finish<S: Store>(
         for_fellows(s, net, world, step, clock);
     }
     crate::escorts::step_ran(s, net, world, step, clock);
+    received
+}
+
+/// The items a step gives (from the person given to, where a give moved it), and one of several
+/// picked by weight. Returns their templates.
+fn hand_over<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &Step,
+    given: Option<crate::gives::Given>,
+) -> Vec<u32> {
+    let mut received = Vec::new();
+    for (i, g) in step.gives.iter().enumerate() {
+        let n = step.counts.get(i).copied().unwrap_or(1).max(1);
+        match given {
+            Some(from) => {
+                crate::inventory::give_from(s, net, world, *g, n, from.target);
+                received.push(*g);
+            }
+            None => {
+                crate::inventory::give(s, net, world, *g, n);
+                received.push(*g);
+            }
+        }
+    }
+    // One more item, of several, picked by weight.
+    let pick = s.item_rows.step_pick(step).map(<[(u32, u32)]>::to_vec);
+    if let Some(g) = pick.and_then(|p| crate::makes::pick_one(s, &p)) {
+        match given {
+            Some(from) => crate::inventory::give_from(s, net, world, g, 1, from.target),
+            None => crate::inventory::give(s, net, world, g, 1),
+        };
+        received.push(g);
+    }
     received
 }
 
