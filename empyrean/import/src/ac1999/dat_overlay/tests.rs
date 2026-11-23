@@ -1,6 +1,7 @@
 //! Behaviour: none (tooling: what the Launch data overlay is distilled from, and its refusals)
-//! `ac1999 dat-overlay` takes a commit's migrations only as reviewed, adds the Banderlings' casting
-//! motion where each stance plays it, and walks a later file's records as far as ours lack them.
+//! `ac1999 dat-overlay` takes a commit's migrations only as reviewed, adds the Banderlings' and the
+//! Drudges' casting motion where each stance plays it, and walks a later file's records as far as
+//! ours lack them.
 //! Fixture: synthetic commit listings, motion tables and records; with `launch-content`, the
 //! operator's hash-pinned Launch files of `EMPYREAN_TEST_LAUNCH_FIXTURE`.
 
@@ -25,12 +26,13 @@ fn all() -> Vec<&'static str> {
 }
 
 #[test]
-fn a_commit_with_the_eight_reviewed_migrations_takes_them_in_order() {
+fn a_commit_with_the_nine_reviewed_migrations_takes_them_in_order() {
     let steps = plan(&committed(&all())).expect("reviewed");
-    assert_eq!(steps.len(), 8);
+    assert_eq!(steps.len(), 9);
     assert_eq!(steps[0], Step::Durations);
     assert_eq!(steps[2], Step::BanderlingCasts);
     assert_eq!(steps[7], Step::ResistableImperil);
+    assert_eq!(steps[8], Step::DrudgeCasts);
     assert_eq!(steps.iter().filter(|s| s.is_event()).count(), 4);
 }
 
@@ -47,11 +49,11 @@ fn a_commit_with_the_first_three_takes_three() {
 fn a_migration_nobody_reviewed_is_refused_by_name() {
     let mut c = committed(&all());
     c.insert(
-        format!("{MIGRATIONS}/0009-something-new.py"),
+        format!("{MIGRATIONS}/0010-something-new.py"),
         "00".repeat(32),
     );
     let e = plan(&c).expect_err("unreviewed");
-    assert!(e.contains("0009-something-new.py"), "{e}");
+    assert!(e.contains("0010-something-new.py"), "{e}");
 }
 
 #[test]
@@ -111,7 +113,8 @@ fn the_events_are_left_out_unless_asked_for() {
             Step::Durations,
             Step::SpellFixes,
             Step::BanderlingCasts,
-            Step::ResistableImperil
+            Step::ResistableImperil,
+            Step::DrudgeCasts
         ]
     );
     assert!(left_out);
@@ -186,7 +189,7 @@ fn table() -> Vec<u8> {
 #[test]
 fn each_banderling_stance_gains_a_way_into_casting_and_back() {
     let before = table();
-    let after = patch_banderling_table(&before).expect("patched");
+    let after = patch_cast_table(&before).expect("patched");
     // Four links into casting and four lists back to standing ready.
     let into: usize = STANCES.iter().map(|s| 8 + 16 * s.to_cast.len()).sum();
     let back: usize = STANCES.iter().map(|s| 16 + 16 * s.to_ready.len()).sum();
@@ -204,9 +207,25 @@ fn each_banderling_stance_gains_a_way_into_casting_and_back() {
 
 #[test]
 fn a_banderling_table_that_already_casts_is_refused() {
-    let once = patch_banderling_table(&table()).expect("patched");
-    let e = patch_banderling_table(&once).expect_err("twice");
+    let once = patch_cast_table(&table()).expect("patched");
+    let e = patch_cast_table(&once).expect_err("twice");
     assert!(e.contains("already casts"), "{e}");
+}
+
+#[test]
+fn the_drudge_migration_alone_takes_the_drudges_casting_motion() {
+    let c = committed(&["0009-drudge-cast-animation.py"]);
+    assert_eq!(plan(&c).expect("reviewed"), [Step::DrudgeCasts]);
+    let mut changed = c;
+    changed.insert(
+        format!("{MIGRATIONS}/0009-drudge-cast-animation.py"),
+        "33".repeat(32),
+    );
+    let e = plan(&changed).expect_err("changed");
+    assert!(
+        e.contains("0009-drudge-cast-animation.py has changed"),
+        "{e}"
+    );
 }
 
 #[test]
@@ -273,18 +292,27 @@ mod launch {
     }
 
     #[test]
-    fn the_rules_of_the_reviewed_migrations_change_the_spell_table_and_the_banderlings() {
+    fn the_rules_of_the_reviewed_migrations_change_the_spell_table_the_banderlings_and_the_drudges()
+    {
         let steps = plan(&committed(&all())).expect("reviewed");
         let rules: Vec<Step> = steps.into_iter().filter(|s| !s.is_event()).collect();
         let portal = portal();
         let edits = distill(&rules, &files(&portal)).expect("distilled");
         assert_eq!(
             edits.keys().copied().collect::<Vec<_>>(),
-            [BANDERLING_MOTION_TABLE.raw(), SPELL_TABLE.raw()]
+            [
+                BANDERLING_MOTION_TABLE.raw(),
+                DRUDGE_MOTION_TABLE.raw(),
+                SPELL_TABLE.raw()
+            ]
         );
         assert_eq!(
             source::hash(&edits[&BANDERLING_MOTION_TABLE.raw()]),
             BANDERLING_MOTION_TABLE_SHA256
+        );
+        assert_eq!(
+            source::hash(&edits[&DRUDGE_MOTION_TABLE.raw()]),
+            DRUDGE_MOTION_TABLE_SHA256
         );
     }
 

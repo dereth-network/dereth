@@ -1,4 +1,4 @@
-// Ported from ac1999 (Adam Plumb), AGPL-3.0: DatInspector/patching/closure.py and the dat migrations in DatInspector/patching/migrations/release/ (0003 to 0007 here; 0001, 0002 and 0008 in empyrean-dat's launch_spell_fixes)
+// Ported from ac1999 (Adam Plumb), AGPL-3.0: DatInspector/patching/closure.py and the dat migrations in DatInspector/patching/migrations/release/ (0003 to 0007 and 0009 here; 0001, 0002 and 0008 in empyrean-dat's launch_spell_fixes)
 //! `empyrean-import ac1999 dat-overlay`: the data overlay ac1999's dat migrations make of the 1999
 //! files at one exact commit, for Empyrean to serve to Dereth on a Launch world.
 //!
@@ -25,6 +25,7 @@
 //! | 0006 | The event ends | the retail CD's portal | the eleven records the base has as the event left them |
 //! | 0007 | Assets of four holiday objects | the September 12, 2001 portal | the same walk through its records |
 //! | 0008 | Imperil Other can be resisted | the base | the rule of [`launch_spell_fixes`] |
+//! | 0009 | Drudges gain a casting motion | the base | [`STANCES`], as for the Banderlings |
 //!
 //! The migrations numbered 0004 to 0007 ("the events") are left out unless `--with-events` asks for
 //! them. They need files beyond the Launch pair, named with `--reference`, and the command refuses
@@ -57,6 +58,7 @@ enum Step {
     EventEnds,
     HolidayAssets,
     ResistableImperil,
+    DrudgeCasts,
 }
 
 impl Step {
@@ -70,7 +72,7 @@ impl Step {
 }
 
 /// The migrations reviewed and ported, each as committed.
-const REVIEWED: [(&str, &str, Step); 8] = [
+const REVIEWED: [(&str, &str, Step); 9] = [
     (
         "0001-enchantment-durations.py",
         "dd42a3bb40a5c3a4a14cce15939b45942f01675e9d572df0501de28c8fc71ea8",
@@ -110,6 +112,11 @@ const REVIEWED: [(&str, &str, Step); 8] = [
         "0008-resistable-imperil.py",
         "ec4527ddd7ed70724f594fdd556d3e16e44398ea21d23c8bdcf195c7eb952077",
         Step::ResistableImperil,
+    ),
+    (
+        "0009-drudge-cast-animation.py",
+        "24553d9a236c7517934244be1b5627c167c78644fe86e84310f96374da47b3aa",
+        Step::DrudgeCasts,
     ),
 ];
 
@@ -202,6 +209,12 @@ const LINKS_AFTER_CAST: u32 = (0x47 << 16) | 0x15;
 /// The Banderling table after the casting motion is added.
 const BANDERLING_MOTION_TABLE_SHA256: &str =
     "b21d442b510625406f8223ab24d146b490fef97cda83e8dc504902b4106e5842";
+/// The Drudge table: it lacks the casting motion as the Banderling table does, and gains it the same
+/// way, stance for stance.
+const DRUDGE_MOTION_TABLE: DataId = DataId(0x0900_0008);
+/// The Drudge table after the casting motion is added.
+const DRUDGE_MOTION_TABLE_SHA256: &str =
+    "45b5e1aa4d556221d4bd00206784f28a939d143cc955d01c7742558e2b4ec021";
 
 /// One animation of a motion: its id, frames and frame rate.
 type Anim = (u32, i32, i32, f32);
@@ -215,7 +228,7 @@ const LOWER: Anim = (0x0300_062D, 30, -1, 30.0);
 const SETTLE_IN: Anim = (0x0300_056A, 0, -1, -30.0);
 const SETTLE_OUT: Anim = (0x0300_056A, 0, -1, 30.0);
 
-/// A stance a Banderling casts from.
+/// A stance a Banderling or a Drudge casts from.
 struct Stance {
     /// The stance's motion style, in the high half of a table key.
     style: u32,
@@ -280,9 +293,10 @@ fn past_motion(bytes: &[u8], at: usize) -> Result<usize, String> {
     Ok(end)
 }
 
-/// The Banderling motion table `bytes` with the casting motion in every stance it casts from: the
-/// cycle holds its arms up, and links reach it from standing ready and go back.
-fn patch_banderling_table(bytes: &[u8]) -> Result<Vec<u8>, String> {
+/// The motion table `bytes` (the Banderlings' or the Drudges') with the casting motion in every
+/// stance it casts from: the cycle holds its arms up, and links reach it from standing ready and go
+/// back.
+fn patch_cast_table(bytes: &[u8]) -> Result<Vec<u8>, String> {
     // The defaults, then the cycles.
     let defaults = usize::try_from(read_u32(bytes, 8)?).map_err(|e| e.to_string())?;
     let mut at = 12 + 8 * defaults;
@@ -312,7 +326,7 @@ fn patch_banderling_table(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let mut starts = Vec::new();
         for _ in 0..entries {
             if read_u32(bytes, at)? == MOTION_CAST_SPELL {
-                return Err("the Banderling table already casts".into());
+                return Err("the motion table already casts".into());
             }
             starts.push(at);
             at = past_motion(bytes, at)?;
@@ -322,7 +336,7 @@ fn patch_banderling_table(bytes: &[u8]) -> Result<Vec<u8>, String> {
         lists.push(key);
     }
     if at != bytes.len() {
-        return Err("the Banderling table has bytes after its links".into());
+        return Err("the motion table has bytes after its links".into());
     }
 
     let mut out = bytes.to_vec();
@@ -350,7 +364,7 @@ fn patch_banderling_table(bytes: &[u8]) -> Result<Vec<u8>, String> {
     }
     let (before, _) = links
         .get(&LINKS_AFTER_CAST)
-        .ok_or("the Banderling table has changed its links")?;
+        .ok_or("the motion table has changed its links")?;
     inserts.push((*before, new_links));
     let total = link_count + u32::try_from(STANCES.len()).map_err(|e| e.to_string())?;
     out[link_count_at..link_count_at + 4].copy_from_slice(&total.to_le_bytes());
@@ -519,11 +533,19 @@ fn distill(steps: &[Step], files: &Files<'_>) -> Result<BTreeMap<u32, Vec<u8>>, 
     if steps.contains(&Step::BanderlingCasts) {
         let table =
             read(files.portal, BANDERLING_MOTION_TABLE.raw()).ok_or("no Banderling motions")?;
-        let patched = patch_banderling_table(&table)?;
+        let patched = patch_cast_table(&table)?;
         if source::hash(&patched) != BANDERLING_MOTION_TABLE_SHA256 {
             return Err("the Banderling motion table came out other than as reviewed".into());
         }
         edits.insert(BANDERLING_MOTION_TABLE.raw(), patched);
+    }
+    if steps.contains(&Step::DrudgeCasts) {
+        let table = read(files.portal, DRUDGE_MOTION_TABLE.raw()).ok_or("no Drudge motions")?;
+        let patched = patch_cast_table(&table)?;
+        if source::hash(&patched) != DRUDGE_MOTION_TABLE_SHA256 {
+            return Err("the Drudge motion table came out other than as reviewed".into());
+        }
+        edits.insert(DRUDGE_MOTION_TABLE.raw(), patched);
     }
     if steps.contains(&Step::EventEnds) {
         let cd = files
