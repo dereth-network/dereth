@@ -54,7 +54,7 @@ declare nav: {
 	known_portals: (filter: any?) -> any,
 	-- The places the client knows of this world: the towns, landmarks and houses the game's data names, and each lifestone, portal, vendor, person and house it was shown or the server publishes, where it stands, how it is known, when it was seen, and a house's owner. A `filter` as `nav.known_portals` takes, and `kind`, a kind or a list of kinds.
 	known_places: (filter: any?) -> any,
-	-- Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing.
+	-- Where the character's recalls land it: each recall (`spell <id>`, `lifestone`, `marketplace`, `house`, `mansion`, `allegiance`) and its landing, learned from its uses and from what sets it (a tie, a lifestone, the last portal taken).
 	recalls: () -> any,
 }
 

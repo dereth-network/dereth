@@ -330,7 +330,26 @@ portal the character was refused at until a use of it succeeds.
 
 A portal the player uses by hand is learned the same way as one a journey uses. The store learns
 where it sent the character, but only when the teleport began at that portal within 20 seconds
-of the use. A recall, or the server moving the character, teaches nothing.
+of the use. The server moving the character teaches nothing.
+
+The character's recalls are learned for it, kept with the store across sessions:
+- **A recall used,** by a journey or by hand (the lifestone, marketplace, house, mansion and
+  hometown commands, a recall spell cast, an item that casts one used): where it landed the
+  character, once a teleport within 30 seconds of the use has taken the body more than 15 metres.
+- **Portal Recall:** where the last portal the character took sent it, at each portal.
+- **A tie's recall** (Primary and Secondary Portal Recall, Lifestone Recall) is learned like any
+  other the first time it is used.
+- **A portal tie:** the tie's recall lands where the portal tied to sends, once the server says the
+  tie took and the store knows that portal's destination; **Lifestone Tie** sets Lifestone Recall
+  to land at the lifestone tied to.
+- **A lifestone used:** the lifestone command lands where the character stood when the lifestone
+  took its spirit.
+- **The Marketplace recall** lands every character at the Marketplace, where this world's places
+  name it, until a use says otherwise.
+- **What the world tells the client of the character:** where it keeps the lifestone the character
+  last used, the lifestone it tied to and the last portal it took, where a world sends them.
+
+A journey plans with a recall only once its landing is known; it never tries one to find out.
 
 ### The places it has learned
 

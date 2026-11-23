@@ -343,16 +343,26 @@ pub enum Recall {
     Lifestone,
     /// The command that sends a character to the marketplace.
     Marketplace,
+    /// The command that sends a character to its house.
+    House,
+    /// The command that sends a character to its allegiance's mansion.
+    Mansion,
+    /// The command that sends a character to its allegiance's hometown.
+    Allegiance,
 }
 
 impl Recall {
-    /// The recall as one store field: `spell <id>`, `lifestone` or `marketplace`.
+    /// The recall as one store field: `spell <id>`, `lifestone`, `marketplace`, `house`,
+    /// `mansion` or `allegiance`.
     #[must_use]
     pub fn word(self) -> String {
         match self {
             Self::Spell(s) => format!("spell {s}"),
             Self::Lifestone => String::from("lifestone"),
             Self::Marketplace => String::from("marketplace"),
+            Self::House => String::from("house"),
+            Self::Mansion => String::from("mansion"),
+            Self::Allegiance => String::from("allegiance"),
         }
     }
 
@@ -362,6 +372,9 @@ impl Recall {
         match s {
             "lifestone" => Some(Self::Lifestone),
             "marketplace" => Some(Self::Marketplace),
+            "house" => Some(Self::House),
+            "mansion" => Some(Self::Mansion),
+            "allegiance" => Some(Self::Allegiance),
             _ => s.strip_prefix("spell ")?.parse().ok().map(Self::Spell),
         }
     }

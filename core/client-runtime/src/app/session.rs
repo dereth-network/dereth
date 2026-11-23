@@ -1460,6 +1460,37 @@ impl<S: Shell> App<S> {
             // is what reads in retail.
             self.hud.now = now;
             let lines = self.apply_hud_events(shell, events);
+            // What a tie or a lifestone said took, for the travel to learn the recall it sets.
+            {
+                let said: Vec<u8> = lines.iter().map(|l| l.ty).collect();
+                let model = &self.objects.world;
+                let name = model
+                    .player
+                    .and_then(|p| model.weenie(p))
+                    .map(|w| w.pwd.name.clone())
+                    .unwrap_or_default();
+                let body = self
+                    .world
+                    .as_ref()
+                    .and_then(|w| w.character.as_ref())
+                    .map(crate::character::Character::position);
+                self.travel
+                    .server_lines(&said, body.as_ref(), self.timer.cur_time, &name);
+                // The codes that say a tie took.
+                let codes: Vec<u32> = events
+                    .iter()
+                    .filter_map(dereth_client_net::client_session::SessionEvent::ui_body)
+                    .filter(|(op, _)| *op == dereth_protocol::Opcode::COMMUNICATION_WEENIE_ERROR)
+                    .filter_map(|(_, body)| {
+                        use dereth_protocol::Message as _;
+                        let mut r = dereth_protocol::archive::Reader::new(body);
+                        dereth_protocol::comms::CommunicationWeenieError::read(&mut r).ok()
+                    })
+                    .map(|m| m.error_type)
+                    .collect();
+                self.travel
+                    .server_errors(&codes, self.timer.cur_time, &name);
+            }
             self.gather_hook_chat(lines);
             // A spell that fizzled, for the travel to cast again.
             self.travel_fizzles += crate::frame_hook::outcomes_of(events)

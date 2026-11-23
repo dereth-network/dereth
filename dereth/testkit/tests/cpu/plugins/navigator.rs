@@ -880,7 +880,7 @@ fn the_navigator_searches_a_whole_eras_places_and_keeps_running() {
 
 /// Before a search, the Navigator says how many portals and places the client knows and where
 /// each was learned (the era's package, the server, the character's own play, the game's data);
-/// `/nav known` says it in chat.
+/// `/nav known` says it in chat, and where each of the character's recalls lands it.
 fn the_navigator_says_what_it_knows_before_a_search() {
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
@@ -888,7 +888,7 @@ fn the_navigator_says_what_it_knows_before_a_search() {
     run.type_line("/nav known");
     assert_eq!(
         printed_since(&run, from),
-        ["[Nav] Knows no portals and no places."],
+        ["[Nav] Knows no portals and no places. No recalls known yet."],
         "a world the client knows nothing of"
     );
     run.scripted_portals(&portals(), Vec::new());
@@ -909,10 +909,24 @@ fn the_navigator_says_what_it_knows_before_a_search() {
     let said = printed_since(&run, from);
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(
-        said[0].ends_with("and 2 places (1 from the server, 1 from the game's data)."),
+        said[0].ends_with(
+            "and 2 places (1 from the server, 1 from the game's data). No recalls known yet."
+        ),
         "{said:?}"
     );
     assert!(said[0].starts_with("[Nav] Knows 2 portals ("), "{said:?}");
+    // The character's recalls, once their landings are known.
+    run.learn_recall(dereth_navigation::Recall::Lifestone, (42.1, 33.6));
+    run.learn_recall(dereth_navigation::Recall::Spell(2645), (30.0, 10.5));
+    run.advance(0.1);
+    let from = run.printed().len();
+    run.type_line("/nav known");
+    let said = printed_since(&run, from);
+    assert!(
+        said[0]
+            .ends_with("Recalls: Lifestone recall to 42.1N 33.6E; Portal Recall to 30.0N 10.5E."),
+        "{said:?}"
+    );
     // The window: the counts alone on its status line, and its own width (72 cells of 7)
     // however long its destination and status lines are.
     let long = "Sentry of the Far Watchtower Above the Old Mine Road North of Holtburg Town";

@@ -42,7 +42,9 @@ use dereth_world_data::land_source::DatLandSource;
 use crate::planning::{Answer, Goal, Job, Planning};
 
 mod places;
+mod recalls;
 pub use places::PlaceSeen;
+pub use recalls::{recall_set_off, TIES};
 mod published;
 pub use published::{
     published_documents, Answered, Fetched, PublishedReading, PUBLISHED_AGAIN, PUBLISHED_TRIES,
@@ -1302,6 +1304,8 @@ pub struct Travel {
     portals: PortalStore,
     /// This world's places, and what is being learned of them ([`places`]).
     places: places::Learning,
+    /// The recalls the player sets off, and the ties and lifestones that set their landings.
+    recall_watch: recalls::RecallWatch,
     /// What the server publishes, kept to merge into each world's store as it loads: its
     /// portal table, and its places.
     published: Vec<dereth_navigation::PortalEdge>,
@@ -1384,6 +1388,7 @@ impl Travel {
             files,
             portals: PortalStore::default(),
             places: places::Learning::default(),
+            recall_watch: recalls::RecallWatch::default(),
             published: Vec::new(),
             published_places: Vec::new(),
             hinted: Vec::new(),
@@ -2063,6 +2068,17 @@ impl Travel {
     /// The teleports the character can use now under `allow`, less those that failed on `trip`.
     fn teleports(&self, allow: TravelAllow, disabled: &BTreeSet<Recall>) -> Vec<Teleport> {
         let mut c = self.character.clone();
+        // The house, mansion and hometown recalls a character has been seen to use: it has them.
+        for (recall, word) in [
+            (Recall::House, "house"),
+            (Recall::Mansion, "mansion"),
+            (Recall::Allegiance, "allegiance hometown"),
+        ] {
+            let known = self.portals.recall_destination(&c.name, recall).is_some();
+            if known && !c.recall_commands.iter().any(|(r, _)| *r == recall) {
+                c.recall_commands.push((recall, String::from(word)));
+            }
+        }
         if !allow.spells {
             c.recall_spells.clear();
         }
@@ -2089,6 +2105,7 @@ impl Travel {
         disabled: &BTreeSet<Recall>,
         object: bool,
     ) -> Option<u64> {
+        self.marketplace_from_places();
         let teleports = self.teleports(allow, disabled);
         let unwalkable = self
             .trip
@@ -2814,6 +2831,11 @@ impl Travel {
             (Recall::Lifestone, None) => out.push(TravelCommand::Chat(String::from("/lifestone"))),
             (Recall::Marketplace, None) => {
                 out.push(TravelCommand::Chat(String::from("/marketplace")));
+            }
+            (Recall::House, None) => out.push(TravelCommand::Chat(String::from("/hr"))),
+            (Recall::Mansion, None) => out.push(TravelCommand::Chat(String::from("/hom"))),
+            (Recall::Allegiance, None) => {
+                out.push(TravelCommand::Chat(String::from("/allegiance hometown")));
             }
         }
         let wait = self.wait(Awaited::Recall(recall), here);

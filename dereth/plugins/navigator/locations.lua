@@ -40,7 +40,9 @@ local PORTAL_TYPES = { portal = true, dungeon = true, destination = true }
 L.MAX = 50
 
 L.RECALL_NAMES = { lifestone = "Lifestone recall", marketplace = "Marketplace recall",
-	house = "House recall", mansion = "Mansion recall", allegiance = "Allegiance hometown recall" }
+	house = "House recall", mansion = "Mansion recall", allegiance = "Allegiance hometown recall",
+	["spell 48"] = "Primary Portal Recall", ["spell 2647"] = "Secondary Portal Recall",
+	["spell 2645"] = "Portal Recall", ["spell 1635"] = "Lifestone Recall" }
 
 -- The world's store, or nil before login.
 local function world()

@@ -58,11 +58,44 @@ impl<S: Shell> App<S> {
             }
         }
         let now = self.timer.cur_time;
+        // What sets off a recall, or sets where one lands.
+        let recall_spell = |spell: u32| {
+            model
+                .magic
+                .spell_table
+                .as_deref()
+                .and_then(|t| t.spells.get(&spell))
+                .is_some_and(|b| NAV_RECALL_KINDS.contains(&b.meta_spell_type))
+        };
         for r in &self.interaction.last_sent {
+            use dereth_client_model::Request as R;
+            if let R::CastTargetedSpell(m) = r {
+                if let Some(o) = seen(m.target) {
+                    self.travel.spell_cast_at(m.spell_id, &o, now);
+                }
+            }
+            // An item used from the pack (not standing in the world) that casts a recall.
+            let item_spell = |id: ObjectId| {
+                model
+                    .weenie(id)
+                    .and_then(|w| w.pwd.spell_id.map(u32::from))
+                    .filter(|_| at_of(id).is_none())
+            };
+            let recall = crate::travel::recall_set_off(r, &recall_spell, &item_spell);
+            if let Some(recall) = recall {
+                self.travel.recall_used(recall, now);
+                continue;
+            }
             let dereth_client_model::Request::UseEvent(u) = r else {
                 continue;
             };
             let Some(o) = seen(u.object) else { continue };
+            if o.kind() == Some(dereth_navigation::PlaceKind::Lifestone) {
+                if let Some(at) = o.at {
+                    self.travel.lifestone_used(at, now);
+                }
+                continue;
+            }
             if o.kind() != Some(dereth_navigation::PlaceKind::Portal) {
                 continue;
             }
@@ -83,6 +116,18 @@ impl<S: Shell> App<S> {
             .and_then(|p| model.weenie(p))
             .map(|w| w.pwd.name.clone())
             .unwrap_or_default();
+        // The positions the server keeps for the character that are recalls' landings.
+        if let Some(q) = model.player_qualities() {
+            let kept: Vec<(u32, dereth_primitives::Position)> = q
+                .positions
+                .iter()
+                .flatten()
+                .map(|(k, p)| (*k, dereth_primitives::Position::from(*p)))
+                .collect();
+            if !kept.is_empty() && !name.is_empty() {
+                self.travel.recall_positions(&name, &kept);
+            }
+        }
         let at = character.position();
         let portal_space = self.teleport.teleport_in_progress();
         self.travel.body_at(&at, portal_space, now, &name);

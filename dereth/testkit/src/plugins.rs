@@ -1400,6 +1400,20 @@ impl PluginRun {
         });
     }
 
+    /// The character's `recall` known to land it at `(ns, ew)`, as the client learns a recall's
+    /// landing.
+    pub fn learn_recall(&mut self, recall: dereth_navigation::Recall, (ns, ew): (f64, f64)) {
+        let w = &self.objects.world;
+        let name = w
+            .player
+            .and_then(|p| w.weenie(p))
+            .map(|me| me.pwd.name.clone())
+            .unwrap_or_default();
+        if let Some(at) = dereth_plugin_host::places::from_coords(ns, ew, 0.0) {
+            self.travel.store.learn_recall(&name, recall, &at, 1);
+        }
+    }
+
     /// The places the game's data names (towns, landmarks, houses), as the client reads them from
     /// the data for its map: `(kind, name, (ns, ew))` each, `(ns, ew)` as the world map measures
     /// them (half a cell, 0.05, less than the radar shows).

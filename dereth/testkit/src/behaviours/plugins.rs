@@ -787,6 +787,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-characters-recalls-are-learned-where-they-land",
+        says: "The character's recalls are learned for it and kept across sessions: where each \
+               recall the player or a journey sets off lands it, a tie's recall too the first \
+               time it is used; Portal Recall's from each portal taken; a portal tie's from the \
+               destination of the portal tied to, and Lifestone Recall's from the lifestone tied \
+               to, once the server says the tie took; the lifestone command's from where the \
+               character stood when a lifestone took its spirit; the Marketplace recall's from where this world's places name the \
+               Marketplace. A journey plans with a recall only once its landing is known.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-RECALLS-LEARNED"),
+        station: "dereth-client-runtime::lib::travel::recalls::tests::a_recall_used_by_hand_is_learned_where_it_lands_and_kept_for_the_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-door-no-use-opens-is-opened-by-its-lever",
         says: "A door that cannot be used, which the server publishes a lever for, is planned                as passable: at it the walk goes to the nearest lever a walk reaches, uses it (a                plate is stepped on), and walks through once the door stands open, going back to                the lever a few times if it shuts first; with no lever reached, the door is                planned round.",
         since: THIS_CLIENT,
@@ -2005,8 +2020,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "plugins.samples.the-navigator-says-what-it-knows-before-a-search",
         says: "Before a search, the Navigator's status line says how many portals and places the \
                client knows of the world, and /nav known says in chat where each was learned \
-               (the era's package, the server, the character's own play, the game's data): what \
-               the Where to? box has to go on. The window keeps its own width however long its \
+               (the era's package, the server, the character's own play, the game's data) and \
+               where each of the character's recalls lands it: what the Where to? box has to go \
+               on. The window keeps its own width however long its \
                destination and status lines are.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",

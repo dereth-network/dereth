@@ -213,7 +213,22 @@ local function knowledge_line(short)
 		end
 		return string.format("%d %s (%s)", total, what, table.concat(parts, ", "))
 	end
-	return "Knows " .. said(k.portals or {}, "portals") .. " and " .. said(k.places or {}, "places") .. "."
+	local line = "Knows " .. said(k.portals or {}, "portals") .. " and " .. said(k.places or {}, "places") .. "."
+	if short or nav.recalls == nil then
+		return line
+	end
+	-- Where the character's recalls land it.
+	local recalls = {}
+	for _, r in ipairs(nav.recalls()) do
+		local word = tostring(r.recall)
+		local name = L.RECALL_NAMES[word] or ("Recall " .. word)
+		table.insert(recalls, string.format("%s to %s", name, P.short(r.to)))
+	end
+	table.sort(recalls)
+	if #recalls == 0 then
+		return line .. " No recalls known yet."
+	end
+	return line .. " Recalls: " .. table.concat(recalls, "; ") .. "."
 end
 local knowing = ""
 

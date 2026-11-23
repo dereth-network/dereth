@@ -174,7 +174,7 @@ pub const OPS: &[Op] = &[
     Op { name: "nav.known_places", lua: Some("nav.known_places"), params: &[p("filter", Ty::Opt(&Ty::Value))], result: Some(Ty::Value),
          doc: "The places the client knows of this world: the towns, landmarks and houses the game's data names, and each lifestone, portal, vendor, person and house it was shown or the server publishes, where it stands, how it is known, when it was seen, and a house's owner. A `filter` as `nav.known_portals` takes, and `kind`, a kind or a list of kinds." },
     Op { name: "nav.recalls", lua: Some("nav.recalls"), params: &[], result: Some(Ty::Value),
-         doc: "Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing." },
+         doc: "Where the character's recalls land it: each recall (`spell <id>`, `lifestone`, `marketplace`, `house`, `mansion`, `allegiance`) and its landing, learned from its uses and from what sets it (a tie, a lifestone, the last portal taken)." },
     Op { name: "nav.sight", lua: None, params: &[p("target", Ty::Value), p("from", Ty::Opt(&Ty::Value))], result: Some(Ty::Opt(&Ty::Bool)),
          doc: "Whether a straight line from the character (or `from`) to an object or a place is clear of the world's walls, ground and the objects that stop a body, a metre above each end; null where the host cannot tell." },
     Op { name: "meta.parse", lua: None, params: &[p("text", Ty::Str), p("page", Ty::Opt(&Ty::Value))], result: Some(Ty::Value),

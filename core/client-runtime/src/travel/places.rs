@@ -276,6 +276,7 @@ impl Travel {
     /// used sends them is learned once it has, into this world's portal store, as a journey
     /// learns it (a journey under way learns its own).
     pub fn body_at(&mut self, at: &Position, portal_space: bool, now: f64, character: &str) {
+        self.recall_landing(at, portal_space, now, character);
         let Some((portal, landed)) = self.places.watch.frame(at, portal_space, now) else {
             return;
         };

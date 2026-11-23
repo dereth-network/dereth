@@ -2417,11 +2417,15 @@ fn recall_of(v: &Value) -> Result<dereth_navigation::Recall, CallError> {
     match (v.as_str(), v.as_i64()) {
         (Some("lifestone"), _) => Ok(Recall::Lifestone),
         (Some("marketplace"), _) => Ok(Recall::Marketplace),
+        (Some("house"), _) => Ok(Recall::House),
+        (Some("mansion"), _) => Ok(Recall::Mansion),
+        (Some("allegiance"), _) => Ok(Recall::Allegiance),
         (_, Some(n)) => u32::try_from(n)
             .map(Recall::Spell)
             .map_err(|_| bad("a recall spell is a spell id")),
         _ => Err(bad(
-            "a recall is \"lifestone\", \"marketplace\" or a recall spell's id",
+            "a recall is \"lifestone\", \"marketplace\", \"house\", \"mansion\", \"allegiance\" \
+             or a recall spell's id",
         )),
     }
 }

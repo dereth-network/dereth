@@ -430,7 +430,7 @@ The places the client knows of this world: the towns, landmarks and houses the g
 
 ### `nav.recalls`
 
-Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing.
+Where the character's recalls land it: each recall (`spell <id>`, `lifestone`, `marketplace`, `house`, `mansion`, `allegiance`) and its landing, learned from its uses and from what sets it (a tie, a lifestone, the last portal taken).
 
 - WIT: `nav-recalls: func() -> result<value, string>`
 - Lua: `nav.recalls() -> any`
