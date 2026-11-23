@@ -33,8 +33,8 @@
 //! The editing half has no interface of its own: [`edit`] holds a world open, turns each change
 //! into an edit of a pack's sources, undoes and redoes them, compiles only the landblocks a change
 //! reaches (the same bytes a full build makes) and saves; [`scratch`] keeps the overlay an editor
-//! draws in step with it, writing only what each edit reached; [`brush`] is what a terrain brush
-//! sets, [`pick`] what a ray from the camera meets, [`models`] what a model is called, and
+//! draws in step with it, writing only what each edit reached; [`land`] is the world's land grid,
+//! and the land of a world set finer than its files; [`brush`] is what a terrain brush sets, [`pick`] what a ray from the camera meets, [`models`] what a model is called, and
 //! [`script`] edits written as text, which `lyceum edit` runs. [`content`] is a pack's
 //! server content as the editor's forms edit it: ACE SQL held as its statements, and weenies made
 //! from the world database's; [`quests`] every quest of the world, where each is named, and a
@@ -74,6 +74,7 @@ pub mod format;
 pub mod grid;
 pub mod import;
 pub mod kit;
+pub mod land;
 pub mod layer;
 pub mod lock;
 pub mod loot;

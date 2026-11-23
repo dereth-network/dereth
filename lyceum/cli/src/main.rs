@@ -48,7 +48,7 @@ use lyceum_foundry::{
 };
 
 const USAGE: &str = "\
-lyceum new <folder> [--empty] [--era eor|infiltration]
+lyceum new <folder> [--empty] [--era eor|infiltration] [--spacing 24|12|8 | --on <overlay>]
 lyceum upgrade <world.toml> [--check]
 lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>] [--schema <json>]
@@ -814,18 +814,35 @@ fn main() -> ExitCode {
                 Ok(a) => a,
                 Err(why) => return usage(&why),
             };
-            if args.known(&["era"]).is_err()
+            if args.known(&["era", "spacing", "on"]).is_err()
                 || args.words.len() != 1
                 || args.switches.iter().any(|s| s != "empty")
             {
-                return usage("new takes a folder, optional --empty and optional --era");
+                return usage("new takes a folder, optional --empty, --era and --spacing or --on");
             }
             let era = match args.value("era").map(lyceum_foundry::world::EraId::parse) {
                 None => lyceum_foundry::world::EraId::Eor,
                 Some(Some(era)) => era,
                 Some(None) => return usage("--era is eor or infiltration"),
             };
-            match sample::make(Path::new(&args.words[0]), args.switch("empty"), era) {
+            let spacing = match args.value("spacing").map(str::parse::<u32>) {
+                None => 24,
+                Some(Ok(m)) if lyceum_foundry::world::land_steps(m).is_some() => m,
+                Some(_) => return usage("--spacing is 24, 12 or 8 (meters between vertices)"),
+            };
+            let made = match args.value("on") {
+                Some(_) if args.value("spacing").is_some() => {
+                    return usage("a world --on an imported world takes its land from it")
+                }
+                Some(on) => sample::make_on(Path::new(&args.words[0]), era, Path::new(on)),
+                None => sample::make(
+                    Path::new(&args.words[0]),
+                    args.switch("empty"),
+                    era,
+                    spacing,
+                ),
+            };
+            match made {
                 Ok(world) => {
                     println!("{}", world.display());
                     ExitCode::SUCCESS

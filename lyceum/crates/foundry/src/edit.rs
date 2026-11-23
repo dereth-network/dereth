@@ -40,6 +40,7 @@ use dereth_assets::Region;
 use dereth_dat::ModernDat;
 use dereth_pack::session::{History, Sources, Step};
 use dereth_pack::store::DiskStore;
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
@@ -83,7 +84,8 @@ pub type PartPortal = (usize, usize, usize);
 /// One field of one world vertex set to a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VertexSet {
-    /// The world grid point: `landblock x * 8 + local x`, the same for y.
+    /// The world grid point: `landblock x * squares + local x`, the same for y, where a landblock
+    /// side has `squares` vertex steps on the world's land grid ([`Session::grid`]).
     pub gx: u32,
     pub gy: u32,
     pub field: Field,
@@ -1158,12 +1160,13 @@ fn today() -> String {
     format!("{y:04}-{m:02}-{d:02} 00:00:00")
 }
 
-/// The landblock that owns world vertex `(gx, gy)` when no file sets it yet, and its local
-/// coordinates there: local 0 to 7 inside a landblock, so an east or north edge belongs to the
-/// next one; the world's own far edge to the last.
+/// The landblock that owns world vertex `(gx, gy)` of land grid `grid` when no file sets it yet,
+/// and its local coordinates there: local 0 to one short of the block's squares inside a
+/// landblock, so an east or north edge belongs to the next one; the world's own far edge to the
+/// last.
 #[must_use]
-pub fn vertex_owner(gx: u32, gy: u32) -> (u16, u8, u8) {
-    crate::brush::WORLD.owner(gx, gy)
+pub fn vertex_owner(grid: &LandGrid, gx: u32, gy: u32) -> (u16, u8, u8) {
+    crate::land::world_grid(*grid).owner(gx, gy)
 }
 
 /// The outdoor cell of landblock meters `(x, y)`, `1` to `0x40`.
@@ -1329,6 +1332,12 @@ impl Session {
     #[must_use]
     pub fn region(&self) -> Option<&Region> {
         self.region.as_ref()
+    }
+
+    /// The world's land grid: its files', or the finer one the world sets ([`crate::land`]).
+    #[must_use]
+    pub fn grid(&self) -> LandGrid {
+        self.compiled.grid
     }
 
     /// Stamp SQL rows the session writes with `date` (`YYYY-MM-DD hh:mm:ss`) rather than today.
@@ -2541,19 +2550,18 @@ impl Session {
     /// World vertex `(gx, gy)` as the compiled world holds it.
     #[must_use]
     pub fn vertex(&self, gx: u32, gy: u32) -> Option<Vertex> {
-        let (lb, x, y) = vertex_owner(gx, gy);
+        let (lb, x, y) = vertex_owner(&self.compiled.grid, gx, gy);
         let t = self.terrain(lb)?;
-        let (x, y) = (usize::from(x), usize::from(y));
-        let height = t.height[x * 9 + y];
+        let (height, word) = crate::land::vertex(&t, usize::from(x), usize::from(y))?;
         let z = self.region.as_ref().map_or(0.0, |r| {
             dereth_terrain::land::mesh::height_table(r)[usize::from(height)]
         });
         Some(Vertex {
             height,
             z,
-            terrain: t.terrain_type(x, y),
-            scene: t.scene_type(x, y),
-            road: t.road(x, y),
+            terrain: (word & 0x007C) >> 2,
+            scene: word >> 11,
+            road: word & 0x0003,
         })
     }
 
@@ -2991,13 +2999,14 @@ impl Session {
         Ok(())
     }
 
-    /// The landblocks a change of the vertex sets from `before` to `after` reaches.
-    fn vertex_change(before: &VertexSets, after: &VertexSets) -> BTreeSet<u16> {
+    /// The landblocks a change of the vertex sets from `before` to `after` reaches, on land grid
+    /// `grid`.
+    fn vertex_change(grid: &LandGrid, before: &VertexSets, after: &VertexSets) -> BTreeSet<u16> {
         let mut out = BTreeSet::new();
         let keys: BTreeSet<&(u32, u32, Field)> = before.keys().chain(after.keys()).collect();
         for k in keys {
             if before.get(k).map(|v| v.0) != after.get(k).map(|v| v.0) {
-                out.extend(copies(k.0, k.1).into_iter().map(|(lb, _, _)| lb));
+                out.extend(copies(grid, k.0, k.1).into_iter().map(|(lb, _, _)| lb));
             }
         }
         out
@@ -3007,13 +3016,14 @@ impl Session {
     fn change(&mut self, texts: &BTreeMap<PathBuf, Option<String>>) -> Result<Touched, Error> {
         let before: BTreeMap<PathBuf, Option<String>> =
             texts.keys().map(|p| (p.clone(), self.text(p))).collect();
-        let vertices_before = gather_vertices(&self.packs, &self.compiled.overrides).0;
+        let grid = self.compiled.grid;
+        let vertices_before = gather_vertices(&self.packs, &self.compiled.overrides, &grid).0;
         let compiled_before = self.compiled.clone();
         let result = (|| {
             self.set_texts(texts)?;
-            let vertices_after = gather_vertices(&self.packs, &self.compiled.overrides).0;
+            let vertices_after = gather_vertices(&self.packs, &self.compiled.overrides, &grid).0;
             let mut touched = Touched {
-                landblocks: Self::vertex_change(&vertices_before, &vertices_after),
+                landblocks: Self::vertex_change(&grid, &vertices_before, &vertices_after),
                 sql: false,
             };
             let sql_dir = self.pack_dir().join("server").join("sql");
@@ -4835,9 +4845,11 @@ impl Session {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
+        #[allow(clippy::cast_possible_truncation)] // 8 to 32 squares a block side
+        let squares = self.compiled.grid.squares_per_side() as u32;
         for path in &files {
             let lb = source::landblock_of_file(path)?;
-            let (bx, by) = (u32::from(lb >> 8), u32::from(lb & 0xFF));
+            let (bx, by) = (u32::from(lb >> 8) * squares, u32::from(lb & 0xFF) * squares);
             let doc = self.doc(path, out)?;
             let Some(vs) = doc.get("vertex").and_then(Item::as_array_of_tables) else {
                 continue;
@@ -4853,12 +4865,12 @@ impl Session {
                     continue;
                 };
                 let till = xy(t.get("to").and_then(Item::as_array)).unwrap_or(from);
-                let covers = (bx * 8 + from.0..=bx * 8 + till.0).contains(&s.gx)
-                    && (by * 8 + from.1..=by * 8 + till.1).contains(&s.gy);
+                let covers = (bx + from.0..=bx + till.0).contains(&s.gx)
+                    && (by + from.1..=by + till.1).contains(&s.gy);
                 if covers && t.contains_key(key) {
                     let local = (
-                        u8::try_from(s.gx - bx * 8).unwrap_or(0),
-                        u8::try_from(s.gy - by * 8).unwrap_or(0),
+                        u8::try_from(s.gx - bx).unwrap_or(0),
+                        u8::try_from(s.gy - by).unwrap_or(0),
                     );
                     found.push((path.clone(), k, local, till == from));
                 }
@@ -4888,7 +4900,7 @@ impl Session {
             }
             return Ok(());
         }
-        let (lb, x, y) = vertex_owner(s.gx, s.gy);
+        let (lb, x, y) = vertex_owner(&self.compiled.grid, s.gx, s.gy);
         let path = self.edits_file(lb);
         let path = out
             .keys()
@@ -4946,9 +4958,11 @@ impl Session {
                     .cloned(),
             )
             .collect();
+        #[allow(clippy::cast_possible_truncation)] // 8 to 32 squares a block side
+        let squares = self.compiled.grid.squares_per_side() as u32;
         for path in files {
             let lb = source::landblock_of_file(&path)?;
-            let (bx, by) = (u32::from(lb >> 8) * 8, u32::from(lb & 0xFF) * 8);
+            let (bx, by) = (u32::from(lb >> 8) * squares, u32::from(lb & 0xFF) * squares);
             let mut doc = self.doc(&path, out)?;
             let Some(rows) = doc.get_mut("vertex").and_then(Item::as_array_of_tables_mut) else {
                 continue;
@@ -5453,6 +5467,9 @@ impl Session {
         report
             .warnings
             .extend(self.compiled.warnings.values().flatten().cloned());
+        report
+            .warnings
+            .extend(compile::hidden_spawns(&self.world, &self.packs));
         report.problems.extend(sql_ids::check(
             &layered,
             &compile::sql_named(&self.packs, &self.compiled),

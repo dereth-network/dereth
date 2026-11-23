@@ -33,6 +33,7 @@ use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
 use dereth_assets::{Region, Surface, SurfaceTexture};
 use dereth_dat::overlay::{container_name, OverlayDir, OverlayWriter};
 use dereth_dat::{decompose, ModernDat};
+use dereth_primitives::land_grid::LandGrid;
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 
 use crate::conflict::{self, Claim, Item, Override, Settled, SqlKey, SqlSet};
@@ -125,6 +126,11 @@ pub struct Compiled {
     pub overrides: Vec<Override>,
     /// The conflicts found and the overrides taken, by the part of the world they are in.
     pub settled: BTreeMap<Part, Settled>,
+    /// The world's land grid: its files', or the finer one the world sets ([`crate::land`]).
+    pub grid: LandGrid,
+    /// Warnings about the world as a whole, not one landblock: they stand however much of it is
+    /// compiled again.
+    pub world_warnings: Vec<String>,
 }
 
 /// A part of a world a compile settles conflicts in, so that compiling a part again replaces
@@ -249,6 +255,193 @@ fn read_imports(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Er
         }
     }
     Ok(())
+}
+
+/// The world's land grid, from the region record under the packs; and, for a world that sets a
+/// finer land than its files', the refined land laid down as the first layer over the imports
+/// ([`crate::land`]): the region record saying the grid, and every landblock on it.
+///
+/// # Errors
+/// A world whose files have no region record, or whose files already cut their land into steps the
+/// world's spacing disagrees with.
+fn land_layer(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Error> {
+    let (bytes, version, holder) = {
+        let view = View { base, c };
+        let held = view
+            .get(ModernDat::Portal, REGION.raw())
+            .map(|(b, v)| (b, v, ModernDat::Portal))
+            .or_else(|| {
+                view.get(ModernDat::HighRes, REGION.raw())
+                    .map(|(b, v)| (b, v, ModernDat::HighRes))
+            });
+        match held {
+            Some(h) => h,
+            None if world.land_steps.is_none() => return Ok(()),
+            None => return Err(Error::Dat("the files have no region record".to_owned())),
+        }
+    };
+    let region = base
+        .decode::<Region>(REGION, &bytes)
+        .map_err(|e| Error::Dat(format!("the region record: {e}")))?;
+    let files = region.land_defs.land_grid();
+    c.grid = files;
+    let Some(steps) = world.land_steps.filter(|s| *s != files.vertices_per_cell) else {
+        return Ok(());
+    };
+    if !files.is_default() {
+        return Err(Error::source(
+            &Loc::new(&world.path, 0),
+            format!(
+                "the world's files lay their land {} meters apart; its land spacing is theirs",
+                files.vertex_spacing()
+            ),
+        ));
+    }
+    let fine = crate::land::grid_of_steps(steps);
+    let region_bytes = crate::land::refined_region(&bytes, steps)
+        .filter(|b| {
+            base.decode::<Region>(REGION, b)
+                .is_ok_and(|r| r.land_defs.land_grid() == fine)
+        })
+        .ok_or_else(|| Error::Dat("the region record cannot say a finer land".to_owned()))?;
+    let region_staged = Staged {
+        bytes: region_bytes,
+        version,
+    };
+    for layer in [&mut c.records, &mut c.imported] {
+        layer
+            .entry(holder)
+            .or_default()
+            .insert(REGION.raw(), region_staged.clone());
+    }
+    let table = dereth_terrain::land::mesh::height_table(&region);
+    let mut ids: BTreeSet<u32> = c
+        .records
+        .get(&ModernDat::Cell)
+        .into_iter()
+        .flat_map(BTreeMap::keys)
+        .copied()
+        .filter(|id| id & 0xFFFF == 0xFFFF)
+        .collect();
+    if let Some(f) = base.file(ModernDat::Cell) {
+        ids.extend(
+            f.base_entries()
+                .map(|(id, _)| id.raw())
+                .filter(|id| id & 0xFFFF == 0xFFFF),
+        );
+    }
+    let mut refined = BTreeMap::new();
+    for id in ids {
+        let Some((bytes, version)) = (View { base, c }).get(ModernDat::Cell, id) else {
+            continue;
+        };
+        let lb = base
+            .decode::<CellLandblock>(DataId(id), &bytes)
+            .map_err(|e| Error::Dat(format!("{id:#010X}: {e}")))?;
+        #[allow(clippy::cast_possible_truncation)] // a cell id's top half is its landblock
+        let land = crate::land::refine(&lb, &table, (id >> 16) as u16, steps);
+        let bytes = written(id, base, land.encode_for(base.era))?;
+        refined.insert(id, Staged { bytes, version });
+    }
+    for layer in [&mut c.records, &mut c.imported] {
+        layer
+            .entry(ModernDat::Cell)
+            .or_default()
+            .extend(refined.iter().map(|(k, v)| (*k, v.clone())));
+    }
+    c.grid = fine;
+    Ok(())
+}
+
+/// Refuse a pack's vertex that lies off its landblock on the world's land grid `grid`.
+///
+/// # Errors
+/// The first such vertex, where its file sets it.
+fn check_vertices(packs: &[Pack], grid: &LandGrid) -> Result<(), Error> {
+    let last = grid.squares_per_side();
+    for p in packs {
+        for e in &p.edits {
+            for v in &e.vertices {
+                if usize::from(v.item.to.0.max(v.item.from.0)) > last
+                    || usize::from(v.item.to.1.max(v.item.from.1)) > last
+                {
+                    return Err(Error::source(
+                        &v.at,
+                        format!("a vertex of this world is [x, y], each 0 to {last}"),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether an import of `world` says its world places its own things (`own_placements` in its
+/// `world.toml`), so a server running the world places nothing of the world database's.
+fn imports_own_placements(world: &World) -> bool {
+    world.imports.iter().any(|i| {
+        std::fs::read_to_string(i.join("world.toml"))
+            .ok()
+            .and_then(|t| t.parse::<toml::Table>().ok())
+            .and_then(|t| t.get("own_placements").and_then(toml::Value::as_bool))
+            .unwrap_or(false)
+    })
+}
+
+/// A warning for each pack that places spawns through the world database when an import's world
+/// places its own things: a server running the world shows none of them.
+#[must_use]
+pub fn hidden_spawns(world: &World, packs: &[Pack]) -> Vec<String> {
+    if !imports_own_placements(world) {
+        return Vec::new();
+    }
+    packs
+        .iter()
+        .filter(|p| {
+            p.sql.iter().any(|f| {
+                f.text
+                    .to_ascii_lowercase()
+                    .contains("insert into `landblock_instance`")
+            })
+        })
+        .map(|p| {
+            format!(
+                "this world's imported base places its own things, so the world database's \
+                 spawns in {} won't appear",
+                p.name
+            )
+        })
+        .collect()
+}
+
+/// The files beside an overlay that a server reads as the world's own: its rules, the places it
+/// names and the things it places itself.
+pub const WORLD_FILES: [&str; 3] = ["world.toml", "places.tsv", "placements.tsv"];
+
+/// Copy each of [`WORLD_FILES`] an import of `world` holds into overlay folder `dir`, the last
+/// import holding it winning: a world built on an imported world keeps that world's rules, place
+/// names and placements. Answers the files copied.
+///
+/// # Errors
+/// A file that will not copy.
+pub fn carry_world_files(world: &World, dir: &Path) -> Result<Vec<PathBuf>, Error> {
+    let mut out = Vec::new();
+    for name in WORLD_FILES {
+        let Some(from) = world
+            .imports
+            .iter()
+            .rev()
+            .map(|i| i.join(name))
+            .find(|p| p.is_file())
+        else {
+            continue;
+        };
+        let to = dir.join(name);
+        std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
+        std::fs::copy(&from, &to).map_err(|e| Error::io(&from, e))?;
+        out.push(to);
+    }
+    Ok(out)
 }
 
 /// The highest id the files hold in `[lo, hi]`, or `lo - 1` when they hold none.
@@ -781,7 +974,13 @@ pub type VertexSets = BTreeMap<(u32, u32, Field), (u16, Loc)>;
 /// and what was settled: conflicts and overrides one per run of vertices, by field and sources.
 /// A file may set a field again; its later edit stands.
 #[must_use]
-pub fn gather_vertices(packs: &[Pack], overrides: &[Override]) -> (VertexSets, Settled) {
+pub fn gather_vertices(
+    packs: &[Pack],
+    overrides: &[Override],
+    grid: &LandGrid,
+) -> (VertexSets, Settled) {
+    #[allow(clippy::cast_possible_truncation)] // 8 to 32 squares a block side
+    let squares = grid.squares_per_side() as u32;
     let mut claims: BTreeMap<(u32, u32, Field), Vec<(u16, Claim)>> = BTreeMap::new();
     for p in packs {
         for e in &p.edits {
@@ -795,7 +994,7 @@ pub fn gather_vertices(packs: &[Pack], overrides: &[Override]) -> (VertexSets, S
                 ];
                 for x in v.item.from.0..=v.item.to.0 {
                     for y in v.item.from.1..=v.item.to.1 {
-                        let g = (bx * 8 + u32::from(x), by * 8 + u32::from(y));
+                        let g = (bx * squares + u32::from(x), by * squares + u32::from(y));
                         for (field, value) in fields {
                             let Some(value) = value else { continue };
                             let claim = Claim::new(
@@ -820,14 +1019,15 @@ pub fn gather_vertices(packs: &[Pack], overrides: &[Override]) -> (VertexSets, S
     type Runs = BTreeMap<(Field, bool, String), (Vec<(u32, u32)>, Settled)>;
     let mut runs = Runs::new();
     for ((gx, gy, field), list) in claims {
-        let (owner, x, y) = crate::edit::vertex_owner(gx, gy);
+        let (owner, x, y) = crate::edit::vertex_owner(grid, gx, gy);
+        let spacing = grid.vertex_spacing();
         let mut item = Item::new(format!("vertex {gx},{gy} {}", field_name(field))).at(
             owner,
-            f32::from(x) * 24.0,
-            f32::from(y) * 24.0,
+            f32::from(x) * spacing,
+            f32::from(y) * spacing,
         );
         item.landblocks
-            .extend(copies(gx, gy).into_iter().map(|(lb, _, _)| lb));
+            .extend(copies(grid, gx, gy).into_iter().map(|(lb, _, _)| lb));
         let only: Vec<Claim> = list.iter().map(|(_, c)| c.clone()).collect();
         let mut one = Settled::default();
         let w = conflict::settle(overrides, &item, &only, &mut one);
@@ -885,22 +1085,11 @@ pub const fn field_name(field: Field) -> &'static str {
     Field::TABLE[field as usize].name
 }
 
-/// The landblocks holding a copy of world vertex `(gx, gy)`, with its place in each: one inside a
-/// landblock, two on an edge, four at a corner.
+/// The landblocks holding a copy of world vertex `(gx, gy)` of land grid `grid`, with its place in
+/// each: one inside a landblock, two on an edge, four at a corner.
 #[must_use]
-pub fn copies(gx: u32, gy: u32) -> Vec<(u16, usize, usize)> {
-    crate::brush::WORLD.copies(gx, gy)
-}
-
-fn set_field(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16) {
-    let i = x * 9 + y;
-    let t = &mut lb.terrain[i];
-    match field {
-        Field::Height => lb.height[i] = u8::try_from(value).unwrap_or(u8::MAX),
-        Field::Road => *t = (*t & !0x0003) | (value & 0x3),
-        Field::Terrain => *t = (*t & !0x007C) | ((value & 0x1F) << 2),
-        Field::Scene => *t = (*t & !0xF800) | ((value & 0x1F) << 11),
-    }
+pub fn copies(grid: &LandGrid, gx: u32, gy: u32) -> Vec<(u16, usize, usize)> {
+    crate::land::world_grid(*grid).copies(gx, gy)
 }
 
 /// The quaternion of a heading: degrees clockwise from north, a turn about up. North is +y,
@@ -933,24 +1122,27 @@ pub fn quat_of(r: Rotation) -> Quat {
 }
 
 /// The ground's height at landblock-local `(x, y)`: the plane of the terrain triangle under it,
-/// as the client and the server split the cell.
+/// as the client and the server split the square, on the region's land grid.
 pub fn ground(lb: &CellLandblock, region: &Region, landblock: u16, x: f32, y: f32) -> f32 {
     use dereth_terrain::land::mesh::{generate_landblock, plane_set_height, Direction};
     let (bx, by) = (i32::from(landblock >> 8), i32::from(landblock & 0xFF));
     let mesh = generate_landblock(lb, region, bx, by, 1, Direction::InViewerBlock);
-    let cell = |v: f32| dereth_primitives::num::to_i32((v / 24.0).floor()).clamp(0, 7);
-    let (i, j) = (cell(x), cell(y));
+    let squares = mesh.squares_per_side();
+    let span = LandGrid::DEFAULT.block_length() / f32::from(u16::try_from(squares).unwrap_or(8));
+    let last = i32::try_from(squares).unwrap_or(8) - 1;
+    let square = |v: f32| dereth_primitives::num::to_i32((v / span).floor()).clamp(0, last);
+    let (i, j) = (square(x), square(y));
     let (iu, ju) = (
         usize::try_from(i).unwrap_or(0),
         usize::try_from(j).unwrap_or(0),
     );
     #[allow(clippy::cast_precision_loss)]
-    let (dx, dy) = (x - i as f32 * 24.0, y - j as f32 * 24.0);
-    let cut = mesh.sw_to_ne_cut[iu * 8 + ju];
+    let (dx, dy) = (x - i as f32 * span, y - j as f32 * span);
+    let cut = mesh.sw_to_ne_cut[iu * squares + ju];
     let (a, b) = mesh.cell_polygons(iu, ju);
     // With the south-west to north-east cut the first triangle is the south-east half; with the
     // other cut it is the south-west half.
-    let first = if cut { dx >= dy } else { dx + dy <= 24.0 };
+    let first = if cut { dx >= dy } else { dx + dy <= span };
     let p = if first { a } else { b };
     plane_set_height(&p.plane, x, y).unwrap_or(0.0)
 }
@@ -1306,7 +1498,8 @@ fn edit_landblocks(
     only: Option<&BTreeSet<u16>>,
 ) -> Result<(), Error> {
     let wanted = |lb: u16| only.is_none_or(|o| o.contains(&lb));
-    let (vertices, settled) = gather_vertices(packs, &c.overrides);
+    let grid = c.grid;
+    let (vertices, settled) = gather_vertices(packs, &c.overrides, &grid);
     c.settled.insert(Part::Vertices, settled);
     let mut blocks: BTreeMap<u16, BlockEdits<'_>> = BTreeMap::new();
     for (pi, p) in packs.iter().enumerate() {
@@ -1335,7 +1528,7 @@ fn edit_landblocks(
         Ok((decoded, version))
     };
     for ((gx, gy, field), (value, _)) in &vertices {
-        for (lb, x, y) in copies(*gx, *gy) {
+        for (lb, x, y) in copies(&grid, *gx, *gy) {
             if !wanted(lb) {
                 continue;
             }
@@ -1343,7 +1536,7 @@ fn edit_landblocks(
                 std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
                 std::collections::btree_map::Entry::Vacant(e) => e.insert(landblock_of(c, lb)?),
             };
-            set_field(t, x, y, *field, *value);
+            crate::land::set(t, x, y, *field, *value);
         }
     }
     let region = {
@@ -1771,7 +1964,7 @@ fn edit_landblocks(
     }
     let vertex_blocks: BTreeSet<u16> = vertices
         .keys()
-        .flat_map(|(gx, gy, _)| copies(*gx, *gy).into_iter().map(|(lb, _, _)| lb))
+        .flat_map(|(gx, gy, _)| copies(&grid, *gx, *gy).into_iter().map(|(lb, _, _)| lb))
         .filter(|lb| wanted(*lb))
         .collect();
     for lb in &vertex_blocks {
@@ -2020,6 +2213,9 @@ pub fn compile(
         ..Compiled::default()
     };
     read_imports(world, base, &mut c)?;
+    c.world_warnings = hidden_spawns(world, packs);
+    land_layer(world, base, &mut c)?;
+    check_vertices(packs, &c.grid)?;
     let defs = defined_records(packs, &c.overrides);
     // Every symbol the SQL names, and every new cell, read before anything is numbered.
     let (tokens, mut wanted) = sql_symbols(packs, &defs.defined)?;
@@ -2057,11 +2253,8 @@ pub fn recompile_landblocks(
     c: &mut Compiled,
     touched: &BTreeSet<u16>,
 ) -> Result<(), Error> {
-    let imported = c
-        .imported
-        .get(&ModernDat::Cell)
-        .cloned()
-        .unwrap_or_default();
+    let none = BTreeMap::new();
+    let imported = c.imported.get(&ModernDat::Cell).unwrap_or(&none);
     let cells = c.records.entry(ModernDat::Cell).or_default();
     for lb in touched {
         // The landblock's terrain, statics and indoor cells, as the imports left them.
@@ -2331,6 +2524,7 @@ pub fn build(
     }
     let result = (|| {
         write_overlay(&c, &base, &world.key, &staging.join("overlay"))?;
+        carry_world_files(&world, &staging.join("overlay"))?;
         write_sql(&c, &staging.join("sql"))?;
         // The checks, over the overlay as it was written; its files are closed again before it
         // is moved into place.
@@ -2340,6 +2534,7 @@ pub fn build(
             report
                 .warnings
                 .extend(c.warnings.values().flatten().cloned());
+            report.warnings.extend(c.world_warnings.iter().cloned());
             report
                 .problems
                 .extend(crate::sql_ids::check(&layered, &sql_named(&packs, &c)));

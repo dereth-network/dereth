@@ -2399,14 +2399,19 @@ impl EditorApp {
             }
             UiAction::Model(m) => self.choose_model(m),
             UiAction::Brush(b) => {
-                self.panels.radius =
-                    lyceum_foundry::brush::chosen_radius(self.panels.brush, b, self.panels.radius);
+                self.panels.radius = lyceum_foundry::brush::chosen_radius(
+                    &self.session.grid(),
+                    self.panels.brush,
+                    b,
+                    self.panels.radius,
+                );
                 self.panels.brush = b;
                 self.mode = Mode::Terrain;
                 Ok(())
             }
             UiAction::Radius(steps) => {
                 self.panels.radius = lyceum_foundry::brush::step_radius(
+                    &self.session.grid(),
                     self.panels.brush,
                     self.panels.radius,
                     steps,
@@ -3756,7 +3761,7 @@ impl EditorApp {
         let o = pick::block_origin(lb);
         let (x, y) = (o.x + at.x, o.y + at.y);
         Some(if self.panels.brush.by_vertex() {
-            lyceum_foundry::brush::nearest_vertex(x, y)
+            lyceum_foundry::brush::nearest_vertex(&self.session.grid(), x, y)
         } else {
             (x, y)
         })

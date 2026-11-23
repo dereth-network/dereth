@@ -190,7 +190,7 @@ impl Solid {
 /// Whether a landblock's terrain is the open sea floor: every vertex at height zero.
 #[must_use]
 pub fn sea_floor(terrain: &CellLandblock) -> bool {
-    terrain.height.iter().all(|h| *h == 0)
+    terrain.grid_height().iter().all(|h| *h == 0)
 }
 
 /// What uses a landblock, so that a new dungeon has no room there.

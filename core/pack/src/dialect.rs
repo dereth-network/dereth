@@ -38,6 +38,11 @@ pub trait Dialect:
     /// names one is refused.
     const NAMES_BASE: bool = false;
 
+    /// Whether a world of the game may set its land's spacing in `[land]`
+    /// ([`crate::world::World::land_steps`]). A builder whose land grid is its files' own says no,
+    /// and a world that sets one is refused.
+    const SETS_LAND: bool = false;
+
     /// What the game's symbols name.
     type Kind: SymbolKind;
 

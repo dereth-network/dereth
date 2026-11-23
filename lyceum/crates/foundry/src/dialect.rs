@@ -22,6 +22,7 @@ impl Dialect for Ac1 {
          landblock <XXYY>, vertex <x>,<y> <field>, static <XXYY> <index or symbol>, \
          building <XXYY> <index>, cell <XXYY> <cell>, cell-static <XXYY> <cell> <index>, \
          or a new record's kind and symbol";
+    const SETS_LAND: bool = true;
     type Kind = Kind;
     type Era = EraId;
 

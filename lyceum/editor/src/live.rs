@@ -745,6 +745,7 @@ fn write_play_overlay(session: &Session, dir: &Path) -> Result<(), String> {
         dir,
     )
     .map_err(|e| e.to_string())?;
+    lyceum_foundry::compile::carry_world_files(session.world(), dir).map_err(|e| e.to_string())?;
     if OverlayDir::new(dir)
         .map_err(|e| e.to_string())?
         .world_key()

@@ -1048,13 +1048,14 @@ impl EditorApp {
             }
         });
         ui.separator();
-        // The radius, in the land's vertices: the ground has a height only at each, 24 m apart.
+        // The radius, in the land's vertices: the ground has a height only at each, 24 m apart,
+        // or closer on a finer land.
         ui.horizontal(|ui| {
             ui.label(t.get("brush.radius"));
             if ui.small_button("-").clicked() {
                 out.push(UiAction::Radius(-1));
             }
-            let g = lyceum_foundry::brush::GRID;
+            let g = self.session.grid().vertex_spacing();
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // ten at most
             let n = (self.panels.radius / g).round().max(0.0) as u32;
             ui.monospace(match n {
@@ -1716,7 +1717,7 @@ impl EditorApp {
                 let Some(v) = self.session.vertex(gx, gy) else {
                     return;
                 };
-                let (lb, lx, ly) = lyceum_foundry::edit::vertex_owner(gx, gy);
+                let (lb, lx, ly) = lyceum_foundry::edit::vertex_owner(&self.session.grid(), gx, gy);
                 ui.strong(t.fill("inspector.vertex_title", &[("x", &gx), ("y", &gy)]));
                 ui.weak(format!("{lb:04X} ({lx}, {ly})"));
                 for (label, field, value) in [
@@ -2110,12 +2111,16 @@ impl EditorApp {
         };
         if self.landscape_grid_shown() {
             if let Some((lb, ..)) = self.work_block() {
-                for x in 0..=8u32 {
-                    for y in 0..=8u32 {
-                        let gx = u32::from(lb >> 8) * 8 + x;
-                        let gy = u32::from(lb & 255) * 8 + y;
+                let land = self.session.grid();
+                #[allow(clippy::cast_possible_truncation)] // 8 to 32 squares a block side
+                let n = land.squares_per_side() as u32;
+                let g = land.vertex_spacing();
+                for x in 0..=n {
+                    for y in 0..=n {
+                        let gx = u32::from(lb >> 8) * n + x;
+                        let gy = u32::from(lb & 255) * n + y;
                         for (dx, dy) in [(1, 0), (0, 1)] {
-                            if x + dx > 8 || y + dy > 8 {
+                            if x + dx > n || y + dy > n {
                                 continue;
                             }
                             if let (Some(a), Some(b)) = (
@@ -2124,10 +2129,10 @@ impl EditorApp {
                             ) {
                                 #[allow(clippy::cast_precision_loss)]
                                 let points = (
-                                    Vec3::new(gx as f32 * 24.0, gy as f32 * 24.0, a.z + 0.05),
+                                    Vec3::new(gx as f32 * g, gy as f32 * g, a.z + 0.05),
                                     Vec3::new(
-                                        (gx + dx) as f32 * 24.0,
-                                        (gy + dy) as f32 * 24.0,
+                                        (gx + dx) as f32 * g,
+                                        (gy + dy) as f32 * g,
                                         b.z + 0.05,
                                     ),
                                 );
@@ -2237,8 +2242,9 @@ impl EditorApp {
             }
             Some(Selection::Vertex { gx, gy }) => {
                 if let Some(v) = self.session.vertex(gx, gy) {
+                    let g = self.session.grid().vertex_spacing();
                     #[allow(clippy::cast_precision_loss)]
-                    let p = Vec3::new(gx as f32 * 24.0, gy as f32 * 24.0, v.z);
+                    let p = Vec3::new(gx as f32 * g, gy as f32 * g, v.z);
                     if let Some((x, y)) = view.project(p) {
                         painter.rect_filled(
                             egui::Rect::from_center_size(egui::pos2(x, y), egui::vec2(10.0, 10.0)),
@@ -2291,9 +2297,10 @@ impl EditorApp {
                 .iter()
                 .map(|s| (s.gx, s.gy))
                 .collect();
+                let land = self.session.grid();
+                let g = land.vertex_spacing();
                 if matches!(self.panels.brush, Brush::Scene(_)) {
-                    let (gx, gy) = lyceum_foundry::brush::nearest_vertex(x, y);
-                    let g = lyceum_foundry::brush::GRID;
+                    let (gx, gy) = lyceum_foundry::brush::nearest_vertex(&land, x, y);
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     // a grid point
                     let v = self.session.vertex((gx / g) as u32, (gy / g) as u32);
@@ -2301,12 +2308,11 @@ impl EditorApp {
                         self.panels.scene_terrain = v.terrain;
                     }
                 }
-                for (gx, gy) in lyceum_foundry::brush::covered(x, y, self.panels.radius) {
+                for (gx, gy) in lyceum_foundry::brush::covered(&land, x, y, self.panels.radius) {
                     let Some(v) = self.session.vertex(gx, gy) else {
                         continue;
                     };
-                    let g = lyceum_foundry::brush::GRID;
-                    #[allow(clippy::cast_precision_loss)] // a grid point, at most 2,040
+                    #[allow(clippy::cast_precision_loss)] // a grid point, at most 8,160
                     let at = Vec3::new(gx as f32 * g, gy as f32 * g, v.z + 0.2);
                     let Some(s) = view.project(at) else {
                         continue;

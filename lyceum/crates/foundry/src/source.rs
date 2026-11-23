@@ -1236,13 +1236,20 @@ fn link(at: &Loc, pack: &str, v: &str) -> Result<Link, Error> {
     }
 }
 
+/// A vertex's place in its landblock: 0 to 8 each way on the files' grid, and up to 32 on the
+/// finest a world may set; the build checks it against the world's own ([`crate::land`]).
 fn vertex_at(at: &Loc, v: &[i64]) -> Result<(u8, u8), Error> {
+    #[allow(clippy::cast_possible_wrap)] // 32
+    let last = (8 * dereth_assets::world::MAX_DENSE_STEPS) as i64;
     match v {
-        [x, y] if (0..=8).contains(x) && (0..=8).contains(y) => Ok((
+        [x, y] if (0..=last).contains(x) && (0..=last).contains(y) => Ok((
             u8::try_from(*x).unwrap_or_default(),
             u8::try_from(*y).unwrap_or_default(),
         )),
-        _ => Err(Error::source(at, "a vertex is [x, y], each 0 to 8")),
+        _ => Err(Error::source(
+            at,
+            format!("a vertex is [x, y], each 0 to 8, or to {last} on a finer land"),
+        )),
     }
 }
 

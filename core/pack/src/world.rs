@@ -8,6 +8,8 @@
 //! packs = ["sample"]        # the load order, folders relative to this file
 //! imports = []              # overlay folders an import made, laid under the packs
 //! out = "build"             # the default output folder, relative to this file
+//! [land]                    # how fine its land grid is, where the game lets a world say
+//! spacing = 8               # meters between vertices: 24 (the default), 12 or 8
 //! [base]                    # the base database under every pack, where the game has one
 //! db = "world-db"
 //! version = "v0.3.1"        # left out, the release the build pins
@@ -55,6 +57,25 @@ pub struct World<D: Dialect> {
     pub overrides: Vec<Override>,
     /// The base database under every pack, when the world names one.
     pub base: Option<Base>,
+    /// The vertex steps a land cell side is cut into, when the world sets its land's spacing
+    /// (`[land]`): 1, 2 or 3, for 24, 12 or 8 meters between vertices.
+    pub land_steps: Option<usize>,
+}
+
+/// A land cell's side, in meters, which a world's land spacing divides.
+pub const LAND_CELL: u32 = 24;
+
+/// The spacings a world's land may have, in meters, finest last: a land cell side cut into 1, 2
+/// or 3 steps.
+pub const LAND_SPACINGS: [u32; 3] = [24, 12, 8];
+
+/// The vertex steps a land cell side is cut into for `spacing` meters between vertices, when it is
+/// one of [`LAND_SPACINGS`].
+#[must_use]
+pub fn land_steps(spacing: u32) -> Option<usize> {
+    LAND_SPACINGS
+        .contains(&spacing)
+        .then(|| usize::try_from(LAND_CELL / spacing).unwrap_or(1))
 }
 
 /// The base database a world names (`[base]`): released rows that lie under every pack, which a
@@ -81,6 +102,7 @@ impl<D: Dialect> Clone for World<D> {
             ids: self.ids.clone(),
             overrides: self.overrides.clone(),
             base: self.base.clone(),
+            land_steps: self.land_steps,
         }
     }
 }
@@ -96,6 +118,7 @@ impl<D: Dialect> PartialEq for World<D> {
             && self.ids == other.ids
             && self.overrides == other.overrides
             && self.base == other.base
+            && self.land_steps == other.land_steps
     }
 }
 
@@ -113,6 +136,7 @@ impl<D: Dialect> fmt::Debug for World<D> {
             .field("ids", &self.ids)
             .field("overrides", &self.overrides)
             .field("base", &self.base)
+            .field("land_steps", &self.land_steps)
             .finish()
     }
 }
@@ -134,6 +158,13 @@ struct WorldFile {
     #[serde(default, rename = "override")]
     overrides: Vec<Spanned<OverrideRow>>,
     base: Option<Spanned<Base>>,
+    land: Option<Spanned<LandRow>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LandRow {
+    spacing: i64,
 }
 
 #[derive(Deserialize)]
@@ -260,6 +291,23 @@ impl<D: Dialect> World<D> {
                 ));
             }
         }
+        let land_steps =
+            match &file.land {
+                None => None,
+                Some(land) => {
+                    let at = Loc::at(path, text, land.span().start);
+                    if !D::SETS_LAND {
+                        return Err(Error::source(
+                            &at,
+                            format!("a {} world's land spacing is its files'", D::PRODUCT),
+                        ));
+                    }
+                    let spacing = u32::try_from(land.get_ref().spacing).ok();
+                    Some(spacing.and_then(land_steps).ok_or_else(|| {
+                        Error::source(&at, "a land spacing is 24, 12 or 8 meters")
+                    })?)
+                }
+            };
         let dir = path.parent().unwrap_or(Path::new("."));
         Ok(Self {
             path: path.to_path_buf(),
@@ -271,6 +319,7 @@ impl<D: Dialect> World<D> {
             ids,
             overrides,
             base: file.base.map(Spanned::into_inner),
+            land_steps,
         })
     }
 

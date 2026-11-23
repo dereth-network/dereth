@@ -444,6 +444,37 @@ prov = { from = \"authored\", note = \"gone\" }\n",
 }
 
 #[test]
+fn a_world_sets_its_land_spacing_only_in_a_game_that_lets_it_and_only_to_a_whole_cut_of_a_cell() {
+    assert_eq!(
+        dereth_pack::world::LAND_SPACINGS.map(dereth_pack::world::land_steps),
+        [1, 2, 3].map(Some)
+    );
+    for spacing in [0, 5, 6, 7, 16, 48] {
+        assert_eq!(dereth_pack::world::land_steps(spacing), None, "{spacing}");
+    }
+    let e = world(
+        "key = \"w\"
+game = \"toy\"
+[land]
+spacing = 8
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("land spacing is its files'"), "{e}");
+    assert_eq!(
+        world(
+            "key = \"w\"
+game = \"toy\"
+"
+        )
+        .unwrap()
+        .land_steps,
+        None
+    );
+}
+
+#[test]
 fn a_session_holds_text_against_the_store_undoes_and_redoes_as_text_and_saves_only_what_differs() {
     use dereth_pack::session::{History, Sources, Step, Texts};
     use dereth_pack::store::MemoryStore;

@@ -200,7 +200,7 @@ template = 0x0398            # the retail dungeon's landblock
 house = "villa-1-basement-house"  # optional: its cells belong to this spawn
 
 [[vertex]]                   # one vertex, or every vertex from at to to
-at = [4, 3]                  # 0 to 8 each
+at = [4, 3]                  # 0 to 8 each; on a finer land, 0 to 8 times its steps a cell
 to = [5, 4]
 height = 80                  # the height table's index, 0 to 255
 terrain = 1                  # 0 to 31
@@ -212,6 +212,9 @@ A dropped building is an exact copy of its template: the same rooms, ways and li
 it stands and numbered after the landblock's own cells. A building whose origin is outside its
 landblock, or in a land cell another building stands in, stops the build: the client draws one
 building per land cell.
+
+On a world with a finer land (`[land]` in `world.toml`), a landblock's vertices run from 0 to 16
+or 24 at 12 or 8 m, and a world vertex (`vertex 1354,1440 height`) counts on that grid.
 
 A vertex on a landblock's edge is shared with its neighbors, and the build changes every copy. Two
 packs that set the same vertex differently stop the build, naming both files.
@@ -290,7 +293,8 @@ house = false                    # a house as a plain building; left out, one pl
 
 An edit changes the pack's files in place, keeping everything it doesn't touch, comments included.
 A new static gets a name (`static-1`) so later edits can find it. A vertex goes into the file that
-already sets it, else the landblock where it is 0 to 7 from the corner. A spawn is a file of its
+already sets it, else the landblock where it is 0 to 7 from the corner (0 to one short of the
+block's steps on a finer land). A spawn is a file of its
 own, `server/sql/landblocks/A8B4 guide.sql`. A loot table is a file of its own too: a server's
 changed in the pack by its kind and id, `server/sql/treasure_death/00037.sql` or
 `server/sql/treasure_wielded/00037.sql`, and a new one by its name,

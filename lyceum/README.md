@@ -207,12 +207,26 @@ era = "eor"                  # the files it is built on: eor (default) or infilt
 packs = ["mypack", "other"]  # the load order, folders relative to this file
 imports = []                 # overlay folders made by import, laid under the packs
 out = "build"                # where build writes, relative to this file
+[land]
+spacing = 8                  # meters between the land's vertices: 24 (the files'), 12 or 8
 [ids]
 wcid = 100000                # where new weenie class ids start
 ```
 
-`lyceum new <folder>` makes a world from the sample; `--empty` makes an empty one and
-`--era infiltration` an Infiltration one.
+`lyceum new <folder>` makes a world from the sample; `--empty` makes an empty one,
+`--era infiltration` an Infiltration one, and `--spacing 12` or `8` one on a finer land.
+`--on <overlay>` starts an empty world on the world another tool made (the AC2-in-AC1 world's
+overlay folder, for one): it is the world's import, its land and grid are the world's, and a build
+carries its rules, place names and placements (`world.toml`, `places.tsv`, `placements.tsv`) into
+the world's own overlay.
+
+**A finer land.** A landblock is always 192 m of eight 24 m land cells; a world's land spacing cuts
+each cell side into 1, 2 or 3 steps, so the world keeps its size and gains detail. A world set
+finer than its files is built over a copy of their land laid on the finer grid: the cell corners
+are the files' own, the ground between them keeps its shape to within a meter, and every vertex can
+then be raised, painted and given a road. The overlay then holds every landblock (about 75 and 140 MB
+at 12 and 8 m) and a build takes longer. A world whose imports already lay a finer land
+(the AC2-in-AC1 world's, for one) takes its grid from them, and a spacing it sets must match.
 
 A world is built on one era's files and refused over another's. An Infiltration world is built over
 `portal.dat` and `cell.dat` from February 2005, in those files' own layout, and its content goes
@@ -240,7 +254,7 @@ a newer format needs a newer Lyceum.
 ## The `lyceum` command
 
 ```text
-lyceum new <folder> [--empty] [--era eor|infiltration]
+lyceum new <folder> [--empty] [--era eor|infiltration] [--spacing 24|12|8 | --on <overlay>]
 lyceum upgrade <world.toml> [--check]
 lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or folder>] [--world <sql>] [--schema <json>]

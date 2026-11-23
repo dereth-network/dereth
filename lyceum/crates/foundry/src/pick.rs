@@ -17,7 +17,8 @@ use dereth_assets::{GfxObj, Setup};
 use dereth_primitives::frame::{globaltolocal, globaltolocalvec, l2g, localtoglobal, V3};
 use dereth_primitives::{DataId, Frame, Vec3};
 
-use crate::brush::GRID;
+use dereth_primitives::land_grid::LandGrid;
+
 use crate::dats::DatSet;
 use crate::edit::Session;
 
@@ -413,7 +414,7 @@ pub fn pick(
             offer(
                 Hit::Ground {
                     point,
-                    vertex: nearest_vertex(point),
+                    vertex: nearest_vertex(&session.grid(), point),
                 },
                 d + GROUND_YIELD,
             );
@@ -422,13 +423,15 @@ pub fn pick(
     best
 }
 
-/// The grid vertex nearest world meters `p`.
+/// The vertex of land grid `grid` nearest world meters `p`.
 #[must_use]
-pub fn nearest_vertex(p: Vec3) -> (u32, u32) {
+pub fn nearest_vertex(grid: &LandGrid, p: Vec3) -> (u32, u32) {
+    let world = crate::land::world_grid(*grid);
+    let (spacing, last) = (world.spacing(), world.last_point());
     let g = |v: f32| {
-        u32::try_from(dereth_primitives::num::floor_to_i32((v / GRID).round()).max(0))
+        u32::try_from(dereth_primitives::num::floor_to_i32((v / spacing).round()).max(0))
             .unwrap_or(0)
-            .min(crate::brush::GRID_MAX)
+            .min(last)
     };
     (g(p.x), g(p.y))
 }
@@ -538,11 +541,19 @@ mod tests {
 
     #[test]
     fn a_ground_point_names_its_nearest_grid_vertex() {
-        assert_eq!(nearest_vertex(Vec3::new(35.9, 12.1, 0.0)), (1, 1));
-        assert_eq!(nearest_vertex(Vec3::new(36.1, 11.9, 0.0)), (2, 0));
+        let d = LandGrid::DEFAULT;
+        assert_eq!(nearest_vertex(&d, Vec3::new(35.9, 12.1, 0.0)), (1, 1));
+        assert_eq!(nearest_vertex(&d, Vec3::new(36.1, 11.9, 0.0)), (2, 0));
         assert_eq!(
-            nearest_vertex(Vec3::new(-5.0, 1.0e6, 0.0)),
+            nearest_vertex(&d, Vec3::new(-5.0, 1.0e6, 0.0)),
             (0, crate::brush::GRID_MAX)
+        );
+        // On a land of 8 meters, the vertices between the corners.
+        let fine = crate::land::grid_of_steps(3);
+        assert_eq!(nearest_vertex(&fine, Vec3::new(35.9, 12.1, 0.0)), (4, 2));
+        assert_eq!(
+            nearest_vertex(&fine, Vec3::new(-5.0, 1.0e6, 0.0)),
+            (0, 3 * crate::brush::GRID_MAX)
         );
     }
 }

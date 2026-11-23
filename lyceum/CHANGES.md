@@ -11,6 +11,8 @@ release's own section, dated, and opens a new empty one in the same commit as th
 refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- New worlds can have finer land, down to 8 m between vertices, and every vertex can be edited.
+- New worlds can start from another tool's world, such as the AC2-in-AC1 world.
 
 ## 0.2.8 (2026-11-23)
 

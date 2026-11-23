@@ -8,6 +8,8 @@
 //! packs = ["sample"]        # the load order, folders relative to this file
 //! imports = []              # overlay folders an import made, laid under the packs
 //! out = "build"             # the default output folder, relative to this file
+//! [land]                    # how fine the land is ([`crate::land`]); left out, the files'
+//! spacing = 8               # meters between vertices: 24, 12 or 8
 //! [ids]
 //! wcid = 100000             # where new weenie class ids start
 //!
@@ -28,6 +30,7 @@
 //! ([`crate::dialect::Ac1`]): its eras are the two above, and `[ids]` can start the weenie class
 //! ids elsewhere (`wcid`).
 
+pub use dereth_pack::world::{land_steps, LAND_CELL, LAND_SPACINGS};
 pub use dereth_primitives::EraId;
 
 /// Where new weenie class ids start unless the world says: above every class id of the

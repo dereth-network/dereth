@@ -192,21 +192,42 @@ fn holds_client(dir: &Path) -> bool {
 }
 
 /// The world file in `dir`, when it holds one.
+/// Whether `dir` holds an overlay, a world another tool made that a new world can start on.
+fn holds_overlay(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with("overlay_") && name.ends_with(".dat")
+        })
+    })
+}
+
 fn world_in(dir: &Path) -> Option<PathBuf> {
     Some(dir.join("world.toml")).filter(|p| p.is_file())
 }
 
-/// Make a new world named `name` in `parent` from the sample ([`lyceum_foundry::sample`]): its
-/// folder, the sample's files and its own `world.toml`. Answers its `world.toml`.
+/// Make a new world named `name` in `parent` ([`lyceum_foundry::sample`]): from the sample on a
+/// land `spacing` meters apart, or, `on` an imported world's overlay folder, an empty world on it.
+/// Answers its `world.toml`.
 ///
 /// # Errors
 /// What stops it: a name that will not do, a folder already there, or a file that will not write.
-pub fn make_world(parent: &Path, name: &str) -> Result<PathBuf, Note> {
+pub fn make_world(
+    parent: &Path,
+    name: &str,
+    spacing: u32,
+    on: Option<&Path>,
+) -> Result<PathBuf, Note> {
     use lyceum_foundry::sample::{self, NotMade};
     if !lyceum_foundry::symbol::is_name(name) {
         return Err(Note::BadName);
     }
-    sample::make(&parent.join(name), false, dereth_primitives::EraId::Eor).map_err(|e| match e {
+    let era = dereth_primitives::EraId::Eor;
+    let made = match on {
+        Some(overlay) => sample::make_on(&parent.join(name), era, overlay),
+        None => sample::make(&parent.join(name), false, era, spacing),
+    };
+    made.map_err(|e| match e {
         NotMade::BadName(_) => Note::BadName,
         NotMade::Taken(_) => Note::Taken(name.to_owned()),
         NotMade::Failed(why) => Note::Failed(why),
@@ -264,6 +285,8 @@ pub enum Purpose {
     New,
     /// The client folder the worlds are drawn over.
     Client,
+    /// The imported world a new world starts on: a folder holding an overlay.
+    Base,
 }
 
 /// A folder picker: what it chooses, the folder it shows and the folders in it, and a new world's
@@ -275,6 +298,10 @@ pub struct Picker {
     /// The folders in `dir`, read when the picker moves there rather than every frame.
     pub folders: Vec<String>,
     pub name: String,
+    /// A new world's land spacing, in meters between vertices: 24 (the files'), 12 or 8.
+    pub spacing: u32,
+    /// The imported world a new world starts on, its overlay folder; `None` for the game's files.
+    pub on: Option<PathBuf>,
 }
 
 impl Picker {
@@ -290,6 +317,8 @@ impl Picker {
             dir: PathBuf::new(),
             folders: Vec::new(),
             name,
+            spacing: lyceum_foundry::world::LAND_CELL,
+            on: None,
         };
         p.go(dir);
         p
@@ -306,6 +335,7 @@ impl Picker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Note {
     NoWorldHere,
+    NoOverlayHere,
     BadName,
     Taken(String),
     NoClientHere,
@@ -318,6 +348,7 @@ impl Note {
     pub fn say(&self, t: &Table) -> String {
         match self {
             Self::NoWorldHere => t.get("start.no_world_here").to_owned(),
+            Self::NoOverlayHere => t.get("start.no_overlay_here").to_owned(),
             Self::BadName => t.get("start.name_rule").to_owned(),
             Self::Taken(n) => t.fill("start.taken", &[("name", n)]),
             Self::NoClientHere => t.get("start.no_client_here").to_owned(),
@@ -339,6 +370,10 @@ pub enum Action {
     Into(String),
     Root(PathBuf),
     Name(String),
+    /// The new world's land spacing, in meters.
+    Spacing(u32),
+    /// Start the new world on the game's files (`false`), or pick an imported world (`true`).
+    StartOn(bool),
     /// The picker's folder is the one.
     Here,
     Cancel,
@@ -365,6 +400,8 @@ pub struct Screen {
     home: PathBuf,
     /// Where new worlds go when nothing better is known; made when a new world is first placed.
     worlds: Option<PathBuf>,
+    /// The new-world picker, set aside while an imported world to start on is picked.
+    parked: Option<Picker>,
     /// Where a picker may start over, looked for once: a drive that does not answer is not asked
     /// again every frame.
     roots: Vec<PathBuf>,
@@ -391,6 +428,7 @@ impl Screen {
             chosen: None,
             home,
             worlds: None,
+            parked: None,
             roots: roots(),
         }
     }
@@ -407,7 +445,7 @@ impl Screen {
     fn start_dir(&self, purpose: Purpose) -> PathBuf {
         let known = match purpose {
             Purpose::Client => self.dats.clone(),
-            Purpose::Open | Purpose::New => self
+            Purpose::Open | Purpose::New | Purpose::Base => self
                 .recent
                 .present()
                 .first()
@@ -456,8 +494,25 @@ impl Screen {
                 self.note = None;
             }
             Action::Cancel => {
-                self.picker = None;
+                // Picking the world to start on goes back to the new world; anything else closes.
+                self.picker = self.parked.take().filter(|_| {
+                    self.picker
+                        .as_ref()
+                        .is_some_and(|p| p.purpose == Purpose::Base)
+                });
                 self.waiting = None;
+                self.note = None;
+            }
+            Action::StartOn(imported) => {
+                if imported {
+                    if let Some(p) = self.picker.take() {
+                        let from = p.on.clone().unwrap_or_else(|| p.dir.clone());
+                        self.parked = Some(p);
+                        self.picker = Some(Picker::new(Purpose::Base, from));
+                    }
+                } else if let Some(p) = &mut self.picker {
+                    p.on = None;
+                }
                 self.note = None;
             }
             Action::Up => {
@@ -483,6 +538,11 @@ impl Screen {
                     p.name = name;
                 }
             }
+            Action::Spacing(m) => {
+                if let Some(p) = &mut self.picker {
+                    p.spacing = m;
+                }
+            }
             Action::Here => self.here(),
         }
     }
@@ -497,7 +557,18 @@ impl Screen {
                 Some(world) => self.choose(world),
                 None => self.note = Some(Note::NoWorldHere),
             },
-            Purpose::New => match make_world(&p.dir, p.name.trim()) {
+            Purpose::Base => {
+                if holds_overlay(&p.dir) {
+                    if let Some(mut new) = self.parked.take() {
+                        new.on = Some(p.dir.clone());
+                        self.picker = Some(new);
+                    }
+                    self.note = None;
+                } else {
+                    self.note = Some(Note::NoOverlayHere);
+                }
+            }
+            Purpose::New => match make_world(&p.dir, p.name.trim(), p.spacing, p.on.as_deref()) {
                 Ok(world) => self.choose(world),
                 Err(note) => self.note = Some(note),
             },
@@ -613,6 +684,7 @@ fn picker_ui(
         Purpose::Open => ("start.open_title", "start.open_here"),
         Purpose::New => ("start.new_title", "start.make_here"),
         Purpose::Client => ("start.client_title", "start.use_here"),
+        Purpose::Base => ("start.base_title", "start.use_here"),
     };
     ui.label(egui::RichText::new(t.get(title)).strong());
     ui.monospace(p.dir.display().to_string());
@@ -643,6 +715,34 @@ fn picker_ui(
             if ui.text_edit_singleline(&mut name).changed() {
                 actions.push(Action::Name(name));
             }
+        });
+        ui.horizontal(|ui| {
+            ui.label(t.get("start.start_on"));
+            if ui
+                .selectable_label(p.on.is_none(), t.get("start.on_files"))
+                .clicked()
+            {
+                actions.push(Action::StartOn(false));
+            }
+            let imported = p.on.as_ref().map_or_else(
+                || t.get("start.on_imported").to_owned(),
+                |d| t.fill("start.on_imported_at", &[("folder", &d.display())]),
+            );
+            if ui.selectable_label(p.on.is_some(), imported).clicked() {
+                actions.push(Action::StartOn(true));
+            }
+        });
+        // An imported world brings its own land: its detail is its.
+        ui.add_enabled_ui(p.on.is_none(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(t.get("start.spacing"));
+                for m in lyceum_foundry::world::LAND_SPACINGS {
+                    let label = t.fill("start.spacing_m", &[("m", &m)]);
+                    if ui.selectable_label(p.spacing == m, label).clicked() {
+                        actions.push(Action::Spacing(m));
+                    }
+                }
+            });
         });
     }
     ui.horizontal(|ui| {
@@ -1005,6 +1105,61 @@ mod tests {
     }
 
     #[test]
+    fn a_new_world_can_start_on_an_imported_world_picked_from_its_overlay_folder() {
+        let d = scratch("new-on");
+        let client = client_folder(&d);
+        let converted = d.join("converted");
+        std::fs::create_dir_all(converted.join("overlay")).unwrap();
+        std::fs::write(converted.join("overlay").join("overlay_cell.dat"), b"").unwrap();
+        let mut s = Screen::new(Recent::default(), Some(client), d.clone());
+        s.act(Action::Pick(Purpose::New));
+        s.act(Action::Name("ashen".to_owned()));
+        s.act(Action::Spacing(8));
+        // Picking the world to start on, then backing out: the new world as it was.
+        s.act(Action::StartOn(true));
+        assert_eq!(s.picker.as_ref().map(|p| p.purpose), Some(Purpose::Base));
+        s.act(Action::Cancel);
+        let p = s.picker.as_ref().unwrap();
+        assert_eq!(
+            (p.purpose, p.name.as_str(), p.on.as_ref()),
+            (Purpose::New, "ashen", None)
+        );
+        // A folder with no overlay is refused; the overlay folder is taken.
+        s.act(Action::StartOn(true));
+        s.act(Action::Into("converted".to_owned()));
+        s.act(Action::Here);
+        assert_eq!(s.note, Some(Note::NoOverlayHere));
+        s.act(Action::Into("overlay".to_owned()));
+        s.act(Action::Here);
+        let p = s.picker.as_ref().unwrap();
+        assert_eq!(
+            (p.purpose, p.on.clone()),
+            (Purpose::New, Some(converted.join("overlay")))
+        );
+        s.act(Action::Here);
+        let world = d.join("ashen").join("world.toml");
+        assert_eq!(
+            s.chosen.as_ref().map(|c| c.world.clone()),
+            Some(world.clone())
+        );
+        let toml = std::fs::read_to_string(&world).unwrap();
+        assert!(
+            toml.contains("imports = [\"../converted/overlay\"]"),
+            "{toml}"
+        );
+        assert!(!toml.contains("[land]"), "the land is the import's: {toml}");
+        // Back on the game's files, the land detail counts again.
+        let mut s = Screen::new(Recent::default(), None, d.clone());
+        s.act(Action::Pick(Purpose::New));
+        s.act(Action::StartOn(true));
+        s.act(Action::Into("converted".to_owned()));
+        s.act(Action::Into("overlay".to_owned()));
+        s.act(Action::Here);
+        s.act(Action::StartOn(false));
+        assert_eq!(s.picker.as_ref().and_then(|p| p.on.clone()), None);
+    }
+
+    #[test]
     fn a_first_world_goes_in_the_worlds_folder_and_later_ones_beside_the_newest() {
         let d = scratch("worlds-home");
         let home = d.join("home");
@@ -1148,6 +1303,7 @@ mod tests {
             Some(Purpose::Open),
             Some(Purpose::New),
             Some(Purpose::Client),
+            Some(Purpose::Base),
         ] {
             if let Some(p) = picker {
                 s.act(Action::Pick(p));

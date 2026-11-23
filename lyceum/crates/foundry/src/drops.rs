@@ -871,13 +871,17 @@ fn cells_under(lb: u16, shells: &[(&buildings::Hull, Frame)]) -> BTreeSet<(i64, 
     out
 }
 
-/// The world-grid vertices at the corners of the land cells `cells` (world grid).
-fn corners(cells: &BTreeSet<(i64, i64)>) -> BTreeSet<(u32, u32)> {
+/// The world-grid vertices of the land cells `cells` (world land cells) on a land of `steps`
+/// vertex steps a cell: their corners, and on a finer land every vertex in them too.
+fn corners(cells: &BTreeSet<(i64, i64)>, steps: usize) -> BTreeSet<(u32, u32)> {
+    let s = i64::try_from(steps.max(1)).unwrap_or(1);
     let mut out = BTreeSet::new();
     for (cx, cy) in cells {
-        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-            if let (Ok(gx), Ok(gy)) = (u32::try_from(cx + dx), u32::try_from(cy + dy)) {
-                out.insert((gx, gy));
+        for dx in 0..=s {
+            for dy in 0..=s {
+                if let (Ok(gx), Ok(gy)) = (u32::try_from(cx * s + dx), u32::try_from(cy * s + dy)) {
+                    out.insert((gx, gy));
+                }
             }
         }
     }
@@ -1000,7 +1004,8 @@ impl Session {
                         index,
                         model: b.id,
                     };
-                    for c in corners(&cells_under(here, &[(&hull, b.frame)])) {
+                    let steps = self.grid().vertices_per_cell;
+                    for c in corners(&cells_under(here, &[(&hull, b.frame)]), steps) {
                         out.entry(c).or_insert(n);
                     }
                 }
@@ -1044,10 +1049,11 @@ impl Session {
         except: &[usize],
     ) -> Result<u8, String> {
         let held = self.held_corners(lb, at, except);
-        let fixed: Vec<(u8, Neighbor)> = corners(&cells_under(lb, shells))
-            .into_iter()
-            .filter_map(|c| Some((self.vertex(c.0, c.1)?.height, *held.get(&c)?)))
-            .collect();
+        let fixed: Vec<(u8, Neighbor)> =
+            corners(&cells_under(lb, shells), self.grid().vertices_per_cell)
+                .into_iter()
+                .filter_map(|c| Some((self.vertex(c.0, c.1)?.height, *held.get(&c)?)))
+                .collect();
         let Some((level, first)) = fixed.first().copied() else {
             return Ok(natural);
         };
@@ -1724,7 +1730,7 @@ impl Session {
     ) -> Option<Op> {
         let under = cells_under(lb, shells);
         let mut sets: BTreeMap<(u32, u32, Field), u16> = BTreeMap::new();
-        for (gx, gy) in corners(&under) {
+        for (gx, gy) in corners(&under, self.grid().vertices_per_cell) {
             if self.vertex(gx, gy).is_some_and(|v| v.height != level) {
                 sets.insert((gx, gy, Field::Height), u16::from(level));
             }
@@ -1895,7 +1901,10 @@ impl Session {
                     .collect();
                 let shells: Vec<(&buildings::Hull, Frame)> =
                     hulls.iter().map(|(h, f)| (h, *f)).collect();
-                out.extend(corners(&cells_under(here, &shells)));
+                out.extend(corners(
+                    &cells_under(here, &shells),
+                    self.grid().vertices_per_cell,
+                ));
             }
         }
         out
@@ -2016,10 +2025,11 @@ impl Session {
             let old: Vec<(&buildings::Hull, Frame)> =
                 hulls.iter().zip(frames.iter().copied()).collect();
             let keep = self.other_drops_corners(lb, &places);
-            let unset: Vec<(u32, u32, Field)> = corners(&cells_under(lb, &old))
-                .difference(&keep)
-                .flat_map(|(gx, gy)| [(*gx, *gy, Field::Height), (*gx, *gy, Field::Scene)])
-                .collect();
+            let unset: Vec<(u32, u32, Field)> =
+                corners(&cells_under(lb, &old), self.grid().vertices_per_cell)
+                    .difference(&keep)
+                    .flat_map(|(gx, gy)| [(*gx, *gy, Field::Height), (*gx, *gy, Field::Scene)])
+                    .collect();
             if !unset.is_empty() {
                 let a = self.apply_drafted(&[Op::UnsetVertices(unset)])?;
                 applied.touched.add(a.touched);
@@ -2186,10 +2196,11 @@ impl Session {
             .collect();
         let shells: Vec<(&buildings::Hull, Frame)> = hulls.iter().map(|(h, f)| (h, *f)).collect();
         let keep = self.other_drops_corners(lb, &places);
-        let unset: Vec<(u32, u32, Field)> = corners(&cells_under(lb, &shells))
-            .difference(&keep)
-            .flat_map(|(gx, gy)| [(*gx, *gy, Field::Height), (*gx, *gy, Field::Scene)])
-            .collect();
+        let unset: Vec<(u32, u32, Field)> =
+            corners(&cells_under(lb, &shells), self.grid().vertices_per_cell)
+                .difference(&keep)
+                .flat_map(|(gx, gy)| [(*gx, *gy, Field::Height), (*gx, *gy, Field::Scene)])
+                .collect();
         let rooms = self.drop_rooms(lb, &name);
         // A house's basement, a dungeon of a landblock of its own: there, its name in full and
         // its cells.
@@ -2293,13 +2304,15 @@ impl Session {
             let Some(mut land) = self.terrain(here) else {
                 continue;
             };
+            let steps = land.vertex_steps();
+            let k = i64::try_from(steps).unwrap_or(1);
             for (cx, cy) in under {
-                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let (vx, vy) = (cx + dx - lx * 8, cy + dy - ly * 8);
-                    if (0..=8).contains(&vx) && (0..=8).contains(&vy) {
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        let i = (vx * 9 + vy) as usize;
-                        land.height[i] = level;
+                for dx in 0..=k {
+                    for dy in 0..=k {
+                        let (vx, vy) = ((cx - lx * 8) * k + dx, (cy - ly * 8) * k + dy);
+                        if let (Ok(vx), Ok(vy)) = (usize::try_from(vx), usize::try_from(vy)) {
+                            crate::land::set(&mut land, vx, vy, Field::Height, u16::from(level));
+                        }
                     }
                 }
             }
@@ -2384,9 +2397,10 @@ impl Session {
                         .and_then(|v| u16::try_from(v).ok())
                 });
                 let Some(value) = value else { continue };
+                // The corner's place on the world's grid: a corner is every steps-th vertex.
                 let (Ok(gx), Ok(gy)) = (
-                    u32::try_from(lx * 8 + i64::try_from(i).unwrap_or(0)),
-                    u32::try_from(ly * 8 + i64::try_from(j).unwrap_or(0)),
+                    u32::try_from((lx * 8 + i64::try_from(i).unwrap_or(0)) * k),
+                    u32::try_from((ly * 8 + i64::try_from(j).unwrap_or(0)) * k),
                 ) else {
                     continue;
                 };
@@ -2818,10 +2832,11 @@ impl Session {
         let (Some(mut land), Some(region)) = (self.terrain(lb), self.region()) else {
             return self.ground(lb, x, y).unwrap_or(0.0);
         };
+        let grid = self.grid();
         for v in leveled.iter().filter(|v| v.field == Field::Height) {
-            for (owner, i, j) in compile::copies(v.gx, v.gy) {
+            for (owner, i, j) in compile::copies(&grid, v.gx, v.gy) {
                 if owner == lb {
-                    land.height[i * 9 + j] = u8::try_from(v.value).unwrap_or(u8::MAX);
+                    crate::land::set(&mut land, i, j, Field::Height, v.value);
                 }
             }
         }

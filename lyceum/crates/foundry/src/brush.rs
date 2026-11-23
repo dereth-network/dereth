@@ -1,24 +1,27 @@
 //! Terrain brushes: what one dab of a brush sets, vertex by vertex, over the world grid.
 //!
-//! A brush covers every world vertex within its radius of its center, whichever landblocks they
-//! lie in; [`crate::edit`] writes each one where it belongs, so a dab across a landblock's edge or
+//! A brush works on the world's own land grid ([`crate::land`]), so on a finer land it covers
+//! more vertices for the same radius and steps in that grid's spacing. It covers every world vertex
+//! within its radius of its center, whichever landblocks they lie in; [`crate::edit`] writes each one where it belongs, so a dab across a landblock's edge or
 //! corner changes every copy of the vertices it covers. Heights move over the region's height
 //! table: raising by one is the next entry of the table, and smoothing settles each vertex on the
 //! entry nearest the mean of it and its eight neighbors.
 
 use dereth_landscape::WorldGrid;
+use dereth_primitives::land_grid::LandGrid;
 
 use crate::compile::Field;
 use crate::edit::{Session, VertexSet};
 
-/// The world's grid of vertices: 255 landblocks a side, each 8 cells of 24 meters with a vertex at
-/// every corner.
+/// The world's landblocks and land cells: 255 landblocks a side, each 8 cells of 24 meters, with a
+/// vertex at every cell corner. Every world's blocks and cells are these; a finer land cuts the
+/// cells into more vertices ([`crate::land::world_grid`]).
 pub const WORLD: WorldGrid = WorldGrid::DEFAULT;
 
-/// The spacing of the world grid, in meters.
+/// The spacing of the land cell corners, in meters.
 pub const GRID: f32 = WORLD.spacing();
 
-/// The highest world grid point on either axis: 255 landblocks of 8 cells.
+/// The highest land cell corner on either axis: 255 landblocks of 8 cells.
 pub const GRID_MAX: u32 = WORLD.last_point();
 
 /// What a brush does to each vertex it covers.
@@ -50,16 +53,17 @@ impl Brush {
     }
 }
 
-/// The radius brush `b` takes from `r` meters moved `steps` steps: whole vertices, a step of one
-/// grid space, as the ground has a height, a terrain and a scene only at its vertices. A brush
-/// that sets each vertex goes from none (the one vertex under it) to ten; one that moves the
-/// ground, from one to ten.
+/// The radius brush `b` takes from `r` meters moved `steps` steps on land grid `grid`: whole
+/// vertices, a step of one grid space, as the ground has a height, a terrain and a scene only at
+/// its vertices. A brush that sets each vertex goes from none (the one vertex under it) to ten;
+/// one that moves the ground, from one to ten.
 #[must_use]
-pub fn step_radius(b: Brush, r: f32, steps: i32) -> f32 {
+pub fn step_radius(grid: &LandGrid, b: Brush, r: f32, steps: i32) -> f32 {
     #[allow(clippy::cast_precision_loss)] // a few steps
     let steps = steps as f32;
-    let least = if b.by_vertex() { 0.0 } else { GRID };
-    ((r / GRID).round() * GRID + steps * GRID).clamp(least, 10.0 * GRID)
+    let g = grid.vertex_spacing();
+    let least = if b.by_vertex() { 0.0 } else { g };
+    ((r / g).round() * g + steps * g).clamp(least, 10.0 * g)
 }
 
 /// The radius a brush starts with when it is chosen over brush `from` at `r` meters: the road
@@ -67,25 +71,25 @@ pub fn step_radius(b: Brush, r: f32, steps: i32) -> f32 {
 /// the radius it had, sized as it is sized ([`step_radius`]). Painting and erasing road are one
 /// brush, so turning from one to the other keeps the radius too.
 #[must_use]
-pub fn chosen_radius(from: Brush, to: Brush, r: f32) -> f32 {
+pub fn chosen_radius(grid: &LandGrid, from: Brush, to: Brush, r: f32) -> f32 {
     if matches!(to, Brush::Road(_)) && !matches!(from, Brush::Road(_)) {
         0.0
     } else {
-        step_radius(to, r, 0)
+        step_radius(grid, to, r, 0)
     }
 }
 
-/// The world vertex nearest world meters `(x, y)`, in world meters.
+/// The vertex of land grid `grid` nearest world meters `(x, y)`, in world meters.
 #[must_use]
-pub fn nearest_vertex(x: f32, y: f32) -> (f32, f32) {
-    WORLD.nearest_vertex(x, y)
+pub fn nearest_vertex(grid: &LandGrid, x: f32, y: f32) -> (f32, f32) {
+    crate::land::world_grid(*grid).nearest_vertex(x, y)
 }
 
-/// Every world vertex within `radius` meters of world meters `(x, y)`, nearest the center first
-/// (ties by grid order).
+/// Every vertex of land grid `grid` within `radius` meters of world meters `(x, y)`, nearest the
+/// center first (ties by grid order).
 #[must_use]
-pub fn covered(x: f32, y: f32, radius: f32) -> Vec<(u32, u32)> {
-    WORLD.within(x, y, radius)
+pub fn covered(grid: &LandGrid, x: f32, y: f32, radius: f32) -> Vec<(u32, u32)> {
+    crate::land::world_grid(*grid).within(x, y, radius)
 }
 
 /// The height-table entry nearest `z` meters.
@@ -108,7 +112,7 @@ pub fn dab(session: &Session, brush: Brush, x: f32, y: f32, radius: f32) -> Vec<
     let table = session
         .region()
         .map(dereth_terrain::land::mesh::height_table);
-    let points = covered(x, y, radius);
+    let points = covered(&session.grid(), x, y, radius);
     let center = points.first().copied();
     let mut out = Vec::new();
     for (gx, gy) in points {
@@ -196,19 +200,24 @@ mod tests {
     //! Behaviour: none (tooling: the reach of a terrain brush)
     use super::*;
 
+    const D: LandGrid = LandGrid::DEFAULT;
+
     #[test]
     fn a_brush_covers_the_grid_points_within_its_radius_nearest_first() {
         // At a vertex, a radius just under the grid covers that vertex alone, and one just over
         // it its four nearest neighbors too.
-        assert_eq!(covered(48.0, 48.0, 23.0), [(2, 2)]);
+        assert_eq!(covered(&D, 48.0, 48.0, 23.0), [(2, 2)]);
         assert_eq!(
-            covered(48.0, 48.0, 25.0),
+            covered(&D, 48.0, 48.0, 25.0),
             [(2, 2), (1, 2), (2, 1), (2, 3), (3, 2)]
         );
         // Between four vertices, a radius over half a diagonal covers all four.
-        assert_eq!(covered(12.0, 12.0, 17.0), [(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(
+            covered(&D, 12.0, 12.0, 17.0),
+            [(0, 0), (0, 1), (1, 0), (1, 1)]
+        );
         // Never off the world.
-        assert!(covered(1.0, 1.0, 30.0)
+        assert!(covered(&D, 1.0, 1.0, 30.0)
             .iter()
             .all(|(x, y)| *x <= 1 && *y <= 1));
     }
@@ -220,35 +229,65 @@ mod tests {
         assert!(!Brush::Raise(1).by_vertex() && !Brush::Smooth.by_vertex());
         // From a height brush's 30 meters, the nearest whole vertex; then a vertex a step, down
         // to the one vertex under it and up to ten.
-        assert_eq!(step_radius(road, 30.0, 0), 24.0);
-        assert_eq!(step_radius(road, 24.0, 1), 48.0);
-        assert_eq!(step_radius(road, 24.0, -1), 0.0);
-        assert_eq!(step_radius(road, 0.0, -1), 0.0);
-        assert_eq!(step_radius(road, 240.0, 1), 240.0);
-        assert_eq!(covered(48.0, 48.0, step_radius(road, 0.0, 0)), [(2, 2)]);
+        assert_eq!(step_radius(&D, road, 30.0, 0), 24.0);
+        assert_eq!(step_radius(&D, road, 24.0, 1), 48.0);
+        assert_eq!(step_radius(&D, road, 24.0, -1), 0.0);
+        assert_eq!(step_radius(&D, road, 0.0, -1), 0.0);
+        assert_eq!(step_radius(&D, road, 240.0, 1), 240.0);
+        assert_eq!(
+            covered(&D, 48.0, 48.0, step_radius(&D, road, 0.0, 0)),
+            [(2, 2)]
+        );
         // A height brush too, from one vertex.
-        assert_eq!(step_radius(Brush::Raise(1), 0.0, 0), 24.0);
-        assert_eq!(step_radius(Brush::Raise(1), 30.0, 1), 48.0);
-        assert_eq!(step_radius(Brush::Smooth, 24.0, -1), 24.0);
+        assert_eq!(step_radius(&D, Brush::Raise(1), 0.0, 0), 24.0);
+        assert_eq!(step_radius(&D, Brush::Raise(1), 30.0, 1), 48.0);
+        assert_eq!(step_radius(&D, Brush::Smooth, 24.0, -1), 24.0);
         // The vertex nearest a point, never off the world.
-        assert_eq!(nearest_vertex(35.0, 37.0), (24.0, 48.0));
-        assert_eq!(nearest_vertex(-5.0, 1e6), (0.0, 2040.0 * GRID));
+        assert_eq!(nearest_vertex(&D, 35.0, 37.0), (24.0, 48.0));
+        assert_eq!(nearest_vertex(&D, -5.0, 1e6), (0.0, 2040.0 * GRID));
     }
 
     #[test]
     fn the_road_brush_starts_at_one_vertex_and_keeps_its_size_between_painting_and_erasing() {
         for from in [Brush::Raise(1), Brush::Terrain(3), Brush::Smooth] {
-            let r = chosen_radius(from, Brush::Road(1), 48.0);
-            assert_eq!(covered(48.0, 48.0, r), [(2, 2)], "{from:?}");
+            let r = chosen_radius(&D, from, Brush::Road(1), 48.0);
+            assert_eq!(covered(&D, 48.0, 48.0, r), [(2, 2)], "{from:?}");
         }
-        assert_eq!(chosen_radius(Brush::Road(1), Brush::Road(0), 48.0), 48.0);
-        assert_eq!(chosen_radius(Brush::Road(0), Brush::Road(1), 24.0), 24.0);
-        // Another brush keeps the size it had, in its own steps.
         assert_eq!(
-            chosen_radius(Brush::Raise(1), Brush::Terrain(2), 30.0),
+            chosen_radius(&D, Brush::Road(1), Brush::Road(0), 48.0),
+            48.0
+        );
+        assert_eq!(
+            chosen_radius(&D, Brush::Road(0), Brush::Road(1), 24.0),
             24.0
         );
-        assert_eq!(chosen_radius(Brush::Road(1), Brush::Raise(1), 0.0), 24.0);
+        // Another brush keeps the size it had, in its own steps.
+        assert_eq!(
+            chosen_radius(&D, Brush::Raise(1), Brush::Terrain(2), 30.0),
+            24.0
+        );
+        assert_eq!(
+            chosen_radius(&D, Brush::Road(1), Brush::Raise(1), 0.0),
+            24.0
+        );
+    }
+
+    #[test]
+    fn on_a_finer_land_a_brush_covers_its_vertices_and_steps_in_its_spacing() {
+        let fine = crate::land::grid_of_steps(3);
+        // 8 meters apart: a vertex between two of the files' corners, and its four neighbors.
+        assert_eq!(covered(&fine, 16.0, 16.0, 7.0), [(2, 2)]);
+        assert_eq!(
+            covered(&fine, 16.0, 16.0, 9.0),
+            [(2, 2), (1, 2), (2, 1), (2, 3), (3, 2)]
+        );
+        assert_eq!(nearest_vertex(&fine, 13.0, 3.0), (16.0, 0.0));
+        assert_eq!(step_radius(&fine, Brush::Raise(1), 30.0, 1), 40.0);
+        assert_eq!(step_radius(&fine, Brush::Raise(1), 0.0, 0), 8.0);
+        assert_eq!(step_radius(&fine, Brush::Road(1), 500.0, 0), 80.0);
+        // The world's far edge is three times as many vertices away.
+        assert_eq!(nearest_vertex(&fine, 1e6, 0.0), (2040.0 * GRID, 0.0));
+        assert_eq!(covered(&fine, 2040.0 * GRID, 0.0, 1.0), [(3 * 2040, 0)]);
     }
 
     #[test]

@@ -95,6 +95,10 @@ fn a_world_lays_an_import_under_its_packs_into_one_overlay() {
     )
     .unwrap();
     f.world();
+    // The imported world's own rules and place names, beside its overlay.
+    let rules = "dungeons_by_cells = true\nown_placements = true\n";
+    f.write("imported/world.toml", rules);
+    f.write("imported/places.tsv", "name\tx\ty\nHome\t1\t2\n");
     let world_file = f.write(
         "world.toml",
         "key = \"test-world\"\npacks = [\"sample\"]\nimports = [\"imported\"]\nout = \"build\"\n",
@@ -105,6 +109,37 @@ fn a_world_lays_an_import_under_its_packs_into_one_overlay() {
     );
     compile::build(&world_file, &base, None, false).unwrap();
     let overlay = f.out().join("overlay");
+    // The import's rules and place names are the built world's; it places nothing itself.
+    assert_eq!(
+        std::fs::read_to_string(overlay.join("world.toml")).unwrap(),
+        rules
+    );
+    assert!(std::fs::read_to_string(overlay.join("places.tsv"))
+        .unwrap()
+        .contains("Home"));
+    assert!(!overlay.join("placements.tsv").exists());
+    // The pack places nothing through the world database, so nothing is hidden.
+    let built = compile::build(&world_file, &base, None, false).unwrap();
+    assert!(!built
+        .warnings
+        .iter()
+        .any(|w| w.contains("places its own things")));
+    // A spawn in the pack: the import's rule hides it, and the build says so.
+    f.write(
+        "sample/server/sql/landblocks/0202 guide.sql",
+        "INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`) \
+         VALUES (0x70202001, 1, 0x02020001);\n",
+    );
+    let built = compile::build(&world_file, &base, None, false).unwrap();
+    assert!(
+        built.warnings.contains(
+            &"this world's imported base places its own things, so the world database's \
+              spawns in sample won't appear"
+                .to_owned()
+        ),
+        "{:?}",
+        built.warnings
+    );
     // The import's terrain, with the pack's statics record flagged on it.
     let t = terrain_through(&base, &overlay, 0x0202);
     assert_eq!((t.height[40], t.lbi_exists), (123, 1));
