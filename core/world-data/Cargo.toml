@@ -22,6 +22,8 @@ dereth-dat.workspace = true
 dereth-assets.workspace = true
 dereth-physics.workspace = true
 dereth-animation.workspace = true
+# The scenery's within-block test reads an object's shape as this crate converts it.
+dereth-terrain.workspace = true
 thiserror.workspace = true
 # Diagnostics (a facade: this crate installs no subscriber and writes no output of its own).
 tracing.workspace = true

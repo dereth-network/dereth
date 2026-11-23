@@ -30,6 +30,9 @@
 //! * Scenery is turned to its heading as the client turns it (V446). A scene object whose base
 //!   orientation is pitched keeps its pitch about its own X axis, where ACE's heading step turns
 //!   it about Y instead; every other object is turned as ACE turns it.
+//! * Not ACE: a landblock laid on a finer land grid than retail's, which ACE cannot read, takes
+//!   its scenery from the client's own scenery generation ([`dereth_terrain::scenery`]), so the
+//!   server stands the same objects where the client does. Every retail block's scenery is ACE's.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -126,7 +129,15 @@ pub fn placements(w: &World, landblock: u16) -> Vec<(DatStaticKind, CellStatic, 
         }
     }
     // `UseSceneFiles` is true.
-    for (s, scale) in land_scenes(w, block, info.as_deref()) {
+    let scenes = match w
+        .dats
+        .cell_dat()
+        .read_from_dat::<empyrean_dat::file_types::CellLandblock>(block.terrain_id().0)
+    {
+        Some(land) if land.dense.is_some() => finer_grid_scenes(w, block, &land, info.as_deref()),
+        _ => land_scenes(w, block, info.as_deref()),
+    };
+    for (s, scale) in scenes {
         out.push((DatStaticKind::Scenery, s, scale));
     }
     let num_cells = info.as_ref().map_or(0, |i| i.num_cells);
@@ -319,6 +330,60 @@ fn land_scenes(
         }
     }
     out
+}
+
+/// Not ACE: the scenery of a block laid on a finer land grid than retail's, which ACE cannot
+/// read. It is the client's own scenery generation over the client's own mesh of the block, with
+/// the same buildings and object shapes, so the server has a body for every tree, rock and lily
+/// pad the client stands on or walks into, and no other. A block on the retail grid never comes
+/// here: its scenery is ACE's.
+fn finer_grid_scenes(
+    w: &World,
+    block: LandblockId,
+    land: &empyrean_dat::file_types::CellLandblock,
+    info: Option<&empyrean_dat::file_types::LandblockInfo>,
+) -> Vec<(CellStatic, f32)> {
+    use dereth_terrain::scenery::{generate_scenery, outside_cell_index, SceneryEnv};
+    let Some(region) = w.dats.portal_dat().try_region_desc() else {
+        return Vec::new();
+    };
+    if w.physics.land().landblock(block).is_none() {
+        return Vec::new();
+    }
+    let (bx, by) = (i32::from(block.x()), i32::from(block.y()));
+    let table = dereth_terrain::land::mesh::height_table(region);
+    let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
+        land,
+        region,
+        &table,
+        bx,
+        by,
+        1,
+        dereth_landscape::Direction::InViewerBlock,
+    );
+    // A building stands in the land cell its origin is in.
+    let buildings: Vec<u16> = info
+        .map_or(&[][..], |i| &i.buildings[..])
+        .iter()
+        .map(|b| outside_cell_index(b.frame.origin.x, b.frame.origin.y))
+        .collect();
+    let env = SceneryEnv {
+        scenes: &|id| {
+            w.dats
+                .portal_dat()
+                .read_from_dat::<empyrean_dat::file_types::Scene>(id.0)
+                .map(|s| (*s).clone())
+        },
+        has_building: &|cell| buildings.contains(&cell),
+        shape: &|id| {
+            super::setup_geometry(w, id.0)
+                .map(|g| dereth_world_data::env_cells::within_block_shape(&g))
+        },
+    };
+    generate_scenery(land, &mesh, region, bx, by, &env)
+        .into_iter()
+        .map(|p| (placed(p.cell, p.gfxobj, p.frame), p.scale))
+        .collect()
 }
 
 fn placed(cell: CellId, id: DataId, frame: Frame) -> CellStatic {

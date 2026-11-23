@@ -558,6 +558,20 @@ pub fn static_geometry(
     Some(crate::setup::setup_geometry_with_parts(store, &s, stats))
 }
 
+/// What the last scenery filter, the within-block test, reads of an object's collision geometry:
+/// whether a part carries a physics mesh, its cylinders, whether it has collision spheres, and its
+/// sorting sphere, all unscaled. The client and the server both read an object's shape through
+/// this, so both keep and drop the same scenery.
+#[must_use]
+pub fn within_block_shape(g: &SetupGeometry) -> dereth_terrain::scenery::WithinBlockShape {
+    dereth_terrain::scenery::WithinBlockShape {
+        physics_mesh: g.caches_physics_bsp(),
+        cylinders: g.cyl_spheres.iter().map(|c| (c.low_pt, c.radius)).collect(),
+        has_spheres: !g.spheres.is_empty(),
+        sorting_sphere: (g.sorting_sphere.center, g.sorting_sphere.radius),
+    }
+}
+
 /// The cells a static placement is registered in when it is added to its cell: its own cell
 /// first, then every cell its geometry reaches, each with whether that cell was resident.
 ///

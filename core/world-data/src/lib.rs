@@ -2,7 +2,8 @@
 //! and the server.
 //!
 //! **Depends on** `dereth-primitives`, the container and decoders (`dereth-dat`, `dereth-assets`)
-//! and the two engines it feeds (`dereth-physics`, `dereth-animation`). **Used by** the client
+//! and the two engines it feeds (`dereth-physics`, `dereth-animation`), and the scenery rule whose
+//! within-block test it hands object shapes to (`dereth-terrain`). **Used by** the client
 //! runtime (`dereth-client-runtime`), the SDK
 //! (`dereth-client-sdk`) and the server (`empyrean-dat`, `empyrean-world`).
 //!

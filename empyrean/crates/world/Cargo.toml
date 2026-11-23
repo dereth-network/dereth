@@ -28,6 +28,9 @@ dereth-rules = { workspace = true, default-features = true }
 dereth-primitives.workspace = true
 # `anim_convert`: the decoded dat records turned into dereth-animation's runtime shapes.
 dereth-world-data.workspace = true
+# Not ACE: the client's scenery placement, for a world on a finer land grid than retail's.
+dereth-terrain.workspace = true
+dereth-landscape.workspace = true
 empyrean-entity.workspace = true
 empyrean-tables.workspace = true
 empyrean-content.workspace = true

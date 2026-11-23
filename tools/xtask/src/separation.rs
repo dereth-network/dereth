@@ -63,6 +63,7 @@ pub const SHARED: &[&str] = &[
     "dereth-rules",
     "dereth-server-updater",
     "dereth-server-websocket",
+    "dereth-terrain",
     "dereth-transport",
     "dereth-world-data",
     "dereth-world-places",

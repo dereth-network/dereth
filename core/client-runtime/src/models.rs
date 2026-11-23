@@ -610,12 +610,7 @@ pub fn within_block_shape(
 ) -> Option<dereth_terrain::scenery::WithinBlockShape> {
     let mut stats = dereth_world_data::setup::SetupPartStats::default();
     let g = dereth_world_data::env_cells::static_geometry(store, id, &mut stats)?;
-    Some(dereth_terrain::scenery::WithinBlockShape {
-        physics_mesh: g.caches_physics_bsp(),
-        cylinders: g.cyl_spheres.iter().map(|c| (c.low_pt, c.radius)).collect(),
-        has_spheres: !g.spheres.is_empty(),
-        sorting_sphere: (g.sorting_sphere.center, g.sorting_sphere.radius),
-    })
+    Some(dereth_world_data::env_cells::within_block_shape(&g))
 }
 
 /// Triangulate one `GfxObj`'s **drawing** polygons, grouped by positive surface.

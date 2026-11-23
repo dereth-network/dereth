@@ -4,8 +4,9 @@
 //! **Depends on** every server crate below it (`empyrean-common`, `empyrean-entity`,
 //! `empyrean-tables`, `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`) and the
 //! shared engines and rules (`dereth-primitives`, `dereth-protocol`, `dereth-assets`,
-//! `dereth-physics`, `dereth-animation`, `dereth-world-data`, `dereth-rules`), and the Dereth
-//! Network's protocol (`dereth-network-protocol`, for [`federation`]); its tests
+//! `dereth-physics`, `dereth-animation`, `dereth-world-data`, `dereth-rules`), the client's scenery
+//! placement and land mesh for a world on a finer land grid (`dereth-terrain`, `dereth-landscape`),
+//! and the Dereth Network's protocol (`dereth-network-protocol`, for [`federation`]); its tests
 //! cross-check the port against the client's rules (`dereth-client-model`). **Used by** the
 //! commands (`empyrean-command`), the server (`empyrean-server`) and the test kit
 //! (`empyrean-testkit`).

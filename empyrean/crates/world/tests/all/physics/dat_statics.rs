@@ -1145,4 +1145,228 @@ mod real_content {
         // A landblock not loaded is not built, and is read afresh when it loads.
         assert!(!dat_overlay::reload_landblock(&mut w, 0x0101));
     }
+
+    /// An overlay at `folder` over the retail files that lays the world on a grid of three vertex
+    /// steps a land cell (its region's land definitions say so) and gives `block` a record on that
+    /// grid: the retail record's vertices at the cell corners, and between them heights between
+    /// the corners' and the terrain of the nearest corner.
+    fn finer_grid_overlay(folder: &std::path::Path, block: u16) {
+        use dereth_assets::world::{CellLandblock, DenseLand};
+        use dereth_assets::{Decode, Region};
+        use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+        const STEPS: usize = 3;
+        let _ = std::fs::remove_dir_all(folder);
+        let store = dereth_dat::RetailDatStore::open_dir(&dereth_dat::testing::dat_dir())
+            .expect("the retail dats");
+        let dir = OverlayDir::new(folder).expect("an overlay folder");
+
+        // The region's land definitions follow its name: two words of block counts, the square
+        // length and the block length in cells, then the vertex steps a cell.
+        let portal = store.portal().base();
+        let region_id = DataId(0x1300_0000);
+        let mut region = portal.read(region_id).expect("the region");
+        let name_len = usize::from(u16::from_le_bytes([region[12], region[13]]));
+        let steps_at = (14 + name_len).next_multiple_of(4) + 16;
+        region[steps_at..steps_at + 4].copy_from_slice(&3u32.to_le_bytes());
+        let read = Region::decode_payload(region_id, &region).expect("the region decodes");
+        assert_eq!(read.land_defs.land_grid().vertices_per_cell, STEPS);
+        let revision = dereth_dat::decompose::revision_over(&portal);
+        let mut p = OverlayWriter::open_or_create(
+            &dir.container(ModernDat::Portal),
+            &portal,
+            "client_portal.dat",
+            "a world being built",
+            1,
+        )
+        .expect("the portal overlay");
+        p.save(&portal, region_id, &region, 2, revision, 1)
+            .expect("the region record");
+        p.add_iteration(revision, 1).expect("the revision");
+        p.flush(1).expect("flushed");
+
+        let cell = store.cell().base();
+        let land_id = LandblockId(block).terrain_id();
+        let retail =
+            CellLandblock::decode_payload(land_id, &cell.read(land_id).expect("the terrain"))
+                .expect("decodes");
+        let side = 8 * STEPS + 1;
+        let (mut terrain, mut height) = (Vec::new(), Vec::new());
+        for a in 0..side {
+            for b in 0..side {
+                let (x, fx) = (a / STEPS, a % STEPS);
+                let (y, fy) = (b / STEPS, b % STEPS);
+                let corner = |i: usize, j: usize| f32::from(retail.height[i.min(8) * 9 + j.min(8)]);
+                #[allow(clippy::cast_precision_loss)]
+                let (u, v) = (fx as f32 / STEPS as f32, fy as f32 / STEPS as f32);
+                let h = corner(x, y) * (1.0 - u) * (1.0 - v)
+                    + corner(x + 1, y) * u * (1.0 - v)
+                    + corner(x, y + 1) * (1.0 - u) * v
+                    + corner(x + 1, y + 1) * u * v;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                height.push(h.round() as u8);
+                let near = |i: usize, f: usize| (i + usize::from(2 * f > STEPS)).min(8);
+                terrain.push(retail.terrain[near(x, fx) * 9 + near(y, fy)]);
+            }
+        }
+        let dense = CellLandblock::from_dense(
+            land_id,
+            retail.lbi_exists,
+            DenseLand {
+                steps: STEPS,
+                terrain: terrain.into(),
+                height: height.into(),
+                split: vec![0; DenseLand::split_bytes(STEPS)].into(),
+            },
+        );
+        assert_eq!(
+            dense.terrain, retail.terrain,
+            "the corners are the retail record's"
+        );
+        let revision = dereth_dat::decompose::revision_over(&cell);
+        let mut c = OverlayWriter::open_or_create(
+            &dir.container(ModernDat::Cell),
+            &cell,
+            "client_cell_1.dat",
+            "a world being built",
+            1,
+        )
+        .expect("the cell overlay");
+        c.save(&cell, land_id, &dense.encode(), 2, revision, 1)
+            .expect("the terrain record");
+        c.add_iteration(revision, 1).expect("the revision");
+        c.flush(1).expect("flushed");
+    }
+
+    /// One scenery placement as both sides list it: its land cell, its object, its frame and
+    /// its scale.
+    type Placed = (u32, u32, Frame, f32);
+
+    /// On a world laid on a finer land grid than retail's, a landblock's scenery (the trees, rocks
+    /// and bushes south of Holtburg) is the scenery the client places there: the
+    /// same objects in the same cells at the same frames and scales, each a body at that scale.
+    /// The client places it from the terrain at the cell corners, onto its mesh of the finer
+    /// ground.
+    #[test]
+    fn a_block_on_a_finer_land_grid_has_the_scenery_the_client_places() {
+        use dereth_dat::overlay::OverlayDir;
+        let block = 0xA9B3;
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("finer-scenery").expect("a scratch folder");
+        let overlay = scratch.path().join("overlay");
+        finer_grid_overlay(&overlay, block);
+
+        let real = RealDats::open(&dereth_dat::testing::dat_dir())
+            .expect("the retail dats")
+            .with_overlay(&overlay)
+            .expect("the overlay");
+        let mut w = World::new(
+            ClockSnapshot {
+                portal_year_ticks: 0.0,
+                unix_time: 0.0,
+                utc: DotNetDateTime::new(2026, 1, 1),
+                monotonic: Duration::ZERO,
+            },
+            DatManager::initialize(Arc::new(real)).expect("the files"),
+        );
+        phys_ext::load_landblock(&mut w, block);
+        let ours = statics_of(&w, block, DatStaticKind::Scenery);
+        for s in &ours {
+            assert!(
+                vectors::same_f32(w.physics.get(s.body).expect("a body").scale, s.scale),
+                "each a body at its scale"
+            );
+        }
+        let ours: Vec<Placed> = ours
+            .iter()
+            .map(|s| {
+                (
+                    s.placement.cell.0,
+                    s.placement.id.0,
+                    s.placement.frame,
+                    s.scale,
+                )
+            })
+            .collect();
+
+        let store = dereth_dat::RetailDatStore::open_dir(&dereth_dat::testing::dat_dir())
+            .expect("the retail dats")
+            .with_overlay(&OverlayDir::new(&overlay).expect("the folder"), None)
+            .expect("the overlay");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let (bx, by) = (i32::from(block >> 8), i32::from(block & 0xFF));
+        let land =
+            dereth_client_runtime::world_build::read_landblock(&store, bx, by).expect("the land");
+        assert_eq!(land.vertex_steps(), 3, "the block is on the finer grid");
+        let mesh = dereth_terrain::land::mesh::generate_landblock(
+            &land,
+            &region,
+            bx,
+            by,
+            1,
+            dereth_landscape::Direction::InViewerBlock,
+        );
+        let clients: Vec<Placed> = dereth_client_runtime::world_build::land_content(
+            &store, &region, &land, &mesh, bx, by, true,
+        )
+        .placed
+        .iter()
+        .map(|p| (p.cell.0, p.gfxobj.0, p.frame, p.scale))
+        .collect();
+        assert!(
+            clients.len() > 100,
+            "the block's scenery: {}",
+            clients.len()
+        );
+        assert_eq!(ours, clients);
+    }
+
+    /// On the retail grid a landblock's scenery is still placed as ACE places it, to the bit:
+    /// sample landblocks' scenery (how many, and a hash of each one's cell, object, frame and
+    /// scale) is what it was before blocks on a finer grid were placed by the client's rule. The
+    /// client's rule puts the same objects in the same cells, but its frames differ from ACE's in
+    /// their last bits on every one of these blocks.
+    #[test]
+    fn a_retail_blocks_scenery_is_still_placed_as_ace_places_it() {
+        // FNV-1a over each placement's cell, object, origin, rotation and scale bits, in order.
+        let hash = |v: &[DatStatic]| {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for s in v {
+                let (o, q) = (s.placement.frame.origin, s.placement.frame.rotation);
+                let bits = [o.x, o.y, o.z, q.w, q.x, q.y, q.z].map(f32::to_bits);
+                for word in [s.placement.cell.0, s.placement.id.0]
+                    .into_iter()
+                    .chain(bits)
+                    .chain([s.scale.to_bits()])
+                {
+                    h ^= u64::from(word);
+                    h = h.wrapping_mul(0x0100_0000_01b3);
+                }
+            }
+            h
+        };
+        let expected: [(u16, usize, u64); 9] = [
+            (0x03A7, 1, 0x96A8_F8F7_545B_FA93),
+            (0xA99E, 70, 0x0CC9_4CCA_E96B_D9B1),
+            (0xA9B0, 219, 0xD5D6_5585_0F30_9A0F),
+            (0xA9B3, 136, 0x3A25_7F6E_99E5_5EEB),
+            (0xC5F0, 218, 0xBE5E_95C9_B050_1772),
+            (0x7209, 177, 0x3929_49DF_7478_3E10),
+            (0x5C91, 1, 0x3264_2921_C4ED_9D27),
+            (0x2D54, 24, 0x738A_7D13_487C_DE61),
+            (0x367C, 6, 0xDBC0_8B10_06E0_B748),
+        ];
+        let mut w = real_world();
+        let ours: Vec<(u16, usize, u64)> = expected
+            .iter()
+            .map(|&(block, _, _)| {
+                phys_ext::load_landblock(&mut w, block);
+                let v = statics_of(&w, block, DatStaticKind::Scenery);
+                phys_ext::unload_landblock(&mut w, block);
+                (block, v.len(), hash(&v))
+            })
+            .collect();
+        assert_eq!(ours, expected);
+    }
 }
