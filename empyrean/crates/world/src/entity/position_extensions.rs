@@ -488,7 +488,9 @@ fn find_terrain_poly(w: &World, landcell: CellId, origin: Vector3) -> Option<Pol
 // ACE: PositionExtensions.IsRestrictable
 #[must_use]
 pub fn is_restrictable(p: &Position, landblock: &mut Landblock) -> bool {
-    let cell = if landblock.is_dungeon() {
+    // Not ACE (V563): on a world whose land lies over its dungeons, an indoor cell of a landblock
+    // with a dungeon is one.
+    let cell = if landblock.is_dungeon_at(p.cell()) {
         p.cell()
     } else {
         get_outdoor_cell(p)

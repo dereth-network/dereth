@@ -544,3 +544,132 @@ fn all_treasure_gem_count_rows_in_id_order() {
         .collect();
     assert_eq!(ids, [(3, 1.0), (9, 0.0)]);
 }
+
+/// Divergence: V565
+#[test]
+fn a_world_that_places_its_own_things_reads_none_of_the_packs_placements_and_keeps_the_rest() {
+    let db = fixture::db();
+    db.hide_placements();
+    // What puts things in the world is gone: instances, houses, encounters, house portals,
+    // points of interest and events.
+    assert!(db.get_cached_instances_by_landblock(0xA9B4).is_empty());
+    assert!(db.get_all_landblock_instances().is_empty());
+    assert!(db.get_landblock_instance_by_guid(1_879_052_288).is_none());
+    assert!(db.get_landblock_instances_by_wcid(100).is_empty());
+    assert!(db
+        .get_landblock_instances_of_type(WeenieType::SlumLord)
+        .is_empty());
+    assert_eq!(db.get_cached_basement_house_guid(0xA9B4), 0);
+    assert!(db.get_houses_all().is_empty());
+    assert!(db.get_cached_encounters_by_landblock(5).is_empty());
+    assert!(db.get_cached_house_portals(77).is_empty());
+    assert!(db.get_cached_house_portals_by_landblock(0xA9B4).is_empty());
+    db.cache_all_points_of_interest();
+    assert_eq!(db.get_points_of_interest_cache_count(), 0);
+    assert!(db.get_cached_event("Event Two").is_none());
+    assert!(db.get_all_events().is_empty());
+    // What the world's own things and its players are made of stays: weenies, spells, quests,
+    // recipes and treasure.
+    assert_eq!(db.get_weenie(100).unwrap().class_id, 100);
+    assert_eq!(db.get_all_weenies().len(), 5);
+    db.cache_all_spells();
+    assert_eq!(db.get_spell_cache_count(), 2);
+    assert_eq!(db.get_cached_quest("testquest").unwrap().id, 1);
+    assert_eq!(db.get_cached_cookbook(100, 200).unwrap().id, 5);
+    assert_eq!(db.get_cached_death_treasure(6).unwrap().tier, 2);
+
+    // Without the rule the same pack places everything (the retail world).
+    let retail = fixture::db();
+    assert_eq!(retail.get_cached_instances_by_landblock(0xA9B4).len(), 4);
+    assert_eq!(retail.get_houses_all().len(), 1);
+    assert_eq!(retail.get_cached_encounters_by_landblock(5).len(), 2);
+    assert_eq!(retail.get_cached_house_portals(77).len(), 2);
+    assert_eq!(retail.get_all_events().len(), 2);
+}
+
+/// Divergence: V565
+#[test]
+fn a_worlds_own_placements_are_in_their_landblocks_with_their_links_when_the_pack_places_nothing() {
+    let db = fixture::db();
+    db.hide_placements();
+    let own = empyrean_content::own_placements::parse(
+        "0x7A9B4F00	24037	0xA9B40100	10	20	30	1	0	0	0	0x7A9B4F01
+         0x7A9B4F01	10762	0xA9B40105	1	2	3	1	0	0	0
+",
+    )
+    .expect("reads");
+    assert!(db.place_own(own.clone()));
+    // Once only: the world's placements are set at start-up.
+    assert!(!db.place_own(own));
+    let here = db.get_cached_instances_by_landblock(0xA9B4);
+    let guids: Vec<u32> = here.iter().map(|i| i.guid).collect();
+    assert_eq!(guids, [0x7A9B_4F00, 0x7A9B_4F01]);
+    assert_eq!(here[0].landblock_instance_link[0].child_guid, 0x7A9B_4F01);
+    assert!(here[1].is_link_child);
+    assert_eq!(db.get_all_landblock_instances().len(), 2);
+    assert_eq!(
+        db.get_landblock_instance_by_guid(0x7A9B_4F01)
+            .map(|i| i.weenie_class_id),
+        Some(10762)
+    );
+    assert!(db.get_cached_instances_by_landblock(0xA9B5).is_empty());
+}
+
+/// Divergence: V565
+#[test]
+fn a_worlds_own_weenie_is_its_base_with_its_own_properties_and_leaves_the_base_as_it_was() {
+    let db = fixture::db();
+    let own = empyrean_content::own_placements::parse_weenies(
+        "15728641	kitthing	500	int.1=33	did.1=0x0200F000	string.1=Kit thing
+",
+    )
+    .expect("reads");
+    assert_eq!(db.define_own_weenies(&own), Ok(1));
+    // Once only: the world's weenies are set at start-up.
+    assert!(db.define_own_weenies(&own).is_err());
+    let w = db.get_weenie(15_728_641).expect("the world's own weenie");
+    assert_eq!(
+        (w.class_id, w.class_name.as_str()),
+        (15_728_641, "kitthing")
+    );
+    let base = db.get_weenie(500).unwrap();
+    assert_eq!(w.r#type, base.r#type);
+    let int1 = |w: &Weenie| {
+        w.weenie_properties_int
+            .iter()
+            .find(|r| r.r#type == 1)
+            .map(|r| r.value)
+    };
+    assert_eq!(int1(&w), Some(33));
+    assert_ne!(int1(&base), Some(33));
+    // The base's own rows are the own weenie's, beside the one it adds.
+    assert_eq!(
+        w.weenie_properties_int.len(),
+        base.weenie_properties_int.len() + 1
+    );
+    assert!(w
+        .weenie_properties_did
+        .iter()
+        .any(|r| r.r#type == 1 && r.value == 0x0200_F000));
+    let cached = db
+        .get_cached_weenie(15_728_641)
+        .expect("cached as any weenie is");
+    assert_eq!(
+        cached
+            .properties_string
+            .as_ref()
+            .and_then(|s| s.get(&PropertyString::Name))
+            .map(String::as_str),
+        Some("Kit thing")
+    );
+}
+
+/// Divergence: V565
+#[test]
+fn a_worlds_own_weenie_on_a_class_id_the_database_has_or_a_base_it_has_not_is_refused() {
+    let taken = empyrean_content::own_placements::parse_weenies("500	again	100\n").unwrap();
+    assert!(fixture::db().define_own_weenies(&taken).is_err());
+    let baseless =
+        empyrean_content::own_placements::parse_weenies("15728641	kitthing	15728640\n").unwrap();
+    assert!(fixture::db().define_own_weenies(&baseless).is_err());
+}

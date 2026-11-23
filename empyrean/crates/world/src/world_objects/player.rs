@@ -580,20 +580,25 @@ pub fn on_talk(w: &mut crate::World, this: empyrean_entity::ObjectGuid, message:
         return;
     }
 
-    let is_dungeon = crate::entity::landblock::current_physics_landblock_is_dungeon(w, this);
-
     let range_squared = crate::world_objects::world_object::LOCAL_BROADCAST_RANGE_SQ;
 
     let location = chat::object(w, this)
         .location()
         .expect("ACE: Location is null (NullReferenceException)");
+    let is_dungeon =
+        crate::entity::landblock::current_physics_landblock_is_dungeon_at(w, this, location.cell());
     for creature in crate::physics::object_maint::get_known_objects_values_as_creature(w, h) {
         let creature_location = w
             .objects
             .get(creature)
             .and_then(crate::world_objects::world_object::WorldObject::location)
             .expect("ACE: creature.Location is null (NullReferenceException)");
-        if is_dungeon && location.landblock() != creature_location.landblock() {
+        if crate::entity::landblock::kept_apart_by_dungeon(
+            w,
+            is_dungeon,
+            &location,
+            &creature_location,
+        ) {
             continue;
         }
 

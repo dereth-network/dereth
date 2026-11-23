@@ -1,15 +1,19 @@
 //! Divergence: V458
+//! Divergence: V565
 //! The status endpoint's portal table and places: `/portals` and `/places` are not served unless
 //! `server.publish_portals` is on, and when it is, the portal table lists every placed portal with
 //! a destination, in from-cell then class order, with land cells for bare landblocks, level limits,
 //! escaped names and what else each asks; the places list every placed lifestone, portal, vendor
 //! and creature that cannot be attacked, in the client's place-store format; the portals spawners
 //! make are listed in both, and the towns the world names in the places; and the status document
-//! names both.
+//! names both. A world's own places document (its overlay folder's `places.tsv`) is published in
+//! place of the world's places; without one the places are the world's alone. A world that places
+//! its own things publishes no portal or place of the world database's.
 //! Fixture: a small in-memory world of placed portals, a portal with no destination and a
 //! non-portal, and for the places a lifestone, a vendor, people, a monster, a hidden person and a
 //! creature that is no creature by its item type; and a world of a quest-gated portal, a spawner
-//! that makes one while its event runs, a named landmark and the vendors of its town.
+//! that makes one while its event runs, a named landmark and the vendors of its town; a world's
+//! own places document of a town and a landmark, and a temporary overlay folder per test.
 
 use std::sync::Arc;
 
@@ -533,4 +537,133 @@ portal\tpublished\t2001\tFestival\t0xA9B40022 80.000 30.000 5.000\t0x01AC0118 60
     assert_eq!(named(PlaceKind::Portal), ["Portal to Holtburg", "Festival"]);
     assert_eq!(named(PlaceKind::Town), ["Holtburg"]);
     assert_eq!(named(PlaceKind::Vendor).len(), 3);
+}
+
+/// A world's own places document, as an overlay folder holds it.
+const OWN_PLACES: &str = "dereth-places-store\t1\n\
+world\tElsewhere\n\
+place\ttown\tpublished\t-\tCragstone\t0x5D8D0013 114.000 48.000 15.000\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tThe Hovel (Dungeon, Level 4-7)\t0x6291000A 94.000 70.000 22.500\t0\t0\t-\t-\n";
+
+/// A fresh, empty folder of its own for the test `name`.
+fn folder(name: &str) -> std::path::PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("empyrean-own-places-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("overlay")).unwrap();
+    dir
+}
+
+fn serving_overlay() -> empyrean_common::master_configuration::MasterConfiguration {
+    let mut config = empyrean_common::master_configuration::MasterConfiguration::default();
+    config.dat_overlay.path = "overlay".to_owned();
+    config
+}
+
+#[test]
+fn a_worlds_own_places_are_published_in_place_of_its_places() {
+    let dir = folder("set");
+    std::fs::write(
+        dir.join("overlay")
+            .join(empyrean_server::dat_directory::WORLD_PLACES_FILE),
+        OWN_PLACES,
+    )
+    .unwrap();
+    let base = empyrean_common::config_paths::PathBase::new(None, &dir, None, None);
+    let own = empyrean_server::dat_directory::world_places(&serving_overlay(), &base).unwrap();
+    assert_eq!(own.as_deref(), Some(OWN_PLACES));
+    let table = PortalTable::with_own_places("Test\tWorld \\ One", Arc::new(places_world()), own);
+    let own_lines: String = OWN_PLACES
+        .lines()
+        .skip(2)
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let header: String = PLACES.lines().take(2).map(|l| format!("{l}\n")).collect();
+    assert_eq!(
+        table.places(),
+        format!("{header}naming\town\n{own_lines}"),
+        "after the header, a line saying its towns and landmarks are its own names"
+    );
+    let store = PlaceStore::from_text(table.places()).expect("the client reads the places");
+    assert!(
+        store.own_names,
+        "the client reads them as the world's own names"
+    );
+    assert_eq!(
+        store.world, "Test World \\ One",
+        "the world keeps its own name"
+    );
+    let named: Vec<(PlaceKind, &str)> = store
+        .places()
+        .iter()
+        .filter(|p| matches!(p.kind, PlaceKind::Town | PlaceKind::Landmark))
+        .map(|p| (p.kind, p.name.as_str()))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (PlaceKind::Town, "Cragstone"),
+            (PlaceKind::Landmark, "The Hovel (Dungeon, Level 4-7)")
+        ]
+    );
+    assert_eq!(
+        table.document(),
+        EXPECTED,
+        "the portal table is unchanged by the world's own places"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn without_its_own_places_file_a_world_publishes_only_its_places() {
+    let dir = folder("absent");
+    let base = empyrean_common::config_paths::PathBase::new(None, &dir, None, None);
+    let own = empyrean_server::dat_directory::world_places(&serving_overlay(), &base).unwrap();
+    assert_eq!(own, None);
+    let none = empyrean_common::master_configuration::MasterConfiguration::default();
+    assert_eq!(
+        empyrean_server::dat_directory::world_places(&none, &base),
+        Ok(None),
+        "a world with no overlay has none"
+    );
+    let table = PortalTable::with_own_places("Test\tWorld \\ One", Arc::new(places_world()), own);
+    assert_eq!(table.places(), PLACES);
+    assert_eq!(
+        portal_table::with_own_places(PLACES, "not a places document\nplace\tx\n"),
+        PLACES,
+        "a document of another kind changes nothing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_world_that_places_its_own_things_publishes_only_its_own_places_and_no_portals() {
+    let content = places_world();
+    empyrean_content::WorldDatabase::hide_placements(&content);
+    let table = PortalTable::with_own_places(
+        "Test\tWorld \\ One",
+        Arc::new(content),
+        Some(OWN_PLACES.to_owned()),
+    );
+    let store = PlaceStore::from_text(table.places()).expect("the client reads the places");
+    let named: Vec<&str> = store.places().iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(named, ["Cragstone", "The Hovel (Dungeon, Level 4-7)"]);
+    assert!(store.own_names);
+    assert!(
+        !table.document().contains("\nportal\t"),
+        "no placed portal of the world database's: {}",
+        table.document()
+    );
+    let retail = PortalTable::new("Test\tWorld \\ One", Arc::new(places_world()));
+    assert_eq!(
+        retail.places(),
+        PLACES,
+        "a retail world's places are unchanged"
+    );
+    assert!(retail.document().contains("\nportal\t"));
+    let retail = PlaceStore::from_text(retail.places()).expect("the client reads the places");
+    assert!(
+        !retail.own_names,
+        "a retail world's towns and landmarks are not its own names"
+    );
 }

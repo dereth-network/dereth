@@ -121,6 +121,9 @@ pub struct World {
     pub cast_potency: Option<crate::world_objects::spell_potency::SpellPotency>,
     /// Not ACE: the Dereth Network's world half (off until the host configures it).
     pub federation: crate::federation::FederationState,
+    /// Not ACE (V563): the world's land lies over its dungeons, so a dungeon is told by its
+    /// cells, not by flat land (the world's `world.toml`, `dungeons_by_cells`). Off, ACE's test.
+    pub dungeons_by_cells: bool,
 }
 
 /// `DatabaseManager.Authentication` and `DatabaseManager.AutoPromoteNextAccountToAdmin`.
@@ -222,6 +225,7 @@ impl World {
             spell_economy: Default::default(),
             cast_potency: None,
             federation: crate::federation::FederationState::default(),
+            dungeons_by_cells: false,
         }
     }
 }

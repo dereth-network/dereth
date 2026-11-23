@@ -46,6 +46,7 @@ sha2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 # Not ACE: the Dereth Network (`src/federation_link.rs`): its protocol, and a world's end of the
 # link to the hub.
 dereth-network-protocol.workspace = true

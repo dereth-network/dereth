@@ -264,6 +264,8 @@ pub struct Landblock {
 
     is_dungeon: Option<bool>,
     has_dungeon: Option<bool>,
+    /// Not ACE (V563): [`World::dungeons_by_cells`] when the landblock was loaded.
+    dungeons_by_cells: bool,
 
     // ACE: Landblock.Houses
     pub houses: Vec<ObjectGuid>,
@@ -319,6 +321,7 @@ impl Landblock {
             fog_color: EnvironChangeType::Clear,
             is_dungeon: None,
             has_dungeon: None,
+            dungeons_by_cells: w.dungeons_by_cells,
             houses: Vec::new(),
         }
     }
@@ -525,7 +528,11 @@ impl Landblock {
         // - having at least 1 EnvCell (0x100+)
         // - contains no buildings
         if let Some(cell_landblock) = &self.cell_landblock {
-            if cell_landblock.height.iter().any(|&height| height != 0) {
+            if cell_landblock
+                .grid_height()
+                .iter()
+                .any(|&height| height != 0)
+            {
                 self.is_dungeon = Some(false);
                 return false;
             }
@@ -557,6 +564,19 @@ impl Landblock {
         self.has_dungeon = Some(v);
         v
     }
+
+    /// Not ACE (V563): whether `cell`, a cell of this landblock, is in a dungeon. ACE's
+    /// [`Self::is_dungeon`], or on a world whose land lies over its dungeons
+    /// ([`World::dungeons_by_cells`]) also any indoor cell of a landblock that
+    /// [`Self::has_dungeon`].
+    pub fn is_dungeon_at(&mut self, cell: u32) -> bool {
+        self.is_dungeon() || (self.dungeons_by_cells && is_indoor(cell) && self.has_dungeon())
+    }
+}
+
+/// An indoor cell's id: index 0x100 and up.
+const fn is_indoor(cell: u32) -> bool {
+    cell & 0xFFFF >= 0x100
 }
 
 /// The landblock `id` names, which must be loaded.
@@ -2267,11 +2287,45 @@ pub fn physics_landblock_is_dungeon(l: &Landblock) -> bool {
         return false;
     }
     if let Some(cell_landblock) = &l.cell_landblock {
-        if cell_landblock.height.iter().any(|&height| height != 0) {
+        if cell_landblock
+            .grid_height()
+            .iter()
+            .any(|&height| height != 0)
+        {
             return false;
         }
     }
     l.info_has_cells_and_no_buildings()
+}
+
+/// Not ACE (V563): [`physics_landblock_is_dungeon`] at `cell`, a cell of `l`, as
+/// [`Landblock::is_dungeon_at`] extends [`Landblock::is_dungeon`].
+#[must_use]
+pub fn physics_landblock_is_dungeon_at(l: &Landblock, cell: u32) -> bool {
+    physics_landblock_is_dungeon(l)
+        || (l.dungeons_by_cells && is_indoor(cell) && l.info_has_cells_and_no_buildings())
+}
+
+/// The range filters' dungeon test (`Player.OnTalk`, `WorldObject.PlayersInRange`,
+/// `EnqueueBroadcast`): whether an object at `at`, in a dungeon when `in_dungeon`, is kept from
+/// one at `other`. ACE's: a dungeon object reaches only its own landblock. Not ACE (V563): on a
+/// world whose land lies over its dungeons, the two are kept apart unless both are on land, or
+/// both in the same landblock's dungeon.
+#[must_use]
+pub fn kept_apart_by_dungeon(w: &World, in_dungeon: bool, at: &Position, other: &Position) -> bool {
+    if !w.dungeons_by_cells {
+        return in_dungeon && at.landblock() != other.landblock();
+    }
+    let other_in_dungeon = w
+        .landblock_manager
+        .landblocks
+        .get(LandblockId::new(other.cell()))
+        .is_some_and(|l| physics_landblock_is_dungeon_at(l, other.cell()));
+    match (in_dungeon, other_in_dungeon) {
+        (false, false) => false,
+        (true, true) => at.landblock() != other.landblock(),
+        _ => true,
+    }
 }
 
 /// `CurrentLandblock.PhysicsLandblock != null && CurrentLandblock.PhysicsLandblock.IsDungeon`.
@@ -2291,6 +2345,24 @@ pub fn current_physics_landblock_is_dungeon(w: &World, this: ObjectGuid) -> bool
         .landblocks
         .get(id)
         .is_some_and(physics_landblock_is_dungeon)
+}
+
+/// [`current_physics_landblock_is_dungeon`] at `cell`, the object's own: Not ACE (V563), on a
+/// world whose land lies over its dungeons it is [`physics_landblock_is_dungeon_at`].
+///
+/// # Panics
+/// When the object has no current landblock (ACE: `NullReferenceException`).
+#[must_use]
+pub fn current_physics_landblock_is_dungeon_at(w: &World, this: ObjectGuid, cell: u32) -> bool {
+    let id = w
+        .objects
+        .get(this)
+        .and_then(|o| o.current_landblock)
+        .expect("ACE: CurrentLandblock is null (NullReferenceException)");
+    w.landblock_manager
+        .landblocks
+        .get(id)
+        .is_some_and(|l| physics_landblock_is_dungeon_at(l, cell))
 }
 
 /// `pos.adjust_to_outside()` on `(objCellId, origin)`: `LandDefs.AdjustToOutside`, the shared

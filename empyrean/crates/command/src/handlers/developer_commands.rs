@@ -4428,7 +4428,7 @@ pub fn handle_barrier_test(w: &mut World, session: Option<SessionId>, _parameter
         .landblocks
         .get_mut(lb)
         .expect("NullReferenceException: CurrentLandblock")
-        .is_dungeon();
+        .is_dungeon_at(cell); // Not ACE (V563): the position's own cell.
     if is_dungeon {
         console_write_line("Dungeon landblock");
 

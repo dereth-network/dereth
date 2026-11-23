@@ -830,6 +830,32 @@ fn door_reset_ignores_a_stale_timer() {
     assert!(!h.o(d).is_open());
 }
 
+/// Divergence: V565
+/// A world's own door weenie, a door with a reset interval of its own in its row of the world's
+/// weenies table, closes that long after it is opened rather than after its base's 30 s.
+#[test]
+fn a_worlds_own_door_closes_after_the_reset_interval_its_own_row_gives() {
+    const OWN_DOOR: u32 = 0x00F0_0001;
+    let mut h = H::new();
+    let own = empyrean_content::own_placements::parse_weenies(&format!(
+        "{OWN_DOOR}\tkitdoor\t{DOOR}\tfloat.11=12\n"
+    ))
+    .expect("the row reads");
+    assert_eq!(h.w.content.define_own_weenies(&own), Ok(1));
+    let base = h.place(DOOR, 21.0, 20.0);
+    assert_eq!(h.o(base).reset_interval(), Some(30.0));
+    let d = h.place(OWN_DOOR, 23.0, 20.0);
+    assert_eq!(h.o(d).reset_interval(), Some(12.0), "its own row's");
+
+    dispatch::act_on_use::act_on_use(&mut h.w, d, P);
+    h.run(0.1);
+    assert!(h.o(d).is_open());
+    h.run(11.5);
+    assert!(h.o(d).is_open(), "open until its own interval is up");
+    h.run(0.6);
+    assert!(!h.o(d).is_open(), "closed 12 s after it opened");
+}
+
 // ------------------------------------------------------------------------------------ Lock
 
 /// `LockHelper.Unlock(target, key, keyCode)`: the lock code ignores case, the Sonic Screwdriver's

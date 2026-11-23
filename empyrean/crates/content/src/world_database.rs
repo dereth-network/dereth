@@ -16,6 +16,7 @@
 //! `GetCookbooksByRecipeId`) live on the derived type, where the override is visible.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use empyrean_common::dotnet::DotNetDict;
@@ -77,7 +78,23 @@ pub struct WorldDatabaseBase {
     pack: Pack,
     /// Not ACE: the editable overlay, read before the pack once attached.
     overlay: OnceLock<Arc<ContentOverlay>>,
+    /// Not ACE (V565): the pack's [`PLACEMENT_TABLES`] are not read ([`Self::hide_placements`]).
+    placements_hidden: AtomicBool,
+    /// Not ACE (V565): the world's own landblock instances, by landblock ([`Self::place_own`]).
+    own: OnceLock<HashMap<u16, Vec<LandblockInstance>>>,
+    /// Not ACE (V565): the world's own weenies, by class id ([`Self::define_own_weenies`]).
+    own_weenies: OnceLock<HashMap<u32, Weenie>>,
 }
+
+/// Not ACE (V565): the tables that put things in the world: landblock instances (generators and
+/// their links among them), encounters, house portals, points of interest and events.
+pub const PLACEMENT_TABLES: [TableId; 5] = [
+    TableId::LANDBLOCK_INSTANCE,
+    TableId::ENCOUNTER,
+    TableId::HOUSE_PORTAL,
+    TableId::POINTS_OF_INTEREST,
+    TableId::EVENT,
+];
 
 impl WorldDatabaseBase {
     #[must_use]
@@ -85,7 +102,72 @@ impl WorldDatabaseBase {
         Self {
             pack,
             overlay: OnceLock::new(),
+            placements_hidden: AtomicBool::new(false),
+            own: OnceLock::new(),
+            own_weenies: OnceLock::new(),
         }
+    }
+
+    /// Not ACE (V565): `instances` are in the world beside what the pack and the overlay place,
+    /// each in its cell's landblock ([`crate::own_placements`]). Called at start-up, before
+    /// anything is read; a second call gives them back.
+    pub fn place_own(
+        &self,
+        instances: Vec<LandblockInstance>,
+    ) -> Result<(), Vec<LandblockInstance>> {
+        let mut by: HashMap<u16, Vec<LandblockInstance>> = HashMap::new();
+        for i in &instances {
+            by.entry(u16::try_from(i.obj_cell_id >> 16).unwrap_or(u16::MAX))
+                .or_default()
+                .push(i.clone());
+        }
+        self.own.set(by).map_err(|_| instances)
+    }
+
+    /// Not ACE (V565): `weenies`, the world's own, are weenies of the world beside the pack's and
+    /// the overlay's: each its base as the world database has it, with its own properties
+    /// ([`crate::own_placements::OwnWeenie::made_from`]). Called at start-up, before anything is
+    /// read; how many there are.
+    ///
+    /// # Errors
+    /// A class id the world database already has, a base it has not, or a second call.
+    pub fn define_own_weenies(
+        &self,
+        weenies: &[crate::own_placements::OwnWeenie],
+    ) -> Result<usize, String> {
+        let mut by = HashMap::new();
+        for o in weenies {
+            if self.weenie_row(o.class_id).is_some() {
+                return Err(format!(
+                    "weenie {} ({}) is one the world database has",
+                    o.class_id, o.class_name
+                ));
+            }
+            let base = self.get_weenie(o.base).ok_or_else(|| {
+                format!(
+                    "weenie {} ({}): its base {} is not in the world database",
+                    o.class_id, o.class_name, o.base
+                )
+            })?;
+            by.insert(o.class_id, o.made_from(&base));
+        }
+        let n = by.len();
+        self.own_weenies
+            .set(by)
+            .map_err(|_| "the world's own weenies are given twice".to_owned())?;
+        Ok(n)
+    }
+
+    /// Not ACE (V565): from now on the pack holds none of the [`PLACEMENT_TABLES`]' records, so
+    /// nothing it places is in the world; an attached overlay's own records still are. Called at
+    /// start-up, before anything is read.
+    pub fn hide_placements(&self) {
+        self.placements_hidden.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether the pack's records of `table` are not read ([`Self::hide_placements`]).
+    fn hidden(&self, table: TableId) -> bool {
+        self.placements_hidden.load(Ordering::Relaxed) && PLACEMENT_TABLES.contains(&table)
     }
 
     #[must_use]
@@ -117,12 +199,19 @@ impl WorldDatabaseBase {
                 return v;
             }
         }
+        if self.hidden(table) {
+            return None;
+        }
         q(self.pack.get::<T>(table, key))
     }
 
     /// Every record of a table, ascending by key, the overlay's in front of the pack's.
     pub(crate) fn all_keyed<T: Codec>(&self, table: TableId) -> Vec<(u64, T)> {
-        let base = q(self.pack.all::<T>(table));
+        let base = if self.hidden(table) {
+            Vec::new()
+        } else {
+            q(self.pack.all::<T>(table))
+        };
         match self.overlay.get() {
             None => base,
             Some(o) => o.layer().merge(table, base),
@@ -150,8 +239,14 @@ impl WorldDatabaseBase {
 
     /// `LandblockInstance.Where(r => r.Landblock == landblock)` with its links: guid order.
     pub(crate) fn instances(&self, landblock: u16) -> Vec<LandblockInstance> {
-        self.get::<Vec<LandblockInstance>>(TableId::LANDBLOCK_INSTANCE, u64::from(landblock))
-            .unwrap_or_default()
+        let mut v = self
+            .get::<Vec<LandblockInstance>>(TableId::LANDBLOCK_INSTANCE, u64::from(landblock))
+            .unwrap_or_default();
+        if let Some(own) = self.own.get().and_then(|o| o.get(&landblock)) {
+            v.extend(own.iter().cloned());
+            v.sort_by_key(|i| i.guid);
+        }
+        v
     }
 
     /// Every landblock instance, in guid (primary-key) order.
@@ -161,6 +256,9 @@ impl WorldDatabaseBase {
             .into_iter()
             .flatten()
             .collect();
+        if let Some(own) = self.own.get() {
+            all.extend(own.values().flatten().cloned());
+        }
         all.sort_by_key(|i| i.guid);
         all
     }
@@ -209,6 +307,10 @@ impl WorldDatabaseBase {
     // ACE: WorldDatabase.GetWeenie
     #[must_use]
     pub fn get_weenie(&self, weenie_class_id: u32) -> Option<Weenie> {
+        // Not ACE (V565): the world's own weenie, made from its base as this returns it.
+        if let Some(own) = self.own_weenies.get().and_then(|o| o.get(&weenie_class_id)) {
+            return Some(own.clone());
+        }
         let mut weenie = self.weenie_row(weenie_class_id)?;
         mysql_index_order(&mut weenie);
         // Not ACE: the retail corrections to the stored data (`crate::corrections`).

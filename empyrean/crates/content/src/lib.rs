@@ -36,6 +36,7 @@ pub mod import;
 pub mod loot;
 pub mod models;
 pub mod overlay;
+pub mod own_placements;
 pub mod pack;
 pub mod records;
 pub mod world_database;

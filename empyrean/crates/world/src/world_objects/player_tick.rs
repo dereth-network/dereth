@@ -1734,11 +1734,13 @@ pub fn validate_movement(w: &mut World, this: ObjectGuid, new_position: &Positio
             return false;
         }
 
+        // Not ACE (V563): both dungeon tests are at the cells', on a world whose land lies over
+        // its dungeons.
         let is_dungeon = w
             .landblock_manager
             .landblocks
             .get_mut(current_landblock)
-            .is_some_and(crate::entity::landblock::Landblock::is_dungeon);
+            .is_some_and(|l| l.is_dungeon_at(location.cell()));
         if is_dungeon {
             // `LScape.get_landblock(newPosition.Cell)`: the physics landblock, only if it is loaded.
             #[allow(clippy::cast_possible_truncation)] // the landblock half of the cell id
@@ -1749,7 +1751,7 @@ pub fn validate_movement(w: &mut World, this: ObjectGuid, new_position: &Positio
                 && w.landblock_manager
                     .landblocks
                     .get_mut(dest)
-                    .is_some_and(crate::entity::landblock::Landblock::is_dungeon)
+                    .is_some_and(|l| l.is_dungeon_at(new_position.cell()))
             {
                 return false;
             }

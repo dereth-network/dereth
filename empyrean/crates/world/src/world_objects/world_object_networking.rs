@@ -2037,12 +2037,15 @@ pub fn apply_physics_motion(w: &mut World, this: ObjectGuid, motion: &Motion) {
 // ACE: WorldObject.PlayersInRange
 /// TRUE if there are any players within range of this object (`range` defaults to 96).
 pub fn players_in_range(w: &mut World, this: ObjectGuid, range: f32) -> bool {
-    let is_dungeon = obj(w, this).current_landblock.is_some()
-        && crate::entity::landblock::current_physics_landblock_is_dungeon(w, this);
-
     let range_squared = range * range;
 
     let location = obj(w, this).location().expect("ACE: Location is null");
+    let is_dungeon = obj(w, this).current_landblock.is_some()
+        && crate::entity::landblock::current_physics_landblock_is_dungeon_at(
+            w,
+            this,
+            location.cell(),
+        );
     let visibility = obj(w, this).visibility();
     // Not ACE's (retail captures, V286): the range test runs over the
     // broadcast reach, not only the players who know the object.
@@ -2050,7 +2053,12 @@ pub fn players_in_range(w: &mut World, this: ObjectGuid, range: f32) -> bool {
         let player_location = obj(w, player)
             .location()
             .expect("ACE: player.Location is null");
-        if is_dungeon && location.landblock() != player_location.landblock() {
+        if crate::entity::landblock::kept_apart_by_dungeon(
+            w,
+            is_dungeon,
+            &location,
+            &player_location,
+        ) {
             continue;
         }
 
@@ -2121,11 +2129,11 @@ fn broadcast_within_range(
         }
     }
 
-    let is_dungeon = crate::entity::landblock::current_physics_landblock_is_dungeon(w, this);
-
     let range_squared = range * range;
 
     let location = obj(w, this).location().expect("ACE: Location is null");
+    let is_dungeon =
+        crate::entity::landblock::current_physics_landblock_is_dungeon_at(w, this, location.cell());
     let visibility = obj(w, this).visibility();
     for player in players {
         if let (Some(self_), Some(squelch_type)) = (self_, squelch_type) {
@@ -2137,7 +2145,12 @@ fn broadcast_within_range(
         let player_location = obj(w, player)
             .location()
             .expect("ACE: player.Location is null");
-        if is_dungeon && location.landblock() != player_location.landblock() {
+        if crate::entity::landblock::kept_apart_by_dungeon(
+            w,
+            is_dungeon,
+            &location,
+            &player_location,
+        ) {
             continue;
         }
 
@@ -2586,18 +2599,19 @@ pub mod shims {
     // ---- physics ---------------------------------------------------------------
 
     /// `CurrentLandblock.IsDungeon` (`Entity/Landblock.cs`); a null landblock throws in ACE.
+    /// Not ACE (V563): at the object's own cell.
     #[must_use]
     pub fn current_landblock_is_dungeon(w: &mut World, this: ObjectGuid) -> bool {
-        let id = w
-            .objects
-            .get(this)
+        let o = w.objects.get(this);
+        let id = o
             .and_then(|o| o.current_landblock)
             .expect("ACE: CurrentLandblock is null (NullReferenceException)");
+        let cell = o.and_then(WorldObject::location).map_or(0, |l| l.cell());
         w.landblock_manager
             .landblocks
             .get_mut(id)
             .expect("ACE: CurrentLandblock is not loaded")
-            .is_dungeon()
+            .is_dungeon_at(cell)
     }
 
     /// `Physics.Animation.MotionTable.GetAnimationLength(motionTableId, stance, [prevCommand,]

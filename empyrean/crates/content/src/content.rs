@@ -78,6 +78,29 @@ macro_rules! world_database_api {
             fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
                 Vec::new()
             }
+
+            /// Not ACE (V565): from now on the pack places nothing in the world
+            /// ([`crate::world_database::WorldDatabaseBase::hide_placements`]). Called at start-up,
+            /// before anything is read.
+            fn hide_placements(&self) {}
+
+            /// Not ACE (V565): `instances`, the world's own, are in the world beside what the
+            /// content places ([`crate::world_database::WorldDatabaseBase::place_own`]); `false`
+            /// when the content cannot take them or already has. Called at start-up, before
+            /// anything is read.
+            fn place_own(&self, _instances: Vec<LandblockInstance>) -> bool {
+                false
+            }
+
+            /// Not ACE (V565): `weenies`, the world's own, are weenies of the world
+            /// ([`crate::world_database::WorldDatabaseBase::define_own_weenies`]); how many.
+            /// Called at start-up, before anything is read.
+            ///
+            /// # Errors
+            /// Content that cannot take them, a class id it already has or a base it has not.
+            fn define_own_weenies(&self, _weenies: &[crate::own_placements::OwnWeenie]) -> Result<usize, String> {
+                Err("this content has no world database to give weenies to".to_owned())
+            }
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
@@ -123,6 +146,18 @@ macro_rules! world_database_api {
             fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
                 WorldDatabaseWithEntityCache::get_all_landblock_instances(self)
             }
+
+            fn hide_placements(&self) {
+                self.base().hide_placements();
+            }
+
+            fn place_own(&self, instances: Vec<LandblockInstance>) -> bool {
+                self.base().place_own(instances).is_ok()
+            }
+
+            fn define_own_weenies(&self, weenies: &[crate::own_placements::OwnWeenie]) -> Result<usize, String> {
+                self.base().define_own_weenies(weenies)
+            }
         }
 
         impl WorldDatabase for MemContent {
@@ -167,6 +202,18 @@ macro_rules! world_database_api {
             }
             fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
                 self.db().get_all_landblock_instances()
+            }
+
+            fn hide_placements(&self) {
+                self.db().base().hide_placements();
+            }
+
+            fn place_own(&self, instances: Vec<LandblockInstance>) -> bool {
+                self.db().base().place_own(instances).is_ok()
+            }
+
+            fn define_own_weenies(&self, weenies: &[crate::own_placements::OwnWeenie]) -> Result<usize, String> {
+                self.db().base().define_own_weenies(weenies)
             }
         }
     };

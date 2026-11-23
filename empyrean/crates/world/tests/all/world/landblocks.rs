@@ -475,6 +475,54 @@ fn loading_a_landblock_creates_its_instances_in_ace_order_then_its_encounters() 
     assert_eq!(hits.get("ACE: WorldObject.ActivateLinks"), None);
 }
 
+/// A landblock with one placed instance and one encounter of weenie 10, on a world that places its
+/// own things when `own`.
+fn placing_world(own: bool) -> H {
+    let content = MemContent::new()
+        .weenie(weenie(10))
+        .landblock_instance(LandblockInstance::new(
+            0x7A9B_4001,
+            10,
+            LB | 0x0001,
+            [1.0, 2.0, 3.0],
+        ))
+        .encounter(Encounter {
+            id: 1,
+            landblock: 0xA9B4,
+            weenie_class_id: 10,
+            cell_x: 2,
+            cell_y: 3,
+            ..Encounter::default()
+        });
+    if own {
+        empyrean_content::WorldDatabase::hide_placements(&content);
+    }
+    let mut h = H::new(content, FakeDats::new().build().unwrap());
+    lm::get_landblock(&mut h.w, LandblockId::new(LB | 0xFFFF), false, false);
+    h.tick();
+    h
+}
+
+/// Divergence: V565
+#[test]
+fn a_world_that_places_its_own_things_spawns_none_of_the_world_databases_on_loading() {
+    let id = LandblockId::new(LB | 0xFFFF);
+    let h = placing_world(true);
+    assert!(h.lb(id).create_world_objects_completed());
+    assert!(
+        h.objects_of(id).is_empty(),
+        "neither the instance nor the encounter"
+    );
+    assert!(
+        h.w.content.get_weenie(10).is_some(),
+        "the weenie is still there to make"
+    );
+
+    // A retail world places both, as ACE does.
+    let h = placing_world(false);
+    assert_eq!(h.objects_of(id), [0x7A9B_4001, 0x8000_0000]);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Adjacency
 
@@ -576,6 +624,171 @@ fn loading_with_adjacents_caches_only_loaded_neighbours() {
     assert_eq!(lm::get_loaded_landblocks(&h.w), [d]);
     assert!(h.w.landblock_manager.landblocks.expect_mut(d).is_dungeon());
     assert!(h.w.landblock_manager.landblocks.expect_mut(d).has_dungeon());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dungeons under land (V563)
+
+/// Dats with a dungeon (cells, no buildings) at `(x, y)`, its land `height` high everywhere: 0 is
+/// a retail dungeon; above 0 the land of a world whose land lies over its dungeons.
+fn dungeon_dats(x: u8, y: u8, height: u8) -> Arc<DatManager> {
+    let id = u32::from(x) << 24 | u32::from(y) << 16;
+    FakeDats::new()
+        .with_cell(
+            id | 0xFFFF,
+            CellLandblock {
+                id: DataId(id | 0xFFFF),
+                lbi_exists: 1,
+                terrain: [0; 81],
+                height: [height; 81],
+                dense: None,
+            },
+        )
+        .with_cell(
+            id | 0xFFFE,
+            LandblockInfo {
+                id: DataId(id | 0xFFFE),
+                num_cells: 3,
+                objects: vec![],
+                pack_mask: 0,
+                buildings: vec![],
+                restrictions: None,
+            },
+        )
+        .build()
+        .unwrap()
+}
+
+/// The harness over `dats`, on a world whose land lies over its dungeons when `by_cells`, with
+/// the landblock at `(x, y)` loaded.
+fn dungeon_world(dats: Arc<DatManager>, by_cells: bool, x: u8, y: u8) -> H {
+    let mut h = H::new(MemContent::new(), dats);
+    h.w.dungeons_by_cells = by_cells;
+    lm::get_landblock(&mut h.w, lbid(x, y), true, false);
+    h
+}
+
+/// A position in `cell` at block coordinates (10, 10), the outdoor cell `cell & 0xFFFF0000 | 1`.
+fn at(cell: u32) -> Position {
+    Position::from_components(cell, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, false)
+}
+
+/// Divergence: V563
+#[test]
+fn an_apartment_under_land_keeps_its_house_rules_only_on_a_world_whose_land_lies_over_its_dungeons()
+{
+    use empyrean_world::entity::position_extensions as pe;
+    // 0x53600100 is an apartment's cell in the Sanctum Residential Halls (a house cell); the
+    // outdoor cell under (10, 10) is none.
+    let apartment = at(0x5360_0100);
+    let outside = at(0x5360_0001);
+    let sanctum = lbid(0x53, 0x60);
+
+    // ACE's test: land that is not flat is no dungeon, so the outdoor cell judges the apartment.
+    let mut h = dungeon_world(dungeon_dats(0x53, 0x60, 40), false, 0x53, 0x60);
+    let l = h.w.landblock_manager.landblocks.expect_mut(sanctum);
+    assert!(!l.is_dungeon());
+    assert!(l.has_dungeon());
+    assert!(!l.is_dungeon_at(apartment.cell()));
+    assert!(!pe::is_restrictable(&apartment, l));
+
+    // By cells: the apartment's own cell is a dungeon's and a house cell; the land is still land.
+    let mut h = dungeon_world(dungeon_dats(0x53, 0x60, 40), true, 0x53, 0x60);
+    let l = h.w.landblock_manager.landblocks.expect_mut(sanctum);
+    assert!(l.is_dungeon_at(apartment.cell()));
+    assert!(pe::is_restrictable(&apartment, l));
+    assert!(!l.is_dungeon_at(outside.cell()));
+    assert!(!pe::is_restrictable(&outside, l));
+    // The landblock itself keeps ACE's test: it is no dungeon, and loads its adjacents.
+    assert!(!l.is_dungeon());
+    assert_eq!(lm::get_loaded_landblocks(&h.w).len(), 9);
+    assert!(landblock::physics_landblock_is_dungeon_at(
+        h.lb(sanctum),
+        apartment.cell()
+    ));
+    assert!(!landblock::physics_landblock_is_dungeon(h.lb(sanctum)));
+}
+
+/// Divergence: V563
+#[test]
+fn a_retail_dungeon_is_a_dungeon_in_every_cell_either_way() {
+    for by_cells in [false, true] {
+        let mut h = dungeon_world(dungeon_dats(0x01, 0x02, 0), by_cells, 0x01, 0x02);
+        let l =
+            h.w.landblock_manager
+                .landblocks
+                .expect_mut(lbid(0x01, 0x02));
+        assert!(l.is_dungeon());
+        assert!(l.is_dungeon_at(0x0102_0100));
+        assert!(l.is_dungeon_at(0x0102_0001));
+        assert!(landblock::physics_landblock_is_dungeon_at(
+            h.lb(lbid(0x01, 0x02)),
+            0x0102_0001
+        ));
+    }
+}
+
+/// Divergence: V563
+#[test]
+fn the_range_filters_keep_a_dungeon_under_land_apart_from_the_land_only_on_such_a_world() {
+    let land = at(0x5360_0001);
+    let room = at(0x5360_0100);
+    let other_room = at(0x5360_0102);
+    let next_block = at(0x5361_0001);
+
+    // ACE's rule: only an object in a dungeon landblock is kept to its landblock; this one is none.
+    let h = dungeon_world(dungeon_dats(0x53, 0x60, 40), false, 0x53, 0x60);
+    let in_dungeon =
+        landblock::physics_landblock_is_dungeon_at(h.lb(lbid(0x53, 0x60)), room.cell());
+    assert!(!in_dungeon);
+    assert!(!landblock::kept_apart_by_dungeon(
+        &h.w, in_dungeon, &room, &land
+    ));
+    assert!(!landblock::kept_apart_by_dungeon(&h.w, false, &land, &room));
+    assert!(landblock::kept_apart_by_dungeon(
+        &h.w,
+        true,
+        &room,
+        &next_block
+    ));
+    assert!(!landblock::kept_apart_by_dungeon(
+        &h.w,
+        true,
+        &room,
+        &other_room
+    ));
+
+    // By cells: the rooms and the land over them are apart both ways; rooms of one dungeon and
+    // land with land are not.
+    let h = dungeon_world(dungeon_dats(0x53, 0x60, 40), true, 0x53, 0x60);
+    let lb = h.lb(lbid(0x53, 0x60));
+    let room_in = landblock::physics_landblock_is_dungeon_at(lb, room.cell());
+    let land_in = landblock::physics_landblock_is_dungeon_at(lb, land.cell());
+    assert!(room_in && !land_in);
+    assert!(landblock::kept_apart_by_dungeon(
+        &h.w, room_in, &room, &land
+    ));
+    assert!(landblock::kept_apart_by_dungeon(
+        &h.w, land_in, &land, &room
+    ));
+    assert!(!landblock::kept_apart_by_dungeon(
+        &h.w,
+        room_in,
+        &room,
+        &other_room
+    ));
+    assert!(!landblock::kept_apart_by_dungeon(
+        &h.w,
+        land_in,
+        &land,
+        &next_block
+    ));
+    assert!(landblock::kept_apart_by_dungeon(
+        &h.w,
+        room_in,
+        &room,
+        &next_block
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------

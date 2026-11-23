@@ -247,3 +247,30 @@ fn an_overlay_belongs_to_one_pack_and_one_base() {
     assert!(err.to_string().contains("dataset"), "{err}");
     assert!(o.journal().unwrap().is_empty());
 }
+
+/// Divergence: V565
+#[test]
+fn a_world_that_places_its_own_things_still_places_what_its_overlay_adds() {
+    let dir = tmp("own-placements");
+    let (db, o) = open(&dir);
+    db.base().hide_placements();
+    assert!(db.get_cached_instances_by_landblock(0xA9B4).is_empty());
+    o.import_sql(
+        b"INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, `last_Modified`)\nVALUES (0x70123000, 100, 0x0123001F, 1, 2, 3, 1, 0, 0, 0, False, '2021-11-01 00:00:00');",
+        "0123.sql",
+    )
+    .unwrap();
+    let added = db.get_cached_instances_by_landblock(0x0123);
+    assert_eq!(
+        added.iter().map(|i| i.guid).collect::<Vec<_>>(),
+        [0x7012_3000]
+    );
+    assert_eq!(
+        db.get_all_landblock_instances()
+            .iter()
+            .map(|i| i.guid)
+            .collect::<Vec<_>>(),
+        [0x7012_3000],
+        "the overlay's instance and none of the pack's"
+    );
+}

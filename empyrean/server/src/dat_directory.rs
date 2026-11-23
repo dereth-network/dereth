@@ -76,3 +76,114 @@ pub fn configured_dat_directory(config: &MasterConfiguration, base: &PathBase) -
     }
     dat_directory(configured, base)
 }
+
+/// The file in a world's overlay folder holding the world's own rules.
+pub const WORLD_RULES_FILE: &str = "world.toml";
+
+/// A world's own rules, from [`WORLD_RULES_FILE`] in its overlay folder. A world with no overlay,
+/// or none of the file, has none of them.
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct WorldRules {
+    /// Not ACE (V563): the world's land lies over its dungeons, so a position is in a dungeon by
+    /// its cell: an indoor cell of a landblock with a dungeon.
+    pub dungeons_by_cells: bool,
+    /// Not ACE (V565): the world places its own things: nothing the world database places is
+    /// in it ([`empyrean_content::WorldDatabase::hide_placements`]), so none of its landblock
+    /// instances, encounters, house portals, points of interest or events, and its portal table
+    /// and places hold only what the world's own content places.
+    pub own_placements: bool,
+}
+
+/// The rules of the world `config` serves from under `base` ([`WorldRules`]).
+///
+/// # Errors
+/// When the overlay's [`WORLD_RULES_FILE`] cannot be read or is not valid.
+pub fn world_rules(config: &MasterConfiguration, base: &PathBase) -> Result<WorldRules, String> {
+    let overlay = config.dat_overlay.path.trim();
+    if overlay.is_empty() {
+        return Ok(WorldRules::default());
+    }
+    let file = base.resolve(overlay).join(WORLD_RULES_FILE);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(WorldRules::default()),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
+/// The file in a world's overlay folder holding the things it places itself
+/// ([`empyrean_content::own_placements`]).
+pub const WORLD_PLACEMENTS_FILE: &str = "placements.tsv";
+
+/// The world's own placements table, from [`WORLD_PLACEMENTS_FILE`] in its overlay folder, with
+/// the file's path; `None` for a world with no overlay, or none of the file.
+///
+/// # Errors
+/// When the file is there and cannot be read as text.
+pub fn world_placements(
+    config: &MasterConfiguration,
+    base: &PathBase,
+) -> Result<Option<(PathBuf, String)>, String> {
+    let overlay = config.dat_overlay.path.trim();
+    if overlay.is_empty() {
+        return Ok(None);
+    }
+    let file = base.resolve(overlay).join(WORLD_PLACEMENTS_FILE);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => Ok(Some((file, text))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
+/// The file in a world's overlay folder holding the weenies of the things it places itself that
+/// the world database has none of ([`empyrean_content::own_placements::parse_weenies`]).
+pub const WORLD_WEENIES_FILE: &str = "weenies.tsv";
+
+/// The world's own weenies table, from [`WORLD_WEENIES_FILE`] in its overlay folder, with the
+/// file's path; `None` for a world with no overlay, or none of the file.
+///
+/// # Errors
+/// When the file is there and cannot be read as text.
+pub fn world_weenies(
+    config: &MasterConfiguration,
+    base: &PathBase,
+) -> Result<Option<(PathBuf, String)>, String> {
+    let overlay = config.dat_overlay.path.trim();
+    if overlay.is_empty() {
+        return Ok(None);
+    }
+    let file = base.resolve(overlay).join(WORLD_WEENIES_FILE);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => Ok(Some((file, text))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
+/// The file in a world's overlay folder naming its own towns and landmarks: a places document,
+/// whose places the world publishes in place of the world database's
+/// ([`crate::portal_table::with_own_places`]).
+pub const WORLD_PLACES_FILE: &str = "places.tsv";
+
+/// The world's own places document, from [`WORLD_PLACES_FILE`] in its overlay folder; `None` for
+/// a world with no overlay, or none of the file.
+///
+/// # Errors
+/// When the file is there and cannot be read as text.
+pub fn world_places(
+    config: &MasterConfiguration,
+    base: &PathBase,
+) -> Result<Option<String>, String> {
+    let overlay = config.dat_overlay.path.trim();
+    if overlay.is_empty() {
+        return Ok(None);
+    }
+    let file = base.resolve(overlay).join(WORLD_PLACES_FILE);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}

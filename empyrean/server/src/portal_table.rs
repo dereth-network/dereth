@@ -200,8 +200,26 @@ impl PortalTable {
     /// begun.
     #[must_use]
     pub fn new(world_name: &str, content: Arc<dyn WorldDatabase>) -> Self {
+        Self::with_own_places(world_name, content, None)
+    }
+
+    /// As [`Self::new`], with the places of the world's own places document `own` (its overlay
+    /// folder's, [`crate::dat_directory::world_places`]) in place of the content's when there is
+    /// one ([`with_own_places`]).
+    #[must_use]
+    pub fn with_own_places(
+        world_name: &str,
+        content: Arc<dyn WorldDatabase>,
+        own: Option<String>,
+    ) -> Self {
         let world_name = world_name.to_owned();
-        Self::building(move || Documents::of(&world_name, &ServerContent::new(&*content)))
+        Self::building(move || {
+            let mut d = Documents::of(&world_name, &ServerContent::new(&*content));
+            if let Some(own) = &own {
+                d.places = with_own_places(&d.places, own);
+            }
+            d
+        })
     }
 
     /// The documents `build` makes, their building begun on a thread of its own (or, should no
@@ -269,4 +287,34 @@ pub fn document(world_name: &str, content: &dyn WorldDatabase) -> String {
 #[must_use]
 pub fn places_document(world_name: &str, content: &dyn WorldDatabase) -> String {
     dereth_world_places::documents::places(world_name, &ServerContent::new(content))
+}
+
+/// `places` with its places replaced by those of a world's own places document `own`: its
+/// header and its `world` line, a `naming own` line saying its towns and landmarks are the
+/// world's own names, then each line of `own` after its own header, `world` and `naming` lines.
+/// A document of another kind changes nothing.
+#[must_use]
+pub fn with_own_places(places: &str, own: &str) -> String {
+    let Some(body) = own.strip_prefix(PLACES_HEADER) else {
+        return places.to_owned();
+    };
+    let mut out = String::new();
+    for line in places.lines() {
+        if line.starts_with("place\t") || line.starts_with("naming\t") {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if line.starts_with("world\t") {
+            out.push_str("naming\town\n");
+        }
+    }
+    for line in body.lines() {
+        if line.is_empty() || line.starts_with("world\t") || line.starts_with("naming\t") {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }

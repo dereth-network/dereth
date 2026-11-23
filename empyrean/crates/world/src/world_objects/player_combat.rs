@@ -1722,7 +1722,8 @@ pub fn is_npk(w: &World, this: ObjectGuid) -> bool {
     object(w, this).player_killer_status() == PlayerKillerStatus::NPK
 }
 
-/// `(CurrentLandblock?.IsDungeon ?? false) ? Location.Cell : Location.GetOutdoorCell()`.
+/// `(CurrentLandblock?.IsDungeon ?? false) ? Location.Cell : Location.GetOutdoorCell()`; the
+/// dungeon test is the position's (V563).
 fn house_restriction_cell(w: &mut World, g: ObjectGuid) -> u32 {
     let location = object(w, g)
         .location()
@@ -1732,7 +1733,7 @@ fn house_restriction_cell(w: &mut World, g: ObjectGuid) -> u32 {
             .landblock_manager
             .landblocks
             .get_mut(id)
-            .is_some_and(|l| l.is_dungeon()),
+            .is_some_and(|l| l.is_dungeon_at(location.cell())),
         None => false,
     };
     if is_dungeon {

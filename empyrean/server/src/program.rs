@@ -239,6 +239,18 @@ pub fn main(options: &Options) -> ExitCode {
         }
     };
 
+    // Not ACE (V563): the world's own rules, from its overlay folder.
+    let rules = match dat_directory::world_rules(&config, &paths) {
+        Ok(rules) => rules,
+        Err(e) => {
+            log::error!("The world's rules: {e}. Empyrean will now abort startup.");
+            return ExitCode::FAILURE;
+        }
+    };
+    if rules.dungeons_by_cells {
+        log::info!("The world's land lies over its dungeons: a dungeon is told by its cells");
+    }
+
     // `DDDManager.Initialize()` fills state that lives in `World`, so it runs on the world thread as
     // soon as the world exists (below); the log line keeps ACE's position in the start-up sequence.
     // Not ACE: a world with a data overlay patches clients that keep overlays (V437). A world on a
@@ -267,6 +279,49 @@ pub fn main(options: &Options) -> ExitCode {
         &world_pack_path,
         world_pack::configured_overlay(&config, &paths),
     );
+    // Not ACE (V565): a world that places its own things serves none of the world database's.
+    if rules.own_placements {
+        content.hide_placements();
+        log::info!("The world places its own things: none of the world database's placements");
+    }
+    // Not ACE (V565): the weenies of the things the world places itself, from its overlay folder.
+    match dat_directory::world_weenies(&config, &paths).and_then(|f| {
+        f.map(|(file, text)| {
+            empyrean_content::own_placements::parse_weenies(&text)
+                .and_then(|rows| content.define_own_weenies(&rows))
+                .map(|n| (file.clone(), n))
+                .map_err(|e| format!("{}: {e}", file.display()))
+        })
+        .transpose()
+    }) {
+        Ok(None) => {}
+        Ok(Some((file, n))) => log::info!("The world's own weenies: {n} from {}", file.display()),
+        Err(e) => {
+            log::error!("The world's own weenies: {e}. Empyrean will now abort startup.");
+            return ExitCode::FAILURE;
+        }
+    }
+    // Not ACE (V565): the things the world places itself, from its overlay folder.
+    match dat_directory::world_placements(&config, &paths).and_then(|f| {
+        f.map(|(file, text)| {
+            empyrean_content::own_placements::parse(&text)
+                .map(|rows| (file.clone(), rows))
+                .map_err(|e| format!("{}: {e}", file.display()))
+        })
+        .transpose()
+    }) {
+        Ok(None) => {}
+        Ok(Some((file, rows))) => {
+            let n = rows.len();
+            if content.place_own(rows) {
+                log::info!("The world's own placements: {n} from {}", file.display());
+            }
+        }
+        Err(e) => {
+            log::error!("The world's own placements: {e}. Empyrean will now abort startup.");
+            return ExitCode::FAILURE;
+        }
+    }
     if let Some(Err(e)) = overlay_status {
         log::error!(
             "The content overlay could not be opened: {e}. Empyrean will now abort startup."
@@ -319,7 +374,8 @@ pub fn main(options: &Options) -> ExitCode {
         match std::thread::Builder::new()
             .name("World Manager".to_owned())
             .spawn(move || {
-                let world = new_world(&*clock, dats, content, &config);
+                let mut world = new_world(&*clock, dats, content, &config);
+                world.dungeons_by_cells = rules.dungeons_by_cells;
                 let shutdown_initiated = world_thread_main(world, &*clock, &startup_rx);
                 loop_ended.store(true, Ordering::SeqCst);
                 let _ = world_ended.send(StopCause::WorldEnded);
@@ -516,7 +572,14 @@ pub fn main(options: &Options) -> ExitCode {
     // ACE: ModManager.RegisterCommands
     // Not ported: without a mod loader there are no mod commands to register.
 
-    let status = start_status_endpoint(options, &config, &commands, started, &portal_content);
+    let status = start_status_endpoint(
+        options,
+        &config,
+        &paths,
+        &commands,
+        started,
+        &portal_content,
+    );
 
     // Not ACE: the admin channel (`server.admin_channel`), never in the updater's health check,
     // which must leave the running server's file alone.
@@ -1266,10 +1329,12 @@ fn start_bulk_patch(config: &MasterConfiguration) {
 
 /// Not ACE: starts the status endpoint when `--status` or `server.status_address` names an
 /// address. Each request takes its snapshot on the world thread through `commands`. With
-/// `server.publish_portals` on, it also serves `content`'s portal table.
+/// `server.publish_portals` on, it also serves `content`'s portal table, and its places with the
+/// world's own (its overlay folder's places document).
 fn start_status_endpoint(
     options: &Options,
     config: &MasterConfiguration,
+    paths: &PathBase,
     commands: &Sender<WorldCommand>,
     started: std::time::Instant,
     content: &Arc<dyn WorldDatabase>,
@@ -1311,9 +1376,20 @@ fn start_status_endpoint(
         Some(s)
     };
     let portals = config.server.publish_portals.then(|| {
-        empyrean_server::portal_table::PortalTable::new(
+        let own = dat_directory::world_places(config, paths).unwrap_or_else(|e| {
+            log::warn!("The world's own places are not published: {e}");
+            None
+        });
+        if own.is_some() {
+            log::info!(
+                "The world's own places ({}) are published in place of the world database's",
+                dat_directory::WORLD_PLACES_FILE
+            );
+        }
+        empyrean_server::portal_table::PortalTable::with_own_places(
             &config.server.world_name,
             Arc::clone(content),
+            own,
         )
     });
     let publishing = portals.is_some();

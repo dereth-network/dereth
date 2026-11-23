@@ -222,12 +222,18 @@ pub fn house_portal_check_use_requirements(
         .get(player)
         .and_then(|o| o.current_landblock)
         .expect("System.NullReferenceException: player.CurrentLandblock");
+    // Not ACE (V563): the player's own cell decides on a world whose land lies over its dungeons.
+    let player_cell = w
+        .objects
+        .get(player)
+        .and_then(WorldObject::location)
+        .map_or(0, |l| l.cell());
     let is_dungeon = w
         .landblock_manager
         .landblocks
         .get_mut(player_lb)
         .expect("System.NullReferenceException: CurrentLandblock")
-        .is_dungeon();
+        .is_dungeon_at(player_cell);
     if is_dungeon {
         let destination = w
             .objects
@@ -294,11 +300,18 @@ pub fn house_portal_act_on_use(w: &mut World, this: ObjectGuid, world_object: Ob
     // if house portal in dungeon,
     // set destination to outdoor house slumlord
     if let Some(lb) = w.objects.get(this).and_then(|o| o.current_landblock) {
+        // Not ACE (V563): the portal's own cell decides on a world whose land lies over its
+        // dungeons.
+        let cell = w
+            .objects
+            .get(this)
+            .and_then(WorldObject::location)
+            .map_or(0, |l| l.cell());
         let is_dungeon = w
             .landblock_manager
             .landblocks
             .get_mut(lb)
-            .is_some_and(|l| l.is_dungeon());
+            .is_some_and(|l| l.is_dungeon_at(cell));
         if is_dungeon {
             let destination = w
                 .objects

@@ -3,3 +3,4 @@ pub(crate) mod config_discovery;
 pub(crate) mod console_end_to_end;
 pub(crate) mod dat_directory;
 pub(crate) mod dat_identity;
+pub(crate) mod world_rules;

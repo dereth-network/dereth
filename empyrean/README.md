@@ -341,6 +341,11 @@ place	<kind>	published	<wcid or ->	<name>	<at>	0	0	-	<to or ->
   each written as the portal table writes positions. Names are written the same way.
 - The two zeros are when the place was first and last seen, which a server does not know, and the
   `-` is a house's owner, which it never names.
+- A world whose overlay folder holds its own places document (`places.tsv`, in this same form)
+  publishes that document's places in place of these, with a `naming` line reading `own` after
+  the `world` line: its towns and landmarks are the names the world gives its own places, and a
+  client's maps name them in place of the game's map's notes. Without that line, the towns and
+  landmarks are only what the content was read to name.
 - A client passes over a line whose first field it does not know, and a `place` of a kind it does
   not know, and reads the rest; a `place` line that does not read refuses the whole document.
 

@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Dereth clients can ask what their items craft, and the chance of each.
 - New characters start at a world's own starting areas, shown on the creation map.
+- A world's overlay can list things it places itself, such as portals and where they lead.
 
 ## 0.3.17 (2026-11-21)
 - Fixed a world's data patch falling back to the slow way when its offer arrived late.
