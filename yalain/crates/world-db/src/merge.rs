@@ -4,6 +4,11 @@
 //! (`[[override]]`, naming the item, its landblock, or everything); otherwise the build stops with
 //! every place that sets it. One pack setting an item twice is the pack's to put right. `[[remove]]`
 //! rows take items away last.
+//!
+//! An AI class's rows (`[[ai_class]]`) merge field by field: packs that set different fields of
+//! one class each give theirs, and each field keeps the provenance of the row it came from; two
+//! packs setting one field differently are a conflict as any item's, which the world settles the
+//! same way.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -12,7 +17,7 @@ use auberean_pack::Item;
 use dereth_pack::conflict::{self, settle, Claim, Settled};
 use dereth_pack::Loc;
 
-use crate::rows::{Database, Located, Row};
+use crate::rows::{AiClass, Database, Located, Prov, Row};
 use crate::Problem;
 
 /// The item a row sets, as the build's report, an override and a removal name it.
@@ -307,6 +312,103 @@ fn value(row: &Row) -> String {
     format!("{r:?}")
 }
 
+/// An AI class's rows, in load order, merged field by field: each field the packs settle among
+/// those that set it, with the provenance of the row it came from (the first row's own, another's
+/// as one of the row's fields). `None` where two packs set one field differently and the world
+/// doesn't say which wins (the conflict recorded, naming the field).
+fn ai_class_by_field(
+    overrides: &[conflict::Override],
+    it: &conflict::Item,
+    rows: &[&Located],
+    settled: &mut Settled,
+) -> Option<Located> {
+    let classes: Vec<&AiClass> = rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::AiClass(r) => Some(r),
+            _ => None,
+        })
+        .collect();
+    let mut out = classes[0].clone();
+    let before = settled.conflicts.len();
+    // The row whose field stands, among those setting it.
+    let mut winner = |name: &str, value: &fn(&AiClass) -> Option<String>| -> Option<usize> {
+        let setters: Vec<usize> = (0..classes.len())
+            .filter(|i| value(classes[*i]).is_some())
+            .collect();
+        let claims: Vec<Claim> = setters
+            .iter()
+            .map(|&i| {
+                Claim::new(
+                    &rows[i].pack,
+                    &Loc::new(Path::new(&rows[i].file), rows[i].line),
+                    format!("sets its {name}"),
+                    value(classes[i]).unwrap_or_default(),
+                )
+            })
+            .collect();
+        if claims.is_empty() {
+            return None;
+        }
+        let n = settled.conflicts.len();
+        let w = settle(overrides, it, &claims, settled);
+        if let Some(c) = settled.conflicts.get_mut(n) {
+            c.what = format!("{} {name}", c.what);
+        }
+        Some(setters[w])
+    };
+    // Each field: its name, its value as the packs compare it, and how it is taken.
+    type Field = (
+        &'static str,
+        fn(&AiClass) -> Option<String>,
+        fn(&mut AiClass, &AiClass),
+    );
+    let fields: [Field; 3] = [
+        (
+            "idle_every",
+            |r| r.idle_every.map(|v| format!("{v:?}")),
+            |o, r| o.idle_every = r.idle_every,
+        ),
+        (
+            "notice_idle",
+            |r| r.notice_idle.map(|v| format!("{v:?}")),
+            |o, r| o.notice_idle = r.notice_idle,
+        ),
+        (
+            "special_term",
+            |r| r.special_term.map(|v| format!("{v:?}")),
+            |o, r| o.special_term = r.special_term,
+        ),
+    ];
+    let won: Vec<Option<usize>> = fields
+        .iter()
+        .map(|(name, value, _)| winner(name, value))
+        .collect();
+    if settled.conflicts.len() > before {
+        return None;
+    }
+    for ((name, _, take), w) in fields.iter().zip(won) {
+        let Some(i) = w else { continue };
+        take(&mut out, classes[i]);
+        if i > 0 {
+            let p = classes[i]
+                .prov
+                .fields
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| Prov {
+                    fields: BTreeMap::new(),
+                    ..classes[i].prov.clone()
+                });
+            out.prov.fields.insert((*name).to_string(), p);
+        }
+    }
+    Some(Located {
+        row: Row::AiClass(out),
+        ..rows[0].clone()
+    })
+}
+
 /// The merged rows, in load order (an overriding row takes the place of the row it replaces).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Merged {
@@ -363,6 +465,12 @@ pub fn merge(db: &Database) -> Result<Merged, Vec<Problem>> {
     let mut chosen: BTreeMap<String, Located> = BTreeMap::new();
     for key in &order {
         let (it, rows) = &by_item[key];
+        if matches!(rows[0].row, Row::AiClass(_)) {
+            if let Some(l) = ai_class_by_field(&db.world.overrides, it, rows, &mut settled) {
+                chosen.insert(key.clone(), l);
+            }
+            continue;
+        }
         let claims: Vec<Claim> = rows
             .iter()
             .map(|l| {

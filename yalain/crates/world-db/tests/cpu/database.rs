@@ -7898,6 +7898,154 @@ fn an_ai_class_row_reads_its_creatures_idle_gap_and_refuses_a_malformed_one() {
     assert!(read(&files).is_err(), "no class");
 }
 
+/// One pack's idle gap and noticing for an AI class and another's term for its specials merge into
+/// one class holding all three, the term with the provenance of its own row.
+#[test]
+fn one_packs_idles_and_anothers_special_term_for_an_ai_class_merge_into_one_class() {
+    let mut files = fixture();
+    let world = files["world.toml"].clone();
+    files.insert(
+        "world.toml".into(),
+        format!("{world}items = [\"camp beetles@77B7\"]\n"),
+    );
+    files.insert(
+        "town/server/creatures.toml".into(),
+        "[[ai_class]]\nclass = 0x06\nidle_every = 295\nnotice_idle = 0.06\nprov = { from = \"authored\", by = \"the idle rates\" }\n".into(),
+    );
+    files.insert(
+        "town-fixes/server/creatures.toml".into(),
+        "[[ai_class]]\nclass = 0x06\nspecial_term = -0.75\nprov = { from = \"authored\", by = \"the special rates\" }\n".into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let classes: Vec<&yalain_world_db::rows::AiClass> = merged
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::AiClass(r) => Some(r),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(classes.len(), 1, "one class");
+    let c = classes[0];
+    assert_eq!(
+        (c.idle_every, c.notice_idle, c.special_term),
+        (Some(295.0), Some(0.06), Some(-0.75))
+    );
+    assert_eq!(c.prov.by.as_deref(), Some("the idle rates"));
+    assert_eq!(
+        c.prov
+            .fields
+            .get("special_term")
+            .and_then(|p| p.by.as_deref()),
+        Some("the special rates")
+    );
+    assert!(
+        !c.prov.fields.contains_key("idle_every") && !c.prov.fields.contains_key("notice_idle")
+    );
+}
+
+/// Two packs that set different fields of one AI class merge into one class holding both, each
+/// field with the provenance of the row it came from; two setting one field alike agree; two
+/// setting it differently conflict, the report naming the field, until the world says which wins.
+#[test]
+fn packs_setting_different_fields_of_one_ai_class_merge_and_one_field_set_differently_conflicts() {
+    let row = |fields: &str, by: &str| {
+        format!("[[ai_class]]\nclass = 0x06\n{fields}\nprov = {{ from = \"authored\", by = \"{by}\" }}\n")
+    };
+    let class = |files: &Files| {
+        let merged = merge(&read(files).unwrap()).unwrap();
+        let classes: Vec<yalain_world_db::rows::AiClass> = merged
+            .rows
+            .iter()
+            .filter_map(|l| match &l.row {
+                Row::AiClass(r) => Some(r.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(classes.len(), 1, "one class");
+        classes[0].clone()
+    };
+    let mut files = fixture();
+    // The fixes win only their camp, so nothing else of theirs is settled for them.
+    let world = files["world.toml"].clone();
+    files.insert(
+        "world.toml".into(),
+        format!("{world}items = [\"camp beetles@77B7\"]\n"),
+    );
+    files.insert(
+        "town/server/creatures.toml".into(),
+        row("idle_every = 295", "the idle gaps"),
+    );
+    files.insert(
+        "town-fixes/server/creatures.toml".into(),
+        row("notice_idle = 0.06", "the noticing"),
+    );
+    assert_eq!(check(&files), Vec::new(), "different fields merge");
+    let c = class(&files);
+    assert_eq!((c.idle_every, c.notice_idle), (Some(295.0), Some(0.06)));
+    assert_eq!(c.prov.by.as_deref(), Some("the idle gaps"));
+    assert_eq!(
+        c.prov
+            .fields
+            .get("notice_idle")
+            .and_then(|p| p.by.as_deref()),
+        Some("the noticing")
+    );
+    assert!(!c.prov.fields.contains_key("idle_every"), "its own row's");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        (
+            t.creatures
+                .idle_every
+                .iter()
+                .map(|(c, g)| (*c, *g))
+                .collect::<Vec<_>>(),
+            t.creatures
+                .notice_idle
+                .iter()
+                .map(|(c, g)| (*c, *g))
+                .collect::<Vec<_>>()
+        ),
+        (vec![(6, 295.0)], vec![(6, 0.06)])
+    );
+    // The same field set alike in both: they agree.
+    files.insert(
+        "town/server/creatures.toml".into(),
+        row("idle_every = 295\nnotice_idle = 0.06", "the idle gaps"),
+    );
+    assert_eq!(check(&files), Vec::new(), "alike agree");
+    // Set differently: a conflict naming the field.
+    files.insert(
+        "town/server/creatures.toml".into(),
+        row("idle_every = 295\nnotice_idle = 0.1", "the idle gaps"),
+    );
+    let problems: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0].contains("ai_class 0x6 notice_idle is set by pack town"),
+        "{problems:?}"
+    );
+    // The world says the fixes win the class: their noticing stands, the town's gap with it.
+    let w = files["world.toml"].clone();
+    files.insert(
+        "world.toml".into(),
+        format!(
+            "{w}[[override]]\npack = \"town-fixes\"\nover = \"town\"\nitems = [\"ai_class 0x6\"]\n"
+        ),
+    );
+    assert_eq!(check(&files), Vec::new(), "settled");
+    let c = class(&files);
+    assert_eq!((c.idle_every, c.notice_idle), (Some(295.0), Some(0.06)));
+    assert_eq!(
+        c.prov
+            .fields
+            .get("notice_idle")
+            .and_then(|p| p.by.as_deref()),
+        Some("the noticing")
+    );
+}
+
 /// A creature's row may say its creatures never play their victory: the template is kept; false, or
 /// anything not true or false, is refused, and a row giving only that is a row.
 #[test]

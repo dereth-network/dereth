@@ -171,8 +171,10 @@ another by key: an object's `to` and a step's `to` name a place, a camp's `paren
 Packs merge in load order. Two packs that set an item alike agree. A pack that sets an item an
 earlier pack set differently wins only where an `[[override]]` says so (its `items` naming the
 item, or `landblock XXYY` for everything in a landblock, or nothing for everything both set);
-otherwise the build stops, naming both rows. A world's packs lie over the base it names: their
-rows replace the base's row of the same item.
+otherwise the build stops, naming both rows. An `[[ai_class]]` merges field by field instead:
+packs that set different fields of one class each give theirs, and only a field two packs set
+differently needs the world's word. A world's packs lie over the base it names: their rows
+replace the base's row of the same item.
 
 ## Provenance
 
@@ -1104,9 +1106,10 @@ has the server's own of that kind.
 #### `[[ai_class]]`
 
 What the world says of the creatures of an AI class. A row gives at least one of `idle_every`,
-`notice_idle` and `special_term`. A class with no `idle_every` idles every 450 s on average, one with
-no `notice_idle` never plays an idle as it notices a player, and one with no `special_term` uses its
-specials as the generic monsters do.
+`notice_idle` and `special_term`. Rows of one class in several packs merge field by field, each
+field keeping the provenance of the row it came from. A class with no `idle_every` idles every 450 s
+on average, one with no `notice_idle` never plays an idle as it notices a player, and one with no
+`special_term` uses its specials as the generic monsters do.
 
 | field | | meaning |
 |---|---|---|
