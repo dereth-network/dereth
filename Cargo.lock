@@ -1530,12 +1530,19 @@ dependencies = [
 name = "dereth-art"
 version = "0.0.0"
 dependencies = [
+ "auberean-animation",
  "auberean-assets",
  "auberean-dat",
+ "auberean-draw",
+ "auberean-primitives",
+ "auberean-text",
  "auberean-world",
  "dereth-assets",
+ "dereth-builder",
  "dereth-client-runtime",
  "dereth-dat",
+ "dereth-landscape",
+ "dereth-physics",
  "dereth-primitives",
  "dereth-render-cpu",
  "dereth-scene",
@@ -1545,6 +1552,7 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
+ "sha2",
  "toml",
 ]
 

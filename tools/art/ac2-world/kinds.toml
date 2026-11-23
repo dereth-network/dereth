@@ -1,0 +1,435 @@
+# AC2's ground kinds as Asheron's Call's terrain: each of the 61 kinds of AC2's region, in the
+# region's order, as the terrain slot and variant the converted land draws it with. `ac2` is the
+# kind's name in AC2's region and `as` the slot's in Asheron's Call's; both are for reading only.
+#
+# `rivers`: the kinds whose water runs (the rivers, the stream rocks and the river bottoms).
+
+version = 1
+rivers = [16, 18, 51, 52, 53]
+
+[[kind]]
+index = 0
+ac2 = "Dirt"
+slot = 24
+variant = 0
+as = "Agricultural"
+
+[[kind]]
+index = 1
+ac2 = "GrassLand"
+slot = 1
+variant = 0
+as = "Grassland"
+
+[[kind]]
+index = 2
+ac2 = "highland-Ice"
+slot = 2
+variant = 0
+as = "Ice"
+
+[[kind]]
+index = 3
+ac2 = "HauntedGround"
+slot = 14
+variant = 1
+as = "SemiBarrenRock"
+
+[[kind]]
+index = 4
+ac2 = "HighlandTundra"
+slot = 12
+variant = 0
+as = "SandRockStrewn"
+
+[[kind]]
+index = 5
+ac2 = "TropicBamboo"
+slot = 3
+variant = 1
+as = "LushGrass"
+
+[[kind]]
+index = 6
+ac2 = "grasslandmud"
+slot = 5
+variant = 0
+as = "MudRichDirt"
+
+[[kind]]
+index = 7
+ac2 = "TumerokCoastal"
+slot = 23
+variant = 0
+as = "SeaSlime"
+
+[[kind]]
+index = 8
+ac2 = "CobaltSweepBeach"
+slot = 10
+variant = 5
+as = "SandYellow"
+
+[[kind]]
+index = 9
+ac2 = "CobaltSweep"
+slot = 9
+variant = 1
+as = "PatchyGrassland"
+
+[[kind]]
+index = 10
+ac2 = "HighlandRock"
+slot = 0
+variant = 0
+as = "BarrenRock"
+
+[[kind]]
+index = 11
+ac2 = "TumerokCoastalSand"
+slot = 23
+variant = 2
+as = "SeaSlime"
+
+[[kind]]
+index = 12
+ac2 = "tropicfloor"
+slot = 28
+variant = 0
+as = "Moss"
+
+[[kind]]
+index = 13
+ac2 = "TropicMud"
+slot = 5
+variant = 1
+as = "MudRichDirt"
+
+[[kind]]
+index = 14
+ac2 = "Silent_tum_dry_barrenbed"
+slot = 12
+variant = 1
+as = "SandRockStrewn"
+
+[[kind]]
+index = 15
+ac2 = "highland-Snow"
+slot = 15
+variant = 1
+as = "Snow"
+
+[[kind]]
+index = 16
+ac2 = "LugianRiver"
+slot = 22
+variant = 0
+as = "FauxWaterRunning (on land: looks like water, stays solid)"
+
+[[kind]]
+index = 17
+ac2 = "Burunswamp"
+slot = 4
+variant = 0
+as = "MarshSparseSwamp"
+
+[[kind]]
+index = 18
+ac2 = "StreamRocks"
+slot = 22
+variant = 1
+as = "FauxWaterRunning"
+
+[[kind]]
+index = 19
+ac2 = "Silent_ocean_barren_bottom"
+slot = 11
+variant = 1
+as = "SandGrey"
+
+[[kind]]
+index = 20
+ac2 = "Water-Deep"
+slot = 11
+variant = 2
+as = "SandGrey (on land)"
+
+[[kind]]
+index = 21
+ac2 = "ForestFloor"
+slot = 21
+variant = 0
+as = "ForestFloor"
+
+[[kind]]
+index = 22
+ac2 = "TownHuman"
+slot = 7
+variant = 1
+as = "PackedDirt"
+
+[[kind]]
+index = 23
+ac2 = "MidlandSnowpatch"
+slot = 15
+variant = 2
+as = "Snow"
+
+[[kind]]
+index = 24
+ac2 = "TownLugianSnow"
+slot = 15
+variant = 3
+as = "Snow"
+
+[[kind]]
+index = 25
+ac2 = "SeaSlime"
+slot = 23
+variant = 3
+as = "SeaSlime"
+
+[[kind]]
+index = 26
+ac2 = "HumanBeach"
+slot = 10
+variant = 1
+as = "SandYellow"
+
+[[kind]]
+index = 27
+ac2 = "Silent_lug_shoreline"
+slot = 10
+variant = 4
+as = "SandYellow"
+
+[[kind]]
+index = 28
+ac2 = "Silent_hum_shoreline"
+slot = 10
+variant = 3
+as = "SandYellow"
+
+[[kind]]
+index = 29
+ac2 = "Silent_hum_dry_barrenbed"
+slot = 12
+variant = 3
+as = "SandRockStrewn"
+
+[[kind]]
+index = 30
+ac2 = "KILL_TERRAIN"
+slot = 0
+variant = 1
+as = "BarrenRock (solid ground: no holes)"
+
+[[kind]]
+index = 31
+ac2 = "Hero_Desert"
+slot = 10
+variant = 0
+as = "SandYellow"
+
+[[kind]]
+index = 32
+ac2 = "Silent_tum_shoreline"
+slot = 10
+variant = 2
+as = "SandYellow"
+
+[[kind]]
+index = 33
+ac2 = "Silent_tum_dry_barrenbed"
+slot = 12
+variant = 2
+as = "SandRockStrewn"
+
+[[kind]]
+index = 34
+ac2 = "Tum_shoreline"
+slot = 23
+variant = 1
+as = "SeaSlime"
+
+[[kind]]
+index = 35
+ac2 = "Silent_hum_barrenbed"
+slot = 11
+variant = 3
+as = "SandGrey"
+
+[[kind]]
+index = 36
+ac2 = "TownTumerok"
+slot = 7
+variant = 2
+as = "PackedDirt"
+
+[[kind]]
+index = 37
+ac2 = "TownLugian"
+slot = 7
+variant = 3
+as = "PackedDirt"
+
+[[kind]]
+index = 38
+ac2 = "SemiBarrenRock"
+slot = 14
+variant = 0
+as = "SemiBarrenRock"
+
+[[kind]]
+index = 39
+ac2 = "SedimentaryRock"
+slot = 13
+variant = 0
+as = "SedimentaryRock"
+
+[[kind]]
+index = 40
+ac2 = "Obsidian"
+slot = 6
+variant = 0
+as = "ObsidianPlain"
+
+[[kind]]
+index = 41
+ac2 = "PackedDirt"
+slot = 7
+variant = 0
+as = "PackedDirt"
+
+[[kind]]
+index = 42
+ac2 = "PatchyGrassLand"
+slot = 9
+variant = 0
+as = "PatchyGrassland"
+
+[[kind]]
+index = 43
+ac2 = "SandGrey"
+slot = 11
+variant = 0
+as = "SandGrey"
+
+[[kind]]
+index = 44
+ac2 = "Volcano2"
+slot = 26
+variant = 0
+as = "Volcano2"
+
+[[kind]]
+index = 45
+ac2 = "BurntGround"
+slot = 6
+variant = 1
+as = "ObsidianPlain"
+
+[[kind]]
+index = 46
+ac2 = "Snow_Humanland"
+slot = 15
+variant = 0
+as = "Snow"
+
+[[kind]]
+index = 47
+ac2 = "PatchyDirt"
+slot = 8
+variant = 0
+as = "PatchyDirt"
+
+[[kind]]
+index = 48
+ac2 = "Marsh"
+slot = 4
+variant = 1
+as = "MarshSparseSwamp"
+
+[[kind]]
+index = 49
+ac2 = "Highland-Granite"
+slot = 31
+variant = 0
+as = "the last slot"
+
+[[kind]]
+index = 50
+ac2 = "Volcano1"
+slot = 25
+variant = 0
+as = "Volcano1"
+
+[[kind]]
+index = 51
+ac2 = "Silent_tum_dry_riverbed"
+slot = 12
+variant = 4
+as = "SandRockStrewn"
+
+[[kind]]
+index = 52
+ac2 = "Silent_lug_dry_riverbed"
+slot = 12
+variant = 5
+as = "SandRockStrewn"
+
+[[kind]]
+index = 53
+ac2 = "Silent_ocean_river_bottom"
+slot = 11
+variant = 4
+as = "SandGrey"
+
+[[kind]]
+index = 54
+ac2 = "hero_Jungle_light"
+slot = 29
+variant = 1
+as = "DarkMoss"
+
+[[kind]]
+index = 55
+ac2 = "hero_Jungle"
+slot = 29
+variant = 0
+as = "DarkMoss"
+
+[[kind]]
+index = 56
+ac2 = "ICE"
+slot = 27
+variant = 0
+as = "BlueIce"
+
+[[kind]]
+index = 57
+ac2 = "OlthoiInfested"
+slot = 30
+variant = 0
+as = "olthoi"
+
+[[kind]]
+index = 58
+ac2 = "Autumn"
+slot = 3
+variant = 0
+as = "LushGrass"
+
+[[kind]]
+index = 59
+ac2 = "VolcanoMagma"
+slot = 26
+variant = 1
+as = "Volcano2"
+
+[[kind]]
+index = 60
+ac2 = "Z_unused"
+slot = 0
+variant = 2
+as = "BarrenRock"

@@ -1,0 +1,3 @@
+# AC2 dungeons under AC1 blocks (--vaults): AC2BLOCK AC1BLOCK X Y Z, the AC2 block's corner in the AC1 block.
+# Arwic's vault (dng_basic) under the vault entrance AC2 places at 6E8F: its landing is cell 017C.
+00DE 6E8F 69.8 135 -16.7

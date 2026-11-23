@@ -1,0 +1,7 @@
+# Arwic's vault (--placements): the entrance hall's portal to the landing, the landing's back to the hall,
+# each linked to the portal destination (10762) it leads to. Portals: the world database's 24037 (Portal) and 372 (Surface).
+guid	wcid	cell	x	y	z	qw	qx	qy	qz	links
+0x76E8F000	24037	0x6E8F0100	187	163.87	63.23	0.7071	0	0	0.7071	0x76E8F002
+0x76E8F001	372	0x6E8F017C	188.3	55.94	18.455	0.7071	0	0	0.7071	0x76E8F003
+0x76E8F002	10762	0x6E8F017C	182.8	55	18.4	0.7071	0	0	0.7071
+0x76E8F003	10762	0x6E8F0100	190.5	163.87	63.9	0.7071	0	0	-0.7071

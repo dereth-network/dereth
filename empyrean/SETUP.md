@@ -899,6 +899,23 @@ Logs go to standard error: the terminal, the file you redirect it to, or your se
 journal.
 
 
+## Serving a converted world
+
+A converted world is a data overlay built from your own installs: `dereth-art ac2-world` builds
+the AC2-in-AC1 world, Asheron's Call 2's landmass in Asheron's Call's formats
+([tools/art/AC2-WORLD.md](../tools/art/AC2-WORLD.md) says how). Serve it by naming its folder:
+
+```toml
+[dat_overlay]
+path = "ac2-world/overlay"
+patching = true
+```
+
+The server reads the world's own rules from the folder's `world.toml` and its places from
+`places.tsv`, and streams the overlay to each Dereth client the first time it joins. Open the TCP
+port for that stream ([3.5](#35-firewall)). The overlay holds the game's files' content, so never
+share or publish it.
+
 ## Launcher-managed updates
 
 A launcher-managed host disables the independent updater and stages verified downloads with

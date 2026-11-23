@@ -8,8 +8,14 @@
 //! placed as the client places them, and the models' parts and triangles), `dereth-scene` (the
 //! pictures, decoded as the client decodes them, and an art pack opened and packed as the client
 //! opens it, with no device), `dereth-render-cpu` (the surface record's type bits and the
-//! block-compressed pictures' texels), and `auberean-assets`, `auberean-dat` and `auberean-world`
-//! (a player's Asheron's Call 2 install, its records and its region, for the AC2 look). **Used
+//! block-compressed pictures' texels), `auberean-assets`, `auberean-dat` and `auberean-world`
+//! (a player's Asheron's Call 2 install, its records and its region, for the AC2 look and the
+//! AC2-in-AC1 world); and for that world `auberean-animation` (AC2's placed objects that play,
+//! posed as AC2 poses them), `auberean-text` (its map labels' words), `auberean-primitives` (its
+//! shapes' coordinates), `dereth-builder` (the trees a new model or room needs), `dereth-physics`
+//! (the starting area's ground and water, told as the server tells them), `dereth-landscape`
+//! (the scenery the converted land grows, placed as the client places it) and `auberean-draw` (its
+//! objects' effects, particles and materials made ready as AC2 draws them). **Used
 //! by** nothing: it is the `dereth-art` program, which comes beside the client, and which the
 //! launcher runs to build the AC2 look.
 //!
@@ -31,6 +37,7 @@
 #![doc(html_no_source)]
 
 pub mod ac2_look;
+pub mod ac2_world;
 pub mod character;
 pub mod model;
 pub mod output;

@@ -8,6 +8,9 @@
 //! dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
 //! dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
 //! dereth-art ac2-look --versions
+//! dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3]
+//!                      [--names on|off] [--frills on|off] [--vaults <file> --placements <file>]
+//!                      [--ledger <file>] [--any-install]
 //! ```
 //!
 //! `survey`: `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`, `--out` to `target/art-survey`,
@@ -32,6 +35,15 @@
 //! time on the standard output, `step <what>`, and last `built <file> <version>`; with
 //! `--keep-folder` the pack's folder stays beside the file. `--versions` prints the look's version
 //! and each part's and creature's table version, `<part> <version>` a line, and builds nothing.
+//!
+//! `ac2-world`: Asheron's Call 2's landmass in Asheron's Call's formats, built from the Asheron's
+//! Call install in `--ac1` and the Asheron's Call 2 install in `--ac2`, as a world overlay in the
+//! folder `--out` that a server serves as its data overlay ([`dereth_art::ac2_world`]). Its
+//! reports go beside that folder. `--ledger` (default `generations.tsv` beside it) is the list of
+//! the worlds built so far: keep it, so a rebuilt world that changed is numbered past the one
+//! players hold. The installs' files are checked by their SHA-256 and others refused, so every
+//! build from the same files is the same world; `--any-install` builds from others anyway, and
+//! the world may then match no one else's.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,7 +54,8 @@ const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns
        dereth-art mesh <id> [--dat-dir <dir>]
        dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
        dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
-       dereth-art ac2-look --versions";
+       dereth-art ac2-look --versions
+       dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--vaults <file> --placements <file>] [--ledger <file>] [--any-install]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -73,6 +86,22 @@ usage: {USAGE}"
             }
         },
         Some("ac2-look") => ac2_look(&args[1..]),
+        Some("ac2-world") => match dereth_art::ac2_world::Args::parse(&args[1..]) {
+            Ok(a) => match dereth_art::ac2_world::build(&a) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("dereth-art ac2-world: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!(
+                    "dereth-art ac2-world: {e}
+usage: {USAGE}"
+                );
+                ExitCode::from(2)
+            }
+        },
         Some("-h" | "--help") => {
             println!("usage: {USAGE}");
             ExitCode::SUCCESS

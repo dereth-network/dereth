@@ -119,8 +119,9 @@ impl Rgba {
 }
 
 impl Ac2 {
-    /// The install in `dir`: its portal and first region's cell files, and its high-resolution
-    /// pictures when it has them.
+    /// The install in `dir`: its portal and first region's cell files, its high-resolution
+    /// pictures when it has them, and its English file when it has one, which holds the pictures
+    /// made for one language (some walls' and posts' as well as signs').
     ///
     /// # Errors
     /// A file that will not open, or a portal file with no property list.
@@ -134,9 +135,11 @@ impl Ac2 {
         let highres = open(DatName::HighRes).ok();
         let ctx = Context::from_portal(&portal)
             .map_err(|e| format!("the portal file's property list: {e:?}"))?;
-        Ok(Self {
-            records: WorldRecords::new(portal, cell, highres, ctx),
-        })
+        let records = WorldRecords::new(portal, cell, highres, ctx);
+        if let Ok(english) = open(DatName::Local("English".into())) {
+            records.use_language_file(english);
+        }
+        Ok(Self { records })
     }
 
     /// The record `id`, read as a `T`; `None` when it is missing or will not read.
@@ -435,6 +438,28 @@ mod tests {
                 .picture(list, t.terrain.picture_limit)
                 .unwrap_or_else(|| panic!("{list:08X} gives no picture"));
             assert_eq!(p.width * p.height, largest, "{list:08X}: {levels:?}");
+        }
+    }
+
+    /// A picture list made for one language (in the English file, not the portal file) reads,
+    /// down to its pictures.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn a_picture_list_made_for_one_language_reads_from_the_english_file() {
+        let dir = auberean_dat::testing::require_target_install();
+        let english = DatFile::open(&DatName::Local("English".into()).in_dir(&dir)).expect("opens");
+        let lists: Vec<u32> = english
+            .entries_in(0x4010_0000, 0x40FF_FFFF)
+            .map(|e| e.id)
+            .collect();
+        assert!(!lists.is_empty(), "the English file holds picture lists");
+        let ac2 = Ac2::open(&dir).expect("opens");
+        for list in lists {
+            let levels = ac2.levels(list);
+            assert!(!levels.is_empty(), "{list:08X} reads with its pictures");
         }
     }
 

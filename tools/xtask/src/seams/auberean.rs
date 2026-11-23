@@ -276,7 +276,7 @@ pub const ATHENAEUM_MAY_USE: &[&str] = &[
 /// launcher's knowledge, which serves both games, asks a world whether it serves the friends stream
 /// and writes the friends ticket with the stream's own codec (a core crate with no I/O and no
 /// dependencies), rather than a copy of its framing; and the art tool reads a player's install to
-/// build the AC2 look from it.
+/// build the AC2 look and the AC2-in-AC1 world from it.
 pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     ("dereth-launch", "auberean-friends"),
     // The art tool builds the AC2 look from the player's own install: it reads the install's
@@ -284,6 +284,14 @@ pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     ("dereth-art", "auberean-assets"),
     ("dereth-art", "auberean-dat"),
     ("dereth-art", "auberean-world"),
+    // It builds the AC2-in-AC1 world from the same install too: AC2's placed objects posed as AC2
+    // poses them, its map labels' words, and its shapes' coordinates.
+    ("dereth-art", "auberean-animation"),
+    ("dereth-art", "auberean-text"),
+    ("dereth-art", "auberean-primitives"),
+    // And its objects' effects: AC2's effects, particles and materials made ready as AC2 draws
+    // them, to bring them over as AC1's; it draws nothing.
+    ("dereth-art", "auberean-draw"),
     // The session recorder names each recorded message of the second game by its type and the
     // object it is about, and nothing of its client, server or world builder.
     ("dereth-recorder", "auberean-protocol"),

@@ -1,0 +1,6 @@
+# Where the converted world's new characters start: world meters east and north, by Cragstone,
+# the nearest of AC2's towns. The starting area is the dry land cell nearest this point.
+
+version = 1
+east = 17840.0
+north = 27120.0

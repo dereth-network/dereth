@@ -2,7 +2,8 @@
 //! world with, and the trees a new model or room needs.
 //!
 //! **Depends on** `dereth-primitives` (vectors and the math) and `dereth-assets` (the records the
-//! trees belong to). **Used by** the world builders: Lyceum's editor and its foundry.
+//! trees belong to). **Used by** the world builders: Lyceum's editor and its foundry, and
+//! `dereth-art`'s world builds.
 //!
 //! **Must never** read a device or a window: what keys are held arrives as [`camera::Held`], and
 //! turning a window's keys into that is the editor's own business. Nor does it know a game's
