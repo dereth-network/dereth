@@ -400,38 +400,14 @@ fn a_hover_names_a_chest_with_no_prior_click() {
 // Objects behind interior walls
 // =================================================================================================
 
-/// Find a sampled point inside the cell BSP and outside its solid physics BSP, then transform
-/// it to block-local metres. A Holtburg house shares one frame origin across eighteen cells,
-/// so the search samples each cell's own volume. The sample is an interior-volume test, not
-/// proof of ground support.
-fn point_in(store: &dereth_dat::RetailDatStore, cell: u32) -> Option<Vec3> {
-    #[allow(clippy::cast_possible_truncation)] // a cell id's top 16 bits are its landblock
-    let block = (cell >> 16) as u16;
-    let d = dereth_world_data::env_cells::EnvCellLoader::new()
-        .load_block(store, block)
-        .into_iter()
-        .find(|d| d.id.0 == cell)?;
-    let g = dereth_world_data::env_cells::physics_geometry(&d);
-    let bsp = g.cell_bsp.as_ref()?;
-    for zi in -8i32..=16 {
-        for i in -24i32..=24 {
-            for j in -24i32..=24 {
-                #[allow(clippy::cast_precision_loss)] // small loop counters
-                let local = Vec3::new(i as f32 * 0.5, j as f32 * 0.5, zi as f32 * 0.5);
-                if !bsp.point_inside_cell_bsp(local) {
-                    continue;
-                }
-                if g.physics_bsp
-                    .as_ref()
-                    .is_some_and(|b| b.point_intersects_solid(local))
-                {
-                    continue;
-                }
-                return Some(dereth_physics::math::localtoglobal(&g.frame, local));
-            }
-        }
-    }
-    None
+/// A point a body can stand at in `cell`, in block-local metres: the client's own standable point,
+/// which the cell's containment tree holds and where a body's spheres touch none of its walls and
+/// floors. A Holtburg house shares one frame origin across eighteen cells, so each cell's own volume
+/// is searched. An object put down touching a room's walls or floor is refused there and placed
+/// elsewhere, maybe in the next room, so a point that is merely inside the room is not enough.
+fn point_in(app: &App, cell: u32) -> Option<Vec3> {
+    app.world_state()?
+        .standable_point(dereth_primitives::CellId(cell))
 }
 
 /// Choose a loaded interior cell not reached by the outdoor portal walk, with a sampled point
@@ -451,7 +427,7 @@ fn a_cell_behind_a_wall(app: &App, store: &dereth_dat::RetailDatStore) -> Option
         if seen.contains(&d.id.0) {
             continue;
         }
-        let Some(p) = point_in(store, d.id.0) else {
+        let Some(p) = point_in(app, d.id.0) else {
             continue;
         };
         // Use the block-local offset from the body to estimate the point relative to the

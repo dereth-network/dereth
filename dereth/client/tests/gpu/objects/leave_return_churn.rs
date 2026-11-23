@@ -101,7 +101,22 @@ struct Peer {
     blob: u32,
 }
 
+fn server_addr() -> std::net::SocketAddr {
+    "127.0.0.1:19000".parse().expect("a literal address")
+}
+
 impl Peer {
+    /// The link completes the client's own handshake. A connection installed directly leaves the
+    /// login unanswered, and the client gives the login up after twenty requests two seconds
+    /// apart on the local clock, which follows wall time even under the fixed step. The
+    /// interior-departure test lets several silences pass and can take longer than that, so a
+    /// link that was never connected ends the run part way through on a slow machine.
+    ///
+    /// A real `ConnectRequest` fed through `ClientNetwork::feed` builds the same receiver a
+    /// direct connection would (same recipient, iteration and seeds) and moves the login to its
+    /// connecting state, which has no attempt limit. Every later packet goes through the same
+    /// entry point at the real local time, so the transport's silence clock compares against the
+    /// time the data actually arrived.
     fn attach(app: &mut App) -> Self {
         let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
@@ -111,13 +126,35 @@ impl Peer {
             0,
         )
         .unwrap();
-        net.session.transport.add_connection(
-            0xB,
-            0,
-            1,
-            0xDEAD_BEEF,
-            0x1234_5678,
-            Some("127.0.0.1:19000".parse().unwrap()),
+        let mut hello = dereth_transport::OutPacket::new(dereth_transport::ProtoHeader {
+            rec_id: 0xB,
+            iteration: 1,
+            ..Default::default()
+        });
+        hello
+            .add_optional_header(
+                dereth_transport::PacketFlags::CONNECT_REQUEST,
+                dereth_transport::conn::ConnectRequest {
+                    server_time: 0.0,
+                    cookie: 7,
+                    net_id: 0,
+                    outgoing_seed: 0xDEAD_BEEF,
+                    incoming_seed: 0x1234_5678,
+                }
+                .to_bytes()
+                .to_vec(),
+            )
+            .unwrap();
+        // `ConnectResponse` is disposable and unencrypted, so `serialize` takes no key.
+        net.feed(
+            &hello.serialize(None).unwrap(),
+            server_addr(),
+            LocalTime(app.clock().local_time),
+        );
+        assert_eq!(
+            net.status(),
+            dereth_client_runtime::net::LinkStatus::LoginConnecting,
+            "the ConnectRequest took the login out of its twenty-attempt state"
         );
         app.attach_replay_network(net).unwrap();
         Self {
@@ -166,12 +203,17 @@ impl Peer {
                 .unwrap();
         }
         let raw = packet.serialize(Some(self.crypto.next())).unwrap();
+        // Through `ClientNetwork::feed` at the current local time; see [`Self::attach`].
+        let now = LocalTime(app.clock().local_time);
+        let rejected = app.replay_network_mut().unwrap().rejected();
         app.replay_network_mut()
             .unwrap()
-            .session
-            .transport
-            .feed(&raw, None, LocalTime(0.0))
-            .unwrap();
+            .feed(&raw, server_addr(), now);
+        assert_eq!(
+            app.replay_network_mut().unwrap().rejected(),
+            rejected,
+            "the datagram was accepted by the production receive path"
+        );
     }
 
     /// Advance server time with a state-repeat blob whose STATE_TS is refused. The repeated
@@ -883,35 +925,12 @@ fn landblock_resident(app: &App, block: LandblockId) -> bool {
     dereth_physics::LandSource::landblock_resident(&*land, block)
 }
 
-/// A point inside the interior cell `cell`, in landblock space: the lowest point of a half-metre
-/// lattice round the cell's own origin that its containment tree holds and its walls and floor do
-/// not.
+/// A point inside the interior cell `cell`, in landblock space, where a body can stand: the
+/// client's own standable point, held by the cell's containment tree and clear of its walls and
+/// floor by the body's spheres. A body put down touching them is refused there and placed
+/// elsewhere, maybe in the next room.
 fn point_inside(app: &App, cell: CellId) -> Option<Vec3> {
-    let land = app
-        .world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .land()
-        .clone();
-    let geometry = dereth_physics::LandSource::env_cell(&*land, cell)?;
-    let containment = geometry.cell_bsp.as_ref()?;
-    for zi in -24i16..=24 {
-        for i in -40i16..=40 {
-            for j in -40i16..=40 {
-                let local = Vec3::new(f32::from(i) * 0.5, f32::from(j) * 0.5, f32::from(zi) * 0.5);
-                let solid = geometry
-                    .physics_bsp
-                    .as_ref()
-                    .is_some_and(|b| b.point_intersects_solid(local));
-                if containment.point_inside_cell_bsp(local) && !solid {
-                    return Some(dereth_physics::math::localtoglobal(&geometry.frame, local));
-                }
-            }
-        }
-    }
-    None
+    app.world_state().unwrap().standable_point(cell)
 }
 
 /// Find a decoded interior referenced by a building in this block, and a point inside it.
