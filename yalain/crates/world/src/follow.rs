@@ -2,14 +2,18 @@
 //! with one standing movement order toward it; the client keeps up on its own, and nothing is
 //! sent again as the object moves. Asked again while following, the old follow ends first.
 //!
-//! A follow ends, the order stopped for all who see the player and the player told, when the
-//! player moves by its own hand or uses a skill: a skill's use that turns or walks the player to
-//! its target ends it as it turns or walks, a refused one at its refusal, and one that gives the
-//! player no movement order when it is over. The server also ends it as a use or a run of attacks
-//! is requested: its own rule, not every use's in 2017, and a run refused at its start left the
-//! follow on in 8 of 9 then. The player's trip ends it: as it goes where
-//! it is told "Teleporting ...", as it comes out where it is not. The player's own death ends it
-//! too, the player told just after its death message.
+//! A follow ends, the order stopped for all who see the player and the player told, when the player
+//! moves by its own hand or uses a skill: a skill's use that turns or walks the player to its
+//! target ends it as it turns or walks, a refused one at its refusal, and one that gives the player
+//! no movement order when it is over; a use the player's move cuts short ends it with its own end,
+//! the player told last. A use asked while following ends it as the server takes it up, before the
+//! use's walk or answer, except a use of something the player holds that walks nowhere, and a use
+//! refused as busy, which leave it on; a held thing's use that walks ends it as the walk begins. A
+//! run of attacks ends it as it is given its mode and its turn or its walk, or after its lowering
+//! when it is refused at once; refused with its weapon still raised (its target too far, the player
+//! moving), the run leaves it on until a later swing goes. The player's trip ends it: as it goes
+//! where it is told "Teleporting ...", as it comes out where it is not. The player's own death ends
+//! it too, the player told just after its death message.
 //!
 //! The object followed leaving the world ends every follow of it: a player logging off or losing
 //! its connection, a body or a thing going. Its trip, its going out of the follower's view and its

@@ -607,6 +607,7 @@ pub fn begin<S: Store>(
         progress::private(net, world, &failed(why));
         if !was {
             progress::private(net, world, &attack_state(false));
+            crate::follow::stop(s, net, world);
         }
         return;
     }
@@ -618,6 +619,7 @@ pub fn begin<S: Store>(
             Err(err) => {
                 progress::private(net, world, &failed(err));
                 progress::private(net, world, &attack_state(false));
+                crate::follow::stop(s, net, world);
                 return;
             }
         },
@@ -629,6 +631,7 @@ pub fn begin<S: Store>(
                     progress::private(net, world, &m);
                 }
                 progress::private(net, world, &attack_state(false));
+                crate::follow::stop(s, net, world);
                 return;
             }
             s.things
@@ -646,6 +649,7 @@ pub fn begin<S: Store>(
         };
         progress::private(net, world, &failed(err));
         progress::private(net, world, &attack_state(false));
+        crate::follow::stop(s, net, world);
         return;
     }
     // A human has no basic attack with an empty hand.
@@ -659,6 +663,7 @@ pub fn begin<S: Store>(
         progress::private(net, world, &attack_state(true));
         progress::private(net, world, &failed(error::WRONG_IMPLEMENT));
         progress::private(net, world, &attack_state(false));
+        crate::follow::stop(s, net, world);
         return;
     }
     let mode = crate::skill_use::player_mode(s, me);
@@ -687,10 +692,15 @@ pub fn begin<S: Store>(
         if in_range {
             set_player_mode(s, net, world, mode);
         }
-        if stands {
+        let following = s.players.get(&world).is_some_and(|p| p.following.is_some());
+        if stands && (in_range || !following) {
+            let followed = crate::follow::order_stopped(s, net, world);
             if let Some(p) = s.players.get_mut(&world) {
                 let turn = crate::skill_use::turn_to(p, target, context);
                 to_all_seeing(s, net, me, &turn);
+            }
+            if followed {
+                crate::follow::told_stopped(net, world);
             }
         }
     }
@@ -873,12 +883,21 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    // A run on its way has its order already: the client keeps following the target.
-    let order = (!run.walking).then(|| close_in(p, run.target, run.context));
+    // A run on its way has its order already: the client keeps following the target. A follow
+    // ends as the walk begins: its stop, the walk, then its line.
+    let walks_now = !run.walking;
     let id = p.character;
     let special = p.in_run.take();
+    let followed = walks_now && crate::follow::order_stopped(s, net, world);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let order = walks_now.then(|| close_in(p, run.target, run.context));
     if let Some(order) = &order {
         to_all_seeing(s, net, id, order);
+    }
+    if followed {
+        crate::follow::told_stopped(net, world);
     }
     // A special waiting for this swing takes it, and what it walks to is its own: the next swing
     // orders the walk again.
@@ -1042,14 +1061,17 @@ fn stand_and_swing<S: Store>(
         return;
     };
     let id = p.character;
-    let stop = crate::skill_use::stop_moving(p);
-    let turn = crate::skill_use::turn_to(p, run.target, run.context);
-    let special = p.in_run.take();
-    to_all_seeing(s, net, id, &stop);
-    to_all_seeing(s, net, id, &turn);
-    if let Some(r) = special {
-        if crate::skill_use::slot(s, net, world, r, clock) {
-            return;
+    let following = p.following.is_some() && p.in_run.is_none();
+    if !following {
+        let stop = crate::skill_use::stop_moving(p);
+        let turn = crate::skill_use::turn_to(p, run.target, run.context);
+        let special = p.in_run.take();
+        to_all_seeing(s, net, id, &stop);
+        to_all_seeing(s, net, id, &turn);
+        if let Some(r) = special {
+            if crate::skill_use::slot(s, net, world, r, clock) {
+                return;
+            }
         }
     }
     let Some(p) = s.players.get(&world) else {
@@ -1082,6 +1104,26 @@ fn stand_and_swing<S: Store>(
         }
         return;
     }
+    let mut run = run;
+    if following {
+        if !run.mode_sent {
+            let mode = crate::skill_use::player_mode(s, id);
+            set_player_mode(s, net, world, mode);
+            run.mode_sent = true;
+            if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+                r.mode_sent = true;
+            }
+        }
+        crate::follow::order_stopped(s, net, world);
+        if let Some(p) = s.players.get_mut(&world) {
+            let turn = crate::skill_use::turn_to(p, run.target, run.context);
+            to_all_seeing(s, net, id, &turn);
+        }
+        crate::follow::told_stopped(net, world);
+    }
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
     let my_level = crate::examine::level_of(&p.qualities);
     let added = crate::effects::damage_added(s, p);
     let held = crate::skill_use::wielded(s, id);

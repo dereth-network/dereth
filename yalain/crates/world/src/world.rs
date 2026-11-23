@@ -1481,14 +1481,15 @@ fn moved<S: Store>(
     }
     crate::places::arrived(s, net, world, clock);
     crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);
-    crate::follow::moved(s, net, world, c.flags, c.move_to_stamp);
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::hazards::moved(s, net, world, clock);
     crate::falls::moved(s, net, world, &before, c.time, clock);
     crate::usable::chests::moved(s, net, world, clock);
     crate::inventory::moved(s, net, world);
+    // A use the move cuts short ends a follow with its own end, the line last; else the move ends it.
     crate::skill_use::moved(s, net, world, clock);
+    crate::follow::moved(s, net, world, c.flags, c.move_to_stamp);
     crate::craft::moved(s, net, world, jumped);
     if jumped {
         // An item's use under way is cut short by a jump; a transmute or a take-all is carried

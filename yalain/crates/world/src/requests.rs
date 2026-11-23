@@ -122,7 +122,9 @@ pub fn call<S: Store>(
         crate::personal::function::RENAME => crate::personal::rename(net, world),
         crate::quests::CANCEL_QUEST => crate::quests::cancel(s, net, world, &values, clock),
         function::USE => {
-            crate::follow::stop(s, net, world);
+            if !crate::places::use_keeps_follow(s, world, &values, clock) {
+                crate::follow::stop(s, net, world);
+            }
             crate::places::use_object(s, net, world, &values, clock);
         }
         function::ATTACK => {
@@ -136,7 +138,6 @@ pub fn call<S: Store>(
             fight_ends_trade(s, net, world);
         }
         crate::combat::function::START_ATTACK => {
-            crate::follow::stop(s, net, world);
             crate::combat::start(s, net, world, &values, clock);
             fight_ends_trade(s, net, world);
         }

@@ -340,6 +340,11 @@ fn walk_goal(u: &Use) -> u64 {
     }
 }
 
+/// Is a door busy opening, so that a use of it now is refused as busy?
+pub(crate) fn busy<S: Store>(s: &Server<S>, id: u64, now: f64) -> bool {
+    refused_at_once(s, id, now) == Some(refusal::BUSY)
+}
+
 /// Refused before any walk: a door opening is busy, and one a use just closed refuses for a while.
 fn refused_at_once<S: Store>(s: &Server<S>, id: u64, now: f64) -> Option<u32> {
     let d = s.doors.by_id.get(&id)?;

@@ -1092,6 +1092,38 @@ pub fn use_object<S: Store>(
     }
 }
 
+/// Does a use asked while following leave the follow on? A use of something the player holds, in
+/// its pack or worn, does, unless it walks: its walk ends the follow as it begins. So does a use
+/// refused as busy where the player stands (a door opening, a mine a recipe works, in reach). Any
+/// other use ends the follow as it is asked, before its walk or its answer. (2017, uses asked while
+/// following: 191 of 195 world uses ended it, the stop and the line before the walk or the answer;
+/// held uses that walk nowhere left it on, 4 of 5 carried with no target, 2 of 2 worn, 1 of 2 on a
+/// corpse in reach, the other walking and ending it at the walk; uses refused busy, 5 of 6.)
+pub(crate) fn use_keeps_follow<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let Some(u) = read_use(v, p.position) else {
+        return false;
+    };
+    if p.play.items.iter().any(|h| h.id == u.item) {
+        return true;
+    }
+    if crate::usable::doors::busy(s, u.item, clock.local.0) {
+        return true;
+    }
+    crate::events::content_standing(s, u.item).is_some_and(|i| {
+        let o = &s.content.objects[i];
+        crate::mining::quest_mine(s, o.template).is_some_and(|m| m.by_recipe)
+            && reach(&p.position, o.cell, o.origin).is_some_and(|d| d <= crate::mining::REACH)
+    })
+}
+
 /// The flags of a movement order that stops the player where it is.
 pub(crate) const STOP_FLAGS: u32 = 0x40;
 
@@ -1444,6 +1476,8 @@ fn walk_to_with<S: Store>(
     range: f32,
     flags: u32,
 ) {
+    // A follow the use left on ends as its walk begins: its stop and its line before the walk.
+    crate::follow::stop(s, net, world);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {

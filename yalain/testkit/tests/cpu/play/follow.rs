@@ -1,8 +1,9 @@
 //! Following: a player follows another, is told so and given one standing movement order toward
 //! it; asking again ends the old follow first; the player's own moving ends it, and so do its
-//! skills, its trips and the one followed leaving the world, and by this server's own rule a use's
-//! request; the trip and the death of the one followed do not. Orders are read in the order the
-//! server sent them. Fixture: two players of the test world side by side, on the test clock.
+//! skills, its trips, the one followed leaving the world, a use as it is asked (but a held thing's
+//! that walks nowhere and one refused as busy) and a run of attacks as it goes; the trip and the
+//! death of the one followed do not. Orders are read in the order the server sent them. Fixture:
+//! two players of the test world side by side, on the test clock.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::ClientPosition;
@@ -964,4 +965,349 @@ fn a_skill_that_turns_the_follower_to_its_target_ends_the_follow_as_it_turns() {
         h.server.players[&w].using.is_some(),
         "the shot is under way"
     );
+}
+
+/// What a follower's client was sent since `from`, in the order the server sent it, of a follow's
+/// end and what it ends among: its attack state raised or lowered, its mode, a run's refusal, its
+/// movement orders (stopped, turned, walked), a use's answer and a skill's refusal, and "Stopped
+/// following.".
+fn sent(h: &Harness, b: usize, from: usize, me: u64) -> Vec<&'static str> {
+    use yalain_world::combat::function as combat;
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(e) if e.sender.id == me => Some(match e.action.params.flags {
+                0x40 => "stop",
+                0x46A => "turn",
+                follow::ORDER_FLAGS => "follow",
+                _ => "walk",
+            }),
+            ServerMessage::DoMode(e) if e.sender.id == me => {
+                Some(if e.action.0 == yalain_world::combat::mode::PEACE {
+                    "peace"
+                } else {
+                    "mode"
+                })
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == ATTACK_STATE => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok())?;
+                Some(if matches!(v.first(), Some(Value::Int(0))) {
+                    "lowered"
+                } else {
+                    "raised"
+                })
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == combat::BASIC_ATTACKS_FAILED => {
+                Some("failed")
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == places::function::USE_DONE => {
+                Some("answer")
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == skill::REFUSED => Some("refused"),
+            _ => (text_of(m) == Some(follow::STOPPED.0)).then_some("line"),
+        })
+        .collect()
+}
+
+/// A use of something the player holds, asked while following, leaves the follow on when it walks
+/// nowhere (a book opened from the pack): answered, nothing stopped; used on an object out of
+/// reach, it walks, and the follow ends as the walk begins: its stop and its line, then the walk.
+/// Behaviour: server.follow.ends-at-a-use-request
+#[test]
+fn a_held_things_use_leaves_the_follow_on_unless_it_walks() {
+    const BOOK: u32 = 0x4700_06CD;
+    const POST: u64 = 0x4002_9900_0000_0072;
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Book_Source", yalain_content::Prop::Str(0, 0x2500_1CEE));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BOOK, 0x280B, props));
+    h.server
+        .content
+        .objects
+        .push(standing(POST, [75.0, 240.2, -44.6]));
+    let (mut h, b, me, _, other) = side_by_side(h);
+    let w = world_of(&h, me);
+    let book = yalain_world::inventory::give(&mut h.server, &mut h.net, w, BOOK, 1).expect("given");
+    h.run(3);
+    follow_now(&mut h, b, me, other);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(book, me, 0)]),
+    );
+    h.run(4);
+    assert_eq!(
+        sent(&h, b, from, me),
+        ["answer"],
+        "answered, the follow left on"
+    );
+    assert_eq!(follows(&h, me), Some(other));
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(book, me, POST)]),
+    );
+    h.run(4);
+    assert_eq!(sent(&h, b, from, me), ["stop", "line", "walk"]);
+    assert_eq!(follows(&h, me), None);
+}
+
+/// A use refused as busy leaves the follow on: a door used while it opens is refused 1039, and
+/// nothing is stopped.
+/// Behaviour: server.follow.ends-at-a-use-request
+#[test]
+fn a_use_refused_as_busy_leaves_the_follow_on() {
+    const DOOR: u64 = 0x4002_9900_0000_0071;
+    let mut h = Harness::new();
+    let mut door = standing(DOOR, [60.0, 239.0, -44.6]);
+    door.template = 0x4700_0FCE;
+    door.description.package = 0x0EB2;
+    h.server.content.objects.push(door);
+    h.server
+        .doors
+        .packages
+        .insert(0x0EB2, yalain_world::usable::doors::Kind::Plain);
+    let (mut h, b, me, c, other) = side_by_side(h);
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(DOOR, other, 0)]),
+    );
+    h.run(4);
+    follow_now(&mut h, b, me, other);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(DOOR, me, 0)]),
+    );
+    h.run(4);
+    assert_eq!(sent(&h, b, from, me), ["answer"]);
+    let busy = h.sent_messages(b, from).iter().any(|m| match m {
+        ServerMessage::PlayerCall(c) if c.function.0 == places::function::USE_DONE => c
+            .args
+            .as_ref()
+            .and_then(|a| calls::values(&a.0).ok())
+            .is_some_and(|v| {
+                v.iter().any(|x| match x {
+                    Value::Graph(g) => g.iter().any(|(_, n)| {
+                        matches!(n, Node::Script { slots, .. }
+                            if slots.get(11).is_some_and(|s| s.1 == yalain_world::usable::doors::refusal::BUSY))
+                    }),
+                    _ => false,
+                })
+            }),
+        _ => false,
+    });
+    assert!(busy, "refused as busy");
+    assert_eq!(follows(&h, me), Some(other), "the follow left on");
+}
+
+/// A run of attacks that goes ends the follow as it is given its mode and its turn or walk: a bow's
+/// run in reach is raised, given its mode, the follow's stop, the turn, then the line; a sword's
+/// is raised and given its mode, then the follow's stop, the walk to the target and the line.
+/// Behaviour: server.follow.ends-at-a-run-of-attacks
+#[test]
+fn a_run_of_attacks_ends_the_follow_with_its_mode_and_its_turn_or_walk() {
+    let (mut h, b, me, beetle) = following_beside_a_beetle(BOW, DEADEYE);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, beetle);
+    assert_eq!(
+        sent(&h, b, from, me)[..5],
+        ["raised", "mode", "stop", "turn", "line"],
+        "{:?}",
+        sent(&h, b, from, me)
+    );
+    let (mut h, b, me, beetle) = following_beside_a_beetle(SWORD, RIPOSTE);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, beetle);
+    assert_eq!(
+        sent(&h, b, from, me)[..5],
+        ["raised", "mode", "stop", "walk", "line"],
+        "{:?}",
+        sent(&h, b, from, me)
+    );
+    assert_eq!(follows(&h, me), None);
+}
+
+/// A run refused with its weapon raised (a bow's target too far) leaves the follow on, its refusal
+/// alone sent; the run's later swing that goes ends it, its mode, the follow's stop, the turn, then
+/// the line. One refused and lowered (nothing in hand) ends it after the lowering.
+/// Behaviour: server.follow.ends-at-a-run-of-attacks
+#[test]
+fn a_refused_run_leaves_the_follow_on_until_a_swing_goes_and_a_lowered_one_ends_it() {
+    let (mut h, b, me, beetle) = following_beside_a_beetle(BOW, DEADEYE);
+    let near = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let mut far = near;
+    far.origin[1] += 120.0;
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.at = Some(far);
+    }
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, beetle);
+    h.run(10);
+    assert_eq!(sent(&h, b, from, me), ["raised", "failed"]);
+    let other = follows(&h, me);
+    assert!(other.is_some(), "the follow left on");
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.at = Some(near);
+    }
+    let from = h.bots[b].inbox.len();
+    h.run(30);
+    assert_eq!(
+        sent(&h, b, from, me)[..4],
+        ["mode", "stop", "turn", "line"],
+        "{:?}",
+        sent(&h, b, from, me)
+    );
+    assert_eq!(follows(&h, me), None);
+
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (mut h, b, me, _, other) = side_by_side(h);
+    let beetle = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+            _ => None,
+        })
+        .expect("the camp's creature");
+    follow_now(&mut h, b, me, other);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, beetle);
+    assert_eq!(
+        sent(&h, b, from, me),
+        ["raised", "failed", "lowered", "stop", "line"]
+    );
+}
+
+/// A use cut short by the follower moving by its own hand ends the follow with the use's end, the
+/// line last: the follow's stop once, the use's refusal, the attack state lowered, peace, then
+/// "Stopped following.".
+/// Behaviour: server.follow.ends-last-at-a-use-cut-short-by-a-move
+#[test]
+fn a_use_cut_short_by_a_move_by_hand_ends_the_follow_with_the_line_last() {
+    let (mut h, b, me, _, other) = side_by_side(Harness::new());
+    h.arm(b, me, SWORD);
+    follow_now(&mut h, b, me, other);
+    let w = world_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&w) {
+        use yalain_world::player::quality;
+        yalain_world::quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 400);
+        yalain_world::quals::set_int(&mut p.qualities, quality::VIGOR, 400);
+    }
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&EASE_SUFFERING)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.ui_flags &= !yalain_world::skill_use::ui_flag::USE_WHILE_MOVING;
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            skill::USE,
+            &[Arg::Int(3), Arg::Int(EASE_SUFFERING), Arg::LongInt(0)],
+        ),
+    );
+    h.run(3);
+    assert!(h.server.players[&w].using.is_some(), "the use is under way");
+    let from = h.bots[b].inbox.len();
+    let stamp = h.server.players[&w].move_to_stamp;
+    let mut moved = report(&h, me, true, stamp);
+    if let ClientMessage::Position(p) = &mut moved {
+        p.heading_motion = yalain_world::world::motion(127, 255, 127);
+    }
+    h.bots[b].send(true, queue::WEENIE, &moved);
+    h.run(4);
+    assert!(h.server.players[&w].using.is_none(), "cut short");
+    assert_eq!(
+        sent(&h, b, from, me),
+        ["stop", "refused", "lowered", "peace", "line"]
+    );
+    assert_eq!(follows(&h, me), None);
+}
+
+const USE: u32 = 0x8216_0016;
+
+/// A use of an item or object, on an object or on nothing, as the client asks for it.
+fn use_on(item: u64, me: u64, on: u64) -> Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(on),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    Arg::Object(b.graph())
+}
+
+/// A made-up object standing in the test hall.
+fn standing(id: u64, origin: [f32; 3]) -> yalain_content::ContentObject {
+    yalain_content::ContentObject {
+        object: Some(id),
+        template: 0x4700_0FCF,
+        description: yalain_content::Description {
+            name_text: None,
+            package: 0x0EB3,
+            look: 0x1F00_0FCE,
+            enter_fx: 0,
+            scale: None,
+            name: Some((0x1C06_0001, 0x2500_0001)),
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts::default(),
+        walks: None,
+        gate: None,
+    }
+}
+
+/// The follower asks to attack a target.
+fn attack(h: &mut Harness, b: usize, target: u64) {
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::combat::function::START_ATTACK,
+            &[Arg::LongInt(target)],
+        ),
+    );
+    h.run(10);
 }

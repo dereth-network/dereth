@@ -6922,6 +6922,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.follow.ends-at-a-run-of-attacks",
+        says: "A run of attacks ends a follow as it is given its mode and its turn or walk: raised, \
+               the mode, the follow's stop, the turn or the walk, then the line. Refused at once and \
+               lowered, it ends it after the lowering; refused with its weapon still raised (its \
+               target too far, the player moving), only its refusal is sent and the follow goes on \
+               until a later swing goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-AT-ATTACK-RUN"),
+        station: "yalain-testkit::cpu::play::follow::a_run_of_attacks_ends_the_follow_with_its_mode_and_its_turn_or_walk",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.follow.ends-at-a-trip",
         says: "A follower's trip ends its follow, its order stopped, then told so: on a trip told \
                \"Teleporting ...\" as it goes, before the flash of what sent it and that text; on a trip \
@@ -6935,9 +6947,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.follow.ends-at-a-use-request",
-        says: "This server ends a follow as a use of an object is requested: told so, the order stopped. \
-               Its own rule: 2017 ended some follows at a use and not others.",
-        since: TOOLING,
+        says: "A use asked while following ends the follow as the server takes it up: the order \
+               stopped and the player told, then the use's walk or answer. A use of something the \
+               player holds that walks nowhere leaves it on, and one that walks ends it as the walk \
+               begins; a use refused as busy (1039) leaves it on.",
+        since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-AT-USE-REQUEST"),
         station: "yalain-testkit::cpu::play::follow::the_server_ends_a_follow_as_a_use_is_requested",
         tier: Tier::Cpu,
@@ -6959,6 +6973,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-LEFT-UNSEEN"),
         station: "yalain-testkit::cpu::play::follow::a_follower_stops_when_the_thing_it_follows_is_gone_in_view_or_out_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.follow.ends-last-at-a-use-cut-short-by-a-move",
+        says: "A use the follower's move by its own hand cuts short ends the follow with the use's \
+               end: the follow's stop once, the use's refusal, the attack state lowered, peace, then \
+               \"Stopped following.\" last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-CUT-SHORT-ORDER"),
+        station: "yalain-testkit::cpu::play::follow::a_use_cut_short_by_a_move_by_hand_ends_the_follow_with_the_line_last",
         tier: Tier::Cpu,
     },
     behaviour! {
