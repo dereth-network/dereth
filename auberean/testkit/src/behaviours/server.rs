@@ -1028,9 +1028,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.auras.turned-on",
-        says: "A toggled skill's use ends by turning its aura on: the first pulse's record, the \
-               aura's own record held until taken off, not attacking, the toggle on, the \
-               skill's information marked toggled, the pulse's appearance.",
+        says: "A toggled skill's use ends by turning its aura on: the pulse's appearance, the \
+               first pulse's record, the aura's own record held until taken off, not attacking, \
+               the toggle on, the skill's information marked toggled.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON"),
         station: "yalain-testkit::cpu::play::auras::a_toggled_skill_turns_its_aura_on_as_its_use_ends",
@@ -5306,6 +5306,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SLEDGEHAMMER"),
         station: "yalain-testkit::cpu::play::watchers::a_weapons_applied_effect_lands_on_a_blow_whose_harm_was_all_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.appearance-before-its-record",
+        says: "A lasting effect's appearance, when no record on its holder shows it yet, is \
+               played just before its record is added, whoever cast it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FX-BEFORE-RECORD"),
+        station: "yalain-testkit::cpu::play::effects::a_buff_cast_on_oneself_shows_its_appearance_just_before_its_record",
         tier: Tier::Cpu,
     },
     behaviour! {

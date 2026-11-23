@@ -209,6 +209,40 @@ fn a_creatures_strike_puts_its_skills_effect_on_the_player_at_its_rating() {
     assert!(told, "the add is told to the player");
 }
 
+/// A creature's lasting effect on a player shows its appearance just before the record's add.
+/// Behaviour: server.effects.appearance-before-its-record
+#[test]
+fn a_creatures_lasting_effect_shows_its_appearance_on_the_player_just_before_its_record() {
+    const WEAKNESS_FX: u32 = 0x4100_7C05;
+    let (mut h, b, me, _) = foe_at(attack(WEAKENING_STRIKE, false, vec![WEAKNESS]), 0.5);
+    h.server.effect_table.effects.insert(
+        WEAKNESS,
+        EffectDef {
+            fx: WEAKNESS_FX,
+            ..weakness()
+        },
+    );
+    let from = h.bots[b].inbox.len();
+    h.run_until(20_000, |h| !held(h, me, WEAKNESS).is_empty());
+    h.run(5);
+    assert!(!held(&h, me, WEAKNESS).is_empty(), "the effect goes on");
+    let msgs = h.sent_messages(b, from);
+    let on_me = |m: &ServerMessage| match m {
+        ServerMessage::DoFx(e) => e.sender.id == me && e.action.fx == WEAKNESS_FX,
+        _ => false,
+    };
+    let shown = msgs
+        .iter()
+        .position(on_me)
+        .expect("the appearance on the player");
+    let add = yalain_world::effects::function::ADD;
+    let next = msgs.get(shown + 1);
+    assert!(
+        matches!(next, Some(ServerMessage::PlayerCall(c)) if c.function.0 == add),
+        "the appearance just before the add"
+    );
+}
+
 /// A creature's missile that lands puts its skill's target effect on the player as it arrives, cast
 /// by the creature at its rating in the skill.
 /// Behaviour: server.creatures.skills-put-their-effects-on-players

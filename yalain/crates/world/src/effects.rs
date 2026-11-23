@@ -20,10 +20,11 @@
 //! effect, and only top effects change the qualities. A player's client changes its qualities
 //! itself from the records; the server sends no quality for it, except its speed (velocity and
 //! acceleration, each as it changes). An effect's appearance shows from the first record holding
-//! it to the last one's end. A record that changes vitals over time does so every few seconds, by
-//! its rate times the seconds since the last change. A player's records still running are carried
-//! in the session start, but for those of effects that end at logout, which go as it leaves; the ones
-//! a resurrection takes off go then.
+//! it to the last one's end, played just before that first record is added (2017: 1,205 of 1,205
+//! adds of a lasting effect with its own appearance). A record that changes vitals over time does
+//! so every few seconds, by its rate times the seconds since the last change. A player's records
+//! still running are carried in the session start, but for those of effects that end at logout,
+//! which go as it leaves; the ones a resurrection takes off go then.
 //!
 //! **On a creature** (2017: every lasting effect a player's skill put on one showed its appearance
 //! from its add to cast plus duration, within 0.1 s, 9,621 of 9,621 that stopped): the appearance
@@ -2189,9 +2190,9 @@ pub fn own_harm<S: Store>(
     );
 }
 
-/// Add a lasting effect as a record: its call (a player's), its appearance when it is the first to
-/// show it, the speed when it changes it; its end at its cast time plus its timeout, and its first
-/// change over time. Returns its id.
+/// Add a lasting effect as a record: its appearance first when no record shows it yet, then its
+/// call (a player's), the speed when it changes it; its end at its cast time plus its timeout, and
+/// its first change over time. Returns its id.
 pub fn add_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2201,25 +2202,15 @@ pub fn add_on<S: Store>(
     shape: Shape,
     clock: Clock,
 ) -> Option<u32> {
-    let eid = add_quietly(s, net, on, def, cast, shape, clock)?;
-    if def.fx != 0 && shows_once(s, on, def.fx) {
+    if def.fx != 0 && !shows(s, records_of(s, on), def.fx) {
         show_fx_on(s, net, on, def.fx);
     }
-    Some(eid)
+    add_quietly(s, net, on, def, cast, shape, clock)
 }
 
 /// Is a record of this effect kept from its holder's client?
 const fn hidden(def: &EffectDef) -> bool {
     matches!(def.kind, Kind::Immunity { .. })
-}
-
-/// Is this appearance shown by one record alone (the one just added)?
-fn shows_once<S: Store>(s: &Server<S>, on: On, fx: u32) -> bool {
-    records_of(s, on)
-        .iter()
-        .filter(|e| s.effect_table.get(e.state).is_some_and(|d| d.fx == fx))
-        .count()
-        == 1
 }
 
 /// [`add_on`] but for the appearance, which the caller shows (or not) when it is due.
@@ -3254,9 +3245,9 @@ pub fn toggled_held<S: Store>(
 }
 
 /// A toggled skill that turns on no aura turns on one of its effects: a record held until the skill
-/// is turned off, cast by the skill (2017: 31 of 31 told with the skill, not as a fight's effect).
-/// Returns the appearance it shows anew, for the caller to show when it is due (after the toggle and
-/// the skill's information). An effect that is no record (one that happens at once) does nothing.
+/// is turned off, cast by the skill (2017: 31 of 31 told with the skill, not as a fight's effect),
+/// its appearance just before it as any record's. Returns its id. An effect that is no record (one
+/// that happens at once) does nothing.
 pub fn toggled_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3315,8 +3306,7 @@ pub fn toggled_on<S: Store>(
         timeout: Some(f32::MAX),
         acting: 0,
     };
-    add_quietly(s, net, On::Player(world), &def, cast, shape, clock)?;
-    (def.fx != 0 && shows_once(s, On::Player(world), def.fx)).then_some(def.fx)
+    add_on(s, net, On::Player(world), &def, cast, shape, clock)
 }
 
 /// A toggled skill's records taken off: an aura with its pulses' records, any other record alone.
@@ -3353,9 +3343,9 @@ pub fn is_aura<S: Store>(s: &Server<S>, state: u32) -> bool {
     aura_def(s, state).is_some()
 }
 
-/// Turn an aura on: its first pulse's records on its user, then its own record (2017's order: the
-/// aura's id is the lower, its record sent second). Returns the appearances the pulse shows, for
-/// the caller to show when they are due (after its toggle and the skill's information).
+/// Turn an aura on: its first pulse's records on its user, each after its appearance, then its own
+/// record (2017's order: the aura's id is the lower, its record sent second; the pulse's appearance
+/// before its record, 317 of 319).
 pub fn aura_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3364,20 +3354,18 @@ pub fn aura_on<S: Store>(
     skill_state: u32,
     spellcraft: f32,
     clock: Clock,
-) -> Vec<u32> {
+) {
     let Some(a) = aura_def(s, aura) else {
-        return Vec::new();
+        return;
     };
     let Some(p) = s.players.get_mut(&world) else {
-        return Vec::new();
+        return;
     };
     let me = p.character;
     let eid = next_eid(p);
-    let fx = if pulses_on_held(&a) {
-        Vec::new()
-    } else {
-        pulse_records(s, net, world, (me, PULSE_FLAGS), &a, spellcraft, clock)
-    };
+    if !pulses_on_held(&a) {
+        pulse_records(s, net, world, (me, PULSE_FLAGS), &a, spellcraft, clock);
+    }
     let e = EffectState {
         eid,
         state: aura,
@@ -3399,11 +3387,11 @@ pub fn aura_on<S: Store>(
     let first = f64::from(s.rng.between(0.0, 1.0)) * PULSE_MOST;
     s.after(clock, first, Timer::AuraPulse { world, eid });
     crate::world::keep_player(s, world);
-    fx
 }
 
-/// A pulse's records on its user (the players it reaches): each pulsed effect, timed, pulsed. The
-/// appearances it shows anew.
+/// A pulse's records on its user (the players it reaches): each pulsed effect, timed, pulsed, after
+/// its appearance when no record shows it yet (2017: of later pulses' records with an appearance in
+/// their tick, the nearest was sent before them for 2,000 of 2,245, and right before for 1,654).
 fn pulse_records<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3412,8 +3400,7 @@ fn pulse_records<S: Store>(
     a: &Aura,
     spellcraft: f32,
     clock: Clock,
-) -> Vec<u32> {
-    let mut fx = Vec::new();
+) {
     for state in &a.pulsed {
         let Some(d) = s.effect_table.get(*state).cloned() else {
             continue;
@@ -3433,14 +3420,8 @@ fn pulse_records<S: Store>(
         if warded(s, On::Player(world), &d) {
             continue;
         }
-        if add_quietly(s, net, On::Player(world), &d, cast, shape, clock).is_some()
-            && d.fx != 0
-            && shows_once(s, On::Player(world), d.fx)
-        {
-            fx.push(d.fx);
-        }
+        add_on(s, net, On::Player(world), &d, cast, shape, clock);
     }
-    fx
 }
 
 /// Whether an aura's pulses go on what its user holds, not on anyone: no record of one is ever on a
@@ -3830,10 +3811,7 @@ fn pulse_out<S: Store>(
     clock: Clock,
 ) {
     for to in reached {
-        let fx = pulse_records(s, net, *to, (caster, flags), a, spellcraft, clock);
-        for f in fx {
-            show_fx_on(s, net, On::Player(*to), f);
-        }
+        pulse_records(s, net, *to, (caster, flags), a, spellcraft, clock);
     }
     let missed: Vec<(ConnId, Vec<u32>)> = s
         .players
@@ -4060,11 +4038,11 @@ pub fn show_fxs<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
 /// An item's effects come onto the player wearing or wielding it, before the equipping answer:
 /// each that its client is shown (2017: an instrument's own appearance effects, never shown,
 /// sent nothing in 21 of 21 wields) a record of its own, cast by the item at its spellcraft and
-/// from it, held until the item comes off (flags [`WORN`]); then, for an effect a death does not
-/// end, the line of its own table naming the item, or "The `<effect>` applies to you." where its
-/// table holds none (2017: 176 of 200 such records; 276 of 277 of the others had none); its
-/// appearance shown when no other record shows it. An effect that moves a quest moves it then,
-/// as it does itself, and holds no record. Returns the ids.
+/// from it, held until the item comes off (flags [`WORN`]), after its appearance when no other
+/// record shows it (2017: 20 of 20); then, for an effect a death does not end, the line of its own
+/// table naming the item, or "The `<effect>` applies to you." where its table holds none (2017: 176
+/// of 200 such records; 276 of 277 of the others had none). An effect that moves a quest moves it
+/// then, as it does itself, and holds no record. Returns the ids.
 pub fn put_on_worn<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -4103,16 +4081,13 @@ pub fn put_on_worn<S: Store>(
             timeout: Some(f32::MAX),
             acting: 0,
         };
-        let Some(eid) = add_quietly(s, net, On::Player(world), &def, cast, shape, clock) else {
+        let Some(eid) = add_on(s, net, On::Player(world), &def, cast, shape, clock) else {
             continue;
         };
         ids.push(eid);
         if let (false, Some(effect)) = (def.removed_on_death(), def.name) {
             let line = s.effect_table.line(*state).unwrap_or(learned::APPLIES);
             progress::private(net, world, &applied(line, effect, name));
-        }
-        if def.fx != 0 && shows_once(s, On::Player(world), def.fx) {
-            show_fx_on(s, net, On::Player(world), def.fx);
         }
     }
     ids

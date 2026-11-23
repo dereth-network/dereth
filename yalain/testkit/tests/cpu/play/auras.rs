@@ -76,8 +76,9 @@ fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usi
     from
 }
 
+/// The calls a client received since `from`, in the order the server sent them.
 fn calls_of(h: &Harness, b: usize, from: usize) -> Vec<(u32, Vec<Value>)> {
-    h.world_messages(b, from)
+    h.sent_messages(b, from)
         .iter()
         .filter_map(|m| match m {
             ServerMessage::PlayerCall(c) => Some((
@@ -121,9 +122,9 @@ fn turned_on(h: &mut Harness, b: usize) -> usize {
     from
 }
 
-/// Espirit's use ends by turning its aura on, in 2017's order: its first pulse's record (three
-/// minutes, pulsed), then the aura's own (held until taken off), not attacking, the toggle on, the
-/// skill's information marked toggled, the pulse's appearance on the player.
+/// Espirit's use ends by turning its aura on, in 2017's order: the pulse's appearance on the player
+/// just before its first pulse's record (three minutes, pulsed), then the aura's own (held until
+/// taken off), not attacking, the toggle on, the skill's information marked toggled.
 /// Behaviour: server.auras.turned-on
 #[test]
 fn a_toggled_skill_turns_its_aura_on_as_its_use_ends() {
@@ -167,18 +168,22 @@ fn a_toggled_skill_turns_its_aura_on_as_its_use_ends() {
     assert!(on
         .iter()
         .any(|e| e.eid == pulse_eid && e.state == ESPIRIT_PULSE));
-    let msgs = h.world_messages(b, from);
-    let info = msgs
-        .iter()
-        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == SKILL_INFO))
-        .expect("the information");
+    let msgs = h.sent_messages(b, from);
     let shown = msgs
         .iter()
         .position(
             |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == PULSE_FX),
         )
         .expect("the appearance");
-    assert!(info < shown);
+    let first_add = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == effect_fn::ADD))
+        .expect("the pulse's record");
+    assert_eq!(
+        shown + 1,
+        first_add,
+        "the appearance just before the pulse's record"
+    );
     let mask = got
         .iter()
         .find(|(f, _)| *f == SKILL_INFO)
@@ -932,10 +937,11 @@ fn lumbering_records(h: &mut Harness, me: u64) -> Vec<EffectState> {
 
 /// A toggled skill that turns on no aura (Lumbering Might) ends its use by turning its effects on:
 /// a record of each, toggled and held until it is turned off (flags 0x251, no end, categories 1,
-/// told with the skill), not attacking, the toggle on, the skill's information marked toggled, then
-/// the effects' appearances. Used again it turns off at once and costs nothing: attacking, the use
-/// over, the toggle off, its records taken off, "You stop …", not attacking, the appearances
-/// stopped. Used a third time it is on again with one record of each, none stacked on another.
+/// told with the skill), each just after its appearance; not attacking, the toggle on, the
+/// skill's information marked toggled. Used again it turns off at once and costs nothing:
+/// attacking, the use over, the toggle off, its records taken off, "You stop …", not attacking,
+/// the appearances stopped. Used a third time it is on again with one record of each, none
+/// stacked on another.
 /// Behaviour: server.toggles.without-an-aura
 #[test]
 fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them_off() {
@@ -970,11 +976,7 @@ fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them
     assert!(on
         .iter()
         .all(|e| e.flags == 0x251 && e.skill == LUMBERING_MIGHT_STATE && !e.pk));
-    let msgs = h.world_messages(b, from);
-    let info = msgs
-        .iter()
-        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == SKILL_INFO))
-        .expect("the information");
+    let msgs = h.sent_messages(b, from);
     for fx in LUMBERING_FX {
         let shown = msgs
             .iter()
@@ -982,7 +984,11 @@ fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them
                 |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == fx),
             )
             .expect("the appearance");
-        assert!(info < shown);
+        let next = msgs.get(shown + 1);
+        assert!(
+            matches!(next, Some(ServerMessage::PlayerCall(c)) if c.function.0 == effect_fn::ADD),
+            "{fx:#x} just before a record"
+        );
     }
 
     h.run(200);

@@ -270,6 +270,28 @@ fn a_buff_is_a_record_that_runs_out_on_its_own_clock() {
         .any(|m| matches!(m, ServerMessage::StopFx(e) if e.action.0 == 0x4100_04CB)));
 }
 
+/// A buff cast on oneself shows its appearance once, just before its record is added.
+/// Behaviour: server.effects.appearance-before-its-record
+#[test]
+fn a_buff_cast_on_oneself_shows_its_appearance_just_before_its_record() {
+    let (mut h, b, me) = armed();
+    let from = use_skill(&mut h, b, 5, DASH, me);
+    h.run(60);
+    assert_eq!(added(&h, b, from).len(), 1, "one record");
+    let msgs = h.sent_messages(b, from);
+    let dash_shown = |m: &ServerMessage| match m {
+        ServerMessage::DoFx(e) => e.sender.id == me && e.action.fx == 0x4100_04CB,
+        _ => false,
+    };
+    let shown: Vec<usize> = (0..msgs.len()).filter(|i| dash_shown(&msgs[*i])).collect();
+    assert_eq!(shown.len(), 1, "shown once");
+    let next = msgs.get(shown[0] + 1);
+    assert!(
+        matches!(next, Some(ServerMessage::PlayerCall(c)) if c.function.0 == ADD_EFFECT),
+        "the appearance just before the add"
+    );
+}
+
 /// The same effect put on twice is two records: the second does not replace or refresh the first,
 /// and each runs out at its own cast time plus its timeout.
 /// Behaviour: server.effects.records-stack

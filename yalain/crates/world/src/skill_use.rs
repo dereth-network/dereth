@@ -3386,9 +3386,10 @@ fn take_up_waiting<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
 }
 
 /// A toggled skill's use ends by turning it on (2017's order): its aura's first pulse and the aura's
-/// record, or, for a skill that turns on no aura, a record of each of its effects; not attacking, the
-/// toggle on, the skill's information marked toggled, the appearances, stopped (when turned) and at
-/// peace (2017: Lumbering Might, Brimming Heart and Bolster Metabolism, 17 of 17 so).
+/// record, or, for a skill that turns on no aura, a record of each of its effects, each record
+/// after its appearance (2017: all 342 appearances of 337 turnings on sent right before a record);
+/// not attacking, the toggle on, the skill's information marked toggled, stopped (when turned) and
+/// at peace (2017: Lumbering Might, Brimming Heart and Bolster Metabolism, 17 of 17 so).
 fn turns_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3402,8 +3403,8 @@ fn turns_on<S: Store>(
         .skills
         .get(&x.req.skill)
         .map_or(0, |d| d.state);
-    let fx = if let Some(aura) = aura_of(s, x.req.skill) {
-        crate::effects::aura_on(s, net, world, aura, skill_state, x.spellcraft, clock)
+    if let Some(aura) = aura_of(s, x.req.skill) {
+        crate::effects::aura_on(s, net, world, aura, skill_state, x.spellcraft, clock);
     } else {
         let cast = crate::effects::Cast {
             caster: s.players.get(&world).map_or(0, |p| p.character),
@@ -3411,12 +3412,10 @@ fn turns_on<S: Store>(
             skill: skill_state,
             ..crate::effects::Cast::default()
         };
-        x.usage
-            .user_effects
-            .iter()
-            .filter_map(|st| crate::effects::toggled_on(s, net, world, *st, cast, clock))
-            .collect()
-    };
+        for st in &x.usage.user_effects {
+            crate::effects::toggled_on(s, net, world, *st, cast, clock);
+        }
+    }
     // A follow's stop goes before the lowering and its line after the peace, as at any use's end.
     let followed = x.alone && crate::follow::order_stopped(s, net, world);
     if x.alone {
@@ -3424,7 +3423,6 @@ fn turns_on<S: Store>(
     }
     progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
     skill_info(s, net, world, x, now_game, TOGGLED_ON);
-    crate::effects::show_fxs(s, net, world, &fx);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
