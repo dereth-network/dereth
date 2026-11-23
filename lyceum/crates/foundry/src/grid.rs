@@ -54,6 +54,27 @@ pub fn on_lattice_at(frame: &Frame, pitch: f32) -> bool {
     on(frame.origin.x) && on(frame.origin.y)
 }
 
+/// The headings (degrees clockwise, as [`heading_quat`] takes them) that turn a piece's doorway
+/// `own` (in its own frame) to face open doorway `open`: for a doorway in a side, the one heading
+/// that turns it straight at the open one, an exact eighth of a turn when within a hundredth of a
+/// degree of one (as every retail piece's and nearly every AC2 piece's is); for one in a floor or
+/// a ceiling, each quarter turn.
+#[must_use]
+pub fn facing(own: &Opening, open: &Opening) -> Vec<f32> {
+    if own.out.z.abs() > 0.9 {
+        return vec![0.0, 90.0, 180.0, 270.0];
+    }
+    let atan2 = dereth_primitives::num::math::atan2f;
+    // Turned counterclockwise by `ccw`, its way out is the open doorway's way in.
+    let ccw = atan2(-open.out.y, -open.out.x) - atan2(own.out.y, own.out.x);
+    let mut degrees = (-ccw.to_degrees()).rem_euclid(360.0);
+    let eighth = (degrees / 45.0).round() * 45.0;
+    if (degrees - eighth).abs() < 0.01 {
+        degrees = eighth.rem_euclid(360.0);
+    }
+    vec![degrees]
+}
+
 /// How many quarter turns clockwise `frame` is turned, when it is turned by a whole number of
 /// them about the vertical only.
 #[must_use]
@@ -519,8 +540,8 @@ pub fn fit_piece(
 
 /// Every placement of kit piece `form` (each part's space in `spaces`) that joins one of the
 /// dungeon's open doorways `among` (their places among its doorways) and fits: each of its
-/// doorways set against each of those at each quarter turn. One for each frame, in the order
-/// found.
+/// doorways set against each of those, turned to face it ([`facing`]). One for each frame, in the
+/// order found.
 #[must_use]
 pub fn piece_placements(
     form: &crate::kit::Form,
@@ -535,23 +556,29 @@ pub fn piece_placements(
             continue;
         };
         for door in &form.doors {
-            for turn in 0..4u8 {
-                let q = heading_quat(f32::from(turn) * 90.0);
+            for heading in facing(&door.opening, &d.opening) {
+                let q = heading_quat(heading);
                 let local = placed(&door.opening, &Frame::new(Vec3::ZERO, q));
                 if local.out.dot(d.opening.out) > -0.99 {
                     continue;
                 }
                 let whole = Frame::new(d.opening.middle.sub(local.middle), q);
-                // Met whole, or on the square under it: a doorway of several parts meets a
-                // larger one there.
+                // Met whole, or (at a quarter turn) on the square under it: a doorway of several
+                // parts meets a larger one there.
                 let o = whole.origin;
                 let (sx, sy) =
                     square_middle_at(square_of_at(o.x, o.y, dungeon.pitch), dungeon.pitch);
                 let on_square = Frame::new(Vec3::new(sx, sy, o.z), q);
-                for frame in [whole, on_square] {
+                let frames = if quarter_turns(&whole).is_some() {
+                    vec![whole, on_square]
+                } else {
+                    vec![whole]
+                };
+                for frame in frames {
                     let same = |f: &Frame| {
+                        let (a, b) = (f.rotation, frame.rotation);
                         f.origin.sub(frame.origin).dot(f.origin.sub(frame.origin)) < 1e-4
-                            && quarter_turns(f) == quarter_turns(&frame)
+                            && (a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z).abs() > 0.999_99
                     };
                     if tried.iter().any(same) {
                         continue;
@@ -573,6 +600,37 @@ pub fn piece_placements(
 mod tests {
     //! Behaviour: none (tooling: the grid a dungeon is laid out on)
     use super::*;
+
+    #[test]
+    fn a_side_doorway_is_turned_straight_at_the_open_one_and_a_floors_by_each_quarter() {
+        let way = |x: f32, y: f32, z: f32| Opening {
+            corners: Vec::new(),
+            middle: Vec3::ZERO,
+            out: Vec3::new(x, y, z),
+        };
+        let r = std::f32::consts::FRAC_1_SQRT_2;
+        // A piece's doorway out east, against open doorways that lead out (into where the piece
+        // goes) west, north-west, north, south and east: turned clockwise by none, an eighth, a
+        // quarter, three quarters and a half.
+        for (open, turn) in [
+            (way(-1.0, 0.0, 0.0), 0.0),
+            (way(-r, r, 0.0), 45.0),
+            (way(0.0, 1.0, 0.0), 90.0),
+            (way(0.0, -1.0, 0.0), 270.0),
+            (way(1.0, 0.0, 0.0), 180.0),
+        ] {
+            let headings = facing(&way(1.0, 0.0, 0.0), &open);
+            assert_eq!(headings, [turn], "{open:?}");
+            let q = heading_quat(turn);
+            let turned = placed(&way(1.0, 0.0, 0.0), &Frame::new(Vec3::ZERO, q));
+            assert!(turned.out.dot(open.out) < -0.999, "{open:?}: {turned:?}");
+        }
+        // A doorway in a floor, by each quarter turn.
+        assert_eq!(
+            facing(&way(0.0, 0.0, -1.0), &way(0.0, 0.0, 1.0)),
+            [0.0, 90.0, 180.0, 270.0]
+        );
+    }
 
     #[test]
     fn a_frame_is_on_the_grid_at_whole_multiples_of_its_pitch_and_turns_count_by_quarters() {

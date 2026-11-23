@@ -1629,78 +1629,76 @@ impl EditorApp {
         let Some(kit) = self.palette_ac2_kit(lb) else {
             return;
         };
-        egui::Grid::new("ac2 rows").num_columns(2).show(ui, |ui| {
-            ui.label(t.get("dungeon.ac2_kit"));
+        // Each row its name, then its choices, wrapping under them when they run long.
+        let name = |ui: &mut egui::Ui, text: &str| {
+            ui.add_sized(egui::vec2(48.0, 18.0), egui::Label::new(text))
+        };
+        ui.horizontal_wrapped(|ui| {
+            name(ui, t.get("dungeon.ac2_kit"));
+            for (k, _) in &kits {
+                if ui.selectable_label(*k == kit, *k).clicked() && *k != kit {
+                    self.kit.ac2_kit = Some(k);
+                    if self.chosen_ac2_kit().is_some_and(|c| c.name() != *k) {
+                        self.kit.chosen = None;
+                    }
+                }
+            }
+        });
+        // The look the kit's pieces are placed in.
+        if let Some((_, names)) = kits.iter().find(|(k, _)| *k == kit) {
             ui.horizontal_wrapped(|ui| {
-                for (k, _) in &kits {
-                    if ui.selectable_label(*k == kit, *k).clicked() && *k != kit {
-                        self.kit.ac2_kit = Some(k);
-                        if self.chosen_ac2_kit().is_some_and(|c| c.name() != *k) {
-                            self.kit.chosen = None;
-                        }
+                name(ui, t.get("dungeon.ac2_look"));
+                let now = self.kit.ac2_looks.get(kit).copied().unwrap_or("own");
+                for n in names {
+                    if ui.selectable_label(now == *n, *n).clicked() {
+                        self.kit.ac2_looks.insert(kit, n);
                     }
                 }
             });
-            ui.end_row();
-            // The look the kit's pieces are placed in.
-            if let Some((_, names)) = kits.iter().find(|(k, _)| *k == kit) {
-                ui.label(t.get("dungeon.ac2_look"));
-                ui.horizontal_wrapped(|ui| {
-                    let now = self.kit.ac2_looks.get(kit).copied().unwrap_or("own");
-                    for n in names {
-                        if ui.selectable_label(now == *n, *n).clicked() {
-                            self.kit.ac2_looks.insert(kit, n);
-                        }
-                    }
-                });
-                ui.end_row();
-            }
-            // The kit's lights, each the place tool's to stand in a room.
-            let lights: Vec<(String, u32, DataId)> = self
-                .session
-                .ac2_lights()
-                .iter()
-                .filter(|l| l.kit.name() == kit)
-                .map(|l| (l.label(), l.color, l.setup))
-                .collect();
-            if !lights.is_empty() {
-                ui.label(t.get("dungeon.ac2_lights"))
+        }
+        // The kit's lights, each the place tool's to stand in a room.
+        let lights: Vec<(String, u32, DataId)> = self
+            .session
+            .ac2_lights()
+            .iter()
+            .filter(|l| l.kit.name() == kit)
+            .map(|l| (l.label(), l.color, l.setup))
+            .collect();
+        if !lights.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                name(ui, t.get("dungeon.ac2_lights"))
                     .on_hover_text(t.get("dungeon.ac2_lights_tip"));
-                ui.horizontal_wrapped(|ui| {
-                    for (label, color, setup) in lights {
-                        let [_, r, g, b] = color.to_be_bytes();
-                        let swatch =
-                            egui::RichText::new("\u{25CF}").color(egui::Color32::from_rgb(r, g, b));
-                        if ui.button(swatch).on_hover_text(label).clicked() {
-                            out.push(UiAction::Model(setup));
-                        }
+                for (label, color, setup) in lights {
+                    let [_, r, g, b] = color.to_be_bytes();
+                    let swatch =
+                        egui::RichText::new("\u{25CF}").color(egui::Color32::from_rgb(r, g, b));
+                    if ui.button(swatch).on_hover_text(label).clicked() {
+                        out.push(UiAction::Model(setup));
                     }
-                });
-                ui.end_row();
-            }
-            // A room of the kit's tiles, laid at the grid's choice.
-            if lyceum_foundry::ac2_kit::Kit::parse(kit).is_some_and(|k| k.has_rooms()) {
-                ui.label(t.get("dungeon.ac2_room"));
-                ui.horizontal(|ui| {
-                    if self.kit.ac2_room == (0, 0) {
-                        self.kit.ac2_room = (3, 3);
-                    }
-                    let (mut east, mut north) = self.kit.ac2_room;
-                    ui.add(egui::DragValue::new(&mut east).range(2..=8));
-                    ui.label("\u{00D7}");
-                    ui.add(egui::DragValue::new(&mut north).range(2..=8));
-                    self.kit.ac2_room = (east, north);
-                    if ui
-                        .button(t.get("dungeon.ac2_room_lay"))
-                        .on_hover_text(t.get("dungeon.ac2_room_tip"))
-                        .clicked()
-                    {
-                        out.push(UiAction::LayAc2Room(east, north));
-                    }
-                });
-                ui.end_row();
-            }
-        });
+                }
+            });
+        }
+        // A room of the kit's tiles, laid at the grid's choice.
+        if lyceum_foundry::ac2_kit::Kit::parse(kit).is_some_and(|k| k.has_rooms()) {
+            ui.horizontal(|ui| {
+                name(ui, t.get("dungeon.ac2_room"));
+                if self.kit.ac2_room == (0, 0) {
+                    self.kit.ac2_room = (3, 3);
+                }
+                let (mut east, mut north) = self.kit.ac2_room;
+                ui.add(egui::DragValue::new(&mut east).range(2..=8));
+                ui.label("\u{00D7}");
+                ui.add(egui::DragValue::new(&mut north).range(2..=8));
+                self.kit.ac2_room = (east, north);
+                if ui
+                    .button(t.get("dungeon.ac2_room_lay"))
+                    .on_hover_text(t.get("dungeon.ac2_room_tip"))
+                    .clicked()
+                {
+                    out.push(UiAction::LayAc2Room(east, north));
+                }
+            });
+        }
     }
 
     /// The kit of the chosen piece, when it is one of an AC2 kit's.

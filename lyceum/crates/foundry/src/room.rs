@@ -13,8 +13,16 @@
 //! meet at a doorway or share a wall fit, and two that share space do not. A piece that reaches a
 //! little past its doorways (some of AC2's kit pieces, [`Shape::reaching`]) is compared that much
 //! further in; every other piece, and every one of the world's own, reaches none.
+//!
+//! **Voxels.** A piece's cell tree may be no more than the box about it, as an AC2 piece's is, and
+//! a piece that bends or forks (AC2's caves) fills little of its box: its neighbors stand in the
+//! rest. Such a piece's space is the box's [`VOXEL`]-meter cells its mesh walls in
+//! ([`Shape::of_voxels`]): those reached from just inside its doorways without crossing a cell its
+//! mesh passes through. Two spaces either of which is so are compared cell by cell where their
+//! boxes meet.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use dereth_assets::world::{CellLandblock, EnvCell};
 use dereth_assets::Environment;
@@ -27,6 +35,9 @@ pub const MARGIN: f32 = 0.25;
 
 /// How far a room's space may stand out of the ground over it before it pokes out, in meters.
 pub const GROUND_TOLERANCE: f32 = 1.0;
+
+/// The side of the cells a space of voxels is made of, in meters ([`Shape::of_voxels`]).
+pub const VOXEL: f32 = 0.25;
 
 /// How many points at most are sampled in one room.
 const MOST_SAMPLES: f32 = 3000.0;
@@ -44,6 +55,7 @@ pub struct Solid {
     pub hi: Vec3,
     pub samples: Vec<Vec3>,
     reach: f32,
+    voxels: Option<Arc<Voxels>>,
 }
 
 /// A piece's space in its own frame, sampled once: placed again at any frame by [`Self::placed`].
@@ -53,6 +65,212 @@ pub struct Shape {
     corners: Vec<Vec3>,
     samples: Vec<Vec3>,
     reach: f32,
+    voxels: Option<Arc<Voxels>>,
+}
+
+/// A piece's space as the cells of its box its mesh walls in ([`Shape::of_voxels`]): the box's
+/// corner, how many cells it is each way, and which are in the space.
+#[derive(Debug)]
+pub struct Voxels {
+    lo: Vec3,
+    n: [usize; 3],
+    filled: Vec<u64>,
+}
+
+impl Voxels {
+    fn index(&self, p: Vec3) -> Option<usize> {
+        let at = |v: f32, lo: f32, n: usize| {
+            let i = dereth_primitives::num::floor_to_i32((v - lo) / VOXEL);
+            usize::try_from(i).ok().filter(|i| *i < n)
+        };
+        let (i, j, k) = (
+            at(p.x, self.lo.x, self.n[0])?,
+            at(p.y, self.lo.y, self.n[1])?,
+            at(p.z, self.lo.z, self.n[2])?,
+        );
+        Some((k * self.n[1] + j) * self.n[0] + i)
+    }
+
+    /// Whether local point `p` is in the space.
+    fn holds(&self, p: Vec3) -> bool {
+        self.index(p)
+            .is_some_and(|i| self.filled[i / 64] & (1 << (i % 64)) != 0)
+    }
+
+    /// How much of its box the space fills.
+    fn share(&self) -> f32 {
+        let filled: u32 = self.filled.iter().map(|w| w.count_ones()).sum();
+        #[allow(clippy::cast_precision_loss)]
+        let all = (self.n[0] * self.n[1] * self.n[2]) as f32;
+        #[allow(clippy::cast_precision_loss)]
+        let filled = filled as f32;
+        filled / all
+    }
+
+    /// The space of `cs` within the box from `lo` to `hi`: filled from `seeds` (local points just
+    /// inside its doorways), walled by every cell its polygons pass through.
+    fn of(cs: &dereth_assets::geometry::CellStruct, lo: Vec3, hi: Vec3, seeds: &[Vec3]) -> Self {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let count = |len: f32| ((len / VOXEL).ceil() as usize).max(1);
+        let n = [count(hi.x - lo.x), count(hi.y - lo.y), count(hi.z - lo.z)];
+        let mut grid = Self {
+            lo,
+            n,
+            filled: vec![0; (n[0] * n[1] * n[2]).div_ceil(64)],
+        };
+        let all = n[0] * n[1] * n[2];
+        let mut wall = vec![false; all];
+        let at: HashMap<i16, Vec3> = cs
+            .vertex_array
+            .vertices
+            .iter()
+            .map(|v| (v.id, v.position))
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let corner = |i: usize, j: usize, k: usize| {
+            Vec3::new(
+                lo.x + i as f32 * VOXEL,
+                lo.y + j as f32 * VOXEL,
+                lo.z + k as f32 * VOXEL,
+            )
+        };
+        let cell = |v: f32, lo: f32, n: usize| {
+            let i = dereth_primitives::num::floor_to_i32((v - lo) / VOXEL).max(0);
+            usize::try_from(i).unwrap_or(0).min(n - 1)
+        };
+        for p in &cs.polygons {
+            let v: Vec<Vec3> = p
+                .vertex_ids
+                .iter()
+                .filter_map(|i| at.get(&i16::try_from(*i).ok()?).copied())
+                .collect();
+            for t in 1..v.len().saturating_sub(1) {
+                let tri = [v[0], v[t], v[t + 1]];
+                let (min, max) = tri.iter().fold(
+                    (
+                        Vec3::new(f32::MAX, f32::MAX, f32::MAX),
+                        Vec3::new(f32::MIN, f32::MIN, f32::MIN),
+                    ),
+                    |(a, b), p| {
+                        (
+                            Vec3::new(a.x.min(p.x), a.y.min(p.y), a.z.min(p.z)),
+                            Vec3::new(b.x.max(p.x), b.y.max(p.y), b.z.max(p.z)),
+                        )
+                    },
+                );
+                for k in cell(min.z, lo.z, n[2])..=cell(max.z, lo.z, n[2]) {
+                    for j in cell(min.y, lo.y, n[1])..=cell(max.y, lo.y, n[1]) {
+                        for i in cell(min.x, lo.x, n[0])..=cell(max.x, lo.x, n[0]) {
+                            let at = (k * n[1] + j) * n[0] + i;
+                            if !wall[at] && tri_meets_cell(&tri, corner(i, j, k)) {
+                                wall[at] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut todo: Vec<usize> = Vec::new();
+        for s in seeds {
+            if let Some(i) = grid.index(*s) {
+                if !wall[i] {
+                    todo.push(i);
+                }
+            }
+        }
+        let mut seen = vec![false; all];
+        while let Some(i) = todo.pop() {
+            if seen[i] || wall[i] {
+                continue;
+            }
+            seen[i] = true;
+            grid.filled[i / 64] |= 1 << (i % 64);
+            let (x, rest) = (i % n[0], i / n[0]);
+            let (y, z) = (rest % n[1], rest / n[1]);
+            if x > 0 {
+                todo.push(i - 1);
+            }
+            if x + 1 < n[0] {
+                todo.push(i + 1);
+            }
+            if y > 0 {
+                todo.push(i - n[0]);
+            }
+            if y + 1 < n[1] {
+                todo.push(i + n[0]);
+            }
+            if z > 0 {
+                todo.push(i - n[0] * n[1]);
+            }
+            if z + 1 < n[2] {
+                todo.push(i + n[0] * n[1]);
+            }
+        }
+        grid
+    }
+}
+
+/// Whether triangle `tri` passes through the cell whose low corner is `lo` ([`VOXEL`] a side): by
+/// the separating axes of a triangle and a box.
+fn tri_meets_cell(tri: &[Vec3; 3], lo: Vec3) -> bool {
+    let h = VOXEL * 0.5;
+    let c = Vec3::new(lo.x + h, lo.y + h, lo.z + h);
+    let v = [tri[0].sub(c), tri[1].sub(c), tri[2].sub(c)];
+    let e = [v[1].sub(v[0]), v[2].sub(v[1]), v[0].sub(v[2])];
+    let axes = [
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    ];
+    let cross = |a: Vec3, b: Vec3| {
+        Vec3::new(
+            a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x,
+        )
+    };
+    let apart_on = |axis: Vec3| {
+        let p = [v[0].dot(axis), v[1].dot(axis), v[2].dot(axis)];
+        let r = h * (axis.x.abs() + axis.y.abs() + axis.z.abs());
+        p.iter().copied().fold(f32::MAX, f32::min) > r
+            || p.iter().copied().fold(f32::MIN, f32::max) < -r
+    };
+    if axes.iter().any(|a| apart_on(*a)) {
+        return false;
+    }
+    if apart_on(cross(e[0], e[1])) {
+        return false;
+    }
+    !axes
+        .iter()
+        .any(|a| e.iter().any(|ed| apart_on(cross(*a, *ed))))
+}
+
+/// Points of the box from `lo` to `hi`, about `MOST_SAMPLES` of them evenly, that `inside` keeps.
+fn sample(lo: Vec3, hi: Vec3, inside: impl Fn(Vec3) -> bool) -> Vec<Vec3> {
+    let size = hi.sub(lo);
+    let volume = (size.x * size.y * size.z).max(1.0);
+    let step = dereth_primitives::num::math::powf(volume / MOST_SAMPLES, 1.0 / 3.0).max(0.5);
+    let mut samples = Vec::new();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let count = |len: f32| ((len / step).ceil() as u32).max(1);
+    let (nx, ny, nz) = (count(size.x), count(size.y), count(size.z));
+    for i in 0..nx {
+        for j in 0..ny {
+            for k in 0..nz {
+                #[allow(clippy::cast_precision_loss)]
+                let q = Vec3::new(
+                    lo.x + (i as f32 + 0.5) * size.x / nx as f32,
+                    lo.y + (j as f32 + 0.5) * size.y / ny as f32,
+                    lo.z + (k as f32 + 0.5) * size.z / nz as f32,
+                );
+                if inside(q) {
+                    samples.push(q);
+                }
+            }
+        }
+    }
+    samples
 }
 
 impl Shape {
@@ -80,29 +298,9 @@ impl Shape {
         if planes.is_empty() || lo.x > hi.x {
             return None;
         }
-        let size = hi.sub(lo);
-        let volume = (size.x * size.y * size.z).max(1.0);
-        let step = dereth_primitives::num::math::powf(volume / MOST_SAMPLES, 1.0 / 3.0).max(0.5);
-        let mut samples = Vec::new();
-        let inside = |q: Vec3| planes.iter().all(|(n, d)| n.dot(q) + d >= MARGIN);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let count = |len: f32| ((len / step).ceil() as u32).max(1);
-        let (nx, ny, nz) = (count(size.x), count(size.y), count(size.z));
-        for i in 0..nx {
-            for j in 0..ny {
-                for k in 0..nz {
-                    #[allow(clippy::cast_precision_loss)]
-                    let q = Vec3::new(
-                        lo.x + (i as f32 + 0.5) * size.x / nx as f32,
-                        lo.y + (j as f32 + 0.5) * size.y / ny as f32,
-                        lo.z + (k as f32 + 0.5) * size.z / nz as f32,
-                    );
-                    if inside(q) {
-                        samples.push(q);
-                    }
-                }
-            }
-        }
+        let samples = sample(lo, hi, |q| {
+            planes.iter().all(|(n, d)| n.dot(q) + d >= MARGIN)
+        });
         let corners = [lo.x, hi.x]
             .into_iter()
             .flat_map(|x| [lo.y, hi.y].into_iter().map(move |y| (x, y)))
@@ -113,7 +311,45 @@ impl Shape {
             corners,
             samples,
             reach: 0.0,
+            voxels: None,
         })
+    }
+
+    /// Piece `piece` of `env` as the cells of its box its mesh walls in: filled from a little
+    /// inside each of its doorways, never through a cell one of its polygons passes through, so
+    /// that a piece that bends or forks holds its own space and not the rest of its box. `None`
+    /// for a piece the environment does not hold.
+    #[must_use]
+    pub fn of_voxels(env: &Environment, piece: u16) -> Option<Self> {
+        let mut shape = Self::of(env, piece)?;
+        let cs = env.cells.get(usize::from(piece))?;
+        let (lo, hi) = shape.corners.iter().fold(
+            (
+                Vec3::new(f32::MAX, f32::MAX, f32::MAX),
+                Vec3::new(f32::MIN, f32::MIN, f32::MIN),
+            ),
+            |(lo, hi), p| {
+                (
+                    Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),
+                    Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z)),
+                )
+            },
+        );
+        let here = Frame::new(Vec3::ZERO, dereth_primitives::Quat::IDENTITY);
+        let seeds: Vec<Vec3> = (0..cs.portals.len())
+            .filter_map(|slot| crate::pieces::opening(env, piece, slot, &here))
+            .flat_map(|o| (2..8u8).map(move |k| o.middle.sub(o.out.mul(f32::from(k) * VOXEL))))
+            .collect();
+        let voxels = Voxels::of(cs, lo, hi, &seeds);
+        shape.samples = sample(lo, hi, |q| voxels.holds(q));
+        shape.voxels = Some(Arc::new(voxels));
+        Some(shape)
+    }
+
+    /// How much of its box its space fills, for a space of voxels ([`Self::of_voxels`]).
+    #[must_use]
+    pub fn filled_share(&self) -> Option<f32> {
+        self.voxels.as_ref().map(|v| v.share())
     }
 
     /// This space, for a piece that reaches `reach` meters past its doorways (as some AC2 kit
@@ -154,6 +390,7 @@ impl Shape {
                 .map(|s| localtoglobal(frame, *s))
                 .collect(),
             reach: self.reach,
+            voxels: self.voxels.clone(),
         }
     }
 }
@@ -173,8 +410,7 @@ impl Solid {
 
     /// Whether point `p` is in this space, `margin` in from its walls.
     fn holds_in(&self, p: Vec3, margin: f32) -> bool {
-        let q = globaltolocal(&self.frame, p);
-        self.planes.iter().all(|(n, d)| n.dot(q) + d >= margin)
+        self.holds_local(globaltolocal(&self.frame, p), margin)
     }
 
     /// Whether this space and `other` share space: a point of either inside the other, a
@@ -189,9 +425,66 @@ impl Solid {
             || self.hi.z < other.lo.z
             || other.hi.z < self.lo.z;
         let margin = MARGIN + self.reach.max(other.reach);
-        !apart
-            && (self.samples.iter().any(|p| other.holds_in(*p, margin))
-                || other.samples.iter().any(|p| self.holds_in(*p, margin)))
+        if apart {
+            return false;
+        }
+        if self.voxels.is_some() || other.voxels.is_some() {
+            return self.shares_a_cell(other, margin);
+        }
+        self.samples.iter().any(|p| other.holds_in(*p, margin))
+            || other.samples.iter().any(|p| self.holds_in(*p, margin))
+    }
+
+    /// Whether some point [`VOXEL`] meters from the next, where this space's box and `other`'s
+    /// meet, is in both, `margin` in from their boxes.
+    fn shares_a_cell(&self, other: &Self, margin: f32) -> bool {
+        let lo = Vec3::new(
+            self.lo.x.max(other.lo.x),
+            self.lo.y.max(other.lo.y),
+            self.lo.z.max(other.lo.z),
+        );
+        let hi = Vec3::new(
+            self.hi.x.min(other.hi.x),
+            self.hi.y.min(other.hi.y),
+            self.hi.z.min(other.hi.z),
+        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let count = |len: f32| (len / VOXEL).ceil().max(0.0) as u32;
+        let (nx, ny, nz) = (count(hi.x - lo.x), count(hi.y - lo.y), count(hi.z - lo.z));
+        let first = Vec3::new(lo.x + VOXEL * 0.5, lo.y + VOXEL * 0.5, lo.z + VOXEL * 0.5);
+        // Each space's own coordinates step evenly along the landblock's axes.
+        let steps = |s: &Self| {
+            let at = globaltolocal(&s.frame, first);
+            let step = |d: Vec3| globaltolocal(&s.frame, first.add(d)).sub(at);
+            (
+                at,
+                step(Vec3::new(VOXEL, 0.0, 0.0)),
+                step(Vec3::new(0.0, VOXEL, 0.0)),
+                step(Vec3::new(0.0, 0.0, VOXEL)),
+            )
+        };
+        let (a0, ax, ay, az) = steps(self);
+        let (b0, bx, by, bz) = steps(other);
+        #[allow(clippy::cast_precision_loss)]
+        let along = |o: Vec3, x: Vec3, y: Vec3, z: Vec3, i: u32, j: u32, k: u32| {
+            o.add(x.mul(i as f32))
+                .add(y.mul(j as f32))
+                .add(z.mul(k as f32))
+        };
+        (0..nz).any(|k| {
+            (0..ny).any(|j| {
+                (0..nx).any(|i| {
+                    self.holds_local(along(a0, ax, ay, az, i, j, k), margin)
+                        && other.holds_local(along(b0, bx, by, bz, i, j, k), margin)
+                })
+            })
+        })
+    }
+
+    /// Whether point `q` of its own frame is in this space, `margin` in from its walls.
+    fn holds_local(&self, q: Vec3, margin: f32) -> bool {
+        self.planes.iter().all(|(n, d)| n.dot(q) + d >= margin)
+            && self.voxels.as_ref().is_none_or(|v| v.holds(q))
     }
 
     /// Whether this space crosses the ground of a landblock with land, `ground` answering its
@@ -331,6 +624,7 @@ mod tests {
             hi,
             samples,
             reach,
+            voxels: None,
         }
     }
 

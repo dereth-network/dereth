@@ -60,7 +60,7 @@ fn tiles(kit: Kit) -> Option<([&'static str; 3], Option<&'static str>, [&'static
             None,
             ["room roof corner", "room roof side", "room roof open"],
         ),
-        Kit::Mine | Kit::Castle => return None,
+        Kit::Mine | Kit::Castle | Kit::Cave => return None,
     })
 }
 

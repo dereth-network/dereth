@@ -453,6 +453,9 @@ pub struct Session {
     buildings: Option<crate::buildings::Catalog>,
     /// Every link between spawns, gathered the first time it is wanted after a change.
     link_table: std::cell::OnceCell<links::Table>,
+    /// The spaces of voxels of AC2 kit pieces (their kits' [`crate::ac2_kit::Space`]), by cell
+    /// mesh and part: made once, as each is first wanted.
+    ac2_voxels: std::cell::RefCell<BTreeMap<(u32, u16), Option<crate::room::Shape>>>,
     /// What the packs' SQL says of the server's classes it writes again, and of its own weenies
     /// by symbol: read the first time it is wanted after a change.
     pack_class_facts: std::cell::OnceCell<BTreeMap<u32, sql_ids::WeenieFacts>>,
@@ -1273,6 +1276,7 @@ impl Session {
             server_reads: std::cell::Cell::new(0),
             buildings: None,
             link_table: std::cell::OnceCell::new(),
+            ac2_voxels: std::cell::RefCell::default(),
             pack_class_facts: std::cell::OnceCell::new(),
             pack_weenie_facts: std::cell::OnceCell::new(),
             ac2,

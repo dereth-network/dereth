@@ -1019,6 +1019,13 @@ impl EditorApp {
     /// kit's; before its first room, the chosen piece's kit's; else the world's.
     #[must_use]
     pub fn plan_pitch(&self, lb: u16) -> f32 {
+        // An AC2 dungeon's squares are those of the kit the panel offers ([`FREE_PITCH`] for a
+        // kit with none).
+        if self.dungeon_game(lb) == Some(super::dungeon::Game::Ac2) {
+            if let Some(g) = self.plan_grid(lb) {
+                return if g.squares { g.pitch } else { FREE_PITCH };
+            }
+        }
         if !self.cells_of(lb).is_empty() {
             return self.session.grid_pitch(lb);
         }
@@ -1034,6 +1041,22 @@ impl EditorApp {
                     .map(|a| a.pitch())
             })
             .unwrap_or(grid::PITCH)
+    }
+
+    /// The grid of the AC2 kit the panel offers in dungeon `lb` (its Kit row's), when it offers one.
+    #[must_use]
+    pub fn plan_grid(&self, lb: u16) -> Option<lyceum_foundry::kit::Grid> {
+        self.palette_ac2_kit(lb)
+            .and_then(lyceum_foundry::ac2_kit::Kit::parse)
+            .map(lyceum_foundry::ac2_kit::Kit::grid)
+    }
+
+    /// Whether dungeon `lb`'s grid is drawn and picked as squares: not for an AC2 kit with none,
+    /// whose pieces are set at their doorways.
+    #[must_use]
+    pub fn plan_squares(&self, lb: u16) -> bool {
+        self.dungeon_game(lb) != Some(super::dungeon::Game::Ac2)
+            || self.plan_grid(lb).is_none_or(|g| g.squares)
     }
 
     /// Where the chosen piece would go with the pointer over square `s` on the floor shown: the
@@ -1269,6 +1292,7 @@ impl EditorApp {
         let t = self.text.table();
         let rise = self.session.floor_rise(lb);
         let pitch = self.plan_pitch(lb);
+        let squares = self.plan_squares(lb);
         let (floors, shown) = self.plan_floors(lb);
         let at = floors
             .iter()
@@ -1366,7 +1390,7 @@ impl EditorApp {
             let grid_line = egui::Stroke::new(1.0, egui::Color32::from_gray(38));
             let (wx0, wy1) = to_world(outer.min);
             let (wx1, wy0) = to_world(outer.max);
-            if zoom * pitch >= 4.0 {
+            if squares && zoom * pitch >= 4.0 {
                 #[allow(clippy::cast_possible_truncation)]
                 for gx in ((wx0 / pitch).floor() as i32)..=((wx1 / pitch).ceil() as i32) {
                     #[allow(clippy::cast_precision_loss)]
@@ -1589,8 +1613,21 @@ impl EditorApp {
             }
             self.layout.doorway_dots.push((f.link.clone(), p));
         }
-        // The square under the pointer, and the square chosen.
+        // The square under the pointer, and the square chosen. With no squares, the pointer
+        // within a mark's reach is on that mark's.
+        let marks_of_chosen = self.kit.chosen.map(|i| self.piece_marks(lb, i));
         let square = pointer.map(|p| {
+            let near = (!squares)
+                .then(|| {
+                    marks_of_chosen
+                        .as_ref()?
+                        .iter()
+                        .find(|m| to_screen(m.frame.origin).distance(p) <= MARK_REACH)
+                })
+                .flatten();
+            if let Some(m) = near {
+                return grid::square_of_at(m.frame.origin.x, m.frame.origin.y, pitch);
+            }
             let (x, y) = to_world(p);
             grid::square_of_at(x, y, pitch)
         });
@@ -1615,6 +1652,15 @@ impl EditorApp {
         if let Some(i) = self.kit.chosen {
             let marks = self.piece_marks(lb, i);
             for p in marks.iter() {
+                if !squares {
+                    // A kit with no squares: each fit marked where the piece would stand.
+                    painter.circle_filled(
+                        to_screen(p.frame.origin),
+                        6.0,
+                        egui::Color32::from_rgba_unmultiplied(70, 200, 90, 140),
+                    );
+                    continue;
+                }
                 let s = p.square_at(pitch).map_or_else(
                     || grid::square_of_at(p.frame.origin.x, p.frame.origin.y, pitch),
                     |(s, _)| s,
@@ -2000,6 +2046,14 @@ fn inside(poly: &[(f32, f32)], p: (f32, f32)) -> bool {
     odd
 }
 
+/// The side of the squares a dungeon of an AC2 kit with no squares is picked on, in meters: its
+/// first piece stands at the meter clicked.
+pub const FREE_PITCH: f32 = 1.0;
+
+/// How near (screen points) the pointer must be to a fit's mark, for a kit with no squares, to be
+/// on it.
+pub const MARK_REACH: f32 = 14.0;
+
 /// Kit piece `piece` set as a dungeon's first room over square `s` of a grid of `pitch` meter
 /// squares, at height `z`, turned `turn` quarter turns: on the square of its own kit's grid nearest
 /// that square's middle, so that what is set against it stands on its kit's squares.
@@ -2011,7 +2065,12 @@ pub fn first_frame(
     z: f32,
     turn: u8,
 ) -> Frame {
-    let own = piece.ac2.as_ref().map_or(grid::PITCH, |a| a.pitch());
+    // A kit with no squares: where it is put, to the square picked.
+    let own = piece.ac2.as_ref().map_or(grid::PITCH, |a| {
+        lyceum_foundry::ac2_kit::Kit::parse(a.kit)
+            .filter(|k| !k.grid().squares)
+            .map_or_else(|| a.pitch(), |_| pitch)
+    });
     let (x, y) = grid::square_middle_at(s, pitch);
     grid::square_frame_at(grid::square_of_at(x, y, own), own, z, turn)
 }

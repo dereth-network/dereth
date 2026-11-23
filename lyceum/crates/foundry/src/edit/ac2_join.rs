@@ -40,18 +40,28 @@ pub fn join_seen(a: JoinRole, b: JoinRole) -> bool {
 }
 
 impl Session {
-    /// Part `part` of environment `environment`'s space, reaching as far past its doorways as
-    /// its AC2 kit piece does ([`crate::ac2_kit::reach`]); none for any other environment.
+    /// Part `part` of environment `environment`'s space, judged as its AC2 kit's are
+    /// ([`crate::ac2_kit::Kit::space`]) and reaching as far past its doorways as its piece does
+    /// ([`crate::ac2_kit::reach`]); any other environment's, its cell tree's, reaching none.
     #[must_use]
     pub fn ac2_shape(&self, environment: DataId, part: u16) -> Option<crate::room::Shape> {
         let env = self.environment(environment)?;
-        let reach = self
+        let piece = self
             .compiled
             .ac2_pieces
             .iter()
-            .find(|p| p.environment == environment)
-            .map_or(0.0, |p| crate::ac2_kit::reach(p.mesh));
-        crate::room::Shape::of(&env, part).map(|s| s.reaching(reach))
+            .find(|p| p.environment == environment);
+        let reach = piece.map_or(0.0, |p| crate::ac2_kit::reach(p.mesh));
+        let shape = match piece {
+            Some(p) if p.kit.space() == crate::ac2_kit::Space::Voxels => self
+                .ac2_voxels
+                .borrow_mut()
+                .entry((p.mesh, part))
+                .or_insert_with(|| crate::room::Shape::of_voxels(&env, part))
+                .clone(),
+            _ => crate::room::Shape::of(&env, part),
+        };
+        shape.map(|s| s.reaching(reach))
     }
 
     /// What doorway `slot` of a cell of environment `environment` is, for the joins of its kit.

@@ -36,14 +36,17 @@ fn corridor(pieces: &[Piece]) -> Piece {
 
 /// The first landblock of the open sea floor: heights all 0, and no statics record or cells.
 fn empty_landblock(s: &RetailDatStore) -> u16 {
-    (0x0101u16..)
-        .find(|lb| {
-            let id = DataId((u32::from(*lb) << 16) | 0xFFFF);
-            let Ok(b) = s.read_cell(id) else { return false };
-            let land = CellLandblock::decode_payload(id, &b).unwrap();
-            land.lbi_exists == 0 && land.height.iter().all(|h| *h == 0)
-        })
-        .expect("an empty landblock")
+    empty_landblocks(s).next().expect("an empty landblock")
+}
+
+/// The landblocks of the open sea floor, in order.
+fn empty_landblocks(s: &RetailDatStore) -> impl Iterator<Item = u16> + '_ {
+    (0x0101u16..0xFEFE).filter(|lb| {
+        let id = DataId((u32::from(*lb) << 16) | 0xFFFF);
+        let Ok(b) = s.read_cell(id) else { return false };
+        let land = CellLandblock::decode_payload(id, &b).unwrap();
+        land.lbi_exists == 0 && land.height.iter().all(|h| *h == 0)
+    })
 }
 
 #[test]
@@ -1902,8 +1905,8 @@ fn an_editor_given_the_ac2_install_adds_its_kits_to_the_pack_once_and_saves_the_
     assert!(s.add_ac2_kits().unwrap());
     assert_eq!(
         s.ac2_pieces().len(),
-        179,
-        "basic's 40, fancy's 35, the tomb's 43, the mine's 14 and the castle's 47"
+        287,
+        "basic's 40, fancy's 35, the tomb's 43, the mine's 14, the castle's 47 and the cave's 108"
     );
     let env = s.ac2_pieces()[0].environment;
     assert!(
@@ -1915,7 +1918,7 @@ fn an_editor_given_the_ac2_install_adds_its_kits_to_the_pack_once_and_saves_the_
     let row = std::fs::read_to_string(dir.path().join("holtburg/records/ac2.toml")).unwrap();
     assert_eq!(
         row,
-        "[[ac2-kit]]\nkit = \"basic\"\n\n[[ac2-kit]]\nkit = \"fancy\"\n\n[[ac2-kit]]\nkit = \"tomb\"\n\n[[ac2-kit]]\nkit = \"mine\"\n\n[[ac2-kit]]\nkit = \"castle\"\n"
+        "[[ac2-kit]]\nkit = \"basic\"\n\n[[ac2-kit]]\nkit = \"fancy\"\n\n[[ac2-kit]]\nkit = \"tomb\"\n\n[[ac2-kit]]\nkit = \"mine\"\n\n[[ac2-kit]]\nkit = \"castle\"\n\n[[ac2-kit]]\nkit = \"cave\"\n"
     );
     // Opened again, the pack asks for them itself, with the same ids.
     let again = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
@@ -2931,4 +2934,795 @@ fn the_worlds_own_pieces_reach_none_and_of_ac2s_only_the_castles_to_tomb() {
         })
         .collect();
     assert_eq!(reaching, [("castle", "to tomb", 0.84)]);
+}
+
+/// Every cell of AC2's dungeons in the install: by block, each cell's mesh, frame and doorways
+/// (its mesh's doorway, the cell it leads to and that cell's doorway).
+struct Ac2Cell {
+    mesh: u32,
+    frame: Frame,
+    doors: Vec<(usize, u16, usize)>,
+}
+
+fn ac2_dungeon_cells(ac2: &lyceum_foundry::ac2_kit::Ac2Install) -> BTreeMap<(u16, u16), Ac2Cell> {
+    let wr = ac2.records();
+    let mut out = BTreeMap::new();
+    for x in 0..=255i32 {
+        for y in 0..=255i32 {
+            let block = u16::try_from((x << 8) | y).unwrap();
+            for low in 0x0100u16.. {
+                let Some(c) = wr.cell(x, y, low) else { break };
+                let (o, q) = (c.frame.origin, c.frame.rotation);
+                out.insert(
+                    (block, low),
+                    Ac2Cell {
+                        mesh: c.mesh.0,
+                        frame: Frame::new(
+                            Vec3::new(o.x, o.y, o.z),
+                            dereth_primitives::Quat::new(q.w, q.x, q.y, q.z),
+                        ),
+                        doors: c
+                            .portals
+                            .iter()
+                            .map(|p| {
+                                (
+                                    usize::from(p.portal),
+                                    p.other_cell,
+                                    usize::from(p.other_portal),
+                                )
+                            })
+                            .collect(),
+                    },
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Each cell mesh of `meshes` as an AC1 environment, made as an AC2 kit's pieces are.
+fn ac2_environments(
+    ac2: &lyceum_foundry::ac2_kit::Ac2Install,
+    meshes: &BTreeSet<u32>,
+) -> BTreeMap<u32, dereth_assets::Environment> {
+    use dereth_assets::Decode;
+    let mut pictures = dereth_ac2_convert::records::Pictures::default();
+    let mut ids = dereth_ac2_convert::records::Ids::default();
+    let mut out = dereth_ac2_convert::records::Records::default();
+    let mut made = BTreeMap::new();
+    let mut envs = BTreeMap::new();
+    for &m in meshes {
+        let Some((env, ..)) = dereth_ac2_convert::cell::environment_by_material(
+            ac2.records(),
+            ac2,
+            m,
+            &mut pictures,
+            &mut ids,
+            &mut out,
+            &mut made,
+        )
+        .unwrap() else {
+            continue;
+        };
+        envs.insert(
+            m,
+            dereth_assets::Environment::decode_payload(env, &out.0[&env]).unwrap(),
+        );
+    }
+    envs
+}
+
+/// AC2's cave pieces, by cell mesh: the cave kit's, and those of AC2's caves the kit leaves for
+/// later (its entrance from the land and its two great rooms).
+fn ac2_caves() -> BTreeSet<u32> {
+    lyceum_foundry::ac2_kit::PIECES
+        .iter()
+        .filter(|(k, _, _)| *k == lyceum_foundry::ac2_kit::Kit::Cave)
+        .map(|(_, m, _)| *m)
+        .chain([
+            0x0100_006A,
+            0x0100_0170,
+            0x0100_0171,
+            0x0100_00E1,
+            0x0100_0135,
+        ])
+        .collect()
+}
+
+/// AC2's caves as spaces of voxels: no two cells joined in AC2's own caves share space, where by
+/// their boxes thousands would; each pair a meter closer through the doorway joining them does,
+/// and so does each cave piece set a meter into a copy of itself beside it. AC2's basic halls and
+/// the castle's piece to a tomb's hall clash by voxels as by their boxes.
+#[test]
+fn the_caves_of_ac2_as_voxels_share_no_space_where_they_join_and_a_meter_closer_they_do() {
+    use dereth_primitives::frame::V3;
+    use lyceum_foundry::ac2_kit::{Kit, PIECES};
+    use lyceum_foundry::room::Shape as Space;
+    let ac2 = ac2_install();
+    let cells = ac2_dungeon_cells(&ac2);
+    assert!(cells.len() > 54_000, "AC2's dungeon cells: {}", cells.len());
+    let caves: BTreeSet<u32> = ac2_caves();
+    let meshes: BTreeSet<u32> = cells.values().map(|c| c.mesh).collect();
+    let envs = ac2_environments(&ac2, &meshes);
+    let kit_of = |m: u32, kit: Kit| PIECES.iter().any(|(k, mesh, _)| *k == kit && *mesh == m);
+    let to_tomb = PIECES
+        .iter()
+        .find(|(k, _, l)| *k == Kit::Castle && *l == "to tomb")
+        .unwrap()
+        .1;
+    // Voxels for the caves, and for basic's halls and the castle's to tomb and the tomb's halls,
+    // to compare with their boxes.
+    let voxel_of: BTreeMap<u32, Space> = {
+        let started = std::time::Instant::now();
+        let v: BTreeMap<u32, Space> = envs
+            .iter()
+            .filter(|(m, _)| {
+                caves.contains(m)
+                    || kit_of(**m, Kit::Basic)
+                    || kit_of(**m, Kit::Tomb)
+                    || **m == to_tomb
+            })
+            .filter_map(|(m, e)| Some((*m, Space::of_voxels(e, 0)?)))
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let each = started.elapsed().as_secs_f64() * 1e3 / v.len() as f64;
+        eprintln!("{} meshes as voxels, {each:.1} ms each", v.len());
+        v
+    };
+    let box_of: BTreeMap<u32, Space> = envs
+        .iter()
+        .filter_map(|(m, e)| Some((*m, Space::of(e, 0)?)))
+        .collect();
+    let mut leaky: Vec<String> = caves
+        .iter()
+        .filter_map(|m| Some((m, voxel_of.get(m)?.filled_share()?)))
+        .filter(|(_, f)| *f > 0.9)
+        .map(|(m, f)| format!("{m:08X} {f:.2}"))
+        .collect();
+    leaky.sort();
+    eprintln!("cave pieces whose space fills over 90% of their box: {leaky:?}");
+    // Each piece's space as a world judges it: a cave's its voxels, any other's its box, reaching
+    // as far as its kit's catalog says.
+    let space = |m: u32| {
+        if caves.contains(&m) {
+            voxel_of.get(&m).cloned()
+        } else {
+            box_of
+                .get(&m)
+                .map(|s| s.clone().reaching(lyceum_foundry::ac2_kit::reach(m)))
+        }
+    };
+    let (mut pairs, mut boxed, mut basic, mut basic_same, mut castle, mut castle_same) =
+        (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut shared, mut missed) = (Vec::new(), Vec::new());
+    let (mut by_voxels, mut by_box) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+    let mut seen = BTreeSet::new();
+    for (&(block, low), a) in &cells {
+        for &(slot, other, other_slot) in &a.doors {
+            let Some(b) = cells.get(&(block, other)) else {
+                continue;
+            };
+            if low == other || !seen.insert((block, low.min(other), low.max(other))) {
+                continue;
+            }
+            let Some(door) = lyceum_foundry::pieces::opening(&envs[&a.mesh], 0, slot, &a.frame)
+            else {
+                continue;
+            };
+            let back = lyceum_foundry::pieces::opening(&envs[&b.mesh], 0, other_slot, &b.frame)
+                .expect("the other's doorway");
+            let gap = door.middle.sub(back.middle);
+            assert!(
+                gap.dot(gap) < 0.05 * 0.05 && door.out.dot(back.out) < -0.99,
+                "{block:04X} {low:04X}-{other:04X}: doorways that do not meet"
+            );
+            let name = format!("{block:04X} {low:04X}-{other:04X}");
+            let both_basic = kit_of(a.mesh, Kit::Basic) && kit_of(b.mesh, Kit::Basic);
+            let castles = a.mesh == to_tomb || b.mesh == to_tomb;
+            if both_basic || castles {
+                let (Some(va), Some(vb)) = (voxel_of.get(&a.mesh), voxel_of.get(&b.mesh)) else {
+                    continue;
+                };
+                let by_boxes = box_of[&a.mesh]
+                    .placed(&a.frame)
+                    .overlaps(&box_of[&b.mesh].placed(&b.frame));
+                let by_voxel = va.placed(&a.frame).overlaps(&vb.placed(&b.frame));
+                if both_basic {
+                    basic += 1;
+                    basic_same += usize::from(by_boxes == by_voxel);
+                }
+                if castles && by_boxes {
+                    castle += 1;
+                    castle_same += usize::from(by_voxel);
+                }
+            }
+            if !caves.contains(&a.mesh) && !caves.contains(&b.mesh) {
+                continue;
+            }
+            let (Some(ma), Some(mb)) = (space(a.mesh), space(b.mesh)) else {
+                continue;
+            };
+            pairs += 1;
+            let (sa, sb) = (ma.placed(&a.frame), mb.placed(&b.frame));
+            let t = std::time::Instant::now();
+            if sa.overlaps(&sb) {
+                shared.push(name.clone());
+            }
+            by_voxels += t.elapsed();
+            let t = std::time::Instant::now();
+            boxed += usize::from(
+                box_of[&a.mesh]
+                    .placed(&a.frame)
+                    .overlaps(&box_of[&b.mesh].placed(&b.frame)),
+            );
+            by_box += t.elapsed();
+            // A meter closer, through the doorway joining them, than either may reach.
+            let reach =
+                lyceum_foundry::ac2_kit::reach(a.mesh).max(lyceum_foundry::ac2_kit::reach(b.mesh));
+            let closer = Frame::new(
+                b.frame.origin.sub(door.out.mul(1.0 + reach)),
+                b.frame.rotation,
+            );
+            if !sa.overlaps(&mb.placed(&closer)) {
+                missed.push(name);
+            }
+        }
+    }
+    // Each cave piece beside a copy of itself, turned the same way: moved across its first
+    // doorway's way until they share no space, then a meter back.
+    let mut apart_missed = Vec::new();
+    for m in &caves {
+        let (Some(v), Some(env)) = (voxel_of.get(m), envs.get(m)) else {
+            continue;
+        };
+        let here = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        let Some(door) = lyceum_foundry::pieces::opening(env, 0, 0, &here) else {
+            continue;
+        };
+        let across = Vec3::new(-door.out.y, door.out.x, 0.0);
+        let one = v.placed(&here);
+        let Some(clear) = (0..400u16)
+            .map(|k| f32::from(k) * 0.25)
+            .find(|d| !one.overlaps(&v.placed(&Frame::new(across.mul(*d), Quat::IDENTITY))))
+        else {
+            continue;
+        };
+        if clear >= 1.0
+            && !one.overlaps(&v.placed(&Frame::new(across.mul(clear - 1.0), Quat::IDENTITY)))
+        {
+            apart_missed.push(format!("{m:08X}"));
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let each = |d: std::time::Duration| d.as_secs_f64() * 1e6 / pairs as f64;
+    eprintln!(
+        "{pairs} joined pairs with a cave piece: by their boxes {boxed} share space, by voxels {}; \
+         {} not caught a meter closer, {} cave pieces not caught a meter into a copy beside \
+         them; a pair judged in {:.1} us by voxels, {:.1} us by box; basic's {basic} pairs \
+         {basic_same} the same by voxels; the castle's to tomb {castle}, {castle_same} of them \
+         clashing by voxels too",
+        shared.len(),
+        missed.len(),
+        apart_missed.len(),
+        each(by_voxels),
+        each(by_box)
+    );
+    assert!(shared.is_empty(), "{} of {pairs}: {shared:?}", shared.len());
+    assert!(missed.is_empty(), "{} of {pairs}: {missed:?}", missed.len());
+    assert!(apart_missed.is_empty(), "{apart_missed:?}");
+    assert!(pairs > 12_000, "{pairs}");
+    assert!(boxed > 2_000, "{boxed}");
+}
+
+/// The placements of `form` (its parts' spaces `spaces`) that join one of `dungeon`'s open
+/// doorways `among`, found as they always were for the world's own kits and AC2's: each of its
+/// doorways set against each open one at each quarter turn, met whole or on the square under it.
+fn by_quarter_turns(
+    form: &lyceum_foundry::kit::Form,
+    spaces: &[lyceum_foundry::room::Shape],
+    dungeon: &Dungeon<'_>,
+    among: &[usize],
+) -> Vec<lyceum_foundry::grid::PiecePlacement> {
+    use dereth_primitives::frame::V3;
+    use lyceum_foundry::grid::{placed, square_middle_at, square_of_at};
+    let mut out = Vec::new();
+    let mut tried: Vec<Frame> = Vec::new();
+    for &i in among {
+        let d = &dungeon.doorways[i];
+        for door in &form.doors {
+            for turn in 0..4u8 {
+                let q = lyceum_foundry::compile::heading_quat(f32::from(turn) * 90.0);
+                let local = placed(&door.opening, &Frame::new(Vec3::ZERO, q));
+                if local.out.dot(d.opening.out) > -0.99 {
+                    continue;
+                }
+                let whole = Frame::new(d.opening.middle.sub(local.middle), q);
+                let o = whole.origin;
+                let (sx, sy) =
+                    square_middle_at(square_of_at(o.x, o.y, dungeon.pitch), dungeon.pitch);
+                for frame in [whole, Frame::new(Vec3::new(sx, sy, o.z), q)] {
+                    let same = |f: &Frame| {
+                        let gap = f.origin.sub(frame.origin);
+                        gap.dot(gap) < 1e-4 && quarter_turns(f) == quarter_turns(&frame)
+                    };
+                    if tried.iter().any(same) {
+                        continue;
+                    }
+                    tried.push(frame);
+                    if let Ok(p) = fit_piece(form, spaces, &frame, dungeon) {
+                        if p.joined.contains(&i) {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether `a` and `b` are the same placements in the same order: frames to a millimeter and a
+/// thousandth of a turn, and the same links.
+fn same_placements(
+    a: &[lyceum_foundry::grid::PiecePlacement],
+    b: &[lyceum_foundry::grid::PiecePlacement],
+) -> bool {
+    use dereth_primitives::frame::V3;
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            let gap = x.frame.origin.sub(y.frame.origin);
+            let (p, q) = (x.frame.rotation, y.frame.rotation);
+            let turn = (p.w * q.w + p.x * q.x + p.y * q.y + p.z * q.z).abs();
+            gap.dot(gap) < 1e-6 && turn > 0.999_999 && x.links == y.links && x.joined == y.joined
+        })
+}
+
+/// Every piece of the world's own kit, at Holtburg Redoubt's doorways into a room taken away, and
+/// every piece of each of AC2's kits on squares, at the doorways of a hall of its kit, is offered
+/// exactly the placements it was when pieces were turned only by quarter turns.
+#[test]
+fn every_kit_piece_is_offered_the_placements_quarter_turns_gave_it() {
+    // The world's own kit, in Holtburg Redoubt with a room taken away.
+    let (_dir, mut s) = session("kit-turns");
+    let before = s.cells(REDOUBT);
+    let room = placed_pieces(&before)
+        .into_iter()
+        .find(|p| p.holds(0x017D))
+        .expect("its piece");
+    s.apply(&Op::TakeCells {
+        landblock: REDOUBT,
+        cells: room.cells.clone(),
+    })
+    .unwrap();
+    let after = s.cells(REDOUBT);
+    let free = s.free_doorways(REDOUBT, &[]);
+    assert_eq!(free.len(), 3);
+    let among: Vec<usize> = (0..free.len()).collect();
+    let rooms = spaces(&s, &after, &[]);
+    let dungeon = Dungeon {
+        rooms: &rooms,
+        doorways: &free,
+        ground: None,
+        pitch: PITCH,
+    };
+    let set = lyceum_foundry::dats::DatSet::open(&dereth_dat::testing::dat_dir()).unwrap();
+    let mut offered = 0usize;
+    for p in &catalog(&set).kit {
+        let env = s.environment(p.environment).unwrap();
+        let parts: Vec<lyceum_foundry::room::Shape> = (0..p.form.parts())
+            .filter_map(|k| lyceum_foundry::room::Shape::of(&env, k))
+            .collect();
+        let now = lyceum_foundry::grid::piece_placements(&p.form, &parts, &dungeon, &among);
+        assert!(
+            same_placements(&now, &by_quarter_turns(&p.form, &parts, &dungeon, &among)),
+            "{:?}",
+            p.environment
+        );
+        offered += now.len();
+    }
+    assert!(offered > 50, "the world's own: {offered}");
+    // AC2's kits, each at a hall of its own.
+    let (dir, world) = super::sample::sample("kit-turns-ac2");
+    let kits: String = lyceum_foundry::ac2_kit::Kit::ALL
+        .iter()
+        .map(|k| format!("[[ac2-kit]]\nkit = \"{}\"\n\n", k.name()))
+        .collect();
+    std::fs::write(dir.path().join("holtburg/records/ac2.toml"), kits).unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-22 00:00:00");
+    let store = dereth_dat::testing::open_store_or_fail();
+    let mut offered = 0usize;
+    // The kits on squares: the cave's, on none, is turned by eighths as its doorways ask.
+    for (kit, lb) in lyceum_foundry::ac2_kit::Kit::ALL
+        .iter()
+        .filter(|k| k.grid().squares)
+        .zip(empty_landblocks(&store))
+    {
+        let hall = match kit.name() {
+            "fancy" => "fancy/hall straight".to_owned(),
+            name => format!("{name}/straight"),
+        };
+        let at = Vec3::new(100.0, 100.0, -40.0);
+        let first = place_ac2(&mut s, lb, &hall, "own", at, "NS");
+        let cells = s.cells(lb);
+        let rooms = spaces(&s, &cells, &[]);
+        let free: Vec<lyceum_foundry::grid::Doorway> = s
+            .free_doorways(lb, &[])
+            .into_iter()
+            .filter(|d| (d.opening.middle.z - at.z).abs() < 30.0)
+            .collect();
+        assert!(!free.is_empty(), "{hall} {first:04X}");
+        let among: Vec<usize> = (0..free.len()).collect();
+        let dungeon = Dungeon {
+            rooms: &rooms,
+            doorways: &free,
+            ground: None,
+            pitch: kit.grid().pitch,
+        };
+        for p in s.ac2_pieces().iter().filter(|p| p.kit == *kit) {
+            let env = s.environment(p.environment).unwrap();
+            let Some(form) = lyceum_foundry::kit::form_on(&env, &kit.grid()) else {
+                continue;
+            };
+            let parts: Vec<lyceum_foundry::room::Shape> = (0..form.parts())
+                .filter_map(|k| s.ac2_shape(p.environment, k))
+                .collect();
+            let now = lyceum_foundry::grid::piece_placements(&form, &parts, &dungeon, &among);
+            assert!(
+                same_placements(&now, &by_quarter_turns(&form, &parts, &dungeon, &among)),
+                "{}/{}",
+                kit.name(),
+                p.label
+            );
+            offered += now.len();
+        }
+    }
+    assert!(offered > 100, "AC2's: {offered}");
+}
+
+/// AC2's caves rebuilt by fit alone: of every two cave cells joined in AC2's own caves, the second
+/// set against the first one's doorways lands on the frame AC2 gives it (as near as AC2's two
+/// doorways are to each other), an eighth of a turn included, its space its voxels.
+#[test]
+fn the_caves_of_ac2_set_piece_by_piece_land_where_ac2_lays_them_eighth_turns_and_all() {
+    use dereth_primitives::frame::V3;
+    use lyceum_foundry::room::Shape as Space;
+    let ac2 = ac2_install();
+    let cells = ac2_dungeon_cells(&ac2);
+    let caves: BTreeSet<u32> = ac2_caves();
+    let meshes: BTreeSet<u32> = cells
+        .values()
+        .map(|c| c.mesh)
+        .filter(|m| caves.contains(m))
+        .collect();
+    let envs = ac2_environments(&ac2, &meshes);
+    let grid = lyceum_foundry::kit::Grid {
+        pitch: 20.0,
+        tile_height: 20.0,
+        two_square_halls: false,
+        squares: false,
+    };
+    let voxels: BTreeMap<u32, Space> = envs
+        .iter()
+        .filter_map(|(m, e)| Some((*m, Space::of_voxels(e, 0)?)))
+        .collect();
+    let forms: BTreeMap<u32, lyceum_foundry::kit::Form> = envs
+        .iter()
+        .filter_map(|(m, e)| Some((*m, lyceum_foundry::kit::form_on(e, &grid)?)))
+        .collect();
+    let (mut tried, mut eighths, mut placing) = (0usize, 0usize, std::time::Duration::ZERO);
+    let mut lost = Vec::new();
+    for (&(block, low), a) in &cells {
+        for &(slot, other, other_slot) in &a.doors {
+            let Some(b) = cells.get(&(block, other)) else {
+                continue;
+            };
+            let (Some(sa), Some(sb), Some(form)) =
+                (voxels.get(&a.mesh), voxels.get(&b.mesh), forms.get(&b.mesh))
+            else {
+                continue;
+            };
+            if low == other || form.doors.iter().all(|d| d.slot != other_slot) {
+                continue;
+            }
+            let Some(open) = lyceum_foundry::pieces::opening(&envs[&a.mesh], 0, slot, &a.frame)
+            else {
+                continue;
+            };
+            let rooms = BTreeMap::from([(0u16, sa.placed(&a.frame))]);
+            // Every doorway of the first that leads to the second (some forks meet twice), this one
+            // first.
+            let mut doorways = vec![lyceum_foundry::grid::Doorway {
+                link: Link::Cell {
+                    cell: "first".to_owned(),
+                    portal: slot,
+                },
+                opening: open,
+            }];
+            for &(s2, o2, _) in &a.doors {
+                if o2 == other && s2 != slot {
+                    if let Some(o) =
+                        lyceum_foundry::pieces::opening(&envs[&a.mesh], 0, s2, &a.frame)
+                    {
+                        doorways.push(lyceum_foundry::grid::Doorway {
+                            link: Link::Cell {
+                                cell: "first".to_owned(),
+                                portal: s2,
+                            },
+                            opening: o,
+                        });
+                    }
+                }
+            }
+            let dungeon = Dungeon {
+                rooms: &rooms,
+                doorways: &doorways,
+                ground: None,
+                pitch: grid.pitch,
+            };
+            tried += 1;
+            eighths += usize::from(quarter_turns(&b.frame).is_none());
+            let t = std::time::Instant::now();
+            let found = lyceum_foundry::grid::piece_placements(
+                form,
+                std::slice::from_ref(sb),
+                &dungeon,
+                &[0],
+            );
+            placing += t.elapsed();
+            // As near as AC2's own two doorways there are to each other (a centimeter apart in a
+            // few of its caves), and a millimeter.
+            let back = lyceum_foundry::pieces::opening(&envs[&b.mesh], 0, other_slot, &b.frame)
+                .expect("the other's doorway");
+            let apart = back.middle.sub(doorways[0].opening.middle);
+            let near = apart.dot(apart).sqrt() + 0.001;
+            let lands = found.iter().any(|p| {
+                let gap = p.frame.origin.sub(b.frame.origin);
+                let (x, y) = (p.frame.rotation, b.frame.rotation);
+                gap.dot(gap) <= near * near
+                    && (x.w * y.w + x.x * y.x + x.y * y.y + x.z * y.z).abs() > 0.999_9
+            });
+            if !lands {
+                lost.push(format!(
+                    "{block:04X} {low:04X}-{other:04X} {:08X}: {} placements",
+                    b.mesh,
+                    found.len()
+                ));
+            }
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let each = placing.as_secs_f64() * 1e3 / tried as f64;
+    eprintln!(
+        "{tried} cave pieces set against the doorway of the one before, {eighths} of them at an \
+         eighth of a turn; {} not where AC2 lays them; {each:.2} ms a placement",
+        lost.len()
+    );
+    assert!(tried > 20_000 && eighths > 5_000, "{tried} {eighths}");
+    assert!(
+        lost.is_empty(),
+        "{} of {tried}: {:?}",
+        lost.len(),
+        &lost[..lost.len().min(20)]
+    );
+}
+
+/// On a grid with no squares, each of AC2's cave pieces is what its doorways make it: none is
+/// left over, a 45-degree bend is a corner and a Y a T.
+#[test]
+fn the_cave_pieces_of_ac2_are_read_by_their_doorways_off_the_square() {
+    let ac2 = ac2_install();
+    let caves: BTreeSet<u32> = ac2_caves();
+    let envs = ac2_environments(&ac2, &caves);
+    let grid = lyceum_foundry::kit::Grid {
+        pitch: 20.0,
+        tile_height: 20.0,
+        two_square_halls: false,
+        squares: false,
+    };
+    let kind = |m: u32| lyceum_foundry::kit::form_on(&envs[&m], &grid).map(|f| f.kind);
+    let other: Vec<String> = envs
+        .keys()
+        .filter(|m| kind(**m).is_none_or(|k| k == Kind::Other))
+        .map(|m| format!("{m:08X}"))
+        .collect();
+    assert!(other.is_empty(), "{other:?}");
+    for (mesh, want) in [
+        (0x0100_001C, Kind::Corridor), // straight
+        (0x0100_0021, Kind::DeadEnd),  // end
+        (0x0100_001E, Kind::Corner),   // turn
+        (0x0100_0028, Kind::Corner),   // bend 45
+        (0x0100_0065, Kind::Tee),      // t
+        (0x0100_0067, Kind::Tee),      // y
+        (0x0100_001D, Kind::Cross),    // cross
+        (0x0100_0020, Kind::Stairs),   // straight up
+    ] {
+        assert_eq!(kind(mesh), Some(want), "{mesh:08X}");
+    }
+    // On a grid of squares, a 45-degree bend's diagonal doorway is off the grid.
+    let squared = lyceum_foundry::kit::Grid {
+        squares: true,
+        ..grid
+    };
+    assert_eq!(
+        lyceum_foundry::kit::form_on(&envs[&0x0100_0028], &squared).map(|f| f.kind),
+        Some(Kind::Other)
+    );
+}
+
+/// Kit piece `label` (`kit/label`) set in look `look` at one of the free doorways of cell `from`
+/// of landblock `lb`, as the fits at a doorway offer it: the `pick`th of them. Its new cell.
+fn place_ac2_at(s: &mut Session, lb: u16, label: &str, look: &str, from: u16, pick: usize) -> u16 {
+    let p = s
+        .ac2_pieces()
+        .iter()
+        .find(|p| {
+            label
+                .split_once('/')
+                .is_some_and(|(k, l)| p.kit.name() == k && p.label == l)
+        })
+        .unwrap_or_else(|| panic!("{label} is a piece"))
+        .clone();
+    let env = s.environment(p.environment).unwrap();
+    let form = lyceum_foundry::kit::form_on(&env, &p.kit.grid()).unwrap();
+    let parts: Vec<lyceum_foundry::room::Shape> = (0..form.parts())
+        .map(|k| s.ac2_shape(p.environment, k).unwrap())
+        .collect();
+    let cells = s.cells(lb);
+    let rooms = spaces(s, &cells, &[]);
+    let free = s.free_doorways(lb, &[]);
+    let name = s.cell_names(lb)[&from].clone();
+    let bare = |n: &str| n.rsplit(':').next().unwrap_or(n).to_owned();
+    let among: Vec<usize> = free
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| matches!(&d.link, Link::Cell { cell, .. } if bare(cell) == bare(&name)))
+        .map(|(i, _)| i)
+        .collect();
+    assert!(!among.is_empty(), "{from:04X} has no free doorway");
+    let dungeon = Dungeon {
+        rooms: &rooms,
+        doorways: &free,
+        ground: None,
+        pitch: p.kit.grid().pitch,
+    };
+    let fits = s.ac2_offered(
+        lb,
+        p.environment,
+        &free,
+        lyceum_foundry::grid::piece_placements(&form, &parts, &dungeon, &among),
+    );
+    let fit = fits
+        .get(pick)
+        .unwrap_or_else(|| panic!("{label} at {from:04X}: {} fits", fits.len()))
+        .clone();
+    let surfaces = p.looks.iter().find(|(n, _)| *n == look).unwrap().1.clone();
+    let (q, o) = (fit.frame.rotation, fit.frame.origin);
+    s.apply(&Op::PlacePieces {
+        landblock: lb,
+        pieces: vec![NewPiece {
+            environment: p.environment,
+            surfaces,
+            at: [o.x, o.y, o.z],
+            rotation: Rotation::Quat([q.w, q.x, q.y, q.z]),
+            parts: fit
+                .links
+                .iter()
+                .enumerate()
+                .map(|(k, l)| (u16::try_from(k).unwrap(), l.clone()))
+                .collect(),
+        }],
+        joins: Vec::new(),
+    })
+    .unwrap();
+    *s.cells(lb).keys().max().unwrap()
+}
+
+/// A sample cave of AC2's cave kit, set piece by piece at its doorways: a 20 m tunnel, a bend of
+/// an eighth of a turn and a fork; down one arm to the small tunnels, out the other to the large;
+/// back the other way a stair up to the wide tunnels, and a transition. Every family of the kit
+/// is in it, eighth turns among its frames, and a walk through it finds nothing.
+#[test]
+fn a_sample_cave_of_every_family_is_set_at_its_doorways_and_walks_clean() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let (dir, world) = super::sample::sample("dungeon-ac2-cave");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"cave\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-22 00:00:00");
+    let cave: Vec<_> = s
+        .ac2_pieces()
+        .iter()
+        .filter(|p| p.kit == Kit::Cave)
+        .cloned()
+        .collect();
+    assert_eq!(cave.len(), 108);
+    // Each look of the kit draws the pieces of the set it is drawn over in other stones: of its
+    // tunnels (88 pieces) and of its second set (`a`, 19), how many each look changes.
+    let mut changed: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for p in &cave {
+        for (n, surfaces) in &p.looks[1..] {
+            let e = changed.entry(n).or_default();
+            if *surfaces != p.looks[0].1 {
+                if p.label.ends_with(" a") {
+                    e.1 += 1;
+                } else {
+                    e.0 += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(
+        changed,
+        BTreeMap::from([
+            ("coldstone", (88, 19)),
+            ("dark", (0, 19)),
+            ("greystone", (88, 19)),
+            ("ice", (88, 0)),
+            ("olthoi", (88, 19)),
+            ("red", (0, 19)),
+            ("seashore", (88, 0)),
+        ])
+    );
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -60.0;
+    let first = place_ac2(
+        &mut s,
+        lb,
+        "cave/straight",
+        "own",
+        Vec3::new(100.0, 100.0, z),
+        "NS",
+    );
+    let bend = place_ac2_at(&mut s, lb, "cave/bend 45", "own", first, 0);
+    let fork = place_ac2_at(&mut s, lb, "cave/y", "own", bend, 0);
+    // One arm: down to the small tunnels.
+    let small = place_ac2_at(&mut s, lb, "cave/to small straight", "own", fork, 0);
+    let small = place_ac2_at(&mut s, lb, "cave/small straight", "own", small, 0);
+    place_ac2_at(&mut s, lb, "cave/small end", "own", small, 0);
+    // The other: out to the large.
+    let large = place_ac2_at(&mut s, lb, "cave/bend 45", "own", fork, 0);
+    let large = place_ac2_at(&mut s, lb, "cave/to large straight", "own", large, 0);
+    let large = place_ac2_at(&mut s, lb, "cave/large straight", "own", large, 0);
+    place_ac2_at(&mut s, lb, "cave/large end", "own", large, 0);
+    // Back the other way: a stair up to the wide tunnels.
+    let up = place_ac2_at(&mut s, lb, "cave/straight up", "own", first, 0);
+    let wide = place_ac2_at(&mut s, lb, "cave/transition straight", "own", up, 0);
+    let wide = place_ac2_at(&mut s, lb, "cave/wide straight", "own", wide, 0);
+    place_ac2_at(&mut s, lb, "cave/wide end", "own", wide, 0);
+    let cells = s.cells(lb);
+    let label_of = |env: DataId| {
+        cave.iter()
+            .find(|p| p.environment == env)
+            .map_or("?", |p| p.label)
+    };
+    let labels: BTreeSet<&str> = cells.values().map(|c| label_of(c.environment)).collect();
+    for family in [
+        "small ",
+        "large ",
+        "wide ",
+        "to small",
+        "to large",
+        "transition",
+        "bend 45",
+        "y",
+        "straight up",
+    ] {
+        assert!(
+            labels.iter().any(|l| l.starts_with(family) || *l == family),
+            "{family}: {labels:?}"
+        );
+    }
+    assert!(
+        cells.values().any(|c| quarter_turns(&c.frame).is_none()),
+        "an eighth of a turn among its frames"
+    );
+    let found = s.walk(lb);
+    assert!(found.is_empty(), "{found:#?}");
 }

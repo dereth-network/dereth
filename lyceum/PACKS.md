@@ -124,7 +124,7 @@ A pack asks for one of Asheron's Call 2's dungeon kits in `records/`:
 
 ```toml
 [[ac2-kit]]
-kit = "basic"                # or "fancy", "tomb", "mine", "castle"
+kit = "basic"                # or "fancy", "tomb", "mine", "castle", "cave"
 ```
 
 A build then needs the player's AC2 install (`lyceum build --ac2 <folder>`): every piece of the kit

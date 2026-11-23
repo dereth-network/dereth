@@ -11,11 +11,16 @@
 //! hall tiles 10 m a side and 10 m a floor, open on every side they share with another, and halls
 //! 20 m a side with 10 by 9 m doorways. `tomb` (rough tunnels and vaulted rooms), on a 15 m grid:
 //! halls a square, 15 by 8 m doorways, rooms of 8 m floor tiles under 4 m roofs (with 8 m middles
-//! between for a taller room), entered from a hall through a room entrance.
+//! between for a taller room), entered from a hall through a room entrance. `mine` (timbered
+//! tunnels, 20 m squares) and `castle` (halls, great rooms and towers, 20 m squares). `cave`
+//! (tunnels of 10, 20 and 30 m, wide and narrow, bending by eighths of a turn, forking and
+//! climbing): it stands on no squares, each piece set at a doorway, and its space is the cells its
+//! mesh walls in.
 //!
 //! **Looks.** An AC2 cell can name an appearance that swaps its mesh's materials. Each kit's looks
 //! are its own materials (`own`) and the appearances AC2's dungeons draw it in: `plain`, `haunted`
-//! and `emplite` for `basic`, `broken` for `fancy`; the tomb has its own only.
+//! and `emplite` for `basic`, `broken` for `fancy`, `human` for `castle`; for `cave`, the stones
+//! AC2's caves are drawn in.
 
 use std::collections::BTreeSet;
 
@@ -34,6 +39,16 @@ pub fn open(dir: &std::path::Path) -> Result<Ac2Install, String> {
     Ac2::open(dir)
 }
 
+/// How a kit's pieces' space is judged ([`Kit::space`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Space {
+    /// The box its cell tree is: right for a piece that fills its box.
+    Box,
+    /// The cells of its box its mesh walls in: for pieces that bend and fork, and fill little of
+    /// it.
+    Voxels,
+}
+
 /// One of AC2's dungeon kits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kit {
@@ -42,16 +57,18 @@ pub enum Kit {
     Tomb,
     Mine,
     Castle,
+    Cave,
 }
 
 impl Kit {
     /// Every kit, in order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Basic,
         Self::Fancy,
         Self::Tomb,
         Self::Mine,
         Self::Castle,
+        Self::Cave,
     ];
 
     /// Its name, as a pack writes it.
@@ -63,6 +80,7 @@ impl Kit {
             Self::Tomb => "tomb",
             Self::Mine => "mine",
             Self::Castle => "castle",
+            Self::Cave => "cave",
         }
     }
 
@@ -78,28 +96,39 @@ impl Kit {
                 pitch: 15.0,
                 tile_height: 0.0,
                 two_square_halls: true,
+                squares: true,
             },
             Self::Mine => crate::kit::Grid {
                 pitch: 20.0,
                 tile_height: crate::kit::TILE_HEIGHT,
                 two_square_halls: true,
+                squares: true,
             },
             Self::Castle => crate::kit::Grid {
                 pitch: 20.0,
                 tile_height: crate::kit::TILE_HEIGHT,
                 two_square_halls: false,
+                squares: true,
+            },
+            Self::Cave => crate::kit::Grid {
+                pitch: 20.0,
+                tile_height: crate::kit::TILE_HEIGHT,
+                two_square_halls: false,
+                squares: false,
             },
         }
     }
 
     /// How far apart its dungeons' floors stand, in meters: a room's floor tile and what stands
     /// over it (basic's and fancy's 10 m tiles; the tomb's 8 m floor and 4 m roof); the mine's
-    /// 10 m tunnels; the castle's 10 m halls and tower floors.
+    /// 10 m tunnels; the castle's 10 m halls and tower floors; a cave's 20 m tunnels (its climbs
+    /// stand where they rise to, as floors of their own).
     #[must_use]
     pub const fn rise(self) -> f32 {
         match self {
             Self::Basic | Self::Fancy | Self::Mine | Self::Castle => 10.0,
             Self::Tomb => 12.0,
+            Self::Cave => 20.0,
         }
     }
 
@@ -110,16 +139,27 @@ impl Kit {
     #[must_use]
     pub const fn room_entrance(self) -> Option<&'static str> {
         match self {
-            Self::Basic | Self::Fancy | Self::Mine | Self::Castle => None,
+            Self::Basic | Self::Fancy | Self::Mine | Self::Castle | Self::Cave => None,
             Self::Tomb => Some("room floor entrance"),
         }
     }
 
-    /// Whether it has room tiles for a room to be laid of (the mine has none, only tunnels; the
-    /// castle's rooms are whole pieces).
+    /// Whether it has room tiles for a room to be laid of (the mine and the cave have none, only
+    /// tunnels; the castle's rooms are whole pieces).
     #[must_use]
     pub const fn has_rooms(self) -> bool {
-        !matches!(self, Self::Mine | Self::Castle)
+        !matches!(self, Self::Mine | Self::Castle | Self::Cave)
+    }
+
+    /// How its pieces' space is judged when one is fitted: by the box its cell tree is, or by the
+    /// cells of that box its mesh walls in ([`crate::room::Shape::of_voxels`]).
+    #[must_use]
+    pub const fn space(self) -> Space {
+        match self {
+            Self::Basic | Self::Fancy | Self::Tomb | Self::Mine | Self::Castle => Space::Box,
+            // Its tunnels bend and fork, filling little of their boxes.
+            Self::Cave => Space::Voxels,
+        }
     }
 
     /// How tall a room's floor tile is, in meters: where the tile over it stands.
@@ -128,6 +168,7 @@ impl Kit {
         match self {
             Self::Basic | Self::Fancy | Self::Mine | Self::Castle => 10.0,
             Self::Tomb => 8.0,
+            Self::Cave => 20.0,
         }
     }
 
@@ -307,6 +348,77 @@ impl Kit {
                 (0x09, 0xBE),
                 (0x09, 0xBF),
             ],
+            Self::Cave => &[
+                (0x00, 0x5D),
+                (0x01, 0xBF),
+                (0x03, 0xE6),
+                (0x04, 0x88),
+                (0x04, 0x9F),
+                (0x04, 0xA1),
+                (0x04, 0xAF),
+                (0x04, 0xB0),
+                (0x05, 0xF0),
+                (0x06, 0xC2),
+                (0x06, 0xC4),
+                (0x06, 0xC8),
+                (0x06, 0xDD),
+                (0x06, 0xDF),
+                (0x06, 0xE0),
+                (0x06, 0xE1),
+                (0x06, 0xE5),
+                (0x06, 0xE6),
+                (0x06, 0xEB),
+                (0x06, 0xEC),
+                (0x06, 0xEE),
+                (0x06, 0xEF),
+                (0x06, 0xF1),
+                (0x06, 0xF3),
+                (0x06, 0xF4),
+                (0x06, 0xF5),
+                (0x07, 0xB8),
+                (0x07, 0xC3),
+                (0x07, 0xE8),
+                (0x07, 0xE9),
+                (0x07, 0xEA),
+                (0x07, 0xEB),
+                (0x07, 0xEC),
+                (0x07, 0xED),
+                (0x07, 0xEF),
+                (0x07, 0xF0),
+                (0x07, 0xF2),
+                (0x07, 0xF3),
+                (0x08, 0xC5),
+                (0x09, 0xC3),
+                (0x09, 0xC7),
+                (0x09, 0xF2),
+                (0x09, 0xF5),
+                (0x09, 0xFA),
+                (0x09, 0xFD),
+                (0x0A, 0xC4),
+                (0x0A, 0xC7),
+                (0x0A, 0xC8),
+                (0x0A, 0xFC),
+                (0x0B, 0xF3),
+                (0x32, 0x4E),
+                (0x3F, 0x9E),
+                (0x66, 0xA9),
+                (0x68, 0x88),
+                (0x69, 0x67),
+                (0x69, 0xB6),
+                (0x70, 0x97),
+                (0x76, 0xAE),
+                (0x7C, 0xB9),
+                (0x85, 0x8D),
+                (0x95, 0x9E),
+                (0x98, 0xA6),
+                (0x99, 0xC4),
+                (0x9A, 0xB5),
+                (0xD3, 0x9D),
+                (0xDA, 0xAC),
+                (0xDE, 0xA8),
+                (0xE1, 0xA8),
+                (0xF1, 0x8F),
+            ],
         }
     }
 
@@ -323,6 +435,16 @@ impl Kit {
             Self::Fancy => &[("own", None), ("broken", Some(0x4100_002C))],
             Self::Tomb | Self::Mine => &[("own", None)],
             Self::Castle => &[("own", None), ("human", Some(0x4100_002B))],
+            Self::Cave => &[
+                ("own", None),
+                ("coldstone", Some(0x4100_0008)),
+                ("seashore", Some(0x4100_0009)),
+                ("greystone", Some(0x4100_000A)),
+                ("ice", Some(0x4100_0018)),
+                ("olthoi", Some(0x4100_0026)),
+                ("red", Some(0x4100_002D)),
+                ("dark", Some(0x4100_002F)),
+            ],
         }
     }
 }
@@ -511,6 +633,117 @@ pub const PIECES: &[(Kit, u32, &str)] = &[
     // Where a castle meets a tomb's hall, and a fancy hall.
     (Kit::Castle, 0x0100_0109, "to tomb"),
     (Kit::Castle, 0x0100_0143, "to fancy"),
+    // The cave's: tunnels of 20 m, small (10 m), large (30 m) and wide; those between sizes; its
+    // second set (`a`); and where a tomb's hall meets a cave. Its entrance from the land and its
+    // two great rooms are not among them.
+    (Kit::Cave, 0x0100_001C, "straight"),
+    (Kit::Cave, 0x0100_001D, "cross"),
+    (Kit::Cave, 0x0100_001E, "turn"),
+    (Kit::Cave, 0x0100_001F, "up"),
+    (Kit::Cave, 0x0100_0020, "straight up"),
+    (Kit::Cave, 0x0100_0021, "end"),
+    (Kit::Cave, 0x0100_0022, "wide cross 2"),
+    (Kit::Cave, 0x0100_0023, "wide turn"),
+    (Kit::Cave, 0x0100_0024, "wide straight up"),
+    (Kit::Cave, 0x0100_0025, "wide end"),
+    (Kit::Cave, 0x0100_0026, "wide straight"),
+    (Kit::Cave, 0x0100_0027, "bend up 45"),
+    (Kit::Cave, 0x0100_0028, "bend 45"),
+    (Kit::Cave, 0x0100_0029, "diagonal"),
+    (Kit::Cave, 0x0100_002A, "straight bend"),
+    (Kit::Cave, 0x0100_002E, "to large straight bend"),
+    (Kit::Cave, 0x0100_002F, "bend up 45 right"),
+    (Kit::Cave, 0x0100_0030, "y down"),
+    (Kit::Cave, 0x0100_0031, "straight bend bulge"),
+    (Kit::Cave, 0x0100_0032, "straight up bend"),
+    (Kit::Cave, 0x0100_0033, "to small straight bend"),
+    (Kit::Cave, 0x0100_0034, "small y down"),
+    (Kit::Cave, 0x0100_0036, "large end"),
+    (Kit::Cave, 0x0100_0037, "small straight up bend"),
+    (Kit::Cave, 0x0100_003D, "wide cross"),
+    (Kit::Cave, 0x0100_0044, "to large straight"),
+    (Kit::Cave, 0x0100_0045, "wide large cross 2"),
+    (Kit::Cave, 0x0100_0046, "wide large end"),
+    (Kit::Cave, 0x0100_0059, "small end"),
+    (Kit::Cave, 0x0100_005A, "small bend up 45 right"),
+    (Kit::Cave, 0x0100_005B, "small diagonal right"),
+    (Kit::Cave, 0x0100_005C, "small bend up 45"),
+    (Kit::Cave, 0x0100_005D, "small straight up bend right"),
+    (Kit::Cave, 0x0100_005E, "small transition straight up"),
+    (Kit::Cave, 0x0100_005F, "small straight up"),
+    (Kit::Cave, 0x0100_0060, "diagonal right"),
+    (Kit::Cave, 0x0100_0061, "transition straight up"),
+    (Kit::Cave, 0x0100_0062, "bend up"),
+    (Kit::Cave, 0x0100_0063, "small t down"),
+    (Kit::Cave, 0x0100_0064, "wide cross 3"),
+    (Kit::Cave, 0x0100_0065, "t"),
+    (Kit::Cave, 0x0100_0066, "straight bulge"),
+    (Kit::Cave, 0x0100_0067, "y"),
+    (Kit::Cave, 0x0100_006B, "wide small cross 2"),
+    (Kit::Cave, 0x0100_006C, "wide small end"),
+    (Kit::Cave, 0x0100_006D, "small bend 45"),
+    (Kit::Cave, 0x0100_006E, "small transition straight bend"),
+    (Kit::Cave, 0x0100_006F, "small cross"),
+    (Kit::Cave, 0x0100_0070, "small y"),
+    (Kit::Cave, 0x0100_0071, "small t"),
+    (Kit::Cave, 0x0100_0073, "t down"),
+    (Kit::Cave, 0x0100_0074, "straight up bend right"),
+    (Kit::Cave, 0x0100_0076, "to small straight"),
+    (Kit::Cave, 0x0100_0077, "small diagonal"),
+    (Kit::Cave, 0x0100_0078, "small straight"),
+    (Kit::Cave, 0x0100_0079, "wide large cross 3"),
+    (Kit::Cave, 0x0100_007A, "wide large turn"),
+    (Kit::Cave, 0x0100_007B, "large diagonal"),
+    (Kit::Cave, 0x0100_007C, "wide large cross"),
+    (Kit::Cave, 0x0100_007D, "wide large straight"),
+    (Kit::Cave, 0x0100_007E, "large bend up 45 right"),
+    (Kit::Cave, 0x0100_007F, "large cross"),
+    (Kit::Cave, 0x0100_0080, "large straight up"),
+    (Kit::Cave, 0x0100_0081, "large t"),
+    (Kit::Cave, 0x0100_008B, "large t down"),
+    (Kit::Cave, 0x0100_00A1, "large y down"),
+    (Kit::Cave, 0x0100_00A2, "large y"),
+    (Kit::Cave, 0x0100_00A3, "large straight up bend"),
+    (Kit::Cave, 0x0100_00BA, "transition straight bend"),
+    (Kit::Cave, 0x0100_00D8, "large straight up bend right"),
+    (Kit::Cave, 0x0100_00D9, "large transition straight up"),
+    (Kit::Cave, 0x0100_00DA, "large straight"),
+    (Kit::Cave, 0x0100_00DB, "large bend up 45"),
+    (Kit::Cave, 0x0100_00DD, "wide large straight up"),
+    (Kit::Cave, 0x0100_00DE, "large turn"),
+    (Kit::Cave, 0x0100_00DF, "small turn"),
+    (Kit::Cave, 0x0100_00E0, "shallow end a"),
+    (Kit::Cave, 0x0100_00E2, "straight bend a"),
+    (Kit::Cave, 0x0100_00E3, "bend 45 a"),
+    (Kit::Cave, 0x0100_00E4, "to tomb"),
+    (Kit::Cave, 0x0100_00F2, "straight a"),
+    (Kit::Cave, 0x0100_00F3, "turn a"),
+    (Kit::Cave, 0x0100_00F4, "t a"),
+    (Kit::Cave, 0x0100_00F5, "end a"),
+    (Kit::Cave, 0x0100_010A, "small straight bend"),
+    (Kit::Cave, 0x0100_010B, "wide small straight"),
+    (Kit::Cave, 0x0100_010C, "wide small turn"),
+    (Kit::Cave, 0x0100_010D, "large bend up"),
+    (Kit::Cave, 0x0100_010E, "large bend 45"),
+    (Kit::Cave, 0x0100_010F, "large diagonal right"),
+    (Kit::Cave, 0x0100_012D, "straight up a"),
+    (Kit::Cave, 0x0100_012E, "t down a"),
+    (Kit::Cave, 0x0100_012F, "cross a"),
+    (Kit::Cave, 0x0100_0130, "y down 45 a"),
+    (Kit::Cave, 0x0100_0131, "up a"),
+    (Kit::Cave, 0x0100_0132, "y down a"),
+    (Kit::Cave, 0x0100_0133, "y a"),
+    (Kit::Cave, 0x0100_0134, "diagonal a"),
+    (Kit::Cave, 0x0100_0136, "bend up 45 right a"),
+    (Kit::Cave, 0x0100_0137, "bend up 45 a"),
+    (Kit::Cave, 0x0100_0138, "bend up a"),
+    (Kit::Cave, 0x0100_013D, "small bend up"),
+    (Kit::Cave, 0x0100_013E, "large straight bend"),
+    (Kit::Cave, 0x0100_013F, "wide small cross 3"),
+    (Kit::Cave, 0x0100_0140, "wide small cross"),
+    (Kit::Cave, 0x0100_0141, "wide small straight up"),
+    (Kit::Cave, 0x0100_014C, "y straight a"),
+    (Kit::Cave, 0x0100_0151, "transition straight"),
 ];
 
 /// The kit pieces that reach past their doorways, by cell mesh, and how far, in meters: a little

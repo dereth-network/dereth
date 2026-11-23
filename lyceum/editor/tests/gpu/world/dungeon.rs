@@ -1469,7 +1469,11 @@ fn an_ac2_piece_set_on_a_square_stands_on_the_square_clicked_for_each_kit() {
     let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
     ed.add_ac2_kits().unwrap();
     ed.wait_for_pieces();
-    for kit in lyceum_foundry::ac2_kit::Kit::ALL {
+    // The kits on squares (the cave's, on none, has its own test).
+    for kit in lyceum_foundry::ac2_kit::Kit::ALL
+        .into_iter()
+        .filter(|k| k.grid().squares)
+    {
         let pitch = kit.grid().pitch;
         let hall = if kit.name() == "fancy" {
             "hall straight"
@@ -1617,4 +1621,81 @@ fn a_dungeon_offers_only_its_own_games_pieces() {
     assert_eq!(ed.dungeon_game(REDOUBT), Some(Game::Ac1));
     let redoubt = offered(&mut ed);
     assert!(!redoubt.is_empty() && redoubt.iter().all(|p| p.ac2.is_none()));
+}
+
+/// AC2's cave stands on no squares: its first piece goes at the meter clicked, its fits are marked
+/// where each piece would stand, and a tunnel set at a 45-degree bend's diagonal doorway stands
+/// where its mark is, turned by an eighth of a turn.
+#[test]
+fn a_cave_is_set_where_clicked_then_at_its_doorways_eighths_of_a_turn_and_all() {
+    let _gpu = gpu_lock();
+    let Some(ac2) = std::env::var_os("AUBEREAN_TEST_DAT_DIR").filter(|v| !v.is_empty()) else {
+        panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
+    };
+    let (_dir, world) = sample("dungeon-ac2-cave");
+    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    ed.wait_for_pieces();
+    let lb = ed.new_dungeon(None).unwrap();
+    ed.choose_dungeon_game(lb, Game::Ac2).unwrap();
+    ed.wait_for_pieces();
+    ed.kit.ac2_kit = Some("cave");
+    assert!(!ed.plan_squares(lb));
+    assert!((ed.plan_pitch(lb) - 1.0).abs() < 1e-6);
+    let index = |ed: &EditorApp, label: &str| {
+        ed.kit
+            .pieces
+            .as_ref()
+            .unwrap()
+            .iter()
+            .position(|p| {
+                p.ac2
+                    .as_ref()
+                    .is_some_and(|a| a.kit == "cave" && a.label == label)
+            })
+            .unwrap_or_else(|| panic!("cave/{label}"))
+    };
+    // The first piece, at the meter clicked.
+    let straight = index(&ed, "straight");
+    ed.choose_piece(straight).unwrap();
+    ed.place_on_square((83, 77)).unwrap();
+    assert!(ed.frame());
+    let cells = ed.cells_of(lb);
+    let first = cells.values().next().expect("the first piece");
+    assert!(
+        (first.frame.origin.x - 83.0).abs() < 0.01 && (first.frame.origin.y - 77.0).abs() < 0.01,
+        "{:?}",
+        first.frame.origin
+    );
+    // A bend at one of its doorways; then a tunnel at the bend's diagonal one, where a mark says
+    // it fits turned by an eighth.
+    let bend = index(&ed, "bend 45");
+    ed.choose_piece(bend).unwrap();
+    let at = ed.piece_marks(lb, bend)[0].frame.origin;
+    ed.place_on_square(lyceum_foundry::grid::square_of_at(at.x, at.y, 1.0))
+        .unwrap();
+    assert!(ed.frame());
+    ed.choose_piece(straight).unwrap();
+    let marks = ed.piece_marks(lb, straight);
+    let eighth = marks
+        .iter()
+        .find(|m| lyceum_foundry::grid::quarter_turns(&m.frame).is_none())
+        .expect("a fit at an eighth of a turn")
+        .clone();
+    let o = eighth.frame.origin;
+    let before: BTreeSet<u16> = ed.cells_of(lb).keys().copied().collect();
+    ed.place_on_square(lyceum_foundry::grid::square_of_at(o.x, o.y, 1.0))
+        .unwrap();
+    let cells = ed.cells_of(lb);
+    let set = cells
+        .iter()
+        .find(|(n, _)| !before.contains(n))
+        .map(|(_, c)| c)
+        .expect("the tunnel");
+    assert!(
+        lyceum_foundry::grid::quarter_turns(&set.frame).is_none(),
+        "{:?}",
+        set.frame
+    );
+    let gap = (set.frame.origin.x - o.x).abs() + (set.frame.origin.y - o.y).abs();
+    assert!(gap < 0.01, "{:?} at {o:?}", set.frame.origin);
 }

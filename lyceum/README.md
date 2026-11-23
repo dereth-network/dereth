@@ -185,10 +185,10 @@ sends it into a dungeon or to the camera's position.
 
 ### AC2's dungeon kits
 
-Asheron's Call 2's dungeons are built from shared pieces, and Lyceum can build with five of its
+Asheron's Call 2's dungeons are built from shared pieces, and Lyceum can build with six of its
 kits: `basic` (stone halls and rooms), `fancy` (a palace's), `tomb` (rough stone tunnels and
-vaulted rooms), `mine` (timbered tunnels) and `castle` (a castle's halls, great rooms and towers),
-at AC2's own size. They are made from your own
+vaulted rooms), `mine` (timbered tunnels), `castle` (a castle's halls, great rooms and towers) and
+`cave` (rock tunnels that bend, fork and climb), at AC2's own size. They are made from your own
 Asheron's Call 2 install: start the editor with `--ac2 <your AC2 folder>`, and build with
 `lyceum build --ac2 <folder>`.
 
@@ -199,14 +199,21 @@ Asheron's Call 2 install: start the editor with `--ac2 <your AC2 folder>`, and b
   pieces that fit there, as AC2 joins its kits.
 - **Looks.** An AC2 dungeon has no look of its own: each kit has its own looks, `own`, `plain`,
   `haunted` and `emplite` for basic; `own` and `broken` for fancy; `own` for the tomb and the
-  mine; `own` and `human` for the castle. The **Look** row chooses the one the kit's pieces are
-  placed in.
+  mine; `own` and `human` for the castle; `own`, `coldstone`, `seashore`, `greystone`, `ice`,
+  `olthoi`, `red` and `dark` for the cave (the last two for its second set, the pieces named `a`).
+  The **Look** row chooses the one the kit's pieces are placed in.
 - **Halls** fit like any piece. Basic's and fancy's are two 10 m squares a side, with 10 by 9 m
   doorways in the middle of their sides, and their floors are 10 m apart. The tomb's grid is 15 m
   squares, a hall a square, and its floors are 12 m apart. The mine's is 20 m squares, a tunnel a
   square; its `to basic` piece joins a mine to one of basic's halls. The castle's is 20 m squares,
   a hall a square, its floors 10 m apart; its `to tomb` and `to fancy` pieces join a castle to a
   tomb's hall and to a fancy one.
+- **Caves** stand on no squares. The first piece goes where you click, and every other is set at
+  a doorway, each fit marked where it would stand: bends of an eighth of a turn turn the next
+  piece with them. Its tunnels are 20 m, `small` 10 m and `large` 30 m, with `wide` ones of each;
+  `to small` and `to large` pieces join one size to the next, and `to tomb` a cave to a tomb's
+  hall. A cave's space is the rock its pieces wall in, not their boxes, as AC2 lays them close.
+  Its entrance from the land and its two great rooms are not in the kit yet.
 - **Rooms** are built of tiles a square a side and a floor tall. **Room** lays a whole room in one
   step, east by north squares, floor and ceiling: against the doorway chosen on the grid, with the
   doorway tile in the middle of that wall, or from the square chosen. A tomb room is entered

@@ -323,6 +323,9 @@ pub struct Grid {
     pub pitch: f32,
     pub tile_height: f32,
     pub two_square_halls: bool,
+    /// Whether its pieces stand on squares at all: a kit with none (AC2's caves, turned by
+    /// eighths) is set piece by piece at its doorways, its first piece where it is put.
+    pub squares: bool,
 }
 
 impl Grid {
@@ -332,6 +335,7 @@ impl Grid {
         pitch: PITCH,
         tile_height: TILE_HEIGHT,
         two_square_halls: true,
+        squares: true,
     };
 }
 
@@ -466,7 +470,9 @@ pub fn form_on(env: &Environment, grid: &Grid) -> Option<Form> {
         && (above || below)
         && !level.is_empty()
         && level.iter().all(|d| d.width > pitch - 2.0 * ON_SIDE);
-    let kind = if off_grid {
+    let kind = if !grid.squares {
+        doorway_kind(&level, rise, above, below, hi.z - lo.z)
+    } else if off_grid {
         Kind::Other
     } else if rise >= RISE {
         Kind::Stairs
@@ -510,6 +516,27 @@ pub fn form_on(env: &Environment, grid: &Grid) -> Option<Form> {
         footprint,
         roles: roles(env),
     })
+}
+
+/// What a piece of a kit with no squares is, by its doorways alone (`level`, those in its sides,
+/// their sills `rise` apart; whether it opens `above` or `below`; `tall` from its lowest point to its
+/// highest): a dead end with one, a corridor with two facing away from each other and a corner
+/// with two at any other angle, a T with three and a cross with more; a stair when its side
+/// doorways stand [`RISE`] or more apart in height.
+fn doorway_kind(level: &[&Door], rise: f32, above: bool, below: bool, tall: f32) -> Kind {
+    if rise >= RISE {
+        return Kind::Stairs;
+    }
+    match level {
+        [] if !above && !below => Kind::Other,
+        [] if tall < CEILING => Kind::Ceiling,
+        [] => Kind::Shaft,
+        [_] => Kind::DeadEnd,
+        [a, b] if a.opening.out.dot(b.opening.out) < -0.9 => Kind::Corridor,
+        [_, _] => Kind::Corner,
+        [_, _, _] => Kind::Tee,
+        _ => Kind::Cross,
+    }
 }
 
 /// A piece of the kit: its environment, its shape, how often and where the world places it, the
