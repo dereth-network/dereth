@@ -54,7 +54,7 @@ fn store() -> Arc<RetailDatStore> {
 /// the low-word cell-ID predicate classifies as outdoors (`0x24 == 36 < 0x100`), and an outdoor viewer is the wrong
 /// arm of the branch under test. `Character::teleport` onto a point the cell's own BSP accepts
 /// lands in `0xA9B40143`.
-fn point_in(store: &RetailDatStore, cell: u32) -> Option<Vec3> {
+pub(crate) fn point_in(store: &RetailDatStore, cell: u32) -> Option<Vec3> {
     #[allow(clippy::cast_possible_truncation)] // a cell id's top 16 bits are its landblock
     let block = (cell >> 16) as u16;
     let d = EnvCellLoader::new()

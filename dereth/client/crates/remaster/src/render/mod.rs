@@ -146,6 +146,8 @@ pub struct RenderStats {
     pub last_forward: u32,
     /// The particles' draw items of the last frame.
     pub last_particle_items: u32,
+    /// Whether the last frame drew water.
+    pub last_water: bool,
     /// Bodies posed, their vertices, and the time posing them took, in nanoseconds (an
     /// instrument's count, read from the wall clock).
     pub skin_poses: u64,

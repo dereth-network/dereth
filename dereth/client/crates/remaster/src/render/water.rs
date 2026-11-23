@@ -419,7 +419,9 @@ impl WaterPass {
             }
             None
         };
-        if !s.runs() {
+        // Only where the frame draws the outdoors: past an opening that shows nothing, retail draws
+        // nothing.
+        if !s.runs() || !frame.landscape {
             return Ok(None);
         }
         let rt = inputs.rt.filter(|_| s.traced && self.traced.is_some());

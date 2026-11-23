@@ -47,6 +47,7 @@ mod remaster_d3d12;
 mod remaster_doorways;
 mod remaster_drawn;
 mod remaster_gi;
+mod remaster_indoors;
 mod remaster_lamps;
 mod remaster_light_tick;
 mod remaster_lod;

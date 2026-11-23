@@ -580,6 +580,8 @@ pub struct RemasterCounts {
     pub items: u32,
     pub forward: u32,
     pub particle_items: u32,
+    /// Whether the last frame drew water.
+    pub water: bool,
     /// What the sun's shadows counted.
     pub shadows: ShadowStats,
     /// The bytes its retained scene holds on the device: its pools' buffers and its textures; and
@@ -625,6 +627,7 @@ impl SceneDraw {
             items: s.last_items,
             forward: s.last_forward,
             particle_items: s.last_particle_items,
+            water: s.last_water,
             shadows: renderer.shadows().1,
             resident_bytes: renderer.resident_bytes(),
             pool_bytes_used: renderer.pool_bytes().iter().map(|p| p.1).sum(),

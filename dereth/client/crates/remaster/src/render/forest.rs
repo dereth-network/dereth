@@ -917,11 +917,13 @@ impl ForestPass {
         gfx: &mut Device,
         i: &ForestInputs<'_>,
     ) -> Result<Option<ForestPlan>, dereth_gfx::Error> {
+        // Only where the frame draws the outdoors: indoors, the outdoors is drawn only through an
+        // opening that shows it, and past one that shows nothing retail draws nothing.
         let drawn_trees = i
             .frame
             .forest
             .as_ref()
-            .filter(|f| f.knobs.trees && f.knobs.reach > 0.0);
+            .filter(|f| f.knobs.trees && f.knobs.reach > 0.0 && i.frame.landscape);
         let (Some(forest), Some(ground)) = (drawn_trees, i.frame.drawn.as_ref()) else {
             if let Some(t) = self.trees.take() {
                 t.destroy(gfx);

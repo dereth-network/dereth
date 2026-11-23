@@ -786,6 +786,7 @@ impl Renderer {
                 shore: drawn_ground.as_ref().map(super::drawn::DrawnPlan::shore),
             },
         )?;
+        self.stats.last_water = water.is_some();
         let samplers = [self.sampler(0), self.sampler(1)];
         let impostors = self.impostors.prepare(
             &mut self.gfx,
