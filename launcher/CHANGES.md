@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Fixed the Navigator routing through destroyed portals on worlds you had joined before.
 
 ## 0.5.8 (2026-11-21)
 - Fixed the world list cutting off a world's rules, such as Standard.

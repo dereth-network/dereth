@@ -388,9 +388,10 @@ impl PlaceIndex {
         found
     }
 
-    /// The nearest of `ids` (all of what `q` asks for), and how many of them are within reach.
+    /// The nearest of `ids` (all of what `q` asks for), and how many of them are within reach:
+    /// those named exactly as searched for first, however far, then the rest.
     fn nearest(&self, ids: &[u32], q: &Query) -> Found {
-        let mut kept: Vec<(f32, u32)> = ids
+        let mut kept: Vec<(bool, f32, u32)> = ids
             .iter()
             .filter_map(|&i| {
                 let e = &self.entries[i as usize];
@@ -398,19 +399,23 @@ impl PlaceIndex {
                     .near
                     .as_ref()
                     .map_or(0.0, |n| dereth_navigation::global_distance(n, &e.at));
-                q.within.is_none_or(|w| d <= w).then_some((d, i))
+                let exact =
+                    !q.words.is_empty() && words(&e.name).eq(q.words.iter().map(String::as_str));
+                q.within.is_none_or(|w| d <= w).then_some((!exact, d, i))
             })
             .collect();
         let total = kept.len();
+        let order =
+            |a: &(bool, f32, u32), b: &(bool, f32, u32)| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1));
         if q.limit > 0 && q.limit < kept.len() {
-            kept.select_nth_unstable_by(q.limit - 1, |a, b| a.0.total_cmp(&b.0));
+            kept.select_nth_unstable_by(q.limit - 1, order);
             kept.truncate(q.limit);
         }
-        kept.sort_by(|a, b| a.0.total_cmp(&b.0));
+        kept.sort_by(order);
         Found {
             items: kept
                 .into_iter()
-                .map(|(_, i)| self.entries[i as usize].src)
+                .map(|(_, _, i)| self.entries[i as usize].src)
                 .collect(),
             total,
         }
@@ -618,6 +623,41 @@ mod tests {
             index.built, 1,
             "the index is made once while the stores stay as they are"
         );
+    }
+
+    #[test]
+    fn a_place_named_exactly_as_searched_for_comes_first_however_far() {
+        let edge = |name: &str, x: u32| PortalEdge {
+            source: EdgeSource::Hint,
+            wcid: Some(x),
+            name: name.to_owned(),
+            from: at(x, 0),
+            to: None,
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+            shape: None,
+        };
+        let mut portals = PortalStore::new("W");
+        portals.merge([
+            edge("Holtburg Casino VIP Portal", 1),
+            edge("Portal to Holtburg", 2),
+            edge("Holtburg", 90),
+        ]);
+        let stores = Stores {
+            portals: Some(&portals),
+            places: None,
+            map: None,
+        };
+        let mut index = PlaceIndex::default();
+        let found = index.of(&stores).search(&query("Holtburg", 1));
+        assert_eq!(found.total, 3);
+        assert_eq!(found.items, [Src::Portal(2)], "the far one named Holtburg");
+        let all = index.of(&stores).search(&query("holtburg", 8));
+        assert_eq!(all.items, [Src::Portal(2), Src::Portal(0), Src::Portal(1)]);
     }
 
     #[test]

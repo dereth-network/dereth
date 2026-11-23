@@ -26,6 +26,10 @@ use dereth_world_places::Source;
 /// whether there is a newer one.
 pub const LAUNCH_FRESH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+/// Which rules a package was built by: raised whenever what goes into a package changes, so one
+/// built before is built again rather than used. 2: destroyed portals are left out.
+pub const BUILT_BY: u32 = 2;
+
 /// The folder in the launcher's data folder that holds the packages.
 #[must_use]
 pub fn root(data: &Path) -> PathBuf {
@@ -47,10 +51,15 @@ pub fn era_of(world: &crate::world::World) -> Option<EraId> {
     )
 }
 
-/// The folder of `era`'s package built from release `tag`.
+/// The folder of `era`'s package built from release `tag` by these rules ([`BUILT_BY`]).
 #[must_use]
 pub fn folder(root: &Path, era: EraId, tag: &str) -> PathBuf {
-    root.join(format!("{}-{tag}", era.name()))
+    root.join(format!("{}-{tag}-{}", era.name(), built_by()))
+}
+
+/// The end of a package folder's name that says which rules built it.
+fn built_by() -> String {
+    format!("b{BUILT_BY}")
 }
 
 /// Whether `dir` holds a whole package.
@@ -75,7 +84,7 @@ fn newest(root: &Path, era: EraId) -> Option<PathBuf> {
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(&prefix))
+                .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(&format!("-{}", built_by())))
                 && whole(p)
         })
         .max_by_key(|p| built_at(p))
@@ -135,7 +144,27 @@ pub fn prepare(
     say(&format!("building the places of {}", era.name()));
     let content = dereth_places::read_database(db, &sql)?;
     dereth_places::build(&content, "Dereth", Source::Hint, &dir)?;
+    drop_superseded(root, era);
     Ok(dir)
+}
+
+/// Remove `era`'s packages built by earlier rules (a folder of the era's whose name does not end
+/// with these rules' mark), now one by these rules is there: they are never used again.
+fn drop_superseded(root: &Path, era: EraId) {
+    let prefix = format!("{}-", era.name());
+    let mark = format!("-{}", built_by());
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for p in entries.flatten().map(|e| e.path()) {
+        let stale = p.is_dir()
+            && p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(&prefix) && !n.ends_with(&mark));
+        if stale {
+            let _ = std::fs::remove_dir_all(&p);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +276,36 @@ INSERT INTO `landblock_instance` VALUES (2,1001,2847146017,84,7.5,94.005,1,0,0,0
         prepare(&root, &dbs, EraId::Launch, &net, later, &mut |_| {}).expect("renewed");
         assert_eq!((net.asked.get(), net.downloads.get()), (2, 1));
         assert_eq!(ready(&root, EraId::Launch, later), Some(built));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Behaviour: none (tooling: a package built by earlier rules, which let destroyed portals
+    /// in, is built again rather than used, and then removed)
+    #[test]
+    fn a_package_built_by_earlier_rules_is_built_again() {
+        let dir = scratch("stale");
+        let (root, dbs) = (dir.join("places"), dir.join("databases"));
+        let net = Net::new(SQL);
+        let t0 = SystemTime::now();
+        // Another era's package stays, whatever built it.
+        let other = root.join("eor-v0.9.1");
+        std::fs::create_dir_all(&other).expect("a folder");
+        // A whole package of the same release, in the folder the earlier rules named.
+        let stale = root.join("launch-v9.9.9");
+        std::fs::create_dir_all(&stale).expect("a folder");
+        std::fs::write(stale.join(PORTALS_FILE), "stale").expect("written");
+        std::fs::write(stale.join(PLACES_FILE), "stale").expect("written");
+        assert_eq!(ready(&root, EraId::Launch, t0), None, "not used");
+        let built = prepare(&root, &dbs, EraId::Launch, &net, t0, &mut |_| {}).expect("built");
+        assert_ne!(built, stale);
+        assert!(
+            !stale.exists(),
+            "the package of the earlier rules is removed"
+        );
+        assert!(other.exists(), "another era's package is left");
+        assert!(std::fs::read_to_string(built.join(PORTALS_FILE))
+            .expect("the portal table")
+            .starts_with("dereth-navigation-store"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

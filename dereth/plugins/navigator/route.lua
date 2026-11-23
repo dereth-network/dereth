@@ -102,7 +102,15 @@ function R.go(target, name, opts, tell)
 		o[k] = v
 	end
 	task.spawn(function()
-		local ok, r = pawait(nav.path_to(target, o))
+		-- A target the client cannot take (a portal whose destination it no longer knows, say) is
+		-- refused at once: said, as a journey's end is.
+		local asked, p = pcall(nav.path_to, target, o)
+		if not asked then
+			tell.line("Can't go to " .. name .. ": " .. tostring(p):gsub("^.-: ", "") .. ".")
+			tell.ended()
+			return
+		end
+		local ok, r = pawait(p)
 		tell.line(ok and ("Arrived at " .. name .. ".") or ("Stopped: " .. tostring(r) .. "."))
 		tell.ended()
 	end)

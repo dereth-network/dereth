@@ -152,10 +152,43 @@ local function saved_places()
 	return out
 end
 
+-- How much each source is trusted, most first: of two rows for one place, the one kept.
+local TRUST = { saved = 1, learned = 2, published = 3, data = 4, hint = 5 }
+
+-- Where a place is, to the metre, for telling two rows of one place apart.
+local function spot(p)
+	if p == nil then
+		return "?"
+	end
+	if p.ns ~= nil then
+		-- A map unit is 240 metres.
+		return string.format("%.0f,%.0f", p.ns * 240, p.ew * 240)
+	end
+	return string.format("%d:%.0f,%.0f,%.0f", p.cell or 0, p.x or 0, p.y or 0, p.z or 0)
+end
+
+-- One row for each name, type and spot: the same place known from several sources (seen, the
+-- server's, the era's package, the game's data) is listed once, as the most trusted says it.
+local function coalesce(out)
+	local kept, at = {}, {}
+	for _, l in ipairs(out) do
+		local key = string.lower(l.name or "") .. "|" .. tostring(l.type) .. "|" .. spot(l.place)
+		local i = at[key]
+		if i == nil then
+			table.insert(kept, l)
+			at[key] = #kept
+		elseif (TRUST[l.source] or 9) < (TRUST[kept[i].source] or 9) then
+			kept[i] = l
+		end
+	end
+	return kept
+end
+
 -- The locations whose names have words beginning with `text`'s (without case; any when empty)
 -- and of type `kind` ("all" or nil for any): the nearest `limit` (L.MAX when not given) of the
--- client's, and the saved places, nearest first, then by name; each with `far`, its distance (nil
--- when the character cannot tell from where it stands). And how many there are in all.
+-- client's, and the saved places, one row for each place; those named exactly as `text` first,
+-- then nearest first, then by name; each with `far`, its distance (nil when the character cannot
+-- tell from where it stands). And how many there are in all.
 function L.find(text, kind, limit)
 	local want = string.lower(text or "")
 	local out = {}
@@ -171,10 +204,15 @@ function L.find(text, kind, limit)
 	if kind ~= "saved" then
 		total = total + client_places(want, kind, out, limit or L.MAX)
 	end
+	out = coalesce(out)
 	for _, l in ipairs(out) do
 		l.far = P.reach(l.place)
 	end
 	table.sort(out, function(a, b)
+		local ea, eb = string.lower(a.name) == want, string.lower(b.name) == want
+		if ea ~= eb then
+			return ea
+		end
 		if (a.far ~= nil) ~= (b.far ~= nil) then
 			return a.far ~= nil
 		end

@@ -27,6 +27,7 @@ dereth_testkit::scenarios! {
     scenario_the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them => the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_deletes_them ["plugins.samples.the-navigators-one-list-holds-saved-chat-and-map-places-under-its-filter-and-deletes-them"],
     scenario_the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload => the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload ["plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload"],
     scenario_the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys => the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys ["plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys"],
+    scenario_the_navigator_lists_a_place_once_and_puts_its_exact_name_first => the_navigator_lists_a_place_once_and_puts_its_exact_name_first ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight => a_route_walks_round_a_wall_to_a_waypoint_out_of_sight ["plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight"],
 }
 
@@ -984,4 +985,75 @@ fn the_navigators_one_list_holds_saved_chat_and_map_places_under_its_filter_and_
         "the saved place forgotten"
     );
     note_asserted("plugins.samples.the-navigators-one-list-holds-saved-chat-and-map-places-under-its-filter-and-deletes-them");
+}
+
+/// A place the client knows twice at one spot (seen, and the server's) is one row; a search for a
+/// name puts the place of exactly that name first, however far, ahead of nearer places whose
+/// names only hold it, and `/nav <name>` points at it.
+fn the_navigator_lists_a_place_once_and_puts_its_exact_name_first() {
+    use dereth_client_contract::panels::map::MapPlaceKind;
+    use dereth_navigation::{EdgeSource, PlaceKind};
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    for source in [EdgeSource::Learned, EdgeSource::Published] {
+        run.learn_place(
+            PlaceKind::Vendor,
+            source,
+            "Holtburg Casino VIP",
+            (42.21, 33.81),
+        );
+    }
+    // Far off: the town the game's data names.
+    run.data_places(&[(MapPlaceKind::Town, "Holtburg", (12.05, 23.55))]);
+    // Three portals far off that all send to one spot just outside it: one destination.
+    let to_holtburg = |i: u32| ScriptedPortal {
+        name: "Portal to Holtburg".into(),
+        class: 3000 + i,
+        at: outdoors(10.0 + f64::from(i), 20.0),
+        to: outdoors(12.0, 23.5),
+        source: dereth_navigation::EdgeSource::Hint,
+        refuses: false,
+    };
+    run.scripted_portals(
+        &[to_holtburg(0), to_holtburg(1), to_holtburg(2)],
+        Vec::new(),
+    );
+    run.advance(0.5);
+    let from = run.printed().len();
+    run.type_line("/nav find holtburg");
+    let lines = printed_since(&run, from);
+    let named = |what: &str| lines.iter().filter(|l| l.contains(what)).count();
+    assert_eq!(named("(destination)"), 1, "one destination: {lines:?}");
+    assert_eq!(named("(vendor)"), 1, "the vendor once: {lines:?}");
+    assert_eq!(named("(portal)"), 3, "the three portals: {lines:?}");
+    assert!(
+        lines[0].starts_with("[Nav] Holtburg (town)")
+            || lines[0].starts_with("[Nav] Holtburg (destination)"),
+        "a place named Holtburg first: {lines:?}"
+    );
+    assert!(
+        lines[1].starts_with("[Nav] Holtburg (town)")
+            || lines[1].starts_with("[Nav] Holtburg (destination)"),
+        "and the other: {lines:?}"
+    );
+    run.type_line("/nav Holtburg");
+    assert!(
+        node_line(&run.ui_dump(), "to").contains("Destination: Holtburg ("),
+        "the town, not the nearer vendor:\n{}",
+        run.ui_dump()
+    );
+    // A journey the client cannot make at all is said to be, not dropped.
+    let from = run.printed().len();
+    run.type_line("/nav travel portal Nowhere");
+    run.advance(0.5);
+    let lines = printed_since(&run, from);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("[Nav] Can't go to portal Nowhere: ")),
+        "{lines:?}"
+    );
+    note_asserted(
+        "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
+    );
 }

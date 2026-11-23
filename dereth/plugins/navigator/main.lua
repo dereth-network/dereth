@@ -766,6 +766,12 @@ on("ui.clicked", function(e)
 		return
 	end
 	if e.id == "go" then
+		-- The row selected is where Go goes, whatever was the destination before.
+		local sel = win:get("results").selected
+		local l = type(sel) == "table" and found[sel[1]] or found[sel]
+		if l ~= nil and (target == nil or target.name ~= l.name or target.place ~= l.place) then
+			destine(l.name, l.place, l.target)
+		end
 		go()
 	elseif e.id == "stop" then
 		halt()

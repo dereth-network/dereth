@@ -20,6 +20,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Plugins: fixed messages between clients stopping after a minute on Windows.
 - Plugins: routes now run smoothly through their waypoints.
 - Fixed the Navigator stumbling or stopping when you click to another window.
+- Navigator: a search lists each place once, with an exact name first.
 - The client no longer draws while minimized.
 - Remaster: no trees or water showing through a dungeon's open doorway any more.
 - New frame rate limits for the active window and the background, replacing Slow Down in the Background.

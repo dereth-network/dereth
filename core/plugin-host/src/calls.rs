@@ -770,8 +770,10 @@ impl Call<'_, '_> {
                 .portals()
                 .iter()
                 .filter(|e| e.name.eq_ignore_ascii_case(name) && e.retired.is_none())
-                .max_by_key(|e| (e.source, e.verified))
-                .and_then(|e| e.to)
+                // Of the portals of that name, the most trusted that knows where it sends.
+                .filter_map(|e| e.to.map(|to| (e.source, e.verified, to)))
+                .max_by_key(|(source, verified, _)| (*source, *verified))
+                .map(|(_, _, to)| to)
                 .map(TravelTarget::Place)
                 .ok_or_else(|| bad(format!("no portal {name:?} with a known destination")));
         }
