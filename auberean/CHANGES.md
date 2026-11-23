@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.13 (2026-11-23)
 - No changes of its own; built with the latest shared code.
 
 ## 0.1.12 (2026-11-23)
