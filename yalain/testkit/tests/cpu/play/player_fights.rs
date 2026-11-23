@@ -200,8 +200,9 @@ fn hooks_at(h: &Harness, b: usize, from: usize, attacker: u64, target: u64) -> V
         .collect()
 }
 
-/// An attack on another player that who may harm whom forbids (here a peace area) is refused: the
-/// basic attacks fail with the reason, the player is not attacking, and the other is not struck.
+/// An attack on another player that who may harm whom forbids (here a peace area) is refused: told
+/// attacking, the basic attacks fail with the reason, then the player is not attacking, and the
+/// other is not struck.
 /// Behaviour: server.player-fights.refused
 #[test]
 fn an_attack_on_another_player_the_rule_forbids_is_refused_with_its_reason() {
@@ -219,6 +220,7 @@ fn an_attack_on_another_player_the_rule_forbids_is_refused_with_its_reason() {
             .cloned()
             .collect::<Vec<_>>(),
         [
+            (ATTACK_STATE, vec![Value::Int(1)]),
             (ATTACKS_FAILED, vec![Value::Int(refusal::PEACE)]),
             (ATTACK_STATE, vec![Value::Int(0)])
         ]

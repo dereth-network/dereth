@@ -601,12 +601,18 @@ pub fn begin<S: Store>(
         p.trip.is_some(),
         p.attacking.is_some(),
     );
+    // A start refused is told as begun first: the attack state on, the refusal, then (a refusal at
+    // the target) the state off (2017, by the order sent: the state on before the refusal 254 of 254
+    // refused starts).
     if dead || away {
         let why = if dead {
             crate::skill_use::refusal::DEAD
         } else {
             crate::places::ACTIONS_LOCKED
         };
+        if !was {
+            progress::private(net, world, &attack_state(true));
+        }
         progress::private(net, world, &failed(why));
         if !was {
             progress::private(net, world, &attack_state(false));
@@ -620,6 +626,7 @@ pub fn begin<S: Store>(
         Some(other) => match may_attack_player(s, world, other) {
             Ok(()) => Some(true),
             Err(err) => {
+                progress::private(net, world, &attack_state(true));
                 progress::private(net, world, &failed(err));
                 progress::private(net, world, &attack_state(false));
                 crate::follow::stop(s, net, world);
@@ -628,6 +635,7 @@ pub fn begin<S: Store>(
         },
         None => {
             if let Err(err) = may_attack_thing(s, world, target) {
+                progress::private(net, world, &attack_state(true));
                 progress::private(net, world, &failed(err));
                 if let Some(Some(line)) = kept_out_line(s, target) {
                     let m = crate::chat::show_text(KEPT_OUT_SHOWN_AS, progress::text(line));
@@ -643,13 +651,23 @@ pub fn begin<S: Store>(
         }
     };
     if fightable != Some(true) {
-        let err = if fightable.is_some() {
+        // A monster's corpse is refused as one (2017: 7 of 7 starts at a corpse); a creature dead
+        // but not yet a corpse, as a dead target.
+        let monster_corpse = s
+            .things
+            .get(target)
+            .and_then(|t| t.corpse.as_ref())
+            .is_some_and(|c| c.creature != 0);
+        let err = if monster_corpse {
+            crate::skill_use::refusal::ON_MONSTER_CORPSES
+        } else if fightable.is_some() {
             error::TARGET_DEAD
         } else if talks_not_fights(s, target) {
             error::CANNOT_USE_ON_NPC
         } else {
             error::TARGET_GONE
         };
+        progress::private(net, world, &attack_state(true));
         progress::private(net, world, &failed(err));
         progress::private(net, world, &attack_state(false));
         crate::follow::stop(s, net, world);

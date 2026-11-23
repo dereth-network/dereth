@@ -15417,6 +15417,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.player-fights.a-basic-attack-at-a-corpse-is-refused-as-on-monster-corpses",
+        says: "A basic attack started at a monster's corpse is refused as on monster corpses; one at \
+               a creature dead but not yet a corpse, as at a dead target.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-AT-A-CORPSE"),
+        station: "yalain-testkit::cpu::play::skill_aims::a_basic_attack_at_a_monsters_corpse_is_refused_as_on_monster_corpses_after_the_attack_state",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-refused-start-is-told-begun-first",
+        says: "An attack start refused at the attacker's state or at its target is told as begun first, \
+               in the order sent: the attack state on, the refusal, then the state off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-REFUSED-BEGUN"),
+        station: "yalain-testkit::cpu::play::skill_aims::a_basic_attack_at_a_monsters_corpse_is_refused_as_on_monster_corpses_after_the_attack_state",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.a-third-after-armor",
         says: "A player's hit on another is reckoned against the target's armor at its full value, and a \
                third of what is left comes off; harm and vigor another player's effects take come to a \
@@ -19255,8 +19273,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.skills.refused-at-a-kind-it-does-not-take",
         says: "A skill aimed at a kind of target its definition does not take is refused with the \
-               client's text for that kind: its user, a monster, a monster's corpse; a hostile skill \
-               at its user's own pet is refused too.",
+               client's text for that kind: its user, a monster, a monster's corpse, a player's \
+               corpse, an item in a monster's corpse; a hostile skill at its user's own pet is \
+               refused too. 2017's one refusal 84 (\"right now\"), a skill aimed at a creature, has \
+               no trigger read and is not built.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-AIM-KINDS"),
         station: "yalain-testkit::cpu::play::skill_aims::a_skill_is_refused_at_a_target_of_a_kind_it_does_not_take",

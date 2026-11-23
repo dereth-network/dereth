@@ -144,6 +144,10 @@ pub mod refusal {
     pub const ON_YOURSELF: u32 = 22_007;
     pub const ON_MONSTERS: u32 = 22_012;
     pub const ON_MONSTER_CORPSES: u32 = 22_021;
+    /// "You cannot use that skill on monsters' items."
+    pub const ON_MONSTERS_ITEMS: u32 = 22_010;
+    /// "You cannot use that skill on the corpses of other players."
+    pub const ON_PLAYERS_CORPSES: u32 = 22_020;
     pub const ON_YOUR_PET: u32 = 22_026;
     /// Not while swimming.
     pub const SWIMMING: u32 = 30_013;
@@ -906,6 +910,10 @@ pub mod target_bit {
     pub const SELF: u32 = 0x1;
     /// An item its user holds, in the pack or in hand.
     pub const OWN_ITEM: u32 = 0x2;
+    /// An item a monster left (in its corpse).
+    pub const MONSTER_ITEM: u32 = 0x8;
+    /// A player's corpse.
+    pub const PLAYER_CORPSE: u32 = 0x20;
     /// A monster's corpse.
     pub const MONSTER_CORPSE: u32 = 0x40;
     /// A monster.
@@ -993,10 +1001,11 @@ fn item_aim<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Result<
 }
 
 /// Why a skill may not be aimed at the thing a request names, or at its user, by the kinds of
-/// target its definition takes, as the client's texts tell it: the user itself and a monster's
-/// corpse when the skill takes neither, the user's own pet, a monster when the skill takes none
-/// (2017: 50 of 50 refusals on the user aimed at it, 65 of 65 on monster corpses at a corpse, 5 of 5
-/// on monsters at a monster with skills taking players or pets alone).
+/// target its definition takes, as the client's texts tell it: the user itself, a monster's
+/// corpse, a player's corpse and an item in a monster's corpse when the skill takes none of them,
+/// the user's own pet, a monster when the skill takes none (2017: 50 of 50 refusals on the user
+/// aimed at it, 65 of 65 on monster corpses at a corpse, 5 of 5 on monsters at a monster with skills
+/// taking players or pets alone, 1 of 1 on monsters' items at an item in a monster's corpse).
 fn kind_refused<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Option<u32> {
     let takes = |bit: u32| u.valid_targets & bit != 0;
     if target == me {
@@ -1007,9 +1016,21 @@ fn kind_refused<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Opt
     }
     let t = s.things.get(target)?;
     let monster_corpse = t.corpse.as_ref().is_some_and(|c| c.creature != 0);
+    let player_corpse = t.corpse.as_ref().is_some_and(|c| c.creature == 0);
+    let in_monster_corpse = t
+        .container
+        .and_then(|c| s.things.get(c))
+        .and_then(|c| c.corpse.as_ref())
+        .is_some_and(|c| c.creature != 0);
     match t.kind {
         crate::things::Kind::Corpse if monster_corpse && !takes(target_bit::MONSTER_CORPSE) => {
             Some(refusal::ON_MONSTER_CORPSES)
+        }
+        crate::things::Kind::Corpse if player_corpse && !takes(target_bit::PLAYER_CORPSE) => {
+            Some(refusal::ON_PLAYERS_CORPSES)
+        }
+        crate::things::Kind::Item if in_monster_corpse && !takes(target_bit::MONSTER_ITEM) => {
+            Some(refusal::ON_MONSTERS_ITEMS)
         }
         crate::things::Kind::Creature if !takes(target_bit::MONSTER) => Some(refusal::ON_MONSTERS),
         _ => None,

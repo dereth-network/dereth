@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Finishing a quest that pays nothing at your level now says so.
+- Attacking a monster's corpse now says so, as in retail.
 - Some creatures now wait until they are badly hurt before they heal, as in retail.
 - Creatures now spend vigor on special attacks and get it back after a fight.
 - Creatures now turn on another nearby player when the one they fight dies.
