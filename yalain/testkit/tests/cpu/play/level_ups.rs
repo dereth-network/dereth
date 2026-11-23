@@ -157,3 +157,37 @@ fn a_level_ups_text_names_the_skill_credits_held() {
     let told = level_up_text(&h, b, from);
     assert!(told.contains(&(var::CREDITS, 5)), "{told:?}");
 }
+
+/// In the order the server sends them, a level-up tells its level, then its skill repository,
+/// then its text, then its effect, then the greatest health and vigor, then its health, then the
+/// end of its wounded look, then its vigor.
+/// Behaviour: server.experience.level-up-in-retails-order
+#[test]
+fn a_level_up_is_told_in_retails_order() {
+    let (mut h, b, world) = at_level_two();
+    let from = h.bots[b].inbox.len();
+    yalain_world::progress::level_up(&mut h.server, &mut h.net, world, 2, 3);
+    h.run(3);
+    let sent = h.sent_messages(b, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pick);
+    let int = |k: u32| move |m: &ServerMessage| matches!(m, ServerMessage::UpdateInt(x) if x.quality == k);
+    let order = [
+        at(&int(302)),
+        at(
+            &|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::skills::function::UPDATE_REPOSITORY),
+        ),
+        at(
+            &|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::session::function::SHOW_TEXT),
+        ),
+        at(
+            &|m| matches!(m, ServerMessage::DoFx(e) if e.action.fx == yalain_world::progress::LEVEL_UP_FX),
+        ),
+        at(&int(quality::HEALTH_MAX)),
+        at(&int(quality::VIGOR_MAX)),
+        at(&int(quality::HEALTH)),
+        at(&|m| matches!(m, ServerMessage::StopFx(_))),
+        at(&int(quality::VIGOR)),
+    ];
+    assert!(order.iter().all(Option::is_some), "{order:?}");
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
+}

@@ -6624,6 +6624,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.experience.level-up-in-retails-order",
+        says: "A level-up tells its level and its skill repository, then its text, its effect, the \
+               greatest health and vigor, its health, the end of its wounded look and its vigor, in \
+               that order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVEL-UP-ORDER"),
+        station: "yalain-testkit::cpu::play::level_ups::a_level_up_is_told_in_retails_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.level-up-text-names-the-credits-held",
         says: "A level-up's text names the skill credits the player holds after the level, those it \
                had banked with the level's own, not the credits the level gave.",

@@ -15,14 +15,15 @@
 //! at its next award as a hero.
 //!
 //! **A level-up** sends the level, the skill repository with a credit more (and from level 45 the
-//! level's hero skill credits, and any untraining under way), the greatest health and vigor each raised by the level's step on
-//! what the player held, "Congratulations! You are now level %1..." (the unspent experience, the
-//! health and vigor gained, the level, the skill credits the player now holds), health and vigor
-//! filled to the greatest the player now has with its skills, perks, vitae and effects (2017 sent
-//! the maxima before the text in 41 of 70 level-ups, after it in 29; the vitals sent were the
-//! player's top until the next change in 28 of 30, above the level's base in 45 of 62 and below it
-//! under vitae or a lowering effect in 10), and to every client that sees the player its level-up
-//! effect and the end of its wounded effect.
+//! level's hero skill credits, and any untraining under way), "Congratulations! You are now level
+//! %1..." (the unspent experience, the health and vigor gained, the level, the skill credits the
+//! player now holds), to every client that sees the player its level-up effect, the greatest health
+//! and vigor each raised by the level's step on what the player held, its health filled to the
+//! greatest the player now has with its skills, perks, vitae and effects, to every client that sees
+//! it the end of its wounded effect, and its vigor filled likewise (2017, by the order sent, in that
+//! order: the level, the repository and the totals before the text in 71 of 71 level-ups, the
+//! maxima after it in 70 of 70; the vitals sent were the player's top until the next change in 28
+//! of 30, above the level's base in 45 of 62 and below it under vitae or a lowering effect in 10).
 
 use auberean_protocol::physics::{Fx, ObjectEvent, Word};
 use auberean_protocol::quality::PrivateQuality;
@@ -486,8 +487,6 @@ pub fn level_up<S: Store>(
             p.untraining.map(|u| (u.skill, u.xp)),
         ),
     );
-    send_int(net, world, quality::HEALTH_MAX, health);
-    send_int(net, world, quality::VIGOR_MAX, vigor);
     let available = quals::long(&p.qualities, q::AVAILABLE_XP).unwrap_or(0);
     say(
         net,
@@ -511,6 +510,26 @@ pub fn level_up<S: Store>(
             ],
         ),
     );
+    // Then its effect, the greatest health and vigor, its health, the end of its wounded look,
+    // its vigor.
+    p.visual = p.visual.wrapping_add(1);
+    let fx = ServerMessage::DoFx(ObjectEvent {
+        sender: ObjectStamp {
+            other_stamp: p.visual,
+            ..p.stamp()
+        },
+        action: Fx {
+            fx: LEVEL_UP_FX,
+            scalar: 1.0,
+        },
+    });
+    let id = p.character;
+    crate::combat::to_all_seeing(s, net, id, &fx);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    send_int(net, world, quality::HEALTH_MAX, health);
+    send_int(net, world, quality::VIGOR_MAX, vigor);
     quals::set_int(&mut p.qualities, quality::HEALTH_MAX, health);
     quals::set_int(&mut p.qualities, quality::VIGOR_MAX, vigor);
     let Some(p) = s.players.get(&world) else {
@@ -524,18 +543,6 @@ pub fn level_up<S: Store>(
     quals::set_int(&mut p.qualities, quality::HEALTH, full_health);
     quals::set_int(&mut p.qualities, quality::VIGOR, full_vigor);
     send_int(net, world, quality::HEALTH, full_health);
-    send_int(net, world, quality::VIGOR, full_vigor);
-    p.visual = p.visual.wrapping_add(1);
-    let fx = ServerMessage::DoFx(ObjectEvent {
-        sender: ObjectStamp {
-            other_stamp: p.visual,
-            ..p.stamp()
-        },
-        action: Fx {
-            fx: LEVEL_UP_FX,
-            scalar: 1.0,
-        },
-    });
     p.visual = p.visual.wrapping_add(1);
     let stop = ServerMessage::StopFx(ObjectEvent {
         sender: ObjectStamp {
@@ -544,9 +551,8 @@ pub fn level_up<S: Store>(
         },
         action: Word(WOUNDED_FX),
     });
-    let id = p.character;
-    crate::combat::to_all_seeing(s, net, id, &fx);
     crate::combat::to_all_seeing(s, net, id, &stop);
+    send_int(net, world, quality::VIGOR, full_vigor);
     // The first level gained shows its tip, after the level's own line (2017: 2 of 2).
     if was <= 1 && now > was {
         crate::popups::moment(s, net, world, yalain_content::popups::Moment::LevelUp);
