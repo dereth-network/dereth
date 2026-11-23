@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 
 ## 0.8.0 (2026-11-23)
+- Your craft skill now tells you its new rating when it rises.
 - Finishing a quest that pays nothing at your level now says so.
 - Attacking a monster's corpse now says so, as in retail.
 - Some creatures now wait until they are badly hurt before they heal, as in retail.

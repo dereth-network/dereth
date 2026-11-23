@@ -619,6 +619,102 @@ fn a_recipe_made_pays_the_experience_of_its_spinner_and_tells_the_pool_then_the_
     );
 }
 
+/// What a craft award told, in the order sent: `Ok(level)` for "Your rating in %1 is now %2." (the
+/// level it names), `Err(0)` for a change of the pool, `Err(1)` for the craft skill's record.
+fn rise_told(h: &Harness, b: usize, from: usize) -> Vec<Result<u32, u32>> {
+    use auberean_script::native_object::VariableValue;
+    use yalain_world::calls::Node;
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+        .collect();
+    sent.sort_by_key(|(n, _)| *n);
+    sent.iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::craft::function::SKILL =>
+            {
+                Some(Err(1))
+            }
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::session::function::SHOW_TEXT =>
+            {
+                let v = c
+                    .args
+                    .as_ref()
+                    .and_then(|a| yalain_world::calls::values(&a.0).ok())
+                    .unwrap_or_default();
+                v.iter().find_map(|x| match x.root() {
+                    Some(Node::TextInfo(t))
+                        if t.string_id == yalain_world::craft::raised_text::TEXT.0 =>
+                    {
+                        let level = t.variables.iter().find_map(|v| match v.value {
+                            VariableValue::Word(n)
+                                if v.id == yalain_world::craft::raised_text::RATING =>
+                            {
+                                Some(n)
+                            }
+                            _ => None,
+                        });
+                        Some(Ok(level.unwrap_or(0)))
+                    }
+                    _ => None,
+                })
+            }
+            ServerMessage::UpdateLongInt(x) if x.quality == 1000 || x.quality == 1001 => {
+                Some(Err(0))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A making that raises its craft skill a level says so, "Your rating in %1 is now %2." naming the
+/// new level, before the pool and the craft skill's record (2017: 110 of 110 rises); one that
+/// raises nothing, or several levels at once, says nothing.
+/// Behaviour: server.craft.a-rise-tells-the-new-rating
+#[test]
+fn a_making_that_raises_its_craft_skill_a_level_tells_the_new_rating_first() {
+    for (available, want) in [
+        (33, vec![Ok(2), Err(0), Err(0), Err(1)]),
+        (0, vec![Err(0), Err(0), Err(1)]),
+        // Five levels at once: nothing said.
+        (200, vec![Err(0), Err(0), Err(1)]),
+    ] {
+        let (mut h, b, _me, world) = in_world();
+        if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
+            r.xp_map = Some(yalain_world::craft::LevelMap {
+                first: 1,
+                values: vec![5, 6, 8, 9, 11],
+            });
+            r.difficulty = 1;
+        }
+        for t in h.server.crafting.templates() {
+            if h.server.catalog.get(t).is_none() {
+                let props = yalain_content::Props::default();
+                h.server
+                    .catalog
+                    .insert(yalain_testkit::test_template(t, 0x200, props));
+            }
+        }
+        if let Some(c) = h
+            .server
+            .players
+            .get_mut(&world)
+            .and_then(|p| p.play.craft_skills.iter_mut().find(|c| c.skill == TOOLS))
+        {
+            // Level 1's step is 40: the making's 7 for the skill makes it so.
+            c.level = 1;
+            c.available = available;
+        }
+        let from = execute_at(&mut h, b, KNIFE_RECIPE, &[], 3);
+        h.run(4);
+        wait(&mut h, 9.0);
+        assert_eq!(rise_told(&h, b, from), want, "{available} held before");
+    }
+}
+
 /// What a making tells of its pay: the pool's changes, and the craft skill's records.
 type Pay = (Vec<(u32, u64)>, Vec<(u32, u64, u64, u32)>);
 

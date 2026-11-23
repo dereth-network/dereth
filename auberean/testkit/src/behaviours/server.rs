@@ -2161,6 +2161,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-rise-tells-the-new-rating",
+        says: "A craft skill that rises a level by what a making or a gathering use earned says so, \
+               \"Your rating in %1 is now %2.\" naming the new level, before the pool and the \
+               skill's record; a rise of several levels at once says nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-RISE-RATING"),
+        station: "yalain-testkit::cpu::play::crafting::a_making_that_raises_its_craft_skill_a_level_tells_the_new_rating_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-start-makes-the-worlds-recipes",
         says: "A start makes the recipes the world's rows define, reads them into the crafting table with what they make and ask for described, keeps their records for clients, and reads the install recipes quest steps teach by name; a row whose id the install holds is not made, and a world without such rows reads none.",
         since: RETAIL,

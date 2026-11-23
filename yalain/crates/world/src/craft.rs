@@ -1301,7 +1301,10 @@ fn tell_pool(net: &mut ServerNet, world: ConnId, p: &crate::world::Player, total
 }
 
 /// A player is awarded craft experience in a craft skill: its pool and the skill's record change,
-/// and the client is told both (nothing when the award is nothing). An award that takes the day's
+/// and the client is told both (nothing when the award is nothing). An award that raises the skill
+/// a level says so first, "Your rating in %1 is now %2." (2017: 110 of 110 such rises, the text
+/// before the pool and the record, naming the new level; a rise of several levels at once said
+/// nothing, 3 of 3). An award that takes the day's
 /// experience past the day's mark at the skill's level says so after the record (2017: 11 of 11
 /// such lines in the update whose award crossed the mark, the next award at that level about three
 /// quarters; no crossing of a second or third mark recorded).
@@ -1325,6 +1328,9 @@ pub fn award<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, sk
     for (k, add) in [(pool::AVAILABLE, pool_gain), (pool::TOTAL, gained)] {
         let v = quals::long(&p.qualities, k).unwrap_or(0) + add;
         quals::set_long(&mut p.qualities, k, v);
+    }
+    if record.level == before.level + 1 {
+        progress::private(net, world, &rating_text(&def, record.level));
     }
     tell_pool(net, world, p, true);
     progress::private(net, world, &skill_call(&record));
@@ -1412,15 +1418,20 @@ pub fn raise<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     quals::set_long(&mut p.qualities, pool::AVAILABLE, pooled - cost);
     tell_pool(net, world, p, false);
     progress::private(net, world, &skill_call(&record));
+    progress::private(net, world, &rating_text(&def, record.level));
+    crate::world::keep_player(s, world);
+}
+
+/// "Your rating in %1 is now %2.", for a craft skill now at a level.
+fn rating_text(def: &CraftSkillDef, level: u32) -> ServerMessage {
     let t = progress::text_with(
         raised_text::TEXT,
         vec![
             progress::nested(raised_text::SKILL, progress::text(def.name)),
-            progress::word(raised_text::RATING, 2, record.level),
+            progress::word(raised_text::RATING, 2, level),
         ],
     );
-    progress::private(net, world, &crate::chat::show_text(progress::TEXT_KIND, t));
-    crate::world::keep_player(s, world);
+    crate::chat::show_text(progress::TEXT_KIND, t)
 }
 
 /// The day's craft experience starts over, if it is time: every craft skill's record earns

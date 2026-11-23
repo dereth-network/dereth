@@ -257,6 +257,87 @@ fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
     );
 }
 
+/// What a craft award told, in the order sent: `Ok(level)` for "Your rating in %1 is now %2." (the
+/// level it names), `Err(0)` for a change of the pool, `Err(1)` for the craft skill's record.
+fn rise_told(h: &Harness, b: usize, from: usize) -> Vec<Result<u32, u32>> {
+    use auberean_script::native_object::VariableValue;
+    use yalain_world::calls::Node;
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+        .collect();
+    sent.sort_by_key(|(n, _)| *n);
+    sent.iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::craft::function::SKILL =>
+            {
+                Some(Err(1))
+            }
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::session::function::SHOW_TEXT =>
+            {
+                let v = c
+                    .args
+                    .as_ref()
+                    .and_then(|a| yalain_world::calls::values(&a.0).ok())
+                    .unwrap_or_default();
+                v.iter().find_map(|x| match x.root() {
+                    Some(Node::TextInfo(t))
+                        if t.string_id == yalain_world::craft::raised_text::TEXT.0 =>
+                    {
+                        let level = t.variables.iter().find_map(|v| match v.value {
+                            VariableValue::Word(n)
+                                if v.id == yalain_world::craft::raised_text::RATING =>
+                            {
+                                Some(n)
+                            }
+                            _ => None,
+                        });
+                        Some(Ok(level.unwrap_or(0)))
+                    }
+                    _ => None,
+                })
+            }
+            ServerMessage::UpdateLongInt(x) if x.quality == 1000 || x.quality == 1001 => {
+                Some(Err(0))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A cut that raises butchery a level says so, "Your rating in %1 is now %2." naming the new level,
+/// before the pool and the skill's record (2017: 110 of 110 rises, 96 of them at gathering uses).
+/// Behaviour: server.craft.a-rise-tells-the-new-rating
+#[test]
+fn a_cut_that_raises_butchery_a_level_tells_the_new_rating_first() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    if let Some(c) = h
+        .server
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.play.craft_skills.iter_mut().find(|c| c.skill == BUTCHERY))
+    {
+        // Level 1's step is 10: the cut's 1 for the skill makes it so.
+        c.level = 1;
+        c.available = 9;
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(knife, corpse, me)]),
+    );
+    h.run(4);
+    let t = h.now.0 + 2.2;
+    while h.now.0 < t {
+        h.step();
+    }
+    assert_eq!(rise_told(&h, b, from), vec![Ok(2), Err(0), Err(0), Err(1)]);
+}
+
 /// How many units a knife cuts: ten above its own yield, whatever the creature: a made one's own
 /// yield, else its template's unmade yield as the world's rows give it (the hunting knife's 6), else
 /// a crude knife's 1, which gives 11, as in a world with no tool rows; an item that is not a knife
