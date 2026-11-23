@@ -437,6 +437,8 @@ pub struct CreatureStats {
     /// Its kind among the generic monsters' tables (minion, protector, conqueror, paragon...),
     /// when it has one.
     pub sub_class: Option<u32>,
+    /// Its AI class (the template's AI superclass), when it has one.
+    pub super_class: Option<u32>,
     /// The share of its health at or below which it heals itself.
     pub warning_level: f32,
     /// The share of its vigor under which it restores its vigor.
@@ -672,6 +674,7 @@ impl CreatureStats {
             weapon_and_shield: p.flag(k::WEAPON_AND_SHIELD),
             wields: p.flag(k::WIELDS),
             sub_class: p.word(k::SUB_CLASS),
+            super_class: p.word(k::SUPER_CLASS),
             warning_level: p
                 .float(k::WARNING_LEVEL)
                 .filter(|w| *w > 0.0)

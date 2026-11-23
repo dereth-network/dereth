@@ -209,6 +209,8 @@ pub enum Item {
     Pet { effect: u32 },
     /// What a summoning skill allows its user, by the skill.
     PetLimit { skill: u32 },
+    /// How often creatures use a special, by its skill.
+    Special { skill: u32 },
     /// A route creatures walk at rest, by its key.
     Route { key: String },
     /// The kind of player conflict a landblock allows, by the landblock.
@@ -394,6 +396,9 @@ impl Item {
             ["pet", effect] => Self::Pet {
                 effect: number(effect)?,
             },
+            ["special", skill] => Self::Special {
+                skill: number(skill)?,
+            },
             ["pet_limit", skill] => Self::PetLimit {
                 skill: number(skill)?,
             },
@@ -573,6 +578,7 @@ impl fmt::Display for Item {
             Self::DeathTreasure { key } => write!(f, "death_treasure {key}"),
             Self::Pet { effect } => write!(f, "pet {effect:#010x}"),
             Self::PetLimit { skill } => write!(f, "pet_limit {skill:#010x}"),
+            Self::Special { skill } => write!(f, "special {skill:#010x}"),
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),

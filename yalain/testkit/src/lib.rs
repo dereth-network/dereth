@@ -2352,6 +2352,8 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         effects: Vec::new(),
         idle_every: std::collections::BTreeMap::new(),
         notice_idle: std::collections::BTreeMap::new(),
+        special_weights: std::collections::BTreeMap::new(),
+        special_terms: std::collections::BTreeMap::new(),
     }
 }
 

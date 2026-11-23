@@ -25,12 +25,11 @@
 //! shot is often missed, and one that has gone out of sight of where the missile was loosed from
 //! (behind a wall, a rock or a closed door) always is: the missile meets what stands between them.
 //!
-//! **Specials.** At each attack, a special within its range and not barred is used instead of a
-//! basic attack by its chance, by how many are at hand: for the generic monsters (a sub class)
-//! 0.081, 0.142 and 0.201 with one, two and three or more, for the rest 0.136 with one, 0.223 with
-//! two and 0.10 for each with more (2017's for the generic monsters' one to three and the rest's
-//! two, the others this server's own: [`SPECIAL_CHANCES`]), the start area's two by their own
-//! measured chances. A use
+//! **Specials.** At each attack, each special within its range, not barred and paid for has its
+//! own chance ([`special_weight`]): the special's weight, its chance at a generic monster's attack,
+//! which a creature with no sub class moves by its AI class's term. None is used with the product of
+//! their misses, else one drawn by weight, so the more at hand the likelier one is (2017: the
+//! generic monsters 0.081 with one at hand, 0.142 with two, 0.201 with three). A use
 //! bars it for 40 s (2017: 1,013 of 1,027 gaps between one creature's uses 38 s or more), so most
 //! fights see it once. A special costs the creature the vigor its skill names, a share of its
 //! greatest vigor less the skill's own add, and one it lacks the vigor for is not at hand (2017:
@@ -87,8 +86,7 @@ use crate::{presence, quals, Clock, Server, Timer};
 
 /// One of creatures' attack skills: the behavior it plays, its kind, whether it throws a missile,
 /// what its hook adds at the creature's rating, how much harder it hits than the plain attack of
-/// its kind (for a skill without a definition), the chance a creature uses it at an attack when it
-/// is a special (0: the general one), whether its hit drains the target too, its greatest range
+/// its kind (for a skill without a definition), whether its hit drains the target too, its greatest range
 /// and whether a use bars it for a while; and its chance of a critical among its landed attacks,
 /// before what the creature's weapon adds (its class's, [`rules::skill_critical`]; for a skill
 /// without a definition, its kind's measured share), and how much more a critical of it does before
@@ -104,7 +102,6 @@ pub struct AttackSkill {
     pub factor: f32,
     pub critical: f64,
     pub critical_size: f32,
-    pub special_chance: f32,
     pub drains: bool,
     pub max_range: f32,
     pub barred_after: bool,
@@ -121,7 +118,6 @@ const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSki
         factor,
         critical: rules::fit(rules::Direction::CreatureOnPlayer, kind).critical,
         critical_size: rules::CRITICAL_BEFORE_ARMOR,
-        special_chance: 0.0,
         drains: false,
         max_range: if matches!(kind, Kind::Melee) {
             2.0
@@ -136,10 +132,7 @@ const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSki
 /// Creatures' attack skills as they are known without their definitions: the behaviors are the
 /// skills' own; the factors are 2017's (`Strong` 1.03 melee and 1.07 missile, `Stronger` 1.11
 /// melee, over `Normal` against the same player), the missile `Stronger` and the harming and
-/// poisoned missiles taken as their melee or `Strong` kin. The specials' chances are 2017's per
-/// attack until used, kept for the skills with their definitions too (the poisoned missile 0.13 of
-/// the wasps' attacks, 14 of 108; the spreading harm 0.34 of the armoredillos', 22 of 65); and the
-/// harming missiles drain.
+/// poisoned missiles taken as their melee or `Strong` kin; and the harming missiles drain.
 pub const CREATURE_ATTACKS: [AttackSkill; 9] = [
     attack(1845, 0x4100_0076, Kind::Melee, 1.0),
     attack(1846, 0x4100_0077, Kind::Melee, 1.03),
@@ -151,50 +144,49 @@ pub const CREATURE_ATTACKS: [AttackSkill; 9] = [
         drains: true,
         ..attack(1860, 0x4100_007B, Kind::Missile, 1.07)
     },
+    attack(1863, 0x4100_007B, Kind::Missile, 1.07),
     AttackSkill {
-        special_chance: 0.13,
-        ..attack(1863, 0x4100_007B, Kind::Missile, 1.07)
-    },
-    AttackSkill {
-        special_chance: 0.34,
         drains: true,
         ..attack(1852, 0x4100_0075, Kind::Missile, 1.07)
     },
 ];
 
-/// The chance a creature uses one of its specials at an attack, by how many are at hand, for a
-/// creature of the generic monsters' tables (one with a sub class: one, two, three or more) and for
-/// any other (one, two). 2017's attacks with specials at hand, pets and the start area's two left
-/// out, by distinct event: the generic monsters' 1,261 of 14,923 with one, 1,155 of 8,154 with two,
-/// 1,593 of 8,035 with three; the others' 849 of 3,601 with two. This server's own where 2017's
-/// differ or tell no rate: a generic monster with four or more keeps three's chance (2017: 69 of
-/// 230, 0.300), another with one keeps 0.136 (2017: 392 of 3,182, 0.123), and another with three or
-/// more takes [`OLDER_SPECIAL_EACH`] (2017: 91 of 127 over 39 creatures of 14 templates, too uneven
-/// to be a rate).
-pub const SPECIAL_CHANCES: [f32; 3] = [0.081, 0.142, 0.201];
-pub const OLDER_SPECIAL_CHANCES: [f32; 2] = [0.136, 0.223];
-/// The chance for each special at hand of a creature not of the generic monsters' tables with three
-/// or more, at most 1: this server's own.
-pub const OLDER_SPECIAL_EACH: f32 = 0.10;
+/// The weight of a special the world gives no `[[special]]` row: the mean of 2017's, fitted with
+/// the rest (each special's chance at a generic monster's attack with it at hand, over 42,444
+/// attacks).
+pub const SHARED_SPECIAL_WEIGHT: f32 = 0.087;
 
-/// The chance a creature uses one of its specials at an attack, with so many at hand: one table
-/// for the generic monsters, flat past three; the other for the rest, and past two
-/// [`OLDER_SPECIAL_EACH`] for each.
+/// The chance a creature uses a special at an attack, with the special at hand: the special's
+/// weight (the world's `[[special]]` row, else [`SHARED_SPECIAL_WEIGHT`]), its chance at a generic
+/// monster's attack, which a creature with no sub class moves by its AI class's term (`[[ai_class]]`
+/// `special_term`, added on the logit scale; none for a class the world gives none).
 #[must_use]
-pub fn special_chance(at_hand: usize, generic: bool) -> f32 {
-    if !generic && at_hand > OLDER_SPECIAL_CHANCES.len() {
-        #[allow(clippy::cast_precision_loss)]
-        return (OLDER_SPECIAL_EACH * at_hand as f32).min(1.0);
-    }
-    let table: &[f32] = if generic {
-        &SPECIAL_CHANCES
+pub fn special_weight<S: Store>(
+    s: &Server<S>,
+    skill: u32,
+    class: Option<u32>,
+    generic: bool,
+) -> f32 {
+    let w = s
+        .creature_rows
+        .special_weights
+        .get(&skill)
+        .copied()
+        .unwrap_or(SHARED_SPECIAL_WEIGHT);
+    let term = if generic {
+        None
     } else {
-        &OLDER_SPECIAL_CHANCES
+        class.and_then(|c| s.creature_rows.special_terms.get(&c).copied())
     };
-    at_hand
-        .checked_sub(1)
-        .map_or(0.0, |i| table[i.min(table.len() - 1)])
+    match term {
+        Some(t) if w > 0.0 && w < 1.0 => {
+            use dereth_primitives::num::math;
+            1.0 / (1.0 + math::expf(-(math::logf(w / (1.0 - w)) + t)))
+        }
+        _ => w,
+    }
 }
+
 /// How long a special's use bars it, in seconds (2017: the least gaps 39.6-40.2 s).
 pub const SPECIAL_BARRED: f64 = 40.0;
 /// The skills below this number are a creature's combat ratings, never used.
@@ -239,7 +231,6 @@ pub fn attack_skill(
         factor: 1.0,
         critical: d.critical_threshold.map_or(0.0, rules::skill_critical),
         critical_size: d.critical_modifier.unwrap_or(rules::CRITICAL_BEFORE_ARMOR),
-        special_chance: known.map_or(0.0, |k| k.special_chance),
         drains: known.is_some_and(|k| k.drains),
         max_range: u.max_range,
         barred_after: u.barred_after,
@@ -365,9 +356,9 @@ pub fn attacks_of(
     (basic, special)
 }
 
-/// The special a creature uses at this attack, if any: of its specials within reach of the target
-/// and not barred, one by its own measured chance, else by the chance for so many at hand
-/// ([`special_chance`]), drawn among them. Its use is recorded (it is barred for 40 s after).
+/// The special a creature uses at this attack, if any: of its specials within reach of the target,
+/// not barred and paid for, none with the product of their misses ([`special_weight`]), else one
+/// drawn by weight. Its use is recorded (it is barred for 40 s after) and paid for.
 pub fn pick_special<S: Store>(
     s: &mut Server<S>,
     id: u64,
@@ -375,11 +366,17 @@ pub fn pick_special<S: Store>(
     distance: f32,
     now: f64,
 ) -> Option<AttackSkill> {
-    let (barred, generic) = s
+    let (barred, generic, class) = s
         .things
         .get(id)
         .and_then(|t| t.creature.as_ref())
-        .map(|c| (c.barred.clone(), c.stats.sub_class.is_some()))
+        .map(|c| {
+            (
+                c.barred.clone(),
+                c.stats.sub_class.is_some(),
+                c.stats.super_class,
+            )
+        })
         .unwrap_or_default();
     let vigor = s.things.get(id).map_or(0, |t| t.vigor);
     let at_hand: Vec<AttackSkill> = specials
@@ -396,17 +393,15 @@ pub fn pick_special<S: Store>(
     if at_hand.is_empty() {
         return None;
     }
-    let own: Vec<AttackSkill> = at_hand
+    let weights: Vec<f32> = at_hand
         .iter()
-        .copied()
-        .filter(|a| a.special_chance > 0.0)
+        .map(|a| special_weight(s, a.skill, class, generic))
         .collect();
-    let pick = if own.is_empty() {
-        let p = special_chance(at_hand.len(), generic);
-        s.rng.chance(p).then(|| at_hand[s.rng.below(at_hand.len())])
-    } else {
-        own.iter().copied().find(|a| s.rng.chance(a.special_chance))
-    }?;
+    let none: f32 = weights.iter().map(|w| 1.0 - w).product();
+    if !s.rng.chance(1.0 - none) {
+        return None;
+    }
+    let pick = at_hand[s.rng.weighted(weights.iter().copied())?];
     let cost = special_cost(s, id, pick.skill);
     if let Some(t) = s.things.get_mut(id) {
         t.vigor = (t.vigor - cost).max(0);
@@ -935,10 +930,10 @@ pub const RESTORE_CHANCE: f32 = 0.5;
 /// more), at its first turn of a fight and at a later one; one draw for the turn, the buff drawn
 /// evenly from those free (2017, every action a turn, a fight's first after 20 s without one, the
 /// wounded turns its heal takes left out, by distinct event: at the first turn 270 of 1,715 with
-/// one free, 292 of 1,103 with two or more; later 1,234 of 13,783 with one, 0.090 against the 0.084
-/// kept here, and 620 of 3,863 with two or more).
+/// one free, 292 of 1,103 with two or more; later 1,234 of 13,783 with one, 0.090, and 620 of 3,863
+/// with two or more).
 pub const BUFF_FIRST_CHANCE: [f32; 2] = [0.155, 0.249];
-pub const BUFF_CHANCE: [f32; 2] = [0.084, 0.157];
+pub const BUFF_CHANCE: [f32; 2] = [0.090, 0.157];
 
 /// The chance a creature buffs itself at a turn with so many of its buffs free.
 #[must_use]

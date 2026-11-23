@@ -60,7 +60,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[item_life]], [[interaction]]
 <pack>/server/examinations.toml    [[examination]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]], [[wanting]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[ai_class]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[ai_class]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]], [[special]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -180,7 +180,7 @@ Every row has `prov`; a field whose source differs from its row's says so in `pr
 
 | `from` | means | required | optional |
 |---|---|---|---|
-| `capture` | measured from recordings of the live servers | `evidence` (an evidence handle), `ref` (opaque), `confidence` (`high`, `medium`, `low`) | `sample`: `sessions`, `creatures`, `corpses`, `views`, `trips`, `lines`, `visits` |
+| `capture` | measured from recordings of the live servers | `evidence` (an evidence handle), `ref` (opaque), `confidence` (`high`, `medium`, `low`) | `sample`: `sessions`, `creatures`, `corpses`, `views`, `trips`, `lines`, `visits`, `turns` |
 | `dat` | a record of the install | `record` | |
 | `derived` | computed by a rule the database lists | `rule` | `record` |
 | `authored` | written by a person | | `by`, `note` |
@@ -1103,15 +1103,30 @@ has the server's own of that kind.
 
 #### `[[ai_class]]`
 
-What the world says of the creatures of an AI class. A row gives at least one of `idle_every`
-and `notice_idle`. A class with no `idle_every` idles every 450 s on average, and one with no
-`notice_idle` never plays an idle as it notices a player.
+What the world says of the creatures of an AI class. A row gives at least one of `idle_every`,
+`notice_idle` and `special_term`. A class with no `idle_every` idles every 450 s on average, one with
+no `notice_idle` never plays an idle as it notices a player, and one with no `special_term` uses its
+specials as the generic monsters do.
 
 | field | | meaning |
 |---|---|---|
 | `class` | required | its number, their `AI_AISuperClass` |
 | `idle_every` | | the mean gap in seconds (above 0) between the idle behaviors one plays at rest, the gaps falling as chance spaces them |
 | `notice_idle` | | the chance, from 0 to 1, that one plays an idle as it notices a player; it goes after the player once the idle is through |
+| `special_term` | | for one with no sub class (`AI_AISubClass`), how much likelier than a generic monster it is to use a special: a number from -20 to 20 added to each special's weight (`[[special]]`) on the logit scale |
+| `prov` | required | where it came from |
+
+#### `[[special]]`
+
+How often creatures use a special as they attack, by its skill. At each attack every special a
+creature has at hand (in range, off its bar and paid for in vigor) has its chance; none is used
+with the product of their misses, else one is drawn by chance. A skill with no row has the weight
+0.087.
+
+| field | | meaning |
+|---|---|---|
+| `skill` | required | the skill's number |
+| `weight` | required | the chance, from 0 to 1, that a generic monster (one with an `AI_AISubClass`) uses it at an attack with it at hand; a creature of another class moves it by its class's `special_term` |
 | `prov` | required | where it came from |
 
 #### `[[safe_passage]]`

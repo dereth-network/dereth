@@ -7756,6 +7756,66 @@ fn a_creatures_row_reads_how_long_its_creatures_hold_their_kingdom() {
     }
 }
 
+/// A special's row gives its weight, a chance from 0 to 1, by its skill; an AI class's row may give
+/// its creatures' term on the logit scale, alone or beside its other fields, from -20 to 20.
+/// Measured, either's sample may count the turns it was measured over.
+/// Behaviour: server.creatures.specials-by-skill-weight-and-class-term
+#[test]
+fn a_specials_row_reads_its_weight_and_an_ai_class_row_its_term_and_bad_ones_are_refused() {
+    const ROWS: &str = "[[special]]\nskill = 1826\nweight = 0.08\nprov = { from = \"authored\" }\n\n\
+                        [[ai_class]]\nclass = 0x06\nspecial_term = -0.94\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.creatures
+            .special_weights
+            .iter()
+            .map(|(k, w)| (*k, *w))
+            .collect::<Vec<_>>(),
+        [(1826, 0.08)]
+    );
+    assert_eq!(
+        t.creatures
+            .special_terms
+            .iter()
+            .map(|(c, x)| (*c, *x))
+            .collect::<Vec<_>>(),
+        [(6, -0.94)]
+    );
+    assert!(t.creatures.idle_every.is_empty() && t.creatures.notice_idle.is_empty());
+    let measured = ROWS.replacen(
+        "prov = { from = \"authored\" }",
+        "prov = { from = \"capture\", evidence = \"x\", ref = \"skill 1826\", \
+         confidence = \"medium\", sample = { turns = 8589, sessions = 22 } }",
+        1,
+    );
+    files.insert("town/server/creatures.toml".into(), measured);
+    // A stand-in handle the check refuses as such; its sample's counts are what this asks after.
+    let problems = check(&files);
+    assert!(
+        problems.iter().all(|p| !p.message.contains("sample")),
+        "{problems:?}"
+    );
+    for (from, no) in [
+        ("weight = 0.08", "weight = 1.5"),
+        ("weight = 0.08", "weight = -0.1"),
+        ("weight = 0.08", "weight = nan"),
+        ("weight = 0.08", "weight = \"often\""),
+        ("special_term = -0.94", "special_term = 25.0"),
+        ("special_term = -0.94", "special_term = nan"),
+        ("special_term = -0.94", "special_term = [0.1]"),
+        ("special_term = -0.94", "specials = [0.029, 0.393, 0.3]"),
+    ] {
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROWS.replacen(from, no, 1),
+        );
+        assert!(read(&files).is_err(), "{no:?}");
+    }
+}
+
 /// An AI class's row may give its creatures' chance of an idle as they notice a player instead of,
 /// or beside, their idle gap; a chance not from 0 to 1 is refused.
 #[test]

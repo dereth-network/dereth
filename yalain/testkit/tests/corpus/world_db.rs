@@ -6363,6 +6363,8 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     rows.no_victory.clear();
     rows.idle_every.clear();
     rows.notice_idle.clear();
+    rows.special_weights.clear();
+    rows.special_terms.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =

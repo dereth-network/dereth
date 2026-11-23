@@ -3698,19 +3698,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.creatures.buffs-itself-by-its-turn",
         says: "A creature buffs itself at a turn by one chance for how many of its buffs are free: \
-               with one, 0.155 at its first turn of a fight; with two or more, 0.249 at its first \
-               turn and 0.157 at a later one, the buff drawn evenly from those free.",
+               with one, 0.155 at its first turn of a fight and 0.090 at a later one; with two or \
+               more, 0.249 at its first turn and 0.157 at a later one, the buff drawn evenly from \
+               those free.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SELF-BUFF-RATE"),
-        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.creatures.buffs-itself-later-with-one-free-ours",
-        says: "A creature with one buff free buffs itself at a later turn of a fight 0.084 of the time: \
-               this server's fit, against 2017's 0.090 (0.085 to 0.094) by distinct event.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SELF-BUFF-LATER-ONE"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free",
         tier: Tier::Cpu,
     },
@@ -4404,17 +4396,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.creatures.specials-at-hand-where-ours",
-        says: "Where 2017's attacks differ or tell no rate, a creature's chance of a special by how \
-               many are at hand is this server's own: a generic monster with four or more keeps \
-               three's 0.201, any other with one 0.136, and any other with three or more 0.10 for \
-               each at hand, at most 1.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-SPECIALS-AT-HAND-OURS"),
-        station: "yalain-testkit::cpu::play::creature_tactics::an_older_creature_with_three_or_more_specials_at_hand_uses_one_a_tenth_for_each",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "server.creatures.specials-barred-forty-seconds",
         says: "A creature's special is told without the basic-attack flag, and once used it \
                waits 40 seconds before the creature uses it again.",
@@ -4425,11 +4406,28 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.specials-by-how-many-at-hand",
-        says: "A creature uses one of its specials at an attack by how many are at hand: a generic \
-               monster 0.081 with one, 0.142 with two and 0.201 with three, any other 0.223 with two.",
+        says: "A creature uses a special at an attack more often the more it has at hand (2017: a generic \
+               monster 0.081 with one, 0.142 with two, 0.201 with three): each at hand has its \
+               chance, none is used with the product of their misses, and one is drawn by weight.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIALS-AT-HAND"),
-        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_uses_a_special_by_how_many_it_has_at_hand",
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_uses_a_special_more_often_the_more_it_has_at_hand_drawn_by_weight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.specials-by-skill-weight-and-class-term",
+        says: "A special's chance at an attack is its weight from the world, its chance at a generic \
+               monster's attack (0.087 for a skill the world gives none), and a creature with no sub \
+               class moves it by its AI class's term on the logit scale, relative to the generic \
+               monsters: this server's fit of 2017's 42,444 attacks with specials at hand, by skill \
+               and class. Left unfit though 2017's differ: generic monsters of sub class 8 with three \
+               at hand 0.198 against 0.180, of sub class 10 with one on the edge of 2017's spread; \
+               the class whose one kind of creature never used its two specials in 312 attacks, \
+               which its class's other creatures use; the beacons' class, 0.924 with two, whose \
+               vigor pays for half at most.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIALS-BY-CLASS"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_specials_chance_is_its_weight_moved_by_an_older_creatures_class_term",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -786,102 +786,86 @@ fn a_generic_monster_favors_its_plain_attack_four_to_two_to_one() {
     }
 }
 
-/// A creature uses one of its specials at an attack by how many are at hand: a generic monster
-/// 0.081 with one, 0.142 with two and 0.201 with three, any other 0.223 with two (and, by this
-/// server's own numbers, a generic monster 0.201 with more, any other 0.136 with one); drawn among
-/// those at hand.
+/// A creature uses a special at an attack more often the more it has at hand: each at hand has its
+/// chance, none is used with the product of their misses (three of weight 0.08: 0.08 with one,
+/// 0.154 with two, 0.221 with three), and one is drawn by weight (0.05 against 0.15, one in four).
 /// Behaviour: server.creatures.specials-by-how-many-at-hand
-/// Behaviour: server.creatures.specials-at-hand-where-ours
 #[test]
-fn a_creature_uses_a_special_by_how_many_it_has_at_hand() {
-    assert_eq!(
-        (1..=5)
-            .map(|n| missiles::special_chance(n, true))
-            .collect::<Vec<_>>(),
-        [0.081, 0.142, 0.201, 0.201, 0.201]
-    );
-    assert_eq!(
-        (1..=2)
-            .map(|n| missiles::special_chance(n, false))
-            .collect::<Vec<_>>(),
-        [0.136, 0.223]
-    );
-    assert_eq!(missiles::special_chance(0, true), 0.0);
+fn a_creature_uses_a_special_more_often_the_more_it_has_at_hand_drawn_by_weight() {
     // Specials of the start area's kind that never bar, so every draw has them all at hand.
     let special = |skill: u32| AttackSkill {
         skill,
-        special_chance: 0.0,
         barred_after: false,
         max_range: 40.0,
         ..CREATURE_ATTACKS[3]
     };
     let three = [special(901), special(902), special(903)];
     let (mut h, _, _, id) = noticed(&[], [61.0, 240.2, -44.6]);
-    let share = |h: &mut Harness, generic: bool, n: usize| -> f32 {
-        if let Some(c) = h
-            .server
-            .things
-            .get_mut(id)
-            .and_then(|t| t.creature.as_mut())
-        {
-            c.stats.sub_class = generic.then_some(7);
-        }
-        let now = h.now.0;
-        let used = (0..20_000)
-            .filter(|_| missiles::pick_special(&mut h.server, id, &three[..n], 5.0, now).is_some())
-            .count();
-        used as f32 / 20_000.0
-    };
-    for (generic, n, want) in [
-        (true, 1, 0.081),
-        (true, 2, 0.142),
-        (true, 3, 0.201),
-        (false, 1, 0.136),
-        (false, 2, 0.223),
-    ] {
-        let got = share(&mut h, generic, n);
-        assert!(
-            (got - want).abs() < 0.012,
-            "generic {generic}, {n} at hand: {got}"
-        );
+    for k in [901, 902, 903] {
+        h.server.creature_rows.special_weights.insert(k, 0.08);
     }
-}
-
-/// A creature not of the generic monsters' tables with three or more specials at hand uses one at
-/// an attack 0.10 for each, at most 1 (this server's own); drawn among those at hand.
-/// Behaviour: server.creatures.specials-at-hand-where-ours
-#[test]
-fn an_older_creature_with_three_or_more_specials_at_hand_uses_one_a_tenth_for_each() {
-    assert_eq!(
-        [3, 4, 10, 12].map(|n| missiles::special_chance(n, false)),
-        [0.3, 0.4, 1.0, 1.0]
-    );
-    let special = |skill: u32| AttackSkill {
-        skill,
-        special_chance: 0.0,
-        barred_after: false,
-        max_range: 40.0,
-        ..CREATURE_ATTACKS[3]
-    };
-    let four = [special(901), special(902), special(903), special(904)];
-    let (mut h, _, _, id) = noticed(&[], [61.0, 240.2, -44.6]);
     if let Some(c) = h
         .server
         .things
         .get_mut(id)
         .and_then(|t| t.creature.as_mut())
     {
-        c.stats.sub_class = None;
+        c.stats.sub_class = Some(7);
     }
-    for (n, want) in [(3, 0.3), (4, 0.4)] {
-        let now = h.now.0;
-        let used = (0..20_000)
-            .filter(|_| missiles::pick_special(&mut h.server, id, &four[..n], 5.0, now).is_some())
+    let now = h.now.0;
+    for (n, want) in [(1, 0.08), (2, 0.1536), (3, 0.2213)] {
+        let used = (0..40_000)
+            .filter(|_| missiles::pick_special(&mut h.server, id, &three[..n], 5.0, now).is_some())
             .count();
         #[allow(clippy::cast_precision_loss)]
-        let got = used as f32 / 20_000.0;
-        assert!((got - want).abs() < 0.015, "{n} at hand: {got}");
+        let got = used as f32 / 40_000.0;
+        assert!((got - want).abs() < 0.008, "{n} at hand: {got}");
     }
+    h.server.creature_rows.special_weights.insert(901, 0.05);
+    h.server.creature_rows.special_weights.insert(902, 0.15);
+    let picks: Vec<u32> = (0..40_000)
+        .filter_map(|_| missiles::pick_special(&mut h.server, id, &three[..2], 5.0, now))
+        .map(|a| a.skill)
+        .collect();
+    #[allow(clippy::cast_precision_loss)]
+    let light = picks.iter().filter(|k| **k == 901).count() as f32 / picks.len() as f32;
+    assert!((light - 0.25).abs() < 0.03, "drawn by weight: {light}");
+}
+
+/// A special's chance is its weight from the world (its chance at a generic monster's attack), else
+/// the shared 0.087; a creature with no sub class moves it by its AI class's term on the logit
+/// scale (0.08 by -0.94 is 0.033); a generic monster of the same superclass, and a creature of a
+/// class the world gives no term, keep the weight.
+/// Behaviour: server.creatures.specials-by-skill-weight-and-class-term
+#[test]
+fn a_specials_chance_is_its_weight_moved_by_an_older_creatures_class_term() {
+    let mut h = Harness::new();
+    h.server.creature_rows.special_weights.insert(1826, 0.08);
+    h.server.creature_rows.special_terms.insert(0x06, -0.94);
+    let w = |h: &Harness, skill: u32, class: u32, generic: bool| {
+        missiles::special_weight(&h.server, skill, Some(class), generic)
+    };
+    let near = |got: f32, want: f32| (got - want).abs() < 0.0005;
+    assert!(
+        near(w(&h, 1826, 0x09, false), 0.08),
+        "no term for its class"
+    );
+    assert!(
+        near(w(&h, 1826, 0x06, true), 0.08),
+        "a generic monster keeps it"
+    );
+    let older = w(&h, 1826, 0x06, false);
+    assert!(near(older, 0.0329), "moved by its class's term: {older}");
+    assert!(
+        near(w(&h, 1835, 0x09, false), missiles::SHARED_SPECIAL_WEIGHT)
+            && near(missiles::SHARED_SPECIAL_WEIGHT, 0.087),
+        "no row: the shared weight"
+    );
+    let shared = w(&h, 1835, 0x06, false);
+    assert!(
+        near(shared, 0.0360),
+        "the shared weight moved too: {shared}"
+    );
 }
 
 /// A damage debuff on a creature takes from each of its hits (Blood Loather at a rating of 50
@@ -1702,11 +1686,9 @@ fn self_turns(
 }
 
 /// A creature at full health buffs itself at a turn by one chance for how many of its buffs are
-/// free: with one, 0.155 at its first turn of a fight and 0.084 at a later one (this server's fit:
-/// 2017's 0.090); with two, 0.249 and 0.157, the buff drawn evenly; with two and one barred, as
-/// with one.
+/// free: with one, 0.155 at its first turn of a fight and 0.090 at a later one; with two, 0.249 and
+/// 0.157, the buff drawn evenly; with two and one barred, as with one.
 /// Behaviour: server.creatures.buffs-itself-by-its-turn
-/// Behaviour: server.creatures.buffs-itself-later-with-one-free-ours
 #[test]
 fn a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free() {
     let one_buff = [
@@ -1720,10 +1702,11 @@ fn a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free() {
         ("NPC_StartingSkill2Level", Prop::Int(20)),
     ];
     let (mut h, _, _, one, _) = pair(&one_buff);
-    for (first, want) in [(true, 0.155), (false, 0.084)] {
-        let (got, _) = self_turns(&mut h, one, &[], first, 20_000);
+    // Enough turns to tell 2017's 0.090 at a later one from a few thousandths off.
+    for (first, want, turns, near) in [(true, 0.155, 20_000, 0.01), (false, 0.090, 80_000, 0.003)] {
+        let (got, _) = self_turns(&mut h, one, &[], first, turns);
         assert!(
-            (got - want).abs() < 0.01,
+            (got - want).abs() < near,
             "one buff, first turn {first}: {got}"
         );
     }
@@ -1740,7 +1723,7 @@ fn a_creature_buffs_itself_by_one_chance_for_how_many_of_its_buffs_are_free() {
         assert!((half - 0.5).abs() < 0.04, "drawn evenly: {each:?}");
     }
     let (got, each) = self_turns(&mut h, one, &[CREATURE_ABSORB], false, 20_000);
-    assert!((got - 0.084).abs() < 0.01, "one of two barred: {got}");
+    assert!((got - 0.090).abs() < 0.01, "one of two barred: {got}");
     assert!(!each.contains_key(&CREATURE_ABSORB), "not the barred one");
 }
 
@@ -1770,7 +1753,7 @@ fn a_creature_short_of_vigor_restores_it_about_one_time_in_two() {
         vigor(&mut h, one, at, 1000);
         let (got, each) = self_turns(&mut h, one, &[], false, 20_000);
         assert!(
-            (got - 0.084).abs() < 0.01,
+            (got - 0.090).abs() < 0.01,
             "{at} of 1000: as the buff alone: {got}"
         );
         assert!(
@@ -1825,7 +1808,6 @@ fn a_creatures_special_costs_its_vigor_and_one_it_cannot_pay_for_is_not_used() {
     assert_eq!(missiles::special_cost(&h.server, id, COSTLY), 380);
     let special = [AttackSkill {
         skill: COSTLY,
-        special_chance: 0.0,
         barred_after: false,
         max_range: 40.0,
         ..CREATURE_ATTACKS[3]

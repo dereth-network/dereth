@@ -1765,6 +1765,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(chance) = r.notice_idle {
                     t.creatures.notice_idle.insert(r.class, chance as f32);
                 }
+                #[allow(clippy::cast_possible_truncation)]
+                if let Some(term) = r.special_term {
+                    t.creatures.special_terms.insert(r.class, term as f32);
+                }
             }
             Row::Defense(r) => {
                 let d = &r.defense;
@@ -2108,6 +2112,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         ),
                     );
                 }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            Row::Special(r) => {
+                t.creatures.special_weights.insert(r.skill, r.weight as f32);
             }
             Row::PetLimit(r) => {
                 let limits = r.limits.iter().map(|(most, c)| (*most as usize, *c));

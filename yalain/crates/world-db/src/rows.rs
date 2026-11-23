@@ -754,6 +754,7 @@ pub enum Row {
     DeathTreasure(DeathTreasure),
     Pet(Pet),
     PetLimit(PetLimit),
+    Special(SpecialRow),
     Route(Route),
     Area(Area),
     Clearing(Clearing),
@@ -866,13 +867,16 @@ pub struct Creature {
 }
 
 /// `[[ai_class]]`: what the world says of the creatures of an AI class (their template's AI
-/// superclass): the mean gap between their idle behaviors at rest, in seconds above 0, and the
-/// chance, from 0 to 1, that one plays an idle as it notices a player. A row gives at least one.
+/// superclass): the mean gap between their idle behaviors at rest, in seconds above 0; the
+/// chance, from 0 to 1, that one plays an idle as it notices a player; and, for those of the class
+/// with no sub class, how much likelier than a generic monster one is to use a special (a term
+/// added to each special's weight on the logit scale, from -20 to 20). A row gives at least one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiClass {
     pub class: u32,
     pub idle_every: Option<f64>,
     pub notice_idle: Option<f64>,
+    pub special_term: Option<f64>,
     pub prov: Prov,
 }
 
@@ -1322,6 +1326,16 @@ pub struct PetLimit {
     pub prov: Prov,
 }
 
+/// `[[special]]`: how often creatures use a special at an attack, by its skill: its weight, from 0
+/// to 1, the chance it is used at a generic monster's attack with it at hand (a creature's AI class
+/// moves it by its `[[ai_class]]` `special_term`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpecialRow {
+    pub skill: u32,
+    pub weight: f64,
+    pub prov: Prov,
+}
+
 /// `[[weapon]]`: the template of the weapon a creature's template names, where the name is no
 /// template of the install's own.
 #[derive(Debug, Clone, PartialEq)]
@@ -1649,6 +1663,7 @@ impl Row {
             Self::DeathTreasure(_) => "death_treasure",
             Self::Pet(_) => "pet",
             Self::PetLimit(_) => "pet_limit",
+            Self::Special(_) => "special",
             Self::Route(_) => "route",
             Self::Area(_) => "area",
             Self::Clearing(_) => "clearing",
@@ -1734,6 +1749,7 @@ impl Row {
             Self::DeathTreasure(r) => Some(&r.prov),
             Self::Pet(r) => Some(&r.prov),
             Self::PetLimit(r) => Some(&r.prov),
+            Self::Special(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
             Self::Clearing(r) => Some(&r.prov),
@@ -1823,6 +1839,7 @@ pub const KINDS: &[&str] = &[
     "death_spawn",
     "pet",
     "pet_limit",
+    "special",
     "death_treasure",
     "treasure_pool",
     "effect_name",
@@ -2218,6 +2235,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("pet_limit", &["skill", "limits", "prov"]),
+    ("special", &["skill", "weight", "prov"]),
     (
         "death_treasure",
         &[
@@ -2489,7 +2507,10 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "prov",
         ],
     ),
-    ("ai_class", &["class", "idle_every", "notice_idle", "prov"]),
+    (
+        "ai_class",
+        &["class", "idle_every", "notice_idle", "special_term", "prov"],
+    ),
     (
         "safe_passage",
         &["key", "camp", "template", "item", "effect", "prov"],
@@ -4553,10 +4574,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 }
                 None => None,
             };
-            if idle_every.is_none() && notice_idle.is_none() {
+            let special_term = match f.get("special_term") {
+                Some(_) => {
+                    let term = f.req_float("special_term")?;
+                    let ok = term.is_finite() && (-20.0..=20.0).contains(&term);
+                    Some(f.held("special_term", term, ok, "a logit from -20 to 20")?)
+                }
+                None => None,
+            };
+            if idle_every.is_none() && notice_idle.is_none() && special_term.is_none() {
                 f.bad(
-                    "idle_every, notice_idle",
-                    "an AI class's row gives idle_every or notice_idle",
+                    "idle_every, notice_idle, special_term",
+                    "an AI class's row gives idle_every, notice_idle or special_term",
                 );
                 return None;
             }
@@ -4564,6 +4593,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 class,
                 idle_every,
                 notice_idle,
+                special_term,
                 prov: f.req_prov()?,
             })
         }
@@ -5417,6 +5447,17 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kind,
                 order,
                 states,
+                prov: f.req_prov()?,
+            })
+        }
+        "special" => {
+            let skill = f.req_id("skill")?;
+            let weight = f.req_float("weight")?;
+            let ok = (0.0..=1.0).contains(&weight);
+            let weight = f.held("weight", weight, ok, "a chance from 0 to 1")?;
+            Row::Special(SpecialRow {
+                skill,
+                weight,
                 prov: f.req_prov()?,
             })
         }

@@ -16,7 +16,7 @@ pub const FROM: [&str; 4] = ["capture", "dat", "derived", "authored"];
 pub const CONFIDENCE: [&str; 3] = ["high", "medium", "low"];
 
 /// The counts a measured row's sample may give.
-pub const SAMPLES: [&str; 7] = [
+pub const SAMPLES: [&str; 8] = [
     "sessions",
     "creatures",
     "corpses",
@@ -24,6 +24,7 @@ pub const SAMPLES: [&str; 7] = [
     "trips",
     "lines",
     "visits",
+    "turns",
 ];
 
 /// The rules a derived row or field may name; each is stated in the database's format

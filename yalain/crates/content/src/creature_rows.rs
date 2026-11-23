@@ -152,6 +152,12 @@ pub struct CreatureRows {
     /// The mean gap between the idle behaviors at rest of the creatures of an AI class (their
     /// template's AI superclass), in seconds, by the class.
     pub idle_every: BTreeMap<u32, f32>,
+    /// The weight of each special, by its skill: the chance it is used at a generic monster's attack
+    /// with it at hand.
+    pub special_weights: BTreeMap<u32, f32>,
+    /// How much an AI class's creatures with no sub class move their specials' weights, by the
+    /// class: a term on the logit scale.
+    pub special_terms: BTreeMap<u32, f32>,
     /// The chance that a creature of an AI class plays an idle behavior as it notices a player, by
     /// the class: it goes after the player once the idle is through.
     pub notice_idle: BTreeMap<u32, f32>,
