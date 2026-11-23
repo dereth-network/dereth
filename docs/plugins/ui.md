@@ -135,7 +135,7 @@ shows or moves the game's panels by name: `retail_ui.hide("radar")`,
 `retail_ui.show(p)`, `retail_ui.move("chat", x, y)` (screen pixels, the panel's top left),
 `retail_ui.set(p, { hidden, x, y })`, and `retail_ui.reset(p)` gives the panel back as the player
 had it. The panels are `chat`, `vitals`, `side_vitals`, `toolbar`, `radar`, `panels`,
-`environment`, `combat`, `power_bar` and `examination`. The last plugin to set a panel has it; a
+`environment`, `combat`, `power_bar`, `examination`, `fellowship`, `experience` and `target`. The last plugin to set a panel has it; a
 plugin's panels are given back when it unloads.
 
 Each interface of the desktop and browser clients applies them to what it has that does what the
@@ -153,6 +153,9 @@ panel does, and what it cannot do it leaves alone (the call still succeeds):
 | `combat` | the combat panel | the combat and spell bars | the stance gauge |
 | `power_bar` | the power bar | none (part of the combat bar) | none (part of the stance gauge) |
 | `examination` | the examination panel | the examination page | the examine window |
+| `fellowship` | none | none | the party list |
+| `experience` | none | none | the EXP bar |
+| `target` | none | none | the target bar |
 
 Under Horizon a panel is hidden or moved as an overlay: the player's own layout and window places
 are kept, and come back when the plugin lets go. `show` under the classic interface and Horizon is

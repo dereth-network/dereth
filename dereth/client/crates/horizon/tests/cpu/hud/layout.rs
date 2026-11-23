@@ -465,3 +465,76 @@ fn unlocked_a_plugins_hud_is_moved_by_a_drag_and_kept_at_once() {
     );
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }
+
+/// The HUD Layout window's Hide or Show button for the element selected: at the right of its
+/// title line.
+fn hide_button(h: &Harness) -> (f32, f32) {
+    let (x, y) = h.ui.windows.state(WindowId::Layout).pos.expect("placed");
+    let win = dereth_horizon::draw::Rect::new(x, y, 380.0, 120.0);
+    let b = h
+        .input
+        .nav
+        .last
+        .targets
+        .iter()
+        .map(|t| t.rect)
+        .filter(|r| win.contains(r.x, r.y) && (r.w - 80.0).abs() < 1.0 && (r.h - 26.0).abs() < 1.0)
+        .min_by(|a, b| a.y.total_cmp(&b.y))
+        .expect("the Hide button");
+    (b.x + b.w / 2.0, b.y + b.h / 2.0)
+}
+
+fn minimap_drawn(h: &Harness) -> bool {
+    h.ui.hud.layout.outlines.iter().any(|(n, _)| n == "minimap")
+}
+
+/// An element hidden in HUD Layout is still drawn while the window is open, to be shown again;
+/// Save keeps it hidden, its line in the file ending `hidden`; closed, it is not drawn; read back,
+/// it is still hidden; shown again, it is drawn. A file written before elements could be hidden
+/// reads as every element shown.
+#[test]
+fn an_element_hidden_in_hud_layout_is_kept_hidden_and_shown_again() {
+    let state = in_world();
+    let file = layout_file("hide");
+    let mut h = in_world_with(&file, HorizonOptions::default(), &state);
+    open_layout(&mut h, &state);
+    let c = minimap_middle(&h);
+    click_at(&mut h, &state, c);
+    let hide = hide_button(&h);
+    click_at(&mut h, &state, hide);
+    assert!(h.ui.hud.layout.is_hidden("minimap"));
+    assert!(minimap_drawn(&h), "drawn while the editor is open");
+    assert!(
+        h.ui.hud.layout_unsaved(),
+        "a hidden element is a change to save"
+    );
+    let b = button(&h, 0);
+    click_at(&mut h, &state, b);
+    let kept = std::fs::read_to_string(&file).expect("Save keeps the layout");
+    assert_eq!(kept, "minimap 0.0 0.0 1.00 hidden\n");
+    let b = button(&h, 2);
+    click_at(&mut h, &state, b);
+    assert!(!h.ui.windows.is_open(WindowId::Layout));
+    assert!(!minimap_drawn(&h), "hidden once the editor is closed");
+    // Read back, it is still hidden.
+    let mut h = in_world_with(&file, HorizonOptions::default(), &state);
+    assert!(!minimap_drawn(&h), "still hidden from the file");
+    // Shown again from the editor.
+    open_layout(&mut h, &state);
+    let c = minimap_middle(&h);
+    click_at(&mut h, &state, c);
+    let show = hide_button(&h);
+    click_at(&mut h, &state, show);
+    let b = button(&h, 0);
+    click_at(&mut h, &state, b);
+    let b = button(&h, 2);
+    click_at(&mut h, &state, b);
+    assert!(minimap_drawn(&h), "shown again");
+    assert_eq!(std::fs::read_to_string(&file).expect("kept"), "");
+    // A file of four fields a line reads as before: every element shown.
+    std::fs::write(&file, "minimap -40.0 30.0 1.00\n").expect("written");
+    let h = in_world_with(&file, HorizonOptions::default(), &state);
+    assert!(minimap_drawn(&h));
+    assert!(h.ui.hud.layout.hidden.is_empty());
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}

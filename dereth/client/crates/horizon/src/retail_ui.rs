@@ -28,6 +28,9 @@ pub fn counterpart(name: &str) -> Option<Counterpart> {
         "toolbar" => Counterpart::Hud("hotbars"),
         "radar" => Counterpart::Hud("minimap"),
         "combat" => Counterpart::Hud("stance"),
+        "fellowship" => Counterpart::Hud("party"),
+        "experience" => Counterpart::Hud("exp"),
+        "target" => Counterpart::Hud("target"),
         "panels" => Counterpart::Windows(&[
             WindowId::Character,
             WindowId::Inventory,

@@ -600,7 +600,10 @@ impl Hud {
         // An element a plugin hides is not drawn at all, and takes no pointer.
         macro_rules! element {
             ($name:literal, $call:expr) => {{
-                if !self.retail_hidden.contains($name) {
+                // Hidden by the player, it is drawn only while the editor is open, to be shown
+                // again.
+                if !self.retail_hidden.contains($name) && (editing || !self.layout.is_hidden($name))
+                {
                     let open = self.layout.begin($name, p, ctx, editing);
                     $call;
                     self.layout.end(open, p, ctx);
@@ -722,6 +725,20 @@ impl Hud {
             Some((name, pl)) => {
                 let title = crate::ui::layout::element_title(&name);
                 p.text(&text, body.x + 8.0 * k, body.y + 4.0 * k, &title);
+                // Hide or show it; hidden, it is drawn only while this window is open.
+                if crate::ui::layout::hideable(&name) {
+                    let hidden = self.layout.is_hidden(&name);
+                    let b = Rect::new(
+                        body.right() - 88.0 * k,
+                        body.y + 2.0 * k,
+                        80.0 * k,
+                        26.0 * k,
+                    );
+                    let label = if hidden { "Show" } else { "Hide" };
+                    if kit::button_lit(p, ctx, b, label, true, hidden) {
+                        self.layout.set_hidden(&name, !hidden);
+                    }
+                }
                 let pct = dereth_primitives::num::to_i32((pl.scale * 100.0).round());
                 let line = format!("Size {pct}%   X {:+.0}  Y {:+.0}", pl.dx, pl.dy);
                 p.text(&dim, body.x + 8.0 * k, body.y + 26.0 * k, &line);

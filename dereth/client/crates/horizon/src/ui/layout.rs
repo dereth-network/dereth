@@ -7,11 +7,12 @@
 //! the box around what it drew.
 //!
 //! A layout is kept per world and character in a small text file in the client's settings folder
-//! ([`file_name`]): one line per element, `name dx dy scale`. What the editor changes shows at
-//! once and is kept only when the player saves it; closing the editor with changes unsaved puts
-//! back the layout last kept.
+//! ([`file_name`]): one line per element, `name dx dy scale`, and `hidden` after them for an
+//! element the player has hidden (a line without it reads as shown, as files written before it
+//! do). What the editor changes shows at once and is kept only when the player saves it; closing
+//! the editor with changes unsaved puts back the layout last kept.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::art::Family;
@@ -31,8 +32,9 @@ fn on_screen(at: f32, len: f32, screen: f32) -> f32 {
     }
 }
 
-/// The smallest and largest an element may be made.
-pub const SCALE_RANGE: (f32, f32) = (0.6, 2.0);
+/// The smallest and largest an element may be made: as small as 40%, for the small windows of
+/// several clients played at once.
+pub const SCALE_RANGE: (f32, f32) = (0.4, 2.0);
 
 /// Where one element is: moved by `(dx, dy)` screen pixels at the reference height of 1080 lines,
 /// and scaled about its top-left corner.
@@ -92,6 +94,11 @@ pub struct HudLayout {
     /// their own size, whatever the player's placement says (which is kept for when the plugin
     /// lets go).
     pub pinned: std::collections::HashMap<String, (f32, f32)>,
+    /// The elements the player has hidden: not drawn, and taking no pointer, but while the
+    /// editor is open.
+    pub hidden: BTreeSet<String>,
+    /// The hidden elements as last loaded or saved.
+    saved_hidden: BTreeSet<String>,
 }
 
 /// The file, in the settings folder, a character's layout is kept in: by its world's address
@@ -125,9 +132,10 @@ impl HudLayout {
             ..Self::default()
         };
         if let Ok(text) = std::fs::read_to_string(&file) {
-            layout.placements = parse(&text);
+            (layout.placements, layout.hidden) = parse_file(&text);
         }
         layout.saved = layout.placements.clone();
+        layout.saved_hidden = layout.hidden.clone();
         layout
     }
 
@@ -142,15 +150,18 @@ impl HudLayout {
         let Ok(text) = std::fs::read_to_string(earlier) else {
             return Self::load(file);
         };
+        let (placements, hidden) = parse_file(&text);
         let mut layout = Self {
             file: Some(file),
-            placements: parse(&text),
+            placements,
+            hidden,
             ..Self::default()
         };
         if let Err(e) = layout.save() {
             tracing::warn!("the HUD layout carried over was not kept: {e}");
         }
         layout.saved = layout.placements.clone();
+        layout.saved_hidden = layout.hidden.clone();
         layout
     }
 
@@ -164,12 +175,13 @@ impl HudLayout {
                 .map(|(n, p)| (n.clone(), *p))
                 .collect::<Vec<_>>()
         };
-        moved(&self.placements) != moved(&self.saved)
+        moved(&self.placements) != moved(&self.saved) || self.hidden != self.saved_hidden
     }
 
     /// Put back the placements last loaded or saved.
     pub fn revert(&mut self) {
         self.placements = self.saved.clone();
+        self.hidden = self.saved_hidden.clone();
     }
 
     /// Write the layout to its file.
@@ -181,15 +193,36 @@ impl HudLayout {
             if let Some(dir) = file.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            std::fs::write(file, render(&self.placements))?;
+            std::fs::write(file, render_file(&self.placements, &self.hidden))?;
         }
         self.saved = self.placements.clone();
+        self.saved_hidden = self.hidden.clone();
         Ok(())
     }
 
-    /// Put every element back where it started.
+    /// Put every element back where it started, and shown.
     pub fn reset(&mut self) {
         self.placements.clear();
+        self.hidden.clear();
+    }
+
+    /// Whether the player has hidden element `name`.
+    #[must_use]
+    pub fn is_hidden(&self, name: &str) -> bool {
+        self.hidden.contains(name)
+    }
+
+    /// Hide element `name`, or show it again. The main menu, which opens the editor, is never
+    /// hidden.
+    pub fn set_hidden(&mut self, name: &str, hidden: bool) {
+        if !hideable(name) {
+            return;
+        }
+        if hidden {
+            self.hidden.insert(name.to_owned());
+        } else {
+            self.hidden.remove(name);
+        }
     }
 
     fn placement(&self, name: &str) -> Placement {
@@ -358,7 +391,12 @@ impl HudLayout {
             ] {
                 p.fill(side, edge);
             }
-            p.text(&label, r.x + 4.0 * k, r.y + 2.0 * k, &element_title(name));
+            let title = if self.is_hidden(name) {
+                format!("{} (hidden)", element_title(name))
+            } else {
+                element_title(name)
+            };
+            p.text(&label, r.x + 4.0 * k, r.y + 2.0 * k, &title);
             if over && ctx.input.pressed[0] && !ctx.input.captured {
                 self.selected = Some(name.clone());
                 self.grab = Some((ctx.input.mouse.0 - r.x, ctx.input.mouse.1 - r.y));
@@ -440,12 +478,36 @@ pub fn element_title(name: &str) -> String {
     .to_owned()
 }
 
+/// Whether the player may hide element `name`: any but the main menu, which opens the editor.
+#[must_use]
+pub fn hideable(name: &str) -> bool {
+    name != "menu"
+}
+
 /// A layout file's text.
 #[must_use]
 pub fn render(placements: &BTreeMap<String, Placement>) -> String {
+    render_file(placements, &BTreeSet::new())
+}
+
+/// A layout file's text, `hidden` naming the elements hidden: each moved or hidden element's line,
+/// `hidden` after a hidden one's.
+#[must_use]
+pub fn render_file(placements: &BTreeMap<String, Placement>, hidden: &BTreeSet<String>) -> String {
+    let names: BTreeSet<&String> = placements
+        .iter()
+        .filter(|(_, p)| !p.is_default())
+        .map(|(n, _)| n)
+        .chain(hidden.iter())
+        .collect();
     let mut out = String::new();
-    for (name, p) in placements.iter().filter(|(_, p)| !p.is_default()) {
-        out.push_str(&format!("{name} {:.1} {:.1} {:.2}\n", p.dx, p.dy, p.scale));
+    for name in names {
+        let p = placements.get(name).copied().unwrap_or_default();
+        out.push_str(&format!("{name} {:.1} {:.1} {:.2}", p.dx, p.dy, p.scale));
+        if hidden.contains(name) {
+            out.push_str(" hidden");
+        }
+        out.push('\n');
     }
     out
 }
@@ -453,23 +515,37 @@ pub fn render(placements: &BTreeMap<String, Placement>) -> String {
 /// Read a layout file's text. A line that does not read is skipped.
 #[must_use]
 pub fn parse(text: &str) -> BTreeMap<String, Placement> {
+    parse_file(text).0
+}
+
+/// Read a layout file's text: its placements, and the elements it hides. A line that does not read
+/// is skipped.
+#[must_use]
+pub fn parse_file(text: &str) -> (BTreeMap<String, Placement>, BTreeSet<String>) {
     let mut out = BTreeMap::new();
+    let mut hidden = BTreeSet::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if let [name, dx, dy, scale] = parts[..] {
-            if let (Ok(dx), Ok(dy), Ok(scale)) = (dx.parse(), dy.parse(), scale.parse::<f32>()) {
-                out.insert(
-                    name.to_owned(),
-                    Placement {
-                        dx,
-                        dy,
-                        scale: scale.clamp(SCALE_RANGE.0, SCALE_RANGE.1),
-                    },
-                );
+        let (name, dx, dy, scale, hides) = match parts[..] {
+            [name, dx, dy, scale] => (name, dx, dy, scale, false),
+            [name, dx, dy, scale, "hidden"] => (name, dx, dy, scale, true),
+            _ => continue,
+        };
+        if let (Ok(dx), Ok(dy), Ok(scale)) = (dx.parse(), dy.parse(), scale.parse::<f32>()) {
+            out.insert(
+                name.to_owned(),
+                Placement {
+                    dx,
+                    dy,
+                    scale: scale.clamp(SCALE_RANGE.0, SCALE_RANGE.1),
+                },
+            );
+            if hides && hideable(name) {
+                hidden.insert(name.to_owned());
             }
         }
     }
-    out
+    (out, hidden)
 }
 
 #[cfg(test)]
@@ -498,10 +574,43 @@ mod tests {
 
     /// Behaviour: none (the layout file's own format)
     #[test]
+    fn a_hidden_element_is_kept_with_a_fifth_field_and_a_line_of_four_reads_as_shown() {
+        let mut placements = BTreeMap::new();
+        placements.insert(
+            "minimap".to_owned(),
+            Placement {
+                dx: -40.0,
+                dy: 12.5,
+                scale: 1.2,
+            },
+        );
+        let hidden: BTreeSet<String> = ["minimap".to_owned(), "party".to_owned()].into();
+        let text = render_file(&placements, &hidden);
+        assert_eq!(
+            text,
+            "minimap -40.0 12.5 1.20 hidden\nparty 0.0 0.0 1.00 hidden\n"
+        );
+        let (back, back_hidden) = parse_file(&text);
+        assert_eq!(back_hidden, hidden);
+        assert_eq!(back["minimap"].scale, 1.2);
+        // Written before elements could be hidden: read as shown.
+        let (back, back_hidden) = parse_file("minimap -40.0 12.5 1.20\n");
+        assert!(back_hidden.is_empty());
+        assert_eq!(back["minimap"].dx, -40.0);
+        // The main menu is never hidden; a fifth field not `hidden` does not read.
+        let (_, back_hidden) = parse_file("menu 0 0 1 hidden\nexp 0 0 1 shown\n");
+        assert!(back_hidden.is_empty());
+    }
+
+    /// Behaviour: none (the layout file's own format)
+    #[test]
     fn a_scale_out_of_range_is_brought_inside_it_and_a_bad_line_is_skipped() {
         let back = parse("hotbars 0 0 9\nnonsense\nexp 1 2\n");
         assert_eq!(back.len(), 1);
         assert_eq!(back["hotbars"].scale, SCALE_RANGE.1);
+        let back = parse("hotbars 0 0 0.1\nexp 0 0 0.45\n");
+        assert_eq!(back["hotbars"].scale, 0.4, "no smaller than 40%");
+        assert_eq!(back["exp"].scale, 0.45);
     }
 
     /// Behaviour: none (experimental Horizon interface)

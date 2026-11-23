@@ -161,3 +161,52 @@ fn the_side_vitals_and_the_power_bar_have_no_counterpart_here() {
         assert!(counterpart(name).is_some(), "{name}");
     }
 }
+
+/// In a fellowship with a target: the party list (`fellowship`), the EXP bar (`experience`) and the
+/// target bar (`target`) hidden are not drawn; shown again, each is back where it was.
+#[test]
+fn a_plugin_hides_the_party_list_the_exp_bar_and_the_target_bar_and_shows_them_again() {
+    use dereth_horizon::ui::game::{Target, Vital};
+    let full = Vital {
+        current: 50,
+        max: 50,
+    };
+    let state = GameState {
+        fellowship: vec![
+            ("Tester".into(), full, full, full, true),
+            ("Friend".into(), full, full, full, false),
+        ],
+        target: Some(Target {
+            name: "Drudge Skulker".into(),
+            health: Some(0.5),
+            ..Target::default()
+        }),
+        level: 12,
+        xp_this: Some(400),
+        xp_next: Some(1000),
+        total_xp: 9000,
+        ..in_world()
+    };
+    // With the interface's own art, which the target bar is drawn in.
+    let mut h = Harness::with_built_in_art();
+    h.frame(&state);
+    h.frame(&state);
+    let names = ["party", "exp", "target"];
+    let before: Vec<Rect> = names
+        .iter()
+        .map(|n| outline(&h, n).unwrap_or_else(|| panic!("{n} is drawn")))
+        .collect();
+    let panels = ["fellowship", "experience", "target"];
+    let hide: Vec<Ask> = panels.iter().map(|p| ask(p, Some(true), None)).collect();
+    follow(&mut h.ui, &hide);
+    h.frame(&state);
+    for n in names {
+        assert!(outline(&h, n).is_none(), "{n} hidden");
+    }
+    let show: Vec<Ask> = panels.iter().map(|p| ask(p, Some(false), None)).collect();
+    follow(&mut h.ui, &show);
+    h.frame(&state);
+    for (n, r) in names.iter().zip(&before) {
+        assert_eq!(outline(&h, n), Some(*r), "{n} back where it was");
+    }
+}

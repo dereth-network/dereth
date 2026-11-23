@@ -16,6 +16,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: fixed plugin windows over a moved party list not taking clicks or drags.
 - Plugins: a list can now be narrower than 8 cells when its width bounds say so.
 - Plugins: buttons and toggles can show a game icon and an accent color.
+- Horizon: HUD Layout can hide elements, and plugins can hide the party list, EXP and target bars.
+- Horizon: HUD elements can be made as small as 40%.
 
 ## 0.4.22 (2026-11-23)
 - Fixed Direct3D 12 screenshots showing an older frame, or a black one.

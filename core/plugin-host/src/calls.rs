@@ -37,6 +37,9 @@ pub const RETAIL_PANELS: &[&str] = &[
     "combat",
     "power_bar",
     "examination",
+    "fellowship",
+    "experience",
+    "target",
 ];
 
 /// The physics state's ethereal bit: set on a door while it stands open.

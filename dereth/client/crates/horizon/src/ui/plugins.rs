@@ -234,6 +234,10 @@ impl PluginSeat {
         self.ui.retain(p.art, &self.frame.views);
         for v in &views {
             let name = crate::ui::layout::plugin_hud(&v.plugin, &v.window);
+            // Hidden by the player, drawn only while the editor is open.
+            if layout.is_hidden(&name) && !editing {
+                continue;
+            }
             let first = ctx.input.nav.targets.len();
             let open = layout.begin(&name, p, ctx, editing || covered || unlocked);
             let r = self
