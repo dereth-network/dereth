@@ -156,13 +156,13 @@ pub(crate) enum Told {
     Total(u64),
 }
 
-/// What a client was told of its experience since `from`, in order.
+/// What a client was told of its experience since `from`, in the order the server sent it.
 pub(crate) fn experience(h: &yalain_testkit::Harness, b: usize, from: usize) -> Vec<Told> {
     use auberean_protocol::ServerMessage;
     use auberean_script::native_object::VariableValue;
     use yalain_world::calls::Node;
     use yalain_world::progress::{q, var};
-    h.world_messages(b, from)
+    h.sent_messages(b, from)
         .iter()
         .filter_map(|m| match m {
             ServerMessage::PlayerCall(c)

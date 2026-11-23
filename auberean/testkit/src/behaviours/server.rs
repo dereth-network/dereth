@@ -4839,6 +4839,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.a-creatures-death-tick-in-order",
+        says: "A creature's death tick goes, in the order sent: dead and wounded, the killer's \
+               experience, then the fall (no longer selectable, the death pose's slider, the death \
+               behavior), then the kill text, a fellow's killing blow and the quest the kill moves. \
+               Unmeasured: what its death makes comes before the fall, the creature's death line, \
+               its round and the steps a death nearby moves after the killing blow.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TICK-ORDER"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_creatures_death_tick_runs_dead_award_fall_then_the_kills_texts_and_quests",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.attack-ends-after-the-message",
         says: "A player killed while attacking is told its death first; then a skill's use under \
                way is over and refused as interrupted, and a run of basic attacks fails as \

@@ -2101,3 +2101,107 @@ fn a_failure_carrying_a_recall_takes_its_player_and_one_on_its_way_is_left_to_it
     assert_eq!(state(&h, me).map(|s| s.0), Some(status::FAILED));
     assert_eq!(updates(&h, b, from).len(), 1, "told once");
 }
+
+/// Is this the text that tells the killer it killed the creature?
+fn kill_text(m: &auberean_protocol::ServerMessage) -> bool {
+    use yalain_world::calls::{self, Node};
+    let auberean_protocol::ServerMessage::PlayerCall(c) = m else {
+        return false;
+    };
+    c.function.0 == yalain_world::session::function::SHOW_TEXT
+        && c.args
+            .as_ref()
+            .and_then(|x| calls::values(&x.0).ok())
+            .is_some_and(|v| {
+                v.iter().any(|x| {
+                    matches!(x.root(), Some(Node::TextInfo(t))
+                        if t.string_id == yalain_world::progress::text::KILLED.0)
+                })
+            })
+}
+
+/// In the order the server sends them, a creature's death tick runs as 2017's did: dead and wounded,
+/// the killer's experience, then the fall (no longer selectable, the pose's slider, the death
+/// behavior), then the kill text and the quest the kill moves; a fellow whose blow killed it is told
+/// so before the kill moves its quest.
+/// Behaviour: server.death.a-creatures-death-tick-in-order
+#[test]
+fn a_creatures_death_tick_runs_dead_award_fall_then_the_kills_texts_and_quests() {
+    use auberean_protocol::ServerMessage as M;
+    let shared = Fellows {
+        shared: true,
+        near_level: false,
+        near_by: false,
+    };
+    let (mut h, a, me) = world(QuestDef {
+        fellows: shared,
+        ..quest(5)
+    });
+    let (b, them) = fellows(&mut h, (a, me), 2.0);
+    holds(&mut h, me, status::UNDERWAY, 1);
+    holds(&mut h, them, status::UNDERWAY, 1);
+    h.add_creatures(1);
+    h.run(2);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| {
+            t.creature
+                .as_ref()
+                .is_some_and(|c| c.mode != yalain_world::things::Mode::Dead)
+        })
+        .map(|t| t.id)
+        .max()
+        .expect("a beetle");
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.health = 10;
+    t.max_health = 10;
+    let c = t.creature.as_mut().expect("a creature");
+    c.stats.attacks_first = false;
+    c.stats.death_xp = 100;
+    c.stats.death_effects = vec![(INCREMENT.to_string(), 1)];
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    // The most harm the player's, the killing blow its fellow's.
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 9, clock);
+    combat::hurt_creature(&mut h.server, &mut h.net, beetle, them, 5, clock);
+    h.run(2);
+    let at = |sent: &[M], pick: &dyn Fn(&M) -> bool| sent.iter().position(pick);
+    let call = |m: &M, f: u32| matches!(m, M::PlayerCall(c) if c.function.0 == f);
+    let its = |m: &M, quality: u32, value: i32| {
+        matches!(m, M::UpdateBoolVisual(q)
+            if q.object.id == beetle && q.quality == quality && q.value == value)
+    };
+    let mine = h.sent_messages(a, fa);
+    let dead = at(&mine, &|m| its(m, 279, 1));
+    let award = at(
+        &mine,
+        &|m| matches!(m, M::UpdateLongInt(q) if q.quality == 300),
+    );
+    let unselectable = at(&mine, &|m| its(m, 624, 0));
+    let behavior = at(
+        &mine,
+        &|m| matches!(m, M::PlayBehavior(e) if e.sender.id == beetle),
+    );
+    let text = at(&mine, &kill_text);
+    let update = at(&mine, &|m| call(m, UPDATE_QUEST));
+    assert!(
+        dead.is_some()
+            && dead < award
+            && award < unselectable
+            && unselectable < behavior
+            && behavior < text
+            && text < update,
+        "dead {dead:?}, award {award:?}, unselectable {unselectable:?}, behavior {behavior:?}, \
+         kill text {text:?}, update {update:?}"
+    );
+    let theirs = h.sent_messages(b, fb);
+    let blow = at(&theirs, &|m| call(m, yalain_world::death::KILLING_BLOW));
+    let update = at(&theirs, &|m| call(m, UPDATE_QUEST));
+    assert!(
+        blow.is_some() && blow < update,
+        "the fellow: killing blow {blow:?}, update {update:?}"
+    );
+}

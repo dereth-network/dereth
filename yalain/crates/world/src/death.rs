@@ -292,6 +292,14 @@ pub fn creature_dies<S: Store>(
     if let Some(i) = camp {
         crate::fought::record(s, i, &parts);
     }
+    // In 2017's order, by the order sent: dead and wounded, the award, then the fall (no longer
+    // selectable, the pose's slider, the death behavior), then the kill text, a fellow's killing
+    // blow and the quest the kill moves (2017, 8,004 deaths with an award: dead and wounded, award,
+    // fall 7,577; the award before the behavior 7,990; the kill text after it 5,382 of 5,386; the
+    // killing blow after it 508 of 508 and before the quest's update 43 of 43; the update after
+    // the behavior 739 of 747). Unmeasured: what the death makes comes before the fall, the
+    // creature's death line, its round and the steps a death nearby moves after the killing blow.
+    falls_dead(s, net, id);
     paid_in_parts(
         s,
         net,
@@ -304,13 +312,26 @@ pub fn creature_dies<S: Store>(
             group,
         },
     );
+    // What its death makes is made where it lay, facing as it did, before it comes down.
+    if let Some(world) = world_of(s, killer).filter(|_| !unfair) {
+        crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
+    }
+    let pose = falls_down(s, net, id, clock);
     if let Some(world) = world_of(s, killer) {
         progress::killed(net, world, name);
+    }
+    if let Some(w) = blow_fellow {
+        let victim = name.map_or_else(Default::default, progress::text);
+        let m =
+            session::call(KILLING_BLOW, &[crate::chat::text_arg(victim)]).expect("a name packs");
+        progress::private(net, w, &m);
+    }
+    crate::talk::dies(s, net, id, killer);
+    if let Some(world) = world_of(s, killer) {
         // A killer the creature could not reach moves no quest on.
         if !unfair {
             let kill = (id, template, camp);
             crate::quests::killed(s, net, world, kill, &death_effects, clock);
-            crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
     // Nor does it change a kingdom (a round's next creature stands for the dead one's) or move
@@ -326,14 +347,6 @@ pub fn creature_dies<S: Store>(
     if let Some(at) = fell_at.filter(|_| !unfair) {
         crate::quests::died_near(s, net, (id, template), &at, clock);
     }
-    if let Some(w) = blow_fellow {
-        let victim = name.map_or_else(Default::default, progress::text);
-        let m =
-            session::call(KILLING_BLOW, &[crate::chat::text_arg(victim)]).expect("a name packs");
-        progress::private(net, w, &m);
-    }
-    crate::talk::dies(s, net, id, killer);
-    let pose = falls(s, net, id, clock);
     let after = corpse_after(s, id, pose);
     // Its camp's period runs from when its body leaves the world (2017: 373 of 1,638 timed
     // replacements came exactly 180.0 s after the body left, over 152 landblocks).
@@ -514,33 +527,46 @@ fn paid_in_parts<S: Store>(
     }
 }
 
-/// A creature falls, for every client that sees it: dead, no longer selectable (the wounded
-/// effect between), its death pose's slider, its death behavior, and its place standing still.
-/// Returns the pose.
+/// A creature falls, for every client that sees it: dead, wounded ([`falls_dead`]), then no longer
+/// selectable, its death pose's slider, its death behavior, and its place standing still
+/// ([`falls_down`]). Returns the pose.
 pub(crate) fn falls<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
     clock: Clock,
 ) -> f32 {
-    for (quality, value) in [(q::DEAD, 1), (q::SELECTABLE, 0)] {
-        let m = ServerMessage::UpdateBoolVisual(VisualQuality {
-            object: visual(s, id),
-            quality,
-            value,
-        });
-        to_all_seeing(s, net, id, &m);
-        if quality == q::DEAD {
-            let fx = ServerMessage::DoFx(ObjectEvent {
-                sender: visual(s, id),
-                action: auberean_protocol::physics::Fx {
-                    fx: look::WOUNDED,
-                    scalar: 1.0,
-                },
-            });
-            to_all_seeing(s, net, id, &fx);
-        }
-    }
+    falls_dead(s, net, id);
+    falls_down(s, net, id, clock)
+}
+
+/// A creature is dead, for every client that sees it: its dead flag, then its wounded effect.
+fn falls_dead<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let dead = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: visual(s, id),
+        quality: q::DEAD,
+        value: 1,
+    });
+    to_all_seeing(s, net, id, &dead);
+    let fx = ServerMessage::DoFx(ObjectEvent {
+        sender: visual(s, id),
+        action: auberean_protocol::physics::Fx {
+            fx: look::WOUNDED,
+            scalar: 1.0,
+        },
+    });
+    to_all_seeing(s, net, id, &fx);
+}
+
+/// A dead creature comes down, for every client that sees it: no longer selectable, its death
+/// pose's slider, its death behavior, and its place standing still. Returns the pose.
+fn falls_down<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) -> f32 {
+    let unselectable = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: visual(s, id),
+        quality: q::SELECTABLE,
+        value: 0,
+    });
+    to_all_seeing(s, net, id, &unselectable);
     // One of the six death poses, a whole number (2017: every creature death so, 0 to 5).
     #[allow(clippy::cast_precision_loss)]
     let pose = s.rng.below(6) as f32;
