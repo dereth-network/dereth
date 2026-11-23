@@ -120,7 +120,7 @@ fn server_move_to(app: &mut App, metres: f32) -> Position {
 /// The focus-input pair in `App::handle_window_event`: the direct arm first,
 /// then every `Win32Message` the pump maps it to, fed to the input manager. `Focused(false)` maps
 /// to `WM_ACTIVATEAPP(0)`, `WM_ACTIVATE(0)` and `WM_KILLFOCUS`, which is the retail triple.
-fn lose_focus(app: &mut App, time: u32) {
+pub(super) fn lose_focus(app: &mut App, time: u32) {
     let event = dereth_input::host::HostEvent::Focused(false);
     app.note_flycam_input(&event);
     let mut pump = Pump::new();

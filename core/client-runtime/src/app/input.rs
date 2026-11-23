@@ -44,6 +44,10 @@ impl<S: Shell> App<S> {
             // The returned `bool` controls the movement event, which is not sent —
             // named as a gap on that function rather than half-wired here.
             let _movement_changed = self.movement.lose_keyboard_focus(&mut self.char_input);
+            // The client's own steering (a journey's keys, a plugin's movement) is not the
+            // player's keyboard, and is still holding its controls: they are pressed again, at
+            // this frame's movement stage, so a route goes on with the window in the background.
+            self.actions.steer_held_again();
             // **The third thing the pressed-key release fires.**
             // Its last act, when mouse-look mode is on and a device exists, is a
             // synthetic button input event (activation `0x80`) on the

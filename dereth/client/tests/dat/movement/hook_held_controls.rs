@@ -162,3 +162,43 @@ fn a_hooks_held_sidestep_moves_the_body_sideways_until_let_go() {
     assert!(seen.borrow().iter().all(|s| !*s), "{:?}", seen.borrow());
     app.shutdown();
 }
+
+/// Behaviour: plugins.nav.a-plugins-movement-goes-on-when-the-window-loses-focus
+/// The window losing focus mid-run, at sixty frames a second and at ten (the background's
+/// pace): the forward key a hook holds is pressed again with the keyboard's commands dropped, and
+/// the body runs on. It is still none of the player's movement.
+#[test]
+fn a_hooks_held_forward_key_runs_on_when_the_window_loses_focus() {
+    for fps in [60.0, 10.0] {
+        let mut app = setup();
+        player_description(&mut app, "early-inventory-and-casting");
+        app.clock = Box::new(dereth_client_runtime::platform::clock::FixedStepClock::new(
+            1.0 / fps,
+        ));
+        let (queue, seen) = holder(&mut app);
+        frames(&mut app, 2);
+        seen.borrow_mut().clear();
+        queue
+            .borrow_mut()
+            .push_back(vec![NavRequest::Hold(NavKey::Forward, true)]);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let second = fps as usize;
+        frames(&mut app, second);
+        assert!(app.probe().char_input().forward, "{fps}: running");
+        super::focus_loss::lose_focus(&mut app, 9_000);
+        let at = body(&app).position().frame.origin;
+        frames(&mut app, 2 * second);
+        assert!(
+            app.probe().char_input().forward,
+            "{fps}: still held after the focus loss"
+        );
+        let later = body(&app).position().frame.origin;
+        let ran = math::hypotf(later.x - at.x, later.y - at.y);
+        assert!(
+            ran > 4.0,
+            "{fps} frames a second: ran {ran:.2} m in two seconds"
+        );
+        assert!(seen.borrow().iter().all(|s| !*s), "{:?}", seen.borrow());
+        app.shutdown();
+    }
+}

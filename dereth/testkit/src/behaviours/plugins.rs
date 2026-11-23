@@ -1052,6 +1052,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-plugins-movement-goes-on-when-the-window-loses-focus",
+        says: "The window losing focus drops the keyboard's movement commands, and the movement \
+               controls the client's own steering holds (a plugin's movement, a journey's keys) are \
+               pressed again at once, so the character runs on with the window in the background, \
+               at its own frame rate or the background's.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-FOCUS"),
+        station: "dereth-client::dat::movement::hook_held_controls::a_hooks_held_forward_key_runs_on_when_the_window_loses_focus",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-portal-no-walk-reaches-is-planned-round",
         says: "A journey takes the land for one place, so it may plan a walk to a portal that the                land does not join to where the character is (a portal on a plateau only other                portals lead to). When the walk finds no route there, the journey is planned again                without that portal; with no other way, it ends saying which portal no walk                reaches.",
         since: THIS_CLIENT,
