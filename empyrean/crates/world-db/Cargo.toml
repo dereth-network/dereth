@@ -1,0 +1,36 @@
+[package]
+name = "empyrean-world-db"
+description = "An AC1 world as rows: ACE's world tables written as TOML packs, one file per stable key, and read back into the content crate's world."
+version = "0.3.18" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# The rows of the operator's Launch world, named by EMPYREAN_TEST_LAUNCH_FIXTURE, rebuilt into its pack.
+launch-content = []
+
+[dependencies]
+blake3.workspace = true
+dereth-pack.workspace = true
+empyrean-common.workspace = true
+empyrean-content.workspace = true
+empyrean-entity.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+
+# The server's lint levels, as every other server crate carries them.
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"

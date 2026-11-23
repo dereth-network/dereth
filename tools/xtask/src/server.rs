@@ -545,6 +545,25 @@ pub fn launch_content(profile: Profile) -> Report {
     )
 }
 
+/// The Launch world as rows (tier 1): the pack's rows, written and read back, rebuild it with
+/// every record the converter wrote. NO-ORACLE without the fixture, as the play tests are.
+pub fn launch_rows(profile: Profile) -> Report {
+    launch_fixture_row(
+        "server real content: empyrean-world-db (Launch world as rows)",
+        profile,
+        &[
+            "-p",
+            "empyrean-world-db",
+            "--features",
+            "launch-content",
+            "--lib",
+            "tests::launch::",
+            "--",
+            "--test-threads=1",
+        ],
+    )
+}
+
 /// The Classic interface's pictures against the Launch portal (tier 1): what it can draw on a Launch
 /// world is there, is made from what is there, or belongs to a system that world lacks, so a new
 /// picture the 1999 files don't have is noticed. Without the fixture the row is NO-ORACLE.

@@ -3167,6 +3167,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "empyrean-world-db"
+version = "0.3.18"
+dependencies = [
+ "blake3",
+ "dereth-pack",
+ "empyrean-common",
+ "empyrean-content",
+ "empyrean-entity",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
 name = "enum-map"
 version = "2.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
