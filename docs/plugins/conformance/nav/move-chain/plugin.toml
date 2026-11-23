@@ -1,0 +1,10 @@
+id = "conformance.movechain"
+name = "Conformance: chained moves"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Walks where you ask."
+
+[capabilities]
+required = ["nav.moveto"]

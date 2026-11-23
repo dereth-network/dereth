@@ -591,6 +591,11 @@ impl Call<'_, '_> {
         let goal = match name {
             "nav.stop" => {
                 let me = self.slot.manifest.id.to_string();
+                // Given a movement, only that one is stopped.
+                let only = args.get("id").as_i64();
+                if only.is_some_and(|id| !self.shared.nav.is_running(&me, id)) {
+                    return Ok(Value::Nil);
+                }
                 if let Some(s) = self.shared.nav.stop(&me) {
                     self.shared.actions.settle_later(s);
                 }
@@ -635,6 +640,27 @@ impl Call<'_, '_> {
                 };
                 crate::nav::Goal::MoveTo {
                     target,
+                    range: range(2.0)?,
+                }
+            }
+            "nav.move_along" => {
+                // The host's own steering runs it, which is there where its journeys are.
+                self.capability(name, HostCapability::NavJourney)?;
+                let points = args
+                    .get("points")
+                    .as_list()
+                    .filter(|p| (1..=crate::nav::PATH_POINTS).contains(&p.len()))
+                    .ok_or_else(|| {
+                        bad(format!(
+                            "nav.move_along goes through a list of 1 to {} places",
+                            crate::nav::PATH_POINTS
+                        ))
+                    })?;
+                crate::nav::Goal::MoveAlong {
+                    points: points
+                        .iter()
+                        .map(crate::places::from_value)
+                        .collect::<Result<_, _>>()?,
                     range: range(2.0)?,
                 }
             }
@@ -696,10 +722,11 @@ impl Call<'_, '_> {
             },
             other => return Err(CallError::Unknown(other.to_owned())),
         };
-        if let Some(refused) = self.gate(goal.action(), AutoDomain::Nav)? {
+        let action = goal.action();
+        if let Some(refused) = self.gate(action, AutoDomain::Nav)? {
             return Ok(Value::Int(refused));
         }
-        if let Some(refused) = self.yield_to_player(goal.action()) {
+        if let Some(refused) = self.yield_to_player(action) {
             return Ok(Value::Int(refused));
         }
         let id = self.shared.actions.allocate();
@@ -1700,6 +1727,8 @@ impl HostCalls for Call<'_, '_> {
                 if name == "files.import" {
                     return self.files_import(&a);
                 }
+                // A use or a cast right after a move's arrival is made standing.
+                self.shared.nav.act_instead(self.slot.manifest.id.as_str());
                 self.act(&name, &a)
             }
             "nav.owner" => Ok(Value::from(self.shared.nav.owner().map(str::to_owned))),
@@ -1931,6 +1960,8 @@ impl HostCalls for Call<'_, '_> {
                     ));
                 }
                 sends.push_back(now);
+                // A line right after a move's arrival may be a recall's command: said standing.
+                self.shared.nav.act_instead(self.slot.manifest.id.as_str());
                 self.shared.chat_out.push(text);
                 Ok(Value::Nil)
             }

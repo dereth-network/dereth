@@ -948,6 +948,8 @@ pub struct PluginRun {
     travel: crate::scripted_travel::ScriptedTravel,
     /// Doors used and opening: when each opens.
     door_openings: VecDeque<(f64, u32)>,
+    /// Locked doors used since the last frame: the server's answer that they are locked.
+    lock_answers: Vec<ObjectId>,
     /// The id the scripted server gives the next object it makes (a purchase, a salvage bag).
     next_object: u32,
 }
@@ -1237,6 +1239,7 @@ impl PluginRun {
             player_moves: false,
             travel: crate::scripted_travel::ScriptedTravel::default(),
             door_openings: VecDeque::new(),
+            lock_answers: Vec::new(),
             next_object: 0x8800_0000,
             server_takes_control: false,
             messages: Vec::new(),
@@ -2090,6 +2093,13 @@ impl PluginRun {
                     self.moves.push(format!("face {h:.0}"));
                     self.places.turning_to = Some(f64::from(h));
                 }
+                NavRequest::Heading(h) => {
+                    // A frame's part of steering: the body's at once, and no move of its own.
+                    self.places.turning_to = None;
+                    if let Some(p) = self.places.player.as_mut() {
+                        dereth_primitives::frame::set_heading(&mut p.frame, h);
+                    }
+                }
                 NavRequest::Autorun(on) => {
                     self.moves
                         .push(format!("autorun {}", if on { "on" } else { "off" }));
@@ -2178,6 +2188,7 @@ impl PluginRun {
         let outcomes = std::mem::take(&mut self.outcomes);
         let typed = std::mem::take(&mut self.typed);
         let messages = std::mem::take(&mut self.messages);
+        let locked = std::mem::take(&mut self.lock_answers);
         let out = {
             let view = self.hud.view(&self.objects);
             let frame = HookFrame::new(
@@ -2190,6 +2201,7 @@ impl PluginRun {
                 &typed,
             )
             .with_outcomes(&outcomes)
+            .with_locked(&locked)
             .with_messages(&messages)
             .with_session(Some(WORLD_NAME), None)
             .with_pregame(&self.session);
@@ -2319,11 +2331,10 @@ impl PluginRun {
                         _ => {}
                     }
                     if let Request::UseEvent(m) = r {
-                        if s.object(m.object)
-                            .and_then(|o| o.door)
-                            .is_some_and(|d| !d.locked)
-                        {
-                            opening.push(m.object.0);
+                        match s.object(m.object).and_then(|o| o.door) {
+                            Some(d) if !d.locked => opening.push(m.object.0),
+                            Some(_) => self.lock_answers.push(m.object),
+                            None => {}
                         }
                     }
                     let mut answers: Vec<(f64, SessionEvent)> = Vec::new();

@@ -2221,12 +2221,21 @@ impl PluginHost {
         if std::mem::take(&mut self.shared.abort_attack) || released_attack || misdirected {
             frame.request(dereth_client_contract::UiRequest::CombatAbortAttack);
         }
-        self.shared.actions.start(frame);
+        let standing_first = self.shared.nav.take_standing_first();
+        if !standing_first {
+            self.shared.actions.start(frame);
+        }
         if let Some(s) = self.shared.nav.step(frame) {
             self.shared.actions.settle_later(s);
         }
         self.shared.nav.flush_travel(frame);
-        for text in std::mem::take(&mut self.shared.chat_out) {
+        let said = if standing_first {
+            // A typed command (a recall, say) waits with the actions.
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.shared.chat_out)
+        };
+        for text in said {
             // Sent on the player's behalf: the client never takes it for a line they typed.
             frame.request(dereth_client_contract::UiRequest::ChatLineOnBehalf { text, window: 0 });
         }

@@ -13,13 +13,15 @@
 //! - **A waypoint is passed by the ground covered since the last frame**, not only by where the
 //!   body stands now: a frame long enough to carry the body past a waypoint still counts it
 //!   reached, and the body does not turn back for it.
-//! - **A turn key is held only for a whole frame's turning.** A key holds for a whole frame, and
-//!   the body turns at its own rate all that frame, so the last of a turn, less than one frame's
-//!   turning, is finished by facing the point at once instead: a key held for it would leave the
-//!   body as far off the other way, to be turned back, and at a low frame rate it would swing from
-//!   side to side. At a frame rate where one frame's turning is only a few degrees, a turn that
-//!   small is left alone. Its speed and turn rate are learned from how far it moved and turned
-//!   while the keys were held.
+//! - **A turn key is held through a turn, not tapped along it.** Standing, a key is pressed for
+//!   a turn past the turn slack; running, only for one past a wider band, twenty degrees as the
+//!   game's own move-to has it. Either is then held until what is left is less than the body
+//!   turns in one step, so it never overshoots to be turned back.
+//! - **A bend inside that band is steered through.** Running, the heading is eased round a
+//!   little each frame, gathering its pace and losing it, and never faster than the body turns
+//!   with a key held. At a frame rate too low to ease over, what is left of a turn is faced at
+//!   once. The body's speed and turn rate are learned from how far it moved and turned while the
+//!   keys were held.
 //! - **The forward key is held only while the point aimed at can be run onto**, as near as the
 //!   body's turning circle allows; otherwise it turns standing.
 //! - **A leg it cannot walk straight is walked through its places**: when the body stops getting
@@ -49,7 +51,7 @@ pub enum Steer {
         /// Hold the turn-right key (`Some(true)`), the turn-left key (`Some(false)`), or neither.
         turn: Option<bool>,
         /// Face this heading at once (degrees clockwise from north), with neither turn key held:
-        /// the last of a turn, less than one frame's turning.
+        /// this frame's part of a bend steered through, or the last of a turn.
         face: Option<f32>,
     },
     /// Open this door, then call again.
@@ -73,7 +75,8 @@ pub struct FollowConfig {
     pub arrive_last: f32,
     /// Seconds without getting closer that count as stuck.
     pub stuck_after: f64,
-    /// How far off, in degrees, the body may face the point it aims at before a turn key is held.
+    /// How far off, in degrees, a standing body may face the point it aims at before a turn key
+    /// is held.
     pub turn_slack: f32,
     /// A corner turning more than this, in degrees, is stopped at and turned at standing; a
     /// gentler one is run through.
@@ -82,6 +85,9 @@ pub struct FollowConfig {
     pub speed: f32,
     /// The body's turn rate with a turn key held, degrees a second, until it has been seen.
     pub turn_rate: f32,
+    /// The route is someone's own points, to be walked strictly ([`FollowConfig::strict()`]): how
+    /// near each the body must come.
+    pub strict: Option<f32>,
 }
 
 impl Default for FollowConfig {
@@ -94,6 +100,22 @@ impl Default for FollowConfig {
             sharp_turn: 45.0,
             speed: 8.0,
             turn_rate: 135.0,
+            strict: None,
+        }
+    }
+}
+
+impl FollowConfig {
+    /// For a route of someone's own points, with nothing known of the ground between them. No
+    /// corner of it is cut: the body runs along each leg at its point, and counts it reached as
+    /// near as it gets, within `range` metres across. Heights are not looked at, and there is no
+    /// being lost: a body that stops getting closer for `stuck_after` seconds is stuck.
+    #[must_use]
+    pub fn strict(range: f32, stuck_after: f64) -> Self {
+        Self {
+            strict: Some(range.max(MIN_RANGE)),
+            stuck_after,
+            ..Self::default()
         }
     }
 }
@@ -115,9 +137,38 @@ const DOOR_REACH: f32 = 1.5;
 const LOST_ACROSS: f32 = 4.0;
 const LOST_RISE: f32 = 2.5;
 
-/// How far off, in degrees, a body may face the point it aims at before it is turned to face it
-/// at once, at a frame rate where a turn key held one frame turns it more than the turn slack.
+/// How far off, in degrees, a body may face the point it aims at before its heading is set
+/// toward it.
 const FACE_SLACK: f32 = 1.0;
+
+/// How near facing the point an easing under way carries the body, degrees.
+const EASED: f32 = 0.1;
+
+/// How far off, in degrees, a running body may face the point it aims at before a turn key is
+/// pressed: the dead band of the game's own move-to.
+const RUN_BAND: f32 = 20.0;
+
+/// The seconds over which a running body eases out most of a turn inside that band.
+const EASE_SECS: f32 = 0.2;
+
+/// The seconds over which that easing gathers and loses its pace: a quarter of the time it
+/// eases over, so it settles without swinging past.
+const EASE_GATHER_SECS: f32 = 0.05;
+
+/// The longest the world goes between two steps that turn a body by a held key, at a frame rate
+/// above its own: a thirtieth of a second.
+const WORLD_STEP: f64 = 1.0 / 30.0;
+
+/// The least range a strictly walked route's point is reached within, metres.
+const MIN_RANGE: f32 = 0.25;
+
+/// How much further off than a sharp corner, in degrees, a body already running on a strict
+/// route may come to face before it stops to turn: what it lags by coming out of a bend.
+const BEND_LAG: f32 = 15.0;
+
+/// How long a body pressing on within range of a strict route's point may get no nearer before
+/// the point counts reached: something stands on it.
+const PRESSED_SECS: f64 = 0.5;
 
 /// The nearest point aimed at on a leg walked through its places, metres.
 const NEAR_AIM: f32 = 0.75;
@@ -155,6 +206,14 @@ pub struct Follower {
     /// since the speed and the turn rate were last learned from them.
     ran: (f32, f64),
     turned: (f32, f64),
+    /// The pace the heading is being eased at, degrees a second, clockwise positive.
+    swing: f32,
+    /// Whether the body was running when this route was taken up from the one before.
+    under_way: bool,
+    /// On a strict route: whether it is turning standing at a sharp corner.
+    corner: bool,
+    /// Since when the forward key has been held.
+    running_since: f64,
     /// Times the follower has reported [`Steer::Stuck`].
     pub stuck_events: u32,
     /// Legs walked through their places after the body stopped on them.
@@ -205,8 +264,26 @@ impl Follower {
             frame: 1.0 / 30.0,
             ran: (0.0, 0.0),
             turned: (0.0, 0.0),
+            swing: 0.0,
+            under_way: false,
+            corner: false,
+            running_since: 0.0,
             stuck_events: 0,
             refined_legs: 0,
+        }
+    }
+
+    /// Follow `path` next, on from this route with the body under way: what was learned of its
+    /// pace carries over, and so does a run, which a bend between the two is then run through.
+    #[must_use]
+    pub fn then(&self, path: NavPath, config: FollowConfig) -> Self {
+        Self {
+            speed: self.speed,
+            turn_rate: self.turn_rate,
+            frame: self.frame,
+            swing: self.swing,
+            under_way: self.last.map_or(self.under_way, |l| l.forward),
+            ..Self::new(path, config)
         }
     }
 
@@ -225,6 +302,18 @@ impl Follower {
     /// Say a door was dealt with; the follower walks on through it.
     pub fn door_opened(&mut self) {
         self.door_done = Some(self.next);
+    }
+
+    /// Say the body was held up (standing at a door, say) until `now`: it is not stuck for that,
+    /// and sets off from standing.
+    pub fn held_up(&mut self, now: f64) {
+        self.best_at = now;
+        self.running_since = now;
+        self.swing = 0.0;
+        if let Some(l) = self.last.as_mut() {
+            l.forward = false;
+            l.turn = None;
+        }
     }
 
     /// The body's speed and turn rate as seen so far: metres a second, degrees a second.
@@ -285,6 +374,11 @@ impl Follower {
         self.speed / self.turn_rate.max(1.0).to_radians()
     }
 
+    /// Whether the body's forward key is held, as far as the follower knows.
+    fn running(&self) -> bool {
+        self.last.map_or(self.under_way, |l| l.forward)
+    }
+
     /// Whether the route turns more than the sharp-turn angle at waypoint `i`.
     fn sharp(&self, i: usize) -> bool {
         let w = &self.path.waypoints;
@@ -335,6 +429,91 @@ impl Follower {
         (here.x - b.x) * nx + (here.y - b.y) * ny >= 0.0
             && dist_xy(here, b) <= PASS_REACH.max(self.path.cut(i) + 1.0)
             && (here.z - b.z).abs() <= REACH_RISE
+    }
+
+    /// Whether a body at `here`, last at `prev`, has reached waypoint `i` of a strict route of
+    /// `range`: it came onto it; or it passed within range as near as it was going to; or it has
+    /// pressed on within range a while and got no nearer.
+    fn honored(&self, i: usize, here: Vec3, prev: Vec3, now: f64, range: f32) -> bool {
+        let p = flat(global(&self.path.waypoints[i].position), here);
+        let mut close = self.config.arrive.min(range);
+        if self.stops_at(i) || self.sharp(i) {
+            close = close.max((0.5 * self.stride()).min(range));
+        }
+        let d = dist_xy(here, p);
+        let nearest = point_segment_dist_sq(p, flat(prev, here), here).sqrt();
+        if nearest <= close {
+            return true;
+        }
+        // Turning at a sharp corner it has passed nothing: the point after may lie behind it,
+        // near as it is, and is still to be run to.
+        if !self.running() || self.corner {
+            return false;
+        }
+        let passed = d > dist_xy(prev, p) + 1e-3 && nearest <= PASS_REACH.min(range);
+        let pressed = d <= range
+            && self.best < f32::MAX
+            && now - self.best_at.max(self.running_since) >= PRESSED_SECS;
+        passed || pressed
+    }
+
+    /// Whether a body on a strict route of `range` runs on, `d` from its point and `to_point`
+    /// degrees off facing it, `off` degrees off the point it aims at: it does through a bend it
+    /// can turn in and still pass the point within range, and it stops to turn at a sharp corner.
+    fn runs_on(&mut self, range: f32, d: f32, to_point: f32, off: f32, slack: f32) -> bool {
+        let (off, to_point) = (off.abs(), to_point.abs());
+        if self.corner && off > slack {
+            return false;
+        }
+        self.corner = false;
+        if off <= slack {
+            return true;
+        }
+        let running = self.running();
+        let reach = PASS_REACH.min(range);
+        if running && d <= reach && to_point < 90.0 {
+            // As good as there: it passes the point within range.
+            return true;
+        }
+        let (limit, room) = if running {
+            (self.config.sharp_turn + BEND_LAG, 1.0)
+        } else {
+            (self.config.sharp_turn, 0.7)
+        };
+        // Turning as hard as it can, the body runs round a circle, and misses a point inside it
+        // by the point's distance from the circle.
+        let r = self.turning_radius();
+        let to_center =
+            (d * d + r * r - 2.0 * d * r * sinf(to_point.min(90.0).to_radians())).max(0.0);
+        let miss = r - to_center.sqrt();
+        off <= limit && miss <= room * reach.max(self.config.arrive.min(range))
+    }
+
+    /// The heading to set this frame to ease a running body round toward one `off` degrees away,
+    /// the turn needing `least` degrees a second at the least; `None` where it is left be.
+    #[allow(clippy::cast_possible_truncation)]
+    fn ease(&mut self, facing: f32, off: f32, least: f32) -> Option<f32> {
+        let settled = if self.swing == 0.0 { FACE_SLACK } else { EASED };
+        if off.abs() <= settled {
+            self.swing = 0.0;
+            return None;
+        }
+        if self.swing * off < 0.0 {
+            self.swing = 0.0;
+        }
+        let dt = self.frame as f32;
+        let wanted = (off.abs() / EASE_SECS)
+            .max(least)
+            .min(self.turn_rate)
+            .copysign(off);
+        self.swing += (wanted - self.swing) * (dt / EASE_GATHER_SECS).min(1.0);
+        let step = self.swing * dt;
+        let by = if step.abs() + 1e-3 >= off.abs() {
+            off
+        } else {
+            step
+        };
+        Some((facing + by).rem_euclid(360.0))
     }
 
     /// How far a body at `here` is from the leg into waypoint `next`, across and up or down.
@@ -423,14 +602,28 @@ impl Follower {
         let here = global(at);
         self.learn(here, facing, now);
         let prev = self.last.map_or(here, |l| l.here);
-        if self.last.is_some_and(|l| !l.forward) {
-            // Turning standing, or waiting at a door: no lack of progress.
+        let strict = self.config.strict;
+        if strict.is_none() && self.last.is_some_and(|l| !l.forward) {
+            // Turning standing, or waiting at a door: no lack of progress. On a strict route,
+            // which is never planned again, a body that cannot so much as turn is stuck.
             self.best_at = now;
         }
         let stride = self.stride();
         let last = self.path.waypoints.len().saturating_sub(1);
+        if let (Some(_), None, Some(first)) = (strict, self.last, self.path.waypoints.get(1)) {
+            // Setting out: a first point far round to one side is a corner like another, and
+            // taken up on the run a bend as far round as one run out of.
+            self.best_at = now;
+            self.running_since = now;
+            let p = global(&first.position);
+            let sharp = self.config.sharp_turn + if self.under_way { BEND_LAG } else { 0.0 };
+            self.corner = dist_xy(here, p) > self.config.arrive
+                && turn_between(heading_to(here, p), facing).abs() > sharp;
+        }
         loop {
             if self.next > last {
+                // Whether it arrived running, for a route taken up from here.
+                self.under_way = self.running();
                 self.last = None;
                 return Steer::Arrived;
             }
@@ -448,14 +641,22 @@ impl Follower {
                 close = close.max(0.5 * stride);
             }
             let level = (here.z - p.z).abs() <= REACH_RISE;
-            let reached = (level
-                && (dist_xy(here, p) <= close
-                    || point_segment_dist_sq(flat(p, here), flat(prev, here), here)
-                        <= close * close))
-                || (!stop && !sharp && self.crossed(self.next, here))
-                || self.at_shut_door(self.next, here);
+            let reached = match strict {
+                Some(range) => self.honored(self.next, here, prev, now, range),
+                None => {
+                    (level
+                        && (dist_xy(here, p) <= close
+                            || point_segment_dist_sq(flat(p, here), flat(prev, here), here)
+                                <= close * close))
+                        || (!stop && !sharp && self.crossed(self.next, here))
+                        || self.at_shut_door(self.next, here)
+                }
+            };
             if !reached {
                 break;
+            }
+            if strict.is_some() {
+                self.corner = sharp;
             }
             // Reached: a door here is opened before walking on.
             if let Some(WaypointAction::OpenDoor(id)) = w.action {
@@ -475,7 +676,7 @@ impl Follower {
             self.best_at = now;
         }
         let (across, rise) = self.off_leg(here);
-        if across > LOST_ACROSS || rise.abs() > LOST_RISE {
+        if strict.is_none() && (across > LOST_ACROSS || rise.abs() > LOST_RISE) {
             // Off the route, on another floor or far to one side: no steering brings it back.
             self.stuck_events += 1;
             self.last = None;
@@ -491,7 +692,7 @@ impl Follower {
         } else if now - self.best_at > self.config.stuck_after {
             self.best_at = now;
             let leg = self.next - 1;
-            if self.path.legs.get(leg).is_some_and(|l| l.len() >= 2) {
+            if strict.is_none() && self.path.legs.get(leg).is_some_and(|l| l.len() >= 2) {
                 // Walk the leg through the places the search went through, from the one nearest
                 // the body.
                 let places = self.path.legs[leg].len();
@@ -521,35 +722,78 @@ impl Follower {
             self.turning_radius().max(1.5 * stride).min(FAR_AIM)
         };
         let aim = self.aim(here, reach);
-        let heading = heading_to(here, aim);
+        let mut heading = heading_to(here, aim);
+        let to_point = turn_between(heading_to(here, target), facing);
+        let running = self.running();
+        if let Some(range) = strict {
+            // Close on a point it will pass as it faces, the body does not chase it round.
+            if running
+                && d <= 2.0 * self.config.arrive
+                && to_point.abs() < 90.0
+                && d * sinf(to_point.abs().to_radians()) <= 0.8 * self.config.arrive.min(range)
+            {
+                heading = facing;
+            }
+        }
         let off = turn_between(heading, facing);
-        // A turn key held a whole frame turns the body this far.
         #[allow(clippy::cast_possible_truncation)]
-        let per_frame = self.turn_rate * self.frame as f32;
-        // Held, it turns the body a whole frame's turning from where it faces now: only for a
-        // turn at least that large, or it overshoots and is turned back. Less is faced at once.
+        let (per_frame, per_step) = (
+            self.turn_rate * self.frame as f32,
+            self.turn_rate * self.frame.max(WORLD_STEP) as f32,
+        );
         let slack = self.config.turn_slack.max(per_frame);
-        let turn = if off > slack {
-            Some(true)
-        } else if off < -slack {
-            Some(false)
-        } else {
-            None
-        };
-        // Faced at once, it needs no slack against flicking a key, only against turning for
-        // nothing; where a frame's turning is within the slack the key steers finely enough.
-        let face = (turn.is_none() && per_frame > self.config.turn_slack && off.abs() > FACE_SLACK)
-            .then_some(heading);
-        // Run while the point aimed at lies on or outside the turning circle that sets off along
-        // the body's facing: a circle through it, tangent to the facing, has radius
-        // `distance / (2 sin off)`. Running, the body keeps on until it is well inside; standing,
-        // it sets off once it is well outside, so it does not stop and start frame by frame.
         let across = dist_xy(here, aim);
-        let s = sinf(off.abs().to_radians());
-        let running = self.last.is_some_and(|l| l.forward);
-        let room = if running { 0.6 } else { 0.9 };
-        let forward = off.abs() <= slack
-            || (off.abs() < 90.0 && across >= 2.0 * room * self.turning_radius() * s);
+        let sine = sinf(off.abs().to_radians());
+        let forward = match strict {
+            Some(range) => self.runs_on(range, d, to_point, off, slack),
+            // Run while the point aimed at lies on or outside the turning circle that sets off
+            // along the body's facing: a circle through it, tangent to the facing, has radius
+            // `distance / (2 sin off)`. Running, the body keeps on until it is well inside;
+            // standing, it sets off once it is well outside, so it does not stop and start frame
+            // by frame.
+            None => {
+                let room = if running { 0.6 } else { 0.9 };
+                off.abs() <= slack
+                    || (off.abs() < 90.0 && across >= 2.0 * room * self.turning_radius() * sine)
+            }
+        };
+        if forward && !running {
+            self.running_since = now;
+        }
+        // A key is pressed for a turn past the band, and only for one at least a frame's turning,
+        // or it overshoots and is turned back. Once down it is held until what is left is less
+        // than one of the world's steps turns the body.
+        let band = if forward {
+            RUN_BAND.max(per_frame)
+        } else {
+            slack
+        };
+        let held = self
+            .last
+            .and_then(|l| l.turn)
+            .is_some_and(|right| right == (off > 0.0) && off.abs() > per_step);
+        let turn = (held || off.abs() > band).then_some(off > 0.0);
+        let face = if let Some(right) = turn {
+            self.swing = if right {
+                self.turn_rate
+            } else {
+                -self.turn_rate
+            };
+            None
+        } else if forward {
+            // At a run the turn keeps pace with the arc that carries the body onto its aim.
+            let least = if strict.is_some() && across > self.config.arrive {
+                (2.0 * self.speed * sine / across).to_degrees()
+            } else {
+                0.0
+            };
+            self.ease(facing, off, least)
+        } else {
+            self.swing = 0.0;
+            // Standing, the last of a turn is faced at once where a key held one frame would
+            // overshoot it; otherwise a turn that small is left be.
+            (per_frame > self.config.turn_slack && off.abs() > FACE_SLACK).then_some(heading)
+        };
         self.last = Some(Seen {
             here,
             facing,
@@ -990,9 +1234,13 @@ mod tests {
             }
         };
         // At five frames a second a turn key held one frame turns the body 27 degrees: a body
-        // 10 degrees off faces north at once, while at 60 frames a second it turns.
+        // 10 degrees off faces north at once, while at 60 frames a second it is eased round,
+        // less in the frame than a key held would turn it.
         assert_eq!(steer_at(10.0, 0.2), (None, Some(0.0)));
-        assert_eq!(steer_at(10.0, 1.0 / 60.0), (Some(false), None));
+        match steer_at(10.0, 1.0 / 60.0) {
+            (None, Some(h)) => assert!((10.0 - 135.0 / 60.0..10.0).contains(&h), "{h}"),
+            other => panic!("{other:?}"),
+        }
         // A body further off than a frame's turning turns, and one barely off is left be.
         assert_eq!(steer_at(40.0, 0.2), (Some(false), None));
         assert_eq!(steer_at(0.5, 0.2), (None, None));
@@ -1103,5 +1351,352 @@ mod tests {
                 d.last_leg_swing
             );
         }
+    }
+
+    /// What driving someone's own points strictly came to.
+    struct Walked {
+        arrived: bool,
+        stuck: bool,
+        /// The waypoints in the order they were counted reached.
+        reached: Vec<usize>,
+        /// Per point, how near the body came before it was counted reached.
+        nearest: Vec<f32>,
+        stops: u32,
+        stood_frames: u32,
+    }
+
+    /// Drive `points` strictly from the first, facing north.
+    fn walk_strictly(points: &[(f32, f32)], range: f32, fps: f64, speed: f32) -> Walked {
+        let pts: Vec<Vec3> = points.iter().map(|&(x, y)| Vec3::new(x, y, 0.0)).collect();
+        let mut path = route_through(points);
+        path.cuts.clear();
+        path.legs.clear();
+        let mut body = Body {
+            x: pts[0].x,
+            y: pts[0].y,
+            heading: 0.0,
+            now: 0.0,
+            speed,
+            turn_rate: 129.0,
+        };
+        let config = FollowConfig {
+            speed,
+            turn_rate: 129.0,
+            ..FollowConfig::strict(range, 6.0)
+        };
+        let mut f = Follower::new(path, config);
+        let mut out = Walked {
+            arrived: false,
+            stuck: false,
+            reached: Vec::new(),
+            nearest: vec![f32::MAX; pts.len()],
+            stops: 0,
+            stood_frames: 0,
+        };
+        let (mut running, mut prev) = (false, pts[0]);
+        while body.now < 300.0 {
+            let here = Vec3::new(body.x, body.y, 0.0);
+            let next = f.next_waypoint();
+            for (p, nearest) in pts.iter().zip(&mut out.nearest).skip(next) {
+                *nearest = nearest.min(point_segment_dist_sq(*p, prev, here).sqrt());
+            }
+            prev = here;
+            let dt = 1.0 / fps;
+            body.now += dt;
+            let step = f.update(&at(body.x, body.y), body.heading, body.now);
+            out.reached.extend(next..f.next_waypoint());
+            match step {
+                Steer::Arrived => {
+                    out.arrived = true;
+                    break;
+                }
+                Steer::Go {
+                    forward,
+                    turn,
+                    face,
+                    ..
+                } => {
+                    out.stops += u32::from(running && !forward);
+                    out.stood_frames += u32::from(!forward);
+                    running = forward;
+                    if let Some(h) = face {
+                        body.heading = h;
+                    }
+                    body.frame(dt, forward, turn);
+                }
+                Steer::Stuck { .. } => {
+                    out.stuck = true;
+                    break;
+                }
+                s @ Steer::OpenDoor(_) => panic!("{s:?}"),
+            }
+        }
+        out
+    }
+
+    /// Points `gap` apart from the origin, the route turning by each of `bends` at the next.
+    fn bending(gap: f32, bends: &[f32]) -> Vec<(f32, f32)> {
+        let (mut x, mut y, mut h) = (0.0_f32, 0.0_f32, 0.0_f32);
+        let mut out = vec![(x, y)];
+        for &bend in std::iter::once(&0.0).chain(bends) {
+            h += bend;
+            x += gap * sinf(h.to_radians());
+            y += gap * dereth_primitives::num::math::cosf(h.to_radians());
+            out.push((x, y));
+        }
+        out
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-honors-every-point-within-its-range
+    #[test]
+    fn a_strict_route_comes_within_range_of_every_point_in_order_at_any_frame_rate() {
+        let routes = [
+            bending(4.0, &[10.0; 12]),
+            bending(6.5, &[9.5; 37]),
+            bending(10.0, &[20.0, -40.0, 30.0, -25.0, 44.0, -30.0]),
+            bending(8.0, &[90.0, -135.0, 60.0, 0.0, 180.0, 75.0]),
+            bending(3.0, &[35.0, 35.0, -70.0, 20.0]),
+        ];
+        for (n, points) in routes.iter().enumerate() {
+            for range in [0.5_f32, 1.0, 3.0] {
+                for fps in [144.0, 60.0, 30.0, 15.0] {
+                    let w = walk_strictly(points, range, fps, 11.4);
+                    let case = format!("route {n}, range {range}, {fps} frames a second");
+                    assert!(w.arrived && !w.stuck, "{case}: {:?}", w.reached);
+                    assert_eq!(w.reached, (1..points.len()).collect::<Vec<_>>(), "{case}");
+                    for (i, d) in w.nearest.iter().enumerate().skip(1) {
+                        assert!(*d <= range + 1e-3, "{case}: {d:.2} m from point {i}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-cuts-no-corner
+    #[test]
+    fn a_strict_route_runs_up_to_a_corner_before_it_turns_however_wide_its_range() {
+        // Legs long enough to settle on, and corners a planned route would cut three metres off.
+        let points = bending(14.0, &[90.0, -90.0, 120.0]);
+        for fps in [144.0, 30.0] {
+            let w = walk_strictly(&points, 5.0, fps, 8.0);
+            assert!(w.arrived, "{fps}");
+            for (i, d) in w.nearest.iter().enumerate().skip(1) {
+                assert!(*d <= 0.7, "{fps} frames a second: {d:.2} m from point {i}");
+            }
+            assert!(w.stops >= 3, "{fps}: each sharp corner is turned standing");
+        }
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-cuts-no-corner
+    #[test]
+    fn a_strict_route_runs_out_each_short_leg_of_a_zigzag_within_its_range() {
+        // Two metres between corners of 120 degrees, each next point behind and within range.
+        let points = bending(2.0, &[0.0, 0.0, 120.0, -120.0, 120.0, -120.0]);
+        for fps in [144.0, 60.0, 30.0] {
+            let w = walk_strictly(&points, 3.0, fps, 8.0);
+            assert!(w.arrived, "{fps}");
+            for (i, d) in w.nearest.iter().enumerate().skip(1) {
+                assert!(*d <= 0.7, "{fps} frames a second: {d:.2} m from point {i}");
+            }
+        }
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-runs-through-bends-without-stopping
+    #[test]
+    fn a_strict_route_runs_through_bends_under_the_sharp_angle_without_stopping() {
+        let routes = [
+            (bending(5.0, &[9.5; 37]), 0.5),
+            (bending(4.0, &[10.0; 20]), 1.0),
+            (bending(9.0, &[25.0, -30.0, 20.0, -25.0]), 2.0),
+            (bending(14.0, &[44.0, -40.0, 35.0, -44.0]), 3.0),
+        ];
+        for (n, (points, range)) in routes.iter().enumerate() {
+            for fps in [144.0, 60.0, 30.0] {
+                let w = walk_strictly(points, *range, fps, 11.4);
+                assert!(w.arrived, "route {n}, {fps}");
+                assert_eq!(
+                    (w.stops, w.stood_frames),
+                    (0, 0),
+                    "route {n}, {fps} frames a second: stops, frames standing"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_strict_route_taken_up_on_the_run_goes_on_running_through_the_bend_between() {
+        let mut first = Follower::new(
+            route_through(&[(0.0, 0.0), (0.0, 10.0)]),
+            FollowConfig::strict(2.0, 6.0),
+        );
+        assert!(matches!(
+            first.update(&at(0.0, 9.0), 0.0, 1.0),
+            Steer::Go { forward: true, .. }
+        ));
+        assert_eq!(first.update(&at(0.0, 9.6), 0.0, 1.05), Steer::Arrived);
+        // Fifty degrees round: further than a standing body sets off at.
+        let next = route_through(&[(0.0, 9.6), (9.0, 17.1)]);
+        let config = FollowConfig::strict(3.0, 6.0);
+        let mut fresh = Follower::new(next.clone(), config);
+        assert!(matches!(
+            fresh.update(&at(0.0, 9.6), 0.0, 1.1),
+            Steer::Go { forward: false, .. }
+        ));
+        // Taken up on the run, it is run through.
+        let mut carried = first.then(next, config);
+        assert_eq!(carried.pace(), first.pace());
+        assert!(matches!(
+            carried.update(&at(0.0, 9.6), 0.0, 1.1),
+            Steer::Go { forward: true, .. }
+        ));
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-honors-every-point-within-its-range
+    #[test]
+    fn a_point_passed_is_counted_only_within_range() {
+        // Running north, a metre and a half west of the first point as it goes by.
+        let pass = |range: f32| {
+            let mut f = Follower::new(
+                route_through(&[(0.0, 0.0), (1.5, 10.0), (1.5, 30.0)]),
+                FollowConfig::strict(range, 6.0),
+            );
+            let _ = f.update(&at(0.0, 0.0), 8.5, 0.0);
+            f.last = f.last.map(|l| Seen { forward: true, ..l });
+            let (by, past) = (global(&at(0.0, 10.0)), global(&at(0.0, 10.4)));
+            f.honored(1, past, by, 1.0, range)
+        };
+        assert!(pass(2.0), "passed within two metres: reached");
+        assert!(!pass(1.0), "passed beyond a metre: still to reach");
+    }
+
+    /// Behaviour: plugins.nav.a-path-move-honors-every-point-within-its-range
+    #[test]
+    fn a_point_something_stands_on_is_reached_within_range_and_stuck_beyond_it() {
+        // The body is stopped a metre and a half short of the first point.
+        let blocked = |range: f32| {
+            let mut f = Follower::new(
+                route_through(&[(0.0, 0.0), (0.0, 10.0), (10.0, 10.0)]),
+                FollowConfig::strict(range, 6.0),
+            );
+            let (mut now, mut y) = (0.0, 0.0_f32);
+            while now < 20.0 {
+                now += 1.0 / 30.0;
+                y = (y + 8.0 / 30.0).min(8.5);
+                match f.update(&at(0.0, y), 0.0, now) {
+                    Steer::Go { waypoint: 2, .. } => return Ok(now),
+                    Steer::Stuck { waypoint } => return Err((waypoint, now)),
+                    _ => {}
+                }
+            }
+            panic!("neither reached nor stuck");
+        };
+        assert!(blocked(2.0).is_ok_and(|t| t < 2.5));
+        assert!(blocked(1.0).is_err_and(|(i, t)| i == 1 && (6.0..9.0).contains(&t)));
+    }
+
+    #[test]
+    fn a_strict_route_looks_at_no_heights_and_is_never_lost() {
+        let mut path = route_through(&[(0.0, 0.0), (0.0, 20.0)]);
+        path.waypoints[1].position.frame.origin.z = 84.0;
+        let mut f = Follower::new(path, FollowConfig::strict(1.0, 6.0));
+        // Pushed ten metres to one side, it walks back to its point.
+        assert!(matches!(
+            f.update(&at(0.0, 2.0), 0.0, 0.1),
+            Steer::Go { .. }
+        ));
+        assert!(matches!(
+            f.update(&at(10.0, 2.0), 0.0, 0.2),
+            Steer::Go { .. }
+        ));
+        assert_eq!(f.update(&at(0.0, 19.8), 0.0, 3.0), Steer::Arrived);
+    }
+
+    /// Behaviour: plugins.nav.steering-through-a-bend-never-taps-the-turn-keys
+    #[test]
+    fn a_curve_is_steered_through_without_tapping_the_turn_keys_or_snapping_round() {
+        let points = bending(6.5, &[9.5; 20]);
+        let strictly = FollowConfig::strict(1.0, 6.0);
+        for (cut, config) in [(3.0, FollowConfig::default()), (0.0, strictly)] {
+            let mut path = route_through(&points);
+            path.cuts = vec![cut; points.len()];
+            for fps in [144.0, 60.0, 30.0] {
+                let mut f = Follower::new(path.clone(), config);
+                let mut body = Body {
+                    x: 0.0,
+                    y: 0.0,
+                    heading: 0.0,
+                    now: 0.0,
+                    speed: 11.4,
+                    turn_rate: 129.0,
+                };
+                let (mut presses, mut held, mut most) = (0, None, 0.0_f32);
+                while body.now < 60.0 {
+                    body.now += 1.0 / fps;
+                    let Steer::Go {
+                        forward,
+                        turn,
+                        face,
+                        ..
+                    } = f.update(&at(body.x, body.y), body.heading, body.now)
+                    else {
+                        break;
+                    };
+                    presses += u32::from(turn.is_some() && turn != held);
+                    held = turn;
+                    if let Some(h) = face {
+                        most = most.max(turn_between(h, body.heading).abs());
+                        body.heading = h;
+                    }
+                    body.frame(1.0 / fps, forward, turn);
+                }
+                assert!(f.next_waypoint() >= points.len(), "{fps}: not arrived");
+                assert_eq!(presses, 0, "cut {cut}, {fps} frames a second: keys tapped");
+                #[allow(clippy::cast_possible_truncation)]
+                let turns_a_frame = 136.0 / fps as f32;
+                assert!(most <= turns_a_frame, "cut {cut}, {fps}: snapped {most:.1}");
+            }
+        }
+    }
+
+    /// Behaviour: plugins.nav.steering-through-a-bend-never-taps-the-turn-keys
+    #[test]
+    fn a_turn_past_the_band_holds_its_key_until_a_steps_turning_is_left() {
+        let mut f = Follower::new(
+            route_through(&[(0.0, 0.0), (0.0, 80.0)]),
+            FollowConfig::default(),
+        );
+        let mut body = Body {
+            x: 0.0,
+            y: 0.0,
+            heading: 35.0,
+            now: 0.0,
+            speed: 8.0,
+            turn_rate: 135.0,
+        };
+        let mut presses = Vec::new();
+        let mut held = None;
+        while body.now < 2.0 {
+            body.now += 1.0 / 60.0;
+            let Steer::Go {
+                forward,
+                turn,
+                face,
+                ..
+            } = f.update(&at(body.x, body.y), body.heading, body.now)
+            else {
+                break;
+            };
+            if turn != held {
+                presses.push((turn, turn_between(body.heading, 0.0)));
+                held = turn;
+            }
+            if let Some(h) = face {
+                body.heading = h;
+            }
+            body.frame(1.0 / 60.0, forward, turn);
+        }
+        assert_eq!(presses.len(), 2, "pressed once, let go once: {presses:?}");
+        assert_eq!(presses[0].0, Some(false));
+        assert!(presses[1].1 < 10.0, "held nearly round: {presses:?}");
     }
 }

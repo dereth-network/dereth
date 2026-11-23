@@ -327,6 +327,7 @@ impl<S: Shell> App<S> {
             player_moves: 0,
             hook_player_moves: 0,
             travel_player_moves: 0,
+            steered_heading_sent: 0.0,
             places_house_notices: 0,
             last_link_status: None,
             last_rejected: 0,

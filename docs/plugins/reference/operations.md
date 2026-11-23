@@ -372,7 +372,7 @@ Save a text file to the plugin's data folder (at most 4 MiB, 1000 files).
 
 ### `act.request`
 
-Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`.
+Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `nav.move_along`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`.
 
 - WIT: `act-request: func(action: string, args: value) -> result<option<s64>, string>`
 - Lua: through the Lua API ([api.md](../api.md))

@@ -28,7 +28,7 @@ order:
    items added, moved and removed, each in id order; then `items.appraised`, in id order.
 6. **Commerce**: `commerce.vendor_closed` then `commerce.vendor_opened`; then the trade's
    `commerce.trade_opened`, `commerce.trade_changed` or `commerce.trade_closed`.
-7. **Actions**: a journey's `nav.journey_planned`, `nav.journey_leg` and `nav.journey_learned`,
+7. **Actions**: each move along's `nav.point_reached`, a journey's `nav.journey_planned`, `nav.journey_leg` and `nav.journey_learned`,
    in the order they happened, to the plugin whose journey it is; then `action.completed` and
    `action.failed`, each to the plugin whose action it was, after the state changes that settled
    it.
@@ -91,6 +91,7 @@ are not changes.
 | `action.completed` | `id`, `action` (its name, `items.move`), `value` (an appraisal's table; nil for most) |
 | `service.call` | `id`, `from` (the calling plugin), `service`, `args`, `gesture`: a call to a service this plugin offers ([services.md](services.md)); the Lua interface answers it with the offered function |
 | `action.failed` | `id`, `action`, `reason` (see [actions](actions.md#how-an-action-ends)), and for a journey a shut door stopped `door` (`object`, `name`, `why`, `resist`: see [a shut door](nav.md#a-shut-door)) |
+| `nav.point_reached` | `id` (the move along's promise), `index` (of the point reached, from 1): a move along of this plugin's reached one of its points ([nav](nav.md#moving-along-a-path)) |
 | `nav.journey_planned` | `id` (the journey's promise), `legs`, `seconds`, `reason` (why it was planned again, or nil): a journey of this plugin's was planned ([nav](nav.md#journeys)) |
 | `nav.journey_leg` | `id`, `index` (from 1), `kind` (`walk`, `door`, `portal`, `recall` or `hand_back`), `to`, and by kind `path`, `object`, `name`, `class`, `from`, `source`, `recall`, `item`, `token`, and a door's `resist` (its lock's, once appraised): a leg of the journey began |
 | `nav.journey_learned` | `id`, `kind` (`portal`, `refusal` or `recall`), `name`, `to`, `reason`, `recall`: what a use on the journey taught |

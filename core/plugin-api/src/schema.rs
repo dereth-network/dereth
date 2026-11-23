@@ -158,7 +158,7 @@ pub const OPS: &[Op] = &[
     Op { name: "files.package_list", lua: Some("files.package_list"), params: &[], result: Some(Ty::Value),
          doc: "Every file of the plugin's own package, by path." },
     Op { name: "act.request", lua: None, params: &[p("action", Ty::Str), p("args", Ty::Value)], result: Some(OPT_INT),
-         doc: "Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`." },
+         doc: "Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `nav.move_along`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`." },
     Op { name: "nav.owner", lua: Some("nav.owner"), params: &[], result: Some(OPT_STR),
          doc: "The plugin moving the character, or none." },
     Op { name: "nav.journey", lua: Some("nav.journey"), params: &[], result: Some(Ty::Value),

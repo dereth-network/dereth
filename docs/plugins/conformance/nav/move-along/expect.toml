@@ -1,0 +1,14 @@
+says = "A move along runs through each of a plugin's places in turn with the forward key, never the run lock: each is told in order as it is reached, gentle bends are run through, the next movement takes the run over, and one that gets no nearer fails stuck with the key let go."
+[scenario]
+world = "scripted"
+seconds = 30
+[[wall]]
+from = [42.375, 33.83]
+to = [42.375, 33.91]
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+status = "running"
+moves = ["hold forward", "let go forward"]
+console = ["none\tfalse", "reached\t1\ttrue", "reached\t2\ttrue", "reached\t3\ttrue", "reached\t4\ttrue", "arrived\t4\ttrue", "beyond the wall\tfalse\tstuck"]

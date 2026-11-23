@@ -27,6 +27,9 @@ pub(crate) mod inventory;
 
 pub(crate) mod navigator;
 
+/// Routes run smoothly, and what a movement leaves held for the next.
+pub(crate) mod routes;
+
 /// The samples' windows: what each command changes, in the window too.
 pub(crate) mod windows;
 
@@ -105,6 +108,8 @@ dereth_testkit::scenarios! {
     scenario_a_follow_holds_within_range_until_stopped => a_follow_holds_within_range_until_stopped ["plugins.nav.a-follow-holds-within-range-until-stopped"],
     scenario_a_held_motion_presses_a_movement_control_for_the_time_asked => a_held_motion_presses_a_movement_control_for_the_time_asked ["plugins.nav.a-held-motion-presses-a-movement-control-for-the-time-asked"],
     scenario_a_jump_faces_its_heading_charges_for_the_time_asked_and_leaps_the_way_held => a_jump_faces_its_heading_charges_for_the_time_asked_and_leaps_the_way_held ["plugins.nav.a-jump-faces-its-heading-charges-for-the-time-asked-and-leaps-the-way-held"],
+    scenario_a_path_move_runs_through_its_points_with_the_forward_key => a_path_move_runs_through_its_points_with_the_forward_key ["plugins.nav.a-path-move-runs-through-its-points-with-the-forward-key"],
+    scenario_a_move_chained_on_arrival_keeps_the_run_lock => a_move_chained_on_arrival_keeps_the_run_lock ["plugins.nav.a-move-chained-on-arrival-keeps-the-run-lock"],
     scenario_a_vtank_route_is_walked_point_by_point => a_vtank_route_is_walked_point_by_point ["plugins.nav.a-vtank-route-is-walked-point-by-point"],
     scenario_a_journey_reaches_a_dungeon_through_the_portal_that_leads_there => a_journey_reaches_a_dungeon_through_the_portal_that_leads_there ["plugins.nav.a-journey-reaches-a-dungeon-through-the-portal-that-leads-there"],
     scenario_a_refused_portal_is_learned_and_the_journey_planned_again => a_refused_portal_is_learned_and_the_journey_planned_again ["plugins.nav.a-refused-portal-is-learned-and-the-journey-planned-again"],
@@ -865,6 +870,16 @@ fn a_jump_faces_its_heading_charges_for_the_time_asked_and_leaps_the_way_held() 
     note_asserted(
         "plugins.nav.a-jump-faces-its-heading-charges-for-the-time-asked-and-leaps-the-way-held",
     );
+}
+
+fn a_path_move_runs_through_its_points_with_the_forward_key() {
+    assert_case("nav", "move-along");
+    note_asserted("plugins.nav.a-path-move-runs-through-its-points-with-the-forward-key");
+}
+
+fn a_move_chained_on_arrival_keeps_the_run_lock() {
+    assert_case("nav", "move-chain");
+    note_asserted("plugins.nav.a-move-chained-on-arrival-keeps-the-run-lock");
 }
 
 fn a_vtank_route_is_walked_point_by_point() {

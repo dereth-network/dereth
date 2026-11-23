@@ -120,6 +120,10 @@ pub const EVENTS: &[(&str, &str)] = &[
          no_answer, no_lever, lever_failed), resist (its lock's, once appraised) })",
     ),
     (
+        "nav.point_reached",
+        "id (the move along's promise), index (of the point reached, from 1)",
+    ),
+    (
         "nav.journey_planned",
         "id (the journey's promise), legs, seconds, reason (why it was planned again, or nil)",
     ),

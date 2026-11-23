@@ -124,7 +124,7 @@ interface host {
     /// Every file of the plugin's own package, by path.
     files-package-list: func() -> result<value, string>;
 
-    /// Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`.
+    /// Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `nav.move_along`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`.
     act-request: func(action: string, args: value) -> result<option<s64>, string>;
 
     /// The plugin moving the character, or none.

@@ -130,6 +130,9 @@ pub struct HookFrame<'a> {
     /// walk it to something used or attacked, or through a stance change or a teleport): a hook's
     /// movement gives way to it.
     pub server_moving: bool,
+    /// The objects whose use the server answered as locked (a locked door, a locked chest) since
+    /// the hook last ran.
+    pub locked: &'a [dereth_primitives::ObjectId],
     /// The messages of this frame, while the hook asks for them ([`FrameHook::wants_messages`]):
     /// those received, in the order the client applied them, then those it sent.
     pub messages: &'a [WireMessage],
@@ -359,6 +362,10 @@ pub enum NavRequest {
     /// Turn to a heading, in degrees clockwise from north, with the client's turn-to-heading
     /// movement (the one the camera uses in first person).
     Face(f32),
+    /// Set the heading at once, in degrees clockwise from north, whatever the character is
+    /// doing: a frame's part of steering round while it runs, which a turn-to-heading would
+    /// stop.
+    Heading(f32),
     /// Set the run lock on or off.
     Autorun(bool),
     /// Press (`true`) or let go of one of the game's movement controls, as the game's own
@@ -474,6 +481,7 @@ impl<'a> HookFrame<'a> {
             places: &NO_PLACES,
             player_input: false,
             server_moving: false,
+            locked: &[],
             messages: &[],
             travel: &NO_TRAVEL,
             travel_store: None,
@@ -546,6 +554,13 @@ impl<'a> HookFrame<'a> {
     pub fn with_control(mut self, player_input: bool, server_moving: bool) -> Self {
         self.player_input = player_input;
         self.server_moving = server_moving;
+        self
+    }
+
+    /// The same frame, with the objects the server answered as locked since the hook last ran.
+    #[must_use]
+    pub const fn with_locked(mut self, locked: &'a [dereth_primitives::ObjectId]) -> Self {
+        self.locked = locked;
         self
     }
 

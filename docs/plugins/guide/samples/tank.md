@@ -43,7 +43,9 @@ the most pressing thing:
    and `-Mana` with what it has, keeps its buffs up (its buff items too), casts its helper buffs,
    refills worn items' mana, keeps its pack (salvage bags combined, stacks merged, the main pack
    crammed into the side packs), and otherwise rests in peace mode;
-9. walks the route, a leg at a time, or follows its leader (a follow route); a leg stops as soon
+9. walks the route, a leg at a time (a stretch of plain waypoints in sight run through as one
+   movement, as far as the next waypoint with something to do), or follows its leader (a follow
+   route); a leg stops as soon
    as a monster, a corpse or low health wants attention.
 
 **Start, Pause and Stop.** VTank's Run Macro switch works as a pause [std]: so does the Tank's

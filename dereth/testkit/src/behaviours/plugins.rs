@@ -921,6 +921,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-move-chained-on-arrival-keeps-the-run-lock",
+        says: "A plugin's move to a place started within a frame or two of its last one's arrival \
+               takes the run lock over: moves in a row set it once, and it is let go once, after \
+               the last.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-CHAIN"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_move_chained_on_arrival_keeps_the_run_lock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-move-turns-toward-the-place-runs-and-stops-within-range",
         says: "A move to a place turns the character toward it, runs with the run lock while it is ahead, \
                and lets the run lock go within range, where its promise settles.",
@@ -928,6 +939,61 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-MOVE"),
         station: "dereth-testkit::cpu::plugins::scenario_a_move_turns_toward_the_place_runs_and_stops_within_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-path-move-cuts-no-corner",
+        says: "A move along a plugin's own points cuts no corner: however wide its range, the \
+               character runs up to each point before it turns for the next, and turns standing \
+               at a corner sharper than 45 degrees.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATH-NO-CUT"),
+        station: "dereth-navigation::lib::follow::tests::a_strict_route_runs_up_to_a_corner_before_it_turns_however_wide_its_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-path-move-honors-every-point-within-its-range",
+        says: "A move along a plugin's own points comes within its range of every one, in order, \
+               at any frame rate, on gentle bends and sharp corners alike; a point something \
+               stands on counts reached from within range, and beyond it the move fails stuck.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATH-HONORED"),
+        station: "dereth-navigation::lib::follow::tests::a_strict_route_comes_within_range_of_every_point_in_order_at_any_frame_rate",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-path-move-opens-a-shut-door-on-its-way",
+        says: "A move along stops at a shut door across its way, uses it, and once it stands open \
+               runs on through it; a door the server says is locked, or one still shut after four \
+               uses, ends the move, saying which door and why.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATH-DOORS"),
+        station: "dereth-testkit::cpu::plugins::routes::scenario_a_path_move_opens_a_shut_door_across_its_way_and_runs_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-path-move-runs-through-bends-without-stopping",
+        says: "A move along a plugin's own points runs through bends of less than 45 degrees \
+               without letting the forward key go, where the character can turn in them and come \
+               within range of the point after.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATH-BENDS"),
+        station: "dereth-navigation::lib::follow::tests::a_strict_route_runs_through_bends_under_the_sharp_angle_without_stopping",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-path-move-runs-through-its-points-with-the-forward-key",
+        says: "A move along runs through each of a plugin's places in turn with the forward key and \
+               never the run lock, telling each in order as it is reached; the plugin's next takes \
+               the run over, and one that gets no nearer fails stuck with the key let go.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-MOVE-ALONG"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_path_move_runs_through_its_points_with_the_forward_key",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1002,6 +1068,26 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-FRAME-RATE"),
         station: "dereth-navigation::dat::steering::academy_routes_that_went_wrong_are_driven_to_their_end_at_60_20_10_and_5_frames_a_second",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "plugins.nav.a-route-runs-its-plain-points-as-one-movement",
+        says: "A route of plain points is run through, round its wrap too, with the forward key \
+               pressed once: no stop, no run lock, and each point told in order.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-ROUTE-RUNS"),
+        station: "dereth-testkit::cpu::plugins::routes::scenario_a_route_runs_its_plain_points_as_one_movement",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.a-route-stops-where-it-has-something-to-do",
+        says: "A route stands for a pause and for a point's callback that waits, goes on after, \
+               and stops where a callback raises an error.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-ROUTE-STOPS"),
+        station: "dereth-testkit::cpu::plugins::routes::scenario_a_route_stops_where_it_has_something_to_do",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "plugins.nav.a-route-to-an-upstairs-room-ends-on-its-floor",
@@ -1227,6 +1313,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.steering-through-a-bend-never-taps-the-turn-keys",
+        says: "Steering at a run, a journey or a move along taps no turn key along a curve: a bend \
+               inside twenty degrees is eased through, no faster than the keys turn, and a key \
+               pressed for a larger turn is held until it is all but done.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-STEERING-SMOOTH"),
+        station: "dereth-navigation::lib::follow::tests::a_curve_is_steered_through_without_tapping_the_turn_keys_or_snapping_round",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.the-players-own-movement-ends-a-plugins-movement-and-comes-first",
         says: "The player's own movement ends a plugin's movement at once and leaves the run lock to the \
                player; for five seconds after it, a movement no gesture asked for is refused.",
@@ -1234,6 +1331,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PLAYER-FIRST"),
         station: "dereth-testkit::cpu::plugins::scenario_the_players_own_movement_ends_a_plugins_movement_and_comes_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.what-an-arrival-holds-is-let-go-of",
+        says: "What a movement that arrived ran with is let go of within two frames when none \
+               follows, at once at a stop or the plugin's unloading, and a frame before a use \
+               asked for after it, which is then made standing.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-CHAIN-LET-GO"),
+        station: "dereth-testkit::cpu::plugins::routes::scenario_what_an_arrival_holds_is_let_go_of",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2465,6 +2573,16 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-REVERSE-FAR"),
         station: "dereth-testkit::cpu::plugins::tank::scenario_the_tank_runs_a_reversed_route_backwards_and_stops_navigating_far_off_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-runs-through-its-routes-plain-waypoints",
+        says: "The Tank sample runs through its route's plain waypoints without letting the \
+               forward key go between them, and never by the run lock.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-ROUTE-RUNS"),
+        station: "dereth-testkit::cpu::plugins::routes::scenario_the_tank_runs_through_its_routes_plain_waypoints",
         tier: Tier::Cpu,
     },
     behaviour! {

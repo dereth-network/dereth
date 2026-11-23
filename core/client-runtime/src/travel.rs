@@ -401,8 +401,8 @@ pub enum TravelCommand {
     Jump,
     /// Hold the turn-left key (`Some(false)`), the turn-right key (`Some(true)`), or neither.
     Turn(Option<bool>),
-    /// Face this heading at once, degrees clockwise from north: the last of a turn, less than a
-    /// turn key held for one frame would turn.
+    /// Face this heading at once, degrees clockwise from north: this frame's part of a bend
+    /// steered through, or the last of a turn.
     Face(f32),
     /// Use this object: a door, a portal, a recall item.
     Use(ObjectId),

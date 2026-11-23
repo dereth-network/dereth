@@ -9,7 +9,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [Core](#core) | 25 |
 | [UI](#ui) | 16 |
 | [Overlay](#overlay) | 9 |
-| [Nav](#nav) | 18 |
+| [Nav](#nav) | 20 |
 | [Pregame](#pregame) | 3 |
 | [Peers](#peers) | 1 |
 | [Automation](#automation) | 18 |
@@ -94,6 +94,8 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`journey-stop`](../conformance/nav/journey-stop/) | nav.stop ends the plugin's journey, which fails as stopped; the player's own movement ends one as interrupted. | a scripted world |
 | [`jump`](../conformance/nav/jump/) | A jump faces its heading, charges for the time asked holding the walk key and the direction it leaps in, then leaps; with no direction it goes straight up; the player's own movement while it charges puts it down without a leap, and a charge past the full bar or an unknown direction is refused. | a scripted world |
 | [`motion`](../conformance/nav/motion/) | A held motion presses one of the game's movement controls, with the walk key when asked, for the time asked and lets it go; an unknown motion or one held longer than ten seconds is refused. | a scripted world |
+| [`move-along`](../conformance/nav/move-along/) | A move along runs through each of a plugin's places in turn with the forward key, never the run lock: each is told in order as it is reached, gentle bends are run through, the next movement takes the run over, and one that gets no nearer fails stuck with the key let go. | a scripted world |
+| [`move-chain`](../conformance/nav/move-chain/) | A plugin's move started as its last one arrives takes the run lock over: three moves in a row set it once, and it is let go once, after the last. | a scripted world |
 | [`move-to`](../conformance/nav/move-to/) | A move to a place turns the character toward it, runs with the run lock, and lets it go within range; the promise settles on arrival. | a scripted world |
 | [`path`](../conformance/nav/path/) | A walking route goes round a wall to a monster behind it, through a closed door in a wall's gap (naming the door to open), and not at all to a place walled in; a line of sight is blocked by a wall and by a closed door and clear across open ground; nothing moves the character. | a scripted world |
 | [`player-first`](../conformance/nav/player-first/) | The player's own movement ends a plugin's movement at once, and the run lock is then the player's: the host does not let go of it for them. | a scripted world |

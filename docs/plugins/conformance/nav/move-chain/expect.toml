@@ -1,0 +1,11 @@
+says = "A plugin's move started as its last one arrives takes the run lock over: three moves in a row set it once, and it is let go once, after the last."
+[scenario]
+world = "scripted"
+seconds = 14
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+status = "running"
+moves = ["face 90", "autorun on", "autorun off"]
+console = ["arrived\t1", "arrived\t2", "arrived\t3"]

@@ -228,6 +228,26 @@ api.nav = {
 		args.range = range
 		return request("nav.move_to", args)
 	end,
+	-- `nav.move_along(points, { range, on_point })`: one movement through a list of places,
+	-- strictly: run with the forward key and steered between them, each come within `range` of
+	-- (2 m) in turn and no corner cut. `on_point(i, point)` hears each reached.
+	move_along = function(points, opts)
+		opts = opts or {}
+		local p = request("nav.move_along", { points = points, range = opts.range })
+		if opts.on_point then
+			local function heard(e)
+				if e.id == p.id then
+					opts.on_point(e.index, points[e.index])
+				end
+			end
+			api.on("nav.point_reached", heard)
+			local function done()
+				api.off("nav.point_reached", heard)
+			end
+			p:next(done, done)
+		end
+		return p
+	end,
 	follow = function(object, range)
 		return request("nav.follow", { object = id_or(object), range = range })
 	end,
@@ -258,8 +278,10 @@ api.nav = {
 	autorun = function(on)
 		return request("nav.autorun", { on = on and true or false })
 	end,
-	stop = function()
-		hostcall("act.request", "nav.stop", {})
+	-- `nav.stop()`: end the plugin's movement; given a movement's promise, only if it is that one.
+	stop = function(movement)
+		local only = type(movement) == "table" and movement.state ~= nil and movement.id or nil
+		hostcall("act.request", "nav.stop", { id = only })
 	end,
 	-- The id of the plugin moving the character, or nil.
 	owner = function()
@@ -729,7 +751,8 @@ builtin["dereth.loot"] = function()
 	}
 end
 
--- `dereth.nav`: routes of waypoints, walked one `nav.move_to` at a time; VTank `.nav` files read.
+-- `dereth.nav`: routes of waypoints, each stretch of plain points run as one `nav.move_along`;
+-- VTank `.nav` files read.
 builtin["dereth.nav"] = function()
 	local route_methods = {}
 	local route_meta = { __index = route_methods }
@@ -756,30 +779,123 @@ builtin["dereth.nav"] = function()
 		return { cell = me.cell, x = x, y = y, z = where.z or 0 }
 	end
 
-	-- One leg of a route, to `where`: straight at it when nothing stands in the straight line
-	-- there (or `straight` asks for that, or the client cannot plan), otherwise along the client's
-	-- walking route round the walls and through the doors between; what is left of the way when
-	-- that ends short is walked straight.
-	local function leg(where, range, straight)
-		if not straight and api.host.has("nav.journey") and api.host.has("nav.path") then
-			local there = in_dungeon(where)
-			if api.nav.sight(there) == false then
-				api.pawait(api.nav.path_to(there, { portals = false, recalls = false, show = false }))
-			end
-		end
-		api.await(api.nav.move_to(where, range))
+	-- The most points run as one movement: a longer stretch is run as several, one after another.
+	local STRETCH = 256
+
+	-- Whether a walk plans round what stands in a straight line's way.
+	local function plans(straight)
+		return not straight and api.host.has("nav.journey") and api.host.has("nav.path")
 	end
 
-	-- Walk the route inside `task.spawn`: each point in turn, pauses slept, chat lines sent, jumps
-	-- jumped. A circular route starts over, a linear one turns back, a once route ends.
-	-- `opts.range` is how close counts as arrived (3 m); `opts.on_point(i, point)` hears each
-	-- point reached; `opts.straight` walks each leg straight at its point, as VTank does, rather
-	-- than round what stands in the way. Answers when a once route ends, or raises the
+	-- Whether something stands in the straight line to `where`.
+	local function out_of_sight(where)
+		return api.nav.sight(in_dungeon(where)) == false
+	end
+
+	-- Whether a walk goes to this point: a pause and a recall are made where the character is.
+	local function walked_to(p)
+		return p.kind ~= "pause" and p.kind ~= "recall" and p.position ~= nil
+	end
+
+	-- The index after `i` walking by `step`, and the step from there on; nil at a walk's end.
+	local function following(route, i, step)
+		local n = i + step
+		if n <= #route.points and n >= 1 then
+			return n, step
+		end
+		if route.kind == "circular" then
+			return 1, step
+		elseif route.kind == "linear" then
+			n = i - step
+			if n >= 1 and n <= #route.points then
+				return n, -step
+			end
+		end
+		return nil, step
+	end
+
+	-- The stretch from `i`: the plain points on from it as far as the first point to stop at,
+	-- the route's turn or its end.
+	local function stretch(route, i, step)
+		local indices, places = { i }, { route.points[i].position }
+		local j = i
+		while route.points[j].kind == "point" and #indices < STRETCH do
+			local n = j + step
+			local p = route.points[n]
+			if p == nil or not walked_to(p) then
+				break
+			end
+			table.insert(indices, n)
+			table.insert(places, p.position)
+			j = n
+		end
+		return indices, places
+	end
+
+	-- Run one stretch from `i`, telling `on_point` each point short of its last as it is passed.
+	-- It is broken off where the rest is to be walked otherwise: the next leg to be planned
+	-- round what stands in it, the point's `on_point` still at work (the character waits for
+	-- it), the route changed. Answers the index to walk on from and false, or the stretch's last
+	-- index and true once that is reached; raises the movement's failure.
+	local function run_stretch(route, i, step, range, on_point, planning)
+		local indices, places = stretch(route, i, step)
+		local passed, cut, busy, failed = 0, false, false, nil
+		local move
+		move = api.nav.move_along(places, {
+			range = range,
+			on_point = function(k)
+				if cut or k >= #places then
+					return
+				end
+				passed = k
+				route.at = indices[k]
+				if on_point then
+					busy = true
+					api.task.spawn(function()
+						local ok, err = pcall(on_point, indices[k], route.points[indices[k]])
+						if not ok then
+							failed = { err }
+						end
+						busy = false
+					end)
+				end
+				local ahead = route.points[indices[k + 1]]
+				if busy or failed or ahead == nil or ahead.position ~= places[k + 1]
+					or (planning and out_of_sight(places[k + 1])) then
+					cut = true
+					api.nav.stop(move)
+				else
+					route.at = indices[k + 1]
+				end
+			end,
+		})
+		local ok, why = api.pawait(move)
+		while busy do
+			api.task.sleep(0)
+		end
+		if failed then
+			error(failed[1], 0)
+		end
+		if ok then
+			return indices[#indices], true
+		elseif cut then
+			return indices[passed + 1], false
+		end
+		error("nav.move_along failed: " .. tostring(why), 0)
+	end
+
+	-- Walk the route inside `task.spawn`: each stretch of plain points run as one movement,
+	-- through each of them, stopping at pauses, chat lines, jumps, recalls and the other points
+	-- with something to do. A circular route starts over, a linear one turns back, a once route
+	-- ends. `opts.range` is how near each point is come (3 m); `opts.on_point(i, point)` hears
+	-- each point reached; `opts.straight` walks each leg straight at its point, as VTank does,
+	-- rather than round what stands in the way. Answers when a once route ends, or raises the
 	-- movement's failure.
 	function route_methods:walk(opts)
 		opts = opts or {}
 		local range = opts.range or 3
-		local straight = opts.straight
+		local planning = plans(opts.straight)
+		local along = api.host.has("nav.journey")
 		-- A follow route follows its player: by id while the client knows it, else the nearest
 		-- of its name, held within range; lost, it is looked for again a second later.
 		if self.kind == "follow" then
@@ -794,47 +910,74 @@ builtin["dereth.nav"] = function()
 				api.task.sleep(1000)
 			end
 		end
-		local points = self.points
 		local step = 1
 		local i = self.at or 1
+		-- Whether the walk last moved the character, which may be running still.
+		local moved = false
+		local function halt()
+			if moved then
+				moved = false
+				api.nav.stop()
+				-- A frame for the character to stand, before what is done standing.
+				api.task.sleep(0)
+			end
+		end
 		while true do
-			if #points == 0 then
+			if #self.points == 0 then
 				return
 			end
-			local p = points[i]
-			self.at = i
-			if p.kind == "pause" then
-				api.task.sleep(p.ms or 0)
-			elseif p.kind == "chat" then
-				leg(p.position, range, straight)
-				api.chat.command(p.text)
-			elseif p.kind == "recall" then
-				api.await(api.magic.cast(p.spell))
-			elseif p.kind == "jump" then
-				leg(p.position, range, straight)
-				api.await(api.nav.jump({ heading = p.heading, walk = p.shift, ms = p.ms }))
-			else
-				leg(p.position, range, straight)
-			end
-			if opts.on_point then
-				opts.on_point(i, p)
-			end
-			local nexti = i + step
-			if nexti > #points or nexti < 1 then
-				if self.kind == "circular" then
-					nexti = 1
-				elseif self.kind == "linear" then
-					step = -step
-					nexti = i + step
-					if nexti < 1 or nexti > #points then
-						return
-					end
-				else
+			if self.points[i] == nil then
+				-- The route was shortened under the walk: round again from its first point.
+				if self.kind ~= "circular" and self.kind ~= "linear" then
 					self.at = nil
 					return
 				end
+				i, step = 1, 1
 			end
-			i = nexti
+			local p = self.points[i]
+			self.at = i
+			local reached = true
+			if p.kind ~= "pause" and p.kind ~= "recall" then
+				-- The client's walking route round what stands in the straight line to it; what
+				-- is left of the way when that ends short is walked straight.
+				if planning and out_of_sight(p.position) then
+					api.pawait(api.nav.path_to(in_dungeon(p.position), { portals = false, recalls = false, show = false }))
+				end
+				if along and walked_to(p) then
+					i, reached = run_stretch(self, i, step, range, opts.on_point, planning)
+					p = self.points[i] or p
+					self.at = i
+				else
+					api.await(api.nav.move_to(p.position, range))
+				end
+				moved = true
+			end
+			if reached then
+				if p.kind ~= "point" then
+					halt()
+				end
+				if p.kind == "pause" then
+					api.task.sleep(p.ms or 0)
+				elseif p.kind == "chat" then
+					api.chat.command(p.text)
+				elseif p.kind == "recall" then
+					api.await(api.magic.cast(p.spell))
+				elseif p.kind == "jump" then
+					api.await(api.nav.jump({ heading = p.heading, walk = p.shift, ms = p.ms }))
+				end
+				if opts.on_point then
+					opts.on_point(i, p)
+				end
+				local nexti
+				nexti, step = following(self, i, step)
+				if nexti == nil then
+					if self.kind ~= "linear" then
+						self.at = nil
+					end
+					return
+				end
+				i = nexti
+			end
 		end
 	end
 

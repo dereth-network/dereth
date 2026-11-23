@@ -3,14 +3,19 @@
 **Provenance: design.** The plugin interface is this client's own addition, not the original's; every statement here is what a host must do, and the conformance suite pins it.
 
 A plugin never holds a key. It asks for a movement (`nav.moveto` capability) and the host steers
-the character as a player at the keyboard would: it turns the character in place toward the target
-with the client's own turn-to-heading movement, then sets the run lock, stops to turn again when
-the target is more than 15° off, and lets the run lock go on arrival. It never turns the character
-while running: the client's turn-to-heading ends forward motion when it finishes. The server sees
-ordinary movement. A move goes straight at its target, and a route is a list of points walked one
-move at a time; a [journey](#journeys) finds its own way, through portals and recalls too; and a
-[path](#paths-and-lines-of-sight) is the client's walking route to a target, answered without
-moving, with whether a straight line to it is clear.
+the character as a player at the keyboard would. The server sees ordinary movement.
+
+- A **move** (`nav.move_to`) goes straight at one target: the host turns the character in place
+  toward it with the client's own turn-to-heading movement, then sets the run lock, stops to turn
+  again when the target is more than 15° off (unless it will pass within `range` of it as it
+  runs, and so arrive), and lets the run lock go on arrival. It never turns the
+  character while running: the client's turn-to-heading ends forward motion when it finishes.
+- A **move along** (`nav.move_along`) runs through a list of the plugin's own places with the
+  forward key, steering between them while it runs, and stops only to turn at a sharp corner.
+  It is what a [route](#routes-derethnav) is walked with.
+- A [journey](#journeys) finds its own way, through portals and recalls too.
+- A [path](#paths-and-lines-of-sight) is the client's walking route to a target, answered without
+  moving, with whether a straight line to it is clear.
 
 ## The player and the server come first
 
@@ -18,7 +23,7 @@ moving, with whether a straight line to it is clear.
   jump, under any interface: a pad's stick and the mouse's run included) ends a plugin's movement
   at once: it fails `interrupted`. The run lock is then the
   player's; the host does not let go of it for them. For 5 seconds after the player's own
-  movement, a movement no gesture asked for (`nav.move_to`, `nav.follow`, `nav.face`,
+  movement, a movement no gesture asked for (`nav.move_to`, `nav.move_along`, `nav.follow`, `nav.face`,
   `nav.autorun(true)`) is refused as `player_moving`; one the player asked for with a gesture is
   not.
 - **The server taking control of the character's movement** (to walk it to something used or
@@ -27,7 +32,8 @@ moving, with whether a straight line to it is clear.
 - **The run lock is let go only by whoever set it.** The host remembers which plugin set the run
   lock (for a movement, or with `nav.autorun(true)`). A movement's end, `nav.stop()` and
   `nav.autorun(false)` let go of the run lock that plugin set, and nothing else: a run lock the
-  player set is never touched.
+  player set is never touched, except as the game's own forward key turns any run lock off
+  ([what keeps the run lock](#what-keeps-the-run-lock-and-what-lets-it-go)).
 - **A plugin unloaded or suspended** mid-movement lets go of the character: its movement stops
   and the run lock it set is let go.
 
@@ -52,14 +58,64 @@ starting another fails the one running with `replaced`.
 | call | completes | fails |
 |---|---|---|
 | `nav.move_to(target, range)` | within `range` metres on the ground (default 2); answers `{ distance }` | `stuck` (no half-metre of progress in 6 s), `timeout` (slower than 2 m/s plus 20 s), `target_gone`, `no_position`, `interrupted`, `stopped`, `replaced` |
+| `nav.move_along(points [, { range, on_point }])` | having come within `range` metres on the ground (default 2) of each point in turn; answers `{ points, distance }` (how many, and how far from the last) | `stuck` (no nearer the next point for 6 s), `door_shut: …` (as a journey's: see below), `no_position`, `interrupted`, `stopped`, `replaced` |
 | `nav.follow(object, range)` | never: it closes to within `range` (default 3) and holds there | `lost` (the object out of sight for 3 s), `interrupted`, `stopped`, `replaced` |
 | `nav.face(heading)` | facing within 5° of the heading | `timeout` (3 s), `interrupted`, `stopped`, `replaced` |
 | `nav.jump{ ms, heading, walk, direction }` | a frame after the leap; answers `{ held, heading }` (`held`: the milliseconds charged) | `timeout` (3 s to face the heading), `interrupted`, `stopped`, `replaced` |
 | `nav.motion(kind, ms [, { walk }])` | once the control has been held `ms`; answers `{ held }` | `interrupted`, `stopped`, `replaced` |
 | `nav.autorun(on)` | at once | |
 
-`target` is an object (an id or a handle) or a place. `nav.stop()` ends the plugin's own running
-movement (it fails `stopped`) and lets go of the run lock the plugin set; `nav.owner()` names the plugin moving the character.
+`target` is an object (an id or a handle) or a place, and `points` a list of places. `nav.stop()`
+ends the plugin's own running movement (it fails `stopped`) and lets go of the run lock the plugin
+set; given a movement's promise (`nav.stop(p)`), only if that is the one running. `nav.owner()`
+names the plugin moving the character.
+
+### Moving along a path
+
+`nav.move_along(points, { range, on_point })` is one movement through 1 to 4,096 places, in their
+order. It needs the `nav.journey` capability besides `nav.moveto`, since it steers as a journey's
+walk does:
+
+- **It walks the points as given, strictly.** It runs along each leg at its point and turns for
+  the next only once there (within 0.6 m, or `range` where that is less), however wide `range` is:
+  no corner is cut, and nothing is planned round. `range` is how far off a point may be and still
+  count: one passed within it (up to 2.5 m, as near as the character was going to come), or one
+  it has pressed on toward for half a second from within it and got no nearer (something stands
+  on it). A range under 0.25 m counts as 0.25. Heights are not looked at.
+- **It runs with the forward key,** never the run lock, so the game says nothing of AutoRun. It
+  holds the forward key from point to point and steers while running: a bend inside 20° (the dead
+  band of the game's own move-to) is eased through, and a larger one turned with a turn key held
+  until it is all but done. It lets the forward key go to turn at a corner sharper than 45°, and
+  at a bend too tight to turn in at a run and still come within `range` of the next point.
+- **Each point reached is told,** in order: `on_point(i, point)`, or the event
+  `nav.point_reached` `{ id, index }` (`id` the promise's, `index` from 1). The last point's
+  comes before the promise completes. The character runs on while a handler works; end the
+  movement with `nav.stop(p)` to stand at a point.
+- **It opens a shut door on its way,** as a journey's walk does. Within 1.5 m of a closed door
+  standing across the leg ahead (within a metre of it), the character stands and uses the door,
+  again after 4 seconds while it stays shut, and runs on once it stands open. A door the server
+  answers as locked, or one still shut after four uses, ends the move:
+  `door_shut: <door> is locked, the server says` or `door_shut: <door> did not open after 4 uses`,
+  and the failure carries the door as a journey's does (`p.door`: see
+  [A shut door](#a-shut-door)). It never picks a lock or looks for a lever.
+
+### What keeps the run lock, and what lets it go
+
+- **Kept:** a plugin's `nav.move_to` or `nav.follow` that replaces its own running one, and one it
+  starts within two frames (and a tenth of a second at most, though never less than the one frame
+  it hears of the arrival in) of its last move's arrival. Chained moves so keep running, and
+  still stop to turn where the next target is more than 15° off and not passed within range.
+- **Let go:** a move's arrival with no such move after it; a move's failure; `nav.stop()`; the
+  player's or the server's taking control (the player's leaves the lock theirs); the plugin's
+  unloading or suspension; another plugin's movement; and any other movement of the plugin's
+  (`nav.face`, `nav.jump`, `nav.motion`, `nav.move_along`, a journey) replacing or following the
+  move. A follow lets it go while it holds within range, and any move while it turns in place.
+- **Never set:** by `nav.move_along` and journeys, which hold the forward key. Pressing forward
+  turns a run lock off, the player's too, as the game's own key does. A move along's forward key
+  is held on after its arrival as the run lock is, for the plugin's next `nav.move_along` to run
+  on with; anything else lets it go.
+- **An action waits for it:** a use, a cast or any other action asked for while an arrival still
+  holds either lets it go first and is made a frame later, standing.
 
 **Jumps and held motions** press the game's own movement controls for the plugin, as the game's
 own movement under any interface, the way a player holds them:
@@ -311,8 +367,8 @@ through doors, and across a dungeon's rooms or into and out of buildings:
 It fails `no_route` (no walkable way reaches the target: walled in, up a ledge), `too_far`,
 `no_target`, `no_position` or `no_world` (the world is not built yet). A monster stands in the
 route's way only where there is no way round it. Each leg of the route is straight, so it is
-walked with `nav.move_to` corner by corner, each door in `doors` used (`act.use`) when its corner
-is reached.
+walked with `nav.move_to` corner by corner, or `nav.move_along` through the corners up to the next
+door, each door in `doors` used (`act.use`) when its corner is reached.
 
 `nav.sight(target [, from])` answers at once whether a **straight line** from the character (or
 `from`, an object or a place) to `target` (an object or a place) is clear, each end a metre above
@@ -345,6 +401,14 @@ moves to each point in turn inside `task.spawn`, sleeps a `pause` point's `ms`, 
 point's `text`, casts a `recall` point's `spell`, jumps at a `jump` point (`nav.jump` with the
 point's `heading`, its `shift` as `walk` and its `ms`), and raises the movement's failure if one
 fails.
+
+Each stretch of plain points runs as one `nav.move_along` (on a host with `nav.journey`; one
+`nav.move_to` a point otherwise), so the character runs through them without stopping, each come
+within `range` (3 m unless given) and no corner cut, round a circular route's wrap too. It stops
+at every other kind of point, standing for what is done there, and at the route's end. Where the
+next point is out of sight it breaks off for the client's walking route there (unless `straight`).
+`on_point` hears each point reached; where it waits (a `task.sleep`, an `await`), the character
+stops and waits for it.
 `route:nearest()` is the index of the point nearest the character.
 
 `nav_lib.load` reads VTank's `.nav` text format:

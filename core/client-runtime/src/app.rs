@@ -870,6 +870,8 @@ pub struct App<S: Shell> {
     player_moves: u64,
     hook_player_moves: u64,
     travel_player_moves: u64,
+    /// When the server was last told of a heading the client's own steering set.
+    steered_heading_sent: f64,
     /// The house profiles the world's places have taken in, of those the model has received.
     places_house_notices: u64,
     /// The last reported, so a transition is logged once.

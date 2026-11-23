@@ -154,7 +154,7 @@ refused without them) and checks the rest at run time with `host.has(name)`.
 | `ui.icons` | icons from the game's data |
 | `overlay.world`, `overlay.arrow`, `overlay.radar`, `overlay.map` | markers, shapes, text and nametags in the world, a direction arrow, radar blips, map marks |
 | `map.clicks` | where the player presses the game's world map, heard as `map.clicked` ([events](events.md#clicks-on-the-map)) |
-| `nav.moveto` | moving the character (turning and the run lock) |
+| `nav.moveto` | moving the character (turning, the run lock and, with `nav.journey`, running along a path) |
 | `nav.journey` | journeys the client plans and carries out: walking, portals and recalls ([nav](nav.md#journeys)) |
 | `nav.path` | the client's walking route to a target and whether a straight line to it is clear, answered without moving ([nav](nav.md#paths-and-lines-of-sight)) |
 | `session.pregame` | the character list, logging in and out |

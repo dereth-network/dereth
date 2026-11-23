@@ -234,16 +234,7 @@ impl<S: Shell> App<S> {
                         self.actions.steer(crate::actions::Action::begin(id));
                     }
                 }
-                TravelCommand::Face(heading) => {
-                    if let Some(c) = self
-                        .world
-                        .as_mut()
-                        .and_then(|w| w.character.as_mut())
-                        .filter(|_| self.pending_scene.is_none())
-                    {
-                        c.face_heading(heading);
-                    }
-                }
+                TravelCommand::Face(heading) => self.steer_heading(heading),
                 TravelCommand::Use(id) => self.submit_requests(vec![UiRequest::Use(id)]),
                 TravelCommand::Wield(item) => self.submit_requests(vec![UiRequest::Inventory(
                     dereth_client_contract::view::InventoryIntent::Wield { item },

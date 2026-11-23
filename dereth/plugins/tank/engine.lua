@@ -517,9 +517,17 @@ end
 -- Steps. Each answers after doing one short piece of work.
 
 -- Walk to `where` (an object or a place) within `range`, stopping early when `interrupt()` says
--- something more pressing has come up. Answers ok, why.
-local function walk(where, range, interrupt)
-	local p = nav.move_to(where, range)
+-- something more pressing has come up. A `leg` of the route is run with the forward key, steered
+-- (`nav.move_along`), where the host can, so the next waypoint's leg takes the run over; `leg`
+-- may be a list of places, run through as one movement, with `on_point(i)` hearing each reached.
+-- Answers ok, why.
+local function walk(where, range, interrupt, leg, on_point)
+	local p
+	if leg and host.has("nav.journey") then
+		p = nav.move_along(type(leg) == "table" and leg or { where }, { range = range, on_point = on_point })
+	else
+		p = nav.move_to(where, range)
+	end
 	local watch = nil
 	if interrupt ~= nil then
 		watch = task.every(300, function()
@@ -2824,6 +2832,11 @@ local function follow_step(r)
 end
 
 local stuck_at, stuck_count = nil, 0
+-- The most waypoints run as one movement.
+local STRETCH = 64
+-- Whether the step just made reached a plain waypoint with another place to run on to: the next
+-- is made at the next frame, while the run is still held for it.
+local rolling = false
 local function nav_step()
 	local r = E.route
 	if r.kind == "follow" then
@@ -2861,9 +2874,49 @@ local function nav_step()
 		open_door_across(p.position)
 		local reach = math.max(S.metres("NavCloseStopRange"), 2)
 		local ok, why
-		if straight_to(p.position) then
+		if straight_to(p.position) and p.kind == "point" and host.has("nav.journey") then
+			-- In a straight line of sight: the plain waypoints from here on, as far as the next
+			-- with something to do, the route's end or its turn, are run through as one movement.
+			-- It is broken off where the next leg is out of sight or has a closed door across it
+			-- (to be walked as below), or the route changed.
+			local step = r.step or (r.reversed and -1 or 1)
+			local indices, places = { at }, { p.position }
+			while #indices < STRETCH do
+				local q = r.points[indices[#indices] + step]
+				if q == nil or q.kind ~= "point" or q.position == nil then
+					break
+				end
+				table.insert(indices, indices[#indices] + step)
+				table.insert(places, q.position)
+			end
+			if #indices > 1 then
+				E.note("route: running through waypoints %d to %d", indices[1], indices[#indices])
+			end
+			local cut = false
+			ok, why = walk(p.position, reach, interrupt_nav, places, function(k)
+				if cut or k >= #places then
+					return
+				end
+				E.tally.waypoints = E.tally.waypoints + 1
+				stuck_at, stuck_count = nil, 0
+				r.at = indices[k + 1]
+				at = r.at
+				if E.route ~= r or door_across(places[k + 1]) ~= nil or not straight_to(places[k + 1]) then
+					cut = true
+					nav.stop()
+				end
+			end)
+			if cut or started_over() then
+				return
+			end
+			if ok then
+				at = indices[#indices]
+				r.at = at
+				p = r.points[at]
+			end
+		elseif straight_to(p.position) then
 			-- In a straight line of sight (VTank's leg): walked straight at it.
-			ok, why = walk(p.position, reach, interrupt_nav)
+			ok, why = walk(p.position, reach, interrupt_nav, true)
 		else
 			-- Round a corner or behind a wall: along the client's route there from the start,
 			-- round the corner and through the doors on the way.
@@ -2880,10 +2933,10 @@ local function nav_step()
 			end
 			if not ok and why == "walking" then
 				-- Short of it: what is left is walked straight, as a leg is.
-				ok, why = walk(p.position, reach, interrupt_nav)
+				ok, why = walk(p.position, reach, interrupt_nav, true)
 			elseif not ok and why ~= "stopped" then
 				E.note("route: no walking route to waypoint %d (%s); straight at it", at, tostring(why))
-				ok, why = walk(p.position, reach, interrupt_nav)
+				ok, why = walk(p.position, reach, interrupt_nav, true)
 			end
 		end
 		if started_over() then
@@ -2891,8 +2944,14 @@ local function nav_step()
 		end
 		if ok then
 			stuck_at, stuck_count = nil, 0
+			if p.kind ~= "point" then
+				-- What is done at it is done standing.
+				nav.stop()
+				task.sleep(0)
+			end
 			done = at_waypoint(r, p)
-		elseif why == "stuck" or why == "timeout" then
+		elseif why == "stuck" or why == "timeout" or string.find(tostring(why), "^door_shut") then
+			-- A door the leg could not open is a way to find round, as being stuck is.
 			if stuck_at ~= at then
 				stuck_at, stuck_count = at, 0
 			end
@@ -2944,6 +3003,9 @@ local function nav_step()
 		end
 		r.step = step
 		r.at = nexti
+		local ahead = r.points[nexti]
+		rolling = p.kind == "point" and ahead.position ~= nil
+			and ahead.kind ~= "pause" and ahead.kind ~= "recall"
 	end
 end
 
@@ -4192,12 +4254,13 @@ function E.start(opts)
 			return debug ~= nil and debug.traceback(tostring(e), 2) or tostring(e)
 		end
 		while E.running do
+			rolling = false
 			local ok, err = xpcall(tick, where)
 			if not ok then
 				E.note("error: %s", tostring(err))
 				task.sleep(1000)
 			end
-			task.sleep(100)
+			task.sleep(rolling and 0 or 100)
 		end
 	end)
 end

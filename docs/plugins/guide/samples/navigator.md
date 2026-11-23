@@ -100,7 +100,7 @@ The commands are shortcuts to the window:
 | `/nav go`, `/nav stop` | goes to the destination (by a journey where the client makes them, else walking along the client's route), or stops |
 | `/nav travel <where>` | goes by a journey to a place, coordinates, a cell (`0x019E0140`) or `portal <name>`, where a known portal sends; each leg is said in chat |
 | `/nav plan <where>` | says the journey there, without going |
-| `/nav route <file>` | walks one of the player's VTank routes from the Navigator's data folder: straight to a waypoint in sight, round the walls to one out of sight |
+| `/nav route <file>` | walks one of the player's VTank routes from the Navigator's data folder, running through its plain waypoints: straight to a waypoint in sight, round the walls to one out of sight |
 | `/nav clear` | lets the destination go, and its markers |
 
 Everything past the window is optional: in a host with no markers it still names the destination

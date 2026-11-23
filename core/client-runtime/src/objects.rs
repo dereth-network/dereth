@@ -618,6 +618,8 @@ pub struct ObjectStream {
     /// The objects whose use the server answered with the `OpenFailDueToLock` sound (a locked
     /// door or chest), since [`ObjectStream::take_lock_answers`] last drained them.
     lock_answers: Vec<ObjectId>,
+    /// The same, for the frame hook: [`ObjectStream::take_hook_lock_answers`] drains them.
+    hook_lock_answers: Vec<ObjectId>,
     /// `0xF755` and `0xF754`s decoded since the frame loop last drained them, in arrival order.
     /// [`ObjectStream::take_script_events`] is the drain.
     ///
@@ -711,6 +713,7 @@ impl ObjectStream {
             position_entries: BTreeSet::new(),
             sound_events: Vec::new(),
             lock_answers: Vec::new(),
+            hook_lock_answers: Vec::new(),
             script_events: Vec::new(),
             player_motion_dispatches: Vec::new(),
             // `autonomy_level = 2` initially, so using the server position is false.
@@ -1332,6 +1335,12 @@ impl ObjectStream {
         std::mem::take(&mut self.lock_answers)
     }
 
+    /// The same answers since the frame hook last took them: the travel and the hook each hear
+    /// every one.
+    pub fn take_hook_lock_answers(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.hook_lock_answers)
+    }
+
     /// Take the server's physics-script triggers since the last call, in arrival order.
     ///
     /// The caller owes them the object's physics body, which in this build is the scene's:
@@ -1841,6 +1850,7 @@ impl ObjectStream {
                 );
                 if m.sound_type.cast_unsigned() == locked {
                     self.lock_answers.push(m.id);
+                    self.hook_lock_answers.push(m.id);
                 }
                 self.sound_events.push(m);
             }
@@ -2939,6 +2949,7 @@ impl ObjectStream {
         // on and nothing to play it at, so it goes with the tables it named.
         self.sound_events.clear();
         self.lock_answers.clear();
+        self.hook_lock_answers.clear();
         // Same rule for a script trigger -- it names an object that no longer exists.
         self.script_events.clear();
         // A teleport destination whose session has been torn down names a body that no

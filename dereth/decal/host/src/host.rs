@@ -981,6 +981,8 @@ impl RetailHost {
                 NavRequest::Face(h) => self.ops.push(Op::Face {
                     heading: f64::from(h),
                 }),
+                // Steering at a run, which only a move along asks for: this host has neither.
+                NavRequest::Heading(_) => {}
                 NavRequest::Autorun(on) => {
                     self.autorun = on;
                     self.ops.push(Op::Autorun { on });

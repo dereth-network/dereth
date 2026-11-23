@@ -3,16 +3,19 @@
 //! A plugin never holds a key. It asks for a movement and the host steers the character the way a
 //! player at the keyboard would: it turns the character in place toward the target with the
 //! client's turn-to-heading movement, then sets the run lock (autorun) and lets it go on arrival,
-//! stopping to turn again when the target drifts off to the side. The server sees ordinary
-//! movement. Waypoint routes are walked one `move_to` at a time (`dereth.nav`), each move straight
-//! at its target; the way round what stands in between is the client's own planner's, asked for
-//! as a journey or a path (below).
+//! stopping to turn again when the target drifts off to the side, unless it will pass within range
+//! of it as it runs. The server sees ordinary
+//! movement. A path of the plugin's own points (`nav.move_along`) is run with the forward key
+//! instead, steered as a journey's walk is (the same follower), and waypoint routes
+//! (`dereth.nav`) are walked so; the way round what stands in between is the client's own
+//! planner's, asked for as a journey or a path (below).
 //!
 //! One movement runs at a time across all plugins. Each is a promise:
 //!
 //! | action | completes | fails |
 //! |---|---|---|
 //! | `nav.move_to(target, range)` | within `range` metres of the target (on the ground) | `stuck` (no progress for 6 s), `timeout`, `target_gone`, `no_position`, `interrupted`, `stopped`, `replaced` |
+//! | `nav.move_along(points, range)` | having come within `range` of each point in turn, opening a shut door on the way | `stuck` (no nearer for 6 s), `door_shut: …`, `no_position`, `interrupted`, `stopped`, `replaced` |
 //! | `nav.follow(object, range)` | never; it keeps within `range` until stopped | `lost` (the object gone for 3 s), `interrupted`, `stopped`, `replaced` |
 //! | `nav.face(heading)` | facing within 5° of the heading | `timeout` (3 s), `interrupted`, `stopped`, `replaced` |
 //! | `nav.jump{ ms, heading, walk, direction }` | a frame after the leap | `timeout` (3 s to face), `interrupted`, `stopped`, `replaced` |
@@ -55,6 +58,7 @@ use dereth_client_runtime::travel::{
     Learned, TravelAllow, TravelEvent, TravelLeg, TravelPlan, TravelRequest, TravelRoute,
     TravelTarget,
 };
+use dereth_navigation::{FollowConfig, Follower, NavPath, Steer, Waypoint};
 use dereth_plugin_api::Value;
 use dereth_primitives::{ObjectId, Position};
 
@@ -73,6 +77,9 @@ pub const LOST_SECS: f64 = 3.0;
 pub const SLOWEST_PACE: f64 = 2.0;
 /// How long a face may take.
 pub const FACE_SECS: f64 = 3.0;
+/// A move running at its target goes on running without turning when it passes the target by
+/// no more than this share of its range: it arrives without the stop.
+pub const PASS_WITHIN: f64 = 0.95;
 /// How long a turn is given to finish before it is asked for again.
 pub const TURN_RETRY_SECS: f64 = 2.0;
 /// Seconds after the player moves the character themselves during which a movement no gesture
@@ -82,12 +89,35 @@ pub const PLAYER_YIELD_SECS: f64 = 5.0;
 pub const JUMP_MAX_SECS: f64 = 1.0;
 /// The longest a motion is held in one movement.
 pub const MOTION_MAX_SECS: f64 = 10.0;
+/// How near a shut door across its way a move along comes before it uses the door, metres, and
+/// how far to either side of the way the door may stand.
+pub const DOOR_NEAR: f64 = 1.5;
+pub const DOOR_ACROSS: f64 = 1.0;
+/// Seconds a used door is waited for before it is used again, and how many uses it is given, as
+/// a journey's walk gives a door.
+pub const DOOR_WAIT: f64 = 4.0;
+pub const DOOR_TRIES: u32 = 4;
+/// The physics state of an object that bodies pass through: a door standing open.
+const ETHEREAL: u32 = 0x0000_0004;
+/// The most points one move along takes.
+pub const PATH_POINTS: usize = 4096;
+/// How many frames what a movement ran with stays held once it has arrived, for the plugin's
+/// next movement to take up: one to hear of the arrival, and one more to answer it.
+pub const CHAIN_FRAMES: u32 = 2;
+/// And at most this long, in seconds, however few frames that is: at a low frame rate the
+/// plugin has the one frame it hears of the arrival in.
+pub const CHAIN_SECS: f64 = 0.1;
 
 /// A movement.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Goal {
     MoveTo {
         target: Anchor,
+        range: f64,
+    },
+    /// Run through the plugin's own points in turn, coming within `range` of each.
+    MoveAlong {
+        points: Vec<Position>,
         range: f64,
     },
     Follow {
@@ -118,12 +148,28 @@ impl Goal {
     pub const fn action(&self) -> &'static str {
         match self {
             Self::MoveTo { .. } => "nav.move_to",
+            Self::MoveAlong { .. } => "nav.move_along",
             Self::Follow { .. } => "nav.follow",
             Self::Face { .. } => "nav.face",
             Self::Jump { .. } => "nav.jump",
             Self::Motion { .. } => "nav.motion",
         }
     }
+
+    /// Whether it runs the character by the run lock.
+    const fn uses_run_lock(&self) -> bool {
+        matches!(self, Self::MoveTo { .. } | Self::Follow { .. })
+    }
+}
+
+/// What a movement that arrived ran with, held a moment for the plugin's next.
+#[derive(Debug, Clone)]
+struct Chain {
+    plugin: String,
+    frames: u32,
+    until: f64,
+    /// The steering of a move along that arrived: the next goes on from it.
+    follower: Option<Follower>,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +190,13 @@ struct Running {
     pressed: Option<f64>,
     /// When a jump leapt.
     leapt: Option<f64>,
+    /// A move along's steering, once it has set out.
+    follower: Option<Follower>,
+    /// The steering of the plugin's move along before this one, which it goes on from.
+    before: Option<Follower>,
+    /// The shut door a move along is opening: the door, when it was last used, and how many
+    /// times.
+    door: Option<(ObjectId, f64, u32)>,
 }
 
 /// A journey asked of the client's travel.
@@ -181,6 +234,19 @@ pub struct Nav {
     player_moved: Option<f64>,
     /// The movement controls the host holds for the movement running.
     held: Vec<NavKey>,
+    /// The doors the server has answered a use of as locked, until one is seen open: a move along
+    /// meeting one does not use it again.
+    locked_doors: std::collections::BTreeSet<ObjectId>,
+    /// A movement just arrived, what it ran with still held.
+    chain: Option<Chain>,
+    /// What an arrival held was let go of for another action of the plugin's, which waits a
+    /// frame for the character to stand.
+    standing_first: bool,
+    /// A journey was ended for the movement starting: the travel lets go of the keys later in
+    /// this frame, so the movement presses none, and asks no turn, before the next.
+    travel_letting_go: bool,
+    /// Progress to tell the plugins at the next step: plugin, event, data.
+    progress: Vec<(String, &'static str, Value)>,
     /// Controls to let go of at the next step: the movement holding them ended between frames.
     unheld: Vec<NavKey>,
     /// The door each failed journey could not get through, by plugin and promise: what its
@@ -224,10 +290,43 @@ impl Nav {
     /// Start `goal` for `plugin` as action `id`: a movement already running fails `replaced`.
     pub fn start(&mut self, plugin: &str, id: i64, goal: Goal, now: f64) -> Option<Settled> {
         if let Some(s) = self.end_journey("replaced") {
+            self.travel_letting_go = true;
             return self.start(plugin, id, goal, now).or(Some(s));
         }
         let old = self.running.take();
-        self.drop_held();
+        let chain = self.chain.take();
+        let along = matches!(goal, Goal::MoveAlong { .. });
+        // The plugin's move along before this one, under way or just arrived.
+        let before = along
+            .then(|| match (&old, &chain) {
+                (Some(r), _) if r.plugin == plugin => {
+                    r.follower.clone().or_else(|| r.before.clone())
+                }
+                (None, Some(c)) if c.plugin == plugin => c.follower.clone(),
+                _ => None,
+            })
+            .flatten();
+        // Whom the run lock is held for by a movement: only the same plugin's next that runs by
+        // it takes it over, and any other has it let go.
+        let locked = match (&old, &chain) {
+            (Some(r), _) if r.goal.uses_run_lock() => Some(&r.plugin),
+            (None, Some(c)) => Some(&c.plugin),
+            _ => None,
+        };
+        if let Some(p) = locked {
+            if p != plugin || !goal.uses_run_lock() {
+                self.let_go(p);
+            }
+        }
+        if along {
+            // It runs with the forward key: a run lock the host set is let go, as for a journey.
+            if let Some(owner) = self.run_owner.clone() {
+                self.let_go(&owner);
+            }
+        }
+        if before.is_none() {
+            self.drop_held();
+        }
         self.running = Some(Running {
             plugin: plugin.to_owned(),
             id,
@@ -239,6 +338,9 @@ impl Nav {
             turned: None,
             pressed: None,
             leapt: None,
+            follower: None,
+            before,
+            door: None,
         });
         old.map(|r| settled(&r, Err("replaced".into())))
     }
@@ -263,6 +365,60 @@ impl Nav {
             } else {
                 frame.nav(NavRequest::Hold(key, false));
             }
+        }
+    }
+
+    /// Let go of what a movement that just arrived ran with.
+    fn drop_chain(&mut self) {
+        if let Some(c) = self.chain.take() {
+            self.let_go(&c.plugin);
+            self.drop_held();
+        }
+    }
+
+    /// `plugin` asks for something other than a movement: what its movement that just arrived
+    /// ran with is let go of, and the action waits for that ([`Self::take_standing_first`]).
+    pub fn act_instead(&mut self, plugin: &str) {
+        if self.chain.as_ref().is_some_and(|c| c.plugin == plugin) {
+            self.drop_chain();
+            self.standing_first = true;
+        }
+    }
+
+    /// Whether this frame's action waits for the character to stand, having just been let go of.
+    pub fn take_standing_first(&mut self) -> bool {
+        std::mem::take(&mut self.standing_first)
+    }
+
+    /// Press `key` or let go of it, as `down` says, where it is not so already.
+    fn set_held(&mut self, frame: &mut HookFrame<'_>, key: NavKey, down: bool) {
+        if self.held.contains(&key) == down {
+            return;
+        }
+        if down {
+            self.press(frame, key);
+        } else {
+            frame.nav(NavRequest::Hold(key, false));
+            self.held.retain(|k| *k != key);
+        }
+    }
+
+    /// Hold the turn key of `turn` (right when true), or neither.
+    fn set_turn(&mut self, frame: &mut HookFrame<'_>, turn: Option<bool>) {
+        // The one let go first: the game takes the key pressed last.
+        if turn != Some(true) {
+            self.set_held(frame, NavKey::TurnRight, false);
+        }
+        if turn != Some(false) {
+            self.set_held(frame, NavKey::TurnLeft, false);
+        }
+        if let Some(right) = turn {
+            let key = if right {
+                NavKey::TurnRight
+            } else {
+                NavKey::TurnLeft
+            };
+            self.set_held(frame, key, true);
         }
     }
 
@@ -299,6 +455,7 @@ impl Nav {
         show: bool,
     ) -> Vec<Settled> {
         let mut out: Vec<Settled> = self.end_journey("replaced").into_iter().collect();
+        self.drop_chain();
         if let Some(r) = self.running.take() {
             if let Some(owner) = self.run_owner.clone() {
                 self.let_go(&owner);
@@ -368,13 +525,13 @@ impl Nav {
     }
 
     /// Turn what the travel told since the last frame into settlements, and events for the
-    /// plugins: `(plugin, event name, data)`.
+    /// plugins, with the moves along's progress: `(plugin, event name, data)`.
     pub fn travel_news(
         &mut self,
         frame: &HookFrame<'_>,
     ) -> (Vec<Settled>, Vec<(String, &'static str, Value)>) {
         let mut settled_out = Vec::new();
-        let mut events = Vec::new();
+        let mut events = std::mem::take(&mut self.progress);
         for e in &frame.travel.events {
             match e {
                 TravelEvent::Answer { id, plan } => {
@@ -482,6 +639,9 @@ impl Nav {
         if self.journey.as_ref().is_some_and(|j| j.plugin == plugin) {
             return self.end_journey("stopped");
         }
+        if self.chain.as_ref().is_some_and(|c| c.plugin == plugin) {
+            self.drop_chain();
+        }
         self.let_go(plugin);
         let r = self.running.take_if(|r| r.plugin == plugin)?;
         self.drop_held();
@@ -503,6 +663,9 @@ impl Nav {
         if self.asked_run.as_ref().is_some_and(|(p, _)| p == plugin) {
             self.asked_run = None;
         }
+        if self.chain.as_ref().is_some_and(|c| c.plugin == plugin) {
+            self.drop_chain();
+        }
         self.let_go(plugin);
     }
 
@@ -517,6 +680,10 @@ impl Nav {
     /// go touches only the run lock `plugin` set, and never another plugin's request.
     pub fn ask_run(&mut self, plugin: &str, on: bool) {
         if on {
+            // The run lock is the plugin's own from here, and no arrival's to let go of.
+            if self.chain.take().is_some() {
+                self.drop_held();
+            }
             self.asked_run = Some((plugin.to_owned(), true));
         } else {
             if self.asked_run.as_ref().is_some_and(|(p, _)| p == plugin) {
@@ -533,6 +700,14 @@ impl Nav {
             .as_ref()
             .map(|r| r.plugin.as_str())
             .or_else(|| self.journey.as_ref().map(|j| j.plugin.as_str()))
+    }
+
+    /// Whether `plugin`'s movement `id` is the one running.
+    #[must_use]
+    pub fn is_running(&self, plugin: &str, id: i64) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|r| r.plugin == plugin && r.id == id)
     }
 
     /// The plugin the run lock is on for, when the host set it.
@@ -577,8 +752,14 @@ impl Nav {
     /// Steer toward the running goal; answers the movement if it ended this frame.
     pub fn step(&mut self, frame: &mut HookFrame<'_>) -> Option<Settled> {
         let now = frame.local_time;
+        let letting_go = std::mem::take(&mut self.travel_letting_go);
+        self.locked_doors.extend(frame.locked.iter().copied());
+        // A key or the run lock let go of takes effect later in the frame, and the game's stop
+        // ends a turn-to-heading: a turn is asked for the frame after.
+        let mut stopping = letting_go || !self.unheld.is_empty();
         Self::let_go_of(frame, &mut self.unheld);
         if frame.player_input {
+            self.chain = None;
             // The player has the controls: the run lock is theirs, and a movement ends with
             // whatever it held let go.
             self.player_moved = Some(now);
@@ -596,8 +777,22 @@ impl Nav {
         }
         if std::mem::take(&mut self.release) && self.run_owner.is_none() && frame.places.autorun() {
             frame.nav(NavRequest::Autorun(false));
+            stopping = true;
         }
-        if frame.server_moving {
+        if let Some(mut c) = self.chain.take() {
+            c.frames = c.frames.saturating_sub(1);
+            if c.frames == 0 || now > c.until {
+                self.run(frame, &c.plugin, false);
+                Self::let_go_of(frame, &mut self.held);
+            } else {
+                self.chain = Some(c);
+            }
+        }
+        // Using a door may have the server turn the character to it: a move along opening one
+        // carries on.
+        let at_door = self.running.as_ref().is_some_and(|r| r.door.is_some());
+        if frame.server_moving && !at_door {
+            self.chain = None;
             // The server is moving the character: nothing of the host's may fight it.
             let owner = self.run_owner.clone();
             if let Some(p) = owner {
@@ -622,13 +817,18 @@ impl Nav {
             };
         };
         let end = match r.goal {
+            // The travel lets go of the keys later in this frame.
+            Goal::MoveAlong { .. } if letting_go => None,
+            Goal::MoveAlong { range, .. } => self.along(&mut r, frame, &me, range, now),
             Goal::Face { heading } => {
                 if places::turn(places::heading(&me), heading).abs() < 5.0 {
                     Some(Ok(Value::map().with("heading", heading)))
                 } else if now - r.started > FACE_SECS {
                     Some(Err("timeout".to_owned()))
                 } else {
-                    Self::face(&mut r, frame, heading, now);
+                    if !stopping {
+                        Self::face(&mut r, frame, heading, now);
+                    }
                     None
                 }
             }
@@ -651,7 +851,7 @@ impl Nav {
                         let (_, best_at) = *best;
                         let first = *r.from.get_or_insert(d);
                         if d <= range {
-                            self.run(frame, &plugin, false);
+                            self.arrived(&r, now);
                             Some(Ok(Value::map().with("distance", (d * 10.0).round() / 10.0)))
                         } else if now - best_at > STUCK_SECS {
                             self.run(frame, &plugin, false);
@@ -660,7 +860,9 @@ impl Nav {
                             self.run(frame, &plugin, false);
                             Some(Err("timeout".to_owned()))
                         } else {
-                            self.steer(&mut r, frame, &me, &at, now);
+                            if !stopping {
+                                self.steer(&mut r, frame, &me, &at, range, now);
+                            }
                             None
                         }
                     }
@@ -677,7 +879,9 @@ impl Nav {
                         if now - r.started > FACE_SECS {
                             Some(Err("timeout".to_owned()))
                         } else {
-                            Self::face(&mut r, frame, h, now);
+                            if !stopping {
+                                Self::face(&mut r, frame, h, now);
+                            }
                             None
                         }
                     }
@@ -743,9 +947,10 @@ impl Nav {
                     let d = places::ground_distance(&me, &at);
                     if d <= range {
                         self.run(frame, &plugin, false);
-                    } else if d > range + 1.0 || self.run_owner.as_deref() == Some(plugin.as_str())
+                    } else if !stopping
+                        && (d > range + 1.0 || self.run_owner.as_deref() == Some(plugin.as_str()))
                     {
-                        self.steer(&mut r, frame, &me, &at, now);
+                        self.steer(&mut r, frame, &me, &at, range, now);
                     }
                     None
                 }
@@ -760,23 +965,220 @@ impl Nav {
         }
     }
 
+    /// `r` arrived: what it ran with stays held a moment, for its plugin's next movement.
+    fn arrived(&mut self, r: &Running, now: f64) {
+        if self.run_owner.as_deref() == Some(r.plugin.as_str()) || !self.held.is_empty() {
+            self.chain = Some(Chain {
+                plugin: r.plugin.clone(),
+                frames: CHAIN_FRAMES,
+                until: now + CHAIN_SECS,
+                follower: r.follower.clone(),
+            });
+        }
+    }
+
+    /// One frame of a move along: the journeys' follower over the plugin's own points, with the
+    /// forward and turn keys, and each point reached told. Answers its end, if it ended.
+    #[allow(clippy::cast_possible_truncation)]
+    fn along(
+        &mut self,
+        r: &mut Running,
+        frame: &mut HookFrame<'_>,
+        me: &Position,
+        range: f64,
+        now: f64,
+    ) -> Option<Result<Value, String>> {
+        let Goal::MoveAlong { points, .. } = &r.goal else {
+            return None;
+        };
+        let follower = r.follower.get_or_insert_with(|| {
+            let path = NavPath {
+                waypoints: std::iter::once(me)
+                    .chain(points)
+                    .map(|p| Waypoint {
+                        position: *p,
+                        action: None,
+                    })
+                    .collect(),
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            };
+            let config = FollowConfig::strict(range as f32, STUCK_SECS);
+            match r.before.take() {
+                Some(before) => before.then(path, config),
+                None => Follower::new(path, config),
+            }
+        });
+        let next = follower.next_waypoint();
+        let toward = follower.path().waypoints.get(next).map(|w| w.position);
+        if let Some(end) = self.door_on_the_way(r, frame, me, toward.as_ref(), now) {
+            return end;
+        }
+        let follower = r.follower.as_mut()?;
+        let steer = follower.update(me, places::heading(me) as f32, now);
+        for index in next..follower.next_waypoint() {
+            self.progress.push((
+                r.plugin.clone(),
+                "nav.point_reached",
+                Value::map()
+                    .with("id", r.id)
+                    .with("index", i64::try_from(index).unwrap_or(0)),
+            ));
+        }
+        match steer {
+            Steer::Arrived => {
+                let (count, last) = match &r.goal {
+                    Goal::MoveAlong { points, .. } => (points.len(), points.last().copied()),
+                    _ => (0, None),
+                };
+                let d = last.map_or(0.0, |p| places::ground_distance(me, &p));
+                self.set_turn(frame, None);
+                self.arrived(r, now);
+                Some(Ok(Value::map()
+                    .with("distance", (d * 10.0).round() / 10.0)
+                    .with("points", i64::try_from(count).unwrap_or(0))))
+            }
+            Steer::Go {
+                forward,
+                turn,
+                face,
+                ..
+            } => {
+                self.set_held(frame, NavKey::Forward, forward);
+                self.set_turn(frame, turn);
+                if let Some(heading) = face {
+                    frame.nav(NavRequest::Heading(heading));
+                }
+                None
+            }
+            // The plugin's points carry no doors, so a door is never asked for.
+            Steer::Stuck { .. } | Steer::OpenDoor(_) => {
+                Self::let_go_of(frame, &mut self.held);
+                Some(Err("stuck".to_owned()))
+            }
+        }
+    }
+
+    /// A shut door across a move along's way, near: the character stands, and the door is used,
+    /// and used again after a while, as a journey's walk uses one. Answers the move's end when the
+    /// door will not open (locked, the server says, or still shut after its uses), and that the
+    /// frame is the door's (`Some(None)`) while it is opened; `None` when there is no such door,
+    /// or it stands open.
+    #[allow(clippy::cast_possible_truncation)]
+    fn door_on_the_way(
+        &mut self,
+        r: &mut Running,
+        frame: &mut HookFrame<'_>,
+        me: &Position,
+        toward: Option<&Position>,
+        now: f64,
+    ) -> Option<Option<Result<Value, String>>> {
+        let open = |id: ObjectId| {
+            frame
+                .world
+                .physics(id)
+                .is_some_and(|p| p.state & ETHEREAL != 0)
+        };
+        let door = match r.door {
+            Some((d, ..)) => d,
+            None => {
+                let to = toward?;
+                let (ax, ay, _) = places::global(me);
+                let (bx, by, _) = places::global(to);
+                let (dx, dy) = (bx - ax, by - ay);
+                let len2 = (dx * dx + dy * dy).max(1e-6);
+                frame
+                    .world
+                    .tables
+                    .weenies
+                    .iter()
+                    .filter(|(id, w)| crate::reads::class_of(w).1 == "Door" && !open(*id))
+                    .filter_map(|(id, _)| {
+                        let at = frame.places.object(id)?;
+                        let (x, y, _) = places::global(&at);
+                        let t = ((x - ax) * dx + (y - ay) * dy) / len2;
+                        let across = ((x - ax - t * dx).powi(2) + (y - ay - t * dy).powi(2)).sqrt();
+                        let near = places::ground_distance(me, &at);
+                        (t > 0.0 && across <= DOOR_ACROSS && near <= DOOR_NEAR)
+                            .then_some((near, id))
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))?
+                    .1
+            }
+        };
+        if open(door) {
+            // Open: on through it, from standing.
+            self.locked_doors.remove(&door);
+            r.door = None;
+            if let Some(f) = r.follower.as_mut() {
+                f.held_up(now);
+            }
+            return None;
+        }
+        self.set_held(frame, NavKey::Forward, false);
+        self.set_turn(frame, None);
+        if let Some(f) = r.follower.as_mut() {
+            f.held_up(now);
+        }
+        let shut = |why: &'static str| {
+            let d = door_value(frame.world, door).with("why", why);
+            let name = d.get("name").as_str().unwrap_or("the door").to_owned();
+            (d, name)
+        };
+        if self.locked_doors.contains(&door) {
+            let (d, name) = shut("locked");
+            self.shut_doors.insert((r.plugin.clone(), r.id), d);
+            Self::let_go_of(frame, &mut self.held);
+            return Some(Some(Err(format!(
+                "door_shut: {name} is locked, the server says"
+            ))));
+        }
+        match r.door {
+            Some((_, since, tries)) if now - since <= DOOR_WAIT => {
+                r.door = Some((door, since, tries));
+            }
+            Some((_, _, tries)) if tries >= DOOR_TRIES => {
+                let (d, name) = shut("no_answer");
+                self.shut_doors.insert((r.plugin.clone(), r.id), d);
+                Self::let_go_of(frame, &mut self.held);
+                return Some(Some(Err(format!(
+                    "door_shut: {name} did not open after {DOOR_TRIES} uses"
+                ))));
+            }
+            used => {
+                frame.request(dereth_client_contract::UiRequest::Use(door));
+                r.door = Some((door, now, used.map_or(0, |(_, _, n)| n) + 1));
+            }
+        }
+        Some(None)
+    }
+
     /// Run toward `at` while it is ahead; when it is off to the side, stop and turn in place first.
     /// A turn is never asked for while running: the client's turn-to-heading ends forward motion
-    /// when it finishes.
+    /// when it finishes. Close by, it runs on past a target it will pass within `range` of.
     fn steer(
         &mut self,
         r: &mut Running,
         frame: &mut HookFrame<'_>,
         me: &Position,
         at: &Position,
+        range: f64,
         now: f64,
     ) {
         let b = places::bearing(me, at);
         let off = places::turn(places::heading(me), b).abs();
         let plugin = r.plugin.clone();
-        if off > TURN_TOLERANCE {
+        let running = self.run_owner.as_deref() == Some(plugin.as_str()) && frame.places.autorun();
+        // How near it passes, running on as it faces.
+        let passes =
+            places::ground_distance(me, at) * dereth_primitives::num::math::sin(off.to_radians());
+        if off > TURN_TOLERANCE && !(running && off < 90.0 && passes <= PASS_WITHIN * range) {
             self.run(frame, &plugin, false);
-            Self::face(r, frame, b, now);
+            // Running, it stops this frame and turns from the next: the stop would end the turn.
+            if !running {
+                Self::face(r, frame, b, now);
+            }
         } else {
             self.run(frame, &plugin, true);
         }

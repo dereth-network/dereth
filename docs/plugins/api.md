@@ -150,7 +150,7 @@ as healing (`auto.heal`), as `magic.cast`'s does. Who may act, and when, is in
 
 Combat (`combat.set_mode`, `combat.attack`, `combat.stop`), metas, VTank meta files, expressions,
 and the heal and debuff helpers are in [automation.md](automation.md).
-Movements of the character (`nav.move_to`, `nav.follow`, `nav.face`, `nav.autorun`, `nav.stop`)
+Movements of the character (`nav.move_to`, `nav.move_along`, `nav.follow`, `nav.face`, `nav.autorun`, `nav.stop`)
 are in [nav.md](nav.md); pre-game operations (`session.select_character`, `session.logout`,
 `session.quit`) in [pregame.md](pregame.md); `net.fetch` in [peers.md](peers.md). Each answers a
 promise the same way.

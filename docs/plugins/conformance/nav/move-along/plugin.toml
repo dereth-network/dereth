@@ -1,0 +1,10 @@
+id = "conformance.movealong"
+name = "Conformance: move along"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Runs through the places you ask."
+
+[capabilities]
+required = ["nav.moveto", "nav.journey"]

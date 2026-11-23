@@ -71,6 +71,7 @@ impl<S: Shell> App<S> {
             );
         }
         let typed = self.interaction.take_extension_commands();
+        let locked = self.objects.take_hook_lock_answers();
         let account = self
             .link
             .as_ref()
@@ -106,6 +107,7 @@ impl<S: Shell> App<S> {
                 &typed,
             )
             .with_outcomes(&outcomes)
+            .with_locked(&locked)
             .with_messages(&messages)
             .with_session(self.host_state.world_name.as_deref(), account.as_deref())
             .with_pregame(&session)
@@ -276,6 +278,7 @@ impl<S: Shell> App<S> {
                         }
                     }
                 }
+                NavRequest::Heading(heading) => self.steer_heading(heading.rem_euclid(360.0)),
                 NavRequest::Autorun(on) => {
                     // The client's own steering: the game's run lock, whatever the interface
                     // makes of the player's keys.
@@ -307,6 +310,32 @@ impl<S: Shell> App<S> {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    /// A heading the client's own steering sets at once, a journey's or a plugin's. The server
+    /// is told of it as it is told of the mouse's turning: with a movement event, at most every
+    /// half second.
+    pub(super) fn steer_heading(&mut self, heading: f32) {
+        let Some(c) = self
+            .world
+            .as_mut()
+            .and_then(|w| w.character.as_mut())
+            .filter(|_| self.pending_scene.is_none())
+        else {
+            return;
+        };
+        c.face_heading(heading);
+        let now = self.timer.cur_time;
+        if (now - self.steered_heading_sent).abs() < crate::camera::ROTATE_SERVER_MESSAGE_INTERVAL {
+            return;
+        }
+        if let Some(motion) = self.player_motion() {
+            if let Some(link) = self.link.as_mut() {
+                self.position
+                    .send_movement_event(now, &motion, &mut link.net.session);
+                self.steered_heading_sent = now;
             }
         }
     }
