@@ -16,6 +16,10 @@ pub const TRAIL_STEP: f32 = 0.4;
 /// to walk: the trail ends before it.
 pub const TRAIL_JUMP: f32 = 30.0;
 
+// A journey's way is shown in steps shorter than a jump, so a long straight stretch of a walk is
+// never taken for one.
+const _: () = assert!(dereth_client_runtime::travel::WAY_STEP < TRAIL_JUMP);
+
 /// How near the journey's end has to be, metres, for it to be marked on the ground.
 pub const GOAL_SIGHT: f32 = 40.0;
 

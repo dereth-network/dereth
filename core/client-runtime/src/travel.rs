@@ -855,6 +855,40 @@ struct Trip {
     /// The route on from the end of the one being followed, which ends at a window's edge,
     /// asked for before the body gets there: the job, and its answer once it has come.
     ahead: Option<(u64, Option<Walked>)>,
+    /// The way the body was following when its walk or its journey went to be planned again,
+    /// shown until the new route comes: the guide drawn along it does not go out meanwhile.
+    held: Vec<Position>,
+}
+
+impl Trip {
+    /// The way along the walk being followed: from the corner passed last, through the rest of
+    /// it and on along the route asked for past its window's edge once that has come, in short
+    /// steps ([`WAY_STEP`]); empty with no walk followed.
+    fn followed_way(&self) -> Vec<Position> {
+        let Some(f) = self.follower.as_ref() else {
+            return Vec::new();
+        };
+        let past_the_edge = match &self.ahead {
+            Some((_, Some(Ok((path, _))))) => &path.waypoints[1.min(path.waypoints.len())..],
+            _ => &[],
+        };
+        let behind = f.next_waypoint().saturating_sub(1);
+        in_short_steps(
+            f.path()
+                .waypoints
+                .iter()
+                .skip(behind)
+                .chain(past_the_edge)
+                .map(|w| w.position),
+        )
+    }
+
+    /// Keep the way being followed to show while the walk or the journey is planned again.
+    fn hold_way(&mut self) {
+        if self.follower.is_some() {
+            self.held = self.followed_way();
+        }
+    }
 }
 
 /// How many times a journey is planned again before it gives up.
@@ -1138,6 +1172,64 @@ pub struct CacheTiles {
 /// The most files kept in one data set's folder: past it the folder is emptied and filled again.
 const CACHE_FILES: usize = 1024;
 
+/// The longest step a journey's shown way takes between two places along a planned walk,
+/// metres: a long straight stretch of a route is shown as places this far apart at most, so what
+/// draws the way never takes the stretch for a jump (a step past a portal or a recall).
+pub const WAY_STEP: f32 = 10.0;
+
+/// `points`, a walk's corners, with places put in along each stretch longer than [`WAY_STEP`]
+/// so no step between two of them is longer.
+fn in_short_steps(points: impl IntoIterator<Item = Position>) -> Vec<Position> {
+    let mut out: Vec<Position> = Vec::new();
+    for p in points {
+        if let Some(a) = out.last().copied() {
+            let (ga, gb) = (dereth_navigation::global(&a), dereth_navigation::global(&p));
+            let step = hypotf(gb.x - ga.x, gb.y - ga.y);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: a count of steps along one stretch of a walk.
+            let pieces = (step / WAY_STEP).ceil().max(1.0) as u32;
+            for i in 1..pieces {
+                #[allow(clippy::cast_precision_loss)]
+                let f = i as f32 / pieces as f32;
+                out.push(along(
+                    &a,
+                    Vec3::new((gb.x - ga.x) * f, (gb.y - ga.y) * f, (gb.z - ga.z) * f),
+                ));
+            }
+        }
+        out.push(p);
+    }
+    out
+}
+
+/// `p` moved by `d` metres (east, north, up): outdoors in whichever landblock and cell that
+/// falls in, indoors in `p`'s own cell.
+fn along(p: &Position, d: Vec3) -> Position {
+    /// A landblock's side, metres.
+    const BLOCK: f32 = 192.0;
+    let mut q = *p;
+    let (x, y) = (q.frame.origin.x + d.x, q.frame.origin.y + d.y);
+    q.frame.origin = Vec3::new(x, y, q.frame.origin.z + d.z);
+    if q.cell.0 & 0xFFFF >= 0x100 {
+        return q;
+    }
+    let (bx, by) = ((q.cell.0 >> 24) as f32, ((q.cell.0 >> 16) & 0xFF) as f32);
+    let (dx, dy) = ((x / BLOCK).floor(), (y / BLOCK).floor());
+    let (nx, ny) = (bx + dx, by + dy);
+    if !(0.0..=255.0).contains(&nx) || !(0.0..=255.0).contains(&ny) {
+        return q;
+    }
+    let (lx, ly) = (x - dx * BLOCK, y - dy * BLOCK);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // LINT-OK: landblock and cell numbers, checked in range above.
+    {
+        let index = ((lx / 24.0) as u32).min(7) * 8 + ((ly / 24.0) as u32).min(7) + 1;
+        q.cell = CellId((nx as u32) << 24 | (ny as u32) << 16 | index);
+    }
+    q.frame.origin = Vec3::new(lx, ly, q.frame.origin.z);
+    q
+}
+
 impl CacheTiles {
     /// The cache in `root` for `store`'s data as the planner reads it.
     #[must_use]
@@ -1399,9 +1491,17 @@ impl Travel {
         let t = self.trip.as_ref()?;
         let goal = t.goal?;
         let mut route = Vec::new();
+        // The route on past the window's edge the walk is following to, once it is planned.
+        let past_the_edge = match &t.ahead {
+            Some((_, Some(Ok((path, _))))) if t.follower.is_some() => {
+                path.waypoints.iter().skip(1).map(|w| w.position).collect()
+            }
+            _ => Vec::new(),
+        };
         if let Some(f) = t.follower.as_ref() {
             let next = f.next_waypoint();
             route.extend(f.path().waypoints.iter().skip(next).map(|w| w.position));
+            route.extend(past_the_edge.iter().copied());
         }
         if let Some(Step::Approach { portal }) = &t.step {
             if route.is_empty() {
@@ -1421,11 +1521,12 @@ impl Travel {
                 Leg::Drop { drop } => drop.stand,
             });
         // The way still to walk: from the corner passed last, on through each walk, to where the
-        // route next leaves the ground.
-        let mut way = Vec::new();
-        if let Some(f) = t.follower.as_ref() {
-            let behind = f.next_waypoint().saturating_sub(1);
-            way.extend(f.path().waypoints.iter().skip(behind).map(|w| w.position));
+        // route next leaves the ground; along the walks planned, in short steps. While the walk
+        // or the journey is planned again, the way it was following.
+        let mut way = t.followed_way();
+        let replanning = t.walking.is_some() || matches!(t.step, Some(Step::Planning { .. }));
+        if t.follower.is_none() && replanning {
+            way.clone_from(&t.held);
         }
         if let Some(Step::Approach { portal }) = &t.step {
             if way.is_empty() {
@@ -2120,6 +2221,7 @@ impl Travel {
         };
         self.release_keys(out);
         if let Some(t) = self.trip.as_mut() {
+            t.hold_way();
             t.follower = None;
             t.walking = None;
             t.ahead = None;
@@ -2916,6 +3018,7 @@ impl Travel {
         });
         self.release_keys(out);
         if let Some(t) = self.trip.as_mut() {
+            t.hold_way();
             t.follower = None;
             t.walking = Some((id, *to));
             t.ahead = None;
@@ -3096,6 +3199,7 @@ impl Travel {
             }
         }
         t.follower = Some(Follower::new(path, FollowConfig::default()));
+        t.held.clear();
     }
 
     /// The portal in sight nearest `at`, within `reach`.
@@ -4026,8 +4130,8 @@ impl Travel {
         }
     }
 
-    /// Halfway along a route that ends at a window's edge, ask for the route on from its end,
-    /// so it is there when the body is.
+    /// Setting out along a route that ends at a window's edge, ask for the route on from its end,
+    /// so it is there well before the body is, and the way ahead is shown past the edge.
     fn ask_ahead(&mut self) {
         let Some(t) = self.trip.as_ref() else { return };
         let (
@@ -4042,9 +4146,6 @@ impl Travel {
             return;
         };
         let w = &f.path().waypoints;
-        if f.next_waypoint() * 2 < w.len() {
-            return;
-        }
         let (Some(end), target) = (w.last().map(|w| w.position), *target) else {
             return;
         };
@@ -4302,6 +4403,7 @@ impl Trip {
             walking: None,
             unblocked: false,
             ahead: None,
+            held: Vec::new(),
         }
     }
 }
@@ -4895,6 +4997,154 @@ mod tests {
         let t = walk.travel.trip.as_ref().expect("the journey goes on");
         let route = t.follower.as_ref().expect("it walks on").path();
         assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    /// A walk too long for one window asks for the route on past the window's edge as it sets
+    /// out, not halfway there, and the way shown runs on along that route once it is planned:
+    /// the way drawn does not stop at the edge.
+    ///
+    /// Behaviour: plugins.nav.a-journeys-way-runs-on-past-a-windows-edge
+    #[test]
+    fn a_walk_asks_for_the_route_past_a_windows_edge_as_it_sets_out_and_shows_it() {
+        use at_a_door::at;
+        let straight = |from: f32, to: f32| NavPath {
+            waypoints: [from, (from + to) / 2.0, to]
+                .into_iter()
+                .map(|x| dereth_navigation::Waypoint {
+                    position: at(x),
+                    action: None,
+                })
+                .collect(),
+            legs: Vec::new(),
+            goal_offset: 0.0,
+            cuts: Vec::new(),
+        };
+        let mut travel = Travel::new(StoreFiles::default());
+        travel.planning = Some(Planning::held());
+        let mut trip = Trip::new(
+            1,
+            Purpose::Go,
+            TravelTarget::Place(at(120.0)),
+            TravelAllow::default(),
+            0.0,
+            0.0,
+        );
+        trip.goal = Some(at(120.0));
+        trip.step = Some(Step::Walk {
+            target: at(120.0),
+            last: false,
+        });
+        travel.trip = Some(trip);
+        travel.follow_route(straight(0.0, 40.0), false);
+        let mut out = Vec::new();
+        travel.follow(&at(0.0), &mut out);
+        let asked = match travel.planning.as_ref().and_then(Planning::last_asked) {
+            Some(Job::Route { id, from, .. }) => {
+                assert_eq!(from.frame.origin.x, 40.0, "from the window's edge");
+                *id
+            }
+            other => panic!("the route on was not asked for at once: {other:?}"),
+        };
+        travel.trip.as_mut().expect("the trip").ahead =
+            Some((asked, Some(Ok((straight(40.0, 80.0), false)))));
+        let way: Vec<f32> = travel
+            .view()
+            .expect("a view")
+            .way
+            .iter()
+            .map(|p| p.frame.origin.x)
+            .collect();
+        let tens: Vec<f32> = (0..=8_u8).map(|i| f32::from(i) * 10.0).collect();
+        assert_eq!(way, tens, "on past the edge, in short steps");
+    }
+
+    /// A walk planned again (the body stuck, or something new in its way) shows the way it was
+    /// following until the new route comes, and then the new one: the guide drawn along it does
+    /// not go out meanwhile.
+    ///
+    /// Behaviour: plugins.nav.a-journeys-way-runs-on-past-a-windows-edge
+    #[test]
+    fn a_walk_planned_again_shows_the_way_it_followed_until_the_new_one_comes() {
+        use at_a_door::at;
+        let straight = |from: f32, to: f32| NavPath {
+            waypoints: [from, to]
+                .into_iter()
+                .map(|x| dereth_navigation::Waypoint {
+                    position: at(x),
+                    action: None,
+                })
+                .collect(),
+            legs: Vec::new(),
+            goal_offset: 0.0,
+            cuts: Vec::new(),
+        };
+        let xs = |travel: &Travel| -> Vec<f32> {
+            travel
+                .view()
+                .expect("a view")
+                .way
+                .iter()
+                .map(|p| p.frame.origin.x)
+                .collect()
+        };
+        let mut travel = Travel::new(StoreFiles::default());
+        travel.planning = Some(Planning::held());
+        let mut trip = Trip::new(
+            1,
+            Purpose::Go,
+            TravelTarget::Place(at(20.0)),
+            TravelAllow::default(),
+            0.0,
+            0.0,
+        );
+        trip.goal = Some(at(20.0));
+        trip.step = Some(Step::Walk {
+            target: at(20.0),
+            last: true,
+        });
+        travel.trip = Some(trip);
+        travel.follow_route(straight(0.0, 20.0), true);
+        let followed = xs(&travel);
+        assert_eq!(followed, [0.0, 10.0, 20.0]);
+        let mut out = Vec::new();
+        travel.walk_toward(&at(3.0), &at(20.0), &mut out);
+        assert!(
+            travel
+                .trip
+                .as_ref()
+                .is_some_and(|t| t.follower.is_none() && t.walking.is_some()),
+            "the walk is being planned again"
+        );
+        assert_eq!(xs(&travel), followed, "the way followed, meanwhile");
+        travel.follow_route(straight(3.0, 20.0), true);
+        assert_eq!(xs(&travel), [3.0, 11.5, 20.0], "the new way, once it comes");
+    }
+
+    /// A long stretch of a walk is put in steps no longer than [`WAY_STEP`], the places along it
+    /// in the landblock and the cell they fall in, as the land numbers them.
+    #[test]
+    fn a_long_stretch_is_put_in_short_steps_in_the_landblocks_it_crosses() {
+        let outdoors = |cell: u32, x: f32, y: f32| {
+            Position::new(
+                CellId(cell),
+                Frame::new(Vec3::new(x, y, 10.0), Quat::IDENTITY),
+            )
+        };
+        // From near the east edge of 0xA9B4 into 0xAAB4, 45 metres east.
+        let (a, b) = (
+            outdoors(0xA9B4_003D, 170.0, 100.0),
+            outdoors(0xAAB4_0005, 23.0, 100.0),
+        );
+        let steps = in_short_steps([a, b]);
+        assert_eq!(steps.len(), 6, "{steps:?}");
+        for w in steps.windows(2) {
+            let d = dereth_navigation::global_distance(&w[0], &w[1]);
+            assert!(d <= WAY_STEP + 0.01, "{d} m: {steps:?}");
+        }
+        // 170 + 3 * 9 = 197: 5 metres into the next landblock, its first column of cells.
+        let third = steps[3];
+        assert_eq!(third.cell, CellId(0xAAB4_0005), "{third:?}");
+        assert!((third.frame.origin.x - 5.0).abs() < 0.01, "{third:?}");
     }
 
     /// Colier Mine's door that cannot be activated from where it stands (at x = 5 on the way)
@@ -6156,6 +6406,242 @@ mod tests {
             ..jonathan
         }];
         assert!(t.hand_backs().is_empty());
+    }
+
+    /// A journey walked frame by frame on the retail land by a body that does what the travel
+    /// tells it (holds forward, faces, turns), with no collision: what the way shows at each
+    /// frame, against where the body is.
+    mod walked {
+        use super::*;
+
+        /// One frame of a walk: where the body was, the way shown, how far the goal still was
+        /// and whether the walk followed was one to a window's edge.
+        pub(super) struct Seen {
+            pub here: Position,
+            pub way: Vec<Position>,
+            pub left: f32,
+            pub to_an_edge: bool,
+        }
+
+        /// The ground of the land at `(gx, gy)`, metres from the world's corner.
+        fn ground(land: &DatLandSource, gx: f32, gy: f32) -> Option<Position> {
+            let (bx, by) = ((gx / 192.0).floor(), (gy / 192.0).floor());
+            let (x, y) = (gx - bx * 192.0, gy - by * 192.0);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let block = ((bx as u16) << 8) | by as u16;
+            let z = land.ground_height(LandblockId(block), x, y)?;
+            let mut cell = CellId((u32::from(block) << 16) | 1);
+            let mut o = Vec3::new(x, y, z);
+            dereth_physics::landdefs::adjust_to_outside(&mut cell, &mut o).then_some(())?;
+            Some(Position::new(cell, Frame::new(o, Quat::IDENTITY)))
+        }
+
+        /// The journey from `from` to `to` walked at `fps` frames a second, each plan answered
+        /// in the frame after it is asked for; every frame once the journey is planned, and
+        /// whether it arrived.
+        pub(super) fn walk(
+            land: &Arc<DatLandSource>,
+            store: &Arc<RetailDatStore>,
+            from: Position,
+            to: Position,
+            fps: f64,
+        ) -> (Vec<Seen>, bool) {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.wait_for_plans = true;
+            travel.request(TravelRequest::Go {
+                id: 1,
+                target: TravelTarget::Place(to),
+                allow: TravelAllow::default(),
+            });
+            let object = |_: ObjectId| None;
+            let holds = |_: &str| None;
+            let (mut here, mut heading) = (from, 0.0_f32);
+            let (mut forward, mut walking, mut turn) = (false, false, None::<bool>);
+            let mut seen = Vec::new();
+            #[allow(clippy::cast_possible_truncation)]
+            let dt = (1.0 / fps) as f32;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let frames = (fps * 600.0) as u32;
+            for i in 0..frames {
+                let now = f64::from(i) / fps;
+                dereth_primitives::frame::set_heading(&mut here.frame, heading);
+                let input = TravelInput {
+                    now,
+                    wall: now,
+                    at: Some(here),
+                    idle: true,
+                    land: Some(land),
+                    store,
+                    character: CharacterState::default(),
+                    stance: Stance::default(),
+                    portals: Vec::new(),
+                    world: Some(String::from("walked")),
+                    player_input: false,
+                    fizzled: false,
+                    portal_refused: None,
+                    object: &object,
+                    hand_backs: Vec::new(),
+                    holds: &holds,
+                    answer: None,
+                    body: Vec::new(),
+                };
+                for c in travel.use_time(&input) {
+                    match c {
+                        TravelCommand::Forward(f) => forward = f,
+                        TravelCommand::Walk(w) => walking = w,
+                        TravelCommand::Face(h) => heading = h,
+                        TravelCommand::Turn(t) => turn = t,
+                        _ => {}
+                    }
+                }
+                let events = travel.take_events();
+                if events
+                    .iter()
+                    .any(|e| matches!(e, TravelEvent::Arrived { .. }))
+                {
+                    return (seen, true);
+                }
+                if events
+                    .iter()
+                    .any(|e| matches!(e, TravelEvent::Failed { .. }))
+                {
+                    return (seen, false);
+                }
+                if let Some(v) = travel
+                    .view()
+                    .filter(|v| v.way.len() > 1 || !seen.is_empty())
+                {
+                    let to_an_edge = travel
+                        .trip
+                        .as_ref()
+                        .is_some_and(|t| matches!(t.step, Some(Step::Walk { last: false, .. })));
+                    seen.push(Seen {
+                        here,
+                        left: dereth_navigation::global_distance(&here, &v.goal),
+                        way: v.way,
+                        to_an_edge,
+                    });
+                }
+                if let Some(right) = turn {
+                    heading += if right { 135.0 } else { -135.0 } * dt;
+                }
+                if forward {
+                    let step = if walking { 3.0 } else { 11.0 } * dt;
+                    let g = dereth_navigation::global(&here);
+                    let r = heading.to_radians();
+                    let (sin, cos) = (
+                        dereth_primitives::num::math::sinf(r),
+                        dereth_primitives::num::math::cosf(r),
+                    );
+                    if let Some(p) = ground(land, g.x + sin * step, g.y + cos * step) {
+                        here = p;
+                    }
+                }
+            }
+            (seen, false)
+        }
+
+        /// How much of `way` a guide drawn by the plugin host's rule shows ahead of `here`: from
+        /// the place on the way nearest the body, on through its places, at most 30 metres, and
+        /// never past a step longer than 30 metres, which it takes for a portal's jump.
+        pub(super) fn drawn(here: &Position, way: &[Position]) -> f32 {
+            const REACH: f32 = 30.0;
+            const JUMP: f32 = 30.0;
+            let flat = |p: &Position| {
+                let v = dereth_navigation::global(p);
+                (v.x, v.y)
+            };
+            if way.len() < 2 {
+                return 0.0;
+            }
+            let h = flat(here);
+            let (_, from, on) = way
+                .windows(2)
+                .enumerate()
+                .map(|(i, w)| {
+                    let (a, b) = (flat(&w[0]), flat(&w[1]));
+                    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                    let l2 = dx * dx + dy * dy;
+                    let t = if l2 > 0.0 {
+                        (((h.0 - a.0) * dx + (h.1 - a.1) * dy) / l2).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    };
+                    let p = (a.0 + dx * t, a.1 + dy * t);
+                    (hypotf(p.0 - h.0, p.1 - h.1), i, p)
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .expect("two or more places");
+            let (mut last, mut length) = (on, 0.0);
+            for p in way[from + 1..].iter().map(flat) {
+                let step = hypotf(p.0 - last.0, p.1 - last.1);
+                if step > JUMP {
+                    break;
+                }
+                length += step;
+                if length >= REACH {
+                    return REACH;
+                }
+                last = p;
+            }
+            length
+        }
+    }
+
+    /// A long walk over open land, through several windows of landblocks, at 10 and at 60 frames
+    /// a second: once its journey is planned, the guide drawn along the way the journey shows
+    /// runs on 30 metres ahead of the body at every frame, or to the goal where that is nearer.
+    /// A long straight stretch of the route is shown in short steps (one corner to the next was
+    /// once a step the guide took for a jump, and drew nothing), and a walk planned again (stuck,
+    /// or round something) keeps showing the way it followed until the new one comes.
+    ///
+    /// Behaviour: plugins.nav.a-journeys-way-runs-on-past-a-windows-edge
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_guide_runs_on_ahead_of_the_body_all_along_a_long_walk_at_10_and_60_fps() {
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
+        let ground = |block: u16, x: f32, y: f32| {
+            let z = land
+                .ground_height(LandblockId(block), x, y)
+                .expect("terrain");
+            let mut cell = CellId((u32::from(block) << 16) | 1);
+            let mut o = Vec3::new(x, y, z);
+            assert!(dereth_physics::landdefs::adjust_to_outside(
+                &mut cell, &mut o
+            ));
+            Position::new(cell, Frame::new(o, Quat::IDENTITY))
+        };
+        // From Holtburg 2.7 km east-southeast over open land.
+        let (from, to) = (ground(0xA9B4, 20.0, 20.0), ground(0xB6B0, 100.0, 100.0));
+        for fps in [10.0, 60.0] {
+            let (seen, arrived) = walked::walk(&land, &store, from, to, fps);
+            assert!(arrived, "at {fps} fps the walk arrives");
+            assert!(
+                seen.iter().any(|s| s.to_an_edge),
+                "at {fps} fps the walk goes by a window's edge"
+            );
+            let short: Vec<String> = seen
+                .iter()
+                .filter_map(|s| {
+                    let d = walked::drawn(&s.here, &s.way);
+                    let g = dereth_navigation::global(&s.here);
+                    (d + 1.0 < s.left.min(30.0))
+                        .then(|| format!("{:.0} {:.0}: {d:.1} m of {:.0}", g.x, g.y, s.left))
+                })
+                .collect();
+            assert!(
+                short.is_empty(),
+                "at {fps} fps the guide fell short at {} of {} frames, first {:?}",
+                short.len(),
+                seen.len(),
+                &short[..short.len().min(5)]
+            );
+        }
     }
 
     /// Frames of the travel answering a walking route over the retail data: a dungeon's region

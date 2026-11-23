@@ -944,6 +944,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-journeys-way-runs-on-past-a-windows-edge",
+        says: "The guide drawn along a journey's way runs on ahead of the character all along a \
+               walk: a walk too long for one window asks for its route on past the window's edge \
+               as it sets out and the way runs on along it, a long straight stretch is shown in \
+               short steps (never taken for a portal's jump), and a walk planned again shows the \
+               way it followed until the new one comes.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-WAY-AHEAD"),
+        station: "dereth-client-runtime::lib::travel::tests::a_walk_asks_for_the_route_past_a_windows_edge_as_it_sets_out_and_shows_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-jump-faces-its-heading-charges-for-the-time-asked-and-leaps-the-way-held",
         says: "A jump turns the character to its heading, presses the jump and charges it for the \
                time asked, holding the walk key and the direction it leaps in, then lets go: the \

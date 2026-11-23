@@ -278,8 +278,10 @@ end
 the one being carried out (from 1), `target` where it goes, `route` the way still to go (the walk's
 corners, then each later leg's end, a portal's far side among them), and `way` the way still to walk
 as one line: from the walk's corner passed last on through each walk to where the route next leaves
-the ground. Walking on along it only drops its corners from the front; a new plan replaces it. It is
-what to draw a trail along (`draw.path`).
+the ground, in steps of at most 10 metres (a long straight stretch has places put in along it), and
+while the walk is planned again, the way it was following until the new one comes. Walking on along
+it only drops its corners from the front; a new plan replaces it. It is what to draw a trail along
+(`draw.path`).
 
 While a journey runs the host draws it for the plugin (needing the overlay capabilities): an arrow to
 where the leg goes, the way still to go as a line on the map, and each portal and recall ahead as a
