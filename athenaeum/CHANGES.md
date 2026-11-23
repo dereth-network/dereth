@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.11 (2026-11-23)
 - macOS: fixed arrow keys typing odd characters into text fields.
 - New Fast view (F7) for seeing far more of a big world at once.
 
