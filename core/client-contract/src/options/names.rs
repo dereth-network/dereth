@@ -12,6 +12,10 @@ pub const PERFORMANCE_PANEL: &str = "Debug.PerformancePanel";
 pub const DISPLAY_FULL_SCREEN: &str = "Display.FullScreen";
 /// `Display.LargeStatusBarNumbers`.
 pub const DISPLAY_LARGE_STATUS_BAR_NUMBERS: &str = "Display.LargeStatusBarNumbers";
+/// `Display.MaxBackgroundFrameRate`.
+pub const DISPLAY_MAX_BACKGROUND_FRAME_RATE: &str = "Display.MaxBackgroundFrameRate";
+/// `Display.MaxFrameRate`.
+pub const DISPLAY_MAX_FRAME_RATE: &str = "Display.MaxFrameRate";
 /// `Display.RefreshRate`.
 pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
 /// `Display.RenderScale`.

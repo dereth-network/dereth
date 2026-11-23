@@ -178,12 +178,12 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
     }
     assert_eq!(
         p.menu_entries,
-        32 + 8 + 3 + 3,
-        "the page's own counter agrees with the twelve list boxes"
+        32 + 8 + 3 + 3 + 8 + 8,
+        "the page's own counter agrees with the fourteen list boxes"
     );
     assert_eq!(
-        p.menu_popups, 12,
-        "the eight, the three era rows and the interface row"
+        p.menu_popups, 14,
+        "the eight, the three era rows, the interface row and the two frame rate rows"
     );
 
     for (pref, n) in want {
@@ -522,13 +522,13 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
         29,
         "all 29 controls are still bound"
     );
-    // This client's three era rows and its interface row ask the option value store, not this
-    // registry, so they keep their literal entries (four, four, three, and the three
-    // interfaces).
-    assert_eq!(p.menu_entries, 14, "and not one retail drop-down has a row");
+    // This client's three era rows, its interface row and its two frame rate rows ask the
+    // option value store, not this registry, so they keep their literal entries (four, four,
+    // three, the three interfaces, and eight limits each).
+    assert_eq!(p.menu_entries, 30, "and not one retail drop-down has a row");
     assert_eq!(
-        p.menu_popups, 12,
-        "…while all twelve popups exist: make_popup does not ask the registry"
+        p.menu_popups, 14,
+        "…while all fourteen popups exist: make_popup does not ask the registry"
     );
     for o in p
         .retail_options()
@@ -563,7 +563,7 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     assert_eq!(at(landscape::OBJECTS), at(landscape::SKY) + 1);
     assert_eq!(at("Camera.Stiffness"), at(landscape::OBJECTS) + 1);
     // The interface row opens Display, after Sound; the performance panel's follows the
-    // field of view, and slowing down in the background follows it.
+    // field of view, and the two frame rate limits follow it.
     assert_eq!(
         at(dereth_client_contract::options::interface::INTERFACE),
         at("Sound.PlaySoundOnlyWhenActive") + 1
@@ -571,8 +571,12 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     let panel = dereth_client_contract::options::performance::PERFORMANCE_PANEL;
     assert_eq!(at(panel), at("Render.FieldOfView") + 1);
     assert_eq!(
-        at(dereth_client_contract::options::background::SLOW_DOWN_IN_BACKGROUND),
+        at(dereth_client_contract::options::frame_rate::MAX_FRAME_RATE),
         at(panel) + 1
+    );
+    assert_eq!(
+        at(dereth_client_contract::options::frame_rate::MAX_BACKGROUND_FRAME_RATE),
+        at(panel) + 2
     );
 
     let menu = control(&s.config_page, landscape::GROUND);
@@ -742,4 +746,73 @@ fn the_render_scale_follows_full_screen_where_the_host_offers_it_and_a_press_cho
         render_scale::RENDER_SCALE,
         PrefValue::Int(50)
     )));
+}
+
+/// Both frame rate limits follow the Performance Panel under Display, each a drop-down captioned
+/// in its own words, listing the eight limits with their values and showing Unlimited and 10 at
+/// first; a real press on a row sets that limit in the store at once.
+///
+/// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
+#[test]
+fn the_frame_rate_limits_list_the_eight_and_a_press_chooses_one() {
+    use dereth_client_contract::options::frame_rate;
+    let (mut ui, mut s) = screen();
+    let eight = [
+        ("10".to_owned(), Some(10)),
+        ("30".to_owned(), Some(30)),
+        ("60".to_owned(), Some(60)),
+        ("90".to_owned(), Some(90)),
+        ("120".to_owned(), Some(120)),
+        ("144".to_owned(), Some(144)),
+        ("240".to_owned(), Some(240)),
+        ("Unlimited".to_owned(), Some(0)),
+    ];
+    for (name, caption, start) in [
+        (frame_rate::MAX_FRAME_RATE, frame_rate::CAPTION, 0),
+        (
+            frame_rate::MAX_BACKGROUND_FRAME_RATE,
+            frame_rate::BACKGROUND_CAPTION,
+            10,
+        ),
+    ] {
+        let i = index_of(&s.config_page, name);
+        assert_eq!(s.config_page.options[i].control, OptionControl::Menu);
+        assert_eq!(s.config_page.options[i].label.as_deref(), Some(caption));
+        assert_eq!(s.config_page.options[i].current, PrefValue::Int(start));
+        let menu = control(&s.config_page, name);
+        assert_eq!(rows(&mut ui, menu), eight, "{name}");
+    }
+
+    // Scroll the background row into the option box's window, then press as a player does.
+    let i = index_of(&s.config_page, frame_rate::MAX_BACKGROUND_FRAME_RATE);
+    let menu = control(&s.config_page, frame_rate::MAX_BACKGROUND_FRAME_RATE);
+    let row = s.config_page.options[i].row;
+    let list = s
+        .config_page
+        .option_box
+        .as_ref()
+        .expect("option box")
+        .handle;
+    reveal(&mut ui, menu);
+    dereth_ui::widgets::listbox::scroll_item_to_view(&mut ui, list, row);
+    pump(&mut ui, &mut s);
+    let press = |ui: &mut UiSystem, s: &mut GamePlayScreen, h: ElemHandle| {
+        let b = ui.screen_box(h);
+        let (cx, cy) = ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+        assert_eq!(ui.hit_test_screen(cx, cy), Some(h), "the press lands");
+        ui.mouse_down(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy);
+        ui.mouse_up(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy, false);
+        pump(ui, s);
+    };
+    press(&mut ui, &mut s, menu);
+    let sixty = dereth_ui::widgets::menu::get_item(&ui, menu, 2).expect("row 2");
+    assert_eq!(text_of(&mut ui, sixty), "60");
+    ui.requests.clear();
+    press(&mut ui, &mut s, sixty);
+    assert_eq!(frame_rate::background(), 60, "the choice reached the store");
+    assert!(ui.requests.take().contains(&UiRequest::SetPreference(
+        frame_rate::MAX_BACKGROUND_FRAME_RATE,
+        PrefValue::Int(60)
+    )));
+    assert_eq!(frame_rate::foreground(), frame_rate::UNLIMITED);
 }

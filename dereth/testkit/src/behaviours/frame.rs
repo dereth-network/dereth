@@ -37,9 +37,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "frame.minimized.a-minimized-window-draws-nothing-and-the-world-runs-on",
         says: "While the window is minimized the client draws and presents nothing, and \
                everything else goes on every frame as before: the network, the world and its \
-               movement, input, the interface, plugins and chat. Its frames keep the pace they \
-               had: about ten a second while Slow Down in the Background is on, about sixty with \
-               it off. The first frame after the window is restored is drawn.",
+               movement, input, the interface, plugins and chat. Its frames are paced by the \
+               background frame rate limit, about ten a second at first, and rest to about sixty \
+               a second with no limit. The first frame after the window is restored is drawn.",
         since: THIS_CLIENT,
         divergence: "CD-minimized-draws-nothing",
         evidence: Evidence::Private("AC-EVID-MINIMIZED-DRAWS-NOTHING"),
@@ -47,19 +47,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "frame.pace.slowing-down-in-the-background-is-an-option-on-at-first",
-        says: "Every interface's Client Options page has a Slow Down in the Background box under \
-               Display, after the Performance Panel, ticked at first. Ticked, a frame drawn while \
-               the window is not the active one comes at least 99 milliseconds after the last, \
-               about ten a second, as the original client always did; unticked, the client keeps \
-               its full frame rate in the background. A frame in the foreground never waits, except \
-               in a window that can't be seen, where a frame at full rate rests to about sixty a \
-               second. The change applies to the next frame and is kept in the profile. In a browser, which \
-               slows a background tab itself, the box changes nothing.",
+        id: "frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit",
+        says: "Every interface's Client Options page has a Max FPS and a Max Background FPS \
+               under Display, one after the other after the Performance Panel, each \
+               offering 10, 30, 60, 90, 120, 144, 240 and Unlimited. The first limits the frames \
+               drawn while the window is the active one, Unlimited at first, where vertical sync \
+               when it is on still holds the rate to the display's; the second those drawn while \
+               it is not, 10 at first, which is the original's 99 milliseconds between frames. \
+               Each limit spaces the starts of frames by its share of a second, and a frame that \
+               takes longer does not wait. A window that can't be seen rests to about sixty a \
+               second whatever its limit. A profile with the earlier Slow Down in the Background \
+               box and no background limit reads it once: ticked as 10, unticked as Unlimited. A \
+               change applies to the next frame and is kept in the profile. In a browser, which \
+               paces a page itself, neither limit changes anything.",
         since: THIS_CLIENT,
         divergence: "CD-background-frame-rate",
         evidence: Evidence::Private("AC-EVID-BACKGROUND-FRAME-CAP"),
-        station: "dereth-client-runtime::lib::platform::clock::tests::a_background_frame_waits_only_while_slow_down_in_the_background_is_on",
+        station: "dereth-client-runtime::lib::platform::clock::tests::each_frame_rate_limit_spaces_the_starts_of_frames_on_the_clock",
         tier: Tier::Cpu,
     },
     behaviour! {

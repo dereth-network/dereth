@@ -961,11 +961,19 @@ const CLIENT_SHARED: [Heading; 5] = [
                 Bool(false),
             ),
             noted(
-                crate::options::background::NOTE,
+                crate::options::frame_rate::NOTE,
                 pref(
-                    crate::options::background::CAPTION,
-                    Value::Check(crate::options::background::SLOW_DOWN_IN_BACKGROUND),
-                    Bool(true),
+                    crate::options::frame_rate::CAPTION,
+                    Value::Menu(crate::options::frame_rate::MAX_FRAME_RATE),
+                    Int(0),
+                ),
+            ),
+            noted(
+                crate::options::frame_rate::BACKGROUND_NOTE,
+                pref(
+                    crate::options::frame_rate::BACKGROUND_CAPTION,
+                    Value::Menu(crate::options::frame_rate::MAX_BACKGROUND_FRAME_RATE),
+                    Int(10),
                 ),
             ),
             only(

@@ -65,29 +65,49 @@ pub trait Clock {
 /// **the only frame limiter there is**, and inventing another
 /// changes the timestep and therefore the physics.
 pub trait Pacer {
-    /// Sleep this frame's share and return the milliseconds slept, for the recorder.
-    fn frame_sleep(&mut self, is_active_app: bool) -> u32;
+    /// Wait out what is left of `spacing_us` microseconds since the last frame started (with
+    /// none, a bare yield), mark this frame's start, and return the microseconds waited, for the
+    /// recorder.
+    fn frame_sleep(&mut self, spacing_us: u64) -> u64;
+}
 
-    /// The same for a frame at full rate in a window that can't be seen, which nothing else spaces.
-    /// It rests the frame and leaves the timestep to the clock, as any slower display would.
-    fn hidden_frame_sleep(&mut self) -> u32 {
-        self.frame_sleep(true)
+/// The frame limiter's arithmetic over a clock it is handed: when the last frame started, and
+/// how long the next waits so that the starts of two frames are never closer than their spacing.
+/// A frame that took longer than its spacing does not wait at all.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FrameLimiter {
+    last_start_us: Option<u64>,
+}
+
+impl FrameLimiter {
+    /// Wait out what is left of `spacing_us` since the last frame started, reading the time from
+    /// `now_us` and waiting through `wait_us`, then mark this frame's start. Returns the
+    /// microseconds waited.
+    pub fn pace(
+        &mut self,
+        spacing_us: u64,
+        now_us: &mut dyn FnMut() -> u64,
+        wait_us: &mut dyn FnMut(u64),
+    ) -> u64 {
+        let now = now_us();
+        let wait = self.last_start_us.map_or(0, |last| {
+            spacing_us.saturating_sub(now.saturating_sub(last))
+        });
+        wait_us(wait);
+        self.last_start_us = Some(now_us());
+        wait
     }
 }
 
-/// Pace one frame as the player's options ask: while Slow Down in the Background is on, which it
-/// is at first, a frame drawn while the window is not the active one is spaced as the original
-/// spaced it; off, every frame is paced as the active window's, so the frame rate holds in the
-/// background. The option is read every frame, so a change on any page applies to the next one.
-/// A frame at full rate in a window that can't be seen rests instead of drawing flat out. Returns
-/// the milliseconds slept.
-pub fn pace_frame(pacer: &mut dyn Pacer, is_active_app: bool, window_hidden: bool) -> u32 {
-    let slows = dereth_client_contract::options::background::slows_down();
-    let full_rate = is_active_app || !slows;
-    if full_rate && window_hidden {
-        return pacer.hidden_frame_sleep();
-    }
-    pacer.frame_sleep(full_rate)
+/// Pace one frame as the player's options ask: by the Max FPS while the window is the active
+/// one, which has no limit at first, and by the Max Background FPS while it is not,
+/// ten a second at first as the original. A window nobody can see rests to about sixty a second
+/// whatever its limit, rather than drawing flat out. The limits are read every frame, so a change
+/// on any page applies to the next one. Returns the microseconds waited.
+pub fn pace_frame(pacer: &mut dyn Pacer, is_active_app: bool, window_hidden: bool) -> u64 {
+    pacer.frame_sleep(
+        dereth_client_contract::options::frame_rate::frame_spacing_us(is_active_app, window_hidden),
+    )
 }
 
 /// Read wall-clock Unix time, leaving each caller's fallback and integer conversion to that caller.
@@ -129,25 +149,22 @@ pub const HEADLESS_STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
 
 use web_time::Instant;
 
-use dereth_client_contract::window_proc::{frame_sleep_ms, hidden_frame_sleep_ms};
-
 /// System clock: monotonic elapsed time, wall-clock Unix time, and frame pacing through
 /// the platform sleep adapter.
 #[derive(Debug)]
 pub struct SystemClock {
     start: Instant,
-    /// The frame-sleep stamp -- `timeGetTime()` of the previous frame pace.
-    last_frame_tick_ms: u32,
+    /// When the last frame started, for the frame limiter.
+    limiter: FrameLimiter,
 }
 
 impl SystemClock {
-    /// Start the system clock from the current monotonic `Instant`
-    /// and initialize the last-frame tick to zero.
+    /// Start the system clock from the current monotonic `Instant`, with no frame started yet.
     #[must_use]
     pub fn new() -> Self {
         Self {
             start: Instant::now(),
-            last_frame_tick_ms: 0,
+            limiter: FrameLimiter::default(),
         }
     }
 }
@@ -182,31 +199,26 @@ impl Clock for SystemClock {
 }
 
 impl Pacer for SystemClock {
-    /// Returns the milliseconds slept, for the recorder.
+    /// Returns the microseconds waited, for the recorder.
     ///
-    /// Active: `Sleep(0)` — a bare yield, no frame limiter. Inactive: frames are spaced at least
-    /// 99 ms apart. **Past a window nobody can see, there is no other limiter**: inventing one changes the timestep and
-    /// therefore the physics.
-    fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
-        let ms = frame_sleep_ms(is_active_app, self.tick_ms(), self.last_frame_tick_ms);
-        self.sleep_and_stamp(ms)
-    }
-
-    fn hidden_frame_sleep(&mut self) -> u32 {
-        let ms = hidden_frame_sleep_ms(self.tick_ms(), self.last_frame_tick_ms);
-        self.sleep_and_stamp(ms)
-    }
-}
-
-impl SystemClock {
-    fn sleep_and_stamp(&mut self, ms: u32) -> u32 {
-        if ms == 0 {
-            std::thread::yield_now();
-        } else {
-            std::thread::sleep(Duration::from_millis(u64::from(ms)));
-        }
-        self.last_frame_tick_ms = self.tick_ms();
-        ms
+    /// With no spacing, the original's `Sleep(0)`: a bare yield. Otherwise the starts of two
+    /// frames are spaced at least `spacing_us` apart, on this clock.
+    fn frame_sleep(&mut self, spacing_us: u64) -> u64 {
+        let start = self.start;
+        let mut limiter = self.limiter;
+        let waited = limiter.pace(
+            spacing_us,
+            &mut || u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
+            &mut |us| {
+                if us == 0 {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(Duration::from_micros(us));
+                }
+            },
+        );
+        self.limiter = limiter;
+        waited
     }
 }
 
@@ -436,100 +448,159 @@ impl Timer {
 #[cfg(test)]
 mod tests {
     use super::{
-        FixedStepClock, Pacer as _, SystemClock, Timer, EXTERNAL_TIME_EPSILON, HEADLESS_STEP,
+        FixedStepClock, FrameLimiter, Pacer, SystemClock, Timer, EXTERNAL_TIME_EPSILON,
+        HEADLESS_STEP,
     };
-    use dereth_client_contract::window_proc::{frame_sleep_ms, hidden_frame_sleep_ms};
     use std::time::Duration;
 
-    // Oracle: the verified device/window frame-pacing behavior.
-    #[test]
-    fn the_frame_pace_is_the_documented_one_and_nothing_else() {
-        let mut c = SystemClock::new();
-        // Active: Sleep(0), a bare yield.
-        assert_eq!(c.frame_sleep(true), 0);
-        // Inactive with a fresh tick: at most 99 ms, and the wrap is the original's.
-        assert_eq!(frame_sleep_ms(false, 0, 0), 99);
-        assert_eq!(frame_sleep_ms(false, 50, 0), 49);
-        assert_eq!(frame_sleep_ms(false, 99, 0), 0);
-        assert_eq!(frame_sleep_ms(false, 200, 0), 0);
-        // "The original subtracts two DWORDs, so the arithmetic wraps rather than saturating."
-        assert_eq!(
-            frame_sleep_ms(false, 9, u32::MAX),
-            89,
-            "9 - 0xFFFFFFFF wraps to 10"
-        );
-        assert_eq!(
-            frame_sleep_ms(true, 0, 0),
-            0,
-            "the foreground has no frame limiter at all"
-        );
+    /// A pacer over a clock that moves only when told: each frame's work takes `work_us`, and a
+    /// wait moves the clock by what it waits. It records when each frame started.
+    struct SteppedPacer {
+        now_us: u64,
+        work_us: u64,
+        limiter: FrameLimiter,
+        starts: Vec<u64>,
     }
 
-    /// A frame nobody can see rests out what is left of its seventeen milliseconds, and a slow one
-    /// doesn't rest at all, across the millisecond counter's wrap as well.
-    ///
-    /// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
-    #[test]
-    fn a_hidden_frame_rests_out_a_sixtieth_of_a_second_and_a_slow_one_not_at_all() {
-        assert_eq!(hidden_frame_sleep_ms(1_000, 1_000), 17);
-        assert_eq!(hidden_frame_sleep_ms(1_010, 1_000), 7);
-        assert_eq!(hidden_frame_sleep_ms(1_040, 1_000), 0);
-        assert_eq!(hidden_frame_sleep_ms(4, u32::MAX - 5), 7);
-    }
-
-    /// A frame drawn in the background is spaced as the original spaced it while Slow Down in
-    /// the Background is on, which it is at first, and keeps the full rate while it is off; the
-    /// change applies to the next frame, both ways. A frame drawn in the foreground never waits.
-    ///
-    /// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
-    #[test]
-    fn a_background_frame_waits_only_while_slow_down_in_the_background_is_on() {
-        use super::{pace_frame, Pacer};
-        use dereth_client_contract::options::{background, store};
-        use dereth_client_contract::view::PrefValue;
-
-        /// The frame pace over a clock that stands still: a background frame owes the whole
-        /// 99 ms, so what it waits says how it was paced. It answers without sleeping.
-        struct StoppedClock;
-        impl Pacer for StoppedClock {
-            fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
-                frame_sleep_ms(is_active_app, 1_000, 1_000)
-            }
-            fn hidden_frame_sleep(&mut self) -> u32 {
-                hidden_frame_sleep_ms(1_000, 1_000)
+    impl SteppedPacer {
+        fn new(work_us: u64) -> Self {
+            Self {
+                now_us: 1_000_000,
+                work_us,
+                limiter: FrameLimiter::default(),
+                starts: Vec::new(),
             }
         }
 
+        /// The time from each frame's start to the next one's.
+        fn spacings(&self) -> Vec<u64> {
+            self.starts.windows(2).map(|w| w[1] - w[0]).collect()
+        }
+    }
+
+    impl Pacer for SteppedPacer {
+        fn frame_sleep(&mut self, spacing_us: u64) -> u64 {
+            // The frame's own work, then its wait.
+            self.now_us += self.work_us;
+            let clock = std::cell::Cell::new(self.now_us);
+            let waited = self
+                .limiter
+                .pace(spacing_us, &mut || clock.get(), &mut |us| {
+                    clock.set(clock.get() + us);
+                });
+            self.now_us = clock.get();
+            self.starts.push(self.now_us);
+            waited
+        }
+    }
+
+    /// Each limit spaces the starts of frames by its share of a second on the clock: ten by the
+    /// original's 99 milliseconds, the others by a second over the limit, and Unlimited not at
+    /// all. A frame whose work takes longer than its share does not wait. The active window keeps
+    /// its own limit and the background its own, and a change applies to the next frame.
+    ///
+    /// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
+    #[test]
+    fn each_frame_rate_limit_spaces_the_starts_of_frames_on_the_clock() {
+        use super::pace_frame;
+        use dereth_client_contract::options::{frame_rate, store};
+        use dereth_client_contract::view::PrefValue;
+
         store::init();
-        let mut pacer = StoppedClock;
-        // A window that can't be seen: a background frame keeps its 99 ms; an active one, which
-        // nothing else spaces, rests.
-        assert_eq!(pace_frame(&mut pacer, false, true), 99);
-        assert_eq!(pace_frame(&mut pacer, true, true), 17);
-        // On at first: a background frame waits out the 99 ms, a foreground one does not wait.
-        assert_eq!(pace_frame(&mut pacer, false, false), 99);
-        assert_eq!(pace_frame(&mut pacer, true, false), 0);
-        // Off: a background frame does not wait either, unless nobody can see it.
+        for fps in frame_rate::CHOICES {
+            for (active, name) in [
+                (true, frame_rate::MAX_FRAME_RATE),
+                (false, frame_rate::MAX_BACKGROUND_FRAME_RATE),
+            ] {
+                assert!(store::set_value(
+                    name,
+                    PrefValue::Int(i32::try_from(fps).unwrap())
+                ));
+                let mut pacer = SteppedPacer::new(2_000);
+                for _ in 0..5 {
+                    pace_frame(&mut pacer, active, false);
+                }
+                let want = frame_rate::spacing_us(fps).max(2_000);
+                assert_eq!(
+                    pacer.spacings(),
+                    [want; 4],
+                    "{fps} a second, active {active}"
+                );
+            }
+        }
+        // The two limits are each their own: the active window at 144, the background at 30.
         assert!(store::set_value(
-            background::SLOW_DOWN_IN_BACKGROUND,
-            PrefValue::Bool(false)
+            frame_rate::MAX_FRAME_RATE,
+            PrefValue::Int(144)
         ));
-        assert_eq!(pace_frame(&mut pacer, false, true), 17);
-        assert_eq!(pace_frame(&mut pacer, false, false), 0);
-        assert_eq!(pace_frame(&mut pacer, true, false), 0);
-        // On again: the next background frame waits once more.
         assert!(store::set_value(
-            background::SLOW_DOWN_IN_BACKGROUND,
-            PrefValue::Bool(true)
+            frame_rate::MAX_BACKGROUND_FRAME_RATE,
+            PrefValue::Int(30)
         ));
-        assert_eq!(pace_frame(&mut pacer, false, false), 99);
-        // The real pace with the option off: no wait in the background.
-        assert!(store::set_value(
-            background::SLOW_DOWN_IN_BACKGROUND,
-            PrefValue::Bool(false)
-        ));
-        assert_eq!(pace_frame(&mut SystemClock::new(), false, false), 0);
+        let mut pacer = SteppedPacer::new(1_000);
+        for active in [true, true, false, false, true] {
+            pace_frame(&mut pacer, active, false);
+        }
+        assert_eq!(pacer.spacings(), [6_944, 33_333, 33_333, 6_944]);
+        // A slow frame does not wait.
+        let mut pacer = SteppedPacer::new(50_000);
+        for _ in 0..3 {
+            pace_frame(&mut pacer, false, false);
+        }
+        assert_eq!(pacer.spacings(), [50_000, 50_000]);
         store::clear();
+    }
+
+    /// At first the active window has no limit and the background is held to the original's ten
+    /// a second; a window nobody can see rests to about sixty a second whatever its limit, so an
+    /// Unlimited one never spins.
+    ///
+    /// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
+    #[test]
+    fn at_first_the_background_keeps_the_original_s_pace_and_a_hidden_window_rests() {
+        use super::pace_frame;
+        use dereth_client_contract::options::{frame_rate, store};
+        use dereth_client_contract::view::PrefValue;
+
+        store::init();
+        let frames = |active: bool, hidden: bool| {
+            let mut pacer = SteppedPacer::new(1_000);
+            for _ in 0..3 {
+                pace_frame(&mut pacer, active, hidden);
+            }
+            pacer.spacings()
+        };
+        assert_eq!(
+            frames(true, false),
+            [1_000, 1_000],
+            "the active window: none"
+        );
+        assert_eq!(
+            frames(false, false),
+            [99_000, 99_000],
+            "the background: ten"
+        );
+        assert_eq!(
+            frames(true, true),
+            [17_000, 17_000],
+            "nobody sees it: rests"
+        );
+        assert_eq!(frames(false, true), [99_000, 99_000]);
+        assert!(store::set_value(
+            frame_rate::MAX_BACKGROUND_FRAME_RATE,
+            PrefValue::Int(0)
+        ));
+        assert_eq!(frames(false, false), [1_000, 1_000]);
+        assert_eq!(frames(false, true), [17_000, 17_000], "never spins");
+        store::clear();
+    }
+
+    /// The system clock's pace with no spacing is a bare yield: it waits nothing.
+    #[test]
+    fn with_no_limit_the_system_clock_does_not_wait() {
+        let mut c = SystemClock::new();
+        assert_eq!(c.frame_sleep(0), 0);
+        assert_eq!(c.frame_sleep(0), 0);
     }
 
     #[test]

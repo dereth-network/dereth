@@ -513,9 +513,11 @@ impl<S: Shell> App<S> {
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
         if draw {
+            // A minimized window is paced as a background one, whether or not it is still the
+            // active one.
             crate::platform::clock::pace_frame(
                 self.pacer.as_mut(),
-                self.pump.state.is_active_app,
+                self.pump.state.is_active_app && !self.window_has_no_extent,
                 self.window_has_no_extent || self.present.window_hidden(),
             );
         }

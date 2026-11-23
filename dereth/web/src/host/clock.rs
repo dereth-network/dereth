@@ -27,13 +27,13 @@ pub fn local_utc_offset_secs(unix_secs: i64) -> i32 {
 }
 
 /// A pacer that never sleeps: the page's animation frames pace the client, and a browser cannot
-/// block. The Slow Down in the Background option changes nothing here, since the browser slows a
-/// background tab's animation frames itself.
+/// block. The frame rate limits change nothing here, since the browser paces a page's animation
+/// frames, and slows a background tab's, itself.
 #[derive(Debug, Default)]
 pub struct FramePaced;
 
 impl Pacer for FramePaced {
-    fn frame_sleep(&mut self, _is_active_app: bool) -> u32 {
+    fn frame_sleep(&mut self, _spacing_us: u64) -> u64 {
         0
     }
 }
@@ -42,23 +42,25 @@ impl Pacer for FramePaced {
 mod tests {
     use super::*;
 
-    /// In a browser no frame waits, in the background or not, with Slow Down in the Background
-    /// on or off: the browser slows a background tab itself.
+    /// In a browser no frame waits, in the background or not, whatever the frame rate limits
+    /// say: the browser paces the page itself.
     ///
-    /// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+    /// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
     #[test]
-    fn a_browser_frame_never_waits_whatever_slow_down_in_the_background_says() {
-        use dereth_client_contract::options::{background, store};
+    fn a_browser_frame_never_waits_whatever_the_frame_rate_limits_say() {
+        use dereth_client_contract::options::{frame_rate, store};
         use dereth_client_contract::PrefValue;
         use dereth_client_runtime::platform::clock::pace_frame;
         store::init();
-        for on in [true, false] {
+        for fps in frame_rate::CHOICES {
+            let fps = PrefValue::Int(i32::try_from(fps).unwrap());
+            assert!(store::set_value(frame_rate::MAX_FRAME_RATE, fps.clone()));
             assert!(store::set_value(
-                background::SLOW_DOWN_IN_BACKGROUND,
-                PrefValue::Bool(on)
+                frame_rate::MAX_BACKGROUND_FRAME_RATE,
+                fps.clone()
             ));
-            assert_eq!(pace_frame(&mut FramePaced, false, false), 0, "on: {on}");
-            assert_eq!(pace_frame(&mut FramePaced, true, false), 0, "on: {on}");
+            assert_eq!(pace_frame(&mut FramePaced, false, false), 0, "{fps:?}");
+            assert_eq!(pace_frame(&mut FramePaced, true, false), 0, "{fps:?}");
         }
         store::clear();
     }

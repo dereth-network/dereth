@@ -286,8 +286,8 @@ pub fn init() -> usize {
     super::landscape::register();
     super::interface::register();
     super::performance::register();
-    // Whether frames slow down while the window is in the background.
-    super::background::register();
+    // The most frames a second in the active window and in the background.
+    super::frame_rate::register();
     // Horizon's status bars' colors and numbers.
     super::status_bars::register();
     super::classic::register();
@@ -368,6 +368,8 @@ pub fn load(ini: &UserPreferences) -> (usize, usize) {
             ignored += 1;
         }
     }
+    // The background frame rate limit replaced an earlier option, read here once.
+    super::frame_rate::migrate(ini);
     (applied, ignored)
 }
 
@@ -398,6 +400,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         parse: super::renderer::parse_value,
         format: super::renderer::convert_to_string,
         choices: super::renderer::choice_rows,
+    },
+    CustomEnum {
+        recognizes: super::frame_rate::is_limit,
+        parse: super::frame_rate::parse_value,
+        format: super::frame_rate::convert_to_string,
+        choices: super::frame_rate::choice_rows,
     },
     CustomEnum {
         recognizes: |name| name.eq_ignore_ascii_case(super::render_scale::RENDER_SCALE),
@@ -1075,7 +1083,7 @@ pub fn choice_rows(name: &str) -> Option<Vec<Choice>> {
 /// arm writes "False" unless the stored byte is 1, and "True" otherwise, from two string
 /// constants, so `True` / `False` **is** what the client writes. The
 /// read side still accepts both spellings, which costs nothing.
-fn parse_bool(s: &str) -> Option<bool> {
+pub(crate) fn parse_bool(s: &str) -> Option<bool> {
     match s {
         "1" | "true" | "True" | "TRUE" => Some(true),
         "0" | "false" | "False" | "FALSE" => Some(false),
@@ -1226,13 +1234,13 @@ mod tests {
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
-        // performance panel, its background slow-down, Horizon's two status-bar options, the
+        // performance panel, its two frame rate limits, Horizon's two status-bar options, the
         // classic interface's six, the renderer and the landscape detail texture, and in a build
         // with the remaster its box, its own boxes and its three menus.
         #[cfg(not(feature = "fidelity"))]
-        assert_eq!(len(), 50);
+        assert_eq!(len(), 51);
         #[cfg(feature = "fidelity")]
-        assert_eq!(len(), 50 + 4 + super::super::remaster::FEATURES.len());
+        assert_eq!(len(), 51 + 4 + super::super::remaster::FEATURES.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

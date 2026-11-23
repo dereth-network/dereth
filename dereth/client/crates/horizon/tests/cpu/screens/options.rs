@@ -349,26 +349,35 @@ fn the_client_page_sets_the_shared_preferences_and_tries_a_screen_size_before_ke
     assert_eq!(store::inq_value(store::DISPLAY_RESOLUTION), before);
 }
 
-/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+/// The Client page has both frame rate limits, and a limit chosen from either list is the one
+/// the frames are paced by at once.
+///
+/// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
 #[test]
-fn the_client_page_s_slow_down_in_the_background_box_turns_the_option_off_and_on_at_once() {
-    use dereth_client_contract::options::background;
+fn the_client_page_s_frame_rate_limits_set_the_limits_at_once() {
+    use dereth_client_contract::options::frame_rate;
     store::init();
     let state = in_world();
     let mut h = options_on("Client", &state);
-    scroll_to(&mut h, &state, background::CAPTION);
-    for on in [false, true] {
-        let r = control(&h, background::CAPTION);
-        let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
-        assert_eq!(
-            out.requests,
-            [UiRequest::SetPreference(
-                background::SLOW_DOWN_IN_BACKGROUND,
-                PrefValue::Bool(on)
-            )]
-        );
-        assert_eq!(background::slows_down(), on);
-    }
+    scroll_to(&mut h, &state, frame_rate::BACKGROUND_CAPTION);
+    let out = choose(&mut h, &state, frame_rate::CAPTION, 5);
+    assert_eq!(
+        out.requests,
+        [UiRequest::SetPreference(
+            frame_rate::MAX_FRAME_RATE,
+            PrefValue::Int(144)
+        )]
+    );
+    assert_eq!(frame_rate::foreground(), 144);
+    let out = choose(&mut h, &state, frame_rate::BACKGROUND_CAPTION, 7);
+    assert_eq!(
+        out.requests,
+        [UiRequest::SetPreference(
+            frame_rate::MAX_BACKGROUND_FRAME_RATE,
+            PrefValue::Int(0)
+        )]
+    );
+    assert_eq!(frame_rate::background(), frame_rate::UNLIMITED);
     store::clear();
 }
 

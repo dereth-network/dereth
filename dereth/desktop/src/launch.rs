@@ -51,8 +51,7 @@ pub fn open_platform<P: Product>(
     };
     let window = crate::platform::window::open_window(cfg, &look, events)
         .map_err(|cause| StartupError::Device { cause })?;
-    // Whether frames slow down in the background is the player's option, which the frame pace
-    // reads every frame.
+    // The frame rate limits are the player's options, which the frame pace reads every frame.
     Ok(Platform {
         window: Box::new(window),
         clock: Box::new(SystemClock::new()),

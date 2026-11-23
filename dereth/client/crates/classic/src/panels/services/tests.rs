@@ -797,48 +797,68 @@ fn the_classic_graphics_rows_carry_the_retail_captions_end_labels_and_texture_st
     );
 }
 
-/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+/// The Client page has both frame rate limits, each a drop-down of the eight limits in their
+/// words, at Unlimited and 10 at first; a limit chosen is kept on Apply and not before.
+///
+/// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
 #[test]
-fn the_client_page_s_slow_down_in_the_background_box_is_ticked_and_apply_turns_it_off() {
-    use dereth_client_contract::options::{background, store};
+fn the_client_page_s_frame_rate_limits_offer_the_eight_and_apply_keeps_a_choice() {
+    use dereth_client_contract::options::{frame_rate, store};
     use dereth_client_contract::PrefValue;
     store::init();
     let v = View::default();
     let mut p = make("sound-graphics").unwrap();
-    let id = format!("row:{}", background::SLOW_DOWN_IN_BACKGROUND);
     let (words, controls) = with_context(&v, |c| {
         p.event(ControlEvent::Tick, c);
         whole_client_page(&mut *p, c)
     });
-    assert!(words.iter().any(|w| w == background::CAPTION), "{words:?}");
-    let ticked = |controls: &[Control]| {
-        let row = controls.iter().find(|k| k.id == id).expect("the box");
-        match &row.kind {
-            ControlKind::Check { checked, .. } => *checked,
+    for caption in [frame_rate::CAPTION, frame_rate::BACKGROUND_CAPTION] {
+        assert!(words.iter().any(|w| w == caption), "{caption}: {words:?}");
+    }
+    let menu = |controls: &[Control], name: &str| {
+        let id = format!("row:{name}");
+        match &controls
+            .iter()
+            .find(|k| k.id == id)
+            .expect("the drop-down")
+            .kind
+        {
+            ControlKind::Choice { options, selected } => (options.clone(), *selected),
             other => panic!("the row is {other:?}"),
         }
     };
-    assert!(ticked(&controls), "ticked at first");
+    let eight = ["10", "30", "60", "90", "120", "144", "240", "Unlimited"]
+        .map(String::from)
+        .to_vec();
+    assert_eq!(
+        menu(&controls, frame_rate::MAX_FRAME_RATE),
+        (eight.clone(), 7),
+        "the active window: Unlimited at first"
+    );
+    assert_eq!(
+        menu(&controls, frame_rate::MAX_BACKGROUND_FRAME_RATE),
+        (eight, 0),
+        "the background: 10 at first"
+    );
     event(
         &mut *p,
-        ControlEvent::Check {
-            id: id.clone(),
-            checked: false,
+        ControlEvent::Select {
+            id: format!("row:{}", frame_rate::MAX_BACKGROUND_FRAME_RATE),
+            index: 2,
         },
         &v,
     );
-    assert!(background::slows_down(), "nothing is kept before Apply");
+    assert_eq!(frame_rate::background(), 10, "nothing is kept before Apply");
     let applied = activate(&mut *p, "apply", &v);
     assert!(
         applied.contains(&PanelAction::Game(UiRequest::SetPreference(
-            background::SLOW_DOWN_IN_BACKGROUND,
-            PrefValue::Bool(false)
+            frame_rate::MAX_BACKGROUND_FRAME_RATE,
+            PrefValue::Int(60)
         ))),
         "{applied:?}"
     );
-    assert!(!background::slows_down());
-    let (_, controls) = with_context(&v, |c| whole_client_page(&mut *p, c));
-    assert!(!ticked(&controls), "the box shows what was kept");
+    assert_eq!(frame_rate::background(), 60);
+    assert_eq!(frame_rate::foreground(), frame_rate::UNLIMITED);
     store::clear();
 }
 

@@ -444,27 +444,27 @@ fn a_scripted_entry_with_no_interface_waits_for_the_data_files_to_be_updated() {
 mod bulk_patch;
 mod world_refusal;
 
-/// A frame drawn while the window is not the active one is paced as a background frame while Slow
-/// Down in the Background is on, as the active window's while it is off, and the change reaches
-/// the very next frame.
+/// A frame drawn while the window is the active one is paced by the Max FPS, and one drawn while
+/// it is not by the Max Background FPS, and a change to either reaches the very next
+/// frame.
 ///
-/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+/// Behaviour: frame.pace.the-active-window-and-the-background-each-have-a-frame-rate-limit
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
     ignore = "reads the retail dats: --features retail-dats"
 )]
-fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_off() {
+fn a_frame_is_paced_by_the_active_window_s_limit_or_the_background_s() {
     use crate::platform::clock::Pacer;
-    use dereth_client_contract::options::{background, store};
+    use dereth_client_contract::options::{frame_rate, store};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    /// The frame pace, keeping what each frame told it and never sleeping.
-    struct Told(Rc<RefCell<Vec<bool>>>);
+    /// The frame pace, keeping the spacing each frame asked for and never sleeping.
+    struct Told(Rc<RefCell<Vec<u64>>>);
     impl Pacer for Told {
-        fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
-            self.0.borrow_mut().push(is_active_app);
+        fn frame_sleep(&mut self, spacing_us: u64) -> u64 {
+            self.0.borrow_mut().push(spacing_us);
             0
         }
     }
@@ -499,31 +499,34 @@ fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_o
     .expect("bring-up");
     let mut shell = NullShell;
     store::init();
-    let mut frame_in_background = |slow: bool| {
+    let mut frame = |active: bool, name: &str, fps: i32| {
         assert!(store::set_value(
-            background::SLOW_DOWN_IN_BACKGROUND,
-            dereth_client_contract::PrefValue::Bool(slow)
+            name,
+            dereth_client_contract::PrefValue::Int(fps)
         ));
-        app.pump.state.is_active_app = false;
+        app.pump.state.is_active_app = active;
         assert!(app.frame(&mut shell));
     };
-    frame_in_background(true);
-    frame_in_background(false);
-    frame_in_background(true);
+    frame(false, frame_rate::MAX_BACKGROUND_FRAME_RATE, 10);
+    frame(false, frame_rate::MAX_BACKGROUND_FRAME_RATE, 30);
+    frame(true, frame_rate::MAX_FRAME_RATE, 0);
+    frame(true, frame_rate::MAX_FRAME_RATE, 144);
+    frame(false, frame_rate::MAX_BACKGROUND_FRAME_RATE, 0);
     assert_eq!(
         *told.borrow(),
-        [false, true, false],
-        "background, then as the active window's, then background again"
+        [99_000, 33_333, 0, 6_944, 0],
+        "each frame by its own window's limit, as set just before it"
     );
     store::clear();
 }
 
-/// `--set-at` sets Horizon's status-bar options in the words the profile keeps them in.
+/// `--set-at` sets Horizon's status-bar options and the frame rate limits in the words the profile
+/// keeps them in.
 ///
 /// Behaviour: none (tooling: `--set-at`).
 #[test]
 fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
-    use dereth_client_contract::options::{status_bars, store};
+    use dereth_client_contract::options::{frame_rate, status_bars, store};
     use dereth_client_contract::PrefValue;
     store::init();
     assert_eq!(
@@ -538,13 +541,23 @@ fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
         ))
     );
     assert_eq!(scripted_preference("Display.StatusBarColors=Pastel"), None);
+    assert_eq!(
+        scripted_preference("Display.MaxFrameRate=Unlimited"),
+        Some((frame_rate::MAX_FRAME_RATE, PrefValue::Int(0)))
+    );
+    assert_eq!(
+        scripted_preference("Display.MaxBackgroundFrameRate=144"),
+        Some((frame_rate::MAX_BACKGROUND_FRAME_RATE, PrefValue::Int(144)))
+    );
+    assert_eq!(scripted_preference("Display.MaxFrameRate=75"), None);
     store::clear();
 }
 
 /// A minimized window, which the host reports as having no extent, draws and presents nothing
 /// while the world goes on running: the clock and the world's own step advance every frame. Its
-/// frames keep the pace they had: resting at full rate, ten a second in the background while Slow
-/// Down in the Background is on. The first frame after it is restored is drawn.
+/// frames are paced by the background limit, even when the window has not let go of being the
+/// active one, and rest to about sixty a second with no limit. The first frame after it is
+/// restored is drawn.
 ///
 /// Behaviour: frame.minimized.a-minimized-window-draws-nothing-and-the-world-runs-on
 #[test]
@@ -554,24 +567,16 @@ fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
 )]
 fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
     use crate::platform::clock::Pacer;
-    use dereth_client_contract::options::{background, store};
+    use dereth_client_contract::options::{frame_rate, store};
     use dereth_client_contract::PrefValue;
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    /// What each frame's pace was asked for, never sleeping.
-    struct Told(Rc<RefCell<Vec<&'static str>>>);
+    /// The spacing each frame's pace was asked for, never sleeping.
+    struct Told(Rc<RefCell<Vec<u64>>>);
     impl Pacer for Told {
-        fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
-            self.0.borrow_mut().push(if is_active_app {
-                "full rate"
-            } else {
-                "background"
-            });
-            0
-        }
-        fn hidden_frame_sleep(&mut self) -> u32 {
-            self.0.borrow_mut().push("rests");
+        fn frame_sleep(&mut self, spacing_us: u64) -> u64 {
+            self.0.borrow_mut().push(spacing_us);
             0
         }
     }
@@ -614,10 +619,10 @@ fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
     };
     store::init();
     assert!(store::set_value(
-        background::SLOW_DOWN_IN_BACKGROUND,
-        PrefValue::Bool(false)
+        frame_rate::MAX_BACKGROUND_FRAME_RATE,
+        PrefValue::Int(0)
     ));
-    app.pump.state.is_active_app = false;
+    app.pump.state.is_active_app = true;
     assert!(app.frame(&mut shell));
     let shown = counts(&app);
     assert_eq!((shown.start_frame, shown.end_frame), (1, 1));
@@ -627,6 +632,8 @@ fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
         height: 0,
     };
     app.handle_window_event(&mut shell, &minimized, 0);
+    // As a host whose minimize leaves the window the active one: it is paced as the background.
+    app.pump.state.is_active_app = true;
     let mut minimized_frame = |app: &mut App<NullShell>| {
         let clock = app.timer.local_time;
         let steps = app.probe().position_use_times();
@@ -642,8 +649,8 @@ fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
     minimized_frame(&mut app);
     // The default: ten frames a second in the background, drawn or not.
     assert!(store::set_value(
-        background::SLOW_DOWN_IN_BACKGROUND,
-        PrefValue::Bool(true)
+        frame_rate::MAX_BACKGROUND_FRAME_RATE,
+        PrefValue::Int(10)
     ));
     minimized_frame(&mut app);
     let while_minimized = counts(&app);
@@ -679,10 +686,9 @@ fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
     );
     assert_eq!(app.frames_drawn(), 2);
     assert_eq!(counts(&app).end_frame, 2);
-    assert_eq!(
-        *told.borrow(),
-        ["full rate", "rests", "rests", "background", "background"]
-    );
+    // Active and shown, no limit; minimized, the background's: none, so it rests; then ten a
+    // second; restored, and the active one, no limit again.
+    assert_eq!(*told.borrow(), [0, 17_000, 17_000, 99_000, 0]);
     store::clear();
 }
 

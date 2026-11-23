@@ -449,15 +449,18 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-background-frame-rate",
-        title: "Slowing down in the background is an option",
-        change: "Every interface's Client Options page has a Slow Down in the Background box. \
-                 Ticked, which it is at first, the client draws about ten frames a second while \
-                 its window is not the active one, as the final client always did; unticked, it \
-                 keeps its full frame rate in the background, resting to about sixty a second if \
-                 nobody can see the window. A minimized window draws none either way \
-                 (CD-minimized-draws-nothing). The final client had no such choice.",
-        why: "A player who watches the game in a window beside another, or records it, can keep \
-              it smooth; one who wants the lighter load in the background keeps the default.",
+        title: "Frame rate limits for the active window and the background",
+        change: "Every interface's Client Options page has a Max FPS, the most frames a \
+                 second while the window is the active one, and a Max Background FPS, for while \
+                 it is not, \
+                 each offering 10, 30, 60, 90, 120, 144, 240 and Unlimited. At first the active \
+                 window has no limit and the background is held to about ten frames a second, as \
+                 the final client always did; a window nobody can see rests to about sixty a \
+                 second whatever its limit, and a minimized window draws none \
+                 (CD-minimized-draws-nothing). The final client had neither limit.",
+        why: "A player can hold the frame rate down to save power or heat, or keep the game \
+              smooth in a window beside another or while recording it; one who wants the \
+              lighter load in the background keeps the default.",
     },
     Divergence {
         id: "CD-bulk-patch",

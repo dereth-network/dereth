@@ -440,10 +440,10 @@ mod tests {
         .sum();
         assert_eq!(
             v.len(),
-            24 + 3 + 6 + remaster,
+            24 + 3 + 7 + remaster,
             "retail's 26 rows (its 27 less Sync with Refresh Rate) less the chat font's two, \
              which are the Chat Options page's, plus the three paired volume sliders, this \
-             client's three era rows, its background slow-down, its performance panel and its \
+             client's three era rows, its two frame rate limits, its performance panel and its \
              landscape detail texture, and the remaster's rows where the build has them"
         );
         assert_eq!(
