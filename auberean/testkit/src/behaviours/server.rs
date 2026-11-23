@@ -2125,6 +2125,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-making-keeps-its-spinner",
+        says: "A making keeps the spinner it asked with its recipe, made or failed: the recipe's \
+               record told at its result holds it, and so does the recipe held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-LAST-SPINNER"),
+        station: "yalain-testkit::cpu::play::crafting::a_making_made_or_failed_keeps_the_spinner_it_asked_with_its_recipe",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-product-wants-a-place-in-the-pack",
         says: "A recipe's product with no place in the pack is refused at the craft's result with its \
                own answer, and nothing is made or used up.",

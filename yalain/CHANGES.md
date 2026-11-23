@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Your fellows now see your new level as soon as you reach it.
+- Recipes now remember the spinner you last made them at.
 
 ## 0.8.1 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.

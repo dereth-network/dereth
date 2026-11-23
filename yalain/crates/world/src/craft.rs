@@ -2742,6 +2742,9 @@ fn result<S: Store>(
         );
     }
     if let Some(r) = p.play.recipes.iter_mut().find(|r| r.recipe == m.recipe) {
+        // The spinner asked stays with the recipe, made or failed, for its next making (2017: 295 of
+        // 295 records told at a making's result held the spinner it asked).
+        r.last_spinner = m.spinner;
         let waits = def.recovery > 0.0;
         if waits {
             r.use_again = now + f64::from(def.recovery);

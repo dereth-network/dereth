@@ -514,6 +514,80 @@ fn a_making_that_can_fail_uses_up_its_ingredients_then_plays_its_effect_then_tel
     }
 }
 
+/// A making keeps the spinner it asked with its recipe, made or failed: the recipe's record told at
+/// its result holds it, and so does the recipe held (2017: 295 of 295 records told at a making's
+/// result).
+/// Behaviour: server.craft.a-making-keeps-its-spinner
+#[test]
+fn a_making_made_or_failed_keeps_the_spinner_it_asked_with_its_recipe() {
+    use yalain_world::craft::{Action, Check, Outcome};
+    // At Tools 40, a difficulty of 0 always makes it and one of 100 always fails it.
+    for difficulty in [0, 100] {
+        let (mut h, b, me, world) = in_world();
+        let iron = with_recipe_and_iron(&mut h, world, me, 20);
+        if let Some(r) = h.server.crafting.recipes.get_mut(&MINES_RECIPE) {
+            r.skill = TOOLS;
+            r.difficulty = difficulty;
+            r.recovery = 300.0;
+            let made = r.checks[0].clone();
+            let failed = Check {
+                upto: 1.0,
+                outcomes: vec![Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: vec![Action::Destroy {
+                        ordinal: 1,
+                        quantity: 5,
+                        by_spinner: None,
+                        spinners: None,
+                    }],
+                }],
+            };
+            r.checks = vec![failed, made];
+        }
+        if let Some(c) = h
+            .server
+            .players
+            .get_mut(&world)
+            .and_then(|p| p.play.craft_skills.iter_mut().find(|c| c.skill == TOOLS))
+        {
+            c.level = 40;
+        }
+        let from = execute_at(&mut h, b, MINES_RECIPE, &[(1, iron)], 7);
+        wait(&mut h, 6.0);
+        let got = calls_of(&h, b, from);
+        let answer = got
+            .iter()
+            .find(|(f, _)| *f == function::EXECUTED)
+            .expect("the answer");
+        let err = if difficulty == 0 { 0 } else { error::FAILED };
+        assert_eq!(
+            answer.1.get(1),
+            Some(&Value::Int(err)),
+            "difficulty {difficulty}"
+        );
+        let record = got
+            .iter()
+            .find(|(f, _)| *f == function::UPDATE_RECIPE)
+            .expect("the record");
+        let spinner = record.1.iter().find_map(|v| match v.root() {
+            Some(Node::Script {
+                package: 0x1D9,
+                slots,
+            }) => Some(slots[10].1),
+            _ => None,
+        });
+        assert_eq!(spinner, Some(7), "told, difficulty {difficulty}");
+        let held = h.server.players[&world]
+            .play
+            .recipes
+            .iter()
+            .find(|r| r.recipe == MINES_RECIPE)
+            .map(|r| r.last_spinner);
+        assert_eq!(held, Some(7), "kept, difficulty {difficulty}");
+    }
+}
+
 /// Behaviour: server.craft.refused
 #[test]
 fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
