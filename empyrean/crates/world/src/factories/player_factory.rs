@@ -819,6 +819,13 @@ pub fn create(
             let location = char_gen_location(starter_area);
             (location, location, false)
         }
+        // DIVERGE (V564): a world's own starter area, named for none of ACE's towns, is no
+        // Training Academy: the character starts and instantiates at its first location with
+        // recalls enabled, as `AtCharGenLocation`.
+        StartPositions::FromCharGen if !ACE_START_AREAS.contains(&starter_area.name.as_str()) => {
+            let location = char_gen_location(starter_area);
+            (location, location, false)
+        }
         StartPositions::FromCharGen => {
             let (location, instantiation) = char_gen_start(w, starter_area);
             (location, instantiation, true)
@@ -878,6 +885,10 @@ pub fn create(
 
     (CreateResult::Success, p)
 }
+
+/// The starter areas ACE's start knows by name: the four towns' Training Academies and the
+/// Olthoi lair, retail's table's five.
+const ACE_START_AREAS: [&str; 5] = ["Holtburg", "Shoushi", "Yaraq", "Sanamar", "OlthoiLair"];
 
 /// The first location of the selected character-generation area.
 fn char_gen_location(starter_area: &dereth_assets::tables::StarterArea) -> Position {

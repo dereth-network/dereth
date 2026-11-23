@@ -1021,6 +1021,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.town.a-worlds-own-starts-are-pinned-by-name-where-they-lie",
+        says: "On a world whose character-creation table names starting areas for none of the \
+               shipped map's four towns, the retail interface's town page hides the four pins \
+               and draws a dot for each area where its first position lies on the map, the \
+               area's name over it. A dot chooses its area, the title and the pane name it, and \
+               the page's Random draws among the world's own areas.",
+        since: THIS_CLIENT,
+        divergence: "CD-world-starting-areas",
+        evidence: Evidence::Private("AC-EVID-WORLD-START-AREAS"),
+        station: "dereth-client-shell::lib::ui::creation_tests::a_worlds_own_two_starts_are_pinned_by_name_where_they_lie_and_chosen_by_their_pins",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.town.an-earlier-world-draws-a-dot-on-the-map-for-each-start",
         says: "On a world whose starts are not the shipped map's four towns (February 2005: two \
                by each of Holtburg, Shoushi and Yaraq), the retail interface's town page keeps \

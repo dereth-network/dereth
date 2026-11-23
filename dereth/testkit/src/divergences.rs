@@ -602,6 +602,16 @@ pub static DIVERGENCES: &[Divergence] = &[
                  be dragged. The final client's window kept the size its resolution named.",
         why: "A Mac window is expected to resize.",
     },
+    Divergence {
+        id: "CD-world-starting-areas",
+        title: "A world's own starting towns are on the creation map",
+        change: "On a world whose character-creation table names starting areas of its own, \
+                 the town page of the end-of-retail screens puts each on the map where it \
+                 starts, a dot with its name over it; a dot chooses its area, the title names \
+                 it, and the page's Random draws among the world's areas. The final client \
+                 showed only its own four towns' pins.",
+        why: "A world with towns of its own can offer them when a character is made.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

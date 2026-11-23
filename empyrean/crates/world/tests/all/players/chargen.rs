@@ -1441,6 +1441,61 @@ fn the_olthoi_lair_starts_and_instantiates_in_the_same_place() {
     assert_eq!((inst.pos(), inst.rotation()), (loc.pos(), loc.rotation()));
 }
 
+/// Divergence: V564
+#[test]
+fn a_worlds_own_starter_area_starts_and_instantiates_there_with_recalls_enabled() {
+    // A world's own table of three areas, the third named for none of ACE's towns, outdoors.
+    let mut cg = char_gen();
+    let at = Frame::new(Vec3::new(180.0, 60.0, 14.98), Quat::new(0.6, 0.0, 0.0, 0.8));
+    cg.starter_areas.push(StarterArea {
+        name: "Cragstone".into(),
+        locations: vec![DatPosition::new(CellId(0x5C8D_003B), at)],
+    });
+    assert_eq!(cg.starter_areas.len(), 3);
+    let dats = || {
+        dats_builder()
+            .with_char_gen(cg.clone())
+            .build()
+            .expect("fake dats")
+    };
+
+    let mut w = world_with(dats());
+    let mut m = request("Aldric", 1, ABILITIES, standard_sacs());
+    m.result.start_area = 2;
+    let (result, p) = create(&mut w, &m);
+    assert_eq!(result, CreateResult::Success);
+    let loc = p.player.get_position(PositionType::Location).unwrap();
+    assert_eq!(loc.landblock_id().raw(), 0x5C8D_003B);
+    assert_eq!(
+        (
+            loc.position_x,
+            loc.position_y,
+            loc.position_z,
+            loc.rotation_w,
+            loc.rotation_z
+        ),
+        (180.0, 60.0, 14.98, 0.6, 0.8)
+    );
+    for t in [PositionType::Instantiation, PositionType::Sanctuary] {
+        let other = p.player.get_position(t).unwrap();
+        assert_eq!(other.landblock_id(), loc.landblock_id(), "{t:?}");
+        assert_eq!(
+            (other.pos(), other.rotation()),
+            (loc.pos(), loc.rotation()),
+            "{t:?}"
+        );
+    }
+    assert_eq!(recalls_disabled(&p), None, "recalls are enabled");
+
+    // The same table's Holtburg keeps ACE's start: the academy, recalls disabled, the free ride.
+    let mut w = world_with(dats());
+    let m = request("Aldric", 1, ABILITIES, standard_sacs());
+    let (_, p) = create(&mut w, &m);
+    let inst = p.player.get_position(PositionType::Instantiation).unwrap();
+    assert_eq!(inst.landblock_id().raw(), 0xA9B4_0020);
+    assert_eq!(recalls_disabled(&p), Some(true));
+}
+
 // ---- an era's listed start positions ----------------------------------------------------------------
 
 fn recalls_disabled(p: &CreatedPlayer) -> Option<bool> {

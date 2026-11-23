@@ -467,6 +467,8 @@ pub const TOWN_BUTTONS: [(ElementId, u32); 4] = [
 pub const TOD_START_AREA: u32 = 3;
 
 const WORLD_TOWN_BUTTON_BASE: u32 = 0x7F01_0000;
+/// How far past a world's own start's dot its name's element id lies.
+const WORLD_TOWN_NAME_BASE: u32 = 0x0001_0000;
 
 /// Pixels a map unit, should the map element be missing.
 const DEFAULT_MAP_SCALE: f64 = 480.0 / town_page::MAP_SPAN;
@@ -2038,7 +2040,16 @@ impl CharGenScreen {
                 self.appearance_update(ui);
             }
             EcgProgress::Town => {
-                let n = if tod { 4 } else { 3 };
+                // A world's own list draws over its own areas.
+                let n = if self.uses_world_town_list() {
+                    i32::try_from(t.chargen.starter_areas.len())
+                        .unwrap_or(1)
+                        .max(1)
+                } else if tod {
+                    4
+                } else {
+                    3
+                };
                 let a = self.state.rng.rand_int(n);
                 self.state.set_start_area(u32::try_from(a).unwrap_or(0));
                 self.town_page_update(ui);
@@ -2235,7 +2246,9 @@ impl CharGenScreen {
     /// table's six outdoor starts, two by each of three towns): each town's pin stays as the map's
     /// name for it, its own dot giving way to a dot per start, made from the pin and set beside the
     /// town on the side the start lies. A dot chooses its start; the title names it and the pane
-    /// reads as the town's own.
+    /// reads as the town's own. An area named for none of the four (a world's own) has a pin of
+    /// its own, its name over its dot, where its start lies on the map; the title and the pane
+    /// name it.
     fn update_world_towns(&self, ui: &mut UiSystem, root: ElemHandle) {
         let Some(tables) = &self.tables else { return };
         let areas = &tables.chargen.starter_areas;
@@ -2243,10 +2256,12 @@ impl CharGenScreen {
         let selected = chosen.and_then(|i| areas.get(i));
         let selected_town = selected.and_then(|area| Self::town_map_index(&area.name));
         let mut pins = [None; 4];
+        let mut template = None;
         for (id, index) in TOWN_BUTTONS {
             let Some(pin) = ui.get_child_recursive(root, id) else {
                 continue;
             };
+            template.get_or_insert(pin);
             let index = usize::try_from(index).unwrap_or(0);
             let has = areas
                 .iter()
@@ -2275,22 +2290,27 @@ impl CharGenScreen {
             if let Some(index) = selected_town {
                 ui.set_state(title, town_page::TITLE_STATES[index]);
             }
-            crate::options::keybinding::set_literal(
-                ui,
-                title,
-                selected_town.map_or("Starting town", |index| self.town_name(index)),
-            );
+            let name = match (selected_town, selected) {
+                (Some(index), _) => self.town_name(index),
+                (None, Some(area)) => area.name.as_str(),
+                (None, None) => "Starting town",
+            };
+            crate::options::keybinding::set_literal(ui, title, name);
         }
-        if let (Some(text), Some(index), Some(area)) = (
-            ui.get_child_recursive(root, town_page::TEXT),
-            selected_town,
-            selected,
-        ) {
-            // The start's own name heads the town's text: the title holds only the town's.
-            let body = self.string(ui, town_page::TEXT_TOKENS[index]);
+        if let (Some(text), Some(area)) = (ui.get_child_recursive(root, town_page::TEXT), selected)
+        {
             let frame = self.string(ui, town_page::HOW_TO);
+            // The start's own name heads the town's text: the title holds only the town's. An
+            // area of no town has no text of its own.
+            let s = match selected_town {
+                Some(index) => {
+                    let body = self.string(ui, town_page::TEXT_TOKENS[index]);
+                    format!("{}\n\n{body}\n\n{frame}\n", area.name)
+                }
+                None => format!("{}\n\n{frame}\n", area.name),
+            };
             if let Some(t) = ui.text_element_mut(text) {
-                t.set_text(&format!("{}\n\n{body}\n\n{frame}\n", area.name));
+                t.set_text(&s);
             }
         }
         let map = ui
@@ -2299,11 +2319,36 @@ impl CharGenScreen {
         let scale = map.map_or(DEFAULT_MAP_SCALE, |m| {
             f64::from(m.width()) / town_page::MAP_SPAN
         });
+        let mut own_laid = Vec::new();
         for (index, area) in areas.iter().enumerate() {
             let Ok(index) = u32::try_from(index) else {
                 continue;
             };
             let Some(town) = Self::town_map_index(&area.name) else {
+                if let (Some(pin), Some(at), Some(map)) = (template, area.locations.first(), map) {
+                    let at =
+                        town_page::map_coordinates(at.cell.0, at.frame.origin.x, at.frame.origin.y);
+                    let id = ElementId(WORLD_TOWN_BUTTON_BASE + index);
+                    let dot = ui.get_child_recursive(root, id).or_else(|| {
+                        Self::own_area_pin(ui, pin, id, &area.name, map, at, &mut own_laid)
+                    });
+                    let state = if chosen == usize::try_from(index).ok() {
+                        town_page::PIN_ON
+                    } else {
+                        town_page::PIN_OFF
+                    };
+                    if let Some(dot) = dot {
+                        ui.set_visible(dot, true);
+                        ui.set_state(dot, state);
+                        ui.set_tooltip(dot, Some(format!("Start in {}.", area.name)));
+                    }
+                    // The named copy is drawn in the pin's states, as a town's pin is.
+                    let named = ElementId(id.0 + WORLD_TOWN_NAME_BASE);
+                    if let Some(named) = ui.get_child_recursive(root, named) {
+                        ui.set_visible(named, true);
+                        ui.set_state(named, state);
+                    }
+                }
                 continue;
             };
             let (Some(pin), Some(at)) = (pins[town], area.locations.first()) else {
@@ -2396,6 +2441,133 @@ impl CharGenScreen {
                 ui.set_tooltip(dot, Some(format!("Start in {}.", area.name)));
             }
         }
+    }
+
+    /// The pin of an area named for no town on the map, made from the town pin `pin`: a dot,
+    /// the pin's own, where map coordinates `at` lie on the map `map` (it spans the world's
+    /// landblocks edge to edge), moved down a dot at a time off any laid before it (`laid`, their
+    /// centers), which chooses the area; and under it a copy of the whole pin naming the area
+    /// `name`, which takes no clicks. The dot's id is `id`, the copy's [`WORLD_TOWN_NAME_BASE`]
+    /// on from it.
+    #[allow(clippy::too_many_arguments)]
+    fn own_area_pin(
+        ui: &mut UiSystem,
+        pin: ElemHandle,
+        id: ElementId,
+        name: &str,
+        map: dereth_ui::Box2D,
+        at: (f64, f64),
+        laid: &mut Vec<(i32, i32)>,
+    ) -> Option<ElemHandle> {
+        let parent = ui.parent(pin)?;
+        let pin_dot = ui.get_child_recursive(pin, town_page::PIN_DOT)?;
+        let pin_name = ui.get_child_recursive(pin, town_page::PIN_NAME);
+        let dot_box = ui.screen_box(pin_dot);
+        let scale = f64::from(map.width()) / town_page::MAP_SPAN;
+        let round = |v: f64| dereth_primitives::num::to_i32_f64(v.round());
+        let edge = town_page::map_coordinates(0, 0.0, 0.0);
+        let x = map.x0 + round((at.0 - edge.0) * scale);
+        let mut y = map.y1 - round((at.1 - edge.1) * scale);
+        let (w, h) = (dot_box.width(), dot_box.height());
+        while laid
+            .iter()
+            .any(|&(lx, ly)| (lx - x).abs() < w && (ly - y).abs() < h)
+        {
+            y += h;
+        }
+        laid.push((x, y));
+        let parent_box = ui.screen_box(parent);
+        let place = |d: &mut dereth_ui::ElementDesc, x: i32, y: i32, w: i32, h: i32| {
+            d.base.incorporation |= dereth_ui::desc::incorporation::LEGACY_ALL_GEOMETRY;
+            d.base.x = x;
+            d.base.y = y;
+            d.base.width = w;
+            d.base.height = h;
+        };
+        let layout = dereth_ui::LayoutDesc {
+            did: ui.node(pin)?.layout_did,
+            display_width: 800,
+            display_height: 600,
+            ..dereth_ui::LayoutDesc::default()
+        };
+        let (dot_x, dot_y) = (x - w / 2, y - h / 2);
+        // A copy of the whole pin under it, its name the area's, which takes no clicks: the name is
+        // drawn as the pin draws a town's.
+        if let Some(n) = pin_name {
+            let pin_box = ui.screen_box(pin);
+            let name_box = ui.screen_box(n);
+            // The name's box made as wide again, about its middle, for a name longer than the
+            // town's the pin was made for; the pin's box with it.
+            let grow = name_box.width();
+            let mut desc = full_desc(ui, pin)?;
+            desc.element_id = ElementId(id.0 + WORLD_TOWN_NAME_BASE);
+            desc.children
+                .retain(|child, _| *child == town_page::PIN_DOT || *child == town_page::PIN_NAME);
+            place(
+                &mut desc,
+                dot_x + pin_box.x0 - dot_box.x0 - parent_box.x0 - grow / 2,
+                dot_y + pin_box.y0 - dot_box.y0 - parent_box.y0,
+                pin_box.width() + grow,
+                pin_box.height(),
+            );
+            if let Some(d) = desc.children.get_mut(&town_page::PIN_DOT) {
+                place(
+                    d,
+                    dot_box.x0 - pin_box.x0 + grow / 2,
+                    dot_box.y0 - pin_box.y0,
+                    w,
+                    h,
+                );
+            }
+            if let Some(d) = desc.children.get_mut(&town_page::PIN_NAME) {
+                place(
+                    d,
+                    name_box.x0 - pin_box.x0,
+                    name_box.y0 - pin_box.y0,
+                    name_box.width() + grow,
+                    name_box.height(),
+                );
+            }
+            if let Some(copy) = ui
+                .create_element_recursive_from_full_desc(&NoAssets, &layout, &desc)
+                .ok()
+                .flatten()
+            {
+                ui.set_parent(copy, Some(parent));
+                ui.initialize_tree(copy);
+                if let Some(label) = ui.get_child_recursive(copy, town_page::PIN_NAME) {
+                    crate::options::keybinding::set_literal(ui, label, name);
+                }
+                for part in std::iter::once(copy).chain(ui.children(copy)) {
+                    ui.set_mouse_visible(part, false);
+                }
+            }
+        }
+        let mut desc = full_desc(ui, pin)?;
+        desc.element_id = id;
+        desc.children
+            .retain(|child, _| *child == town_page::PIN_DOT);
+        place(
+            &mut desc,
+            dot_x - parent_box.x0,
+            dot_y - parent_box.y0,
+            w,
+            h,
+        );
+        for child in desc.children.values_mut() {
+            place(child, 0, 0, w, h);
+        }
+        ui.register_for_element_message(id, dereth_ui::msg::element::id::BUTTON_CLICKED, ME);
+        let handle = ui
+            .create_element_recursive_from_full_desc(&NoAssets, &layout, &desc)
+            .ok()??;
+        ui.set_parent(handle, Some(parent));
+        ui.initialize_tree(handle);
+        // As on the town's pin, the click is the button's, not its picture's.
+        for part in ui.children(handle) {
+            ui.set_mouse_visible(part, false);
+        }
+        Some(handle)
     }
 
     /// The text element's "append string info with font" — set the font from property `0x1A`, the

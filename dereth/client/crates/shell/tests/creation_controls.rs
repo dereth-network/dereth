@@ -407,3 +407,163 @@ fn creation_attribute_and_shade_bars_take_one_step_per_wheel_detent() {
         }
     }
 }
+
+/// The retail files' creation screen over a world's own character-creation table, `change`d from
+/// the shipped one.
+fn own_table_fixture(
+    change: impl FnOnce(&mut dereth_assets::tables::CharGen),
+) -> (UiShell, CharGenScreen) {
+    let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+    let mut shell = UiShell::new(&store, (800, 600)).expect("shell");
+    let mut tables = Rc::try_unwrap(load_chargen_tables(&*store, &store).expect("creation tables"))
+        .unwrap_or_else(|_| panic!("the one copy"));
+    change(
+        &mut Rc::get_mut(&mut tables.world)
+            .expect("the one copy")
+            .chargen,
+    );
+    let mut screen = CharGenScreen::default();
+    screen.create(&mut ScreenCx::new(&mut shell.ui)).unwrap();
+    screen.set_tables(Rc::new(tables));
+    screen.update(&mut ScreenCx::new(&mut shell.ui), LocalTime(0.0));
+    screen.choose_heritage(1);
+    screen.choose_gender(&mut shell.ui, 2);
+    (shell, screen)
+}
+
+/// Behaviour: chargen.town.a-worlds-own-starts-are-pinned-by-name-where-they-lie
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_worlds_own_two_starts_are_pinned_by_name_where_they_lie_and_chosen_by_their_pins() {
+    use dereth_assets::tables::StarterArea;
+    use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+    let at = |cell: u32, x: f32, y: f32| {
+        Position::new(
+            CellId(cell),
+            Frame::new(Vec3::new(x, y, 15.0), Quat::IDENTITY),
+        )
+    };
+    let areas = [
+        ("Cragstone", at(0x5C8D_003B, 180.0, 60.0)),
+        ("Kehan", at(0x7697_0012, 54.0, 38.0)),
+    ];
+    let (mut shell, mut screen) = own_table_fixture(|cg| {
+        cg.starter_areas = areas
+            .iter()
+            .map(|(name, p)| StarterArea {
+                name: (*name).to_owned(),
+                locations: vec![*p],
+            })
+            .collect();
+        for h in cg.heritage_groups.values_mut() {
+            h.primary_start_areas = vec![0];
+            h.secondary_start_areas = vec![1];
+        }
+    });
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Town);
+    let root = screen.roots()[0];
+    let map = shell.ui.screen_box(
+        shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::MAP)
+            .expect("the map"),
+    );
+    // The shipped map's four towns are none of the world's.
+    for (pin_id, _) in chargen::TOWN_BUTTONS {
+        let pin = shell.ui.get_child_recursive(root, pin_id).unwrap();
+        assert!(
+            !shell.ui.node(pin).unwrap().region.flags.visible,
+            "{pin_id:?}"
+        );
+    }
+    let scale = f64::from(map.width()) / chargen::town_page::MAP_SPAN;
+    for (index, (name, p)) in areas.iter().enumerate() {
+        let id = dereth_ui::ElementId(0x7f01_0000 + u32::try_from(index).unwrap());
+        let pin = shell
+            .ui
+            .get_child_recursive(root, id)
+            .unwrap_or_else(|| panic!("{name}'s pin"));
+        assert!(shell.ui.node(pin).unwrap().region.flags.visible, "{name}");
+        let named = shell
+            .ui
+            .get_child_recursive(root, dereth_ui::ElementId(id.0 + 0x0001_0000))
+            .unwrap_or_else(|| panic!("{name}'s named pin"));
+        let label = shell
+            .ui
+            .get_child_recursive(named, chargen::town_page::PIN_NAME)
+            .unwrap_or_else(|| panic!("{name}'s name"));
+        assert_eq!(
+            shell
+                .ui
+                .text_element_mut(label)
+                .unwrap()
+                .glyphs
+                .inq_text(false),
+            *name
+        );
+        assert_eq!(
+            shell.ui.node(pin).unwrap().tooltip_text.as_deref(),
+            Some(format!("Start in {name}.").as_str())
+        );
+        // It is a dot, where its start lies on the map, its name over it.
+        let named = shell.ui.screen_box(label);
+        let dot = shell.ui.screen_box(pin);
+        assert!(
+            named.y0 < dot.y0 && named.x0 < dot.x1 && dot.x0 < named.x1,
+            "{name}: its name {named:?} over its dot {dot:?}"
+        );
+        let (east, north) =
+            chargen::town_page::map_coordinates(p.cell.0, p.frame.origin.x, p.frame.origin.y);
+        let want = (
+            f64::from(map.x0) + (east + 101.95) * scale,
+            f64::from(map.y1) - (north + 101.95) * scale,
+        );
+        let centre = (
+            f64::from(dot.x0 + dot.x1) / 2.0,
+            f64::from(dot.y0 + dot.y1) / 2.0,
+        );
+        assert!(
+            (centre.0 - want.0).abs() <= 1.0 && (centre.1 - want.1).abs() <= 1.0,
+            "{name}: its dot at {centre:?}, its start at {want:?}"
+        );
+        click(&mut shell.ui, &mut screen, pin);
+        assert_eq!(
+            screen.state.start_area,
+            u32::try_from(index).unwrap(),
+            "{name}"
+        );
+        let title = shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::TITLE)
+            .unwrap();
+        assert_eq!(
+            shell
+                .ui
+                .text_element_mut(title)
+                .unwrap()
+                .glyphs
+                .inq_text(false),
+            *name,
+            "the title names the start"
+        );
+        let pane = shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::TEXT)
+            .unwrap();
+        let text = shell
+            .ui
+            .text_element_mut(pane)
+            .unwrap()
+            .glyphs
+            .inq_text(false);
+        assert!(text.starts_with(&format!("{name}\n\n")), "{name}: {text:?}");
+    }
+    // The page's Random draws among the world's own starts.
+    for _ in 0..40 {
+        screen.do_random(&mut shell.ui);
+        assert!(screen.state.start_area < 2, "{}", screen.state.start_area);
+    }
+}
