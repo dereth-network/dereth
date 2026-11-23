@@ -270,7 +270,8 @@ fn a_buff_is_a_record_that_runs_out_on_its_own_clock() {
         .any(|m| matches!(m, ServerMessage::StopFx(e) if e.action.0 == 0x4100_04CB)));
 }
 
-/// A buff cast on oneself shows its appearance once, just before its record is added.
+/// A buff cast on oneself shows its appearance once, before its record: the appearance, then
+/// nothing but the speed it brings, then the add.
 /// Behaviour: server.effects.appearance-before-its-record
 #[test]
 fn a_buff_cast_on_oneself_shows_its_appearance_just_before_its_record() {
@@ -285,11 +286,52 @@ fn a_buff_cast_on_oneself_shows_its_appearance_just_before_its_record() {
     };
     let shown: Vec<usize> = (0..msgs.len()).filter(|i| dash_shown(&msgs[*i])).collect();
     assert_eq!(shown.len(), 1, "shown once");
-    let next = msgs.get(shown[0] + 1);
+    let next = msgs[shown[0] + 1..].iter().find(|m| {
+        !matches!(
+            m,
+            ServerMessage::VelocityScale(_) | ServerMessage::AccelerationScale(_)
+        )
+    });
     assert!(
         matches!(next, Some(ServerMessage::PlayerCall(c)) if c.function.0 == ADD_EFFECT),
         "the appearance just before the add"
     );
+}
+
+/// Where a call of an effect's record is among the messages sent, and whether the speed and
+/// acceleration scales were the two sent just before it.
+fn scales_just_before(msgs: &[ServerMessage], function: u32) -> (usize, bool) {
+    let at = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function))
+        .expect("the record's call");
+    let scales = at >= 2
+        && matches!(msgs[at - 2], ServerMessage::VelocityScale(_))
+        && matches!(msgs[at - 1], ServerMessage::AccelerationScale(_));
+    (at, scales)
+}
+
+/// A buff that changes speed sends the speed and acceleration scales just before its record's
+/// add, and again just before its removal as it runs out, its appearance stopped after.
+/// Behaviour: server.effects.speed-before-its-record
+#[test]
+fn a_buffs_speed_goes_just_before_its_record_at_its_add_and_at_its_end() {
+    let (mut h, b, me) = armed();
+    let from = use_skill(&mut h, b, 5, DASH, me);
+    h.run(60);
+    let msgs = h.sent_messages(b, from);
+    let (_, scales) = scales_just_before(&msgs, ADD_EFFECT);
+    assert!(scales, "the scales just before the add");
+    let later = h.bots[b].inbox.len();
+    wait(&mut h, 31.0);
+    let msgs = h.sent_messages(b, later);
+    let (at, scales) = scales_just_before(&msgs, REMOVE_EFFECT);
+    assert!(scales, "the scales just before the removal");
+    let stopped = match msgs.get(at + 1) {
+        Some(ServerMessage::StopFx(e)) => e.sender.id == me && e.action.0 == 0x4100_04CB,
+        _ => false,
+    };
+    assert!(stopped, "the appearance stopped after the removal");
 }
 
 /// The same effect put on twice is two records: the second does not replace or refresh the first,

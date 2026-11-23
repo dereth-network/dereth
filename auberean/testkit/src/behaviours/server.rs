@@ -1019,8 +1019,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.auras.turned-off",
         says: "A toggled skill used while its aura is on turns it off at once: attacking, the \
-               use over, the toggle off, the pulses' records then the aura's taken off, the \
-               text that it stopped, not attacking, the appearance stopped.",
+               use over, the toggle off, the pulses' records taken off, the appearance stopped \
+               right after them, the aura's own record taken off, the text that it stopped, not \
+               attacking.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-OFF"),
         station: "yalain-testkit::cpu::play::auras::using_a_toggled_skill_again_turns_its_aura_off",
@@ -1029,8 +1030,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.auras.turned-on",
         says: "A toggled skill's use ends by turning its aura on: the pulse's appearance, the \
-               first pulse's record, the aura's own record held until taken off, not attacking, \
-               the toggle on, the skill's information marked toggled.",
+               first pulse's record, the aura's own record held until taken off, the toggle on, \
+               the skill's information marked toggled, not attacking.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON"),
         station: "yalain-testkit::cpu::play::auras::a_toggled_skill_turns_its_aura_on_as_its_use_ends",
@@ -5879,6 +5880,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SELF-CAST-LISTS"),
         station: "yalain-testkit::dat::effects::immolation_and_bladeskin_put_their_effects_on_their_user",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.speed-before-its-record",
+        says: "The speed and acceleration a record changes are told just before its record's add \
+               and just before its removal, its appearance stopped after the removal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPEED-BEFORE-RECORD"),
+        station: "yalain-testkit::cpu::play::effects::a_buffs_speed_goes_just_before_its_record_at_its_add_and_at_its_end",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.effects.speed-told-at-each-speed-record",
@@ -15544,8 +15554,9 @@ pub static ROWS: &[Behaviour] = &[
         says: "The January 2017 recordings of the start area's families (a kill's award, a \
                level-up, a creature's death as seen, a corpse opened, an item taken, an attack \
                begun, a store entered, a quest moved on by a person, a sale bought) hold the \
-               messages this server sends, in its order, in most occurrences; every other \
-               occurrence is counted with what it lacks.",
+               messages this server sends, in its order, in most occurrences (a speed buff's \
+               end read in the order it was sent); every other occurrence is counted with what \
+               it lacks.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PLAY-FAMILIES"),
         station: "yalain-testkit::corpus::play::the_recorded_play_families_hold_the_shapes_this_server_sends",
@@ -20420,10 +20431,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.toggles.without-an-aura",
         says: "A toggled skill that turns on no aura ends its use by turning its effects on, a \
-               record of each held until it is turned off, told toggled, with the toggle on and \
-               the skill's information marked toggled; used again it turns them off at once, at \
-               no cost, with the toggle off and the text that it stopped; used a third time it \
-               holds one record of each again, none stacked.",
+               record of each held until it is turned off, told toggled, then the toggle on, the \
+               skill's information marked toggled and the attack state; used again it turns them \
+               off at once, at no cost, with the toggle off, each appearance stopped right after \
+               its record's removal, then the text that it stopped; used a third time it holds one \
+               record of each again, none stacked.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TOGGLE-NO-AURA"),
         station: "yalain-testkit::cpu::play::auras::a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them_off",

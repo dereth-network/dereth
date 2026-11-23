@@ -854,6 +854,9 @@ struct Family {
     /// Whether most recorded occurrences are expected in this server's order (else the recorded
     /// orders vary, and the tally names each).
     dominant: bool,
+    /// Whether a recorded tick is read in the order its server sent it (its blob ids' sequence,
+    /// its own server's alone, nothing ephemeral), not as it arrived.
+    sent: bool,
     /// The tokens this server sends for it, in order (a subsequence of the tick's).
     ours: &'static [&'static str],
 }
@@ -865,6 +868,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("int 258"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["story 02", "int 258"],
     },
     Family {
@@ -873,7 +877,8 @@ const FAMILIES: &[Family] = &[
         needs: Some("type 10092"),
         window: 0.06,
         dominant: true,
-        ours: &["call 82080016", "type 10092", "type 10093"],
+        sent: true,
+        ours: &["type 10092", "type 10093", "call 82080016"],
     },
     Family {
         name: "a craft's result",
@@ -881,6 +886,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 8206001C"),
         window: 0.06,
         dominant: false,
+        sent: false,
         ours: &["contain", "call 820E005E", "call 8206001C"],
     },
     Family {
@@ -889,6 +895,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("behavior"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["story 36", "behavior"],
     },
     Family {
@@ -897,6 +904,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 8204001A"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &[
             "call 8214000D",
             "call 82040019",
@@ -910,6 +918,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 8204001A"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 82040019", "call 8204001A"],
     },
     Family {
@@ -918,6 +927,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("mode 40000001"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 8214000D", "call 8204001B", "mode 40000001"],
     },
     Family {
@@ -926,6 +936,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("type 10077"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &[
             "call 8214000D",
             "type 10077",
@@ -939,6 +950,7 @@ const FAMILIES: &[Family] = &[
         needs: None,
         window: 0.5,
         dominant: true,
+        sent: false,
         ours: &["call 82050011", "long 300", "long 301", "call 82050011"],
     },
     Family {
@@ -947,6 +959,7 @@ const FAMILIES: &[Family] = &[
         needs: None,
         window: 0.06,
         dominant: true,
+        sent: false,
         // The congratulations text comes before or after the maxima (2017 did both).
         ours: &[
             "int 302",
@@ -963,6 +976,7 @@ const FAMILIES: &[Family] = &[
         needs: None,
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &[
             "bool 279=1",
             "fx 41000002",
@@ -977,6 +991,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 820E005D"),
         window: 0.8,
         dominant: true,
+        sent: false,
         ours: &[
             "fx 410005D0",
             "mode 41000002",
@@ -991,6 +1006,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 820E005E"),
         window: 0.06,
         dominant: false,
+        sent: false,
         ours: &["contain", "call 820E005E", "iid 258"],
     },
     Family {
@@ -999,6 +1015,7 @@ const FAMILIES: &[Family] = &[
         needs: None,
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 8204001B", "mode"],
     },
     Family {
@@ -1007,6 +1024,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 9B5E0056"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 82050017", "call 9B5E0056"],
     },
     Family {
@@ -1015,6 +1033,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 82130024"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 82050017", "call 82130024"],
     },
     Family {
@@ -1023,6 +1042,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("story 32"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["int 258", "story 32"],
     },
     Family {
@@ -1031,6 +1051,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("ocall 82070030"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &[
             "bool 279=1",
             "fx 41000002",
@@ -1046,6 +1067,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 82070033"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["int 259", "call 82070033"],
     },
     Family {
@@ -1054,6 +1076,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 82070033"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &[
             "call 8212001B",
             "call 8212001F",
@@ -1068,6 +1091,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 8214000D"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 82140011", "call 8214000D", "call 82050011"],
     },
     Family {
@@ -1076,6 +1100,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("long 301"),
         window: 0.06,
         dominant: true,
+        sent: false,
         ours: &["call 8214000D", "long 301", "call 82050011"],
     },
     Family {
@@ -1084,6 +1109,7 @@ const FAMILIES: &[Family] = &[
         needs: Some("call 9B5E0049"),
         window: 0.06,
         dominant: false,
+        sent: false,
         ours: &[
             // The storekeeper's opening is a visual message: its place among the private ones
             // varies.
@@ -1141,34 +1167,43 @@ fn the_recorded_play_families_hold_the_shapes_this_server_sends() {
         .expect("rows");
     let mut tally: BTreeMap<(&str, String), usize> = BTreeMap::new();
     let mut stmt = con
-        .prepare("SELECT t, raw FROM message WHERE session_id = ?1 AND dir = 's2c' AND status = 'ac2' ORDER BY idx")
+        .prepare("SELECT t, blob_id, raw FROM message WHERE session_id = ?1 AND dir = 's2c' AND status = 'ac2' ORDER BY idx")
         .expect("sql");
     for sid in &sessions {
-        let msgs: Vec<(f64, Vec<u8>)> = stmt
-            .query_map([sid], |r| Ok((r.get(0)?, r.get(1)?)))
+        let msgs: Vec<(f64, i64, Vec<u8>)> = stmt
+            .query_map([sid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .expect("rows")
             .collect::<Result<_, _>>()
             .expect("rows");
-        let toks: Vec<(f64, String)> = msgs
+        #[allow(clippy::cast_sign_loss)]
+        let toks: Vec<(f64, u64, String)> = msgs
             .iter()
-            .filter_map(|(t, raw)| Some((*t, token(&ServerMessage::decode(raw).ok()?))))
+            .filter_map(|(t, blob, raw)| {
+                Some((*t, *blob as u64, token(&ServerMessage::decode(raw).ok()?)))
+            })
             .collect();
         for f in FAMILIES {
-            for (i, (t, tok)) in toks.iter().enumerate() {
+            for (i, (t, blob, tok)) in toks.iter().enumerate() {
                 if tok != f.opens && !(f.opens.len() < tok.len() && tok.starts_with(f.opens)) {
                     continue;
                 }
                 // The kill family opens with its experience text: only an award text counts.
                 if f.name.starts_with("a kill")
-                    && toks.get(i + 1).map(|x| x.1.as_str()) != Some("long 300")
+                    && toks.get(i + 1).map(|x| x.2.as_str()) != Some("long 300")
                 {
                     continue;
                 }
-                let tick: Vec<String> = toks[i..]
+                let mut held: Vec<&(f64, u64, String)> = toks[i..]
                     .iter()
-                    .take_while(|(u, _)| u - t < f.window)
-                    .map(|(_, s)| s.clone())
+                    .take_while(|(u, _, _)| u - t < f.window)
                     .collect();
+                if f.sent {
+                    // The kind byte on top (0x83 ephemeral), then the server's id, then the sequence.
+                    let server = |b: u64| (b >> 48) & 0xFF;
+                    held.retain(|(_, b, _)| b >> 56 != 0x83 && server(*b) == server(*blob));
+                    held.sort_by_key(|(_, b, _)| b & 0xFFFF_FFFF);
+                }
+                let tick: Vec<String> = held.iter().map(|(_, _, s)| s.clone()).collect();
                 if let Some(n) = f.needs {
                     if !tick.iter().any(|x| x == n) {
                         continue;

@@ -1527,7 +1527,7 @@ fn forces_pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
 }
 
 /// A force's record turns off as its skill turned off by a use would, without the use: the skill's
-/// toggle off, the record taken off, "You stop …" with the skill's name, its appearance stopped.
+/// toggle off, the record taken off and its appearance stopped, "You stop …" with the skill's name.
 fn force_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, record: EffectState) {
     let skill = s
         .skill_table
@@ -1538,17 +1538,16 @@ fn force_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, re
     if let Some((id, _)) = skill {
         progress::private(net, world, &toggle_call(false, id));
     }
-    let stop = toggled_records_off(s, net, world, &[record]);
+    toggled_records_off(s, net, world, &[record]);
     if let Some((_, name)) = skill {
         progress::private(net, world, &toggled_off_text(name));
     }
-    stop_fx(s, net, world, &stop);
 }
 
 /// A toggled skill whose record this is turns off, all its records with it, as a use would turn it
-/// off, without the use: the toggle off, its records taken off (an aura's with its pulses'), "You
-/// stop …" with the skill's name, its appearances stopped. The skill is the one the player holds
-/// whose own effects name the record.
+/// off, without the use: the toggle off, its records taken off (an aura's with its pulses') with
+/// their appearances stopped, "You stop …" with the skill's name. The skill is the one the player
+/// holds whose own effects name the record.
 fn toggled_skill_off<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1574,9 +1573,8 @@ fn toggled_skill_off<S: Store>(
     };
     progress::private(net, world, &toggle_call(false, id));
     let records = toggled_held(s, world, state, &effects);
-    let stop = toggled_records_off(s, net, world, &records);
+    toggled_records_off(s, net, world, &records);
     progress::private(net, world, &toggled_off_text(name));
-    stop_fx(s, net, world, &stop);
 }
 
 /// "You stop …", a toggled skill's name in it.
@@ -2265,12 +2263,14 @@ pub(crate) fn add_quietly<S: Store>(
         ),
     };
     records_mut(s, on)?.push(e);
+    // The speed it brings goes just before its call (2017: 5,622 of 5,623 adds of the effects that
+    // change it).
+    send_speed(s, net, on, speed_before, &e);
     if let On::Player(world) = on {
         if !hidden(def) {
             progress::private(net, world, &add_call(&e));
         }
     }
-    send_speed(s, net, on, speed_before, &e);
     schedule_on(s, on, &e, now, clock);
     if over_time {
         let first = f64::from(s.rng.between(0.0, 1.0));
@@ -2604,11 +2604,12 @@ pub(crate) fn take_off<S: Store>(
     let records = records_mut(s, on)?;
     let i = records.iter().position(|e| e.eid == eid)?;
     let e = records.remove(i);
+    // The speed it leaves goes just before its call, as at its add (2017: 5,022 of 5,055 removals).
+    send_speed(s, net, on, speed_before, &e);
     let def = s.effect_table.get(e.state);
     if let (On::Player(world), false) = (on, def.is_some_and(hidden)) {
         progress::private(net, world, &remove_call(eid));
     }
-    send_speed(s, net, on, speed_before, &e);
     let fx = s.effect_table.get(e.state).map_or(0, |d| d.fx);
     Some((fx != 0 && !shows(s, records_of(s, on), fx)).then_some(fx))
 }
@@ -3309,24 +3310,23 @@ pub fn toggled_on<S: Store>(
     add_on(s, net, On::Player(world), &def, cast, shape, clock)
 }
 
-/// A toggled skill's records taken off: an aura with its pulses' records, any other record alone.
-/// Returns the appearances no record shows now, for the caller to stop when they are due.
+/// A toggled skill's records taken off: an aura with its pulses' records, any other record alone;
+/// each appearance stopped right after the removal of the last record that showed it (2017: all 731
+/// stops in the ticks of 231 toggles turned off, by a use or by portal space, sent so).
 pub fn toggled_records_off<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     held: &[EffectState],
-) -> Vec<u32> {
-    let mut stop = Vec::new();
+) {
     for e in held {
         if is_aura(s, e.state) {
-            stop.extend(aura_off(s, net, world, e.eid));
-        } else if let Some(Some(fx)) = take_off(s, net, On::Player(world), e.eid) {
-            stop.push(fx);
+            aura_off(s, net, world, e.eid);
+        } else {
+            remove_on(s, net, On::Player(world), e.eid);
         }
     }
     crate::world::keep_player(s, world);
-    stop
 }
 
 /// An aura's definition, when this saved state is one.
@@ -3941,21 +3941,17 @@ pub fn next_pet_pulse<S: Store>(s: &mut Server<S>, second: bool) -> f64 {
     least + f64::from(s.rng.between(0.0, 1.0)) * (most - least)
 }
 
-/// Turn an aura off: the records of its pulses its user holds, oldest first, then its own; the
-/// appearances no record shows now, for the caller to stop when they are due.
-pub fn aura_off<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    eid: u32,
-) -> Vec<u32> {
+/// Turn an aura off: the records of its pulses its user holds, oldest first, then its own, each
+/// appearance stopped as the last record showing it goes (2017: the pulses' records, the stop,
+/// then the aura's, 53 of 53).
+pub fn aura_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, eid: u32) {
     let Some(aura) = s
         .players
         .get(&world)
         .and_then(|p| p.play.effects.iter().find(|e| e.eid == eid))
         .copied()
     else {
-        return Vec::new();
+        return;
     };
     let pulsed = aura_def(s, aura.state)
         .map(|a| a.pulsed)
@@ -3971,20 +3967,17 @@ pub fn aura_off<S: Store>(
             .collect()
     });
     gone.push(eid);
-    let mut stop = Vec::new();
     for e in gone {
-        if let Some(Some(fx)) = take_off(s, net, On::Player(world), e) {
-            stop.push(fx);
-        }
+        remove_on(s, net, On::Player(world), e);
     }
     crate::world::keep_player(s, world);
-    stop
 }
 
 /// A player goes into portal space, other than to come back from its death: every toggled skill it
-/// has on turns off, one after another: its toggle, its records (an aura's with its pulses'), the
-/// appearances they showed (2017: Lumbering Might's and Brimming Heart's 7 of 7 ends with no request
-/// came as their players went into portal space, each as an aura's).
+/// has on turns off, one after another: its toggle, its records (an aura's with its pulses'), each
+/// appearance stopped as the record that showed it goes (2017: Lumbering Might's and Brimming
+/// Heart's 7 of 7 ends with no request came as their players went into portal space, each as an
+/// aura's).
 pub fn toggles_off_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let held: Vec<EffectState> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
@@ -4015,9 +4008,7 @@ pub fn toggles_off_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: 
         {
             progress::private(net, world, &toggle_call(false, skill));
         }
-        for fx in toggled_records_off(s, net, world, &of_it) {
-            stop_fx_on(s, net, On::Player(world), fx);
-        }
+        toggled_records_off(s, net, world, &of_it);
     }
 }
 

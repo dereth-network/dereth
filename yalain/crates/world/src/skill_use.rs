@@ -1718,9 +1718,10 @@ fn toggled_held<S: Store>(
 }
 
 /// A toggled skill used while it is on turns off, in one tick: attacking (unless it was), the use
-/// over, the toggle off, its records taken off (an aura's with its pulses'), "You stop …" with the
-/// skill's name, not attacking again (unless it was), the appearances stopped (2017: Lumbering
-/// Might's 4 of 4 turned off by a use). It costs nothing. Returns whether it did.
+/// over, the toggle off, its records taken off (an aura's with its pulses'), each appearance
+/// stopped right after the record that showed it, "You stop …" with the skill's name, not
+/// attacking again (unless it was) (2017, by send order: 75 turned off by a use so, 64 of them
+/// auras). It costs nothing. Returns whether it did.
 fn toggles_off<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1743,14 +1744,13 @@ fn toggles_off<S: Store>(
     }
     progress::private(net, world, &ended(r.id));
     progress::private(net, world, &crate::effects::toggle_call(false, r.skill));
-    let stop = crate::effects::toggled_records_off(s, net, world, &held);
+    crate::effects::toggled_records_off(s, net, world, &held);
     if let Some(name) = s.skill_table.skills.get(&r.skill).map(|d| d.name) {
         progress::private(net, world, &crate::effects::toggled_off_text(name));
     }
     if !attacking {
         progress::private(net, world, &combat::attack_state(false));
     }
-    crate::effects::stop_fx(s, net, world, &stop);
     true
 }
 
@@ -3388,8 +3388,9 @@ fn take_up_waiting<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
 /// A toggled skill's use ends by turning it on (2017's order): its aura's first pulse and the aura's
 /// record, or, for a skill that turns on no aura, a record of each of its effects, each record
 /// after its appearance (2017: all 342 appearances of 337 turnings on sent right before a record);
-/// not attacking, the toggle on, the skill's information marked toggled, stopped (when turned) and
-/// at peace (2017: Lumbering Might, Brimming Heart and Bolster Metabolism, 17 of 17 so).
+/// the toggle on, the skill's information marked toggled, not attacking, stopped (when turned) and
+/// at peace (2017: Lumbering Might, Brimming Heart and Bolster Metabolism, 17 of 17 so; the attack
+/// state after the toggle and the information in 215 of 215 turnings on that sent one).
 fn turns_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3418,11 +3419,11 @@ fn turns_on<S: Store>(
     }
     // A follow's stop goes before the lowering and its line after the peace, as at any use's end.
     let followed = x.alone && crate::follow::order_stopped(s, net, world);
+    progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
+    skill_info(s, net, world, x, now_game, TOGGLED_ON);
     if x.alone {
         progress::private(net, world, &combat::attack_state(false));
     }
-    progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
-    skill_info(s, net, world, x, now_game, TOGGLED_ON);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };

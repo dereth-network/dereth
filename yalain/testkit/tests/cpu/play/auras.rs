@@ -124,7 +124,7 @@ fn turned_on(h: &mut Harness, b: usize) -> usize {
 
 /// Espirit's use ends by turning its aura on, in 2017's order: the pulse's appearance on the player
 /// just before its first pulse's record (three minutes, pulsed), then the aura's own (held until
-/// taken off), not attacking, the toggle on, the skill's information marked toggled.
+/// taken off), the toggle on, the skill's information marked toggled, not attacking.
 /// Behaviour: server.auras.turned-on
 #[test]
 fn a_toggled_skill_turns_its_aura_on_as_its_use_ends() {
@@ -142,9 +142,9 @@ fn a_toggled_skill_turns_its_aura_on_as_its_use_ends() {
         [
             effect_fn::ADD,
             effect_fn::ADD,
-            ATTACK_STATE,
             effect_fn::TOGGLE,
-            SKILL_INFO
+            SKILL_INFO,
+            ATTACK_STATE
         ]
     );
     let (pulse_eid, pulse_timeout, pulse_flags, _) = record(&got[at].1).expect("the pulse");
@@ -159,8 +159,8 @@ fn a_toggled_skill_turns_its_aura_on_as_its_use_ends() {
         aura_eid < pulse_eid,
         "the aura's id first, its record second"
     );
-    assert_eq!(got[at + 2].1, [Value::Int(0)]);
-    assert_eq!(got[at + 3].1, [Value::Int(1), Value::Int(ESPIRIT)]);
+    assert_eq!(got[at + 2].1, [Value::Int(1), Value::Int(ESPIRIT)]);
+    assert_eq!(got[at + 4].1, [Value::Int(0)]);
     let on = held(&mut h, me);
     assert!(on
         .iter()
@@ -241,8 +241,8 @@ fn an_aura_pulses_every_two_minutes_each_pulse_a_record_of_its_own() {
 }
 
 /// Espirit used again while its aura is on turns it off at once: attacking, the use over, the
-/// toggle off, the pulses' records then the aura's taken off, "You stop …", not attacking, the
-/// appearance stopped.
+/// toggle off, the pulses' records taken off, the pulse's appearance stopped, the aura's own taken
+/// off, "You stop …", not attacking.
 /// Behaviour: server.auras.turned-off
 #[test]
 fn using_a_toggled_skill_again_turns_its_aura_off() {
@@ -272,10 +272,31 @@ fn using_a_toggled_skill_again_turns_its_aura_off() {
         "the aura's own last"
     );
     assert!(held(&mut h, me).is_empty());
-    let msgs = h.world_messages(b, from);
-    assert!(msgs.iter().any(
-        |m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == PULSE_FX)
-    ));
+    let msgs = h.sent_messages(b, from);
+    let pulse_stopped = |m: &ServerMessage| match m {
+        ServerMessage::StopFx(e) => e.sender.id == me && e.action.0 == PULSE_FX,
+        _ => false,
+    };
+    let stopped = msgs
+        .iter()
+        .position(pulse_stopped)
+        .expect("the appearance stopped");
+    let removal = |m: Option<&ServerMessage>| match m {
+        Some(ServerMessage::PlayerCall(c)) if c.function.0 == effect_fn::REMOVE => c
+            .args
+            .as_ref()
+            .and_then(|a| calls::values(&a.0).ok())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let before = removal(stopped.checked_sub(1).and_then(|i| msgs.get(i)));
+    assert!(!before.is_empty(), "stopped right after a pulse's removal");
+    assert_ne!(before, [Value::Int(aura)]);
+    assert_eq!(
+        removal(msgs.get(stopped + 1)),
+        [Value::Int(aura)],
+        "then the aura's own"
+    );
 }
 
 /// A pulse that does not reach a player who holds a record of an earlier pulse of the aura tells
@@ -937,11 +958,11 @@ fn lumbering_records(h: &mut Harness, me: u64) -> Vec<EffectState> {
 
 /// A toggled skill that turns on no aura (Lumbering Might) ends its use by turning its effects on:
 /// a record of each, toggled and held until it is turned off (flags 0x251, no end, categories 1,
-/// told with the skill), each just after its appearance; not attacking, the toggle on, the
-/// skill's information marked toggled. Used again it turns off at once and costs nothing:
-/// attacking, the use over, the toggle off, its records taken off, "You stop …", not attacking,
-/// the appearances stopped. Used a third time it is on again with one record of each, none
-/// stacked on another.
+/// told with the skill), each just after its appearance; the toggle on, the skill's information
+/// marked toggled, not attacking. Used again it turns off at once and costs nothing: attacking,
+/// the use over, the toggle off, its records taken off, each appearance stopped right after its
+/// record, "You stop …", not attacking. Used a third time it is on again with one record of each,
+/// none stacked on another.
 /// Behaviour: server.toggles.without-an-aura
 #[test]
 fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them_off() {
@@ -961,16 +982,16 @@ fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them
         [
             effect_fn::ADD,
             effect_fn::ADD,
-            ATTACK_STATE,
             effect_fn::TOGGLE,
-            SKILL_INFO
+            SKILL_INFO,
+            ATTACK_STATE
         ]
     );
     for (_, v) in &got[at..at + 2] {
         let (_, timeout, flags, categories) = record(v).expect("a record");
         assert_eq!((timeout, flags, categories), (f32::MAX, TOGGLED, 1));
     }
-    assert_eq!(got[at + 3].1, [Value::Int(1), Value::Int(LUMBERING_MIGHT)]);
+    assert_eq!(got[at + 2].1, [Value::Int(1), Value::Int(LUMBERING_MIGHT)]);
     let on = lumbering_records(&mut h, me);
     assert_eq!(on.len(), 2);
     assert!(on
@@ -1019,11 +1040,25 @@ fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them
         vigor,
         "turning it off costs nothing"
     );
-    let msgs = h.world_messages(b, from);
+    let msgs = h.sent_messages(b, from);
+    let text = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == SHOW_TEXT))
+        .expect("the text");
     for fx in LUMBERING_FX {
-        assert!(msgs.iter().any(
-            |m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == fx)
-        ));
+        let stopped = msgs
+            .iter()
+            .position(
+                |m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == fx),
+            )
+            .expect("the appearance stopped");
+        let before = stopped.checked_sub(1).and_then(|i| msgs.get(i));
+        let removed = matches!(
+            before,
+            Some(ServerMessage::PlayerCall(c)) if c.function.0 == effect_fn::REMOVE
+        );
+        assert!(removed, "{fx:#x} stopped right after a record's removal");
+        assert!(stopped < text, "{fx:#x} stopped before the text");
     }
 
     h.run(200);
