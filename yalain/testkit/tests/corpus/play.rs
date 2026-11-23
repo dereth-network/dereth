@@ -1983,7 +1983,7 @@ mod hands {
         let use_request =
             |id: u64| server_call(yalain_world::requests::function::USE, &[use_of(id, me)]);
         h.bots[b].send(true, queue::WEENIE, &use_request(corpse));
-        h.run(5);
+        h.run(10);
         let from = h.bots[b].inbox.len();
         h.bots[b].send(true, queue::WEENIE, &use_request(tool));
         h.run(5 + steps(inventory::TAKING_SECONDS + 0.5));

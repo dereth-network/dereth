@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Your fellows now see your new level as soon as you reach it.
 - Recipes now remember the spinner you last made them at.
+- Corpses now play their opening before showing what they hold, as in retail.
 
 ## 0.8.1 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.

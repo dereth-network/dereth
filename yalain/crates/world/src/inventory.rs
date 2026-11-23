@@ -99,6 +99,10 @@ pub const NOT_FOR_MONEY: u32 = 1105;
 /// may not take.
 pub const NOT_OPEN: u32 = 1032;
 
+/// An open's answer for a corpse that went while it opened: the status a refused open is answered
+/// with (2017: 28 of 29 refused opens), actions locked.
+pub const OPEN_REFUSED: u32 = 1029;
+
 /// The template property that marks an item a quest needs.
 pub const QUEST_ITEM: &str = "Item_IsQuestItem";
 
@@ -1732,8 +1736,20 @@ fn open_quality<S: Store>(s: &mut Server<S>, id: u64, open: bool) -> ServerMessa
     })
 }
 
-/// A player opens a corpse (in reach).
-pub fn open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
+/// How long after a corpse begins to open its opener is answered and shown what it holds (2017: its
+/// open mode a median 0.26 s before the answer, 1,499 of 1,500 opens, its opening effect with it).
+pub const OPENS_AFTER: f64 = 0.26;
+
+/// A player opens a corpse (in reach): it begins to open, seen by everyone who knows it, and the
+/// player is answered when it has opened. Until then it is the player's alone to open, and the
+/// player's actions wait.
+pub fn open<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
     if let Some(old) = open_corpse_of(s, world).filter(|o| *o != corpse) {
         close(s, net, world, old);
     }
@@ -1754,12 +1770,52 @@ pub fn open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cor
         action: Word(look::OPEN_MODE),
     });
     to_knowers(s, net, corpse, &mode);
-    let contents = s
+    s.after(clock, OPENS_AFTER, Timer::CorpseOpens { world, corpse });
+}
+
+/// Is another player than this one opening a corpse?
+#[must_use]
+pub fn opening_by_another<S: Store>(s: &Server<S>, world: ConnId, corpse: u64) -> bool {
+    s.timers.iter().any(|(_, t)| {
+        matches!(t, Timer::CorpseOpens { world: w, corpse: c } if *w != world && *c == corpse)
+    })
+}
+
+/// The corpses players are opening.
+pub fn being_opened<S: Store>(s: &Server<S>) -> impl Iterator<Item = u64> + '_ {
+    s.timers.iter().filter_map(|(_, t)| match t {
+        Timer::CorpseOpens { corpse, .. } => Some(*corpse),
+        _ => None,
+    })
+}
+
+/// A corpse a player began to open has opened: the player is answered with what it holds, everyone
+/// who knows it sees it open, and the player is shown what it holds. One gone meanwhile is refused
+/// as an open is; an opener gone from the world is answered nothing. Once open, it closes at once
+/// if its opener has gone too far from it, as on any move.
+pub fn opened<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
+    if !s.players.contains_key(&world) {
+        return;
+    }
+    let Some(contents) = s
         .things
         .get(corpse)
         .and_then(|t| t.corpse.as_ref())
         .map(|c| c.contents.clone())
-        .unwrap_or_default();
+    else {
+        let refused = session::call(
+            function::OPEN_DONE,
+            &[
+                Arg::Int(OPEN_REFUSED),
+                id_list(&[]),
+                id_list(&[]),
+                Arg::LongInt(corpse),
+            ],
+        )
+        .expect("an open packs");
+        progress::private(net, world, &refused);
+        return;
+    };
     let done = session::call(
         function::OPEN_DONE,
         &[
@@ -1793,6 +1849,7 @@ pub fn open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cor
     if let Some(p) = s.players.get_mut(&world) {
         p.open_container = Some(corpse);
     }
+    moved(s, net, world);
 }
 
 /// A player closes a corpse.

@@ -114,10 +114,10 @@ fn an_item_taken_by_two_from_one_corpse_goes_to_one_of_them() {
     let (mut h, (a, ida), (b, idb)) = players();
     let (c, items) = corpse(&mut h, ida, 1);
     let item = items[0];
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     h.ask(a, USE, &[use_of(item, ida)], 2);
     h.ask(a, CLOSE, &[Arg::LongInt(c)], 2);
-    h.ask(b, USE, &[use_of(c, idb)], 2);
+    h.ask(b, USE, &[use_of(c, idb)], 10);
     h.ask(b, USE, &[use_of(item, idb)], 2);
     h.run(steps(inventory::TAKING_SECONDS + 1.0));
     assert_eq!(
@@ -170,7 +170,7 @@ fn an_item_moved_from_where_it_no_longer_is_stays_where_it_is() {
 fn a_corpse_another_player_has_open_is_not_closed_by_a_stranger() {
     let (mut h, (a, ida), (b, _)) = players();
     let (c, _) = corpse(&mut h, ida, 1);
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     let until = |h: &Harness| {
         h.server
             .things
@@ -231,7 +231,7 @@ fn a_corpse_the_player_has_not_open_is_not_turned_into_money() {
     let f = inventory::function::TRANSMUTE_ALL;
     h.ask(b, f, &[transmute_request(c)], TRANSMUTED);
     assert_eq!(money(&h, idb), 0, "not open to it");
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     h.ask(b, f, &[transmute_request(c)], TRANSMUTED);
     assert_eq!(money(&h, idb), 0, "open to another");
     h.ask(a, f, &[transmute_request(c)], TRANSMUTED);
@@ -244,7 +244,7 @@ fn a_corpse_the_player_has_not_open_is_not_turned_into_money() {
 fn an_item_being_taken_by_one_who_leaves_stays_in_the_corpse() {
     let (mut h, (a, ida), _) = players();
     let (c, items) = corpse(&mut h, ida, 1);
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     h.ask(a, USE, &[use_of(items[0], ida)], 2);
     let w = world_of(&h, ida);
     yalain_world::world::leave(&mut h.server, &mut h.net, w);
@@ -275,7 +275,7 @@ fn an_item_taken_into_a_full_pack_stays_in_the_corpse() {
     ) {
         hold(&mut h, ida, TEST_ITEM, 1);
     }
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     h.ask(a, USE, &[use_of(items[0], ida)], 2);
     let from = h.bots[a].inbox.len();
     h.run(steps(inventory::TAKING_SECONDS + 1.0));
@@ -315,7 +315,7 @@ fn a_taken_item_joins_its_stack_even_in_a_full_pack() {
     }
     let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();
     let (c, items) = corpse_of(&mut h, ida, GEM, 3);
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     let quantity = |h: &Harness| {
         h.server.players[&world_of(h, ida)]
             .play
@@ -384,7 +384,7 @@ fn a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room() {
     }
     let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();
     let (c, _) = corpse(&mut h, ida, 2);
-    h.ask(a, USE, &[use_of(c, ida)], 5);
+    h.ask(a, USE, &[use_of(c, ida)], 10);
     let from = h.bots[a].inbox.len();
     h.ask(
         a,

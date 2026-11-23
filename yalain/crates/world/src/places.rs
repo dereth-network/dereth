@@ -147,8 +147,12 @@ pub const BESIDE_LIFESTONE: f32 = 4.5;
 /// The answer to a use: its status, control flags, and the user's kind.
 pub const USE_STATUS_OK: u32 = 0;
 /// A use answered while the player's earlier action is still being carried out (in portal space,
-/// dead, walking to an earlier use's object, taking an item).
+/// dead, walking to an earlier use's object, taking an item, opening a corpse).
 pub const ACTIONS_LOCKED: u32 = 1029;
+/// A use refused while the item's own actions wait: a corpse another player is opening.
+pub const ITEM_ACTIONS_LOCKED: u32 = 1039;
+/// The control flags of a use refused while the item's own actions wait.
+pub const USE_FLAGS_ITEM_ACTIONS_LOCKED: u32 = 804;
 pub const USE_FLAGS_TELEPORTED: u32 = 948;
 pub const USE_FLAGS_BOUND: u32 = 820;
 /// The answer's control flags for an item used on an object that took the player somewhere.
@@ -472,7 +476,19 @@ fn use_thing<S: Store>(
             );
             send(net, world, BlobKind::PRIVATE, &no);
         }
-        crate::things::Kind::Corpse => crate::inventory::open(s, net, world, u.item),
+        // One another player is opening is refused as an item whose actions wait (2017: 5 of 5
+        // such uses, flags 804, distance -1).
+        crate::things::Kind::Corpse if crate::inventory::opening_by_another(s, world, u.item) => {
+            let no = use_refused(
+                &u,
+                me,
+                Some(USE_FLAGS_ITEM_ACTIONS_LOCKED),
+                -1.0,
+                ITEM_ACTIONS_LOCKED,
+            );
+            send(net, world, BlobKind::PRIVATE, &no);
+        }
+        crate::things::Kind::Corpse => crate::inventory::open(s, net, world, u.item, clock),
         crate::things::Kind::Item => match t.container {
             Some(c) if crate::inventory::open_corpse_of(s, world) == Some(c) => {
                 // A take its quest keeps from the player is refused at once.
@@ -835,6 +851,7 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
         || crate::usable::chests::waiting_on(s, world)
         || s.timers.iter().any(|(_, t)| {
             matches!(t, Timer::Take { world: w, .. }
+                | Timer::CorpseOpens { world: w, .. }
                 | Timer::TakeAll { world: w, .. }
                 | Timer::Transmute { world: w, .. }
                 | Timer::PickUp { world: w, .. }

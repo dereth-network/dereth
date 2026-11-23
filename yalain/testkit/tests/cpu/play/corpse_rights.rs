@@ -108,7 +108,7 @@ fn use_corpse(h: &mut Harness, who: (usize, u64), corpse: u64) -> (bool, Vec<u32
         queue::WEENIE,
         &server_call(USE, &[use_of(corpse, who.1)]),
     );
-    h.run(6);
+    h.run(10);
     let opened = h
         .calls(who.0, from)
         .iter()

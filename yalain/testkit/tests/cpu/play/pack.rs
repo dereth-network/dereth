@@ -663,8 +663,9 @@ fn opened_corpse_of(
         ..Default::default()
     });
     h.server.things.insert(corpse);
-    inventory::open(&mut h.server, &mut h.net, world, id);
-    h.run(2);
+    let clock = h.clock();
+    inventory::open(&mut h.server, &mut h.net, world, id, clock);
+    h.run(8);
     (id, items)
 }
 

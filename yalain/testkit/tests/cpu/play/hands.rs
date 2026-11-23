@@ -175,7 +175,7 @@ fn put_down(me: u64, item: u64, slot: i32) -> auberean_protocol::ClientMessage {
 fn an_item_taken_from_a_corpse_is_in_the_hand_as_its_template_draws_it() {
     let (mut h, b, me) = world();
     let (corpse, tool) = corpse_holding(&mut h, me, TOOL);
-    h.ask(b, USE, &[use_of(corpse, me)], 5);
+    h.ask(b, USE, &[use_of(corpse, me)], 10);
     let from = h.bots[b].inbox.len();
     h.ask(b, USE, &[use_of(tool, me)], 5);
     assert_eq!(
@@ -297,7 +297,7 @@ fn an_item_taken_with_the_rest_moved_and_traded_is_named_as_its_template_draws_i
     use yalain_world::trade::function as trade;
     let (mut h, b, me) = world();
     let (corpse, tool) = corpse_holding(&mut h, me, TOOL);
-    h.ask(b, USE, &[use_of(corpse, me)], 5);
+    h.ask(b, USE, &[use_of(corpse, me)], 10);
     let from = h.bots[b].inbox.len();
     h.ask(
         b,

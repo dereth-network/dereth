@@ -1471,12 +1471,13 @@ pub fn closed<S: Store>(s: &mut Server<S>, corpse: u64) {
     }
 }
 
-/// Corpses whose time is up leave the world; one that is open is looked at again later.
+/// Corpses whose time is up leave the world; one that is open or opening is looked at again later.
 pub fn expire_corpses<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
     let open: Vec<u64> = s
         .players
         .values()
         .filter_map(|p| p.open_container)
+        .chain(crate::inventory::being_opened(s))
         .collect();
     let mut due = Vec::new();
     let corpses: Vec<u64> = s.things.corpses().collect();

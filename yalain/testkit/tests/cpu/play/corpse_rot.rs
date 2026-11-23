@@ -75,7 +75,11 @@ fn there(h: &Harness, corpse: u64) -> bool {
 
 fn open(h: &mut Harness, corpse: u64) {
     let world = *h.server.players.keys().next().expect("the player");
-    yalain_world::inventory::open(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    yalain_world::inventory::open(&mut h.server, &mut h.net, world, corpse, clock);
+    assert!(h.run_until(10, |h| yalain_world::inventory::open_corpse_of(
+        &h.server, world
+    ) == Some(corpse)));
 }
 
 fn close(h: &mut Harness, corpse: u64) {

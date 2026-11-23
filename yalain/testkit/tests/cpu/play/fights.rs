@@ -1936,6 +1936,241 @@ fn a_corpse_another_player_has_open_refuses_the_use_until_it_is_closed() {
     );
 }
 
+/// Step `steps` times, noting the clock each world message a client received since `from` arrived
+/// by.
+fn arrivals(h: &mut Harness, b: usize, from: usize, steps: usize) -> Vec<(f64, ServerMessage)> {
+    let mut seen = Vec::new();
+    let mut at = from;
+    for _ in 0..steps {
+        h.step();
+        for m in h.world_messages(b, at) {
+            seen.push((h.now.0, m));
+        }
+        at = h.bots[b].inbox.len();
+    }
+    seen
+}
+
+/// What a message says of a corpse's opening, if anything: its opening effect, its open mode, the
+/// open's answer, its open quality, the effect's end, an item it holds made.
+fn opening_part(m: &ServerMessage, corpse: u64) -> Option<&'static str> {
+    use yalain_world::inventory::{function, look, q};
+    match m {
+        ServerMessage::DoFx(e) if e.sender.id == corpse && e.action.fx == look::OPENING_FX => {
+            Some("effect")
+        }
+        ServerMessage::DoMode(e) if e.sender.id == corpse && e.action.0 == look::OPEN_MODE => {
+            Some("mode")
+        }
+        ServerMessage::PlayerCall(c) if c.function.0 == function::OPEN_DONE => Some("answer"),
+        ServerMessage::UpdateBoolVisual(v) if v.object.id == corpse && v.quality == q::OPEN => {
+            Some("open")
+        }
+        ServerMessage::StopFx(e) if e.sender.id == corpse => Some("effect ends"),
+        ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_ITEM => Some("item"),
+        _ => None,
+    }
+}
+
+/// Is a use answer's status (and control flags, if given) among its slots?
+fn use_answered(got: &[(u32, Vec<Value>)], status: u32, flags: Option<u32>) -> bool {
+    got.iter().any(|(f, v)| {
+        *f == USE_DONE
+            && v.iter().any(|x| match x {
+                Value::Graph(g) => g.iter().any(|(_, n)| match n {
+                    calls::Node::Script { slots, .. } => {
+                        slots.iter().any(|s| s.1 == status)
+                            && flags.is_none_or(|fl| slots.iter().any(|s| s.1 == fl))
+                    }
+                    _ => false,
+                }),
+                _ => false,
+            })
+    })
+}
+
+/// The corpse a fight leaves, once it is made.
+fn fights_corpse(h: &mut Harness, b: usize) -> u64 {
+    assert!(h.run_until(200, |h| corpse_made(h, b, 0).is_some()));
+    corpse_made(h, b, 0).expect("corpse").id
+}
+
+/// Is a player's opening of a corpse under way?
+fn opening(h: &Harness) -> bool {
+    h.server
+        .timers
+        .iter()
+        .any(|(_, t)| matches!(t, yalain_world::Timer::CorpseOpens { .. }))
+}
+
+/// Using a corpse begins its opening at once, its opening effect and open mode together; its opener
+/// is answered a quarter second later, with the corpse shown open, the opening's end and what it
+/// holds made, in that order, none of it sooner.
+/// Behaviour: server.loot.corpse-opens-after-its-opening
+#[test]
+fn a_corpse_answers_its_opener_once_its_opening_has_played() {
+    let (mut h, b, me, _) = fight();
+    let corpse = fights_corpse(&mut h, b);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    let seen = arrivals(&mut h, b, from, 20);
+    let first = |part: &str| {
+        seen.iter()
+            .find(|(_, m)| opening_part(m, corpse) == Some(part))
+            .map(|(t, _)| *t)
+            .unwrap_or_else(|| panic!("no {part}"))
+    };
+    let began = first("effect");
+    assert!(
+        (first("mode") - began).abs() < 1e-9,
+        "the mode with the effect"
+    );
+    let answered = first("answer");
+    assert!(
+        (0.25..0.26 + 2.0 * yalain_testkit::STEP).contains(&(answered - began)),
+        "answered {:.2} s after the opening began",
+        answered - began
+    );
+    for part in ["open", "effect ends", "item"] {
+        assert!(
+            (first(part) - answered).abs() < 1e-9,
+            "{part} with the answer"
+        );
+    }
+    let order: Vec<_> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| opening_part(m, corpse))
+        .collect();
+    assert_eq!(
+        order,
+        ["effect", "mode", "answer", "open", "effect ends", "item"]
+    );
+}
+
+/// A corpse being opened is its opener's alone: another player's use of it is refused as an item
+/// whose actions wait (status 1039, flags 804), the opener's own second use as actions locked (1029),
+/// and the opener is answered once, the other not at all.
+/// Behaviour: server.loot.corpse-opening-is-the-openers-alone
+#[test]
+fn a_corpse_being_opened_refuses_another_use_until_it_opens() {
+    let (mut h, b, me, _) = fight();
+    let corpse = fights_corpse(&mut h, b);
+    let (other, oid) = h.player_in_world("two", "Fellowa");
+    let from = h.bots[b].inbox.len();
+    let other_from = h.bots[other].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    assert!(h.run_until(5, opening), "the opening begins");
+    h.bots[other].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, oid)]),
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    h.run(2);
+    assert!(opening(&h), "both uses came while it opened");
+    h.run(20);
+    let theirs = calls_of(&h, other, other_from);
+    assert!(
+        use_answered(&theirs, 1039, Some(804)),
+        "the other's use refused: {theirs:?}"
+    );
+    assert!(
+        !theirs.iter().any(|(f, _)| *f == OPEN_DONE),
+        "nothing opens for the other"
+    );
+    let mine = calls_of(&h, b, from);
+    assert!(
+        use_answered(&mine, 1029, None),
+        "the second use refused: {mine:?}"
+    );
+    assert_eq!(
+        mine.iter().filter(|(f, _)| *f == OPEN_DONE).count(),
+        1,
+        "answered once"
+    );
+}
+
+/// A corpse that goes while it opens refuses the open as a refused open is answered (status 1029):
+/// nothing of it is shown open, and the player has nothing open.
+/// Behaviour: server.loot.corpse-gone-while-it-opens
+#[test]
+fn a_corpse_gone_while_it_opens_refuses_the_open() {
+    let (mut h, b, me, _) = fight();
+    let corpse = fights_corpse(&mut h, b);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    assert!(h.run_until(5, opening), "the opening begins");
+    yalain_world::death::vanish(&mut h.server, &mut h.net, corpse);
+    h.run(20);
+    let answers: Vec<_> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == OPEN_DONE)
+        .collect();
+    assert_eq!(answers.len(), 1, "answered once: {answers:?}");
+    assert_eq!(answers[0].1.first(), Some(&Value::Int(1029)));
+    assert_eq!(answers[0].1.last(), Some(&Value::Long(corpse)));
+    let shown: Vec<_> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| opening_part(m, corpse))
+        .filter(|p| matches!(*p, "open" | "effect ends" | "item"))
+        .collect();
+    assert!(shown.is_empty(), "{shown:?}");
+    let world = *h.server.players.keys().next().expect("in");
+    assert_eq!(
+        yalain_world::inventory::open_corpse_of(&h.server, world),
+        None
+    );
+}
+
+/// A corpse whose time is up while it opens stays until it has opened, and opens.
+/// Behaviour: server.loot.corpse-opening-holds-its-decay
+#[test]
+fn a_corpse_whose_time_is_up_while_it_opens_opens_all_the_same() {
+    let (mut h, b, me, _) = fight();
+    let corpse = fights_corpse(&mut h, b);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    assert!(h.run_until(5, opening), "the opening begins");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.expires = 0.0;
+    }
+    h.run(20);
+    let answers: Vec<_> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == OPEN_DONE)
+        .collect();
+    assert_eq!(answers.len(), 1, "answered once: {answers:?}");
+    assert_eq!(answers[0].1.first(), Some(&Value::Int(0)), "opened");
+    assert!(h.server.things.get(corpse).is_some(), "still here, open");
+}
+
 /// The close answers a client was sent since `from`: each one's status and container.
 fn close_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u64)> {
     calls_of(h, b, from)

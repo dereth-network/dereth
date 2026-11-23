@@ -596,7 +596,7 @@ fn an_effect_ending_on_an_item_in_an_open_corpse_is_told_to_its_viewer() {
     let t = h.server.things.get_mut(sword).expect("it");
     (t.wielded, t.container) = (None, Some(corpse));
     let use_it = yalain_testkit::play::use_of(corpse, me);
-    h.ask(b, yalain_world::requests::function::USE, &[use_it], 5);
+    h.ask(b, yalain_world::requests::function::USE, &[use_it], 10);
     assert_eq!(h.server.players[&w].open_container, Some(corpse));
     let from = h.bots[b].inbox.len();
     h.run(steps(61.0));

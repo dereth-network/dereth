@@ -9803,6 +9803,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.corpse-gone-while-it-opens",
+        says: "A corpse that goes while it opens refuses the open as a refused open is answered, \
+               and nothing of it is shown open.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-GONE-OPENING"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_gone_while_it_opens_refuses_the_open",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-opening-holds-its-decay",
+        says: "A corpse whose time is up while it opens stays until it has opened, and opens.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-OPENING-DECAY"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_whose_time_is_up_while_it_opens_opens_all_the_same",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-opening-is-the-openers-alone",
+        says: "A corpse being opened is its opener's alone: another player's use of it is refused \
+               as an item whose actions wait, the opener's own second use as actions locked, and \
+               the opener is answered once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-OPENING-HELD"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_being_opened_refuses_another_use_until_it_opens",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-opens-after-its-opening",
+        says: "Using a corpse begins its opening at once, its opening effect and open mode \
+               together; its opener is answered a quarter second later, with the corpse shown \
+               open, the opening's end and what it holds, in that order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-OPENS-AFTER"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_answers_its_opener_once_its_opening_has_played",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.corpse-profile-beside-its-loot",
         says: "A creature whose template names its own corpse, where that corpse names a generator profile, leaves the profile's draw and extras on its corpse after its own loot, as the profile's row says.",
         since: RETAIL,
