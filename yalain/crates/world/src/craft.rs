@@ -25,9 +25,9 @@
 //! is short of the recipe's cost. Else the player
 //! plays the recipe's animation for its cycles, lets it go, and some seconds after the request the
 //! result: the check rolled against the recipe's difficulty and the player's craft skill, and the
-//! outcome's actions in order (items made in the pack, ingredients used up, an effect on the
-//! player such as a quest moved on, a text), the cost paid, the recipe's wait and charges told, the
-//! answer; ingredients used up after the answer. What it asked is asked again as the result comes:
+//! outcome's actions (items made in the pack, an effect on the player such as a quest moved on),
+//! its ingredients used up, the craft's effect played, its texts, the craft experience, the cost
+//! paid, the recipe's wait and charges told, then the answer. What it asked is asked again as the result comes:
 //! an ingredient gone or the money spent since, and it makes nothing, says why and takes nothing.
 //!
 //! **A making is cut short** when its maker moves or jumps (a report with an asked motion or a
@@ -1557,7 +1557,8 @@ fn recipe_slots(r: &RecipeState, told: f64) -> [Slot; 9] {
     [
         Slot::Int(0),
         Slot::Time(r.use_again),
-        Slot::Int(r.successes),
+        // Its successes: none told (2017: 0 in 480 of 480 records; the client reads no count).
+        Slot::Int(0),
         Slot::Time(told),
         Slot::Int(r.charges.cast_unsigned()),
         Slot::Tagged(DATUM, r.recipe),
@@ -2698,6 +2699,15 @@ fn result<S: Store>(
             clock,
         );
     }
+    // Its ingredients are used up, then the craft's effect plays, before its texts (2017, in send
+    // order: 740 of 743 ingredients used up before the answer; the effect before the text 446 of 447
+    // makings, 80 of 89 failures).
+    for (item, quantity) in used {
+        use_up(s, net, world, item, quantity);
+    }
+    if def.checked() {
+        play_fx(s, net, world, if failed { fx::FAILED } else { fx::MADE });
+    }
     for (text, kind) in texts {
         progress::private(
             net,
@@ -2713,9 +2723,6 @@ fn result<S: Store>(
         progress::private(net, world, &crate::chat::show_text(progress::TEXT_KIND, t));
     }
     award(s, net, world, def.skill, xp);
-    if def.checked() {
-        play_fx(s, net, world, if failed { fx::FAILED } else { fx::MADE });
-    }
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -2735,9 +2742,6 @@ fn result<S: Store>(
         );
     }
     if let Some(r) = p.play.recipes.iter_mut().find(|r| r.recipe == m.recipe) {
-        if !failed {
-            r.successes += 1;
-        }
         let waits = def.recovery > 0.0;
         if waits {
             r.use_again = now + f64::from(def.recovery);
@@ -2758,9 +2762,6 @@ fn result<S: Store>(
         world,
         &executed(if failed { error::FAILED } else { 0 }, m.recipe),
     );
-    for (item, quantity) in used {
-        use_up(s, net, world, item, quantity);
-    }
     crate::world::keep_player(s, world);
 }
 

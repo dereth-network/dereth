@@ -2505,8 +2505,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.craft.made",
         says: "Making a recipe plays its animation for its cycles, lets it go, and some seconds \
                after the request carries out its outcome: the product made in the pack, its \
-               effects on the player (a quest moved on), its text, the answer, then its \
-               ingredients used up.",
+               effects on the player (a quest moved on), its ingredients used up, the craft \
+               effect of a recipe that can fail, its text, then the answer; the recipe's record \
+               tells no successes.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-EXECUTE"),
         station: "yalain-testkit::cpu::play::crafting::making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_ingredients",

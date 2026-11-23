@@ -246,9 +246,9 @@ fn an_ingredient_is_answered_with_why_it_does_not_fit() {
 }
 
 /// Making the Arwic mines' sword: the player plays the recipe's animation for its two cycles, lets
-/// it go, and about four seconds after the request the result: the sword made in the pack, the
-/// recipe's text, the answer (shown, 0, the recipe), then the twenty iron used up; the quest the
-/// recipe moves on is moved on.
+/// it go, and about four seconds after the request the result, in the order sent: the sword made in
+/// the pack, the twenty iron used up, the recipe's text, then the answer (shown, 0, the recipe); the
+/// quest the recipe moves on is moved on.
 /// Behaviour: server.craft.made
 #[test]
 fn making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_ingredients() {
@@ -275,23 +275,18 @@ fn making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_in
         .iter()
         .any(|m| matches!(m, ServerMessage::LetGoBehavior(e) if e.action.behavior == 0x4100_00A4)));
     let got = calls_of(&h, b, from);
-    let at = |f: u32| got.iter().position(|(x, _)| *x == f);
-    let done = at(function::EXECUTED).expect("the answer");
+    let done = got
+        .iter()
+        .find(|(f, _)| *f == function::EXECUTED)
+        .expect("the answer");
     assert_eq!(
-        got[done].1,
+        done.1,
         vec![Value::Int(1), Value::Int(0), Value::Int(MINES_RECIPE)]
     );
-    let text = got
-        .iter()
-        .position(|(f, v)| *f == 0x8205_0011 && v.last() == Some(&Value::Int(8)));
-    assert!(text < Some(done), "the recipe's text before the answer");
-    let destroyed = at(0x820E_0067).or_else(|| {
-        got.iter()
-            .position(|(f, v)| v.contains(&Value::Long(iron)) && *f != function::INGREDIENT_ADDED)
-    });
-    assert!(
-        destroyed > Some(done),
-        "the iron used up after the answer: {got:x?}"
+    assert_eq!(
+        result_order(&h, b, from, iron),
+        ["used up", "text", "answer"],
+        "in the order sent"
     );
     let p = h.server.players.get(&world).expect("in the world");
     assert!(p.play.items.iter().any(|i| i.template == MINES_SWORD));
@@ -414,6 +409,109 @@ fn a_recipe_whose_product_cannot_be_made_uses_up_nothing() {
             .any(|(f, v)| *f == function::EXECUTED && v.contains(&Value::Int(MINES_RECIPE))),
         "answered"
     );
+}
+
+/// What a making's result told of its ingredient `item`, its effect, its text, its recipe's record
+/// and its answer, in the order sent: "used up" for the item taken or its stack lessened, "fx" for
+/// the craft's effect, "text" for a text, "record" for the recipe's record, "answer" for the answer.
+fn result_order(h: &Harness, b: usize, from: usize, item: u64) -> Vec<&'static str> {
+    use yalain_world::craft::fx;
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+        .collect();
+    sent.sort_by_key(|(n, _)| *n);
+    sent.iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::ForgetObject(o) if o.0.id == item => Some("used up"),
+            ServerMessage::UpdateIntVisual(q) if q.object.id == item => Some("used up"),
+            ServerMessage::DoFx(e) if e.action.fx == fx::MADE || e.action.fx == fx::FAILED => {
+                Some("fx")
+            }
+            ServerMessage::PlayerCall(c) => match c.function.0 {
+                yalain_world::session::function::SHOW_TEXT => Some("text"),
+                function::UPDATE_RECIPE => Some("record"),
+                function::EXECUTED => Some("answer"),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// A making of a recipe that can fail, made and failed: its ingredients are used up, then the craft
+/// effect plays (made or failed), then its text, its recipe's record and the answer, in the order
+/// sent (2017: ingredients used up before the answer 740 of 743; the effect before the text 446 of
+/// 447 made, 80 of 89 failed); the record tells no successes, made or not (480 of 480).
+/// Behaviour: server.craft.made
+#[test]
+fn a_making_that_can_fail_uses_up_its_ingredients_then_plays_its_effect_then_tells_its_text() {
+    use yalain_world::craft::{fx, Action, Check, Outcome};
+    // At Tools 40, a difficulty of 0 always makes it and one of 100 always fails it.
+    for (difficulty, effect) in [(0, fx::MADE), (100, fx::FAILED)] {
+        let (mut h, b, me, world) = in_world();
+        let iron = with_recipe_and_iron(&mut h, world, me, 20);
+        if let Some(r) = h.server.crafting.recipes.get_mut(&MINES_RECIPE) {
+            r.skill = TOOLS;
+            r.difficulty = difficulty;
+            r.recovery = 300.0;
+            let made = r.checks[0].clone();
+            let failed = Check {
+                upto: 1.0,
+                outcomes: vec![Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: vec![
+                        Action::Destroy {
+                            ordinal: 1,
+                            quantity: 5,
+                            by_spinner: None,
+                            spinners: None,
+                        },
+                        Action::Text {
+                            text: (0xE7E3_18D9, 0x2500_1AEF),
+                            kind: 8,
+                        },
+                    ],
+                }],
+            };
+            r.checks = vec![failed, made];
+        }
+        if let Some(c) = h
+            .server
+            .players
+            .get_mut(&world)
+            .and_then(|p| p.play.craft_skills.iter_mut().find(|c| c.skill == TOOLS))
+        {
+            c.level = 40;
+        }
+        let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+        wait(&mut h, 6.0);
+        assert_eq!(
+            result_order(&h, b, from, iron),
+            ["used up", "fx", "text", "record", "answer"],
+            "difficulty {difficulty}"
+        );
+        assert!(
+            h.world_messages(b, from)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::DoFx(e) if e.action.fx == effect)),
+            "difficulty {difficulty}"
+        );
+        let record = calls_of(&h, b, from)
+            .into_iter()
+            .find(|(f, _)| *f == function::UPDATE_RECIPE)
+            .expect("the record");
+        let successes = record.1.iter().find_map(|v| match v.root() {
+            Some(Node::Script {
+                package: 0x1D9,
+                slots,
+            }) => Some(slots[3].1),
+            _ => None,
+        });
+        assert_eq!(successes, Some(0), "difficulty {difficulty}");
+    }
 }
 
 /// Behaviour: server.craft.refused
