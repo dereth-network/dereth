@@ -2732,3 +2732,144 @@ fn a_bluff_that_drops_all_threat_during_an_idle_drops_the_fight_the_idle_held() 
     h.run(steps(5.0));
     assert_eq!(mode_of(&h, id), Some(Mode::Idle), "it lets the caster be");
 }
+
+/// Another player in the world, drawn its scene; its character.
+fn another_player(h: &mut Harness, account: &str, name: &str) -> u64 {
+    let (b, who) = h.player_in_world(account, name);
+    drawn(h, b);
+    who
+}
+
+/// Put players `east` meters east of where the creature stands, with no step between: the
+/// creature's place and each player's, as set.
+fn put_east(h: &mut Harness, id: u64, who: &[(u64, f32)]) -> yalain_store::StoredPosition {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    for (character, east) in who {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == *character)
+            .expect("in the world");
+        p.position.cell = at.cell;
+        p.position.origin = [at.origin[0] + east, at.origin[1], at.origin[2]];
+    }
+    at
+}
+
+/// The creature fights `me` again, whatever it turned to as the others came.
+fn fights_again(h: &mut Harness, id: u64, me: u64) {
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.target = Some(me);
+    }
+}
+
+/// The player `me` dies where it stands: its health gone, then its death.
+fn dies(h: &mut Harness, me: u64) {
+    let clock = h.clock();
+    let w = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    if let Some(p) = h.server.players.get_mut(&w) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::player::quality::HEALTH, 0);
+    }
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, w, None, clock);
+}
+
+/// A creature whose target dies takes on a living player within its perception radius, one that
+/// never hurt it included, without giving up first; with no player within the radius it gives up
+/// and goes home, and so does one that does not attack first with only players that never hurt it
+/// near.
+/// Behaviour: server.creatures.a-targets-death-takes-another-within-perception
+#[test]
+fn a_creature_whose_target_dies_takes_a_player_within_its_perception_else_goes_home() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let near = another_player(&mut h, "two", "Torvald");
+    let far = another_player(&mut h, "three", "Brannoc");
+    put_east(&mut h, id, &[(near, 6.0), (far, -30.0)]);
+    fights_again(&mut h, id, me);
+    dies(&mut h, me);
+    let mut took = false;
+    for _ in 0..200 {
+        h.step();
+        assert_ne!(mode_of(&h, id), Some(Mode::Returning), "it never gives up");
+        if target_of(&h, id) == Some(near) {
+            took = true;
+            break;
+        }
+    }
+    assert!(
+        took,
+        "it takes on the one within its radius, which never hurt it"
+    );
+    assert_eq!(mode_of(&h, id), Some(Mode::Chasing));
+
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let far = another_player(&mut h, "two", "Torvald");
+    put_east(&mut h, id, &[(far, 30.0)]);
+    fights_again(&mut h, id, me);
+    dies(&mut h, me);
+    assert!(
+        h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)),
+        "with none within its radius it gives up"
+    );
+    // One that does not attack first takes on no one that never hurt it.
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let near = another_player(&mut h, "two", "Torvald");
+    put_east(&mut h, id, &[(near, 6.0)]);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.attacks_first = false;
+    }
+    fights_again(&mut h, id, me);
+    dies(&mut h, me);
+    assert!(
+        h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)),
+        "one that waits to be struck gives up"
+    );
+}
+
+/// Among several players within its perception, a creature whose target died takes one drawn by
+/// nearness, each by one over its distance: one at 2 m four times as often as one at 8 m, one past
+/// the radius never.
+/// Behaviour: server.creatures.a-targets-death-draws-the-next-by-nearness
+#[test]
+fn after_its_targets_death_a_creature_draws_the_next_player_by_nearness() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    let two = another_player(&mut h, "two", "Torvald");
+    let eight = another_player(&mut h, "three", "Brannoc");
+    let past = another_player(&mut h, "four", "Edda");
+    let at = put_east(&mut h, id, &[(two, 2.0), (eight, 8.0), (past, 21.0)]);
+    dies(&mut h, me);
+    let perception = yalain_world::ai::DEFAULT_PERCEPTION;
+    let mut taken = std::collections::HashMap::new();
+    for _ in 0..20_000 {
+        let p = yalain_world::ai::after_a_death(&mut h.server, id, &at, perception);
+        *taken.entry(p).or_insert(0u32) += 1;
+    }
+    assert!(
+        !taken.contains_key(&Some(past)),
+        "never past the radius: {taken:?}"
+    );
+    assert!(!taken.contains_key(&None), "{taken:?}");
+    #[allow(clippy::cast_precision_loss)]
+    let share = taken[&Some(two)] as f32 / 20_000.0;
+    assert!(
+        (share - 0.8).abs() < 0.015,
+        "one over the distance: {share}"
+    );
+    assert!(taken[&Some(eight)] > 0);
+}

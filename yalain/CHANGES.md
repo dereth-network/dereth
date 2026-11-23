@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Creatures now turn on another nearby player when the one they fight dies.
 - People now turn to face you before they talk to you.
 - Wounded looks now change only as health crosses a fifth, as in retail.
 - Items with a cooldown, like delving stones, now make you wait between uses.

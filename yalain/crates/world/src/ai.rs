@@ -63,8 +63,10 @@
 //!   A player it cannot reach (no way through the walls, another floor) or does not see is no
 //!   reason to give up: it stays in its fight, standing or searching again, while the player stays
 //!   within its perception. There is no leash at the homesick radius and no giving up by time. A
-//!   target that dies is replaced by the nearest player within the radius that has hurt the
-//!   creature, if any: this server's rule, not 2017's, which also took players that had not hurt it.
+//!   target that dies is replaced by a living player within the radius it would take on, whether
+//!   or not that one hurt it, one of several drawn by nearness; with none, the creature gives up. A
+//!   target gone any other way is replaced by the nearest player within the radius that has hurt
+//!   the creature, if any.
 //! - **Losing interest.** A detaunt the world gives a chance of it may make a creature drop all
 //!   its threat on its caster ([`drops_threat`]): the caster's harm and taunts count no more, it
 //!   turns to another that hurt it or, with none, gives up, and it takes the caster on again only
@@ -907,7 +909,12 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 return;
             };
             if gone {
-                give_up_or_turn(s, net, id, &at, perception, now);
+                let died = s.players.get(&conn).is_some_and(crate::combat::is_dead);
+                if died {
+                    took_another_or_home(s, net, id, &at, perception, now);
+                } else {
+                    give_up_or_turn(s, net, id, &at, perception, now);
+                }
                 return;
             }
             let d = presence::distance(&at, &place);
@@ -1694,6 +1701,71 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
 
 /// A creature's target is dead or gone: it takes the nearest player within its perception that has
 /// hurt it, else it gives up. This server's rule: 2017 also took players that had not hurt it.
+/// The player a creature takes on when the one it fought dies: a living player within its
+/// perception radius that it would take on, one that hurt it or one it would notice (a player it
+/// spares only if that one hurt it), drawn by nearness (each by one over its distance); none when
+/// no such player is within it. (2017, 437 deaths of a creature's target: a player within the
+/// radius was taken 120 of 128 times, hurter or not; with none within it gave up 207 of 217; among
+/// two or more within it no rule named the one taken, and the draw by one over the distance fitted
+/// best, this server's choice.)
+pub fn after_a_death<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    at: &StoredPosition,
+    perception: f32,
+) -> Option<u64> {
+    let c = s.things.get(id).and_then(|t| t.creature.as_ref())?;
+    let hurt_by: Vec<u64> = c.damage_by.iter().map(|(p, _)| *p).collect();
+    let lost: Vec<u64> = c.lost_interest.iter().map(|(p, _)| *p).collect();
+    let attacks_first = c.stats.attacks_first
+        && s.creature_rows.may_attack_first(c.stats.friend_table)
+        && !only_hated(s, id);
+    let class = class_of(s, id);
+    let mut near: Vec<(u64, f32)> = s
+        .players
+        .values()
+        .filter(|p| {
+            let hurt = hurt_by.contains(&p.character);
+            fightable(p)
+                && p.admin.attackable == Attackable::Normal
+                && !lost.contains(&p.character)
+                && may_take_on(s, id, p)
+                && match regard_of(s, Some(id), class, p) {
+                    Some(Regard::Spares) => hurt,
+                    Some(Regard::Hates) => true,
+                    None => attacks_first || hurt,
+                }
+        })
+        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p.character, d)))
+        .filter(|(_, d)| *d <= perception)
+        .collect();
+    // In a set order, so a seeded draw is the same each time.
+    near.sort_by_key(|(p, _)| *p);
+    let i = s.rng.weighted(near.iter().map(|(_, d)| 1.0 / d.max(0.1)))?;
+    Some(near[i].0)
+}
+
+/// A creature whose target died takes on another player ([`after_a_death`]), else gives up.
+fn took_another_or_home<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    at: &StoredPosition,
+    perception: f32,
+    now: f64,
+) {
+    match after_a_death(s, id, at, perception) {
+        Some(p) => {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.target = Some(p);
+                c.target_since = now;
+                c.lost_since = None;
+            }
+        }
+        None => go_home(s, net, id, now),
+    }
+}
+
 fn give_up_or_turn<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,

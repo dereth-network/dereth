@@ -3416,6 +3416,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-targets-death-draws-the-next-by-nearness",
+        says: "Among two or more players within its perception radius, a creature whose target died \
+               takes one drawn by nearness, each by one over its distance. This server's fit: no rule \
+               named the one taken.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-DRAW"),
+        station: "yalain-testkit::cpu::play::creature_tactics::after_its_targets_death_a_creature_draws_the_next_player_by_nearness",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-targets-death-takes-another-within-perception",
+        says: "A creature whose target dies takes on a living player within its perception radius \
+               that it would take on (one it would notice, or one that hurt it), whether or not that \
+               player hurt it, without giving up first; with no such player within the radius it \
+               gives up and goes home (2017: with a player within the radius it took one 120 of 128 \
+               times, 59 of them a player that never hurt it, each by a creature that attacks first; \
+               with none within it, it gave up 207 of 217).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TARGET-DIES-NEXT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_whose_target_dies_takes_a_player_within_its_perception_else_goes_home",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-taunt-counts-at-the-draw",
         says: "A landed taunt counts for its caster at a creature's draw as harm, for twenty seconds, \
                its share of the creature's whole health, each taunt adding its own; a detaunt counts \
@@ -3795,8 +3818,10 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.creatures.fighting-another-turns-only-to-a-hurter",
         says: "A creature that attacks first takes the creature its row fights when it is nearer than \
                any player; it never turns from it to a player that has not hurt it, and turns to one \
-               that does by the draw of harm.",
-        since: RETAIL,
+               that does by the draw of harm. This server's rule: no recording shows a creature \
+               fighting another creature, and the nearest case, a creature fighting a pet, turned \
+               to players that had not hurt it as well.",
+        since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FOE-TURNS"),
         station: "yalain-testkit::cpu::play::creature_foes::a_creature_fighting_another_turns_only_to_a_player_that_hurts_it",
         tier: Tier::Cpu,
