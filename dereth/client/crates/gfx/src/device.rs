@@ -238,7 +238,6 @@ pub(crate) enum Garbage {
     Sampler(vk::Sampler),
     Pipeline(vk::Pipeline),
     Command(vk::CommandBuffer),
-    Staging(crate::resource::Arena),
     Timer(crate::query::Slot),
     /// A bindless index to hand out again.
     TextureIndex(u32),
@@ -856,17 +855,21 @@ impl Device {
 
     /// Destroy or reuse what the finished work was holding.
     pub(crate) fn collect(&mut self) {
-        if self.garbage.is_empty() {
+        if self.garbage.is_empty() && !self.staging.waits() {
             return;
         }
         let completed = self.completed();
         let finished = self.finished_frame;
-        let (done, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.garbage)
+        let done = |r: &Retire| r.value <= completed && r.frame <= finished;
+        let (gone, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.garbage)
             .into_iter()
-            .partition(|(r, _)| r.value <= completed && r.frame <= finished);
+            .partition(|(r, _)| done(r));
         self.garbage = keep;
-        for (_, g) in done {
+        for (_, g) in gone {
             self.free(g);
+        }
+        for a in self.staging.collect(done) {
+            self.destroy_arena(a);
         }
     }
 
@@ -880,7 +883,6 @@ impl Device {
             // SAFETY: as above.
             Garbage::Pipeline(p) => unsafe { self.device.destroy_pipeline(p, None) },
             Garbage::Command(c) => self.free_commands.push(c),
-            Garbage::Staging(a) => self.staging.free.push(a),
             Garbage::Timer(slot) => {
                 self.timers
                     .retired(&self.device, slot, self.caps.timestamp_period)

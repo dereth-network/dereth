@@ -271,7 +271,6 @@ pub(crate) enum Garbage {
     Texture(resource::TextureEntry),
     Pipeline(ID3D12PipelineState),
     Command(ID3D12CommandAllocator, ID3D12GraphicsCommandList),
-    Staging(resource::Arena),
     Scratch(ID3D12Resource),
     Timer(recorder::TimerSlot),
     TextureIndex(u32),
@@ -736,18 +735,21 @@ impl Device {
     /// Drop or reuse what the finished work was holding, and take the debug layer's errors.
     pub(crate) fn collect(&mut self) {
         self.drain_messages();
-        if self.garbage.is_empty() {
+        if self.garbage.is_empty() && !self.staging.waits() {
             return;
         }
         let completed = self.completed();
         let finished = self.finished_frame;
-        let (done, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.garbage)
+        let done = |r: &Retire| r.value <= completed && r.frame <= finished;
+        let (gone, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.garbage)
             .into_iter()
-            .partition(|(r, _)| r.value <= completed && r.frame <= finished);
+            .partition(|(r, _)| done(r));
         self.garbage = keep;
-        for (_, g) in done {
+        for (_, g) in gone {
             self.free(g);
         }
+        // Dropping an arena releases its memory.
+        drop(self.staging.collect(done));
     }
 
     /// Drop or reuse `g` now.
@@ -758,7 +760,6 @@ impl Device {
             | Garbage::Pipeline(_)
             | Garbage::Scratch(_) => {}
             Garbage::Command(a, l) => self.commands.push((a, l)),
-            Garbage::Staging(a) => self.staging.free.push(a),
             Garbage::Timer(t) => self.timers.retired(t, self.caps.timestamp_period),
             Garbage::TextureIndex(i) => self.free.textures.release(i),
             Garbage::BufferIndex(i) => self.free.buffers.release(i),

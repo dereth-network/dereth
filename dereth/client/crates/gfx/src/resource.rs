@@ -6,6 +6,7 @@ use gpu_allocator::MemoryLocation;
 
 use crate::device::{vkr, Device, Garbage};
 use crate::graph::{State, Track};
+use crate::staging::ARENA_BYTES;
 use crate::upload::PendingCopy;
 use crate::{
     Address, Buffer, BufferDesc, BufferUsage, Error, Filter, Format, Location, Sampler,
@@ -113,22 +114,14 @@ pub(crate) struct Arena {
     pub used: u64,
 }
 
-/// The staging arenas: the one being filled, those filled for work not yet recorded, and those
-/// free to fill again.
-#[derive(Default)]
-pub(crate) struct Staging {
-    pub current: Vec<Arena>,
-    pub free: Vec<Arena>,
-}
-
-impl Staging {
-    pub(crate) fn into_arenas(self) -> Vec<Arena> {
-        self.current.into_iter().chain(self.free).collect()
+impl crate::staging::Arena for Arena {
+    fn capacity(&self) -> u64 {
+        self.capacity
     }
 }
 
-/// The smallest staging arena.
-const ARENA_BYTES: u64 = 8 << 20;
+/// The staging arenas, and when the work that reads each is finished.
+pub(crate) type Staging = crate::staging::Staging<Arena, crate::device::Retire>;
 
 impl Device {
     fn alloc(
@@ -375,10 +368,8 @@ impl Device {
         let len = data.len() as u64;
         let fits = |a: &Arena| a.used.next_multiple_of(ALIGN) + len <= a.capacity;
         if !self.staging.current.last().is_some_and(fits) {
-            let reuse = self.staging.free.iter().position(|a| a.capacity >= len);
-            let arena = match reuse {
-                Some(i) => {
-                    let mut a = self.staging.free.swap_remove(i);
+            let arena = match self.staging.take(len) {
+                Some(mut a) => {
                     a.used = 0;
                     a
                 }

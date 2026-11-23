@@ -5,6 +5,7 @@ use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 
 use super::{formats, hr, Device, Garbage, Mapped, BUFFERS_AT};
+use crate::staging::ARENA_BYTES;
 use crate::{
     Address, Buffer, BufferDesc, BufferUsage, Error, Filter, Format, Location, Sampler,
     SamplerDesc, Texture, TextureDesc, TextureUsage,
@@ -53,12 +54,14 @@ pub(crate) struct Arena {
     pub used: u64,
 }
 
-/// The staging arenas: those being filled, and those free to fill again.
-#[derive(Default)]
-pub(crate) struct Staging {
-    pub current: Vec<Arena>,
-    pub free: Vec<Arena>,
+impl crate::staging::Arena for Arena {
+    fn capacity(&self) -> u64 {
+        self.capacity
+    }
 }
+
+/// The staging arenas, and when the work that reads each is finished.
+pub(crate) type Staging = crate::staging::Staging<Arena, super::Retire>;
 
 /// One staged copy, waiting for the next recording.
 pub(crate) enum Pending {
@@ -97,9 +100,6 @@ impl Pending {
         matches!(self, Self::Texture { dst, .. } if *dst == t)
     }
 }
-
-/// The smallest staging arena.
-const ARENA_BYTES: u64 = 8 << 20;
 
 /// The heap a buffer's memory is in.
 fn heap(location: Location) -> D3D12_HEAP_PROPERTIES {
@@ -372,14 +372,8 @@ impl Device {
     pub(crate) fn reserve(&mut self, len: u64, align: u64) -> Result<(ID3D12Resource, u64), Error> {
         let fits = |a: &Arena| a.used.next_multiple_of(align) + len <= a.capacity;
         if !self.staging.current.last().is_some_and(fits) {
-            let reuse = self
-                .staging
-                .free
-                .iter()
-                .position(|a| a.capacity >= len + align);
-            let arena = match reuse {
-                Some(i) => {
-                    let mut a = self.staging.free.swap_remove(i);
+            let arena = match self.staging.take(len + align) {
+                Some(mut a) => {
                     a.used = 0;
                     a
                 }

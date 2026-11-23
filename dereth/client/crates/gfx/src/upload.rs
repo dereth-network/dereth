@@ -186,11 +186,8 @@ impl Device {
             .image_memory_barriers(&to_read);
         // SAFETY: as above.
         unsafe { self.device.cmd_pipeline_barrier2(cmd, &dep) };
-        // The arenas the copies read go back to the free list once this recording is done.
-        let arenas = std::mem::take(&mut self.staging.current);
-        for a in arenas {
-            self.garbage.push((at, crate::device::Garbage::Staging(a)));
-        }
+        // The arenas the copies read are taken back once this recording is done.
+        self.staging.recorded(at);
     }
 }
 

@@ -53,6 +53,7 @@ mod query;
 mod recorder;
 mod resource;
 pub mod rt;
+mod staging;
 mod types;
 mod upload;
 

@@ -456,10 +456,8 @@ impl Device {
             ));
         }
         put(list, &ready);
-        let arenas = std::mem::take(&mut self.staging.current);
-        for a in arenas {
-            self.garbage.push((at, Garbage::Staging(a)));
-        }
+        // The arenas the copies read are taken back once this recording is done.
+        self.staging.recorded(at);
     }
 }
 
