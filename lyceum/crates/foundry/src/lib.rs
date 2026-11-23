@@ -2,6 +2,7 @@
 //! into a copy of a player's data files, and packs pictures into Dereth's client layer.
 //!
 //! **Depends on** `dereth-pack` (the pack format it shares with the other world builders),
+//! `dereth-ac2-convert` (AC2's dungeon kits, made from a player's Asheron's Call 2 install),
 //! `dereth-dat` (the containers, the overlay and its writer), `dereth-builder` (the trees a new
 //! model or room needs), `dereth-assets` (every
 //! record's decoder and the world builder's encoders), `dereth-terrain` (the ground under a static
@@ -51,6 +52,7 @@
 //! Lyceum's vocabulary for it, and [`world`], [`lock`], [`symbol`], [`format`](mod@format), [`conflict`] and
 //! [`error`] are that format in Lyceum's words.
 
+pub mod ac2_kit;
 pub mod bake;
 pub mod brush;
 pub use dereth_builder::bsp;

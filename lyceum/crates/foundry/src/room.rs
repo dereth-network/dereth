@@ -10,7 +10,9 @@
 //! **Fit.** A room fits where its space is its own: no other room's ([`Solid::overlaps`]), and,
 //! in a landblock with land, not across its ground ([`Solid::crosses_ground`]). Rooms are compared by points
 //! sampled inside each, a little in from its walls, against the other's walls, so two rooms that
-//! meet at a doorway or share a wall fit, and two that share space do not.
+//! meet at a doorway or share a wall fit, and two that share space do not. A piece that reaches a
+//! little past its doorways (some of AC2's kit pieces, [`Shape::reaching`]) is compared that much
+//! further in; every other piece, and every one of the world's own, reaches none.
 
 use std::collections::BTreeMap;
 
@@ -33,7 +35,7 @@ const MOST_SAMPLES: f32 = 3000.0;
 const SIDE: f32 = 192.0;
 
 /// One room's space, placed: its walls' planes in its own space (each facing in), its frame, its
-/// extent in landblock meters, and points inside it there.
+/// extent in landblock meters, points inside it there, and its [`Shape::reaching`].
 #[derive(Clone, Debug)]
 pub struct Solid {
     frame: Frame,
@@ -41,6 +43,7 @@ pub struct Solid {
     pub lo: Vec3,
     pub hi: Vec3,
     pub samples: Vec<Vec3>,
+    reach: f32,
 }
 
 /// A piece's space in its own frame, sampled once: placed again at any frame by [`Self::placed`].
@@ -49,6 +52,7 @@ pub struct Shape {
     planes: Vec<(Vec3, f32)>,
     corners: Vec<Vec3>,
     samples: Vec<Vec3>,
+    reach: f32,
 }
 
 impl Shape {
@@ -108,7 +112,23 @@ impl Shape {
             planes,
             corners,
             samples,
+            reach: 0.0,
         })
+    }
+
+    /// This space, for a piece that reaches `reach` meters past its doorways (as some AC2 kit
+    /// pieces do, a little into the piece joined there): another space shares space with it only
+    /// deeper in than that ([`Solid::overlaps`]). Every other space reaches none.
+    #[must_use]
+    pub fn reaching(mut self, reach: f32) -> Self {
+        self.reach = reach;
+        self
+    }
+
+    /// How far past its doorways it reaches ([`Self::reaching`]), in meters.
+    #[must_use]
+    pub fn reach(&self) -> f32 {
+        self.reach
     }
 
     /// This space placed at `frame` (landblock meters).
@@ -133,6 +153,7 @@ impl Shape {
                 .iter()
                 .map(|s| localtoglobal(frame, *s))
                 .collect(),
+            reach: self.reach,
         }
     }
 }
@@ -147,11 +168,18 @@ impl Solid {
     /// Whether point `p` (landblock meters) is in this space, a [`MARGIN`] in from its walls.
     #[must_use]
     pub fn holds(&self, p: Vec3) -> bool {
-        let q = globaltolocal(&self.frame, p);
-        self.planes.iter().all(|(n, d)| n.dot(q) + d >= MARGIN)
+        self.holds_in(p, MARGIN)
     }
 
-    /// Whether this space and `other` share space: a point of either inside the other.
+    /// Whether point `p` is in this space, `margin` in from its walls.
+    fn holds_in(&self, p: Vec3, margin: f32) -> bool {
+        let q = globaltolocal(&self.frame, p);
+        self.planes.iter().all(|(n, d)| n.dot(q) + d >= margin)
+    }
+
+    /// Whether this space and `other` share space: a point of either inside the other, a
+    /// [`MARGIN`] in, or as much further as the farther-reaching of the two reaches
+    /// ([`Shape::reaching`]).
     #[must_use]
     pub fn overlaps(&self, other: &Self) -> bool {
         let apart = self.hi.x < other.lo.x
@@ -160,9 +188,10 @@ impl Solid {
             || other.hi.y < self.lo.y
             || self.hi.z < other.lo.z
             || other.hi.z < self.lo.z;
+        let margin = MARGIN + self.reach.max(other.reach);
         !apart
-            && (self.samples.iter().any(|p| other.holds(*p))
-                || other.samples.iter().any(|p| self.holds(*p)))
+            && (self.samples.iter().any(|p| other.holds_in(*p, margin))
+                || other.samples.iter().any(|p| self.holds_in(*p, margin)))
     }
 
     /// Whether this space crosses the ground of a landblock with land, `ground` answering its
@@ -269,6 +298,62 @@ pub fn clashes(
 mod tests {
     //! Behaviour: none (tooling: where a world builder's dungeon has room)
     use super::*;
+
+    /// A box of space from `lo` to `hi` (landblock meters), sampled a meter apart, reaching
+    /// `reach`.
+    fn boxed(lo: Vec3, hi: Vec3, reach: f32) -> Solid {
+        let planes = vec![
+            (Vec3::new(1.0, 0.0, 0.0), -lo.x),
+            (Vec3::new(-1.0, 0.0, 0.0), hi.x),
+            (Vec3::new(0.0, 1.0, 0.0), -lo.y),
+            (Vec3::new(0.0, -1.0, 0.0), hi.y),
+            (Vec3::new(0.0, 0.0, 1.0), -lo.z),
+            (Vec3::new(0.0, 0.0, -1.0), hi.z),
+        ];
+        let mut samples = Vec::new();
+        let steps = |a: f32, b: f32| {
+            // LINT-OK: a few tens of meters.
+            #[allow(clippy::cast_possible_truncation)]
+            let n = (b - a).round() as i32;
+            (0..=n).map(move |k| a + MARGIN + (b - a - 2.0 * MARGIN) * k as f32 / n as f32)
+        };
+        for x in steps(lo.x, hi.x) {
+            for y in steps(lo.y, hi.y) {
+                for z in steps(lo.z, hi.z) {
+                    samples.push(Vec3::new(x, y, z));
+                }
+            }
+        }
+        Solid {
+            frame: Frame::new(Vec3::ZERO, dereth_primitives::Quat::IDENTITY),
+            planes,
+            lo,
+            hi,
+            samples,
+            reach,
+        }
+    }
+
+    #[test]
+    fn a_space_reaching_past_its_doorway_shares_only_that_much_with_the_next() {
+        // Two 20 m halls end to end, the west one reaching `into` meters into the east one.
+        let pair = |into: f32, reach: f32| {
+            let west = boxed(
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(20.0 + into, 10.0, 10.0),
+                reach,
+            );
+            let east = boxed(Vec3::new(20.0, 0.0, 0.0), Vec3::new(40.0, 10.0, 10.0), 0.0);
+            (west.overlaps(&east), east.overlaps(&west))
+        };
+        // Spaces that reach none, as every one of the world's own: 0.84 m shared is a clash, as
+        // it always was, and meeting at the wall is not.
+        assert_eq!(pair(0.84, 0.0), (true, true));
+        assert_eq!(pair(0.0, 0.0), (false, false));
+        // Reaching 0.84 m: that much shared fits, from either side; more does not.
+        assert_eq!(pair(0.84, 0.84), (false, false));
+        assert_eq!(pair(2.0, 0.84), (true, true));
+    }
 
     fn block(heights: u8) -> CellLandblock {
         CellLandblock {

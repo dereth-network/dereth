@@ -1515,6 +1515,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
+name = "dereth-ac2-convert"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-world",
+ "dereth-assets",
+ "dereth-builder",
+ "dereth-dat",
+ "dereth-primitives",
+ "dereth-render-cpu",
+]
+
+[[package]]
 name = "dereth-animation"
 version = "0.0.0"
 dependencies = [
@@ -1537,6 +1552,7 @@ dependencies = [
  "auberean-primitives",
  "auberean-text",
  "auberean-world",
+ "dereth-ac2-convert",
  "dereth-assets",
  "dereth-builder",
  "dereth-client-runtime",
@@ -4146,6 +4162,7 @@ dependencies = [
 name = "lyceum-foundry"
 version = "0.2.8"
 dependencies = [
+ "dereth-ac2-convert",
  "dereth-assets",
  "dereth-builder",
  "dereth-dat",

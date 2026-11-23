@@ -33,6 +33,7 @@ members = [
     "core/presentation",
     # The device-free half of rendering, which both games' clients draw with.
     "core/render-cpu",
+    "core/ac2-convert",
     "core/client-runtime",
     "core/audio",
     "core/client-sdk",
@@ -255,6 +256,7 @@ publish = false
 
 [workspace.dependencies]
 # Workspace members share versions and explicit per-consumer feature choices.
+dereth-ac2-convert = { path = "core/ac2-convert" }
 dereth-animation = { path = "core/animation" }
 dereth-art-catalog = { path = "core/art-catalog" }
 dereth-assets = { path = "core/assets" }

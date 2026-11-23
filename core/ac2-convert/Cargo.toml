@@ -1,0 +1,32 @@
+[package]
+name = "dereth-ac2-convert"
+description = "Asheron's Call 2's dungeon cells and materials in Asheron's Call's formats: a cell mesh as an environment, a material as a surface and image texture, read from a player's own Asheron's Call 2 files."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Opening an install from its folder (`source::Ac2::open`); without it the host opens the files.
+fs = ["auberean-dat/fs"]
+# Tier switch only: its tests that read a player's own Asheron's Call 2 install run.
+retail-dats = []
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-assets.workspace = true
+auberean-dat.workspace = true
+auberean-world.workspace = true
+dereth-assets.workspace = true
+dereth-builder.workspace = true
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
+dereth-render-cpu.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["fs", "test-support"] }
+
+[lints]
+workspace = true

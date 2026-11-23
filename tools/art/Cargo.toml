@@ -51,6 +51,7 @@ auberean-primitives.workspace = true
 auberean-draw.workspace = true
 # The trees a new model or room needs.
 dereth-builder.workspace = true
+dereth-ac2-convert = { workspace = true, features = ["fs"] }
 # The starting area's ground and water, told as the server's physics tells them on the converted
 # land.
 dereth-physics.workspace = true

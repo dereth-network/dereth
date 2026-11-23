@@ -691,6 +691,7 @@ fn kit_pieces(
             landblocks,
             looks,
             joins: Vec::new(),
+            ac2: None,
         });
     }
     let index: BTreeMap<u32, usize> = out

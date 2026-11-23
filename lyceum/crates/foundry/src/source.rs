@@ -146,6 +146,9 @@ pub struct Pack {
     pub sql: Vec<SqlFile>,
     /// The new records' rows that say where they came from (a landblock's are its edits').
     pub provenance: Rows,
+    /// The AC2 dungeon kits it asks for (`[[ac2-kit]]`), made from the player's AC2 install when
+    /// the world is built ([`crate::ac2_kit`]).
+    pub ac2_kits: Vec<Located<crate::ac2_kit::Kit>>,
 }
 
 impl Pack {
@@ -578,6 +581,14 @@ struct RecordsFile {
     surface_texture: Vec<Spanned<SurfaceTextureRow>>,
     #[serde(default)]
     surface: Vec<Spanned<SurfaceRow>>,
+    #[serde(default, rename = "ac2-kit")]
+    ac2_kit: Vec<Spanned<Ac2KitRow>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ac2KitRow {
+    kit: String,
 }
 
 #[derive(Deserialize)]
@@ -969,11 +980,25 @@ fn read_records(
     pack: &Pack,
     path: &Path,
     rows: &mut Rows,
+    kits: &mut Vec<Located<crate::ac2_kit::Kit>>,
 ) -> Result<Vec<Located<NewRecord>>, Error> {
     let text = read_text(path)?;
     let file: RecordsFile = parse_toml(path, &text)?;
     let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
     let loc = |start: usize| Loc::at(path, &text, start);
+    for row in &file.ac2_kit {
+        let at = loc(row.span().start);
+        let name = &row.get_ref().kit;
+        let item = crate::ac2_kit::Kit::parse(name).ok_or_else(|| {
+            Error::source(
+                &at,
+                format!(
+                    "{name:?} is not an AC2 kit; the kits are basic, fancy, tomb, mine and castle"
+                ),
+            )
+        })?;
+        kits.push(Located { at, item });
+    }
     for row in &file.piece {
         let at = loc(row.span().start);
         rows.note(&at, row.get_ref().prov.as_ref());
@@ -1918,10 +1943,13 @@ pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
         edits: Vec::new(),
         sql: Vec::new(),
         provenance: Rows::default(),
+        ac2_kits: Vec::new(),
     };
     for path in files_in(&dir.join("records"), "toml")? {
         let mut rows = Rows::default();
-        let records = read_records(&pack, &path, &mut rows)?;
+        let mut kits = Vec::new();
+        let records = read_records(&pack, &path, &mut rows, &mut kits)?;
+        pack.ac2_kits.extend(kits);
         pack.provenance.extend(rows);
         pack.records.extend(records);
     }

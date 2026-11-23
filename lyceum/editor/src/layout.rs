@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dereth_primitives::frame::localtoglobal;
 use dereth_primitives::{DataId, Frame, Vec3};
 use lyceum_foundry::edit::Op;
-use lyceum_foundry::grid::{self, PiecePlacement, PITCH};
+use lyceum_foundry::grid::{self, PiecePlacement};
 use lyceum_foundry::kit::{Kind, Placed};
 use lyceum_foundry::room::{sea_floor, Shape as Space, Solid};
 use lyceum_foundry::source::{Link, Rotation};
@@ -67,10 +67,11 @@ impl Lids {
     }
 }
 
-/// How floor `z` is called, counted from the arrival's at `arrival`: `0`, `+1`, `−1`.
+/// How floor `z` is called, counted from the arrival's at `arrival`, floors `rise` apart: `0`,
+/// `+1`, `−1`.
 #[must_use]
-pub fn floor_number(z: f32, arrival: f32) -> i32 {
-    dereth_primitives::num::floor_to_i32((z - arrival) / grid::RISE + 0.5)
+pub fn floor_number(z: f32, arrival: f32, rise: f32) -> i32 {
+    dereth_primitives::num::floor_to_i32((z - arrival) / rise + 0.5)
 }
 
 /// Floor number `n` as the selector shows it, signed but for the arrival's.
@@ -83,14 +84,25 @@ pub fn floor_label(n: i32) -> String {
     }
 }
 
-/// A part from above, in its own frame: its floors and its outline as polygons, its doorways as
-/// the two ends of each, its height from its lowest point to its highest.
+/// A part from above, in its own frame: its floors as polygons, its doorways as the two ends of
+/// each, its height from its lowest point to its highest; and for a part drawn by what it covers
+/// (an AC2 piece's, whose floors and roofs are many triangles), the cells it lies over.
 #[derive(Clone, Debug, Default)]
 pub struct PiecePlan {
     pub floors: Vec<Vec<Vec3>>,
     pub doorways: Vec<(Vec3, Vec3)>,
     pub low: f32,
     pub high: f32,
+    pub cover: Option<Cover>,
+}
+
+/// What a part lies over, from above, on a grid of [`COVER_CELL`] meter cells in its own frame,
+/// at its lowest height: each cell's middle, and the cells as runs along the grid's rows, each run
+/// by its four corners.
+#[derive(Clone, Debug, Default)]
+pub struct Cover {
+    pub cells: Vec<Vec3>,
+    pub runs: Vec<[Vec3; 4]>,
 }
 
 impl PiecePlan {
@@ -160,8 +172,156 @@ impl PiecePlan {
             doorways,
             low,
             high,
+            cover: None,
         })
     }
+
+    /// This plan drawn by what it covers: the cells under any of part `piece` of `env`'s
+    /// polygons (but its doorways), from above.
+    #[must_use]
+    pub fn covering(mut self, env: &dereth_assets::Environment, piece: u16) -> Self {
+        let Some(cs) = env.cells.get(usize::from(piece)) else {
+            return self;
+        };
+        let portals: BTreeSet<u16> = cs.portals.iter().copied().collect();
+        let polys: Vec<Vec<(f32, f32)>> = cs
+            .polygons
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !u16::try_from(*i).is_ok_and(|i| portals.contains(&i)))
+            .map(|(_, p)| {
+                p.vertex_ids
+                    .iter()
+                    .filter_map(|k| cs.vertex_array.vertices.get(usize::from(*k)))
+                    .map(|v| (v.position.x, v.position.y))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|p| p.len() >= 3)
+            .collect();
+        let covered = cover_cells(&polys, COVER_CELL);
+        let z = self.low;
+        #[allow(clippy::cast_precision_loss)]
+        let at = |i: i32, j: i32| Vec3::new(i as f32 * COVER_CELL, j as f32 * COVER_CELL, z);
+        let half = COVER_CELL / 2.0;
+        let cells = covered
+            .iter()
+            .map(|&(i, j)| {
+                let c = at(i, j);
+                Vec3::new(c.x + half, c.y + half, z)
+            })
+            .collect();
+        let mut rows: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
+        for &(i, j) in &covered {
+            rows.entry(j).or_default().push(i);
+        }
+        let mut runs = Vec::new();
+        for (j, row) in rows {
+            let mut k = 0;
+            while k < row.len() {
+                let start = row[k];
+                while k + 1 < row.len() && row[k + 1] == row[k] + 1 {
+                    k += 1;
+                }
+                let end = row[k] + 1;
+                runs.push([at(start, j), at(end, j), at(end, j + 1), at(start, j + 1)]);
+                k += 1;
+            }
+        }
+        self.cover = Some(Cover { cells, runs });
+        self
+    }
+}
+
+/// The side of the cells a part's cover is found on, in its own frame, in meters
+/// ([`PiecePlan::covering`]).
+pub const COVER_CELL: f32 = 0.125;
+
+/// The side of the cells the rooms of the floor shown are traced round on, in meters ([`trace`]).
+pub const TRACE_CELL: f32 = 0.25;
+
+/// The cells of a grid of `side` meter cells whose middles any of polygons `polys` (from above)
+/// covers, by column and row.
+#[must_use]
+pub fn cover_cells(polys: &[Vec<(f32, f32)>], side: f32) -> BTreeSet<(i32, i32)> {
+    let cell = |v: f32| dereth_primitives::num::floor_to_i32(v / side);
+    let mut covered = BTreeSet::new();
+    for pts in polys {
+        let (x0, x1) = pts
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.0), b.max(p.0)));
+        let (y0, y1) = pts
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
+        for j in cell(y0)..=cell(y1) {
+            for i in cell(x0)..=cell(x1) {
+                #[allow(clippy::cast_precision_loss)]
+                let m = ((i as f32 + 0.5) * side, (j as f32 + 0.5) * side);
+                if !covered.contains(&(i, j)) && inside(pts, m) {
+                    covered.insert((i, j));
+                }
+            }
+        }
+    }
+    covered
+}
+
+/// The edge round `cells` (by column and row, of `side` meter cells) at height `z`: the runs along
+/// the grid's lines with one of the cells on one side and none on the other.
+#[must_use]
+pub fn trace(cells: &BTreeSet<(i32, i32)>, side: f32, z: f32) -> Vec<(Vec3, Vec3)> {
+    let (Some(i0), Some(i1)) = (
+        cells.iter().map(|c| c.0).min(),
+        cells.iter().map(|c| c.0).max(),
+    ) else {
+        return Vec::new();
+    };
+    let (j0, j1) = (
+        cells.iter().map(|c| c.1).min().unwrap_or(0),
+        cells.iter().map(|c| c.1).max().unwrap_or(0),
+    );
+    let has = |i: i32, j: i32| cells.contains(&(i, j));
+    #[allow(clippy::cast_precision_loss)]
+    let corner = |i: i32, j: i32| Vec3::new(i as f32 * side, j as f32 * side, z);
+    let mut out = Vec::new();
+    // Along one line of the grid: the runs of its edges with the same side covered.
+    let mut along =
+        |edge: &dyn Fn(i32) -> Option<bool>, lo: i32, hi: i32, at: &dyn Fn(i32) -> Vec3| {
+            let mut run: Option<(i32, bool)> = None;
+            for k in lo..=hi + 1 {
+                let e = if k <= hi { edge(k) } else { None };
+                match run {
+                    Some((start, s)) if e != Some(s) => {
+                        out.push((at(start), at(k)));
+                        run = e.map(|s| (k, s));
+                    }
+                    None => run = e.map(|s| (k, s)),
+                    _ => {}
+                }
+            }
+        };
+    for j in j0..=j1 + 1 {
+        along(
+            &|i| {
+                let below = has(i, j - 1);
+                (below != has(i, j)).then_some(below)
+            },
+            i0,
+            i1,
+            &|i| corner(i, j),
+        );
+    }
+    for i in i0..=i1 + 1 {
+        along(
+            &|j| {
+                let left = has(i - 1, j);
+                (left != has(i, j)).then_some(left)
+            },
+            j0,
+            j1,
+            &|j| corner(i, j),
+        );
+    }
+    out
 }
 
 /// A kit piece where it would go: the piece, its frame and its parts' links, and why it does not
@@ -458,13 +618,13 @@ pub fn on_own_floor(f: &Free, floors: &[f32], shown: f32) -> bool {
     }
 }
 
-/// Whether a piece standing on floor `floor` may join free doorway `f`: one on that floor, the
-/// open top of a room under it, or the open floor of a room over it.
+/// Whether a piece standing on floor `floor` (of floors `rise` apart) may join free doorway `f`:
+/// one on that floor, the open top of a room under it, or the open floor of a room over it.
 #[must_use]
-pub fn opens_on(f: &Free, floor: f32) -> bool {
+pub fn opens_on(f: &Free, floor: f32, rise: f32) -> bool {
     let s = sill(f);
     if f.opening.out.z < -0.5 {
-        s > floor + SILL && s <= floor + grid::RISE + SILL
+        s > floor + SILL && s <= floor + rise + SILL
     } else {
         (s - floor).abs() <= SILL
     }
@@ -482,10 +642,19 @@ impl EditorApp {
         if let Some(p) = self.layout.plans.get(&(env.raw(), piece)) {
             return p.clone();
         }
+        // An AC2 piece is drawn by what it covers: its floors are many triangles.
+        let ac2 = self
+            .session
+            .ac2_pieces()
+            .iter()
+            .any(|p| p.environment == env);
         let plan = self
             .session
             .environment(env)
-            .and_then(|e| PiecePlan::of(&e, piece))
+            .and_then(|e| {
+                let p = PiecePlan::of(&e, piece)?;
+                Some(if ac2 { p.covering(&e, piece) } else { p })
+            })
             .map(std::rc::Rc::new);
         self.layout.plans.insert((env.raw(), piece), plan.clone());
         plan
@@ -496,10 +665,8 @@ impl EditorApp {
         if let Some(s) = self.layout.spaces.get(&(env.raw(), piece)) {
             return s.clone();
         }
-        let space = self
-            .session
-            .environment(env)
-            .and_then(|e| Space::of(&e, piece));
+        // A piece of an AC2 kit reaching past its doorways is fitted so.
+        let space = self.session.ac2_shape(env, piece);
         self.layout.spaces.insert((env.raw(), piece), space.clone());
         space
     }
@@ -669,24 +836,27 @@ impl EditorApp {
     pub fn plan_floors(&mut self, lb: u16) -> (Vec<f32>, f32) {
         let cells = self.cells_of(lb);
         let lids = self.lids(lb).cells();
-        let rooms: Vec<f32> = cells
+        // Each room's floor, and how far apart its kit's floors stand.
+        let rooms: Vec<(f32, f32)> = cells
             .iter()
             .filter(|(n, c)| {
                 !lids.contains(n) && c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0
             })
             .filter_map(|(_, c)| {
-                self.piece_plan(c.environment, c.cell_struct)
-                    .map(|p| c.frame.origin.z + p.low)
+                let low = c.frame.origin.z + self.piece_plan(c.environment, c.cell_struct)?.low;
+                Some((low, self.rise_of(lb, c.environment)))
             })
             .collect();
         let arrival = self.arrival_floor(lb);
-        let mut lows = rooms.clone();
+        let mut lows: Vec<f32> = rooms.iter().map(|(z, _)| *z).collect();
         lows.extend(self.open_ways(lb, &[]).iter().map(sill));
-        let built = floors_of(rooms);
-        if let (Some(lo), Some(hi)) = (built.first(), built.last()) {
-            lows.push(hi + grid::RISE);
-            if lo - grid::RISE >= DEEPEST {
-                lows.push(lo - grid::RISE);
+        // A floor more over the highest room and under the lowest, a step of its own kit's.
+        let top = rooms.iter().copied().max_by(|a, b| a.0.total_cmp(&b.0));
+        let bottom = rooms.iter().copied().min_by(|a, b| a.0.total_cmp(&b.0));
+        if let (Some((lo, lo_rise)), Some((hi, hi_rise))) = (bottom, top) {
+            lows.push(hi + hi_rise);
+            if lo - lo_rise >= DEEPEST {
+                lows.push(lo - lo_rise);
             }
         }
         if lows.is_empty() {
@@ -715,10 +885,31 @@ impl EditorApp {
         self.layout.floor = Some((f, own));
     }
 
+    /// How far apart the floors of the kit of environment `env` stand in dungeon `lb`, in meters:
+    /// its AC2 kit's, else the dungeon's.
+    fn rise_of(&self, lb: u16, env: DataId) -> f32 {
+        self.session
+            .ac2_pieces()
+            .iter()
+            .find(|p| p.environment == env)
+            .map_or_else(|| self.session.floor_rise(lb), |p| p.kit.rise())
+    }
+
     /// The selector's name of floor `z` of dungeon `lb`: its number from the floor players arrive
-    /// on, and its height.
+    /// on (in an AC2 dungeon, whose kits' floors stand apart by their own steps, by how many
+    /// floors lie between), and its height.
     pub fn floor_name(&mut self, lb: u16, z: f32) -> String {
-        let n = floor_number(z, self.arrival_floor(lb));
+        let arrival = self.arrival_floor(lb);
+        let n = if self.session.ac2_kit_in(lb).is_some() {
+            let floors = self.layout.floors.clone();
+            let at = |f: f32| floors.iter().position(|g| (g - f).abs() <= FLOOR_BAND);
+            match (at(z), at(arrival)) {
+                (Some(i), Some(a)) => i32::try_from(i).unwrap_or(0) - i32::try_from(a).unwrap_or(0),
+                _ => floor_number(z, arrival, self.session.floor_rise(lb)),
+            }
+        } else {
+            floor_number(z, arrival, self.session.floor_rise(lb))
+        };
         self.say_with(
             "layout.floor_n",
             &[("n", &floor_label(n)), ("z", &format!("{z:.1}"))],
@@ -801,10 +992,11 @@ impl EditorApp {
             return Vec::new();
         };
         let (rooms, doorways, land) = self.grid_world(lb);
+        let rise = self.session.floor_rise(lb);
         let among: Vec<usize> = doorways
             .iter()
             .enumerate()
-            .filter(|(_, d)| opens_on(d, floor))
+            .filter(|(_, d)| opens_on(d, floor, rise))
             .map(|(k, _)| k)
             .collect();
         let session = &self.session;
@@ -813,20 +1005,48 @@ impl EditorApp {
             rooms: &rooms,
             doorways: &doorways,
             ground: land.then_some(&ground as &dyn Fn(f32, f32) -> Option<f32>),
+            pitch: self.session.grid_pitch(lb),
         };
-        grid::piece_placements(&piece.form, &spaces, &dungeon, &among)
+        self.session.ac2_offered(
+            lb,
+            piece.environment,
+            &doorways,
+            grid::piece_placements(&piece.form, &spaces, &dungeon, &among),
+        )
+    }
+
+    /// The side of the squares dungeon `lb`'s grid is drawn and picked on, in meters: its AC2
+    /// kit's; before its first room, the chosen piece's kit's; else the world's.
+    #[must_use]
+    pub fn plan_pitch(&self, lb: u16) -> f32 {
+        if !self.cells_of(lb).is_empty() {
+            return self.session.grid_pitch(lb);
+        }
+        self.kit
+            .chosen
+            .and_then(|i| {
+                self.kit
+                    .pieces
+                    .as_ref()?
+                    .get(i)?
+                    .ac2
+                    .as_ref()
+                    .map(|a| a.pitch())
+            })
+            .unwrap_or(grid::PITCH)
     }
 
     /// Where the chosen piece would go with the pointer over square `s` on the floor shown: the
     /// placement there R has chosen, or for a dungeon's first room the piece standing on it.
     pub fn ghost_at(&mut self, lb: u16, s: (i32, i32)) -> Option<Ghost> {
+        let pitch = self.plan_pitch(lb);
         let i = self.kit.chosen?;
         let piece = self.kit.pieces.as_ref()?.get(i)?.clone();
         let (_, floor) = self.plan_floors(lb);
         let (rooms, _, _) = self.grid_world(lb);
         if rooms.is_empty() {
             // The first room: on the square, its floor on the floor shown.
-            let frame = grid::square_frame(s, floor - piece.form.lo.z, self.layout.turn);
+            let frame = first_frame(&piece, s, pitch, floor - piece.form.lo.z, self.layout.turn);
             let misfit = if self.layout.moving.is_some() {
                 None
             } else {
@@ -848,13 +1068,13 @@ impl EditorApp {
         let here: Vec<&PiecePlacement> = marks
             .iter()
             .filter(|p| {
-                p.square().map(|(q, _)| q) == Some(s)
+                p.square_at(pitch).map(|(q, _)| q) == Some(s)
                     || (p.square().is_none()
-                        && grid::square_of(p.frame.origin.x, p.frame.origin.y) == s)
+                        && grid::square_of_at(p.frame.origin.x, p.frame.origin.y, pitch) == s)
             })
             .collect();
         if here.is_empty() {
-            let frame = grid::square_frame(s, floor - piece.form.lo.z, self.layout.turn);
+            let frame = grid::square_frame_at(s, pitch, floor - piece.form.lo.z, self.layout.turn);
             return Some(Ghost {
                 piece: i,
                 frame,
@@ -1047,6 +1267,8 @@ impl EditorApp {
             return;
         };
         let t = self.text.table();
+        let rise = self.session.floor_rise(lb);
+        let pitch = self.plan_pitch(lb);
         let (floors, shown) = self.plan_floors(lb);
         let at = floors
             .iter()
@@ -1144,20 +1366,20 @@ impl EditorApp {
             let grid_line = egui::Stroke::new(1.0, egui::Color32::from_gray(38));
             let (wx0, wy1) = to_world(outer.min);
             let (wx1, wy0) = to_world(outer.max);
-            if zoom * PITCH >= 4.0 {
+            if zoom * pitch >= 4.0 {
                 #[allow(clippy::cast_possible_truncation)]
-                for gx in ((wx0 / PITCH).floor() as i32)..=((wx1 / PITCH).ceil() as i32) {
+                for gx in ((wx0 / pitch).floor() as i32)..=((wx1 / pitch).ceil() as i32) {
                     #[allow(clippy::cast_precision_loss)]
-                    let x = to_screen(Vec3::new((gx as f32 + 0.5) * PITCH, 0.0, 0.0)).x;
+                    let x = to_screen(Vec3::new((gx as f32 + 0.5) * pitch, 0.0, 0.0)).x;
                     shapes.push(egui::Shape::line_segment(
                         [egui::pos2(x, outer.min.y), egui::pos2(x, outer.max.y)],
                         grid_line,
                     ));
                 }
                 #[allow(clippy::cast_possible_truncation)]
-                for gy in ((wy0 / PITCH).floor() as i32)..=((wy1 / PITCH).ceil() as i32) {
+                for gy in ((wy0 / pitch).floor() as i32)..=((wy1 / pitch).ceil() as i32) {
                     #[allow(clippy::cast_precision_loss)]
-                    let y = to_screen(Vec3::new(0.0, (gy as f32 + 0.5) * PITCH, 0.0)).y;
+                    let y = to_screen(Vec3::new(0.0, (gy as f32 + 0.5) * pitch, 0.0)).y;
                     shapes.push(egui::Shape::line_segment(
                         [egui::pos2(outer.min.x, y), egui::pos2(outer.max.x, y)],
                         grid_line,
@@ -1165,8 +1387,10 @@ impl EditorApp {
                 }
             }
             // The rooms: the floor shown solid, those under it dim, those over it faded out; the
-            // selected room's whole piece lit.
+            // selected room's whole piece lit. Those drawn by what they cover on the floor shown
+            // are traced round together, so that a room of tiles reads as one.
             let mut joined: Vec<(Vec3, Vec3)> = Vec::new();
+            let mut traced: BTreeSet<(i32, i32)> = BTreeSet::new();
             for (n, c) in cells.iter() {
                 if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 || lids.contains(n)
                 {
@@ -1211,11 +1435,28 @@ impl EditorApp {
                 if reach.expand(2.0).intersects(outer) {
                     plan_shapes(&mut shapes, &plan, &c.frame, &to_screen, fill, line);
                 }
-                if on_floor {
+                if let (true, Some(cover)) = (on_floor, &plan.cover) {
+                    for m in &cover.cells {
+                        let g = localtoglobal(&c.frame, *m);
+                        traced.insert((
+                            dereth_primitives::num::floor_to_i32(g.x / TRACE_CELL),
+                            dereth_primitives::num::floor_to_i32(g.y / TRACE_CELL),
+                        ));
+                    }
+                }
+                // Where rooms join (those traced round together read as one, their open
+                // doorways marked below).
+                if on_floor && plan.cover.is_none() {
                     for (a, b) in &plan.doorways {
                         joined.push((localtoglobal(&c.frame, *a), localtoglobal(&c.frame, *b)));
                     }
                 }
+            }
+            for (a, b) in trace(&traced, TRACE_CELL, shown) {
+                shapes.push(egui::Shape::line_segment(
+                    [to_screen(a), to_screen(b)],
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(170)),
+                ));
             }
             for (a, b) in joined {
                 shapes.push(egui::Shape::line_segment(
@@ -1316,7 +1557,7 @@ impl EditorApp {
                 ));
                 self.layout.marked_ways.push((f.link.clone(), p));
             }
-            if !opens_on(&f, shown) {
+            if !opens_on(&f, shown, rise) {
                 continue;
             }
             let color = if vertical {
@@ -1351,13 +1592,13 @@ impl EditorApp {
         // The square under the pointer, and the square chosen.
         let square = pointer.map(|p| {
             let (x, y) = to_world(p);
-            grid::square_of(x, y)
+            grid::square_of_at(x, y, pitch)
         });
         let square_rect = |s: (i32, i32)| {
-            let (x, y) = grid::square_middle(s);
+            let (x, y) = grid::square_middle_at(s, pitch);
             egui::Rect::from_two_pos(
-                to_screen(Vec3::new(x - PITCH / 2.0, y - PITCH / 2.0, 0.0)),
-                to_screen(Vec3::new(x + PITCH / 2.0, y + PITCH / 2.0, 0.0)),
+                to_screen(Vec3::new(x - pitch / 2.0, y - pitch / 2.0, 0.0)),
+                to_screen(Vec3::new(x + pitch / 2.0, y + pitch / 2.0, 0.0)),
             )
         };
         if let Some(Target::Square(s)) = self.layout.target {
@@ -1374,8 +1615,8 @@ impl EditorApp {
         if let Some(i) = self.kit.chosen {
             let marks = self.piece_marks(lb, i);
             for p in marks.iter() {
-                let s = p.square().map_or_else(
-                    || grid::square_of(p.frame.origin.x, p.frame.origin.y),
+                let s = p.square_at(pitch).map_or_else(
+                    || grid::square_of_at(p.frame.origin.x, p.frame.origin.y, pitch),
                     |(s, _)| s,
                 );
                 painter.rect_filled(
@@ -1708,7 +1949,8 @@ fn wheel(ui: &egui::Ui) -> f32 {
 }
 
 /// The shapes of part `plan` placed at `f` on the grid: each floor polygon filled with `fill` and
-/// outlined with `line`.
+/// outlined with `line`; or, for a part drawn by what it covers, that filled as one (its edge is
+/// traced with the rooms round it, [`trace`]).
 fn plan_shapes(
     shapes: &mut Vec<egui::Shape>,
     plan: &PiecePlan,
@@ -1717,6 +1959,20 @@ fn plan_shapes(
     fill: egui::Color32,
     line: egui::Color32,
 ) {
+    if let Some(cover) = &plan.cover {
+        // One mesh, so that no seam shows where two runs meet.
+        let mut mesh = egui::Mesh::default();
+        for run in &cover.runs {
+            let first = u32::try_from(mesh.vertices.len()).unwrap_or(u32::MAX);
+            for p in run {
+                mesh.colored_vertex(to_screen(localtoglobal(f, *p)), fill);
+            }
+            mesh.add_triangle(first, first + 1, first + 2);
+            mesh.add_triangle(first, first + 2, first + 3);
+        }
+        shapes.push(egui::Shape::mesh(mesh));
+        return;
+    }
     for poly in &plan.floors {
         let pts: Vec<egui::Pos2> = poly
             .iter()
@@ -1744,10 +2000,55 @@ fn inside(poly: &[(f32, f32)], p: (f32, f32)) -> bool {
     odd
 }
 
+/// Kit piece `piece` set as a dungeon's first room over square `s` of a grid of `pitch` meter
+/// squares, at height `z`, turned `turn` quarter turns: on the square of its own kit's grid nearest
+/// that square's middle, so that what is set against it stands on its kit's squares.
+#[must_use]
+pub fn first_frame(
+    piece: &lyceum_foundry::kit::KitPiece,
+    s: (i32, i32),
+    pitch: f32,
+    z: f32,
+    turn: u8,
+) -> Frame {
+    let own = piece.ac2.as_ref().map_or(grid::PITCH, |a| a.pitch());
+    let (x, y) = grid::square_middle_at(s, pitch);
+    grid::square_frame_at(grid::square_of_at(x, y, own), own, z, turn)
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (tooling: a dungeon laid out on its grid)
     use super::*;
+
+    #[test]
+    fn rooms_traced_together_show_their_edge_not_the_triangles_or_tiles_inside() {
+        // A 10 m square tile of two triangles covers the whole square, and nothing outside it.
+        let tile = vec![
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)],
+            vec![(0.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        ];
+        let one = cover_cells(&tile, 0.25);
+        assert_eq!(one.len(), 40 * 40);
+        // Its edge is its four sides: no inner edge where the triangles meet.
+        let sides = trace(&one, 0.25, 0.0);
+        assert_eq!(sides.len(), 4, "{sides:?}");
+        for (a, b) in &sides {
+            let (dx, dy) = (a.x - b.x, a.y - b.y);
+            assert!((dx.abs() + dy.abs() - 10.0).abs() < 1e-3, "{a:?} {b:?}");
+        }
+        // Three such tiles side by side, traced together: one 30 by 10 m shape, its four sides.
+        let row: BTreeSet<(i32, i32)> = (0..3)
+            .flat_map(|t| one.iter().map(move |&(i, j)| (i + 40 * t, j)))
+            .collect();
+        let sides = trace(&row, 0.25, 0.0);
+        assert_eq!(sides.len(), 4, "{sides:?}");
+        let long = sides
+            .iter()
+            .filter(|(a, b)| ((a.x - b.x).abs() - 30.0).abs() < 1e-3)
+            .count();
+        assert_eq!(long, 2, "{sides:?}");
+    }
 
     #[test]
     fn rooms_whose_floors_stand_close_make_one_floor_and_a_room_belongs_to_the_one_under_it() {
@@ -1778,11 +2079,11 @@ mod tests {
 
     #[test]
     fn floors_are_counted_in_six_meter_steps_from_the_arrival_signed_but_for_its_own() {
-        assert_eq!(floor_number(0.0, 0.005), 0);
-        assert_eq!(floor_number(6.0, 0.0), 1);
-        assert_eq!(floor_number(-6.1, 0.0), -1);
-        assert_eq!(floor_number(-24.0, -12.0), -2);
-        assert_eq!(floor_number(2.9, 0.0), 0);
+        assert_eq!(floor_number(0.0, 0.005, grid::RISE), 0);
+        assert_eq!(floor_number(6.0, 0.0, grid::RISE), 1);
+        assert_eq!(floor_number(-6.1, 0.0, grid::RISE), -1);
+        assert_eq!(floor_number(-24.0, -12.0, grid::RISE), -2);
+        assert_eq!(floor_number(2.9, 0.0, grid::RISE), 0);
         assert_eq!(floor_label(0), "0");
         assert_eq!(floor_label(2), "+2");
         assert_eq!(floor_label(-3), "\u{2212}3");
@@ -1814,12 +2115,12 @@ mod tests {
         let top = opening(6.0, true);
         assert!(on_own_floor(&top, &floors, 0.0));
         assert!(!on_own_floor(&top, &floors, 6.0));
-        assert!(opens_on(&top, 6.0) && !opens_on(&top, 0.0));
+        assert!(opens_on(&top, 6.0, grid::RISE) && !opens_on(&top, 0.0, grid::RISE));
         // A room's open floor on floor 0: its own floor 0, built on from floor -1.
         let bottom = opening(0.0, false);
         assert!(on_own_floor(&bottom, &floors, 0.0));
         assert!(!on_own_floor(&bottom, &floors, -6.0));
-        assert!(opens_on(&bottom, -6.0) && !opens_on(&bottom, 0.0));
+        assert!(opens_on(&bottom, -6.0, grid::RISE) && !opens_on(&bottom, 0.0, grid::RISE));
     }
 
     #[test]

@@ -19,6 +19,7 @@ dereth-builder.workspace = true
 # The pack format shared with the other world builders: worlds, pack headers, symbols, the
 # lockfile, format versions and the conflict engine.
 dereth-pack.workspace = true
+dereth-ac2-convert = { workspace = true, features = ["fs"] }
 # The containers, the overlay and its writer.
 dereth-dat.workspace = true
 dereth-primitives.workspace = true

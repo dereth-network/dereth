@@ -128,6 +128,10 @@ pub struct Compiled {
     pub settled: BTreeMap<Part, Settled>,
     /// The world's land grid: its files', or the finer one the world sets ([`crate::land`]).
     pub grid: LandGrid,
+    /// The pieces of the AC2 dungeon kits the packs ask for, made from the player's install.
+    pub ac2_pieces: Vec<crate::ac2_kit::Ac2Piece>,
+    /// Those kits' lights, made from the same install.
+    pub ac2_lights: Vec<crate::ac2_kit::Ac2Light>,
     /// Warnings about the world as a whole, not one landblock: they stand however much of it is
     /// compiled again.
     pub world_warnings: Vec<String>,
@@ -254,6 +258,113 @@ fn read_imports(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Er
             c.imported.insert(t, records.clone());
         }
     }
+    Ok(())
+}
+
+/// New records' ids from the lockfile, for what a maker names them: each kind's new record by its
+/// name as a symbol of pack `pack`, numbered as [`number`] numbers it the first time it is met.
+struct LockIds<'a> {
+    lock: &'a mut Lock,
+    base: &'a DatSet,
+    staged: &'a Records,
+    pack: &'a str,
+    numbered: Vec<(Kind, String, u32)>,
+    failed: Option<Error>,
+}
+
+impl dereth_ac2_convert::records::NewIds for LockIds<'_> {
+    fn next_for(&mut self, kind: u32, name: &str) -> DataId {
+        let kind = match kind {
+            0x0D => Kind::Environment,
+            0x08 => Kind::Surface,
+            0x05 => Kind::SurfaceTexture,
+            0x06 => Kind::RenderSurface,
+            0x01 => Kind::GfxObj,
+            0x02 => Kind::Setup,
+            _ => {
+                self.failed
+                    .get_or_insert_with(|| Error::Refused(format!("no record kind {kind:#04X}")));
+                return DataId(0);
+            }
+        };
+        let symbol = format!("{}:{}", self.pack, crate::ac2_kit::symbol(name));
+        if let Some(id) = self.lock.get(kind, &symbol) {
+            return DataId(id);
+        }
+        let wanted = BTreeSet::from([(kind, symbol)]);
+        match number(self.lock, &wanted, self.base, self.staged, 0) {
+            Ok(mut n) => match n.pop() {
+                Some(row) => {
+                    let id = row.2;
+                    self.numbered.push(row);
+                    DataId(id)
+                }
+                None => DataId(0),
+            },
+            Err(e) => {
+                self.failed.get_or_insert(e);
+                DataId(0)
+            }
+        }
+    }
+}
+
+/// The AC2 dungeon kits the packs ask for, made from `ac2` into `c`: their records, numbered in
+/// the lockfile under the first pack that asks for one, and their pieces.
+pub(crate) fn ac2_kits(
+    packs: &[Pack],
+    base: &DatSet,
+    ac2: Option<&dereth_ac2_convert::source::Ac2>,
+    c: &mut Compiled,
+) -> Result<(), Error> {
+    let kits: BTreeSet<crate::ac2_kit::Kit> = packs
+        .iter()
+        .flat_map(|p| p.ac2_kits.iter().map(|k| k.item))
+        .collect();
+    let Some(first) = packs.iter().find(|p| !p.ac2_kits.is_empty()) else {
+        return Ok(());
+    };
+    let Some(ac2) = ac2 else {
+        return Err(Error::source(
+            &first.ac2_kits[0].at,
+            "this world uses AC2's dungeon kit: give the folder of your Asheron's Call 2 install \
+             (--ac2)",
+        ));
+    };
+    let mut lock = c.lock.clone();
+    let mut out = dereth_ac2_convert::records::Records::default();
+    let (pieces, lights, numbered) = {
+        let mut ids = LockIds {
+            lock: &mut lock,
+            base,
+            staged: &c.imported,
+            pack: &first.name,
+            numbered: Vec::new(),
+            failed: None,
+        };
+        let pieces =
+            crate::ac2_kit::make(ac2, &kits, &mut ids, &mut out).map_err(Error::Refused)?;
+        let lights =
+            crate::ac2_kit::make_lights(ac2, &kits, &mut ids, &mut out).map_err(Error::Refused)?;
+        if let Some(e) = ids.failed.take() {
+            return Err(e);
+        }
+        (pieces, lights, ids.numbered)
+    };
+    c.ac2_lights = lights;
+    c.lock = lock;
+    c.numbered.extend(numbered);
+    let records = c.records.entry(ModernDat::Portal).or_default();
+    for (id, bytes) in out.0 {
+        records.insert(
+            id.raw(),
+            Staged {
+                bytes,
+                version: NEW_RECORD_VERSION,
+            },
+        );
+    }
+    c.ac2_pieces = pieces;
     Ok(())
 }
 
@@ -2197,6 +2308,21 @@ pub fn compile(
     base: &DatSet,
     lock: &Lock,
 ) -> Result<Compiled, Error> {
+    compile_with(world, packs, base, lock, None)
+}
+
+/// [`compile`], with the player's Asheron's Call 2 install `ac2` the AC2 dungeon kits the packs
+/// ask for are made from ([`crate::ac2_kit`]).
+///
+/// # Errors
+/// As [`compile`], and a pack that asks for an AC2 kit when there is no install to make it from.
+pub fn compile_with(
+    world: &World,
+    packs: &[Pack],
+    base: &DatSet,
+    lock: &Lock,
+    ac2: Option<&dereth_ac2_convert::source::Ac2>,
+) -> Result<Compiled, Error> {
     for o in &world.overrides {
         for name in [&o.pack, &o.over] {
             if !packs.iter().any(|p| p.name == *name) {
@@ -2231,6 +2357,7 @@ pub fn compile(
     c.lock = lock;
     build_records(packs, &defs, base, &mut c)?;
     c.settled.insert(Part::Records, defs.settled.clone());
+    ac2_kits(packs, base, ac2, &mut c)?;
     edit_landblocks(packs, base, &mut c, None)?;
     fill_sql(packs, &defs.defined, &tokens, &mut c)?;
     // A record that came out as the base holds it is left to the base.
@@ -2493,6 +2620,21 @@ pub fn build(
     out: Option<&Path>,
     check: bool,
 ) -> Result<Built, Error> {
+    build_with(world_path, dats, out, check, None)
+}
+
+/// [`build`], with the player's Asheron's Call 2 install `ac2` the AC2 dungeon kits the packs ask
+/// for are made from ([`crate::ac2_kit`]).
+///
+/// # Errors
+/// As [`build`], and a pack that asks for an AC2 kit with no install given.
+pub fn build_with(
+    world_path: &Path,
+    dats: &Path,
+    out: Option<&Path>,
+    check: bool,
+    ac2: Option<&dereth_ac2_convert::source::Ac2>,
+) -> Result<Built, Error> {
     let world = World::read(world_path)?;
     let packs = world
         .packs
@@ -2511,7 +2653,7 @@ pub fn build(
     let base = DatSet::for_world(dats, world.era)?;
     let lock_path = world.lock_path();
     let lock = Lock::read(&lock_path)?;
-    let c = compile(&world, &packs, &base, &lock)?;
+    let c = compile_with(&world, &packs, &base, &lock, ac2)?;
     let conflicts = c.conflicts();
     if !conflicts.is_empty() {
         return Err(Error::Conflicts(conflicts.into_iter().cloned().collect()));

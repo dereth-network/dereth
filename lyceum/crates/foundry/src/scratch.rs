@@ -76,6 +76,14 @@ impl Scratch {
         Ok((me, written))
     }
 
+    /// Have both folders written whole when next written: the session gained records no edit of a
+    /// landblock reaches (an AC2 kit made, [`Session::add_ac2_kits`]).
+    pub fn invalidate(&mut self) {
+        for f in &mut self.folders {
+            f.written = false;
+        }
+    }
+
     /// The folder the store is to read: the one written last.
     #[must_use]
     pub fn dir(&self) -> &Path {

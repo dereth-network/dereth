@@ -20,7 +20,7 @@ use auberean_world::records::WorldRecords;
 use dereth_assets::world::{CellPortal, ObjectEntry};
 use dereth_assets::EnvCell;
 use dereth_primitives::frame::V3;
-use dereth_primitives::{DataId, EraId, Frame, Quat, Vec3};
+use dereth_primitives::{DataId, Frame, Quat, Vec3};
 
 use crate::ac2_world::art::{Ids, Pictures, Records};
 use crate::ac2_world::rooms;
@@ -76,76 +76,7 @@ pub struct Made {
 
 /// A cell flag: static objects follow.
 const WITH_STATICS: u32 = 2;
-/// An AC1 light's intensity, as the rooms Lyceum builds are lit.
-const LIGHT_INTENSITY: f32 = 100.0;
-
-/// A light and nothing else: a setup of no parts with one point light of `color` (ARGB) reaching
-/// `reach` at its origin.
-fn light_setup(color: u32, reach: f32, ids: &mut Ids, out: &mut Records) -> Result<DataId, String> {
-    use dereth_assets::geometry::{LightInfo, Placement, SetupOrder};
-    use dereth_assets::{Setup, Sphere};
-    let id = ids.next(0x02);
-    let sphere = Sphere {
-        center: Vec3::ZERO,
-        radius: 0.1,
-    };
-    let setup = Setup {
-        id,
-        flags: 0,
-        parts: Vec::new(),
-        parent_index: None,
-        default_scale: None,
-        allow_free_heading: false,
-        has_physics_bsp: false,
-        holding_locations: BTreeMap::new(),
-        connection_points: BTreeMap::new(),
-        placement_frames: BTreeMap::from([(
-            0,
-            Placement {
-                frames: Vec::new(),
-                hooks: Vec::new(),
-            },
-        )]),
-        cylspheres: Vec::new(),
-        spheres: Vec::new(),
-        height: 0.0,
-        radius: 0.0,
-        step_up_height: 0.0,
-        step_down_height: 0.0,
-        sorting_sphere: sphere,
-        selection_sphere: sphere,
-        lights: BTreeMap::from([(
-            0,
-            LightInfo {
-                frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
-                color_argb: color,
-                intensity: LIGHT_INTENSITY,
-                falloff: reach,
-                cone_angle: 0.0,
-            },
-        )]),
-        default_anim_id: DataId(0),
-        default_script_id: DataId(0),
-        default_mtable_id: DataId(0),
-        default_stable_id: DataId(0),
-        default_phstable_id: DataId(0),
-        written_order: SetupOrder::default(),
-    };
-    out.add(
-        id,
-        setup
-            .encode_for(EraId::Eor)
-            .map_err(|e| format!("{id:?}: {e}"))?,
-    );
-    Ok(id)
-}
-
-/// A light's color as AC1 packs it, opaque.
-fn argb(l: &Light) -> u32 {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let c = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
-    0xFF00_0000 | (c(l.color.r) << 16) | (c(l.color.g) << 8) | c(l.color.b)
-}
+use dereth_ac2_convert::light::{argb, light_setup};
 
 /// The dungeon `v` names, its cells made.
 ///

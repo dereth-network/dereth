@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use dereth_primitives::Vec3;
-use lyceum_editor::app::{EditorApp, Fit, Selection, Target};
+use lyceum_editor::app::{EditorApp, Fit, Game, Selection, Target};
 use lyceum_foundry::kit::Kind;
 use lyceum_foundry::source::Link;
 
@@ -1454,4 +1454,167 @@ fn the_landscape_grid_is_never_drawn_in_a_dungeon_and_comes_back_outdoors() {
     );
     assert!(!ed.landscape_grid_shown(), "in a dungeon's room");
     assert!(ed.panels.show_grid);
+}
+
+/// An AC2 piece set on a square of the grid stands on that square of its own kit's grid: a new
+/// dungeon's first room on the square clicked, and the next piece on any square marked for it;
+/// the floor offered over the first room stands a step of its kit's floors higher.
+#[test]
+fn an_ac2_piece_set_on_a_square_stands_on_the_square_clicked_for_each_kit() {
+    let _gpu = gpu_lock();
+    let Some(ac2) = std::env::var_os("AUBEREAN_TEST_DAT_DIR").filter(|v| !v.is_empty()) else {
+        panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
+    };
+    let (_dir, world) = sample("dungeon-ac2-square");
+    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    ed.add_ac2_kits().unwrap();
+    ed.wait_for_pieces();
+    for kit in lyceum_foundry::ac2_kit::Kit::ALL {
+        let pitch = kit.grid().pitch;
+        let hall = if kit.name() == "fancy" {
+            "hall straight"
+        } else {
+            "straight"
+        };
+        let i = ed
+            .kit
+            .pieces
+            .as_ref()
+            .unwrap()
+            .iter()
+            .position(|p| {
+                p.ac2
+                    .as_ref()
+                    .is_some_and(|a| a.kit == kit.name() && a.label == hall)
+            })
+            .unwrap_or_else(|| panic!("{}/{hall}", kit.name()));
+        let lb = ed.new_dungeon(None).unwrap();
+        ed.choose_piece(i).unwrap();
+        assert!((ed.plan_pitch(lb) - pitch).abs() < 1e-3, "{}", kit.name());
+        // The first room, on the square clicked.
+        let s = (4, 4);
+        ed.place_on_square(s).unwrap();
+        assert!(ed.frame());
+        let cells = ed.cells_of(lb);
+        let first = cells.values().next().expect("the first room");
+        let (x, y) = lyceum_foundry::grid::square_middle_at(s, pitch);
+        assert!(
+            (first.frame.origin.x - x).abs() < 0.01 && (first.frame.origin.y - y).abs() < 0.01,
+            "{}: the first room at {:?}, the square's middle ({x}, {y})",
+            kit.name(),
+            first.frame.origin
+        );
+        // The floor offered over it stands a step of its own kit's floors higher.
+        let (floors, _) = ed.plan_floors(lb);
+        assert!(
+            floors
+                .iter()
+                .any(|f| (f - floors[0] - kit.rise()).abs() < 0.05),
+            "{}: floors {floors:?}, a step of {}",
+            kit.name(),
+            kit.rise()
+        );
+        // The next, on a square marked for it.
+        ed.choose_piece(i).unwrap();
+        let marks = ed.piece_marks(lb, i);
+        let s = marks
+            .iter()
+            .find_map(|p| p.square_at(pitch).map(|(q, _)| q))
+            .unwrap_or_else(|| panic!("{}: no mark stands on a square", kit.name()));
+        let before: BTreeSet<u16> = ed.cells_of(lb).keys().copied().collect();
+        ed.place_on_square(s).unwrap();
+        let cells = ed.cells_of(lb);
+        let next = cells
+            .iter()
+            .find(|(n, _)| !before.contains(n))
+            .map(|(_, c)| c)
+            .expect("the next room");
+        let (x, y) = lyceum_foundry::grid::square_middle_at(s, pitch);
+        assert!(
+            (next.frame.origin.x - x).abs() < 0.01 && (next.frame.origin.y - y).abs() < 0.01,
+            "{}: the next room at {:?}, the square's middle ({x}, {y})",
+            kit.name(),
+            next.frame.origin
+        );
+        ed.leave_dungeon();
+    }
+}
+
+/// The pieces the palette offers in dungeon `lb`, every one of the dungeon's game's.
+fn offered(ed: &mut EditorApp) -> Vec<lyceum_foundry::kit::KitPiece> {
+    let pieces = ed.kit.pieces.clone().unwrap();
+    ed.piece_groups(None, true)
+        .into_iter()
+        .flat_map(|(_, list)| list)
+        .map(|i| pieces[i].clone())
+        .collect()
+}
+
+/// A dungeon is AC1's or AC2's, never both: an empty one offers nothing till its game is chosen,
+/// then only that game's pieces; an AC2 dungeon offers only AC2's (at a doorway, every AC2 kit's
+/// that fits, as AC2 joins its kits), and Holtburg Redoubt, AC1's, none of AC2's.
+#[test]
+fn a_dungeon_offers_only_its_own_games_pieces() {
+    let _gpu = gpu_lock();
+    let Some(ac2) = std::env::var_os("AUBEREAN_TEST_DAT_DIR").filter(|v| !v.is_empty()) else {
+        panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
+    };
+    let (_dir, world) = sample("dungeon-games");
+    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    ed.wait_for_pieces();
+    // An empty dungeon: nothing, then AC1's.
+    let lb = ed.new_dungeon(None).unwrap();
+    assert_eq!(ed.dungeon_game(lb), None);
+    assert!(offered(&mut ed).is_empty());
+    ed.choose_dungeon_game(lb, Game::Ac1).unwrap();
+    let ac1 = offered(&mut ed);
+    assert!(!ac1.is_empty() && ac1.iter().all(|p| p.ac2.is_none()));
+    ed.leave_dungeon();
+    // Another: AC2's, the pack's kits added with it, the tomb's offered.
+    let lb = ed.new_dungeon(None).unwrap();
+    ed.choose_dungeon_game(lb, Game::Ac2).unwrap();
+    ed.wait_for_pieces();
+    ed.kit.ac2_kit = Some("tomb");
+    let tomb = offered(&mut ed);
+    assert!(!tomb.is_empty());
+    assert!(
+        tomb.iter()
+            .all(|p| p.ac2.as_ref().is_some_and(|a| a.kit == "tomb")),
+        "only the tomb's"
+    );
+    // A tomb hall set down: AC2's now by its room, and at its doorway every AC2 kit's that fits.
+    let i = ed
+        .kit
+        .pieces
+        .as_ref()
+        .unwrap()
+        .iter()
+        .position(|p| {
+            p.ac2
+                .as_ref()
+                .is_some_and(|a| a.kit == "tomb" && a.label == "straight")
+        })
+        .unwrap();
+    ed.choose_piece(i).unwrap();
+    ed.place_on_square((4, 4)).unwrap();
+    assert!(ed.frame());
+    ed.kit.games.clear();
+    assert_eq!(ed.dungeon_game(lb), Some(Game::Ac2));
+    let free = ed.side_doorways(lb);
+    assert!(!free.is_empty());
+    ed.layout.target = Some(Target::Doorway(free[0].link.clone()));
+    let pieces = ed.kit.pieces.clone().unwrap();
+    let fits = ed.fits(lb);
+    let kits: BTreeSet<&str> = fits
+        .iter()
+        .map(|f| pieces[f.piece].ac2.as_ref().map_or("AC1", |a| a.kit))
+        .collect();
+    assert!(!kits.contains("AC1"), "{kits:?}");
+    assert!(kits.len() > 1, "every AC2 kit's that fits: {kits:?}");
+    ed.leave_dungeon();
+    // Holtburg Redoubt: AC1's, though the pack has AC2's kits.
+    ed.enter_dungeon(REDOUBT).unwrap();
+    assert_eq!(ed.dungeon_game(REDOUBT), Some(Game::Ac1));
+    let redoubt = offered(&mut ed);
+    assert!(!redoubt.is_empty() && redoubt.iter().all(|p| p.ac2.is_none()));
 }

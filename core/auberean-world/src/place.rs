@@ -318,6 +318,14 @@ const CELL_APPEARANCE_TABLE: (u32, u32) = (0x4000_0008, 0x4000_0002);
 // D2-03528, D2-03606, D2-03605, D2-03558
 #[must_use]
 pub fn cell_look(records: &WorldRecords, cell: &Cell) -> Option<PartLook> {
+    let (key, strength) = cell_appearance(cell)?;
+    appearance_look(records, key, strength)
+}
+
+/// The appearance a cell names: its key and the key's strength (0 unless set); `None` when it
+/// names none.
+#[must_use]
+pub fn cell_appearance(cell: &Cell) -> Option<(u32, f32)> {
     let mut key = 0u32;
     let mut strength = 0.0f32;
     let mut applied = None;
@@ -343,7 +351,14 @@ pub fn cell_look(records: &WorldRecords, cell: &Cell) -> Option<PartLook> {
             }
         }
     }
-    let (key, strength) = applied?;
+    applied
+}
+
+/// What appearance key `key` at `strength` does to a cell mesh's materials: the change set it
+/// picks in the cells' appearance table, the material changes alone; `None` when it changes
+/// none.
+#[must_use]
+pub fn appearance_look(records: &WorldRecords, key: u32, strength: f32) -> Option<PartLook> {
     let table = records.data_id_by_enum(CELL_APPEARANCE_TABLE.0, CELL_APPEARANCE_TABLE.1);
     let mut atoms = Atoms::default();
     if !appearance_atoms(records, DataId(table), key, strength, &mut atoms, false) {

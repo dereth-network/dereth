@@ -686,6 +686,10 @@ impl EditorApp {
                     }
                 }
                 ui.end_row();
+                // A dungeon-wide look is AC1's: an AC2 piece wears its own kit's.
+                if self.dungeon_game(lb) != Some(super::dungeon::Game::Ac1) {
+                    return;
+                }
                 ui.label(t.get("dungeon.look"));
                 let shown = self.dungeon_look(lb);
                 let shown_name = shown.map_or_else(
@@ -724,7 +728,9 @@ impl EditorApp {
                 }
                 ui.end_row();
             });
-        if let Some(f) = self.dungeon_look(lb) {
+        if let (Some(super::dungeon::Game::Ac1), Some(f)) =
+            (self.dungeon_game(lb), self.dungeon_look(lb))
+        {
             ui.horizontal_wrapped(|ui| {
                 self.swatches(ui, f, 34.0, 8);
             });

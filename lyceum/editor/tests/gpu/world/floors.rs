@@ -40,7 +40,7 @@ fn rounded(floors: &[f32]) -> Vec<i32> {
 /// The floor shown, by its number from the floor players arrive on.
 fn floor_shown(ed: &mut EditorApp, lb: u16) -> i32 {
     let (_, shown) = ed.plan_floors(lb);
-    floor_number(shown, ed.arrival_floor(lb))
+    floor_number(shown, ed.arrival_floor(lb), ed.session.floor_rise(lb))
 }
 
 /// PageUp (`1`) or PageDown (`-1`) pressed: the floor shown after, by its number.
@@ -285,7 +285,11 @@ pub fn build_three_floors(ed: &mut EditorApp, shots_of: &str) -> ThreeFloors {
             .iter()
             .map(|v| v.position.z)
             .fold(f32::MAX, f32::min);
-        floor_number(cell.frame.origin.z + low, arrival)
+        floor_number(
+            cell.frame.origin.z + low,
+            arrival,
+            lyceum_foundry::grid::RISE,
+        )
     };
     let lids = ed.lids(lb).cells();
     let built: BTreeSet<i32> = cells

@@ -70,7 +70,9 @@ pub use building_drop::{building_name, DropGhost};
 
 #[path = "dungeon.rs"]
 mod dungeon;
-pub use dungeon::{grouped as piece_groups_of, turned, Fit, Free, Kit, Plan, PlanDoor, Target};
+pub use dungeon::{
+    grouped as piece_groups_of, turned, Fit, Free, Game, Kit, Plan, PlanDoor, Target,
+};
 
 #[path = "dungeons.rs"]
 mod dungeons;
@@ -179,6 +181,10 @@ pub use loot_tab::{LootAction, LootTab};
 pub use nearby::{Nearby, NearbyEntry, NearbyKind, NearbySort, REACH as NEARBY_REACH};
 pub use panels::{saved_ago, unsaved_edits};
 pub use quests_tab::{QuestAction, QuestsTab};
+
+/// How far over the point clicked an AC2 kit's light stands in a room, in meters: where a lamp
+/// would hang, not on the floor.
+const AC2_LIGHT_LIFT: f32 = 3.0;
 
 /// The runtime's application with the editor's front end in it.
 pub type CoreApp = dereth_client_runtime::app::App<EditorShell>;
@@ -893,10 +899,16 @@ impl EditorApp {
                 Ok(state) => (state, Some(browser_file), String::new()),
                 Err(e) => (crate::browser_state::BrowserState::default(), None, e),
             };
-        let mut session = Session::open(
+        let ac2 = args
+            .ac2
+            .as_deref()
+            .map(lyceum_foundry::ac2_kit::open)
+            .transpose()?;
+        let mut session = Session::open_with(
             &args.world,
             &world_dats(&cfg, args.world_era()),
             args.pack.as_deref(),
+            ac2,
         )
         .map_err(|e| e.to_string())?;
         let world_files = (session.base().dir.clone(), session.base().era);
@@ -1560,6 +1572,20 @@ impl EditorApp {
     ///
     /// # Errors
     /// An overlay that will not write or open.
+    /// AC2's dungeon kits asked for in the pack being edited and made, the scratch overlay written
+    /// whole with their records, and the kit gathered again with their pieces.
+    ///
+    /// # Errors
+    /// No install given, or a kit that will not make.
+    pub fn add_ac2_kits(&mut self) -> Result<(), String> {
+        if !self.session.add_ac2_kits().map_err(|e| e.to_string())? {
+            return Ok(());
+        }
+        self.scratch.invalidate();
+        self.kit.pieces = None;
+        self.reload(&Touched::default())
+    }
+
     pub fn reload(&mut self, touched: &Touched) -> Result<(), String> {
         self.reload_with(touched, true)
     }
@@ -2200,6 +2226,8 @@ impl EditorApp {
             UiAction::Undo => self.edit(&Edit::Undo).map(|_| ()),
             UiAction::Redo => self.edit(&Edit::Redo).map(|_| ()),
             UiAction::Piece(i) => self.choose_piece(i),
+            UiAction::DungeonGame(lb, game) => self.choose_dungeon_game(lb, game),
+            UiAction::LayAc2Room(east, north) => self.lay_ac2_room(east, north),
             UiAction::ChooseCell(lb, n) => self.choose_cell(lb, n),
             UiAction::PlaceOnSquare(sq) => self.place_on_square(sq),
             UiAction::Target(t) => {
@@ -3652,7 +3680,11 @@ impl EditorApp {
         // its floor or against its wall.
         if let Some((lb, cell, at, facing)) = self.cell_point(p) {
             let door = self.names.category(model) == Category::Door;
-            let (at, heading) = self.snapped(lb, cell, at, facing, door, false);
+            let (mut at, heading) = self.snapped(lb, cell, at, facing, door, false);
+            // An AC2 kit's light stands where a lamp would hang, not on the floor.
+            if self.session.ac2_lights().iter().any(|l| l.setup == model) {
+                at.z += AC2_LIGHT_LIFT;
+            }
             let op = match self.session.cell_names(lb).remove(&cell) {
                 Some(name) => Op::PlaceCellStatic {
                     landblock: lb,
@@ -4574,18 +4606,78 @@ impl EditorApp {
                 .ok_or_else(|| self.say("messages.off_world"))?;
             self.choose_dungeon_look(lb, Some(look))?;
         }
+        if s.add_ac2_kits {
+            self.add_ac2_kits()?;
+        }
+        if let Some(game) = &s.game {
+            let lb = self
+                .dungeon_mode()
+                .ok_or_else(|| self.say("messages.off_world"))?;
+            let game = match game.as_str() {
+                "ac1" => dungeon::Game::Ac1,
+                "ac2" => dungeon::Game::Ac2,
+                other => return Err(format!("{other:?} is not ac1 or ac2")),
+            };
+            self.choose_dungeon_game(lb, game)?;
+        }
+        if let Some((east, north, square)) = s.ac2_room {
+            self.wait_for_pieces();
+            let lb = self
+                .dungeon_mode()
+                .ok_or_else(|| self.say("messages.off_world"))?;
+            if let Some(s) = square {
+                self.layout.target = Some(Target::Square(s));
+                self.lay_ac2_room(east, north)?;
+            } else {
+                // Against the first free doorway that takes it.
+                let mut refused = self.say("messages.no_free_portal");
+                let mut laid = false;
+                for d in self.side_doorways(lb) {
+                    self.layout.target = Some(Target::Doorway(d.link));
+                    match self.lay_ac2_room(east, north) {
+                        Ok(()) => {
+                            laid = true;
+                            break;
+                        }
+                        Err(e) => refused = e,
+                    }
+                }
+                if !laid {
+                    return Err(refused);
+                }
+            }
+        }
+        if let Some(look) = &s.ac2_look {
+            self.wait_for_pieces();
+            let mut known = false;
+            for (kit, names) in self.ac2_kit_looks() {
+                if let Some(n) = names.into_iter().find(|n| n == look) {
+                    self.kit.ac2_looks.insert(kit, n);
+                    known = true;
+                }
+            }
+            if !known {
+                return Err(format!("{look:?} is no AC2 kit's look"));
+            }
+        }
         if let Some(kind) = &s.fit {
             self.fit_kind(kind)?;
         }
         if let Some(label) = &s.piece {
             self.wait_for_pieces();
+            let named = |p: &lyceum_foundry::kit::KitPiece| {
+                p.label() == *label
+                    || p.ac2
+                        .as_ref()
+                        .is_some_and(|a| format!("{}/{}", a.kit, a.label) == *label)
+            };
             let i = self
                 .kit
                 .pieces
                 .as_ref()
-                .and_then(|ps| ps.iter().position(|p| p.label() == *label))
+                .and_then(|ps| ps.iter().position(named))
                 .ok_or_else(|| format!("{label:?} is not a piece"))?;
-            self.kit.chosen = Some(i);
+            self.choose_piece(i)?;
         }
         if let Some(n) = s.extend {
             self.extend(n)?;
@@ -4656,6 +4748,8 @@ impl EditorApp {
                 "undo" => (0x5A, true),
                 "redo" => (0x59, true),
                 "save" => (0x53, true),
+                "floor_up" => (0x21, false),
+                "floor_down" => (0x22, false),
                 other => return Err(format!("{other:?} is not a key a script presses")),
             };
             let key = |vk: usize| dereth_input::keys::Key::new(vk, 0);
@@ -4863,6 +4957,8 @@ enum UiAction {
     MapZoom(f32),
     /// The dungeon kit's piece chosen (its place in the kit).
     Piece(usize),
+    /// An AC2 room of tiles laid, so many squares east and north.
+    LayAc2Room(u8, u8),
     /// The chosen piece set down on a square of the grid; where to build chosen (or let go) for
     /// the palette to offer what fits there, and one of those put in; the ghost turned (or the
     /// next placement at its square).
@@ -4885,6 +4981,8 @@ enum UiAction {
     /// The grid showing a floor, by its height; a floor up or down.
     Floor(f32),
     FloorStep(i32),
+    /// Build an empty dungeon of a game's pieces.
+    DungeonGame(u16, dungeon::Game),
     /// A cell of a landblock selected, and flown into.
     ChooseCell(u16, u16),
     /// The editor's own world started, or stopped; the client started in it, and how.

@@ -38,6 +38,9 @@ const ON_SIDE: f32 = 0.3;
 /// How much higher one doorway's sill stands than another's for a piece to be stairs, in meters.
 pub const RISE: f32 = 1.5;
 
+/// How tall a square that opens on whole sides and up or down must be to be a tile, in meters.
+pub const TILE_HEIGHT: f32 = 9.5;
+
 /// How tall a piece that opens only up or down may be and still be a ceiling, in meters.
 pub const CEILING: f32 = 2.0;
 
@@ -126,6 +129,9 @@ pub enum Kind {
     Shaft,
     /// It opens only up or down and is thin: what closes a room's open top.
     Ceiling,
+    /// One square of a hall built of squares, open on whole sides to the squares beside it and
+    /// up or down to the ones over or under it.
+    Tile,
     /// Its doorways do not stand on the sides of its squares, or it has none.
     Other,
 }
@@ -145,7 +151,13 @@ impl Kind {
             long: *long,
             short: *short,
         }));
-        out.extend([Self::Stairs, Self::Shaft, Self::Ceiling, Self::Other]);
+        out.extend([
+            Self::Tile,
+            Self::Stairs,
+            Self::Shaft,
+            Self::Ceiling,
+            Self::Other,
+        ]);
         out
     }
 
@@ -162,6 +174,7 @@ impl Kind {
             Self::Stairs => "stairs",
             Self::Shaft => "shaft",
             Self::Ceiling => "ceiling",
+            Self::Tile => "tile",
             Self::Other => "other",
         }
     }
@@ -301,10 +314,38 @@ pub fn roles(env: &Environment) -> Vec<Role> {
         .collect()
 }
 
+/// The grid a piece is read on: its squares' side, how tall a square open on whole sides and up
+/// or down must be to be a tile, and whether a piece two squares across with its doorways in the
+/// middles of its sides is a hall (a corridor, a corner, a T or a cross of that size) rather than
+/// a room.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grid {
+    pub pitch: f32,
+    pub tile_height: f32,
+    pub two_square_halls: bool,
+}
+
+impl Grid {
+    /// The world's own dungeons' grid: 10 m squares, tiles a whole square tall, and halls two
+    /// squares across.
+    pub const WORLD: Self = Self {
+        pitch: PITCH,
+        tile_height: TILE_HEIGHT,
+        two_square_halls: true,
+    };
+}
+
 /// Environment `env` as a piece: its parts placed together at its own frame. `None` for one with
 /// no parts.
 #[must_use]
 pub fn form(env: &Environment) -> Option<Form> {
+    form_on(env, &Grid::WORLD)
+}
+
+/// [`form`], read on grid `grid` (an AC2 kit's, [`crate::ac2_kit::Kit::grid`]).
+#[must_use]
+pub fn form_on(env: &Environment, grid: &Grid) -> Option<Form> {
+    let pitch = grid.pitch;
     if env.cells.is_empty() {
         return None;
     }
@@ -345,8 +386,16 @@ pub fn form(env: &Environment) -> Option<Form> {
         return None;
     }
     let side_line = |v: f32| {
-        let r = (v - PITCH / 2.0).rem_euclid(PITCH);
-        r < ON_SIDE || r > PITCH - ON_SIDE
+        let r = (v - pitch / 2.0).rem_euclid(pitch);
+        r < ON_SIDE || r > pitch - ON_SIDE
+    };
+    // A piece two squares across stands with its middle on a corner of the grid's squares: its
+    // sides, and the middles of its doorways on them, are whole squares from its middle.
+    let two = |a: f32, b: f32| ((b - a) / (2.0 * pitch) - 1.0).abs() * pitch < ON_SIDE;
+    let wide = two(lo.x, hi.x) || two(lo.y, hi.y);
+    let corner_line = |v: f32| {
+        let r = v.rem_euclid(pitch);
+        r < ON_SIDE || r > pitch - ON_SIDE
     };
     let mut doors = Vec::new();
     let mut off_grid = false;
@@ -369,7 +418,7 @@ pub fn form(env: &Environment) -> Option<Form> {
                 Side::East | Side::West => o.middle.x,
                 Side::North | Side::South => o.middle.y,
             };
-            off_grid |= !side_line(line);
+            off_grid |= !side_line(line) && !(wide && corner_line(line));
         }
         doors.push(Door {
             part,
@@ -388,11 +437,35 @@ pub fn form(env: &Environment) -> Option<Form> {
     let above = doors.iter().any(|d| d.side.is_none() && d.up);
     let below = doors.iter().any(|d| d.side.is_none() && !d.up);
     let squares = |a: f32, b: f32| {
-        let n = dereth_primitives::num::floor_to_i32((b - a) / PITCH + 0.5).max(1);
+        let n = dereth_primitives::num::floor_to_i32((b - a) / pitch + 0.5).max(1);
         u8::try_from(n).unwrap_or(u8::MAX)
     };
     let footprint = (squares(lo.x, hi.x), squares(lo.y, hi.y));
     let open: BTreeSet<Side> = level.iter().filter_map(|d| d.side).collect();
+    // A hall more than a square across whose every doorway stands in the middle of a side:
+    // a corridor, a corner, a T or a cross of its own size.
+    let hall = grid.two_square_halls
+        && footprint.0 == footprint.1
+        && footprint.0 > 1
+        && !above
+        && !below
+        && rise < RISE
+        && wide
+        && level.iter().all(|d| {
+            let along = match d.side {
+                Some(Side::East | Side::West) => d.opening.middle.y,
+                _ => d.opening.middle.x,
+            };
+            corner_line(along)
+        });
+    // A square open on whole sides and up or down, a whole square tall: one tile of a hall built
+    // of them. (The world's own rooms built of squares stand on floors 6 m apart, and are told
+    // by their sides.)
+    let tile = footprint == (1, 1)
+        && hi.z - lo.z > grid.tile_height
+        && (above || below)
+        && !level.is_empty()
+        && level.iter().all(|d| d.width > pitch - 2.0 * ON_SIDE);
     let kind = if off_grid {
         Kind::Other
     } else if rise >= RISE {
@@ -405,7 +478,9 @@ pub fn form(env: &Environment) -> Option<Form> {
         } else {
             Kind::Shaft
         }
-    } else if footprint.0 > 1 || footprint.1 > 1 {
+    } else if tile {
+        Kind::Tile
+    } else if (footprint.0 > 1 || footprint.1 > 1) && !hall {
         Kind::Room {
             long: footprint.0.max(footprint.1),
             short: footprint.0.min(footprint.1),
@@ -451,13 +526,46 @@ pub struct KitPiece {
     /// The surfaces it is drawn with when no look says otherwise: its commonest look's, or a new
     /// piece's own.
     pub surfaces: Vec<DataId>,
+    /// For a piece of an AC2 kit: its kit, what it is, and its looks by name.
+    pub ac2: Option<Ac2Looks>,
+}
+
+/// An AC2 kit's piece in the kit ([`crate::ac2_kit`]): its kit and what it is, and each of the
+/// kit's looks' surfaces for it, by the look's name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ac2Looks {
+    pub kit: &'static str,
+    pub label: &'static str,
+    pub looks: Vec<(&'static str, Vec<DataId>)>,
+}
+
+impl Ac2Looks {
+    /// The side of its kit's squares, in meters ([`crate::ac2_kit::Kit::grid`]).
+    #[must_use]
+    pub fn pitch(&self) -> f32 {
+        crate::ac2_kit::Kit::parse(self.kit).map_or(crate::grid::PITCH, |k| k.grid().pitch)
+    }
+
+    /// The surfaces of look `name`, else of its first look (the kit's own).
+    #[must_use]
+    pub fn surfaces(&self, name: &str) -> Vec<DataId> {
+        self.looks
+            .iter()
+            .find(|(n, _)| *n == name)
+            .or_else(|| self.looks.first())
+            .map(|(_, s)| s.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl KitPiece {
-    /// A short name: the environment's low half, `0046`.
+    /// A short name: the environment's low half, `0046`; an AC2 kit's piece, what it is.
     #[must_use]
     pub fn label(&self) -> String {
-        format!("{:04X}", self.environment.raw() & 0xFFFF)
+        match &self.ac2 {
+            Some(a) => a.label.to_owned(),
+            None => format!("{:04X}", self.environment.raw() & 0xFFFF),
+        }
     }
 
     /// Whether the world draws it in look `family`.
@@ -477,7 +585,23 @@ impl KitPiece {
             looks: Vec::new(),
             joins: Vec::new(),
             surfaces: surfaces.to_vec(),
+            ac2: None,
         })
+    }
+
+    /// AC2 kit piece `p`, of environment `env`, drawn in its kit's own look unless a look is
+    /// chosen.
+    #[must_use]
+    pub fn of_ac2(env: &Environment, p: &crate::ac2_kit::Ac2Piece) -> Option<Self> {
+        let looks = Ac2Looks {
+            kit: p.kit.name(),
+            label: p.label,
+            looks: p.looks.clone(),
+        };
+        let mut piece = Self::new(env, &looks.surfaces("own"))?;
+        piece.form = form_on(env, &p.kit.grid())?;
+        piece.ac2 = Some(looks);
+        Some(piece)
     }
 }
 
@@ -641,6 +765,7 @@ mod tests {
 
     fn piece(roles: Vec<Role>, surfaces: Vec<u32>, looks: Vec<(usize, Vec<u32>)>) -> KitPiece {
         KitPiece {
+            ac2: None,
             environment: DataId(0x0D00_0001),
             form: Form {
                 slots: vec![2],

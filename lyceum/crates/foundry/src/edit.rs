@@ -56,7 +56,10 @@ use crate::sql_ids;
 use crate::symbol;
 use crate::world::World;
 
+pub mod ac2_join;
+mod ac2_room;
 pub mod links;
+pub use ac2_room::Ac2Room;
 
 /// A weenie a spawn places: a pack's, by its symbol in full, or a class id of the server's own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -454,6 +457,8 @@ pub struct Session {
     /// by symbol: read the first time it is wanted after a change.
     pack_class_facts: std::cell::OnceCell<BTreeMap<u32, sql_ids::WeenieFacts>>,
     pack_weenie_facts: std::cell::OnceCell<BTreeMap<String, sql_ids::WeenieFacts>>,
+    /// The player's Asheron's Call 2 install, when given: AC2's dungeon kits are made from it.
+    ac2: Option<dereth_ac2_convert::source::Ac2>,
 }
 
 /// What a spawn makes as a generator: how far around it scatters what it makes, each profile
@@ -1194,6 +1199,20 @@ impl Session {
     /// As a build: a world or pack that does not read or hold together, the data files' errors;
     /// a world with no pack, or no pack by that name.
     pub fn open(world_path: &Path, dats: &Path, target: Option<&str>) -> Result<Self, Error> {
+        Self::open_with(world_path, dats, target, None)
+    }
+
+    /// [`Session::open`], with the player's Asheron's Call 2 install `ac2` the AC2 dungeon kits
+    /// the packs ask for are made from ([`crate::ac2_kit`]).
+    ///
+    /// # Errors
+    /// As [`Session::open`], and a pack that asks for an AC2 kit with no install given.
+    pub fn open_with(
+        world_path: &Path,
+        dats: &Path,
+        target: Option<&str>,
+        ac2: Option<dereth_ac2_convert::source::Ac2>,
+    ) -> Result<Self, Error> {
         let world = World::read(world_path)?;
         let packs = world
             .packs
@@ -1221,7 +1240,7 @@ impl Session {
         };
         let base = DatSet::for_world(dats, world.era)?;
         let opened_lock = Lock::read(&world.lock_path())?;
-        let compiled = compile::compile(&world, &packs, &base, &opened_lock)?;
+        let compiled = compile::compile_with(&world, &packs, &base, &opened_lock, ac2.as_ref())?;
         let region = read_compiled(&compiled, &base, ModernDat::Portal, compile::REGION.raw())
             .and_then(|b| base.decode::<Region>(compile::REGION, &b).ok());
         Ok(Self {
@@ -1256,7 +1275,124 @@ impl Session {
             link_table: std::cell::OnceCell::new(),
             pack_class_facts: std::cell::OnceCell::new(),
             pack_weenie_facts: std::cell::OnceCell::new(),
+            ac2,
         })
+    }
+
+    /// The pieces of the AC2 dungeon kits the packs ask for, as the world's install made them.
+    #[must_use]
+    pub fn ac2_pieces(&self) -> &[crate::ac2_kit::Ac2Piece] {
+        &self.compiled.ac2_pieces
+    }
+
+    /// The AC2 dungeon kits the packs ask for.
+    #[must_use]
+    pub fn ac2_kits_asked(&self) -> BTreeSet<crate::ac2_kit::Kit> {
+        self.packs
+            .iter()
+            .flat_map(|p| p.ac2_kits.iter().map(|k| k.item))
+            .collect()
+    }
+
+    /// Ask for every AC2 dungeon kit in the pack being edited (`[[ac2-kit]]` rows in its
+    /// `records/ac2.toml`, written when the session is saved) and make them from the session's
+    /// install. Answers whether anything changed: nothing does when a pack asks for every kit
+    /// already. The new records are the overlay's: a scratch overlay is written whole next.
+    ///
+    /// # Errors
+    /// A session given no AC2 install, or a kit that will not make.
+    pub fn add_ac2_kits(&mut self) -> Result<bool, Error> {
+        use crate::ac2_kit::Kit;
+        if self.ac2.is_none() {
+            return Err(Error::Refused(
+                "AC2's dungeon kits are made from your Asheron's Call 2 install: start the editor \
+                 with --ac2"
+                    .into(),
+            ));
+        }
+        let asked = self.ac2_kits_asked();
+        let missing: Vec<Kit> = Kit::ALL
+            .into_iter()
+            .filter(|k| !asked.contains(k))
+            .collect();
+        if missing.is_empty() {
+            return Ok(false);
+        }
+        let path = self.pack_dir().join("records").join("ac2.toml");
+        let mut text = self.text(&path).unwrap_or_default();
+        for k in &missing {
+            if !text.is_empty() && !text.ends_with("\n\n") {
+                text.push('\n');
+            }
+            text.push_str(&format!("[[ac2-kit]]\nkit = \"{}\"\n", k.name()));
+        }
+        let before = (self.packs.clone(), self.compiled.clone());
+        let at = Loc::new(&path, 0);
+        self.packs[self.target]
+            .ac2_kits
+            .extend(missing.iter().map(|k| source::Located {
+                at: at.clone(),
+                item: *k,
+            }));
+        self.compiled.records.retain(|_, r| !r.is_empty());
+        if let Err(e) = compile::ac2_kits(
+            &self.packs,
+            &self.base,
+            self.ac2.as_ref(),
+            &mut self.compiled,
+        ) {
+            (self.packs, self.compiled) = before;
+            return Err(e);
+        }
+        self.sources.put(&DiskStore, &path, Some(text));
+        Ok(true)
+    }
+
+    /// The AC2 kit dungeon `lb` is built of: the kit of the first of its rooms that is one of a
+    /// kit's pieces; `None` for a dungeon of the world's own pieces.
+    #[must_use]
+    pub fn ac2_kit_in(&self, lb: u16) -> Option<crate::ac2_kit::Kit> {
+        if self.compiled.ac2_pieces.is_empty() {
+            return None;
+        }
+        let kits: BTreeMap<DataId, crate::ac2_kit::Kit> = self
+            .compiled
+            .ac2_pieces
+            .iter()
+            .map(|p| (p.environment, p.kit))
+            .collect();
+        self.cells(lb)
+            .values()
+            .find_map(|c| kits.get(&c.environment).copied())
+    }
+
+    /// How far apart the floors of dungeon `lb` stand, in meters: its AC2 kit's
+    /// ([`crate::ac2_kit::Kit::rise`]), else the world's own ([`crate::grid::RISE`]).
+    #[must_use]
+    pub fn floor_rise(&self, lb: u16) -> f32 {
+        self.ac2_kit_in(lb)
+            .map_or(crate::grid::RISE, crate::ac2_kit::Kit::rise)
+    }
+
+    /// The side of the squares of dungeon `lb`, in meters: its AC2 kit's
+    /// ([`crate::ac2_kit::Kit::grid`]), else the world's own ([`crate::grid::PITCH`]).
+    #[must_use]
+    pub fn grid_pitch(&self, lb: u16) -> f32 {
+        self.ac2_kit_in(lb)
+            .map_or(crate::grid::PITCH, |k| k.grid().pitch)
+    }
+
+    /// The lights of the AC2 dungeon kits the packs ask for: the setups a room's static stands for
+    /// each with.
+    #[must_use]
+    pub fn ac2_lights(&self) -> &[crate::ac2_kit::Ac2Light] {
+        &self.compiled.ac2_lights
+    }
+
+    /// Whether the session was given an AC2 install to make AC2's dungeon kits from.
+    #[must_use]
+    pub fn has_ac2(&self) -> bool {
+        self.ac2.is_some()
     }
 
     /// Learn the world's buildings, read already ([`crate::buildings::Catalog::read`]): what a

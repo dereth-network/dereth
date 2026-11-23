@@ -24,17 +24,23 @@
 //! `characters`, `quests` or `loot`);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
-//! world's dungeon whose look it takes, `0163`); `piece` (the dungeon kit's, by its label,
-//! `0094/0`); `extend` (that piece placed so many times, each at the first free portal of the
+//! world's dungeon whose look it takes, `0163`); `add_ac2_kits` (true: AC2's dungeon kits asked
+//! for and made); `game` (`ac1` or `ac2`: the game an empty dungeon is built of, as the dungeon
+//! panel's buttons choose it); `ac2_room` (`{ east, north, square = [x, y] }`:
+//! an AC2 room of tiles laid from that square of the grid on the floor shown, or with no square
+//! against the dungeon's first free doorway that takes it); `ac2_look` (the look an AC2 kit's pieces are
+//! placed in, `haunted`); `piece` (the dungeon kit's, by its label, `0094/0`, or an AC2 kit's by
+//! its kit and label, `basic/straight`); `extend` (that piece placed so many times, each at the first free portal of the
 //! pack's cells there); `fit` (of what fits at the dungeon's first free doorway, or on its middle
-//! square when it has no room yet, the best of a kind: `corridor`, `corner`, `tee`, `cross`,
+//! square when it has no room yet, the best of a kind: `corridor`, `corner`, `tee`, `cross`, `tile`,
 //! `dead end`, `stairs`, or `any`; `dead ends` closes every doorway left free with one); `inside` (the camera put in the middle of the pack's cell of that symbol in
 //! the camera's landblock); `brush` (`kind`, `amount`, `value`, `radius`); `select` (`landblock` and
 //! `static` or `index`); `pointer` (pixels) or `pointer_at` (`at` with no height is `lift` meters
 //! over the ground); `press`; `drag` (`handle`: `x`, `y`, `z` or `turn`, and `by`: pixels along an
 //! arrow, degrees round the ring), which takes the frames after it; `key` (a key pressed and let
-//! go: `delete`, `escape`, `undo`, `redo`, `save`); `new_weenie` (`name`, `from`: a server class,
-//! `blank`: a blank of it rather than a copy); `edit` (an edit as `lyceum edit` reads it);
+//! go: `delete`, `escape`, `undo`, `redo`, `save`, and in the Grid tab `floor_up` and
+//! `floor_down`); `new_weenie` (`name`, `from`: a server class, `blank`: a blank of it rather than
+//! a copy); `edit` (an edit as `lyceum edit` reads it);
 //! `live` (true starts the editor's own world and waits for it, false stops it); `export`
 //! (`empyrean`, `ace` or `gdle`: the world written out for that server, waited for;
 //! `export_gdle = true` is `export = "gdle"`; `gdle_quests`, GDLE's own quests.json, which an
@@ -93,6 +99,10 @@ pub enum WeenieChoice {
     Class(u32),
 }
 
+/// An AC2 room a step lays: squares east and north, and the grid's square it starts from (none:
+/// against the dungeon's first free doorway).
+pub type Ac2RoomStep = (u8, u8, Option<(i32, i32)>);
+
 /// One step of a script.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Step {
@@ -110,7 +120,16 @@ pub struct Step {
     /// landblock of the world's dungeon whose look it takes.
     pub dungeon: Option<String>,
     pub look: Option<u16>,
-    /// The dungeon kit's piece, by its label; and how many of it to place, each at the first free
+    /// AC2's dungeon kits asked for in the pack and made.
+    pub add_ac2_kits: bool,
+    /// The game an empty dungeon is built of: `ac1` or `ac2`.
+    pub game: Option<String>,
+    /// An AC2 room laid: squares east and north, from the grid's square (its middle, in tens of
+    /// meters), or against the dungeon's first free doorway.
+    pub ac2_room: Option<Ac2RoomStep>,
+    /// The look an AC2 kit's pieces are placed in, by its name (`haunted`).
+    pub ac2_look: Option<String>,
+    /// The dungeon kit's piece, by its label (an AC2 kit's, `basic/straight`); and how many of it to place, each at the first free
     /// portal.
     pub piece: Option<String>,
     pub extend: Option<u32>,
@@ -270,6 +289,34 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
                 .ok_or_else(|| format!("{l:?} is not a landblock"))?,
         );
     }
+    s.add_ac2_kits = t
+        .get("add_ac2_kits")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    s.game = t
+        .get("game")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
+    if let Some(r) = t.get("ac2_room").and_then(toml::Value::as_table) {
+        let n = |k: &str| r.get(k).and_then(toml::Value::as_integer);
+        let size = |k: &str| n(k).and_then(|v| u8::try_from(v).ok());
+        let at = r.get("square").and_then(toml::Value::as_array);
+        let square = at.and_then(|a| {
+            Some((
+                i32::try_from(a.first()?.as_integer()?).ok()?,
+                i32::try_from(a.get(1)?.as_integer()?).ok()?,
+            ))
+        });
+        s.ac2_room = Some((
+            size("east").ok_or("ac2_room has east")?,
+            size("north").ok_or("ac2_room has north")?,
+            square,
+        ));
+    }
+    s.ac2_look = t
+        .get("ac2_look")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
     s.fit = t
         .get("fit")
         .and_then(toml::Value::as_str)

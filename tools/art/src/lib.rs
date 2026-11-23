@@ -13,7 +13,9 @@
 //! AC2-in-AC1 world); and for that world `auberean-animation` (AC2's placed objects that play,
 //! posed as AC2 poses them), `auberean-text` (its map labels' words), `auberean-primitives` (its
 //! shapes' coordinates), `dereth-builder` (the trees a new model or room needs), `dereth-physics`
-//! (the starting area's ground and water, told as the server tells them), `dereth-landscape`
+//! (the starting area's ground and water, told as the server tells them), `dereth-ac2-convert`
+//! (AC2's dungeon cells and materials as AC1's, and its install read, shared with Lyceum),
+//! `dereth-landscape`
 //! (the scenery the converted land grows, placed as the client places it) and `auberean-draw` (its
 //! sky's materials made ready as AC2 draws them, to work out their pictures). **Used
 //! by** nothing: it is the `dereth-art` program, which comes beside the client, and which the

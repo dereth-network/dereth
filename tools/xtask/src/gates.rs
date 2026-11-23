@@ -233,6 +233,7 @@ pub const GATES: &[Gate] = &[
             "dereth-pcap",
             "xtask",
             "dereth-art",
+            "dereth-ac2-convert",
             "lyceum-foundry",
             "lyceum-cli",
         ],
@@ -365,6 +366,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
         | "dereth-art"
+        | "dereth-ac2-convert"
         | "lyceum-foundry"
         | "dereth-assets"
         | "dereth-audio"

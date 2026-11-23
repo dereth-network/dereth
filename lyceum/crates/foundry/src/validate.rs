@@ -12,10 +12,14 @@
 //!    list names one of them; a surface's texture and palette are there; an image
 //!    texture's images are pictures the files hold; a paletted picture's palette is there.
 //!
-//! And one warning, which stops nothing: a static the overlay places or moves that stands inside a
-//! building ([`crate::footprint`]), drawn in its walls and in the way of whoever walks in. The
-//! base's own statics are never warned of: retail stands 1,658 of them inside its buildings on
-//! purpose.
+//! And two warnings, which stop nothing:
+//!
+//! - a static the overlay places or moves that stands inside a building ([`crate::footprint`]),
+//!   drawn in its walls and in the way of whoever walks in. The base's own statics are never
+//!   warned of: retail stands 1,658 of them inside its buildings on purpose.
+//! - a room the overlay makes or changes whose lights are too many: the client lights a room from
+//!   the lights standing in it and in every room it sees, the [`LIGHT_POOL`] nearest the room
+//!   kept, so a room that sees more loses some, by distance.
 //!
 //! The checks are calibrated on retail: over the end-of-retail files and over Infiltration's
 //! (February 2005) with no overlay every check passes, so a check that fails names a fault in the
@@ -69,6 +73,10 @@ pub struct Report {
     pub warnings: Vec<String>,
 }
 
+/// How many static lights the client keeps for the room a player stands in, at its default
+/// detail: those standing in the room and in the rooms it sees, the nearest first.
+pub const LIGHT_POOL: usize = 40;
+
 /// The kinds the reference checks read, in the portal file.
 const PORTAL_KINDS: [DbType; 3] = [
     DbType::Surface,
@@ -84,6 +92,8 @@ struct Checker<'a> {
     set: &'a DatSet,
     report: Report,
     environments: Environments,
+    /// Whether each model read carries a light.
+    lit: BTreeMap<u32, bool>,
 }
 
 impl Checker<'_> {
@@ -201,6 +211,73 @@ impl Checker<'_> {
             }
         }
         self.footprints(id, &info);
+        self.lights(id, &info);
+    }
+
+    /// Whether model `id` carries a light: a setup with one.
+    fn carries_light(&mut self, id: DataId) -> bool {
+        if id.raw() >> 24 != 0x02 {
+            return false;
+        }
+        if let Some(l) = self.lit.get(&id.raw()) {
+            return *l;
+        }
+        let lit = self
+            .set
+            .read_portal(id)
+            .and_then(|b| self.set.decode::<dereth_assets::Setup>(id, &b).ok())
+            .is_some_and(|s| !s.lights.is_empty());
+        self.lit.insert(id.raw(), lit);
+        lit
+    }
+
+    /// Warn of each room of landblock `id`'s that the overlay makes or changes and whose pool of
+    /// lights (those standing in it and in the rooms it sees) holds more than [`LIGHT_POOL`].
+    fn lights(&mut self, id: u32, info: &LandblockInfo) {
+        let block = id & 0xFFFF_0000;
+        let mut rooms: BTreeMap<u32, (dereth_assets::EnvCell, bool)> = BTreeMap::new();
+        for k in 0..info.num_cells {
+            let cid = DataId(block | (0x0100 + k));
+            let Some(bytes) = self.set.cell.read(cid).ok() else {
+                continue;
+            };
+            let changed = self.set.cell.base().read(cid).ok().as_deref() != Some(&bytes[..]);
+            if let Ok(c) = self.set.decode::<dereth_assets::EnvCell>(cid, &bytes) {
+                rooms.insert(cid.raw() & 0xFFFF, (c, changed));
+            }
+        }
+        if !rooms.values().any(|(_, changed)| *changed) {
+            return;
+        }
+        let mut own: BTreeMap<u32, usize> = BTreeMap::new();
+        for (n, (c, _)) in &rooms {
+            let models: Vec<DataId> = c.static_objects.iter().map(|o| o.id).collect();
+            let count = models
+                .into_iter()
+                .filter(|m| self.carries_light(*m))
+                .count();
+            own.insert(*n, count);
+        }
+        for (n, (c, changed)) in &rooms {
+            if !changed {
+                continue;
+            }
+            let pool = own.get(n).copied().unwrap_or(0)
+                + c.visible_cells
+                    .iter()
+                    .filter(|v| u32::from(**v) != *n)
+                    .map(|v| own.get(&u32::from(*v)).copied().unwrap_or(0))
+                    .sum::<usize>();
+            if pool > LIGHT_POOL {
+                self.warning(
+                    block | n,
+                    format!(
+                        "{pool} lights stand in this room and the rooms it sees; the client lights \
+                         it with the {LIGHT_POOL} nearest"
+                    ),
+                );
+            }
+        }
     }
 
     /// Warn of every static that stands inside one of its landblock's buildings and that the
@@ -390,6 +467,7 @@ pub fn validate(set: &DatSet, scope: &Scope) -> Report {
         set,
         report: Report::default(),
         environments: Environments::default(),
+        lit: BTreeMap::new(),
     };
     match scope {
         Scope::All => {

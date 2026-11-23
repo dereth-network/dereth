@@ -1,7 +1,7 @@
 //! The command line.
 //!
 //! ```text
-//! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--pack <name>]
+//! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--ac2 <dir>] [--pack <name>]
 //!               [--landblock <XXYY>]
 //!               [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
 //!               [--radius <n>]
@@ -15,6 +15,8 @@
 //! - `--dats`: the player's data files (the later set); the folder the client would find otherwise.
 //! - `--classic-dats`: the files from before Throne of Destiny (`portal.dat`, `cell.dat`), which an
 //!   Infiltration world is built on, when they are not beside the later ones.
+//! - `--ac2`: the player's Asheron's Call 2 install, which the AC2 dungeon kits a world's packs ask
+//!   for (`[[ac2-kit]]`) are made from.
 //! - `--pack`: the pack edits are written into; the world's last otherwise.
 //! - `--landblock`: where the camera starts; the first landblock the world's packs edit otherwise.
 //! - `--weenies`: ACE SQL (an export or a dump) naming the server's own weenies' setups and names,
@@ -50,6 +52,9 @@ pub struct Args {
     pub dats: Option<PathBuf>,
     /// The files from before Throne of Destiny, when they are not beside the later ones.
     pub classic_dats: Option<PathBuf>,
+    /// The player's Asheron's Call 2 install, which the AC2 dungeon kits a world asks for are made
+    /// from.
+    pub ac2: Option<PathBuf>,
     pub pack: Option<String>,
     pub landblock: Option<u16>,
     pub weenies: Option<PathBuf>,
@@ -138,6 +143,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         world: PathBuf::new(),
         dats: None,
         classic_dats: None,
+        ac2: None,
         pack: None,
         landblock: None,
         weenies: None,
@@ -167,6 +173,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         match arg.as_str() {
             "--dats" => a.dats = Some(PathBuf::from(value(arg)?)),
             "--classic-dats" => a.classic_dats = Some(PathBuf::from(value(arg)?)),
+            "--ac2" => a.ac2 = Some(PathBuf::from(value(arg)?)),
             "--pack" => a.pack = Some(value(arg)?),
             "--landblock" => {
                 let v = value(arg)?;

@@ -41,9 +41,15 @@ const THROUGH: f32 = 0.5;
 /// ways across.
 #[must_use]
 pub fn on_lattice(frame: &Frame) -> bool {
+    on_lattice_at(frame, PITCH)
+}
+
+/// [`on_lattice`] on a grid of `pitch` meter squares.
+#[must_use]
+pub fn on_lattice_at(frame: &Frame, pitch: f32) -> bool {
     let on = |v: f32| {
-        let r = v.rem_euclid(PITCH);
-        r < 0.01 || r > PITCH - 0.01
+        let r = v.rem_euclid(pitch);
+        r < 0.01 || r > pitch - 0.01
     };
     on(frame.origin.x) && on(frame.origin.y)
 }
@@ -73,6 +79,22 @@ pub fn square_of(x: f32, y: f32) -> (i32, i32) {
     )
 }
 
+/// The square under landblock meters `(x, y)` on a grid of `pitch` meter squares.
+#[must_use]
+pub fn square_of_at(x: f32, y: f32, pitch: f32) -> (i32, i32) {
+    (
+        dereth_primitives::num::floor_to_i32(x / pitch + 0.5),
+        dereth_primitives::num::floor_to_i32(y / pitch + 0.5),
+    )
+}
+
+/// The middle of square `s` of a grid of `pitch` meter squares, in landblock meters.
+#[must_use]
+pub fn square_middle_at(s: (i32, i32), pitch: f32) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)] // a square of a landblock, a few dozen at most
+    (s.0 as f32 * pitch, s.1 as f32 * pitch)
+}
+
 /// The middle of square `s`, in landblock meters.
 #[must_use]
 pub fn square_middle(s: (i32, i32)) -> (f32, f32) {
@@ -83,7 +105,13 @@ pub fn square_middle(s: (i32, i32)) -> (f32, f32) {
 /// A piece set on square `s`, at height `z`, turned `turn` quarter turns clockwise.
 #[must_use]
 pub fn square_frame(s: (i32, i32), z: f32, turn: u8) -> Frame {
-    let (x, y) = square_middle(s);
+    square_frame_at(s, PITCH, z, turn)
+}
+
+/// [`square_frame`] on a grid of `pitch` meter squares.
+#[must_use]
+pub fn square_frame_at(s: (i32, i32), pitch: f32, z: f32, turn: u8) -> Frame {
+    let (x, y) = square_middle_at(s, pitch);
     Frame::new(Vec3::new(x, y, z), heading_quat(f32::from(turn % 4) * 90.0))
 }
 
@@ -108,8 +136,19 @@ impl Placement {
     /// The square it stands on, when it stands on the grid at a quarter turn.
     #[must_use]
     pub fn square(&self) -> Option<((i32, i32), u8)> {
+        self.square_at(PITCH)
+    }
+
+    /// [`Self::square`], on a grid of `pitch` meter squares.
+    #[must_use]
+    pub fn square_at(&self, pitch: f32) -> Option<((i32, i32), u8)> {
         let turn = quarter_turns(&self.frame)?;
-        on_lattice(&self.frame).then(|| (square_of(self.frame.origin.x, self.frame.origin.y), turn))
+        on_lattice_at(&self.frame, pitch).then(|| {
+            (
+                square_of_at(self.frame.origin.x, self.frame.origin.y, pitch),
+                turn,
+            )
+        })
     }
 }
 
@@ -134,6 +173,8 @@ pub struct Dungeon<'a> {
     pub rooms: &'a BTreeMap<u16, Solid>,
     pub doorways: &'a [Doorway],
     pub ground: Option<&'a dyn Fn(f32, f32) -> Option<f32>>,
+    /// Its squares' side, in meters: [`PITCH`], or an AC2 kit's.
+    pub pitch: f32,
 }
 
 impl std::fmt::Debug for Dungeon<'_> {
@@ -296,8 +337,19 @@ impl PiecePlacement {
     /// The square it stands on, when it stands on the grid at a quarter turn.
     #[must_use]
     pub fn square(&self) -> Option<((i32, i32), u8)> {
+        self.square_at(PITCH)
+    }
+
+    /// [`Self::square`], on a grid of `pitch` meter squares.
+    #[must_use]
+    pub fn square_at(&self, pitch: f32) -> Option<((i32, i32), u8)> {
         let turn = quarter_turns(&self.frame)?;
-        on_lattice(&self.frame).then(|| (square_of(self.frame.origin.x, self.frame.origin.y), turn))
+        on_lattice_at(&self.frame, pitch).then(|| {
+            (
+                square_of_at(self.frame.origin.x, self.frame.origin.y, pitch),
+                turn,
+            )
+        })
     }
 }
 
@@ -493,7 +545,8 @@ pub fn piece_placements(
                 // Met whole, or on the square under it: a doorway of several parts meets a
                 // larger one there.
                 let o = whole.origin;
-                let (sx, sy) = square_middle(square_of(o.x, o.y));
+                let (sx, sy) =
+                    square_middle_at(square_of_at(o.x, o.y, dungeon.pitch), dungeon.pitch);
                 let on_square = Frame::new(Vec3::new(sx, sy, o.z), q);
                 for frame in [whole, on_square] {
                     let same = |f: &Frame| {

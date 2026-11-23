@@ -12,7 +12,7 @@
 //! ```text
 //! lyceum new <folder> [--empty] [--era eor|infiltration]   a new world, from the sample or
 //!                                               empty, built on that era's files
-//! lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
+//! lyceum build <world.toml> --dats <dir> [--ac2 <dir>] [--out <dir>] [--after <overlay>] [--check]
 //! lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>]
 //!                 [--schema <json>]
 //! lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>]
@@ -50,7 +50,7 @@ use lyceum_foundry::{
 const USAGE: &str = "\
 lyceum new <folder> [--empty] [--era eor|infiltration] [--spacing 24|12|8 | --on <overlay>]
 lyceum upgrade <world.toml> [--check]
-lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
+lyceum build <world.toml> --dats <dir> [--ac2 <dir>] [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>] [--schema <json>]
 lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>] [--dry-run]
 lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--dry-run]
@@ -128,18 +128,32 @@ fn fail(e: &lyceum_foundry::Error) -> ExitCode {
 }
 
 fn build(args: &Args) -> ExitCode {
-    if let Err(why) = args.known(&["dats", "out", "after"]) {
+    if let Err(why) = args.known(&["dats", "out", "after", "ac2"]) {
         return usage(&why);
     }
     let ([world], Some(dats)) = (args.words.as_slice(), args.path("dats")) else {
         return usage("build takes a world file and --dats");
+    };
+    let ac2 = match args.path("ac2").map(|d| lyceum_foundry::ac2_kit::open(&d)) {
+        None => None,
+        Some(Ok(a)) => Some(a),
+        Some(Err(why)) => {
+            eprintln!("lyceum: --ac2: {why}");
+            return ExitCode::from(2);
+        }
     };
     let check = args.switch("check");
     let after = args.path("after");
     if check && after.is_some() {
         return usage("--after writes a revision, which --check never does");
     }
-    match compile::build(Path::new(world), &dats, args.path("out").as_deref(), check) {
+    match compile::build_with(
+        Path::new(world),
+        &dats,
+        args.path("out").as_deref(),
+        check,
+        ac2.as_ref(),
+    ) {
         Ok(b) => {
             if let Some(last) = &after {
                 if let Err(e) = revise_after(Path::new(world), &dats, last, &b.out) {

@@ -1215,8 +1215,10 @@ fn spaces(s: &Session, cells: &BTreeMap<u16, EnvCell>, but: &[u16]) -> BTreeMap<
         .filter(|(n, _)| !but.contains(n))
         .filter(|(_, c)| c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0)
         .filter_map(|(n, c)| {
-            let e = s.environment(c.environment)?;
-            Some((*n, Solid::of_cell(c, &e)?))
+            Some((
+                *n,
+                s.ac2_shape(c.environment, c.cell_struct)?.placed(&c.frame),
+            ))
         })
         .collect()
 }
@@ -1276,6 +1278,7 @@ fn a_room_of_holtburg_redoubt_taken_away_frees_the_doorways_into_it_and_its_piec
         rooms: &rooms,
         doorways: &free,
         ground: None,
+        pitch: PITCH,
     };
     let fit = fit_piece(&form, &parts, &room.frame, &dungeon).unwrap();
     assert_eq!(fit.joins(), ways_in);
@@ -1735,4 +1738,1197 @@ fn from_the_camera_at_every_retail_dungeons_drop_point_a_body_lands_on_a_floor_d
     );
     assert!(rooms > 800, "{rooms}");
     assert!(shafts.contains(&SAND_CAVES), "{shafts:04X?}");
+}
+
+/// The player's Asheron's Call 2 install the AC2 kits are made from: `AUBEREAN_TEST_DAT_DIR`.
+fn ac2_install() -> lyceum_foundry::ac2_kit::Ac2Install {
+    let dir = std::env::var_os("AUBEREAN_TEST_DAT_DIR")
+        .filter(|v| !v.is_empty())
+        .expect("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
+    lyceum_foundry::ac2_kit::open(std::path::Path::new(&dir)).expect("the AC2 install opens")
+}
+
+/// A world asking for AC2's `basic` kit: every piece is made in every look, at full size; two of
+/// its halls snap doorway to doorway and walk; and the same install gives the same ids again.
+#[test]
+fn an_ac2_kits_pieces_are_made_in_every_look_and_two_of_its_halls_join_and_walk() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-kit");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"basic\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    // Without the install, the world says what it needs.
+    let e = Session::open(&world, &dats, None).unwrap_err().to_string();
+    assert!(e.contains("--ac2"), "{e}");
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let pieces = s.ac2_pieces().to_vec();
+    assert_eq!(pieces.len(), 40, "every piece of the basic kit");
+    for p in &pieces {
+        let names: Vec<&str> = p.looks.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["own", "plain", "haunted", "emplite"], "{}", p.label);
+        let env = s
+            .environment(p.environment)
+            .expect("its environment is the world's");
+        // A surface for each slot its drawn polygons name, then the clear one its doorways draw
+        // with, in every look alike.
+        let slots = surface_slots(&env, 0);
+        for (name, surfaces) in &p.looks {
+            assert!(surfaces.len() > slots, "{} in {name}", p.label);
+            assert_eq!(surfaces.len(), p.looks[0].1.len(), "{} in {name}", p.label);
+        }
+    }
+    // What each is on the grid: the halls two squares a side by their doorways, the room's
+    // squares as tiles, and its flat lids as ceilings; and none of the world's own pieces a tile.
+    let kind = |label: &str| {
+        let p = pieces.iter().find(|p| p.label == label).unwrap();
+        lyceum_foundry::kit::form(&s.environment(p.environment).unwrap())
+            .unwrap()
+            .kind
+    };
+    for (label, k) in [
+        ("straight", Kind::Corridor),
+        ("turn", Kind::Corner),
+        ("tee", Kind::Tee),
+        ("cross", Kind::Cross),
+        ("end", Kind::DeadEnd),
+        ("room floor corner", Kind::Tile),
+        ("room ceiling side", Kind::Tile),
+        ("room middle open", Kind::Tile),
+        ("room flat ceiling", Kind::Ceiling),
+    ] {
+        assert_eq!(kind(label), k, "{label}");
+    }
+    let retail = catalog(s.base()).kit;
+    assert!(retail.iter().all(|p| p.form.kind != Kind::Tile));
+    // A look is another list of surfaces for the same environment.
+    let straight = pieces.iter().find(|p| p.label == "straight").unwrap();
+    assert_ne!(
+        straight.looks[0].1, straight.looks[2].1,
+        "haunted is not its own look"
+    );
+    // Full size: AC2's 20 m hall, 10 m doorways.
+    let env = s.environment(straight.environment).unwrap();
+    let form = lyceum_foundry::kit::form(&env).unwrap();
+    assert!(
+        (form.hi.y - form.lo.y - 20.0).abs() < 1.0,
+        "{:?} {:?}",
+        form.lo,
+        form.hi
+    );
+    // Two halls, the second snapped to the first's doorway 0 by its own doorway 1.
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let surfaces = straight.looks[2].1.clone();
+    s.apply(&Op::PlaceCell {
+        landblock: lb,
+        environment: straight.environment,
+        piece: 0,
+        surfaces: surfaces.clone(),
+        at: [96.0, 96.0, -40.0],
+        rotation: Rotation::Heading(0.0),
+        links: vec![Link::Shut, Link::Shut],
+    })
+    .unwrap();
+    let first = Frame::new(Vec3::new(96.0, 96.0, -40.0), Quat::IDENTITY);
+    let target = opening(&env, 0, 0, &first).unwrap();
+    let (frame, _) = snap(&env, 0, 1, &target, 0.0, 90.0).unwrap();
+    let q = frame.rotation;
+    let pack = s.packs()[s.target()].name.clone();
+    s.apply(&Op::PlaceCell {
+        landblock: lb,
+        environment: straight.environment,
+        piece: 0,
+        surfaces,
+        at: [frame.origin.x, frame.origin.y, frame.origin.z],
+        rotation: Rotation::Quat([q.w, q.x, q.y, q.z]),
+        links: vec![
+            Link::Shut,
+            Link::Cell {
+                cell: format!("{pack}:cell-1"),
+                portal: 0,
+            },
+        ],
+    })
+    .unwrap();
+    let cells = s.cells(lb);
+    assert_eq!(cells.len(), 2);
+    let joined: Vec<_> = cells[&0x0100]
+        .portals
+        .iter()
+        .filter(|p| p.flags & 4 == 0)
+        .collect();
+    assert_eq!(joined.len(), 1);
+    assert_eq!(joined[0].other_cell_id, 0x0101);
+    let found = s.walk(lb);
+    assert!(
+        found.iter().all(|f| !f.text.contains("falls")),
+        "{found:#?}"
+    );
+    // Saved and built, then built again: the same records, the lockfile keeping the kit's ids.
+    s.save().unwrap();
+    let ac2 = ac2_install();
+    lyceum_foundry::compile::build_with(&world, &dats, None, false, Some(&ac2)).unwrap();
+    let overlay = dir.path().join("build/overlay");
+    let first: Vec<u8> = std::fs::read(overlay.join("overlay_portal.dat")).unwrap();
+    let lock = std::fs::read_to_string(dir.path().join("world.lock")).unwrap();
+    assert!(
+        lock.contains("ac2-environment-0100"),
+        "the kit's environments are in the lockfile"
+    );
+    lyceum_foundry::compile::build_with(&world, &dats, None, false, Some(&ac2)).unwrap();
+    assert_eq!(
+        std::fs::read(overlay.join("overlay_portal.dat")).unwrap(),
+        first
+    );
+}
+
+/// An editor given the install asks for every AC2 kit in the pack being edited, once, and the
+/// session makes them at once; saved, the pack's `records/ac2.toml` asks for them from then on.
+#[test]
+fn an_editor_given_the_ac2_install_adds_its_kits_to_the_pack_once_and_saves_the_row() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-add");
+    let dats = dereth_dat::testing::dat_dir();
+    let mut bare = Session::open(&world, &dats, None).unwrap();
+    assert!(bare
+        .add_ac2_kits()
+        .unwrap_err()
+        .to_string()
+        .contains("--ac2"));
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    assert!(s.ac2_pieces().is_empty(), "no pack asks for a kit yet");
+    assert!(s.add_ac2_kits().unwrap());
+    assert_eq!(
+        s.ac2_pieces().len(),
+        179,
+        "basic's 40, fancy's 35, the tomb's 43, the mine's 14 and the castle's 47"
+    );
+    let env = s.ac2_pieces()[0].environment;
+    assert!(
+        s.environment(env).is_some(),
+        "its records are the world's at once"
+    );
+    assert!(!s.add_ac2_kits().unwrap(), "asked for already");
+    s.save().unwrap();
+    let row = std::fs::read_to_string(dir.path().join("holtburg/records/ac2.toml")).unwrap();
+    assert_eq!(
+        row,
+        "[[ac2-kit]]\nkit = \"basic\"\n\n[[ac2-kit]]\nkit = \"fancy\"\n\n[[ac2-kit]]\nkit = \"tomb\"\n\n[[ac2-kit]]\nkit = \"mine\"\n\n[[ac2-kit]]\nkit = \"castle\"\n"
+    );
+    // Opened again, the pack asks for them itself, with the same ids.
+    let again = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    assert_eq!(again.ac2_pieces()[0].environment, env);
+}
+
+/// The sides a piece's doorways open on at `frame`, as compass bearings in landblock space
+/// (`N`, `E`, `S`, `W`), its openings up and down left out.
+fn ac2_sides(env: &Environment, frame: &Frame, form: &lyceum_foundry::kit::Form) -> BTreeSet<char> {
+    (0..form.doors.len())
+        .filter_map(|slot| {
+            let o = opening(env, 0, slot, frame)?.out;
+            if o.z.abs() > 0.5 {
+                None
+            } else if o.y > 0.5 {
+                Some('N')
+            } else if o.y < -0.5 {
+                Some('S')
+            } else if o.x > 0.5 {
+                Some('E')
+            } else {
+                Some('W')
+            }
+        })
+        .collect()
+}
+
+/// AC2 kit piece `label` set at `at` in landblock `lb` in look `look`: turned the first quarter
+/// turn whose doorways open on `sides` (any, when empty) and that fits the dungeon as it stands,
+/// joining every doorway it meets. Answers the new cell's number.
+fn place_ac2(s: &mut Session, lb: u16, label: &str, look: &str, at: Vec3, sides: &str) -> u16 {
+    let p = s
+        .ac2_pieces()
+        .iter()
+        .find(|p| match label.split_once('/') {
+            Some((kit, l)) => p.kit.name() == kit && p.label == l,
+            None => p.label == label,
+        })
+        .unwrap_or_else(|| panic!("{label} is a piece"))
+        .clone();
+    let env = s.environment(p.environment).unwrap();
+    let form = lyceum_foundry::kit::form_on(&env, &p.kit.grid()).unwrap();
+    let parts: Vec<lyceum_foundry::room::Shape> = (0..form.parts())
+        .map(|k| s.ac2_shape(p.environment, k).unwrap())
+        .collect();
+    let want: BTreeSet<char> = sides.chars().collect();
+    let surfaces = p.looks.iter().find(|(n, _)| *n == look).unwrap().1.clone();
+    // Its quarter turns at `at`; with no sides asked for, also each of its doorways snapped to
+    // each of the dungeon's free ones.
+    let mut frames: Vec<Frame> = (0..4u8)
+        .map(|turn| {
+            Frame::new(
+                at,
+                lyceum_foundry::compile::heading_quat(90.0 * f32::from(turn)),
+            )
+        })
+        .collect();
+    if want.is_empty() {
+        for d in s.free_doorways(lb, &[]) {
+            for slot in 0..form.doors.len() {
+                frames.extend(snap(&env, 0, slot, &d.opening, 0.0, 90.0).map(|(f, _)| f));
+            }
+        }
+    }
+    for frame in frames {
+        if !want.is_empty() && ac2_sides(&env, &frame, &form) != want {
+            continue;
+        }
+        let cells = s.cells(lb);
+        let rooms = spaces(s, &cells, &[]);
+        let free = s.free_doorways(lb, &[]);
+        let dungeon = Dungeon {
+            rooms: &rooms,
+            doorways: &free,
+            ground: None,
+            pitch: p.kit.grid().pitch,
+        };
+        let Ok(fit) = fit_piece(&form, &parts, &frame, &dungeon) else {
+            continue;
+        };
+        if !cells.is_empty() && fit.joins() == 0 {
+            continue;
+        }
+        let (q, o) = (frame.rotation, frame.origin);
+        s.apply(&Op::PlacePieces {
+            landblock: lb,
+            pieces: vec![NewPiece {
+                environment: p.environment,
+                surfaces,
+                at: [o.x, o.y, o.z],
+                rotation: Rotation::Quat([q.w, q.x, q.y, q.z]),
+                parts: fit
+                    .links
+                    .iter()
+                    .enumerate()
+                    .map(|(k, l)| (u16::try_from(k).unwrap(), l.clone()))
+                    .collect(),
+            }],
+            joins: Vec::new(),
+        })
+        .unwrap();
+        return *s.cells(lb).keys().max().unwrap();
+    }
+    panic!("{label} fits at {at:?} on no quarter turn opening {sides}");
+}
+
+/// A room of AC2's basic kit two tiles by three under its ceiling, a hall from its doorway, the
+/// kit's entrance hall at the hall's far end, and a portal on Holtburg's green that sends who
+/// uses it into the entrance hall: who arrives walks from there through the hall into the room.
+#[test]
+fn an_ac2_room_and_hall_reached_by_a_portal_walk_end_to_end() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-layout");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"basic\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    let look = "haunted";
+    // The hall first, then the room laid west of it in one step: its floor tiles and its ceiling
+    // tiles over them, the doorway tile where the hall meets it.
+    let hall = place_ac2(
+        &mut s,
+        lb,
+        "straight",
+        look,
+        Vec3::new(105.0, 90.0, z),
+        "EW",
+    );
+    let room = lyceum_foundry::edit::Ac2Room {
+        landblock: lb,
+        kit: lyceum_foundry::ac2_kit::Kit::Basic,
+        look: look.to_owned(),
+        south_west: (80.0, 80.0),
+        floor: z,
+        east: 2,
+        north: 3,
+    };
+    let laid = s.lay_ac2_room(&room).unwrap();
+    assert_eq!(laid.len(), 12, "six floor tiles and six ceiling tiles");
+    assert!(
+        s.free_doorways(lb, &[])
+            .iter()
+            .all(|d| d.opening.middle.x > 110.0),
+        "the room's every doorway joined; the hall's far end free"
+    );
+    // One undo takes the whole room back, and redo lays it again.
+    s.undo().unwrap();
+    assert_eq!(s.cells(lb).len(), 1);
+    s.redo().unwrap();
+    assert_eq!(s.cells(lb).len(), 13);
+    // A room too narrow, or one whose doorway falls at a corner, is refused and lays nothing.
+    let narrow = lyceum_foundry::edit::Ac2Room {
+        east: 1,
+        ..room.clone()
+    };
+    assert!(s.lay_ac2_room(&narrow).is_err());
+    assert_eq!(s.cells(lb).len(), 13);
+    let entry = place_ac2(
+        &mut s,
+        lb,
+        "entrance hall",
+        look,
+        Vec3::new(115.0, 90.0, z),
+        "",
+    );
+    assert_eq!(s.cells(lb).len(), 14);
+    // Every doorway between them is joined: what stays free is the entrance hall's front door.
+    let free = s.free_doorways(lb, &[]);
+    assert_eq!(free.len(), 1, "{free:?}");
+    // The portal on the green, sending who uses it to the entrance hall's floor.
+    let inside = s.cells(lb)[&entry].frame.origin;
+    let (c, floor) = s
+        .cell_hit(
+            lb,
+            Vec3::new(inside.x, inside.y, inside.z + 3.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        )
+        .expect("the entrance hall has a floor under its middle");
+    assert_eq!(c, entry);
+    let dest = (u32::from(lb) << 16) | u32::from(entry);
+    let pack = s.packs()[s.target()].name.clone();
+    let sql = format!(
+        "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\n\
+         VALUES ({{{{wcid:ac2-door}}}}, 'ac2-door', 7, '2026-11-21 00:00:00');\n\
+         INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)\n\
+         VALUES ({{{{wcid:ac2-door}}}}, 1, 'Portal');\n\
+         INSERT INTO `weenie_properties_position` (`object_Id`, `position_Type`, `obj_Cell_Id`, \
+         `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`)\n\
+         VALUES ({{{{wcid:ac2-door}}}}, 2, {dest:#010X}, {:.3}, {:.3}, {:.3}, 1, 0, 0, 0);\n",
+        floor.x,
+        floor.y,
+        floor.z + 0.5
+    );
+    let file = s.packs()[s.target()]
+        .dir
+        .join("server/sql/weenies/ac2-door.sql");
+    s.apply(&Op::WriteSql {
+        file,
+        text: Some(sql),
+    })
+    .unwrap();
+    s.apply(&Op::PlaceSpawn {
+        landblock: 0xA9B4,
+        weenie: lyceum_foundry::edit::Weenie::Symbol(format!("{pack}:ac2-door")),
+        origin: Vec3::new(100.0, 100.0, 70.0),
+        heading: 0.0,
+    })
+    .unwrap();
+    let doors = s.entrances(lb);
+    assert_eq!(doors.len(), 1, "{doors:?}");
+    let (cell, at) = s
+        .drop_point(lb)
+        .expect("who uses the portal arrives somewhere");
+    assert_eq!(cell, dest);
+    assert!((at.z - floor.z - 0.5).abs() < 1e-3);
+    // From there, every cell is reached and stood in: nothing falls, nothing is out of reach.
+    let found = s.walk(lb);
+    assert!(found.is_empty(), "{found:#?}");
+    assert_ne!(hall, entry);
+}
+
+/// The basic kit's lights are its dungeons' commonest, each a light a room's static stands for;
+/// a room lit by more than the client's pool of 40 is warned of at the build, and one of 40 is
+/// not.
+#[test]
+fn an_ac2_kits_lights_stand_in_a_room_and_a_room_seeing_more_than_forty_is_warned_of() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-lights");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"basic\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let lights = s.ac2_lights().to_vec();
+    assert!(
+        !lights.is_empty() && lights.len() <= lyceum_foundry::ac2_kit::LIGHTS,
+        "{lights:?}"
+    );
+    assert!(
+        lights.windows(2).all(|w| w[0].uses >= w[1].uses),
+        "most used first"
+    );
+    for l in &lights {
+        let bytes = s.base().read_portal(l.setup);
+        let bytes = bytes.or_else(|| {
+            s.compiled()
+                .records
+                .get(&ModernDat::Portal)
+                .and_then(|r| r.get(&l.setup.raw()))
+                .map(|st| st.bytes.clone())
+        });
+        let setup = s
+            .base()
+            .decode::<dereth_assets::Setup>(l.setup, &bytes.unwrap())
+            .unwrap();
+        assert_eq!(setup.lights.len(), 1, "{}", l.label());
+        assert_eq!(setup.lights[&0].color_argb, l.color);
+    }
+    // A hall, and 40 of a light standing in it: within the pool.
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let hall = place_ac2(
+        &mut s,
+        lb,
+        "straight",
+        "own",
+        Vec3::new(100.0, 100.0, -40.0),
+        "NS",
+    );
+    let name = s.cell_names(lb)[&hall].clone();
+    let stand = |s: &mut Session, k: usize| {
+        #[allow(clippy::cast_precision_loss)]
+        let y = 92.0 + 0.4 * k as f32;
+        s.apply(&Op::PlaceCellStatic {
+            landblock: lb,
+            cell: name.clone(),
+            model: lights[0].setup,
+            at: [100.0, y, -35.0],
+            rotation: Rotation::Heading(0.0),
+        })
+        .unwrap();
+    };
+    for k in 0..40 {
+        stand(&mut s, k);
+    }
+    s.save().unwrap();
+    let ac2 = ac2_install();
+    let crowded = |w: &[String]| w.iter().any(|w| w.contains("lights stand in this room"));
+    let built =
+        lyceum_foundry::compile::build_with(&world, &dats, None, false, Some(&ac2)).unwrap();
+    assert!(!crowded(&built.warnings), "{:?}", built.warnings);
+    // One more: the room's pool is past the client's.
+    stand(&mut s, 40);
+    s.save().unwrap();
+    let built =
+        lyceum_foundry::compile::build_with(&world, &dats, None, false, Some(&ac2)).unwrap();
+    assert!(crowded(&built.warnings), "{:?}", built.warnings);
+}
+
+/// AC2's tomb on its own 15 m grid: its halls a square each, its ramps stairs, its rooms' floors,
+/// middles and roofs tiles; a room of them laid through a room entrance off a hall, the roof over
+/// the floor, walks.
+#[test]
+fn the_ac2_tomb_stands_on_fifteen_meter_squares_and_its_room_laid_through_an_entrance_walks() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let (dir, world) = super::sample::sample("dungeon-ac2-tomb");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"tomb\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let pieces = s.ac2_pieces().to_vec();
+    assert_eq!(pieces.len(), 43);
+    assert!(pieces
+        .iter()
+        .all(|p| p.kit == Kit::Tomb && p.looks.len() == 1));
+    let kind = |label: &str| {
+        let p = pieces.iter().find(|p| p.label == label).unwrap();
+        lyceum_foundry::kit::form_on(&s.environment(p.environment).unwrap(), &Kit::Tomb.grid())
+            .unwrap()
+            .kind
+    };
+    for (label, k) in [
+        ("straight", Kind::Corridor),
+        ("corner", Kind::Corner),
+        ("tee", Kind::Tee),
+        ("cross", Kind::Cross),
+        ("end", Kind::DeadEnd),
+        ("ramp", Kind::Stairs),
+        ("room floor corner", Kind::Tile),
+        ("room middle open", Kind::Tile),
+        ("room roof side", Kind::Tile),
+    ] {
+        assert_eq!(kind(label), k, "{label}");
+    }
+    assert!(
+        !s.ac2_lights().is_empty(),
+        "the tomb's own dungeons' lights"
+    );
+    // A hall, then a room of three squares by three laid south of it against its doorway.
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    place_ac2(
+        &mut s,
+        lb,
+        "straight",
+        "own",
+        Vec3::new(105.0, 105.0, z),
+        "NS",
+    );
+    assert_eq!(s.grid_pitch(lb), 15.0);
+    assert_eq!(s.floor_rise(lb), 12.0);
+    let room = lyceum_foundry::edit::Ac2Room {
+        landblock: lb,
+        kit: Kit::Tomb,
+        look: "own".to_owned(),
+        south_west: (90.0, 60.0),
+        floor: z,
+        east: 3,
+        north: 3,
+    };
+    // As in AC2's own tombs, a hall reaches a room through a room entrance, never straight: the
+    // room stands a square back, the entrance between, its second doorway to the hall.
+    let laid = s.lay_ac2_room(&room).unwrap();
+    assert_eq!(
+        laid.len(),
+        19,
+        "the entrance, nine floor tiles and nine roof tiles"
+    );
+    let cells = s.cells(lb);
+    let entrance = pieces
+        .iter()
+        .find(|p| p.label == "room floor entrance")
+        .unwrap()
+        .environment;
+    let (_, cell) = cells
+        .iter()
+        .find(|(_, c)| c.environment == entrance)
+        .expect("an entrance laid");
+    assert!(
+        (cell.frame.origin.x - 105.0).abs() < 0.01 && (cell.frame.origin.y - 90.0).abs() < 0.01
+    );
+    let env = s.environment(entrance).unwrap();
+    let to_hall = lyceum_foundry::pieces::opening(&env, 0, 1, &cell.frame).unwrap();
+    assert!(
+        to_hall.out.y > 0.99,
+        "its second doorway faces the hall: {:?}",
+        to_hall.out
+    );
+    assert!(
+        cells
+            .values()
+            .any(|c| (c.frame.origin.y - 45.0).abs() < 0.01
+                && (c.frame.origin.x - 90.0).abs() < 0.01),
+        "the room a square back"
+    );
+    s.undo().unwrap();
+    assert_eq!(
+        s.cells(lb).len(),
+        1,
+        "one undo takes the entrance and the room"
+    );
+    s.redo().unwrap();
+    assert_eq!(s.cells(lb).len(), 20);
+    let free = s.free_doorways(lb, &[]);
+    assert_eq!(free.len(), 1, "the hall's far end: {free:?}");
+    let found = s.walk(lb);
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+/// AC2's mine on its 20 m grid: its tunnels read as their kinds, join one another and, through
+/// its piece for the purpose, one of basic's halls, and walk; it has no room tiles to lay.
+#[test]
+fn the_ac2_mine_stands_on_twenty_meter_squares_and_joins_a_basic_hall() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let (dir, world) = super::sample::sample("dungeon-ac2-mine");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"mine\"\n\n[[ac2-kit]]\nkit = \"basic\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let mine: Vec<_> = s
+        .ac2_pieces()
+        .iter()
+        .filter(|p| p.kit == Kit::Mine)
+        .cloned()
+        .collect();
+    assert_eq!(mine.len(), 14);
+    let kind = |label: &str| {
+        let p = mine.iter().find(|p| p.label == label).unwrap();
+        lyceum_foundry::kit::form_on(&s.environment(p.environment).unwrap(), &Kit::Mine.grid())
+            .unwrap()
+            .kind
+    };
+    for (label, k) in [
+        ("straight", Kind::Corridor),
+        ("turn", Kind::Corner),
+        ("tee", Kind::Tee),
+        ("cross", Kind::Cross),
+        ("end", Kind::DeadEnd),
+        ("down half", Kind::Stairs),
+        ("to basic", Kind::Corridor),
+    ] {
+        assert_eq!(kind(label), k, "{label}");
+    }
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    place_ac2(
+        &mut s,
+        lb,
+        "mine/straight",
+        "own",
+        Vec3::new(100.0, 100.0, z),
+        "NS",
+    );
+    assert_eq!(s.grid_pitch(lb), 20.0);
+    assert_eq!(s.floor_rise(lb), 10.0);
+    place_ac2(
+        &mut s,
+        lb,
+        "mine/cross",
+        "own",
+        Vec3::new(100.0, 120.0, z),
+        "NESW",
+    );
+    place_ac2(
+        &mut s,
+        lb,
+        "mine/end",
+        "own",
+        Vec3::new(120.0, 120.0, z),
+        "W",
+    );
+    place_ac2(
+        &mut s,
+        lb,
+        "mine/to basic",
+        "own",
+        Vec3::new(80.0, 120.0, z),
+        "EW",
+    );
+    // Basic's hall, two of its 10 m squares, against the mine's piece for it.
+    place_ac2(
+        &mut s,
+        lb,
+        "basic/straight",
+        "own",
+        Vec3::new(60.0, 120.0, z),
+        "",
+    );
+    let refused = s
+        .lay_ac2_room(&lyceum_foundry::edit::Ac2Room {
+            landblock: lb,
+            kit: Kit::Mine,
+            look: "own".to_owned(),
+            south_west: (100.0, 140.0),
+            floor: z,
+            east: 2,
+            north: 2,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("no room tiles"), "{refused}");
+    let found = s.walk(lb);
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+/// A refused AC2 room leaves the history as it was: what undo and redo can take is unchanged, and
+/// redo after the refusal does again the step that was taken back before it, never a part of the
+/// refused room. The tomb's room is refused after its entrance is laid (a room a square wide),
+/// basic's partway through its tiles (a loop of halls comes back into its west squares).
+#[test]
+fn a_refused_ac2_room_leaves_undo_and_redo_as_they_were() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let dats = dereth_dat::testing::dat_dir();
+    let store = dereth_dat::testing::open_store_or_fail();
+    for kit in [Kit::Tomb, Kit::Basic] {
+        let (dir, world) = super::sample::sample("dungeon-ac2-refused");
+        std::fs::write(
+            dir.path().join("holtburg/records/ac2.toml"),
+            format!("[[ac2-kit]]\nkit = \"{}\"\n", kit.name()),
+        )
+        .unwrap();
+        let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+        s.set_today("2026-11-22 00:00:00");
+        let lb = empty_landblock(&store);
+        let z = -40.0;
+        let look = "own";
+        let room = match kit {
+            // A hall, north-south; the room south of it, one square wide.
+            Kit::Tomb => {
+                place_ac2(
+                    &mut s,
+                    lb,
+                    "straight",
+                    look,
+                    Vec3::new(105.0, 105.0, z),
+                    "NS",
+                );
+                lyceum_foundry::edit::Ac2Room {
+                    landblock: lb,
+                    kit,
+                    look: look.to_owned(),
+                    south_west: (105.0, 60.0),
+                    floor: z,
+                    east: 1,
+                    north: 3,
+                }
+            }
+            // A hall north-south with the room south of it, against its doorway; from the hall's
+            // north end a loop of halls comes back down into the room's west squares, so a tile
+            // there does not fit once the room's first tiles are laid.
+            _ => {
+                place_ac2(
+                    &mut s,
+                    lb,
+                    "straight",
+                    look,
+                    Vec3::new(105.0, 105.0, z),
+                    "NS",
+                );
+                place_ac2(&mut s, lb, "tee", look, Vec3::new(105.0, 125.0, z), "NSW");
+                place_ac2(
+                    &mut s,
+                    lb,
+                    "straight",
+                    look,
+                    Vec3::new(85.0, 125.0, z),
+                    "EW",
+                );
+                place_ac2(&mut s, lb, "turn", look, Vec3::new(65.0, 125.0, z), "ES");
+                place_ac2(
+                    &mut s,
+                    lb,
+                    "straight",
+                    look,
+                    Vec3::new(65.0, 105.0, z),
+                    "NS",
+                );
+                place_ac2(&mut s, lb, "end", look, Vec3::new(65.0, 85.0, z), "N");
+                lyceum_foundry::edit::Ac2Room {
+                    landblock: lb,
+                    kit,
+                    look: look.to_owned(),
+                    south_west: (65.0, 70.0),
+                    floor: z,
+                    east: 6,
+                    north: 3,
+                }
+            }
+        };
+        // A step taken back before the room: a second hall placed on the first's far end, then
+        // undone.
+        let (second, sides) = match kit {
+            Kit::Tomb => (Vec3::new(105.0, 120.0, z), "NS"),
+            _ => (Vec3::new(105.0, 145.0, z), "NS"),
+        };
+        place_ac2(&mut s, lb, "straight", look, second, sides);
+        s.undo().unwrap();
+        let cells = s.cells(lb).len();
+        let history = s.history();
+        assert_eq!(history.1, 1, "{kit:?}: one step to do again");
+        let refusal = s
+            .lay_ac2_room(&room)
+            .expect_err("the room is refused")
+            .to_string();
+        // The tomb's after its entrance is laid, basic's after some of its tiles are.
+        let why = match kit {
+            Kit::Tomb => "two squares or more",
+            _ => "does not fit",
+        };
+        assert!(refusal.contains(why), "{kit:?}: {refusal}");
+        assert_eq!(s.cells(lb).len(), cells, "{kit:?}: nothing laid");
+        assert_eq!(s.history(), history, "{kit:?}: undo and redo as they were");
+        s.redo().unwrap();
+        assert_eq!(
+            s.cells(lb).len(),
+            cells + 1,
+            "{kit:?}: redo places the second hall again"
+        );
+        assert!(
+            s.cells(lb)
+                .values()
+                .any(|c| (c.frame.origin.x - second.x).abs() < 0.5
+                    && (c.frame.origin.y - second.y).abs() < 0.5),
+            "{kit:?}: the second hall is what came back"
+        );
+        assert_eq!(s.history().1, 0, "{kit:?}: and nothing more to do again");
+    }
+}
+
+/// A hall of a test layout: its piece, where it stands (x, y) and the sides it opens on.
+type Hall = (&'static str, f32, f32, &'static str);
+
+/// A tomb room that would meet two halls is refused before anything is laid, whichever hall the
+/// room comes to first and with both on one side: the history is as it was. (One hall gives the
+/// entrance and the room a square back, as the tomb's own test shows.)
+#[test]
+fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let dats = dereth_dat::testing::dat_dir();
+    let store = dereth_dat::testing::open_store_or_fail();
+    // Each layout's halls, joined into one dungeon, around a room of three squares by three whose
+    // south-west square is at 90, 60.
+    let layouts: [(&str, &[Hall]); 3] = [
+        (
+            "north and east, the east one met first",
+            &[
+                ("straight", 105.0, 105.0, "NS"),
+                ("corner", 105.0, 120.0, "SE"),
+                ("straight", 120.0, 120.0, "EW"),
+                ("corner", 135.0, 120.0, "WS"),
+                ("straight", 135.0, 105.0, "NS"),
+                ("straight", 135.0, 90.0, "NS"),
+                ("tee", 135.0, 75.0, "NSW"),
+            ],
+        ),
+        (
+            "south and east, the south one met first",
+            &[
+                ("straight", 105.0, 45.0, "NS"),
+                ("corner", 105.0, 30.0, "NE"),
+                ("straight", 120.0, 30.0, "EW"),
+                ("corner", 135.0, 30.0, "WN"),
+                ("straight", 135.0, 45.0, "NS"),
+                ("straight", 135.0, 60.0, "NS"),
+                ("tee", 135.0, 75.0, "NSW"),
+            ],
+        ),
+        (
+            "two on the north side",
+            &[
+                ("straight", 105.0, 105.0, "NS"),
+                ("corner", 105.0, 120.0, "SE"),
+                ("tee", 120.0, 120.0, "WES"),
+                ("straight", 120.0, 105.0, "NS"),
+            ],
+        ),
+    ];
+    for (name, halls) in layouts {
+        let (dir, world) = super::sample::sample("dungeon-ac2-two-halls");
+        std::fs::write(
+            dir.path().join("holtburg/records/ac2.toml"),
+            "[[ac2-kit]]\nkit = \"tomb\"\n",
+        )
+        .unwrap();
+        let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+        s.set_today("2026-11-22 00:00:00");
+        let lb = empty_landblock(&store);
+        let z = -40.0;
+        for &(label, x, y, sides) in halls {
+            place_ac2(&mut s, lb, label, "own", Vec3::new(x, y, z), sides);
+        }
+        let room = lyceum_foundry::edit::Ac2Room {
+            landblock: lb,
+            kit: Kit::Tomb,
+            look: "own".to_owned(),
+            south_west: (90.0, 60.0),
+            floor: z,
+            east: 3,
+            north: 3,
+        };
+        let cells = s.cells(lb).len();
+        let history = s.history();
+        let refusal = s.lay_ac2_room(&room).expect_err(name).to_string();
+        assert_eq!(refusal, "A tomb room can meet only one hall.", "{name}");
+        assert_eq!(s.cells(lb).len(), cells, "{name}: nothing laid");
+        assert_eq!(s.history(), history, "{name}: the history as it was");
+    }
+}
+
+/// At a tomb hall's free doorway, what is offered is only what AC2's own tombs join: each room
+/// entrance by its second doorway (never its first, the room's, backwards), no room tile (a hall
+/// never meets one directly), and the halls as before.
+#[test]
+fn a_tomb_hall_is_offered_only_the_joins_ac2s_tombs_make() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-offered");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"tomb\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-22 00:00:00");
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    place_ac2(
+        &mut s,
+        lb,
+        "straight",
+        "own",
+        Vec3::new(105.0, 105.0, z),
+        "NS",
+    );
+    let rooms: BTreeMap<u16, lyceum_foundry::room::Solid> = s
+        .cells(lb)
+        .iter()
+        .filter_map(|(n, c)| {
+            Some((
+                *n,
+                lyceum_foundry::room::Solid::of_cell(c, &s.environment(c.environment)?)?,
+            ))
+        })
+        .collect();
+    let free = s.free_doorways(lb, &[]);
+    let among: Vec<usize> = (0..free.len()).collect();
+    // Each piece: what fits there, and of that what is offered, with the doorway of the piece
+    // that meets the hall in each.
+    let offered = |label: &str| {
+        let p = s
+            .ac2_pieces()
+            .iter()
+            .find(|p| p.label == label)
+            .unwrap()
+            .clone();
+        let env = s.environment(p.environment).unwrap();
+        let form = lyceum_foundry::kit::form_on(&env, &p.kit.grid()).unwrap();
+        let parts: Vec<lyceum_foundry::room::Shape> = (0..form.parts())
+            .filter_map(|k| lyceum_foundry::room::Shape::of(&env, k))
+            .collect();
+        let d = lyceum_foundry::grid::Dungeon {
+            rooms: &rooms,
+            doorways: &free,
+            ground: None,
+            pitch: p.kit.grid().pitch,
+        };
+        let fits = lyceum_foundry::grid::piece_placements(&form, &parts, &d, &among);
+        let n = fits.len();
+        let kept = s.ac2_offered(lb, p.environment, &free, fits);
+        let meeting: Vec<usize> = kept
+            .iter()
+            .flat_map(|pl| {
+                (0..form.doors.len()).filter(|&slot| {
+                    lyceum_foundry::pieces::opening(&env, 0, slot, &pl.frame).is_some_and(|o| {
+                        free.iter().any(|f| {
+                            (f.opening.middle.x - o.middle.x).abs() < 0.1
+                                && (f.opening.middle.y - o.middle.y).abs() < 0.1
+                                && (f.opening.middle.z - o.middle.z).abs() < 0.1
+                        })
+                    })
+                })
+            })
+            .collect();
+        (n, meeting)
+    };
+    for entrance in ["room floor entrance", "room floor entrance 2"] {
+        let (fits, meeting) = offered(entrance);
+        assert_eq!(fits, 4, "{entrance}: it fits either way round");
+        assert_eq!(
+            meeting,
+            [1, 1],
+            "{entrance}: offered by its second doorway only"
+        );
+    }
+    for tile in [
+        "room floor side",
+        "room floor corner",
+        "room floor two sides",
+        "room floor three sides",
+    ] {
+        let (fits, meeting) = offered(tile);
+        assert!(fits > 0, "{tile} fits against the hall");
+        assert!(meeting.is_empty(), "{tile} is not offered: {meeting:?}");
+    }
+    let (fits, meeting) = offered("straight");
+    assert_eq!((fits, meeting.len()), (4, 4), "halls as before");
+}
+
+/// AC2's castle on its 20 m grid, in both its looks: halls, a 60 m room and a tower of three
+/// floors join and walk, and its piece for the purpose joins one of the tomb's halls.
+#[test]
+fn the_ac2_castle_stands_on_twenty_meter_squares_with_its_rooms_and_a_tower() {
+    use lyceum_foundry::ac2_kit::Kit;
+    let (dir, world) = super::sample::sample("dungeon-ac2-castle");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"castle\"\n\n[[ac2-kit]]\nkit = \"tomb\"\n\n[[ac2-kit]]\nkit = \"fancy\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-21 00:00:00");
+    let castle: Vec<_> = s
+        .ac2_pieces()
+        .iter()
+        .filter(|p| p.kit == Kit::Castle)
+        .cloned()
+        .collect();
+    assert_eq!(castle.len(), 47);
+    assert!(
+        castle
+            .iter()
+            .all(|p| p.looks.len() == 2 && p.looks[0].1 != p.looks[1].1),
+        "the human look draws every piece in its own materials"
+    );
+    let kind = |label: &str| {
+        let p = castle.iter().find(|p| p.label == label).unwrap();
+        lyceum_foundry::kit::form_on(&s.environment(p.environment).unwrap(), &Kit::Castle.grid())
+            .unwrap()
+            .kind
+    };
+    for (label, k) in [
+        ("straight", Kind::Corridor),
+        ("corner", Kind::Corner),
+        ("tee", Kind::Tee),
+        ("cross", Kind::Cross),
+        ("end c", Kind::DeadEnd),
+        ("ramp", Kind::Stairs),
+        ("room a", Kind::Room { long: 3, short: 3 }),
+        // Its halls are a square across: a piece two squares across is a room.
+        ("room b", Kind::Room { long: 2, short: 2 }),
+        ("to tomb", Kind::Corridor),
+        ("to fancy", Kind::Corridor),
+    ] {
+        assert_eq!(kind(label), k, "{label}");
+    }
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    place_ac2(
+        &mut s,
+        lb,
+        "castle/straight",
+        "human",
+        Vec3::new(100.0, 100.0, z),
+        "NS",
+    );
+    assert_eq!(s.grid_pitch(lb), 20.0);
+    place_ac2(
+        &mut s,
+        lb,
+        "castle/cross",
+        "human",
+        Vec3::new(100.0, 120.0, z),
+        "NESW",
+    );
+    // The 60 m room south of the hall, a tower to the east, the tomb's hall to the west.
+    place_ac2(
+        &mut s,
+        lb,
+        "castle/room a",
+        "human",
+        Vec3::new(100.0, 60.0, z),
+        "",
+    );
+    let bottom = place_ac2(
+        &mut s,
+        lb,
+        "castle/tower bottom a",
+        "human",
+        Vec3::new(120.0, 120.0, z),
+        "",
+    );
+    // The tower's floors over its bottom, each joined to the one under it.
+    let middle = place_ac2(
+        &mut s,
+        lb,
+        "castle/tower mid a",
+        "human",
+        Vec3::new(120.0, 120.0, z + 10.0),
+        "",
+    );
+    let top = place_ac2(
+        &mut s,
+        lb,
+        "castle/tower top a",
+        "human",
+        Vec3::new(120.0, 120.0, z + 20.0),
+        "",
+    );
+    let cells = s.cells(lb);
+    for (n, floor) in [(bottom, z), (middle, z + 10.0), (top, z + 20.0)] {
+        let c = &cells[&n];
+        assert!(
+            (c.frame.origin.z - floor).abs() < 0.01
+                && (c.frame.origin.x - 120.0).abs() < 0.01
+                && (c.frame.origin.y - 120.0).abs() < 0.01,
+            "a tower floor at {:?}",
+            c.frame.origin
+        );
+    }
+    place_ac2(
+        &mut s,
+        lb,
+        "castle/to tomb",
+        "own",
+        Vec3::new(80.0, 120.0, z),
+        "EW",
+    );
+    place_ac2(
+        &mut s,
+        lb,
+        "tomb/straight",
+        "own",
+        Vec3::new(62.5, 120.0, z),
+        "",
+    );
+    // North of the cross, its piece to a fancy hall, and the fancy hall.
+    place_ac2(
+        &mut s,
+        lb,
+        "castle/to fancy",
+        "own",
+        Vec3::new(100.0, 140.0, z),
+        "NS",
+    );
+    let fancy = place_ac2(
+        &mut s,
+        lb,
+        "fancy/hall straight",
+        "own",
+        Vec3::new(100.0, 160.0, z),
+        "",
+    );
+    let at = s.cells(lb)[&fancy].frame.origin;
+    assert!(
+        (at.x - 100.0).abs() < 0.01 && (at.y - 160.0).abs() < 0.01,
+        "the fancy hall against the castle's piece for it: {at:?}"
+    );
+    let found = s.walk(lb);
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+/// Every one of the world's own dungeon pieces reaches no further than its doorways, so retail's
+/// fits are as they were; of AC2's kits' pieces only the castle's piece to a tomb's hall reaches
+/// past them, as its catalog says.
+#[test]
+fn the_worlds_own_pieces_reach_none_and_of_ac2s_only_the_castles_to_tomb() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-reach");
+    let kits: String = lyceum_foundry::ac2_kit::Kit::ALL
+        .iter()
+        .map(|k| format!("[[ac2-kit]]\nkit = \"{}\"\n\n", k.name()))
+        .collect();
+    std::fs::write(dir.path().join("holtburg/records/ac2.toml"), kits).unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    let set = lyceum_foundry::dats::DatSet::open(&dats).unwrap();
+    let catalog = lyceum_foundry::pieces::catalog(&set);
+    let mut retail = 0usize;
+    for p in &catalog.kit {
+        for part in 0..p.form.parts() {
+            if let Some(shape) = s.ac2_shape(p.environment, part) {
+                retail += 1;
+                assert_eq!(shape.reach(), 0.0, "{:?} part {part}", p.environment);
+            }
+        }
+    }
+    assert!(retail > 100, "the world's own pieces: {retail}");
+    let reaching: Vec<(&str, &str, f32)> = s
+        .ac2_pieces()
+        .iter()
+        .filter_map(|p| {
+            let r = s.ac2_shape(p.environment, 0)?.reach();
+            (r != 0.0).then_some((p.kit.name(), p.label, r))
+        })
+        .collect();
+    assert_eq!(reaching, [("castle", "to tomb", 0.84)]);
 }

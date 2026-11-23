@@ -183,6 +183,44 @@ Anything you place in a room belongs to it and moves with it. A door set by a do
 facing through; anything else lands on the floor, or against the wall clicked. A portal's card
 sends it into a dungeon or to the camera's position.
 
+### AC2's dungeon kits
+
+Asheron's Call 2's dungeons are built from shared pieces, and Lyceum can build with five of its
+kits: `basic` (stone halls and rooms), `fancy` (a palace's), `tomb` (rough stone tunnels and
+vaulted rooms), `mine` (timbered tunnels) and `castle` (a castle's halls, great rooms and towers),
+at AC2's own size. They are made from your own
+Asheron's Call 2 install: start the editor with `--ac2 <your AC2 folder>`, and build with
+`lyceum build --ac2 <folder>`.
+
+- **A dungeon is AC1's or AC2's**, never both. A new dungeon asks which game it is built of;
+  choosing **Asheron's Call 2** asks for the kits in the pack being edited (it writes
+  `records/ac2.toml`). From its first room on, its rooms decide. An AC2 dungeon offers only AC2's
+  kits, the one chosen in its **Kit** row, named for what they are; at a doorway, every AC2 kit's
+  pieces that fit there, as AC2 joins its kits.
+- **Looks.** An AC2 dungeon has no look of its own: each kit has its own looks, `own`, `plain`,
+  `haunted` and `emplite` for basic; `own` and `broken` for fancy; `own` for the tomb and the
+  mine; `own` and `human` for the castle. The **Look** row chooses the one the kit's pieces are
+  placed in.
+- **Halls** fit like any piece. Basic's and fancy's are two 10 m squares a side, with 10 by 9 m
+  doorways in the middle of their sides, and their floors are 10 m apart. The tomb's grid is 15 m
+  squares, a hall a square, and its floors are 12 m apart. The mine's is 20 m squares, a tunnel a
+  square; its `to basic` piece joins a mine to one of basic's halls. The castle's is 20 m squares,
+  a hall a square, its floors 10 m apart; its `to tomb` and `to fancy` pieces join a castle to a
+  tomb's hall and to a fancy one.
+- **Rooms** are built of tiles a square a side and a floor tall. **Room** lays a whole room in one
+  step, east by north squares, floor and ceiling: against the doorway chosen on the grid, with the
+  doorway tile in the middle of that wall, or from the square chosen. A tomb room is entered
+  through a room entrance, as in AC2's own tombs: laid against a hall, it stands a square back
+  with the entrance between, and it can meet only one hall. By hand, a tomb is offered only the
+  joins AC2's own tombs make: a room tile meets another or an entrance's room side, never a hall.
+  The mine has no room tiles, and the castle's rooms are whole pieces, 40 and 60 m across; its
+  towers stack, bottom, middles and top, a floor apart.
+- **Lights.** Each kit offers the lights its own AC2 dungeons use most, by color. Choose one and
+  click in a room; it stands 3 m up. A room whose lights, with those of the rooms it sees, are more
+  than the 40 the client keeps is warned of.
+
+A dungeon of AC2's pieces is reached by portal, as any dungeon is.
+
 ### Play and Live
 
 Start Live, then Play to take control of a character at the edit camera, in the editor's own window.
@@ -236,7 +274,11 @@ files.
 New ids are taken above the highest the files hold in each range. Weenie class ids start at
 `[ids] wcid` (100,000 by default, above every class id in the end-of-retail world database), and
 instance ids count down from the top of their landblock's range. `world.lock` keeps every id it
-gives, so a rebuild gives the same ones: commit it with the world.
+gives, so a rebuild gives the same ones. **A world travels with its `world.lock`**: commit it, and
+copy or ship it with the world. Without it a build numbers everything afresh, so a dungeon's cells,
+for one, can all take other ids (cells made one at a time are numbered in the order of their names).
+A lock kept after its world's sources were deleted still holds their ids, so new cells made then
+take numbers after them.
 
 A world is a list of content packs, each a folder of text and pictures: new records and models,
 changes to landblocks, and the server's content as ACE's SQL. [PACKS.md](PACKS.md) is the

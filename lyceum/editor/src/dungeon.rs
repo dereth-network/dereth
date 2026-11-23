@@ -90,6 +90,15 @@ type FitsKey = (Target, i32, u64, Option<usize>, bool);
 /// what each draws each role with; the environments as read; the look shown, and whether every
 /// piece is offered in it; the text filter; the chosen piece; the fits worked out last; and where
 /// each thing was drawn.
+/// Which game's pieces a dungeon is built of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Game {
+    /// Asheron's Call's: the world's own pieces, in a look of the dungeon's.
+    Ac1,
+    /// Asheron's Call 2's: its kits' pieces, each in a look of its own kit's.
+    Ac2,
+}
+
 #[derive(Default)]
 pub struct Kit {
     pub pieces: Option<Arc<Vec<KitPiece>>>,
@@ -126,6 +135,16 @@ pub struct Kit {
     /// The part of the fits' list in view, as drawn last.
     pub fits_view: Option<egui::Rect>,
     pub look_rects: Vec<(usize, egui::Rect)>,
+    /// The look each AC2 kit's pieces are placed in, by the kit's name and the look's: the kit's
+    /// own until one is chosen.
+    pub ac2_looks: BTreeMap<&'static str, &'static str>,
+    /// The AC2 room the panel lays next: squares east and north.
+    pub ac2_room: (u8, u8),
+    /// The game chosen for each empty dungeon, by landblock: till its first room, which decides
+    /// from then on ([`EditorApp::dungeon_game`]).
+    pub games: BTreeMap<u16, Game>,
+    /// The AC2 kit the palette offers the pieces of, by name.
+    pub ac2_kit: Option<&'static str>,
 }
 
 impl std::fmt::Debug for Kit {
@@ -296,7 +315,7 @@ pub fn grouped(
         .filter(|i| {
             let p = &pieces[*i];
             f.is_empty()
-                || p.label().contains(&f)
+                || p.label().to_ascii_uppercase().contains(&f)
                 || format!("{:08X}", p.environment.raw()).contains(&f)
                 || p.form
                     .kind
@@ -372,6 +391,16 @@ impl EditorApp {
                 .session
                 .environment(env)
                 .and_then(|e| KitPiece::new(&e, &surfaces))
+            {
+                pieces.push(p);
+            }
+        }
+        // The AC2 kits' pieces the packs ask for, made from the install the editor was given.
+        for a in self.session.ac2_pieces().to_vec() {
+            if let Some(p) = self
+                .session
+                .environment(a.environment)
+                .and_then(|e| KitPiece::of_ac2(&e, &a))
             {
                 pieces.push(p);
             }
@@ -475,20 +504,27 @@ impl EditorApp {
         let look = kept.or_else(|| {
             let cells = self.cells_of(lb);
             let mut counts: BTreeMap<usize, usize> = BTreeMap::new();
+            let mut ac2 = false;
             for placed in lyceum_foundry::kit::placed_pieces(&cells) {
                 let Some(p) = pieces.iter().find(|p| p.environment == placed.environment) else {
                     continue;
                 };
+                ac2 |= p.ac2.is_some();
                 let surfaces = &cells[&placed.cells[0]].surfaces;
                 if let Some(l) = p.looks.iter().find(|l| l.surfaces == *surfaces) {
                     *counts.entry(l.family).or_default() += placed.cells.len();
                 }
             }
-            counts
+            // A dungeon of AC2's kits wears their looks: no world's look is taken for it.
+            let drawn = counts
                 .into_iter()
                 .max_by_key(|(f, n)| (*n, std::cmp::Reverse(*f)))
-                .map(|(f, _)| f)
-                .or_else(|| self.family_of_landblock(lb))
+                .map(|(f, _)| f);
+            if ac2 {
+                drawn
+            } else {
+                drawn.or_else(|| self.family_of_landblock(lb))
+            }
         });
         self.kit.look_of = Some((lb, look));
         look
@@ -545,12 +581,89 @@ impl EditorApp {
                 })
                 .collect()
         };
-        grouped(&pieces, look, every, &self.kit.filter, &named)
+        let mut groups = grouped(&pieces, look, every, &self.kit.filter, &named);
+        // Only the dungeon's game's pieces, and of AC2's, the kit the palette offers.
+        if let Some(lb) = self.dungeon_mode() {
+            let game = self.dungeon_game(lb);
+            let kit = self.palette_ac2_kit(lb);
+            for (_, list) in &mut groups {
+                list.retain(|i| {
+                    let p = &pieces[*i];
+                    offered_in(game, p)
+                        && (game != Some(Game::Ac2) || p.ac2.as_ref().map(|a| a.kit) == kit)
+                });
+            }
+            groups.retain(|(_, list)| !list.is_empty());
+        }
+        groups
+    }
+
+    /// The game dungeon `lb` is built in: AC2's when any of its rooms is a piece of an AC2 kit,
+    /// AC1's when it has rooms of other pieces; an empty one's, the game chosen for it (AC1's
+    /// when the editor has no AC2 install), or none yet.
+    #[must_use]
+    pub fn dungeon_game(&self, lb: u16) -> Option<Game> {
+        let ac2: BTreeSet<DataId> = self
+            .session
+            .ac2_pieces()
+            .iter()
+            .map(|p| p.environment)
+            .collect();
+        let cells = self.cells_of(lb);
+        let mut rooms = cells
+            .values()
+            .filter(|c| c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0)
+            .peekable();
+        if rooms.peek().is_some() {
+            return Some(if rooms.any(|c| ac2.contains(&c.environment)) {
+                Game::Ac2
+            } else {
+                Game::Ac1
+            });
+        }
+        if !self.session.has_ac2() {
+            return Some(Game::Ac1);
+        }
+        self.kit.games.get(&lb).copied()
+    }
+
+    /// Build empty dungeon `lb` of `game`'s pieces; for AC2's, with the pack asking for every
+    /// AC2 kit.
+    ///
+    /// # Errors
+    /// The kits could not be added.
+    pub fn choose_dungeon_game(&mut self, lb: u16, game: Game) -> Result<(), String> {
+        self.kit.games.insert(lb, game);
+        self.kit.fits = None;
+        if game == Game::Ac2
+            && self.session.ac2_kits_asked().len() < lyceum_foundry::ac2_kit::Kit::ALL.len()
+        {
+            self.add_ac2_kits()?;
+        }
+        Ok(())
+    }
+
+    /// The AC2 kit the palette offers in dungeon `lb`: the one chosen, else the dungeon's own,
+    /// else the first the kit holds.
+    #[must_use]
+    pub fn palette_ac2_kit(&self, lb: u16) -> Option<&'static str> {
+        self.kit
+            .ac2_kit
+            .or_else(|| {
+                self.session
+                    .ac2_kit_in(lb)
+                    .map(lyceum_foundry::ac2_kit::Kit::name)
+            })
+            .or_else(|| self.ac2_kit_looks().first().map(|(k, _)| *k))
     }
 
     /// The surfaces kit piece `piece` is drawn with in dungeon `lb`: as its look dresses it (the
     /// look the palette shows, else the dungeon's), else its own.
     pub(super) fn surfaces_for(&mut self, lb: u16, piece: &KitPiece) -> Vec<DataId> {
+        // An AC2 kit's piece wears its kit's look chosen, by name.
+        if let Some(a) = &piece.ac2 {
+            return a.surfaces(self.kit.ac2_looks.get(a.kit).copied().unwrap_or("own"));
+        }
         let look = self.kit.look.or_else(|| self.dungeon_look(lb));
         match look {
             Some(f) => lyceum_foundry::kit::dress(piece, f, self.kit.dress.get(f)).0,
@@ -620,6 +733,7 @@ impl EditorApp {
             return Vec::new();
         };
         let (rooms, doorways, land) = self.grid_world(lb);
+        let rise = self.session.floor_rise(lb);
         let among: Vec<usize> = match target {
             Target::Doorway(link) => doorways
                 .iter()
@@ -627,26 +741,31 @@ impl EditorApp {
                 .into_iter()
                 .collect(),
             Target::Square(s) => {
-                let (x, y) = grid::square_middle(*s);
+                let pitch = self.plan_pitch(lb);
+                let (x, y) = grid::square_middle_at(*s, pitch);
                 doorways
                     .iter()
                     .enumerate()
                     .filter(|(_, d)| {
                         let m = d.opening.middle;
-                        (m.x - x).abs() <= grid::PITCH * 0.75
-                            && (m.y - y).abs() <= grid::PITCH * 0.75
-                            && super::layout::opens_on(d, floor)
+                        (m.x - x).abs() <= pitch * 0.75
+                            && (m.y - y).abs() <= pitch * 0.75
+                            && super::layout::opens_on(d, floor, rise)
                     })
                     .map(|(k, _)| k)
                     .collect()
             }
         };
+        // The dungeon's game's pieces: at a doorway of an AC2 dungeon, every AC2 kit's, as AC2
+        // joins its kits.
+        let game = self.dungeon_game(lb);
         let candidates: Vec<usize> = (0..pieces.len())
             .filter(|i| {
-                self.kit.every
-                    || pieces[*i].looks.is_empty()
-                    || look.is_some_and(|l| pieces[*i].in_look(l))
-                    || look.is_none()
+                offered_in(game, &pieces[*i])
+                    && (self.kit.every
+                        || pieces[*i].looks.is_empty()
+                        || look.is_some_and(|l| pieces[*i].in_look(l))
+                        || look.is_none())
             })
             .collect();
         // The pieces round the choice, for how often the world joins each candidate to them.
@@ -671,6 +790,7 @@ impl EditorApp {
             .iter()
             .filter_map(|i| self.piece_spaces(*i).map(|s| (*i, s)))
             .collect();
+        let plan_pitch = self.plan_pitch(lb);
         let session = &self.session;
         let ground = |x: f32, y: f32| session.ground(lb, x, y);
         let ground_fn: Option<&dyn Fn(f32, f32) -> Option<f32>> =
@@ -683,18 +803,27 @@ impl EditorApp {
                 rooms: &rooms,
                 doorways: &doorways,
                 ground: ground_fn,
+                pitch: self.session.grid_pitch(lb),
             };
             let found: Vec<PiecePlacement> = if first {
                 // The first room: on the square, its floor on the floor shown, at each turn.
                 let Target::Square(s) = target else { continue };
                 (0..4u8)
-                    .map(|t| grid::square_frame(*s, floor - form.lo.z, t))
+                    .map(|t| {
+                        super::layout::first_frame(&pieces[i], *s, plan_pitch, floor - form.lo.z, t)
+                    })
                     .filter_map(|f| grid::fit_piece(form, &spaces, &f, &dungeon).ok())
                     .collect()
             } else {
-                let mut v = grid::piece_placements(form, &spaces, &dungeon, &among);
+                let mut v = self.session.ac2_offered(
+                    lb,
+                    pieces[i].environment,
+                    &doorways,
+                    grid::piece_placements(form, &spaces, &dungeon, &among),
+                );
                 if let Target::Square(s) = target {
-                    v.retain(|p| p.square().is_some_and(|(q, _)| q == *s));
+                    let pitch = self.session.grid_pitch(lb);
+                    v.retain(|p| p.square_at(pitch).is_some_and(|(q, _)| q == *s));
                 }
                 v
             };
@@ -842,8 +971,16 @@ impl EditorApp {
                 rooms,
                 doorways: tops,
                 ground: None,
+                pitch: self.session.grid_pitch(lb),
             };
-            let Some(best) = grid::piece_placements(&pieces[c].form, &cs, &dungeon, &among)
+            let Some(best) = self
+                .session
+                .ac2_offered(
+                    lb,
+                    pieces[c].environment,
+                    tops,
+                    grid::piece_placements(&pieces[c].form, &cs, &dungeon, &among),
+                )
                 .into_iter()
                 .max_by_key(PiecePlacement::joins)
             else {
@@ -1046,6 +1183,7 @@ impl EditorApp {
             "cross" => Some(Kind::Cross),
             "dead end" => Some(Kind::DeadEnd),
             "stairs" => Some(Kind::Stairs),
+            "tile" => Some(Kind::Tile),
             "any" => None,
             other => return Err(format!("{other:?} is not a kind of piece")),
         };
@@ -1207,34 +1345,44 @@ impl EditorApp {
             let placement = if self.cells_of(lb).is_empty() {
                 let o = lyceum_foundry::pick::block_origin(lb);
                 let p = self.camera.position;
-                let s = grid::square_of(p.x - o.x, p.y - o.y);
+                let own = pieces[i].ac2.as_ref().map_or(grid::PITCH, |a| a.pitch());
+                let s = grid::square_of_at(p.x - o.x, p.y - o.y, own);
                 grid::fit_piece(
                     &pieces[i].form,
                     &spaces,
-                    &grid::square_frame(s, super::layout::FIRST_FLOOR - pieces[i].form.lo.z, 0),
+                    &grid::square_frame_at(
+                        s,
+                        own,
+                        super::layout::FIRST_FLOOR - pieces[i].form.lo.z,
+                        0,
+                    ),
                     &grid::Dungeon {
                         rooms: &BTreeMap::new(),
                         doorways: &[],
                         ground: None,
+                        pitch: self.session.grid_pitch(lb),
                     },
                 )
                 .map_err(|_| self.say("layout.no_fit"))?
             } else {
                 let (rooms, doorways, _) = self.grid_world(lb);
                 let among: Vec<usize> = (0..doorways.len()).collect();
-                grid::piece_placements(
+                let found = grid::piece_placements(
                     &pieces[i].form,
                     &spaces,
                     &grid::Dungeon {
                         rooms: &rooms,
                         doorways: &doorways,
                         ground: None,
+                        pitch: self.session.grid_pitch(lb),
                     },
                     &among,
-                )
-                .into_iter()
-                .next()
-                .ok_or_else(|| self.say("messages.no_free_portal"))?
+                );
+                self.session
+                    .ac2_offered(lb, pieces[i].environment, &doorways, found)
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| self.say("messages.no_free_portal"))?
             };
             self.set_piece(lb, i, &placement)?;
         }
@@ -1438,9 +1586,22 @@ impl EditorApp {
             return;
         }
         let t = self.text.table();
+        // An empty dungeon: which game's pieces it is built of, first.
+        let Some(game) = self.dungeon_game(lb) else {
+            ui.colored_label(super::panels::mark::TURN, t.get("dungeon.choose_game"));
+            ui.horizontal(|ui| {
+                if ui.button(t.get("dungeon.game_ac1")).clicked() {
+                    out.push(UiAction::DungeonGame(lb, Game::Ac1));
+                }
+                if ui.button(t.get("dungeon.game_ac2")).clicked() {
+                    out.push(UiAction::DungeonGame(lb, Game::Ac2));
+                }
+            });
+            return;
+        };
         if self.layout.moving.is_some() {
             ui.colored_label(super::panels::mark::TURN, t.get("layout.lifted"));
-        } else if self.kit.look.is_none() && !self.kit.every {
+        } else if game == Game::Ac1 && self.kit.look.is_none() && !self.kit.every {
             ui.colored_label(super::panels::mark::TURN, t.get("dungeon.choose_look"));
         }
         ui.horizontal(|ui| {
@@ -1449,10 +1610,219 @@ impl EditorApp {
                     .hint_text(t.get("dungeon.filter"))
                     .desired_width((ui.available_width() - 120.0).max(80.0)),
             );
-            ui.checkbox(&mut self.kit.every, t.get("dungeon.every"))
-                .on_hover_text(t.get("dungeon.every_tip"));
+            if game == Game::Ac1 {
+                ui.checkbox(&mut self.kit.every, t.get("dungeon.every"))
+                    .on_hover_text(t.get("dungeon.every_tip"));
+            }
         });
+        if game == Game::Ac2 {
+            self.ac2_rows(ui, lb, out);
+        }
         self.palette(ui, out);
+    }
+
+    /// An AC2 dungeon's rows over the palette: its kit, that kit's look, its lights, and (for a
+    /// kit with room tiles) a room to lay.
+    fn ac2_rows(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let kits = self.ac2_kit_looks();
+        let Some(kit) = self.palette_ac2_kit(lb) else {
+            return;
+        };
+        egui::Grid::new("ac2 rows").num_columns(2).show(ui, |ui| {
+            ui.label(t.get("dungeon.ac2_kit"));
+            ui.horizontal_wrapped(|ui| {
+                for (k, _) in &kits {
+                    if ui.selectable_label(*k == kit, *k).clicked() && *k != kit {
+                        self.kit.ac2_kit = Some(k);
+                        if self.chosen_ac2_kit().is_some_and(|c| c.name() != *k) {
+                            self.kit.chosen = None;
+                        }
+                    }
+                }
+            });
+            ui.end_row();
+            // The look the kit's pieces are placed in.
+            if let Some((_, names)) = kits.iter().find(|(k, _)| *k == kit) {
+                ui.label(t.get("dungeon.ac2_look"));
+                ui.horizontal_wrapped(|ui| {
+                    let now = self.kit.ac2_looks.get(kit).copied().unwrap_or("own");
+                    for n in names {
+                        if ui.selectable_label(now == *n, *n).clicked() {
+                            self.kit.ac2_looks.insert(kit, n);
+                        }
+                    }
+                });
+                ui.end_row();
+            }
+            // The kit's lights, each the place tool's to stand in a room.
+            let lights: Vec<(String, u32, DataId)> = self
+                .session
+                .ac2_lights()
+                .iter()
+                .filter(|l| l.kit.name() == kit)
+                .map(|l| (l.label(), l.color, l.setup))
+                .collect();
+            if !lights.is_empty() {
+                ui.label(t.get("dungeon.ac2_lights"))
+                    .on_hover_text(t.get("dungeon.ac2_lights_tip"));
+                ui.horizontal_wrapped(|ui| {
+                    for (label, color, setup) in lights {
+                        let [_, r, g, b] = color.to_be_bytes();
+                        let swatch =
+                            egui::RichText::new("\u{25CF}").color(egui::Color32::from_rgb(r, g, b));
+                        if ui.button(swatch).on_hover_text(label).clicked() {
+                            out.push(UiAction::Model(setup));
+                        }
+                    }
+                });
+                ui.end_row();
+            }
+            // A room of the kit's tiles, laid at the grid's choice.
+            if lyceum_foundry::ac2_kit::Kit::parse(kit).is_some_and(|k| k.has_rooms()) {
+                ui.label(t.get("dungeon.ac2_room"));
+                ui.horizontal(|ui| {
+                    if self.kit.ac2_room == (0, 0) {
+                        self.kit.ac2_room = (3, 3);
+                    }
+                    let (mut east, mut north) = self.kit.ac2_room;
+                    ui.add(egui::DragValue::new(&mut east).range(2..=8));
+                    ui.label("\u{00D7}");
+                    ui.add(egui::DragValue::new(&mut north).range(2..=8));
+                    self.kit.ac2_room = (east, north);
+                    if ui
+                        .button(t.get("dungeon.ac2_room_lay"))
+                        .on_hover_text(t.get("dungeon.ac2_room_tip"))
+                        .clicked()
+                    {
+                        out.push(UiAction::LayAc2Room(east, north));
+                    }
+                });
+                ui.end_row();
+            }
+        });
+    }
+
+    /// The kit of the chosen piece, when it is one of an AC2 kit's.
+    fn chosen_ac2_kit(&self) -> Option<lyceum_foundry::ac2_kit::Kit> {
+        let i = self.kit.chosen?;
+        let kit = self.kit.pieces.as_ref()?.get(i)?.ac2.as_ref()?.kit;
+        lyceum_foundry::ac2_kit::Kit::parse(kit)
+    }
+
+    /// The AC2 kit a room is laid of ([`ac2_room_kit`]): the chosen piece's, else the dungeon's
+    /// own, else the one kit with rooms the packs ask for.
+    fn room_kit(&self) -> Option<lyceum_foundry::ac2_kit::Kit> {
+        let dungeon = self
+            .dungeon_mode()
+            .and_then(|lb| self.session.ac2_kit_in(lb));
+        let kits: std::collections::BTreeSet<_> =
+            self.session.ac2_pieces().iter().map(|p| p.kit).collect();
+        let palette = self
+            .dungeon_mode()
+            .and_then(|lb| self.palette_ac2_kit(lb))
+            .and_then(lyceum_foundry::ac2_kit::Kit::parse);
+        ac2_room_kit(self.chosen_ac2_kit().or(palette), dungeon, &kits)
+    }
+
+    /// Lay an AC2 room `east` by `north` squares of [`Self::room_kit`]'s kit, in its kit's look, its south-west square the grid's chosen square, on the floor the
+    /// grid shows ([`lyceum_foundry::edit::Session::lay_ac2_room`]).
+    ///
+    /// # Errors
+    /// Off a dungeon, no kit with rooms to lay one of, no square chosen, or the room refused.
+    pub fn lay_ac2_room(&mut self, east: u8, north: u8) -> Result<(), String> {
+        let lb = self
+            .dungeon_mode()
+            .ok_or_else(|| self.say("messages.off_world"))?;
+        let (_, shown) = self.plan_floors(lb);
+        let kit = self
+            .room_kit()
+            .filter(|k| k.has_rooms())
+            .ok_or_else(|| self.say("dungeon.ac2_room_kit"))?;
+        let pitch = kit.grid().pitch;
+        // From a square: its south-west square. From a free doorway: against it, the doorway in
+        // the middle of the wall that faces it, on the doorway's floor.
+        let (south_west, floor) = match self.layout.target.clone() {
+            Some(Target::Square(s)) => (lyceum_foundry::grid::square_middle_at(s, pitch), shown),
+            Some(Target::Doorway(link)) => {
+                let d = self
+                    .session
+                    .free_doorways(lb, &[])
+                    .into_iter()
+                    .find(|d| d.link == link)
+                    .ok_or_else(|| self.say("dungeon.ac2_room_square"))?;
+                let m = d.opening.middle;
+                let sill = d
+                    .opening
+                    .corners
+                    .iter()
+                    .map(|c| c.z)
+                    .fold(f32::MAX, f32::min);
+                let (i_mid, j_mid) = (
+                    f32::from((east - 1) / 2) * pitch,
+                    f32::from((north - 1) / 2) * pitch,
+                );
+                let half = pitch / 2.0;
+                let o = d.opening.out;
+                let sw = if o.x.abs() > o.y.abs() {
+                    if o.x > 0.0 {
+                        (m.x + half, m.y - j_mid)
+                    } else {
+                        (m.x - half - f32::from(east - 1) * pitch, m.y - j_mid)
+                    }
+                } else if o.y > 0.0 {
+                    (m.x - i_mid, m.y + half)
+                } else {
+                    (m.x - i_mid, m.y - half - f32::from(north - 1) * pitch)
+                };
+                (sw, sill)
+            }
+            None => return Err(self.say("dungeon.ac2_room_square")),
+        };
+        let look = self
+            .kit
+            .ac2_looks
+            .get(kit.name())
+            .copied()
+            .unwrap_or("own")
+            .to_owned();
+        let room = lyceum_foundry::edit::Ac2Room {
+            landblock: lb,
+            kit,
+            look,
+            south_west,
+            floor,
+            east,
+            north,
+        };
+        let touched = {
+            self.session
+                .lay_ac2_room(&room)
+                .map_err(|e| e.to_string())?;
+            lyceum_foundry::edit::Touched {
+                landblocks: std::iter::once(lb).collect(),
+                sql: false,
+            }
+        };
+        self.layout.target = None;
+        self.reload(&touched)
+    }
+
+    /// Each AC2 kit the kit holds pieces of, with its looks' names, in the kit's order.
+    pub fn ac2_kit_looks(&self) -> Vec<(&'static str, Vec<&'static str>)> {
+        let mut out: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
+        for a in self
+            .kit
+            .pieces
+            .iter()
+            .flat_map(|p| p.iter())
+            .filter_map(|p| p.ac2.as_ref())
+        {
+            if !out.iter().any(|(k, _)| *k == a.kit) {
+                out.push((a.kit, a.looks.iter().map(|(n, _)| *n).collect()));
+            }
+        }
+        out
     }
 
     /// The pieces that fit where the grid's choice is, best first, each turned as it would stand;
@@ -1494,7 +1864,10 @@ impl EditorApp {
                         for k in (row * columns)..((row + 1) * columns).min(fits.len()) {
                             let f = &fits[k];
                             let (rect, r) = ui.allocate_exact_size(cell, egui::Sense::click());
-                            let turn = f.placement.square().map_or(0, |(_, t)| t);
+                            let turn = f
+                                .placement
+                                .square_at(self.session.grid_pitch(lb))
+                                .map_or(0, |(_, t)| t);
                             let lit = r.hovered() || self.kit.hover_fit == Some(k);
                             self.draw_piece(ui, rect, f.piece, turn, lit, false);
                             self.kit.fit_rects.push((k, rect));
@@ -1850,6 +2223,14 @@ impl EditorApp {
     /// It does not fit where the grid's choice is.
     pub fn choose_piece(&mut self, i: usize) -> Result<(), String> {
         self.kit.chosen = Some(i);
+        if let Some(a) = self
+            .kit
+            .pieces
+            .as_ref()
+            .and_then(|p| p.get(i)?.ac2.as_ref())
+        {
+            self.kit.ac2_kit = Some(a.kit);
+        }
         self.layout.turn = 0;
         let Some(lb) = self.dungeon_mode() else {
             return Ok(());
@@ -1865,6 +2246,33 @@ impl EditorApp {
     }
 }
 
+/// The AC2 kit a room is laid of: the chosen piece's kit, else the kit of the dungeon being
+/// edited, else the one kit with room tiles among `kits` (the kits the packs ask for); none when
+/// that leaves it open.
+/// Whether kit piece `p` is offered in a dungeon built in `game`: AC2's kits' pieces in AC2's,
+/// the others in AC1's, none before the game is chosen.
+fn offered_in(game: Option<Game>, p: &KitPiece) -> bool {
+    match game {
+        Some(Game::Ac2) => p.ac2.is_some(),
+        Some(Game::Ac1) => p.ac2.is_none(),
+        None => false,
+    }
+}
+
+fn ac2_room_kit(
+    chosen: Option<lyceum_foundry::ac2_kit::Kit>,
+    dungeon: Option<lyceum_foundry::ac2_kit::Kit>,
+    kits: &std::collections::BTreeSet<lyceum_foundry::ac2_kit::Kit>,
+) -> Option<lyceum_foundry::ac2_kit::Kit> {
+    chosen.or(dungeon).or_else(|| {
+        let mut with_rooms = kits.iter().copied().filter(|k| k.has_rooms());
+        match (with_rooms.next(), with_rooms.next()) {
+            (Some(one), None) => Some(one),
+            _ => None,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (tooling: the world editor's piece palette)
@@ -1874,6 +2282,7 @@ mod tests {
 
     fn piece(env: u32, kind: Kind, looks: &[usize], placed: usize) -> KitPiece {
         KitPiece {
+            ac2: None,
             environment: DataId(env),
             form: Form {
                 slots: vec![2],
@@ -1938,5 +2347,40 @@ mod tests {
         assert_eq!(turned(p, 1), Vec3::new(2.0, -1.0, 3.0));
         assert_eq!(turned(p, 2), Vec3::new(-1.0, -2.0, 3.0));
         assert_eq!(turned(turned(p, 3), 1), p);
+    }
+
+    #[test]
+    fn an_ac2_room_is_of_the_chosen_kit_then_the_dungeons_then_the_only_one_with_rooms() {
+        use lyceum_foundry::ac2_kit::Kit;
+        let kits = |k: &[Kit]| k.iter().copied().collect::<std::collections::BTreeSet<_>>();
+        // A tomb-only world with nothing chosen lays a tomb room, not basic.
+        assert_eq!(
+            ac2_room_kit(None, None, &kits(&[Kit::Tomb])),
+            Some(Kit::Tomb)
+        );
+        // The chosen piece's kit first, then the dungeon's.
+        assert_eq!(
+            ac2_room_kit(
+                Some(Kit::Fancy),
+                Some(Kit::Tomb),
+                &kits(&[Kit::Tomb, Kit::Fancy])
+            ),
+            Some(Kit::Fancy)
+        );
+        assert_eq!(
+            ac2_room_kit(None, Some(Kit::Tomb), &kits(&[Kit::Basic, Kit::Tomb])),
+            Some(Kit::Tomb)
+        );
+        // The mine has no rooms: with it and one kit that has, that one.
+        assert_eq!(
+            ac2_room_kit(None, None, &kits(&[Kit::Mine, Kit::Basic])),
+            Some(Kit::Basic)
+        );
+        // Two kits with rooms and nothing to choose between them: none.
+        assert_eq!(
+            ac2_room_kit(None, None, &kits(&[Kit::Basic, Kit::Tomb])),
+            None
+        );
+        assert_eq!(ac2_room_kit(None, None, &kits(&[])), None);
     }
 }

@@ -275,8 +275,9 @@ pub const ATHENAEUM_MAY_USE: &[&str] = &[
 /// The crates of the second game's a crate outside the four parts may use, by that crate: the
 /// launcher's knowledge, which serves both games, asks a world whether it serves the friends stream
 /// and writes the friends ticket with the stream's own codec (a core crate with no I/O and no
-/// dependencies), rather than a copy of its framing; and the art tool reads a player's install to
-/// build the AC2 look and the AC2-in-AC1 world from it.
+/// dependencies), rather than a copy of its framing; the art tool reads a player's install to
+/// build the AC2 look and the AC2-in-AC1 world from it; and the AC2 dungeon conversion the art
+/// tool and Lyceum share reads the same install.
 pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     ("dereth-launch", "auberean-friends"),
     // The art tool builds the AC2 look from the player's own install: it reads the install's
@@ -292,6 +293,13 @@ pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
     // And its sky: AC2's materials made ready as AC2 draws them, to work out each sky picture's
     // texture stages; it draws nothing.
     ("dereth-art", "auberean-draw"),
+    // The AC2 dungeon cells and materials the art tool and Lyceum share, read from the same
+    // install: its records and its looks, and nothing of the second game's client, server or world
+    // builder.
+    ("dereth-ac2-convert", "auberean-assets"),
+    ("dereth-ac2-convert", "auberean-dat"),
+    ("dereth-ac2-convert", "auberean-world"),
+    ("dereth-ac2-convert", "auberean-primitives"),
     // The session recorder names each recorded message of the second game by its type and the
     // object it is about, and nothing of its client, server or world builder.
     ("dereth-recorder", "auberean-protocol"),
