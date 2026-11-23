@@ -188,6 +188,11 @@ impl<S: Shell> App<S> {
             holds: &holds,
             answer,
             body,
+            dead: self
+                .world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .is_some_and(crate::character::Character::is_dead),
         });
         self.travel_player_moves = self.player_moves;
         self.travel_status = crate::travel::TravelStatus {

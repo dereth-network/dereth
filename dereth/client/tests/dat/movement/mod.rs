@@ -1,4 +1,5 @@
 mod command_lists;
+mod death_stays_down;
 mod door_turn_and_open;
 mod emote_motion_keys;
 mod focus_loss;

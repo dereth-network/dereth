@@ -195,6 +195,7 @@ failure carries the door: see [A shut door](#a-shut-door)),
 it asks, or what the server said when it refused it before), `only_by_drop: …` (only a drop the body
 would not survive leads on), `drop_blocked: …` (the body could not leave the ledge of a drop),
 `drop_failed: …`, `stuck`, `too_many_replans`, `interrupted` (the player moved the character),
+`dead` (the character died; nothing moves the body until the server stands it up),
 `stopped` (`nav.stop()`),
 `replaced`, `declined` (the player said no to leaving the Academy), `needs the player to agree to
 leave the Training Academy` (it would hand a token back, and `hand_backs` was not given), or at a

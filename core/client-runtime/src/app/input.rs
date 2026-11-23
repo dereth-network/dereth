@@ -216,6 +216,13 @@ impl<S: Shell> App<S> {
     /// reads `char_input`, so a key pressed this frame moves the body this frame.
     pub(super) fn apply_input_actions(&mut self, shell: &mut S) {
         self.events.push(FrameEvent::JumpUseTime);
+        // A dead body is moved by nothing, as the interpreter asks the body at each move.
+        let dead = self
+            .world
+            .as_ref()
+            .and_then(|w| w.character.as_ref())
+            .is_some_and(crate::character::Character::is_dead);
+        self.movement.set_player_dead(dead);
         // **This must run before the two early returns below.**
         //
         // A typed pose plays through the command interpreter's motion entry point, the same one

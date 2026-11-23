@@ -476,6 +476,12 @@ pub struct MovementCommands {
 }
 
 impl MovementCommands {
+    /// Say whether the player's body is dead, before the frame's movement commands: a dead
+    /// body is moved by nothing, and control is not taken back from the server from it.
+    pub fn set_player_dead(&mut self, dead: bool) {
+        self.lists.player_dead = dead;
+    }
+
     /// Whether the command interpreter is enabled.
     #[must_use]
     pub const fn is_enabled(&self) -> bool {
@@ -666,6 +672,12 @@ impl MovementCommands {
                     // the emote input-action table's 91, plus `Ready`, which has its own arm
                     // in `move_player` -- has no bool to be shorthand for, so it is queued for
                     // [`Self::take_transient_motions`] instead of being dropped.
+                    // A dead body is moved by nothing: the lists are cleared, the current
+                    // movement (now none) applied, and the command dropped, press or release.
+                    K::Move { .. } if self.lists.player_dead => {
+                        self.lists.clear_all_commands();
+                        self.apply_current_movement(out);
+                    }
                     K::Move {
                         command,
                         start,
@@ -2435,9 +2447,26 @@ impl Character {
         d.env.object_id = self.object_id;
     }
 
+    /// Whether the body is dead: its forward motion is `Dead`, as the server set it.
+    #[must_use]
+    pub fn is_dead(&self) -> bool {
+        self.driver
+            .borrow()
+            .movement
+            .interp
+            .interpreted_state
+            .forward_command
+            == MotionCommand::DEAD
+    }
+
     /// Issue the key changes as motions, the way the client's input layer does: a do-motion on
-    /// the press, a stop-motion on the release, one per slot.
+    /// the press, a stop-motion on the release, one per slot. A dead body is given none: what the
+    /// keys say is taken as applied, and the body stays down until the server moves it.
     fn apply_input(&mut self) {
+        if self.is_dead() {
+            self.applied = self.input;
+            return;
+        }
         // **The hold-run gate is on the interpreter's state, and it is above the early return
         // for the same reason.**
         //
@@ -2537,6 +2566,10 @@ impl Character {
     /// runs.
     pub fn reapply_teleport_input(&mut self, input: CharacterInput) {
         self.input = input;
+        if self.is_dead() {
+            self.applied = input;
+            return;
+        }
         let params = MovementParameters::default();
         // The return is the "did the bit move" gate `apply_input` uses; this path
         // re-issues the whole projection below either way, so it owes no separate
@@ -3388,6 +3421,31 @@ fn seen_from(body: &Frame, eye: &Frame) -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A movement command reaching a dead body's interpreter moves nothing: the lists are
+    /// cleared, nothing is projected, and no new forward movement is raised. Alive again, the same
+    /// press moves the body.
+    ///
+    /// Behaviour: movement.dead.a-dead-body-is-moved-by-no-movement-command
+    #[test]
+    fn a_movement_command_to_a_dead_body_clears_the_lists_and_moves_nothing() {
+        use crate::actions::movement::{command, CmdStruct, MovementAction};
+        let press = MovementAction::SetMotion(CmdStruct {
+            command: command::WALK_FORWARD,
+            start: Some(true),
+            extent: None,
+        });
+        let mut m = MovementCommands::default();
+        let mut out = CharacterInput::default();
+        m.set_player_dead(true);
+        assert!(m.on_action(press, &mut out), "taken, and dropped");
+        assert!(!out.forward, "nothing projected");
+        assert!(m.lists.substate.is_empty(), "the lists cleared");
+        assert!(!m.take_new_forward_movement(), "no new forward movement");
+        m.set_player_dead(false);
+        assert!(m.on_action(press, &mut out));
+        assert!(out.forward, "alive, the press moves the body");
+    }
 
     /// The key latch maps onto the documented motion commands.
     #[test]

@@ -732,7 +732,7 @@ fn ui_event<M: Message>(app: &mut App, message: M) {
         .apply_interaction_events(std::slice::from_ref(&event));
 }
 
-fn server_state(
+pub(super) fn server_state(
     app: &mut App,
     command: dereth_animation::MotionCommand,
     flags: u8,

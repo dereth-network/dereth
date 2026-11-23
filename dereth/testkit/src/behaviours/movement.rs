@@ -61,6 +61,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "movement.dead.a-dead-body-is-moved-by-no-movement-command",
+        says: "A dead character, its motion `Dead`, is moved by no movement command: a key, a \
+               held control or the run lock clears the command lists and moves nothing, and \
+               control is not taken back from the server, so the body stays down until the server \
+               stands it up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MOVEMENT-DEAD"),
+        station: "dereth-client-runtime::lib::character::tests::a_movement_command_to_a_dead_body_clears_the_lists_and_moves_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "movement.door.an-accepted-door-turn-unsticks-the-previous-target",
         says: "When the shard's movement for using a door arrives while the player is still stuck \
                to an earlier combat target, the client first cancels and unsticks from that old \

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Navigator: walks round large objects that come in sight, such as yard walls, instead of into them.
+- Fixed your character getting up and running after dying on a Navigator journey.
 - Navigator: the dungeon map grows with its window.
 - Horizon's Smooth Movement now smooths your own character and the camera too.
 - macOS: the arrow keys move the chat caret instead of typing odd characters.

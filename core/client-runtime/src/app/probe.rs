@@ -339,6 +339,13 @@ impl<'a, S: Shell> AppProbeMut<'a, S> {
         &mut self.app.host_state
     }
 
+    /// Put the session in the world as its `Playable` state does: from then on the travel
+    /// carries a journey out from where the character stands. A scene loaded offline has no
+    /// session to say so.
+    pub fn mark_playable(self) {
+        self.app.playable_at = Some(self.app.timer.local_time);
+    }
+
     /// The same tables, mutable. A test seeds a player and an inventory the
     /// way a `0x0013 Login_PlayerDescription` would, so that a combat-mode toggle has something to
     /// decide against without a server.

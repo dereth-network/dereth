@@ -502,6 +502,8 @@ pub struct TravelInput<'a> {
     /// The character's body spheres, when it has a body ([`reach::body_of`]); empty for the
     /// human body's.
     pub body: Vec<reach::BodySphere>,
+    /// Whether the character is dead: its body's forward motion is `Dead`.
+    pub dead: bool,
 }
 
 impl std::fmt::Debug for TravelInput<'_> {
@@ -3561,6 +3563,11 @@ impl Travel {
             self.end(&mut out, input.at.as_ref(), Some("interrupted"));
             return out;
         }
+        if input.dead && self.trip.is_some() {
+            // The character died: the journey ends there, and nothing of it moves the body.
+            self.end(&mut out, input.at.as_ref(), Some("dead"));
+            return out;
+        }
         let Some(p) = input.at else {
             return out;
         };
@@ -6585,6 +6592,7 @@ mod tests {
                     holds: &holds,
                     answer: None,
                     body: Vec::new(),
+                    dead: false,
                 };
                 for c in travel.use_time(&input) {
                     match c {
@@ -6847,6 +6855,7 @@ mod tests {
                     holds: &holds,
                     answer: None,
                     body: Vec::new(),
+                    dead: false,
                 };
                 let t = web_time::Instant::now();
                 let _ = travel.use_time(&input);

@@ -775,6 +775,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-character-who-dies-on-a-journey-stays-down",
+        says: "A journey ends (`dead`) the frame its character dies, and nothing a journey, a \
+               plugin's held control or run lock, or the window losing focus presses moves the \
+               dead body, at any frame rate: it stays down until the server stands it up, and then \
+               runs again.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DEATH"),
+        station: "dereth-client::dat::movement::death_stays_down::a_character_who_dies_on_a_journey_stays_down_and_the_journey_ends",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-door-no-use-opens-is-opened-by-its-lever",
         says: "A door that cannot be used, which the server publishes a lever for, is planned                as passable: at it the walk goes to the nearest lever a walk reaches, uses it (a                plate is stepped on), and walks through once the door stands open, going back to                the lever a few times if it shuts first; with no lever reached, the door is                planned round.",
         since: THIS_CLIENT,

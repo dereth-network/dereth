@@ -187,6 +187,10 @@ pub struct CommandLists {
     /// Both losing and taking control are no-ops at level 0, and the autonomous-state check is
     /// `autonomy_level != 2`. The setter refuses anything above 2.
     pub autonomy_level: u32,
+    /// Whether the player's body is dead (its forward motion is `Dead`), as the caller last said:
+    /// control is not taken back from the server from a dead body, and a movement command moves
+    /// nothing.
+    pub player_dead: bool,
 }
 
 impl Default for CommandLists {
@@ -204,6 +208,7 @@ impl Default for CommandLists {
             controlled_by_server: false,
             control_losses: 0,
             autonomy_level: 2,
+            player_dead: false,
         }
     }
 }
@@ -621,7 +626,7 @@ impl CommandLists {
     ///
     /// The boolean answer is the caller's too.
     pub fn take_control_from_server(&mut self) -> bool {
-        if !self.controlled_by_server || self.autonomy_level == 0 {
+        if !self.controlled_by_server || self.autonomy_level == 0 || self.player_dead {
             return false;
         }
         self.controlled_by_server = false;
@@ -802,6 +807,24 @@ pub fn jump_extent(power_bar_level: f32, min_jump_extent: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    /// Control is not taken back from the server from a dead body: a key pressed while dead leaves
+    /// the body with the server, which stands it up when it brings it back.
+    ///
+    /// Behaviour: movement.dead.a-dead-body-is-moved-by-no-movement-command
+    #[test]
+    fn control_is_not_taken_back_from_the_server_from_a_dead_body() {
+        let mut l = super::CommandLists {
+            controlled_by_server: true,
+            player_dead: true,
+            ..super::CommandLists::default()
+        };
+        assert!(!l.take_control_from_server());
+        assert!(l.controlled_by_server, "still the server's");
+        l.player_dead = false;
+        assert!(l.take_control_from_server());
+        assert!(!l.controlled_by_server);
+    }
+
     use super::*;
 
     fn ev(action: ActionId, start: bool) -> Action {
