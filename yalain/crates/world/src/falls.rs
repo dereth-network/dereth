@@ -22,8 +22,8 @@
 //! **Safe Fall.** A player holding the effect of Safe Fall (its type [`SAFE_FALL`]) lands unhurt
 //! from a fall that would harm it, and the record ends with the fall it saved.
 //!
-//! **Told** as the player's health, the wounded look as any harm shows it, then "You suffer N impact
-//! damage!" with the health it lost, sent in that order (2017: the line the next private message
+//! **Told** as the player's health, the wounded look where any harm shows it, then "You suffer N
+//! impact damage!" with the health it lost, sent in that order (2017: the line the next private message
 //! after the health in 2,857 of 2,857 falls that told both in one tick; the look, or its stop, sent
 //! before the line in 1,101 of 1,101 with one). With no health left the player dies, by misadventure,
 //! and is told no line (2017: none at 4 of 4 deaths by misadventure).

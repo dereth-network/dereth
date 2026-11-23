@@ -4,7 +4,8 @@
 //! step comes a fresh 3.5 to 7.5 s after the one before (a hit or a cost leaves it be), and gives
 //! health, then vigor, the share of the greatest the time since the last step earns, rounded down;
 //! nothing is sent for a vital at its greatest or that gained nothing. The greatest is the vital's
-//! with the player's effects, as the client shows it.
+//! with the player's effects, as the client shows it. Health regained moves the wounded look as any
+//! change of health does ([`crate::combat::wounded`]).
 //!
 //! **Rates.** At rest the peace rates apply, in combat the combat rates. A player is in combat for
 //! a step when it attacked, used a skill or was hurt at any moment since the last step, or is
@@ -28,7 +29,7 @@
 //!
 //! **Creatures** not hurt for eight seconds regain their greatest health in a minute (a share of it a
 //! second), in whole points as the share earned adds up (measured through 2017's selection pushes;
-//! nothing is sent for them). One still in a fight regains its template's combat rate instead, where
+//! nothing is sent for them but the wounded look, as their health crosses its steps). One still in a fight regains its template's combat rate instead, where
 //! the template sets one: a group monster's tenth of its greatest a minute, a big one's 0.15 (2017:
 //! in a fight, unhurt, the big creatures whose templates set 0.15 regained a median 0.16 a minute,
 //! 8 pairs; at peace, or fighting with no rate set, creatures regained about their greatest).
@@ -183,6 +184,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
     let now = clock.local.0;
     let worlds: Vec<_> = s.players.keys().copied().collect();
     let mut drowned = Vec::new();
+    // Health regained moves the wounded look as any change of health does: who, its share now, before.
+    let mut looks: Vec<(u64, f32, f32)> = Vec::new();
     for world in worlds {
         let Some(p) = s.players.get(&world) else {
             continue;
@@ -257,6 +260,10 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
                 p.regen_health = next;
             }
             progress::send_int(net, world, cur, next);
+            if cur == quality::HEALTH {
+                #[allow(clippy::cast_precision_loss)]
+                looks.push((p.character, next as f32 / m as f32, c as f32 / m as f32));
+            }
         }
     }
     for world in drowned {
@@ -291,6 +298,16 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
         );
         let gain = (earned - t.regained).max(0);
         t.regained += gain;
+        let was = t.health;
         t.health = (t.health + gain).min(t.max_health);
+        if t.health != was {
+            #[allow(clippy::cast_precision_loss)]
+            let most = t.max_health.max(1) as f32;
+            #[allow(clippy::cast_precision_loss)]
+            looks.push((id, t.health as f32 / most, was as f32 / most));
+        }
+    }
+    for (id, share, was) in looks {
+        crate::combat::wounded(s, net, id, share, was);
     }
 }

@@ -154,6 +154,9 @@ pub fn kind_stance(weapon: &str) -> Option<u32> {
 /// which it shows.
 pub const WOUNDED_FX: u32 = 0x4100_0002;
 pub const WOUNDED_AT: f32 = 0.8;
+/// How many steps of its greatest health an object's wounded look moves by: it is told again only
+/// as its health crosses a fifth (full health a step of its own).
+pub const WOUNDED_STEPS: f32 = 5.0;
 
 /// A player's basic melee attacks (with a one-handed weapon, a bow up close, or nothing): five
 /// skills and the behavior each plays.
@@ -1740,8 +1743,19 @@ pub(crate) fn stamp_of<S: Store>(s: &mut Server<S>, id: u64) -> Option<ObjectSta
         .then(|| crate::inventory::visual(s, id))
 }
 
-/// The wounded effect of an object at a share of its health (none above 80%; ended when it
-/// recovers above it).
+/// The step of an object's health a share of its greatest is in: a fifth from none to four, each
+/// from its edge up to the next (four fifths exactly is in the fifth above it), full health five.
+#[must_use]
+pub(crate) fn wounded_step(share: f32) -> i32 {
+    dereth_primitives::num::floor_to_i32(share.clamp(0.0, 1.0) * WOUNDED_STEPS)
+}
+
+/// An object's wounded look as its health moves from one share of its greatest to another: told
+/// only when the health crosses into another fifth of its greatest ([`wounded_step`]), or reaches
+/// or leaves full health; at or below four fifths the look, how wounded, else its end (2017: as
+/// 13,495 of 13,961 changes of a player's health did; of a creature's or a pet's looks in a row,
+/// 29,973 of 29,986 were a fifth apart; coming down to four fifths exactly, 14 of 16 told nothing,
+/// and coming up to it, 5 of 5 the look).
 pub(crate) fn wounded<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1749,6 +1763,9 @@ pub(crate) fn wounded<S: Store>(
     share: f32,
     was: f32,
 ) {
+    if wounded_step(share) == wounded_step(was) {
+        return;
+    }
     let m = if share <= WOUNDED_AT {
         let Some(sender) = stamp_of(s, id) else {
             return;
@@ -1760,7 +1777,7 @@ pub(crate) fn wounded<S: Store>(
                 scalar: 1.0 - share,
             },
         })
-    } else if was <= WOUNDED_AT {
+    } else {
         let Some(sender) = stamp_of(s, id) else {
             return;
         };
@@ -1768,8 +1785,6 @@ pub(crate) fn wounded<S: Store>(
             sender,
             action: Word(WOUNDED_FX),
         })
-    } else {
-        return;
     };
     to_all_seeing(s, net, id, &m);
 }

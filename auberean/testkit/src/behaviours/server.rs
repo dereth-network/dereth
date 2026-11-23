@@ -1788,6 +1788,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.combat.the-wounded-look-moves-by-fifths",
+        says: "An object's wounded look is told only as its health crosses into another fifth of \
+               its greatest (each fifth from its edge up to the next, so four fifths exactly is in \
+               the fifth above it; full health a step of its own), from a harm or from health \
+               regained: at or below four fifths the look, how wounded, else its end; nothing \
+               while the health stays in one fifth.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WOUNDED-FIFTHS"),
+        station: "yalain-testkit::cpu::play::wounded::a_creature_hurt_in_steps_is_told_its_look_only_as_its_health_crosses_a_fifth",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.weapon-hit-effects-on-what-they-hit",
         says: "What a weapon's template names for what it hits goes on what its wielder's blows \
                land on, at the template's spellcraft, by the effect's own chance at it: a \

@@ -146,6 +146,7 @@ mod weapons;
 mod wearing;
 mod workshops;
 mod worn_effects;
+mod wounded;
 
 /// What a client was told of its experience: a chat-window text (its string id, with the
 /// experience it names, if any), or a new total.
