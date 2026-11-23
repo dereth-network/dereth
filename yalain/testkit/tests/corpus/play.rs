@@ -575,7 +575,9 @@ fn a_hard_day() -> Vec<ServerMessage> {
         h.bots[b].send(true, queue::WEENIE, &server_call(f, &[Arg::Int(15)]));
         h.run(10);
     }
-    h.world_messages(b, 0)
+    // In the order the server sent them: a return's place told before its exit fills the packets
+    // differently from one draw to the next.
+    h.sent_messages(b, 0)
 }
 
 /// A visit to people: a quest given, a store opened and a sale bought.

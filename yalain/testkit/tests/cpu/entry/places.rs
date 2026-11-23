@@ -148,6 +148,109 @@ fn a_portal_takes_the_player_through_portal_space_to_its_destination() {
     );
 }
 
+/// Where, in the order the server sent them since `from`, the first message `pick` accepts is.
+fn sent_at(
+    h: &Harness,
+    b: usize,
+    from: usize,
+    pick: impl Fn(&ServerMessage) -> bool,
+) -> Option<usize> {
+    h.sent_messages(b, from).iter().position(pick)
+}
+
+fn is_call(m: &ServerMessage, f: u32) -> bool {
+    matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == f)
+}
+
+fn is_made(m: &ServerMessage, id: u64) -> bool {
+    matches!(m, ServerMessage::CreateObject(o) if o.id == id)
+}
+
+/// A player coming out of a portal's trip is told of the objects of its new place before it
+/// leaves portal space; then the exit, its animation freed and the use's answer, in that order.
+/// Behaviour: server.places.new-place-before-the-exit
+#[test]
+fn a_portals_traveler_is_told_of_the_new_places_objects_before_it_comes_out() {
+    const SIGN: u64 = 0x4002_9900_0000_0058;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut sign = object(SIGN, 0x4700_1154, [12.0, 10.0, 50.0], None);
+    sign.cell = 0x7000_0001;
+    h.server.content = ContentPack {
+        objects: vec![
+            object(PORTAL, 0x4700_1154, [61.0, 240.2, -44.6], Some(to)),
+            sign,
+        ],
+        ..ContentPack::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(PORTAL, ida)]),
+    );
+    h.run(50);
+    let made = sent_at(&h, a, from, |m| is_made(m, SIGN));
+    let exit = sent_at(&h, a, from, |m| is_call(m, trip::EXIT_PORTAL_SPACE));
+    // The second of the animation's freezes since the use: the one freeing it.
+    let freed = h
+        .sent_messages(a, from)
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| is_call(m, trip::ANIMATION_FROZEN))
+        .map(|(i, _)| i)
+        .nth(1);
+    let done = sent_at(&h, a, from, |m| is_call(m, trip::USE_DONE));
+    assert!(
+        made.is_some() && made < exit && exit < freed && freed < done,
+        "{made:?} {exit:?} {freed:?} {done:?}"
+    );
+}
+
+/// A recall's traveler is told of the objects where it lands before it leaves portal space.
+/// Behaviour: server.places.new-place-before-the-exit
+#[test]
+fn a_recalls_traveler_is_told_of_the_new_places_objects_before_it_comes_out() {
+    let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
+    h.server.content = ContentPack {
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
+        ..ContentPack::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(STONE, ida)]),
+    );
+    h.run(10);
+    h.arm(a, ida, 0x4700_051C);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::ATTACK,
+            &[Arg::Int(1), Arg::Int(LIFESTONE_RECALL), Arg::LongInt(0)],
+        ),
+    );
+    assert!(
+        h.run_until(600, |h| calls(h, a, 0).contains(&trip::ENTER_PORTAL_SPACE)),
+        "into portal space"
+    );
+    let from = h.bots[a].inbox.len();
+    h.run(60);
+    let made = sent_at(&h, a, from, |m| is_made(m, STONE));
+    let exit = sent_at(&h, a, from, |m| is_call(m, trip::EXIT_PORTAL_SPACE));
+    assert!(made.is_some() && made < exit, "{made:?} {exit:?}");
+}
+
 /// A teaching stone of a class of its own (a vault's) shows its page when used: the client is told
 /// to examine it, then the use is answered; an object of a class that is no teaching stone is not.
 /// Behaviour: server.places.teaching-stone-of-its-own-shown

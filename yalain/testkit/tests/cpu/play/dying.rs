@@ -442,6 +442,36 @@ fn a_player_death_and_its_corpse_reach_a_watching_client_in_an_order_it_takes() 
     }
 }
 
+/// A resurrected player is told of what stands where it comes back, its own corpse among it, before
+/// it leaves portal space.
+/// Behaviour: server.places.new-place-before-the-exit
+#[test]
+fn a_resurrected_player_is_told_of_the_new_places_objects_before_it_comes_out() {
+    let mut h = Harness::new();
+    let (b, _) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    let corpse = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.template == CORPSE)
+        .map(|t| t.id)
+        .expect("its corpse");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 2.0);
+    let sent = h.sent_messages(b, from);
+    let made = sent
+        .iter()
+        .position(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == corpse));
+    let exit = sent.iter().position(|m| {
+        matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::places::function::EXIT_PORTAL_SPACE)
+    });
+    assert!(made.is_some() && made < exit, "{made:?} {exit:?}");
+}
+
 /// Asked for once the corpse is made, the resurrection takes the player through portal space; a
 /// second and a half later it is alive again with three quarters of its health.
 /// Behaviour: server.death.resurrection

@@ -14725,6 +14725,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.new-place-before-the-exit",
+        says: "A player coming out of portal space, from a portal, a recall or a return from a death, \
+               is told of the objects of its new place before it leaves portal space; then the \
+               exit, its animation freed and a use's answer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEW-PLACE-BEFORE-EXIT"),
+        station: "yalain-testkit::cpu::entry::places::a_portals_traveler_is_told_of_the_new_places_objects_before_it_comes_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.person-facing-speaks-ours",
         says: "A person that doesn't turn to its user has its place told once as it stands, 0.1 s \
                after the use's answer, and speaks 0.17 s after it: this server's fit, against 2017's \

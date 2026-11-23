@@ -5,10 +5,10 @@
 //! walked to it (a movement order toward the object, ended when the player is in reach). Then,
 //! in one batch: the portal flashes, the player is told it is teleporting, its teleport and
 //! arrival effects play, its animation and movement freeze, and it enters portal space. A second
-//! and a half later it leaves portal space, its animation is freed, the use is answered, and it is
-//! placed at the destination with a newer teleport stamp: the clients that knew it at the old
-//! place and do not see the new one see it leave, those at the new place are told of it, and it is
-//! told of everything around the new place again. When its client has drawn the new place, its
+//! and a half later it is placed at the destination with a newer teleport stamp: the clients that
+//! knew it at the old place and do not see the new one see it leave, those at the new place are
+//! told of it, and it is told of everything around the new place again; then it leaves portal
+//! space, its animation is freed and the use is answered. When its client has drawn the new place, its
 //! movement is freed and the arrival effect ended (as at entry).
 //!
 //! **Walking into a portal.** A portal whose kind is used by walking into it (the world's
@@ -2694,6 +2694,31 @@ fn arrive<S: Store>(
         s.players.insert(world, p);
         return;
     };
+    // Clients that held the player at the old place and do not see the new one see it leave.
+    let to = trip.to;
+    presence::leave_from(s, net, &p, |q| {
+        !presence::in_view(&q.position, to.cell, to.origin)
+    });
+    p.teleport_stamp = p.teleport_stamp.wrapping_add(1);
+    p.position = trip.to;
+    p.travel = crate::reported::Travel::placed(clock.local.0);
+    p.heading_motion =
+        u32::from(heading_of_rotation(trip.to.rotation)) << 24 | crate::world::IDLE_MOTION;
+    if trip.used.as_ref().is_some_and(|u| recalled_to(s, u)) {
+        p.places.retain(|(k, _)| *k != kind::LAST_PORTAL);
+        p.places.push((kind::LAST_PORTAL, trip.to));
+    }
+    let m = p.next_position(time, ON_GROUND);
+    // The client lets go of what it knew at the old place by itself: it is told of all that is
+    // around the new one, before it comes out (2017: the new place's objects made before the
+    // exit in 1,439 of 1,974 portals' trips, after it in 378; recalls 230 to 154, returns from a
+    // death 95 to 54).
+    p.known.clear();
+    s.players.insert(world, p);
+    presence::refresh(s, net, world);
+    let Some(mut p) = s.players.remove(&world) else {
+        return;
+    };
     let exit = match scene {
         Some(scene) => portal_scene(s, function::EXIT_PORTAL_SCENE, scene),
         None => portal_space(function::EXIT_PORTAL_SPACE),
@@ -2844,24 +2869,6 @@ fn arrive<S: Store>(
         };
         p = q;
     }
-    // Clients that held the player at the old place and do not see the new one see it leave.
-    let to = trip.to;
-    presence::leave_from(s, net, &p, |q| {
-        !presence::in_view(&q.position, to.cell, to.origin)
-    });
-    p.teleport_stamp = p.teleport_stamp.wrapping_add(1);
-    p.position = trip.to;
-    p.travel = crate::reported::Travel::placed(clock.local.0);
-    p.heading_motion =
-        u32::from(heading_of_rotation(trip.to.rotation)) << 24 | crate::world::IDLE_MOTION;
-    if trip.used.as_ref().is_some_and(|u| recalled_to(s, u)) {
-        p.places.retain(|(k, _)| *k != kind::LAST_PORTAL);
-        p.places.push((kind::LAST_PORTAL, trip.to));
-    }
-    let m = p.next_position(time, ON_GROUND);
-    // The client lets go of what it knew at the old place by itself: it is told again of all
-    // that is around the new one.
-    p.known.clear();
     s.players.insert(world, p);
     presence::tell_position(s, net, world, &m, true, false);
     // Landed in another chat region (or indoors from one): its channels again.
@@ -2928,6 +2935,7 @@ fn arrive<S: Store>(
     // Its pets come out beside it, but for an escort its trip fails.
     crate::escorts::owner_arrives(s, net, world, clock);
     crate::pets::owner_arrives(s, net, world, time);
+    // What came to be about it since (its pets among them).
     presence::refresh(s, net, world);
     // A rider come out inside is soon off its mount.
     crate::mounts::arrived(s, world, clock);
