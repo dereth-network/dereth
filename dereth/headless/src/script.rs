@@ -179,6 +179,9 @@ pub enum Command {
     World(u16),
     /// `position` -- where the body stands: its cell and its block-local origin, or `none`.
     Position,
+    /// `settle <cap>` -- frames until the body is out of portal space, shown, and has stopped
+    /// moving, or `cap` seconds have gone (a guard against a body that never settles).
+    Settle(f64),
     /// `quit` -- stop reading the script and shut the client down.
     Quit,
     /// `plugin ...` -- load, unload, reload, list, or show a plugin's console.
@@ -497,6 +500,13 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
             .ok_or_else(|| err(n, format!("world needs a landblock id, not {block:?}"))),
         ("world", _) => Err(err(n, "world takes <landblock>")),
         ("position", []) => Ok(Command::Position),
+        ("settle", [cap]) => cap
+            .parse::<f64>()
+            .ok()
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .map(Command::Settle)
+            .ok_or_else(|| err(n, format!("settle needs a cap in seconds, not {cap:?}"))),
+        ("settle", _) => Err(err(n, "settle takes <cap seconds>")),
         ("position", _) => Err(err(n, "position takes no arguments")),
         ("snapshot", []) => Ok(Command::Snapshot),
         ("near", []) => Ok(Command::Near(20)),
@@ -636,6 +646,16 @@ mod tests {
         );
         assert!(parse("world 0x1A9B4").is_err(), "a landblock id is 16 bits");
         assert!(parse("position 1").is_err());
+        assert_eq!(
+            parse(
+                "settle 30
+"
+            )
+            .expect("parses"),
+            vec![Command::Settle(30.0)]
+        );
+        assert!(parse("settle").is_err(), "a cap is required");
+        assert!(parse("settle 0").is_err());
     }
 
     #[test]

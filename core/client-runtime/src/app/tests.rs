@@ -442,6 +442,7 @@ fn a_scripted_entry_with_no_interface_waits_for_the_data_files_to_be_updated() {
 }
 
 mod bulk_patch;
+mod patch_rebuild;
 mod world_refusal;
 
 /// A frame drawn while the window is the active one is paced by the Max FPS, and one drawn while

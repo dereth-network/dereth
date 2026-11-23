@@ -92,6 +92,8 @@ Script: one command per line, `#` starts a comment.
                                   creature or object) and name
   world <landblock>               load a world offline with a body (needs --world)
   position                        where the body stands
+  settle <cap>                    frames until the body is out of portal space, shown and still
+                                  (or cap seconds), then where it stands
   quit                            stop and shut the client down
   plugin load <dir or zip> | unload <id> | reload <id> | list | console <id>
   ui dump | ui layout | ui click <plugin> <window> <node> | ui set <plugin> <window> <node> <json>

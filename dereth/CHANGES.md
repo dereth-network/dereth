@@ -35,6 +35,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Navigator: learns where your recalls take you, from using them, portal ties and lifestones.
 - Worlds can now use a finer land grid, drawn and walked in both looks.
 - The maps name a world's own towns and landmarks.
+- Fixed a world entered during its data patch being built from the old files.
 
 ## 0.4.21 (2026-11-21)
 - Fixed the game freezing while a world's large data patch downloads; it now shows progress.

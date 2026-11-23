@@ -1166,6 +1166,7 @@ impl<S: Shell> App<S> {
             return;
         }
         self.adopt_store(std::sync::Arc::new(fresh));
+        self.rebuild_world_after_patch();
         tracing::info!(
             "DDD reopened the dat files; {} changed",
             summary
@@ -1175,6 +1176,25 @@ impl<S: Shell> App<S> {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+    }
+
+    /// A world built while the patch was still arriving read its blocks, cells, buildings and
+    /// statics from the files as they were then, and keeps what it read for as long as it stands:
+    /// so after a patch it is built again from the patched files. In the world, it is torn down
+    /// and built again around the player where the server last placed them, as at world entry
+    /// ([`Self::reset_world_view`], [`Self::load_pending_scene`]); the character screen's view of
+    /// the world is let go, and drawn again from the patched files on its next frame. With no
+    /// world built there is nothing read to drop.
+    pub(super) fn rebuild_world_after_patch(&mut self) {
+        if self.backdrop.is_some() {
+            self.hide_backdrop();
+            tracing::info!(
+                "the character screen's view of the world is drawn again from the patched files"
+            );
+        } else if self.world.is_some() {
+            self.reset_world_view();
+            tracing::info!("the world is built again from the patched files");
+        }
     }
 
     /// The data files opened again after a patch, with the world's overlay over them: the files

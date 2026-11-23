@@ -204,6 +204,54 @@ fn frame_wait(i: u64, elapsed: std::time::Duration) -> Option<std::time::Duratio
     due.checked_sub(elapsed).filter(|w| !w.is_zero())
 }
 
+/// Whether a body has settled, a frame at a time: out of portal space, shown, and in one cell at
+/// one place (within [`Settler::STILL`] meters) for [`Settler::STILL_FRAMES`] frames running.
+#[derive(Debug, Default)]
+struct Settler {
+    last: Option<(u32, dereth_client_sdk::primitives::Vec3)>,
+    still: u32,
+}
+
+impl Settler {
+    /// How far a settled body may drift between frames, meters.
+    const STILL: f32 = 0.01;
+    /// How many frames running it must stand still: a second and a half at the headless step.
+    const STILL_FRAMES: u32 = 45;
+
+    /// This frame's body (its cell and origin, `None` when there is none) and whether it is
+    /// hidden or in portal space; whether it has settled.
+    fn step(
+        &mut self,
+        body: Option<(u32, dereth_client_sdk::primitives::Vec3)>,
+        hidden: bool,
+    ) -> bool {
+        let moved = match (&self.last, &body) {
+            (Some((c0, p0)), Some((c1, p1))) => {
+                let (dx, dy, dz) = (p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+                c0 != c1 || dx * dx + dy * dy + dz * dz > Self::STILL * Self::STILL
+            }
+            _ => true,
+        };
+        self.last = body;
+        if hidden || body.is_none() || moved {
+            self.still = 0;
+            return false;
+        }
+        self.still += 1;
+        self.still >= Self::STILL_FRAMES
+    }
+}
+
+/// How long `enter` waits for the server to finish with the data files: a whole converted world
+/// is over a hundred megabytes.
+const PATCH_WAIT_SECS: f64 = 600.0;
+
+/// Whether a character may go into the world: over a server connection, once the server has
+/// finished with the data files (the patch-time end); a replay has no patch to wait for.
+const fn may_enter(connected: bool, patch_finished: bool) -> bool {
+    !connected || patch_finished
+}
+
 /// Whether a held action's frames wait for the wall clock. Over a server connection they must:
 /// run as fast as they can, a held movement reaches the server as many times its speed.
 /// Offline (a replay, a world loaded here) they need not, and a script runs as fast as it can.
@@ -431,6 +479,7 @@ impl<'a> Run<'a> {
                 Command::Near(n) => self.near(*n),
                 Command::World(block) => self.world(*block),
                 Command::Position => self.position(),
+                Command::Settle(cap) => self.settle(*cap),
                 Command::Plugin(c) => self.plugin(c),
                 Command::Ui(c) => self.ui(c),
                 Command::Chat => self.chat(),
@@ -778,6 +827,16 @@ impl<'a> Run<'a> {
         let listed = |run: &mut Self| run.app.host_state.received_set;
         if !self.paced_until(60.0, listed)? {
             return Err(RunError::Net("no character list within 60 s".to_owned()));
+        }
+        // The character goes in once the server has finished with the data files, as the
+        // screens' own Log In waits: a world built while a patch still arrives is built from the
+        // files as they were, and the patch's end is not answered once the character is in.
+        let connected = self.opts.connect.is_some();
+        let patched = |run: &mut Self| may_enter(connected, run.app.host_state.patch_finished);
+        if !self.paced_until(PATCH_WAIT_SECS, patched)? {
+            return Err(RunError::Net(format!(
+                "the server had not finished with the data files within {PATCH_WAIT_SECS} s"
+            )));
         }
         let find = |run: &mut Self| {
             run.app.network_mut().and_then(|n| {
@@ -1163,6 +1222,26 @@ impl<'a> Run<'a> {
             })
             .map_err(|e| RunError::Startup(e.to_string()))?;
         self.line(format!("world {block:#06X}"))
+    }
+
+    /// `settle <cap>`: frames until the body has come out of portal space, is shown, and has
+    /// stood still for [`Settler::STILL_FRAMES`] frames, or `cap` seconds have gone; then where it
+    /// stands, as `position` says it, with whether it settled and after how long.
+    fn settle(&mut self, cap: f64) -> Result<(), RunError> {
+        let start = std::time::Instant::now();
+        let mut settler = Settler::default();
+        let settled = self.paced_until(cap, |run| {
+            let body = run.app.world.as_ref().and_then(|w| {
+                w.character
+                    .as_ref()
+                    .map(|c| (c.position(), w.character_state.is_hidden()))
+            });
+            let hidden = run.app.teleport.world_hidden() || body.as_ref().is_none_or(|b| b.1);
+            settler.step(body.map(|(p, _)| (p.cell.0, p.frame.origin)), hidden)
+        })?;
+        let secs = start.elapsed().as_secs_f64();
+        self.line(format!("settle settled={settled} secs={secs:.1}"))?;
+        self.position()
     }
 
     /// `position`: the body's cell and block-local origin, whether it is hidden, and whether it
@@ -1715,8 +1794,8 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 #[cfg(test)]
 mod tests {
     use super::{
-        caster, ended_why, frame_wait, hold_is_paced, new_character, settings_preferences, soldier,
-        with_free_skills, HEADLESS_STEP,
+        caster, ended_why, frame_wait, hold_is_paced, may_enter, new_character,
+        settings_preferences, soldier, with_free_skills, Settler, HEADLESS_STEP,
     };
     use crate::script::Role;
     use dereth_client_sdk::net::client_session::DisconnectReason;
@@ -1799,6 +1878,47 @@ mod tests {
             heritage_order: vec![1],
             heritage_groups: BTreeMap::from([(1, heritage)]),
         }
+    }
+
+    /// Behaviour: none (when this client's scripted `settle` returns is the script's own contract)
+    #[test]
+    fn a_body_settles_once_shown_and_still_and_not_while_hidden_falling_or_gone() {
+        use dereth_client_sdk::primitives::Vec3;
+        let at = |z: f32| Some((0x5A7F_002A, Vec3::new(135.0, 35.0, z)));
+        let mut s = Settler::default();
+        // In portal space, however still: not settled.
+        for _ in 0..100 {
+            assert!(!s.step(at(34.5), true));
+        }
+        // Shown and falling: not settled while it moves.
+        for k in 0..20u8 {
+            assert!(!s.step(at(34.5 - f32::from(k) * 0.1), false));
+        }
+        // Landed: settled after the still frames, not before.
+        let mut frames = 0;
+        while !s.step(at(32.3), false) {
+            frames += 1;
+            assert!(frames <= Settler::STILL_FRAMES, "never settled");
+        }
+        assert_eq!(frames, Settler::STILL_FRAMES);
+        // Gone from the world, or moved to another cell: not settled.
+        assert!(!s.step(None, false));
+        let mut s = Settler::default();
+        for _ in 0..Settler::STILL_FRAMES {
+            s.step(at(32.3), false);
+        }
+        assert!(!s.step(Some((0x5A7F_0109, Vec3::new(135.0, 35.0, 32.3))), false));
+    }
+
+    /// Behaviour: none (when this client's scripted `enter` goes in is the script's own contract)
+    #[test]
+    fn a_connected_client_enters_only_once_the_server_has_finished_with_the_data_files() {
+        assert!(
+            !may_enter(true, false),
+            "a patch still arriving holds the character back"
+        );
+        assert!(may_enter(true, true));
+        assert!(may_enter(false, false), "a replay has no patch to wait for");
     }
 
     /// A skill the heritage gives free goes out trained, as the client's own creation starts it, or
