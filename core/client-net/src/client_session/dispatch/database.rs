@@ -1,8 +1,9 @@
 //! Queue 5 — the DDD / dat-cache queue.
 //!
 //! Six retail opcodes are handled: `0xF7E2`, `0xF7E4`, `0xF7E5`, `0xF7E7`, `0xF7EA` and `0xF7EB`,
-//! and one of the overlay extension's, `0xF7EC` (the overlay manifest), which only a server that
-//! knows the extension sends. Anything else is dropped.
+//! and the extensions' own, which only a server that knows them sends: `0xF7EC` (the overlay
+//! manifest), `0xF7ED` (the patch offered as a stream), `0xF7EF` (the extensions the server serves)
+//! and `0xF7F1` (a recipe answer). Anything else is dropped.
 //!
 //! **The end message is `0xF7EA` in both directions** and `0xF7EB` is a received-only "patching
 //! pending, wait". The community catalogue has this backwards; the verified direction is recorded
@@ -16,7 +17,7 @@ use crate::client_session::{DropReason, SessionEvent};
 use dereth_primitives::IncomingMessage;
 use dereth_protocol::admin::{
     DddBeginDdd, DddBulkOffer, DddData, DddError, DddInterrogation, DddInterrogationResponse,
-    DddOverlayManifest,
+    DddOverlayManifest, ExtensionOffer, RecipeAnswer,
 };
 use dereth_protocol::{read_body, Message, Opcode};
 
@@ -54,6 +55,10 @@ pub enum DddEvent {
     /// `0xF7ED` — the patch's records offered as a TCP stream, after `0xF7E7` (client divergence
     /// CD-bulk-patch).
     BulkOffer(DddBulkOffer),
+    /// `0xF7EF` — what the server answers beyond the patch: recipe queries, when it says so.
+    ExtensionOffer(ExtensionOffer),
+    /// `0xF7F1` — the answer to a recipe query the client sent.
+    RecipeAnswer(Box<RecipeAnswer>),
 }
 
 /// The queue-5 dispatcher's decision: an event for the caller, and optionally a reply to send.
@@ -119,6 +124,12 @@ pub fn dispatch(state: &mut DddState, m: &IncomingMessage) -> DddDispatch {
             DddEvent::OverlayManifest(Box::new(v))
         })),
         o if o == DddBulkOffer::OPCODE => decoded(decode!(DddBulkOffer, DddEvent::BulkOffer)),
+        o if o == ExtensionOffer::OPCODE => {
+            decoded(decode!(ExtensionOffer, DddEvent::ExtensionOffer))
+        }
+        o if o == RecipeAnswer::OPCODE => decoded(decode!(RecipeAnswer, |v| {
+            DddEvent::RecipeAnswer(Box::new(v))
+        })),
         _ => DddDispatch {
             event: SessionEvent::Dropped {
                 queue: m.queue,

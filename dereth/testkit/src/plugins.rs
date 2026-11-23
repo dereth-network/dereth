@@ -866,6 +866,21 @@ pub fn intent_text(r: &Request) -> String {
         Request::TalkDirectByName(m) => format!("tell {}: {}", m.target_name, m.message),
         Request::Talk(m) => format!("talk {}", m.message),
         Request::FellowshipRecruit(m) => format!("fellowship_recruit {:#x}", m.target.0),
+        Request::RecipeQuery(m) => format!(
+            "recipe_query {} {}",
+            m.request,
+            m.items
+                .iter()
+                .map(|i| format!("{i:#x}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        Request::ConfirmationResponse(m) => format!(
+            "confirm {} {:#x} {}",
+            m.confirmation_type,
+            m.context_id,
+            if m.accepted != 0 { "yes" } else { "no" }
+        ),
         other => {
             let d = format!("{other:?}");
             d.split(['(', ' ', '{'])
@@ -1190,6 +1205,7 @@ impl PluginRun {
                 HostCapability::Messages,
                 HostCapability::UiIcons,
                 HostCapability::GameData,
+                HostCapability::CraftRecipes,
             ],
         );
         config.limits.call_budget_ms = UNHURRIED_BUDGET_MS;
@@ -1473,6 +1489,58 @@ impl PluginRun {
         self.frame();
     }
 
+    /// The server offers its recipe answers (`0xF7EF`), as a server that knows the extension does
+    /// after the interrogation.
+    pub fn offer_recipes(&mut self) {
+        use dereth_client_net::client_session::DddEvent;
+        self.server_says(&[SessionEvent::Ddd(DddEvent::ExtensionOffer(
+            dereth_protocol::admin::ExtensionOffer {
+                flags: dereth_protocol::admin::ExtensionOffer::RECIPES,
+            },
+        ))]);
+    }
+
+    /// The recipe queries the client sent, oldest first: each its request number and its items.
+    #[must_use]
+    pub fn recipe_queries(&self) -> Vec<(u32, Vec<u32>)> {
+        self.requests()
+            .iter()
+            .filter_map(|r| match r {
+                Request::RecipeQuery(m) => Some((m.request, m.items.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The server answers recipe query `request` with `status` and `matches` (`0xF7F1`).
+    pub fn answer_recipes(
+        &mut self,
+        request: u32,
+        status: dereth_protocol::admin::RecipeAnswerStatus,
+        matches: Vec<dereth_protocol::admin::RecipeMatch>,
+    ) {
+        use dereth_client_net::client_session::DddEvent;
+        self.server_says(&[SessionEvent::Ddd(DddEvent::RecipeAnswer(Box::new(
+            dereth_protocol::admin::RecipeAnswer {
+                request,
+                status,
+                matches,
+            },
+        )))]);
+    }
+
+    /// The server asks the character to confirm a craft (`0x0274` of type 5), as it does before a
+    /// combine with a chance of failing when the character's craft dialog option is on.
+    pub fn ask_craft(&mut self, context: u32, text: &str) {
+        self.server_says(&[ui_event(
+            &dereth_protocol::comms::CharacterConfirmationRequest {
+                confirmation_type: 5,
+                context_id: context,
+                text: text.into(),
+            },
+        )]);
+    }
+
     /// Someone speaks to the character, as the server tells it: `kind` is `tell` (a tell to the
     /// character), `say` (speech near it) or `emote`; `from` is the speaker's name and `id` its
     /// object.
@@ -1710,6 +1778,15 @@ impl PluginRun {
                 effective: current,
                 vitae: 0,
             });
+        }
+        self.frame();
+    }
+
+    /// The skill `name` untrained (set with [`Self::set_skill`] first, or added untrained).
+    pub fn untrain_skill(&mut self, name: &str) {
+        self.set_skill(name, 0);
+        if let Some(s) = self.hud.skills.iter_mut().find(|s| s.name == name) {
+            s.sac = 1;
         }
         self.frame();
     }
@@ -2254,6 +2331,9 @@ impl PluginRun {
             self.interaction.set_extension_verbs(v.clone());
             self.verbs = v;
         }
+        // The client's frame runs its UI requests every frame, which keeps the craft questions'
+        // clock; here they run only when there are some, so the clock is kept as the frame's.
+        self.interaction.craft_clock = self.now;
         if !out.requests.is_empty() {
             self.interaction.queue(Vec::new(), out.requests);
             let _ = self.interaction.run_ui_requests(

@@ -42,10 +42,12 @@ pub enum HostCapability {
     RetailUi,
     /// The game's own data, read only: landblocks and dungeon cells.
     GameData,
+    /// What the character's items make used on one another, where the world answers.
+    CraftRecipes,
 }
 
 impl HostCapability {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Core,
         Self::UiWindow,
         Self::UiHud,
@@ -64,6 +66,7 @@ impl HostCapability {
         Self::Messages,
         Self::RetailUi,
         Self::GameData,
+        Self::CraftRecipes,
     ];
 
     #[must_use]
@@ -87,6 +90,7 @@ impl HostCapability {
             Self::Messages => "messages",
             Self::RetailUi => "retail_ui",
             Self::GameData => "game.data",
+            Self::CraftRecipes => "craft.recipes",
         }
     }
 
@@ -124,6 +128,10 @@ impl HostCapability {
             Self::Messages => "The read-only decoded message stream.",
             Self::RetailUi => "Moving and hiding the retail interface's panels.",
             Self::GameData => "The game's own data, read only: landblocks and dungeon cells.",
+            Self::CraftRecipes => {
+                "What the character's items make used on one another, with the chance of each, \
+                 where the world answers."
+            }
         }
     }
 }

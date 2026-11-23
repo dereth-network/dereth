@@ -109,6 +109,9 @@ pub struct World {
     pub scroll: crate::scroll::Scroll,
     /// The transient assess profiles — see [`crate::appraisal`].
     pub appraisal: crate::appraisal::AppraisalCache,
+    /// What the server tells of crafting beyond the retail messages, and the craft questions
+    /// plugins answer.
+    pub crafting: crate::crafting::Crafting,
     /// The component tracker and the busy count — see [`crate::magic`].
     pub magic: crate::magic::MagicState,
     /// The current allegiance hierarchy — see [`crate::allegiance`].
@@ -308,6 +311,7 @@ impl World {
             chat: crate::chat::ChatState::new(),
             scroll: crate::scroll::Scroll::default(),
             appraisal: crate::appraisal::AppraisalCache::default(),
+            crafting: crate::crafting::Crafting::default(),
             magic: crate::magic::MagicState::default(),
             allegiance: crate::allegiance::AllegianceHierarchy::default(),
             allegiance_aborts: 0,

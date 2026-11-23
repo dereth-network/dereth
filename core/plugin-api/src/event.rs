@@ -87,6 +87,11 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("inventory.item_removed", "id"),
     ("inventory.item_moved", "id, container, previous"),
     ("items.appraised", "id"),
+    (
+        "craft.confirm",
+        "question (answered with act.confirm), item, target (the plugin's own combine), chance (0 \
+         to 1, as the server gives it; nil when it gives none), text",
+    ),
     ("commerce.vendor_opened", "id"),
     ("commerce.vendor_closed", "id"),
     ("commerce.trade_opened", "partner"),

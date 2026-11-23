@@ -648,6 +648,9 @@ impl DddInterrogationResponse {
     /// The client can take the patch as a stream over TCP ([`DddBulkOffer`]); a server that
     /// knows no such stream patches it as before.
     pub const FLAG_BULK: u32 = 0x0000_0008;
+    /// The client asks what the character's items make together ([`RecipeQuery`]); a server
+    /// that answers such questions says so with [`ExtensionOffer`].
+    pub const FLAG_RECIPES: u32 = 0x0000_0010;
 
     /// The world the iteration lists are of, by [`OverlayBase::world`]'s hash, when the client
     /// names one.
@@ -1154,6 +1157,167 @@ impl Message for DddBulkDecline {
     }
 }
 
+/// `0xF7EF ExtensionOffer` (S2C, queue 5): not a retail message. What a server answers beyond the
+/// patch, sent once after the interrogation to a client that set
+/// [`DddInterrogationResponse::FLAG_RECIPES`]; a client sends no [`RecipeQuery`] to a server that
+/// has not offered [`Self::RECIPES`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExtensionOffer {
+    pub flags: u32,
+}
+
+impl ExtensionOffer {
+    /// The server answers [`RecipeQuery`].
+    pub const RECIPES: u32 = 0x0000_0001;
+}
+
+impl Message for ExtensionOffer {
+    const OPCODE: Opcode = Opcode::EXTENSION_OFFER;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        Ok(Self { flags: r.u32()? })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.u32(self.flags);
+        Ok(())
+    }
+}
+
+/// `0xF7F0 RecipeQuery` (C2S, queue 5): not a retail message. What `items` (objects the character
+/// holds, at most [`Self::MOST`]) make used on one another; the server answers with a
+/// [`RecipeAnswer`] of the same `request`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RecipeQuery {
+    pub request: u32,
+    pub items: Vec<u32>,
+}
+
+impl RecipeQuery {
+    /// The items one query names at most.
+    pub const MOST: usize = 64;
+}
+
+impl Message for RecipeQuery {
+    const OPCODE: Opcode = Opcode::RECIPE_QUERY;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        Ok(Self {
+            request: r.u32()?,
+            items: r.packed_list(|r| r.u32())?,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.u32(self.request);
+        w.packed_list(&self.items, |w, id| {
+            w.u32(*id);
+            Ok(())
+        })
+    }
+}
+
+/// How a [`RecipeAnswer`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum RecipeAnswerStatus {
+    /// The matches are every recipe among the items the character holds.
+    #[default]
+    Answered = 0,
+    /// Asked again too soon: nothing was looked up.
+    TooSoon = 1,
+    /// Some of the items are not the character's: nothing was looked up.
+    NotHeld = 2,
+}
+
+impl RecipeAnswerStatus {
+    fn from_raw(v: u32) -> Self {
+        match v {
+            1 => Self::TooSoon,
+            2 => Self::NotHeld,
+            _ => Self::Answered,
+        }
+    }
+}
+
+/// One recipe a [`RecipeAnswer`] names: `source` used on `target` (both of the query's items).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RecipeMatch {
+    pub source: u32,
+    pub target: u32,
+    pub recipe: u32,
+    /// The skill the recipe checks (0: none), and its difficulty.
+    pub skill: u32,
+    pub difficulty: u32,
+    /// The character's chance of success now, 0 to 1.
+    pub chance: f32,
+    /// What success makes: its kind, its name and how many.
+    pub makes_wcid: u32,
+    pub makes_name: String,
+    pub makes_count: u32,
+    /// What a failure destroys: [`Self::FAIL_SOURCE`], [`Self::FAIL_TARGET`].
+    pub fails: u32,
+}
+
+impl RecipeMatch {
+    /// A failure destroys the source.
+    pub const FAIL_SOURCE: u32 = 0x1;
+    /// A failure destroys the target.
+    pub const FAIL_TARGET: u32 = 0x2;
+}
+
+/// `0xF7F1 RecipeAnswer` (S2C, queue 5): not a retail message. The answer to the [`RecipeQuery`]
+/// of the same `request`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RecipeAnswer {
+    pub request: u32,
+    pub status: RecipeAnswerStatus,
+    pub matches: Vec<RecipeMatch>,
+}
+
+impl Message for RecipeAnswer {
+    const OPCODE: Opcode = Opcode::RECIPE_ANSWER;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        Ok(Self {
+            request: r.u32()?,
+            status: RecipeAnswerStatus::from_raw(r.u32()?),
+            matches: r.packed_list(|r| {
+                Ok(RecipeMatch {
+                    source: r.u32()?,
+                    target: r.u32()?,
+                    recipe: r.u32()?,
+                    skill: r.u32()?,
+                    difficulty: r.u32()?,
+                    chance: r.f32()?,
+                    makes_wcid: r.u32()?,
+                    makes_name: r.pstring()?,
+                    makes_count: r.u32()?,
+                    fails: r.u32()?,
+                })
+            })?,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.u32(self.request);
+        w.u32(self.status as u32);
+        w.packed_list(&self.matches, |w, m| {
+            w.u32(m.source);
+            w.u32(m.target);
+            w.u32(m.recipe);
+            w.u32(m.skill);
+            w.u32(m.difficulty);
+            w.f32(m.chance);
+            w.u32(m.makes_wcid);
+            w.pstring(&m.makes_name)?;
+            w.u32(m.makes_count);
+            w.u32(m.fails);
+            Ok(())
+        })
+    }
+}
+
 empty_message!(
     /// `0xF7EA DDD_OnEndDDD` — **the end-of-patching message, in both directions**.
     ///
@@ -1431,6 +1595,67 @@ mod tests {
             decline
         );
         assert_eq!(DddBulkDecline::OPCODE.0, 0xF7EE);
+    }
+
+    /// The recipe extension's three messages read back as written, at their own opcodes, which no
+    /// retail message uses.
+    #[test]
+    fn the_recipe_extensions_messages_round_trip() {
+        let offer = ExtensionOffer {
+            flags: ExtensionOffer::RECIPES,
+        };
+        assert_eq!(
+            round_trip::<ExtensionOffer>(&write_body(&offer).unwrap()),
+            offer
+        );
+        let query = RecipeQuery {
+            request: 7,
+            items: vec![0x8000_0001, 0x8000_0002],
+        };
+        assert_eq!(
+            round_trip::<RecipeQuery>(&write_body(&query).unwrap()),
+            query
+        );
+        let answer = RecipeAnswer {
+            request: 7,
+            status: RecipeAnswerStatus::Answered,
+            matches: vec![RecipeMatch {
+                source: 0x8000_0001,
+                target: 0x8000_0002,
+                recipe: 3,
+                skill: 37,
+                difficulty: 150,
+                chance: 0.75,
+                makes_wcid: 300,
+                makes_name: "Deadly Arrow".into(),
+                makes_count: 100,
+                fails: RecipeMatch::FAIL_SOURCE | RecipeMatch::FAIL_TARGET,
+            }],
+        };
+        assert_eq!(
+            round_trip::<RecipeAnswer>(&write_body(&answer).unwrap()),
+            answer
+        );
+        let refused = RecipeAnswer {
+            request: 8,
+            status: RecipeAnswerStatus::TooSoon,
+            matches: Vec::new(),
+        };
+        assert_eq!(
+            round_trip::<RecipeAnswer>(&write_body(&refused).unwrap()),
+            refused
+        );
+        assert_eq!(
+            (
+                ExtensionOffer::OPCODE.0,
+                RecipeQuery::OPCODE.0,
+                RecipeAnswer::OPCODE.0
+            ),
+            (0xF7EF, 0xF7F0, 0xF7F1)
+        );
+        for op in [0xF7EF, 0xF7F0, 0xF7F1] {
+            assert!(Opcode(op).info().is_none(), "{op:#x} is no retail message");
+        }
     }
 
     #[test]

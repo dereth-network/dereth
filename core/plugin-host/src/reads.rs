@@ -719,3 +719,37 @@ const CLASS_NAMES: [&str; 43] = [
 pub fn class_name(n: u32) -> Option<&'static str> {
     CLASS_NAMES.get(usize::try_from(n).ok()?).copied()
 }
+
+/// A recipe answer's matches, as `craft.recipes` answers them: each `{ item, target, recipe, skill,
+/// difficulty, chance, makes = { name, wcid, count }, fails = { item_lost, target_lost } }`.
+#[must_use]
+pub fn recipes(a: &dereth_protocol::admin::RecipeAnswer) -> Value {
+    use dereth_protocol::admin::RecipeMatch;
+    Value::List(
+        a.matches
+            .iter()
+            .map(|m| {
+                Value::map()
+                    .with("item", m.source)
+                    .with("target", m.target)
+                    .with("recipe", m.recipe)
+                    .with("skill", m.skill)
+                    .with("difficulty", m.difficulty)
+                    .with("chance", f64::from(m.chance))
+                    .with(
+                        "makes",
+                        Value::map()
+                            .with("name", m.makes_name.as_str())
+                            .with("wcid", m.makes_wcid)
+                            .with("count", m.makes_count),
+                    )
+                    .with(
+                        "fails",
+                        Value::map()
+                            .with("item_lost", m.fails & RecipeMatch::FAIL_SOURCE != 0)
+                            .with("target_lost", m.fails & RecipeMatch::FAIL_TARGET != 0),
+                    )
+            })
+            .collect(),
+    )
+}

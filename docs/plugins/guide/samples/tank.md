@@ -7,11 +7,33 @@ public documentation says VTank does; each such statement names its page by a ke
 
 | | |
 |---|---|
-| id | `network.dereth.tank`, version 0.3.0, API 0.7 |
-| files | `plugin.toml`, `main.lua` (commands, events), `engine.lua` (the macro), `buffbot.lua` (buffs asked of a buffbot), `settings.lua` (the settings), `monsters.lua` (the monster list), `names.lua` (the game's species and materials), `spells.lua` (spells by family), `buffs.lua`, `profile.lua` (VTank `.usd` settings profiles), `metas.lua` (VTank `.met` metas and VTank's `/vt` commands), `metaedit.lua` (the meta editor), `hotkeys.lua` (its hotkeys), `recharge.lua` (vitals and worn mana), `vendor.lua` (trading at vendors, and the trip to the vendor and back), `pack.lua` (salvaging, salvage bags combined, stacking and cramming), `fellows.lua` (helping fellows, its own fellow on the machine, running a fellowship), `pets.lua` (summoning), `window.lua` (its window), `routes.lua` (routes made in the game, and written as VTank files), `quest.lua` (quest steps: an item handed over, picked up or used on something), `routes/` (VTank `.nav` routes), `profiles/` (VTank `.utl` loot profiles), `metas/` (VTank `.met` metas: the Training Academy profile and the litmus profile) |
+| id | `network.dereth.tank`, version 0.4.0, API 0.7 |
+| files | `plugin.toml`, `main.lua` (commands, events), `engine.lua` (the macro), `buffbot.lua` (buffs asked of a buffbot), `settings.lua` (the settings), `monsters.lua` (the monster list), `names.lua` (the game's species and materials), `spells.lua` (spells by family), `buffs.lua`, `profile.lua` (VTank `.usd` settings profiles), `metas.lua` (VTank `.met` metas and VTank's `/vt` commands), `metaedit.lua` (the meta editor), `hotkeys.lua` (its hotkeys), `recharge.lua` (vitals and worn mana), `vendor.lua` (trading at vendors, and the trip to the vendor and back), `pack.lua` (salvaging, salvage bags combined, stacking and cramming), `fellows.lua` (helping fellows, its own fellow on the machine, running a fellowship), `pets.lua` (summoning), `craft.lua` (missile ammunition and healing kits), `window.lua` (its window), `routes.lua` (routes made in the game, and written as VTank files), `quest.lua` (quest steps: an item handed over, picked up or used on something), `routes/` (VTank `.nav` routes), `profiles/` (VTank `.utl` loot profiles), `metas/` (VTank `.met` metas: the Training Academy profile and the litmus profile) |
 | contexts | `world` |
-| permissions | `act.interactive`, `auto.combat`, `auto.nav`, `auto.loot`, `auto.heal`, `auto.buff` (buffs and the recall spell), `auto.craft` (worn items' mana, salvaging, stacking and cramming), `auto.vendor` (selling and buying at vendors), `auto.trade` (a quest step's item handed to a person), `auto.social` (recruiting into the fellowship it leads), `auto.support` (helper buffs on other players), `chat.send` (a route's chat waypoints, the fellowship manager's tells), `messages` (the server's word on where the character stands, for checkpoints), `peers.local` (its own fellow on the machine) |
-| capabilities | `nav.moveto` and `ui.window` required; `nav.journey`, `nav.path`, `messages`, `peers.local` and `ui.hud` (the remote control) optional |
+| permissions | `act.interactive`, `auto.combat`, `auto.nav`, `auto.loot`, `auto.heal`, `auto.buff` (buffs and the recall spell), `auto.craft` (worn items' mana, salvaging, stacking and cramming, ammunition and healing kits), `auto.vendor` (selling and buying at vendors), `auto.trade` (a quest step's item handed to a person), `auto.social` (recruiting into the fellowship it leads), `auto.support` (helper buffs on other players), `chat.send` (a route's chat waypoints, the fellowship manager's tells), `messages` (the server's word on where the character stands, for checkpoints), `peers.local` (its own fellow on the machine) |
+| capabilities | `nav.moveto` and `ui.window` required; `nav.journey`, `nav.path`, `messages`, `peers.local`, `ui.hud` (the remote control) and `craft.recipes` (the world's recipe answers) optional |
+
+## Start here
+
+The Tank plays a character for you: it walks a route, fights what it meets, loots its kills, keeps
+itself healed and buffed, and stops or goes to a vendor when it should. It reads VTank's routes,
+loot profiles, settings profiles and metas, and takes VTank's option names.
+
+1. **Open its window:** `/tank` (or its button on the plugin bar).
+2. **Choose a route** on the Nav page, from the `routes/` folder, or record one in the game.
+3. **Choose a loot profile** on the Loot page, from the `profiles/` folder.
+4. **Arm the character:** wield the weapon it should fight with, or name it on the Items page.
+   With a bow, crossbow or atlatl, carry ammunition, or turn on **Craft ammo** and carry bundles
+   of heads and shafts.
+5. **Start:** the Start button, or `/tank start`. **Pause** keeps the run; **Stop** ends it.
+
+What it does each moment is on its status line, and its log keeps a line for each thing it did and
+why. Each page of its window is a group of settings (below, *Settings*); a setting can also be
+typed: `/tank set AttackDistance 0.05`.
+
+Where to read on: *What it does* lists its loop in order; the sections after it take each part in
+turn (fighting, buffs, vitals, looting, vendors, crafting, death, doors, routes); *Trying it* has a
+first run in four lines.
 
 ## What it does
 
@@ -42,7 +64,8 @@ the most pressing thing:
 8. with nothing in range, tops health, stamina and mana up to `Recharge-NoTarg-HitP`, `-Stam`
    and `-Mana` with what it has, keeps its buffs up (its buff items too), casts its helper buffs,
    refills worn items' mana, keeps its pack (salvage bags combined, stacks merged, the main pack
-   crammed into the side packs), and otherwise rests in peace mode;
+   crammed into the side packs), makes the healing kits it wants (*Crafting*, below), and
+   otherwise rests in peace mode;
 9. walks the route, a leg at a time (a stretch of plain waypoints in sight run through as one
    movement, as far as the next waypoint with something to do), or follows its leader (a follow
    route); a leg stops as soon
@@ -393,6 +416,79 @@ waypoint; a monster close at hand on the way is fought first. It starts on:
   vendor rule, Pack Slots <= n, can so send the Tank);
 - a full pack, with `OnFullPack` `vendor`: back from the vendor, the macro hunts on, or stops
   when the pack is still full.
+
+### Crafting
+
+**Missile ammunition** (`CraftAmmo`, off by default; the plugin's own). With a bow, crossbow or
+atlatl in hand and no ammunition readied, before a shot as well as when it arms, the Tank makes
+ammunition from the bundles the pack holds, then readies the best it carries. Where the world
+answers what the pack's items make (Empyrean does), the Tank asks it about its heads and shafts and
+takes the best combine it names whose chance is `CraftMinChance` (90%; the plugin's own) or better.
+Anywhere else a bundle of heads goes on the shafts of the launcher in hand by their names: "Bundle
+of Deadly Fire Arrowheads" on "Bundle of Arrowshafts" for a bow, on "Bundle of Quarrelshafts" for a
+crossbow, on "Bundle of Atlatl Dart Shafts" for an atlatl; a wrapped bundle on wrapped shafts,
+never on a plain bundle (that is no recipe); infinite heads on either. A bundle makes 100, a wrapped
+bundle 1000. The ammunition `Ammo` names finds its heads by the same names, as the game names it:
+Broad heads make "Broadhead" ammunition, and some heads make a "Bolt" rather than a "Quarrel". Heads and ammunition are ranked by their names: Prismatic above all, then
+Deadly, Greater and plain, an element above none.
+- With ammunition carried, better is made only when the pack holds the heads for better and no
+  monster is near; in a fight the ammunition carried is readied at once.
+- With none carried, the best combine is made even in a fight: a launcher with nothing to shoot
+  cannot fight back.
+- A combine that made nothing (both bundles gone) is not tried again that run, and the log says
+  so; with no ammunition at all, the next heads are tried.
+- With `Ammo` naming ammunition, only the heads that make it are used.
+- Special ammunition is made and used by VTank's `UseSpecialAmmo` [adv, faq]: 0 none, 1 Raider
+  Lightning, 2 the ammunition of the special currencies (Burning Sands, Gear Blade Slashing,
+  Olthoi Acid), 3 both.
+
+**Healing kits.** A Plentiful Healing Kit is made in two combines: Treated Hyssop on Treated
+Mandrake, then the herbs on Soft Bandages. With nothing in range, the Tank makes one when
+`AutoCraftItems` is on, the Consumables list a Plentiful Healing Kit and none is carried (VTank's
+"if your character has none" [adv]), and up to `IdleCraftCount_HealthKits` of them [adv]. The game
+makes no stamina or mana kits, so their counts have nothing to make.
+
+The pack says how a combine went: what it makes appearing, or its ingredients gone and nothing
+made. Each combine is made in peace mode. Nothing is made with the combine's skill untrained
+(Fletching, Healing), and the log says so.
+
+**How sure a combine is.** The Tank takes the chance from the first of these that tells it, and
+never changes a setting of the player's:
+
+- **The world's answer** (above), on a world that gives one: the combine's own chance, at
+  `CraftMinChance` or better.
+- **The game's craft success dialog**, when the player has it on: the server asks before each
+  combine that can fail, giving the chance, and the Tank answers Yes at `CraftMinChance` or better
+  and No below. A combine it said No to is not tried again that run.
+- **Otherwise, each tier's least buffed skill:** a tier of ammunition (its heads' words, a wrapped
+  bundle apart) is made only when the character's buffed Fletching reaches it, and the healing
+  kit's two combines likewise by buffed Healing. The Items page lists every tier with its skill;
+  choosing one, the player sets their own (`CraftSkills`, `Deadly Fire = 320, Plentiful Healing
+  Kit = 260`) or puts it back to the Tank's. A tier with no skill is not made, and the log says how
+  to set one.
+
+The Tank's own skills are where each tier's skill check reaches a 90% chance:
+
+- **The curve:** a skill check succeeds with chance 1 − 1 / (1 + e^(0.03 (skill − difficulty))),
+  as the community wiki's [Skill Check](https://loresraat.org/wiki/Skill_Check?oldid=513858) page
+  gives it: 50% at the difficulty, and 90% from 74 above it. Retail captures agree: the chances
+  the game stated fit it. So each tier's skill is its recipe's difficulty plus 74.
+- **The difficulties retail captures show**, the game's own after each combine, for every tier
+  they include: plain heads 5 (skill 79), Blunt 10 and wrapped 40, Armor Piercing wrapped 50,
+  Greater Blunt and Greater Broad wrapped 170, Deadly Blunt wrapped 180, Deadly Frog Crotch and
+  Deadly Armor Piercing wrapped 200, Deadly Acid, Fire and Lightning wrapped 250, Prismatic 250
+  and wrapped 275, Greater Deadly 275, Greater Deadly Blunt 275 and wrapped 300, Greater Deadly
+  Frog Crotch and Greater Deadly Armor Piercing 300 and wrapped 325, Burning Sands and Olthoi Acid
+  wrapped 300, Greater Prismatic 350 and wrapped 375, Deadly Prismatic 375 and wrapped 400. A
+  wrapped bundle is its own tier, not the bundle's plus a fixed amount. The healing kit: the herbs
+  together 100 (Healing 174), on the bandages 200 (274).
+- **The rest**, from the community wiki's fletching recipe table, [Fletching
+  Recipes](https://asheron.fandom.com/wiki/Fletching_Recipes?oldid=472220) (its "Skill req."
+  column), taking for each tier the hardest of its arrow, quarrel and dart: Frog Crotch 20 (94),
+  the elements 60 (134), Greater 120 (194), Deadly 150 (224), Deadly Fire, Frost, Acid and
+  Lightning bundles 225 (299), and so on.
+- **No skill** is known for a tier neither gives, such as plain wrapped heads or Chorizite: those
+  are made only when the world or the dialog tells the chance, or at the skill the player sets.
 
 ### Death
 
@@ -783,7 +879,7 @@ its own.
   `RechargeBoostAmount`, `ClearLevelBoostFlagOnCast`, `MinimumHealKitSuccessChance`, `StaminaToHealthMultiplier`,
   `ManaToHealthMultiplier`, `ManaChargesWhenOff`, `RefillWornMana`,
   `RefillWornMana-Item-ManaPercent`, `ManaStoneLootCount`, `ManaTankMinimumMana`,
-  `UseDispelItems`, `CastDispelSelf`; `DoHelp`, `Recharge-Helper-HitP/Stam/Mana`,
+  `UseDispelItems`, `CastDispelSelf`; `UseSpecialAmmo`, `AutoCraftItems`, `IdleCraftCount_HealthKits`; `DoHelp`, `Recharge-Helper-HitP/Stam/Mana`,
   `HelperDistanceHitP`, `HelperDistanceStam`, `HelperDistanceMana`, `UseHealersHeart`,
   `JumpOutWandCasting`, `AutoFellowManagement`; `Consumables` (its
   Consumables tab, as a list of names); `RebuffTimeRemainingSeconds`, `IdleBuffTopoff`,
@@ -805,7 +901,7 @@ its own.
   `Trade Note (250,000)=4`), `Vendor`, `StopAfterDeaths`, `RecallSpell`,
   `StopAfterMinutes`, `RecoverCorpse` (back to the corpse a death left), `Buffbot`, `BuffbotRequest`,
   `BuffbotMinutes`, `BuffbotWaitSeconds`, `BuffbotRetryMinutes` (buffs from a buffbot),
-  `StartOnLogin`, `RouteRecordMetres`, `Weapon`, `CasterWeapon`, `Ammo`, `Route`, `LootProfile`,
+  `StartOnLogin`, `RouteRecordMetres`, `Weapon`, `CasterWeapon`, `Ammo`, `CraftAmmo`, `CraftMinChance`, `CraftSkills`, `Route`, `LootProfile`,
   `Meta`, `BuffSpells`, `BuffItems`, `ItemBuffMinutes`, `MaxSpellLevel`, `DebuffRecastSeconds`,
   `LogOff` (the log's types turned off), `MiniRemote` (the remote control), `HotkeyRun`,
   `HotkeyHigh`, `HotkeyMid`, `HotkeyLow`, `HotkeyLootContainer` and `MetaStateHotkeys` (the
@@ -840,11 +936,11 @@ families' first spells) or -1, and the monster rows with columns of the plugin's
 VTank's numbers cannot carry, so a profile the Tank writes reads back the same. Not carried:
 `ItemUseSpecifiers`, which no published profile fills.
 
-**Not carried:** VTank's crafting [adv, log 0.3.0.9] (`AutoCraftItems`, `IdleCraftCount_*`,
-`SplitPeas`, `SpellCompMin-*`, `UseSpecialAmmo`, `ArrowheadFletchDiffExcessThreshold`): VTank makes
-kits, foods, ammunition and components from what it knows of the game's recipes, which its pages
-name only by their results, and which the client does not hold. Set, they are kept for the run as
-any of VTank's options this macro has not got.
+**Not carried:** the rest of VTank's crafting [adv, log 0.3.0.9]: `IdleCraftCount_StamKits` and
+`_ManaKits` (the game makes no such kits), the foods' counts (`IdleCraftCount_HealthFood`,
+`_StamFood`, `_ManaFood`), `SplitPeas` and `SpellCompMin-*` (splitting components), and
+`ArrowheadFletchDiffExcessThreshold`, which its pages do not describe. Set, they are kept for the
+run as any of VTank's options this macro has not got.
 
 ## Trying it
 

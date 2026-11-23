@@ -52,6 +52,11 @@ pub fn send_request<T: dereth_primitives::Transport>(
         // the same global `OrderedActionHeader` counter and the same
         // failed-send UI-counter rollback as every arm above.
         R::ConfirmationResponse(m) => s.send_action(m),
+        // `0xF7F0`, not a retail message: queue 5, no action stamp.
+        R::RecipeQuery(m) => {
+            s.send_recipe_query(m);
+            return true;
+        }
         // `0x00BF`, an ordinary game action on the same global `OrderedActionHeader` counter
         // and the Weenie queue as every arm above.
         R::SetInscription(m) => s.send_action(m),

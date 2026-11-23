@@ -818,6 +818,12 @@ op! {
         DDD_BULK_OFFER = 0xF7ED;
         /// `0xF7EE` DDD_BulkDeclineMessage: not a retail message ([`crate::admin::DddBulkDecline`]).
         DDD_BULK_DECLINE = 0xF7EE;
+        /// `0xF7EF` ExtensionOffer: not a retail message ([`crate::admin::ExtensionOffer`]).
+        EXTENSION_OFFER = 0xF7EF;
+        /// `0xF7F0` RecipeQuery: not a retail message ([`crate::admin::RecipeQuery`]).
+        RECIPE_QUERY = 0xF7F0;
+        /// `0xF7F1` RecipeAnswer: not a retail message ([`crate::admin::RecipeAnswer`]).
+        RECIPE_ANSWER = 0xF7F1;
     }
 }
 

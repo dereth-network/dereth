@@ -750,6 +750,10 @@ impl<S: Shell> App<S> {
                         response.flags |=
                             dereth_protocol::admin::DddInterrogationResponse::FLAG_BULK;
                     }
+                    // A server that answers recipe queries says so (`0xF7EF`); one that does not
+                    // reads the bit as nothing.
+                    response.flags |=
+                        dereth_protocol::admin::DddInterrogationResponse::FLAG_RECIPES;
                     tracing::debug!(
                         "0xF7E6 answering with {} iteration list(s): {:?}",
                         response.iters_with_keys.len(),
@@ -864,6 +868,10 @@ impl<S: Shell> App<S> {
                         // address, and the frame loop applies them as `0xF7E2`s. An offer that
                         // was not asked for, or cannot be opened, is declined whole; one that
                         // comes while a stream is read is left alone.
+                        // The recipe extension's: the world model takes them where it takes the
+                        // frame's other messages.
+                        dereth_client_net::client_session::DddEvent::ExtensionOffer(_)
+                        | dereth_client_net::client_session::DddEvent::RecipeAnswer(_) => None,
                         dereth_client_net::client_session::DddEvent::BulkOffer(offer) => {
                             on_bulk_offer(
                                 #[cfg(not(target_arch = "wasm32"))]

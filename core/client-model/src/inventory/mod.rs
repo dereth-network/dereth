@@ -386,6 +386,7 @@ impl World {
         object: ObjectId,
         target: ObjectId,
     ) {
+        self.crafting.last_use = Some((object, target));
         req.send(Request::UseWithTargetEvent(InventoryUseWithTargetEvent {
             object,
             target,

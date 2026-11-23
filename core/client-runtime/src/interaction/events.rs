@@ -61,6 +61,18 @@ pub fn apply_events_at_boundary(
         ) {
             game.initialize_player(&mut req);
         }
+        // The recipe extension: whether the server answers queries, and its answers.
+        use dereth_client_net::client_session::{DddEvent, SessionEvent};
+        match e {
+            SessionEvent::Ddd(DddEvent::ExtensionOffer(o)) => {
+                game.crafting.recipes_offered =
+                    o.flags & dereth_protocol::admin::ExtensionOffer::RECIPES != 0;
+            }
+            SessionEvent::Ddd(DddEvent::RecipeAnswer(a)) => {
+                game.crafting.answered((**a).clone());
+            }
+            _ => {}
+        }
     }
     for e in events {
         let Some((opcode, body)) = e.ui_body() else {
@@ -776,6 +788,25 @@ pub fn apply_events_at_boundary(
                 // falls through to the ordinary server-confirmation path. The
                 // `confirmations_for_absent_panels` field is kept and simply stays 0, which a
                 // test asserts.
+                // **Type 5**, a craft's chance of success, about the combine the interface for
+                // plugins sent: the plugin's to answer, so nothing is shown.
+                if m.confirmation_type == 5 {
+                    let now = inter.craft_clock;
+                    if let Some((item, target)) = game.crafting.plugins_combine(now) {
+                        game.crafting.questions.push(
+                            dereth_client_model::crafting::CraftQuestion {
+                                context: m.context_id,
+                                chance: dereth_client_model::crafting::chance_in(&m.text),
+                                text: m.text,
+                                item,
+                                target,
+                                asked_at: now,
+                            },
+                        );
+                        inter.stats.confirmations_raised += 1;
+                        continue;
+                    }
+                }
                 inter.stats.confirmations_raised += 1;
                 inter.pending_server_confirmations.push((
                     m.confirmation_type,

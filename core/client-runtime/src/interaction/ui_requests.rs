@@ -31,6 +31,8 @@ impl Interaction {
         // `use_time`'s own `ServerTime(now.0)` already assumes.
         let ready = self.ready_for_attack(game);
         let local_now = dereth_primitives::LocalTime(now.0);
+        // The clock a craft question is timed against when it arrives.
+        self.craft_clock = now.0;
         let mut pending = std::collections::VecDeque::from(std::mem::take(&mut self.ui_requests));
         while let Some(r) = pending.pop_front() {
             if let UiRequest::Journal(action) = r {
@@ -212,12 +214,36 @@ feedback,channel: 0x1A, text},
                 UiRequest::ExecuteTargetItem(id) => {
                     self.execute_target_mode_for_item(id, game, &mut req, &mut out, now);
                 }
+                UiRequest::RecipeQuery { request, items } => {
+                    if game.crafting.recipes_offered {
+                        dereth_client_model::RequestSink::send(
+                            &mut req,
+                            dereth_client_model::Request::RecipeQuery(
+                                dereth_protocol::admin::RecipeQuery {
+                                    request,
+                                    items: items.iter().map(|i| i.0).collect(),
+                                },
+                            ),
+                        );
+                    }
+                    self.stats.ui_requests_handled += 1;
+                    continue;
+                }
+                UiRequest::AnswerCraft { context, yes } => {
+                    if game.crafting.take_question(context).is_some() {
+                        self.confirm_server_confirmation(5, context, yes);
+                    }
+                    self.stats.ui_requests_handled += 1;
+                    continue;
+                }
                 UiRequest::UseOn {
                     item,
                     target,
                     equipped,
                 } => {
                     use dereth_client_model::inventory::use_object::UseOutcome;
+                    // A craft question about this combine is the plugin's to answer.
+                    game.crafting.plugin_use = Some((item, target, now.0));
                     let split = game.split;
                     let outcome =
                         game.use_object_on(&mut req, &mut out, item, target, equipped, split, now);

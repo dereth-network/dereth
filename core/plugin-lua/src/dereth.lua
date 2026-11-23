@@ -37,6 +37,19 @@ api.act = {
 	appraise = function(id)
 		return request("act.appraise", { id = id }, appraisal_value)
 	end,
+	-- `act.confirm(question, yes)`: the answer to a `craft.confirm` question about the plugin's own
+	-- combine.
+	confirm = function(question, yes)
+		return request("act.confirm", { question = question, yes = yes })
+	end,
+}
+
+api.craft = {
+	-- `craft.recipes(ids)`: what the character's items make used on one another, where the world
+	-- answers.
+	recipes = function(items)
+		return request("craft.recipes", { items = items })
+	end,
 }
 
 api.items = {

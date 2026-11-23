@@ -36,6 +36,13 @@ pub enum Kind {
         target: ObjectId,
     },
     Appraise(ObjectId),
+    /// What the character's `items` make used on one another, asked of the server.
+    Recipes(Vec<ObjectId>),
+    /// The answer to the craft question `context` about the plugin's own combine.
+    Confirm {
+        context: u32,
+        yes: bool,
+    },
     Move {
         item: ObjectId,
         container: ObjectId,
@@ -93,6 +100,8 @@ impl Kind {
             Self::Use(_) => "act.use",
             Self::UseOn { .. } => "act.use_on",
             Self::Appraise(_) => "act.appraise",
+            Self::Recipes(_) => "craft.recipes",
+            Self::Confirm { .. } => "act.confirm",
             Self::Move { .. } => "items.move",
             Self::Split { .. } => "items.split",
             Self::Merge { .. } => "items.merge",
@@ -161,7 +170,8 @@ impl Kind {
             | Self::Inscribe(_)
             | Self::FillComponents
             | Self::VendorClose
-            | Self::SetOption(..) => 2.0,
+            | Self::SetOption(..)
+            | Self::Confirm { .. } => 2.0,
             Self::Appraise(_) | Self::CombatMode(_) => 5.0,
             // A target out of reach is walked to first; the server gives that 15 s.
             Self::Attack(_) => 20.0,
@@ -403,6 +413,40 @@ pub fn plan(name: &str, args: &Value, frame: &HookFrame<'_>) -> Result<Plan, Cal
                     equipped,
                 },
                 Some(domain),
+            )
+        }
+        "craft.recipes" => {
+            let items = ids_of(&arg("items"), "craft.recipes' items")?;
+            if items.is_empty() || items.len() > dereth_protocol::admin::RecipeQuery::MOST {
+                return Err(bad(format!(
+                    "craft.recipes takes 1 to {} items",
+                    dereth_protocol::admin::RecipeQuery::MOST
+                )));
+            }
+            let held = crate::observe::held_items(frame);
+            if let Some(i) = items.iter().find(|i| !held.contains_key(&i.0)) {
+                return Err(bad(format!("{:#x} is not the character's", i.0)));
+            }
+            Plan {
+                kind: Kind::Recipes(items),
+                // Built when it is sent, with its request number.
+                requests: Vec::new(),
+                domain: None,
+                gesture_only: false,
+            }
+        }
+        "act.confirm" => {
+            let context = arg("question")
+                .as_i64()
+                .and_then(|i| u32::try_from(i).ok())
+                .ok_or_else(|| bad("act.confirm's question must be a question's number"))?;
+            let yes = arg("yes")
+                .as_bool()
+                .ok_or_else(|| bad("act.confirm's answer must be true or false"))?;
+            one(
+                Kind::Confirm { context, yes },
+                UiRequest::AnswerCraft { context, yes },
+                Some(AutoDomain::Craft),
             )
         }
         "items.move" => {
@@ -969,6 +1013,8 @@ struct Baseline {
     level: i64,
     stack: u32,
     fellowship_open: Option<bool>,
+    /// The recipe query's request number.
+    request: u32,
 }
 
 /// The action in flight.
@@ -1002,9 +1048,62 @@ pub struct ActionQueue {
     /// An attack's swing is to be dropped (or, already out, cancelled): its target stopped being
     /// the selection, so it would go at something else.
     abort_swing: bool,
+    /// The last recipe query's number, and when each plugin last asked one.
+    last_request: u32,
+    recipes_asked: BTreeMap<String, f64>,
+    /// The plugin whose combine the client last sent: a craft question about it is that plugin's.
+    last_combiner: Option<String>,
+    /// The craft questions told to a plugin, by the server's context: whose each is, and when it
+    /// was told.
+    pub(crate) questions: BTreeMap<u32, (String, f64)>,
 }
 
+/// How often one plugin may ask what its items make, at most: once in this many seconds.
+pub const RECIPE_QUERY_SECS: f64 = 1.0;
+
 impl ActionQueue {
+    /// The craft questions the server asked since the last frame about a plugin's own combine,
+    /// each with the plugin it is told to: the one whose combine the client sent last. A
+    /// question answered or gone is forgotten.
+    pub fn new_questions(
+        &mut self,
+        frame: &HookFrame<'_>,
+    ) -> Vec<(String, dereth_client_model::crafting::CraftQuestion)> {
+        let open = &frame.world.crafting.questions;
+        self.questions
+            .retain(|c, _| open.iter().any(|q| q.context == *c));
+        let mut out = Vec::new();
+        for q in open {
+            if self.questions.contains_key(&q.context) {
+                continue;
+            }
+            let Some(owner) = self.last_combiner.clone() else {
+                continue;
+            };
+            self.questions
+                .insert(q.context, (owner.clone(), frame.local_time));
+            out.push((owner, q.clone()));
+        }
+        out
+    }
+
+    /// The craft questions told to a plugin and left unanswered past
+    /// [`dereth_client_model::crafting::QUESTION_SECONDS`]: answered No, well inside the server's
+    /// own wait.
+    pub fn expire_questions(&mut self, frame: &mut HookFrame<'_>) {
+        let now = frame.local_time;
+        for (context, (_, at)) in &mut self.questions {
+            if *at >= 0.0 && now - *at > dereth_client_model::crafting::QUESTION_SECONDS {
+                frame.request(UiRequest::AnswerCraft {
+                    context: *context,
+                    yes: false,
+                });
+                // Sent once; the question leaves the list when the client takes the answer.
+                *at = -1.0;
+            }
+        }
+    }
+
     /// Queue `plan` for `plugin`; answers the action's id.
     ///
     /// # Errors
@@ -1212,9 +1311,63 @@ impl ActionQueue {
             }
             times.push_back(now);
         }
-        let Some(q) = self.queue.pop_front() else {
+        // A recipe query: only to a world that answers them, and once a second at most.
+        if let Kind::Recipes(_) = &q.plan.kind {
+            if !w.crafting.recipes_offered {
+                let q = self.queue.pop_front().expect("the front");
+                self.early.push(Settled {
+                    plugin: q.plugin,
+                    id: q.id,
+                    action: q.plan.kind.name(),
+                    result: Err("no_recipes".into()),
+                });
+                return;
+            }
+            if self
+                .recipes_asked
+                .get(&q.plugin)
+                .is_some_and(|t| now - t < RECIPE_QUERY_SECS)
+            {
+                return;
+            }
+        }
+        // A craft answer: only to a question still open, and only by the plugin it was told to.
+        if let Kind::Confirm { context, .. } = &q.plan.kind {
+            let open = w.crafting.questions.iter().any(|x| x.context == *context);
+            let why = if !open {
+                Some("no_such_question")
+            } else if self.questions.get(context).map(|(p, _)| p) != Some(&q.plugin) {
+                Some("not_yours")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                let q = self.queue.pop_front().expect("the front");
+                self.early.push(Settled {
+                    plugin: q.plugin,
+                    id: q.id,
+                    action: q.plan.kind.name(),
+                    result: Err(why.into()),
+                });
+                return;
+            }
+        }
+        let Some(mut q) = self.queue.pop_front() else {
             return;
         };
+        let mut request = 0;
+        if let Kind::Recipes(items) = &q.plan.kind {
+            self.last_request = self.last_request.wrapping_add(1).max(1);
+            request = self.last_request;
+            self.recipes_asked.insert(q.plugin.clone(), now);
+            q.plan.requests = vec![UiRequest::RecipeQuery {
+                request,
+                items: items.clone(),
+            }];
+        }
+        if matches!(q.plan.kind, Kind::UseOn { .. }) {
+            self.last_combiner = Some(q.plugin.clone());
+        }
         // Spells are cast in magic stance, as the spell bar is only there in it; the server lets
         // a cast in any other stance end with nothing cast, so it is not sent.
         if matches!(q.plan.kind, Kind::Cast(_))
@@ -1228,7 +1381,8 @@ impl ActionQueue {
             });
             return;
         }
-        let base = baseline(&q.plan.kind, frame);
+        let mut base = baseline(&q.plan.kind, frame);
+        base.request = request;
         tracing::debug!(target: "dereth::plugin::actions", "{} {} {} sent: {:?}",
             q.plugin, q.id, q.plan.kind.name(), q.plan.requests);
         for r in &q.plan.requests {
@@ -1472,6 +1626,17 @@ fn check(s: &mut Sent, frame: &HookFrame<'_>) -> Option<Result<Value, String>> {
         Kind::Inscribe(_) | Kind::FillComponents | Kind::SetOption(..) => Some(Ok(Value::Nil)),
         Kind::Appraise(id) => {
             (w.appraisal.delivery(id) > s.base.delivery).then(|| Ok(crate::reads::appraisal(w, id)))
+        }
+        Kind::Recipes(_) => w.crafting.answer(s.base.request).map(|a| {
+            use dereth_protocol::admin::RecipeAnswerStatus as A;
+            match a.status {
+                A::Answered => Ok(crate::reads::recipes(a)),
+                A::TooSoon => Err("too_soon".to_owned()),
+                A::NotHeld => Err("not_held".to_owned()),
+            }
+        }),
+        Kind::Confirm { context, .. } => {
+            (!w.crafting.questions.iter().any(|q| q.context == context)).then_some(Ok(Value::Nil))
         }
         Kind::Use(id) | Kind::UseOn { item: id, .. } => {
             if let Some(r) = use_done(frame) {

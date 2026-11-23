@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Dereth clients can ask what their items craft, and the chance of each.
 
 ## 0.3.17 (2026-11-21)
 - Fixed a world's data patch falling back to the slow way when its offer arrived late.

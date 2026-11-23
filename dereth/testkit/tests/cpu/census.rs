@@ -39,6 +39,8 @@ static FILES: &[ScenarioFile] = &[
     plugins::windows::SCENARIOS,
     plugins::tank::SCENARIOS,
     plugins::tank_items::SCENARIOS,
+    plugins::tank_crafting::SCENARIOS,
+    plugins::crafting::SCENARIOS,
     plugins::tank_fellows::SCENARIOS,
     plugins::tank_quests::SCENARIOS,
     plugins::tank_windows::SCENARIOS,

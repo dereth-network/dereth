@@ -161,6 +161,15 @@ pub enum Action {
     Spawn(Vec<ScriptedObject>),
     /// An object leaves the scripted world.
     Remove(u32),
+    /// The world offers its recipe answers, as a server that knows them does after login.
+    OfferRecipes,
+    /// The world answers the latest recipe query: how, and the recipes it names.
+    AnswerRecipes(
+        dereth_protocol::admin::RecipeAnswerStatus,
+        Vec<dereth_protocol::admin::RecipeMatch>,
+    ),
+    /// The server asks the character to confirm a craft: its question's number and text.
+    AskCraft(u32, String),
 }
 
 /// One timed step.
@@ -362,6 +371,49 @@ pub fn read_case(dir: &Path) -> Case {
                 Action::Spawn(list.iter().map(|o| scripted_object(o, &path)).collect())
             } else if let Some(id) = s.get("remove").as_i64() {
                 Action::Remove(u32::try_from(id).unwrap_or(0))
+            } else if s.get("offer_recipes").as_bool() == Some(true) {
+                Action::OfferRecipes
+            } else if let Some(status) = s.get("answer_recipes").get("status").as_str() {
+                use dereth_protocol::admin::{RecipeAnswerStatus as A, RecipeMatch};
+                let a = s.get("answer_recipes");
+                let n = |v: &Value| v.as_i64().and_then(|i| u32::try_from(i).ok()).unwrap_or(0);
+                let matches = a
+                    .get("matches")
+                    .as_list()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|m| RecipeMatch {
+                        source: n(m.get("item")),
+                        target: n(m.get("target")),
+                        recipe: n(m.get("recipe")),
+                        skill: n(m.get("skill")),
+                        difficulty: n(m.get("difficulty")),
+                        #[allow(clippy::cast_possible_truncation)]
+                        chance: m.get("chance").as_f64().unwrap_or(1.0) as f32,
+                        makes_wcid: n(m.get("wcid")),
+                        makes_name: m.get("makes").as_str().unwrap_or_default().to_owned(),
+                        makes_count: n(m.get("count")),
+                        fails: if m.get("fails").as_bool() == Some(true) {
+                            RecipeMatch::FAIL_SOURCE | RecipeMatch::FAIL_TARGET
+                        } else {
+                            0
+                        },
+                    })
+                    .collect();
+                let status = match status {
+                    "too_soon" => A::TooSoon,
+                    "not_held" => A::NotHeld,
+                    _ => A::Answered,
+                };
+                Action::AnswerRecipes(status, matches)
+            } else if let Some(text) = s.get("ask_craft").get("text").as_str() {
+                let q = s
+                    .get("ask_craft")
+                    .get("question")
+                    .as_i64()
+                    .and_then(|i| u32::try_from(i).ok())
+                    .unwrap_or(1);
+                Action::AskCraft(q, text.to_owned())
             } else if let Some(id) = s.get("move_object").get("id").as_i64() {
                 let m = s.get("move_object");
                 Action::MoveObject(
@@ -796,6 +848,12 @@ pub fn run(case: &Case) -> Outcome {
                 run.remove(*object);
                 run.frame();
             }
+            Action::OfferRecipes => run.offer_recipes(),
+            Action::AnswerRecipes(status, matches) => {
+                let request = run.recipe_queries().last().map_or(0, |q| q.0);
+                run.answer_recipes(request, *status, matches.clone());
+            }
+            Action::AskCraft(question, text) => run.ask_craft(*question, text),
         }
     }
     let wait = total - run.since_entry();

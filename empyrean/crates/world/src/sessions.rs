@@ -109,6 +109,8 @@ pub struct SessionData {
     pub overlay_asked_again: bool,
     /// Not ACE (V519): the patch this session was offered as a TCP stream.
     pub bulk: Option<crate::managers::bulk_patch::BulkPending>,
+    /// Not ACE (V566): when this session last asked what its character's items make.
+    pub last_recipe_query: Option<DotNetDateTime>,
 }
 
 impl Default for SessionData {
@@ -142,6 +144,7 @@ impl Default for SessionData {
             overlay_window: (DotNetDateTime::MIN_VALUE, 0),
             overlay_asked_again: false,
             bulk: None,
+            last_recipe_query: None,
         }
     }
 }

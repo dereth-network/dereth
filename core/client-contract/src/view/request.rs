@@ -76,6 +76,17 @@ pub enum UiRequest {
         target: ObjectId,
         equipped: bool,
     },
+    /// Ask a server that offered recipe answers what `items` (the character's own) make used on
+    /// one another; the answer comes back as `request`'s.
+    RecipeQuery {
+        request: u32,
+        items: Vec<ObjectId>,
+    },
+    /// Answer the craft question `context` about a combine the interface for plugins sent.
+    AnswerCraft {
+        context: u32,
+        yes: bool,
+    },
     /// Close the external container after use, then unregister its range handler.
     CloseExternalContainer(ObjectId),
     /// Hiding the slumlord panel retires every range registration

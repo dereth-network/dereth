@@ -17,6 +17,7 @@ local pack = require("pack")
 local fellows = require("fellows")
 local pets = require("pets")
 local bb = require("buffbot")
+local craft = require("craft")
 local fight = require("dereth.combat")
 local navlib = require("dereth.nav")
 local lootlib = require("dereth.loot")
@@ -25,6 +26,9 @@ local E = {}
 fellows.E = E
 pets.E = E
 bb.E = E
+craft.note = function(...)
+	E.note(...)
+end
 
 -- How near a melee attack is made from, in metres.
 local MELEE = 2.0
@@ -492,14 +496,38 @@ function E.arm()
 	return weapon
 end
 
--- Ammunition readied for a missile weapon, when none is: taking up a caster puts it away.
+-- Ammunition readied for a missile weapon, when none is: taking up a caster puts it away. With
+-- CraftAmmo, ammunition is made first when the pack holds none for the launcher, or holds the heads
+-- and shafts for better and no monster is near; then the best of the launcher's kind is readied.
 function E.ready_ammo()
 	local me = game.player.id
-	local want = string.lower(S.get("Ammo") or "")
+	local named = S.get("Ammo") or ""
+	local want = string.lower(named)
+	local launcher = nil
 	for _, it in ipairs(game.inventory.items()) do
 		if it.wielder == me and is_ammo(it) and (want == "" or string.lower(it.name or "") == want) then
 			return true
 		end
+		if it.wielder == me and it.class == "MissileWeapon" and not is_ammo(it) and not is_grenade(it) then
+			launcher = it
+		end
+	end
+	if launcher ~= nil then
+		local kind = craft.launcher_kind(launcher)
+		if E.can("craft") then
+			local _, line = craft.make_ammo(kind, named, craft.loose(kind, named)[1], monster_near())
+			if line ~= nil then
+				E.note("%s", line)
+			end
+		end
+		for _, it in ipairs(craft.loose(kind, named)) do
+			local ok = pawait(items.wield(it.id))
+			if ok then
+				E.note("readying %s", it.name)
+				return true
+			end
+		end
+		return false
 	end
 	for _, it in ipairs(game.inventory.items()) do
 		if is_ammo(it) and it.wielder ~= me and (want == "" or string.lower(it.name or "") == want) then
@@ -1881,6 +1909,10 @@ local function fight_step(target)
 		blacklist(target.id, target.name, "set to debuff only, and no caster is held")
 		return
 	end
+	-- Out of ammunition mid-hunt: more readied (and made, with CraftAmmo) before the shot.
+	if E.missile and weapon ~= nil and not is_grenade(weapon) then
+		E.ready_ammo()
+	end
 	local power = E.swing_power(weapon, row)
 	local heights = { "high", "medium", "low" }
 	E.tally.swings = E.tally.swings + 1
@@ -2464,6 +2496,25 @@ local function refill_step()
 		E.note("%s", line)
 	end
 	return ok
+end
+
+-- A combine toward a healing kit (AutoCraftItems, IdleCraftCount_HealthKits), looked at every
+-- five seconds with nothing to fight.
+local kits_checked = nil
+local function kit_step()
+	if kits_checked ~= nil and os.clock() - kits_checked < 5 then
+		return false
+	end
+	kits_checked = os.clock()
+	if craft.kits_wanted(true) <= 0 then
+		return false
+	end
+	set_state("Crafting")
+	local did, line = craft.kit_step(true)
+	if line ~= nil then
+		E.note("%s", line)
+	end
+	return did
 end
 
 -- With no monster near: stamina or mana under the top-off marks, to be waited back up.
@@ -4143,6 +4194,9 @@ local function tick()
 	if E.can("craft") and pack_step() then
 		return
 	end
+	if E.can("craft") and kit_step() then
+		return
+	end
 	if needs_rest() then
 		rest_step()
 		return
@@ -4186,6 +4240,7 @@ function E.start(opts)
 	E.route_done = false
 	reset_tally()
 	E.forget_doors()
+	craft.forget()
 	pick_bonus = {}
 	crumbs = {}
 	pets.forget()

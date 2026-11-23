@@ -12,7 +12,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [Nav](#nav) | 20 |
 | [Pregame](#pregame) | 3 |
 | [Peers](#peers) | 1 |
-| [Automation](#automation) | 18 |
+| [Automation](#automation) | 19 |
 | [UtilityBelt scripts](#ubscript) | 7 |
 
 ## Core
@@ -128,6 +128,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`attack-target`](../conformance/automation/attack-target/) | An attack's swing goes only at its target: one whose target stops being selected while the power bar charges (another monster selected, as the client's automatic targeting does when a target's body goes) is dropped, never sent at the new selection, and fails target_gone. | a scripted world |
 | [`combat`](../conformance/automation/combat/) | A plugin enters combat through the combat toggle, swings at a target with the combat window's own requests (height and power), and returns to peace; each settles on what the client saw. | a scripted world |
 | [`combat-stop`](../conformance/automation/combat-stop/) | combat.stop cancels a swing already sent with the server, drops one still charging before it goes, and fails the plugin's attacks in flight or queued as stopped. | a scripted world |
+| [`craft`](../conformance/automation/craft/) | craft.recipes fails as no_recipes until the world offers recipe answers, refuses an item that is not the character's, and then settles with the world's answer; the server's craft question about the plugin's own combine comes to it as craft.confirm with the chance, act.confirm answers it once, and a second answer finds no question. | a scripted world |
 | [`expressions`](../conformance/automation/expressions/) | Expressions in VTank's language evaluate with its operators, precedence, variables, lists, patterns and game functions; an unsupported function or a malformed expression is an error, not a value. | a scripted world |
 | [`expressions-ub`](../conformance/automation/expressions-ub/) | UtilityBelt's additions to the expression language evaluate as it documents them: dictionaries, indexing and slicing, the list library with item expressions, math and bitwise operators, kept and shared variables, stopwatches, a lazy ifthen, exec, the calendar and the meta's own state; a bracket left open at the end is closed there. | a scripted world |
 | [`heal-debuff`](../conformance/automation/heal-debuff/) | A spell is cast only in magic stance (the library takes up the caster and enters it); a Life spell cast as a heal is automated healing, which a world may allow while it denies buffing; the debuffer casts a debuff on a target once until its recast time has passed. | a scripted world |

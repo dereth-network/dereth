@@ -14,6 +14,7 @@ local vendors = require("vendor")
 local metaedit = require("metaedit")
 local hotkeys = require("hotkeys")
 local buffs = require("buffs")
+local craft = require("craft")
 
 local W = {}
 
@@ -91,6 +92,11 @@ W.PAGES = {
 		{ "CasterWeapon", "Wand", "text" },
 		{ "Ammo", "Ammo", "text" },
 		{ "Offhand", "Offhand", "text" },
+		{ "CraftAmmo", "Craft ammo", "toggle" },
+		{ "CraftMinChance", "Craft at (%)", "number", { 0, 100, 5 } },
+		{ "UseSpecialAmmo", "Special ammo", "pick", { { 0, "none" }, { 1, "Raider" }, { 2, "currency" }, { 3, "both" } } },
+		{ "AutoCraftItems", "Craft missing kits", "toggle" },
+		{ "IdleCraftCount_HealthKits", "Healing kits to keep", "number", { 0, 100, 1 } },
 	} },
 	{ "Nav", {
 		{ "EnableNav", "Navigation", "toggle" },
@@ -454,6 +460,16 @@ local function consumable_rows()
 	return rows
 end
 
+-- Each crafting tier with the least buffed skill it is made at when nothing tells the chance, and
+-- whether that is the Tank's default or the player's own.
+local function craft_rows()
+	local rows = {}
+	for _, r in ipairs(craft.skill_rows()) do
+		table.insert(rows, { r.tier, r.skill and tostring(r.skill) or "none", r.own and "you" or "default" })
+	end
+	return rows
+end
+
 local function buff_rows()
 	local rows = {}
 	for _, b in ipairs(buffs.listed()) do
@@ -676,6 +692,18 @@ local function pages(E)
 					ui.input({ id = "cons_name", text = "Item", value = "", grow = 1 }),
 					ui.button({ id = "cons_add", text = "Add", tooltip = "The item named, else the item selected in the game" }),
 					ui.button({ id = "cons_remove", text = "Remove" }),
+				}))
+				-- Crafting: the least buffed skill each tier is made at when neither the world nor
+				-- the game's craft dialog tells the chance.
+				table.insert(nodes, ui.label({ text = "Craft at (buffed skill), when the chance is not told:" }))
+				local crafts = craft_rows()
+				chosen.craft = within(chosen.craft, crafts)
+				table.insert(nodes, ui.list({ id = "craft_skills", columns = { "Tier", { title = "Skill", width = 7 },
+					{ title = "Set by", width = 8 } }, rows = crafts, height = 5, selected = chosen.craft }))
+				table.insert(nodes, ui.row({
+					ui.input({ id = "craft_skill", text = "Skill", value = "", grow = 1 }),
+					ui.button({ id = "craft_set", text = "Set", tooltip = "The chosen tier made from this buffed skill" }),
+					ui.button({ id = "craft_default", text = "Default", tooltip = "The chosen tier back to the Tank's own" }),
 				}))
 			elseif page[1] == "Combat" then
 				-- The selected monster or item looked at (VTank's /vt testmonster, propertydump),
@@ -1155,6 +1183,12 @@ function W.selected(E, e)
 		end
 	elseif e.id == "items" or e.id == "consumables" or e.id == "buffs" then
 		chosen[e.id] = row
+	elseif e.id == "craft_skills" then
+		chosen.craft = row
+		local r = row and craft_rows()[row]
+		if r ~= nil then
+			win:get("craft_skill").value = r[2] == "none" and "" or r[2]
+		end
 	elseif e.id == "meta_rules" then
 		-- A rule chosen: the editor holds it.
 		metaedit.choose(metas.file, metaedit.rule_of(row))
@@ -1242,6 +1276,23 @@ function W.clicked(E, e)
 		list_add("Consumables", name)
 		W.rebuild = true
 		return "consumable " .. name
+	elseif id == "craft_set" or id == "craft_default" then
+		local r = chosen.craft and craft_rows()[chosen.craft]
+		if r == nil then
+			return "choose a tier first"
+		end
+		local skill = nil
+		if id == "craft_set" then
+			skill = tonumber(win:get("craft_skill").value or "")
+			if skill == nil or skill < 0 then
+				return "the skill is a number"
+			end
+			skill = math.floor(skill)
+		end
+		craft.set_skill(r[1], skill)
+		W.rebuild = true
+		local now = craft.skill_for(r[1])
+		return string.format("%s: made from buffed skill %s", r[1], now and tostring(now) or "none (only when the chance is told)")
 	elseif id == "cons_remove" then
 		local name = chosen.consumables and S.list("Consumables")[chosen.consumables]
 		if name == nil then

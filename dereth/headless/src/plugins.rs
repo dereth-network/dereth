@@ -234,6 +234,7 @@ pub fn host_config(world: bool) -> HostConfig {
         caps.push(HostCapability::NavJourney);
         caps.push(HostCapability::NavPath);
         caps.push(HostCapability::GameData);
+        caps.push(HostCapability::CraftRecipes);
     }
     HostConfig::new("dereth-headless", caps)
 }

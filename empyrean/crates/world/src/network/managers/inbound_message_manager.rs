@@ -91,6 +91,12 @@ pub static EMPYREAN_MESSAGE_HANDLERS: &[MessageHandlerInfo] = &[
         handler: crate::network::handlers::ddd_handler::ddd_bulk_decline,
         attribute: GameMessageAttribute::new(0xF7EE, SessionState::AuthConnected),
     },
+    // What the character's items make (V566).
+    MessageHandlerInfo {
+        name: "RecipeQuery",
+        handler: crate::network::handlers::ddd_handler::recipe_query,
+        attribute: GameMessageAttribute::new(0xF7F0, SessionState::WorldConnected),
+    },
 ];
 
 /// `actionHandlers.TryGetValue(opcode)`, then the game actions ACE has no handler for.

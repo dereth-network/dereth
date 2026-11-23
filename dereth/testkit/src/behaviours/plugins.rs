@@ -23,6 +23,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.actions.a-craft-question-about-a-plugins-own-combine-is-its-alone-to-answer",
+        says: "The server's craft question about a combine a plugin sent goes to that plugin alone, as \
+               craft.confirm with the chance the server gives, and act.confirm answers it; no other \
+               plugin may answer it, one unanswered for ten seconds is answered No, and a question \
+               about the player's own combine is left to the player.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-CRAFT-CONFIRM"),
+        station: "dereth-testkit::cpu::plugins::crafting::scenario_a_craft_question_about_a_plugins_own_combine_is_its_alone_to_answer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.actions.a-plugin-asks-the-world-what-its-items-make-once-a-second-at-most",
+        says: "A plugin's craft.recipes asks a world that offered recipe answers what the character's \
+               own items make used on one another, and settles with each recipe's product, chance \
+               and losses; a world that offered none is asked nothing, an item not the \
+               character's is refused, and one plugin asks at most once a second.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-CRAFT-RECIPES"),
+        station: "dereth-testkit::cpu::plugins::crafting::scenario_a_plugin_asks_the_world_what_its_items_make_once_a_second_at_most",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.actions.a-refusal-of-something-the-character-said-settles-no-action",
         says: "A plugin action's promise settles on the answer to that action, never on whichever \
                message comes next: a refusal of something the character said (a tell to someone not \
@@ -163,6 +187,18 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-PK"),
         station: "dereth-testkit::cpu::plugins::scenario_a_player_killers_automation_stops_where_the_world_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.automation.a-plugin-crafts-by-the-worlds-recipe-answer-and-answers-its-own-craft-question",
+        says: "craft.recipes fails until the world offers recipe answers, refuses an item that is not \
+               the character's, then settles with the world's answer; the server's craft question \
+               about the plugin's own combine comes to it with the chance, and act.confirm answers it \
+               once.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-CRAFT-CONFORMANCE"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_plugin_crafts_by_the_worlds_recipe_answer_and_answers_its_own_craft_question",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2007,6 +2043,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-answers-the-craft-dialog-yes-at-its-chance-and-no-below",
+        says: "With the game's craft dialog on, the Tank answers the server's question about its own \
+               combine Yes at CraftMinChance or better and No below, leaves a combine it said No \
+               to, and with no ammunition goes on to the next heads.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-DIALOG"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_answers_the_craft_dialog_yes_at_its_chance_and_no_below",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-answers-vtanks-information-and-log-commands",
         says: "The Tank answers VTank's information commands: the selected item against the loot \
                profile and its properties, the selected monster against the monster list, a spell \
@@ -2139,6 +2186,26 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-ITEM-BUFFS"),
         station: "dereth-testkit::cpu::plugins::scenario_the_tank_confirms_an_item_buff_by_the_items_appraisal",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-crafts-nothing-without-the-skill-and-says-why",
+        says: "The Tank makes nothing with the combine's skill untrained, and its log says so.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-REFUSED"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_crafts_nothing_without_the_skill_and_says_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-crafts-the-best-ammo-its-heads-and-shafts-make-and-readies-it",
+        says: "With CraftAmmo and no ammunition for the launcher in hand, the Tank uses the best bundle of \
+               heads its launcher's shafts take (ranked by their names; special ammunition only by \
+               UseSpecialAmmo) on those shafts, never another launcher's, and readies what it makes.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-AMMO"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_crafts_the_best_ammo_its_heads_and_shafts_make_and_readies_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2343,6 +2410,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-leaves-a-failed-combine-and-tries-the-next-when-it-has-no-ammo",
+        says: "A combine of heads and shafts that made nothing (both bundles gone) is not tried again \
+               that run; with no ammunition at all the Tank tries the next heads it holds.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-FAILED"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_leaves_a_failed_combine_and_tries_the_next_when_it_has_no_ammo",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-leaves-a-ghost-monster-alone-for-good",
         says: "The Tank leaves alone for good a ghost (a monster the client shows that the server \
                does not have): one whose health does not change in GhostDeleteHPTrackerSeconds of \
@@ -2389,6 +2466,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-makes-a-healing-kit-in-two-combines-when-its-consumables-want-one",
+        says: "With AutoCraftItems, a Plentiful Healing Kit in the Consumables and none carried, the \
+               Tank puts Treated Hyssop on Treated Mandrake, then the herbs on Soft Bandages, and \
+               stops once the kit is made.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-KITS"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_makes_a_healing_kit_in_two_combines_when_its_consumables_want_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-makes-a-route-in-the-game-and-walks-it-jumping-and-through-its-portal",
         says: "The Tank makes a route in the game as VTank's Route tab makes one (a point where \
                the character stands, a jump with its heading, walk key and charge, the selected \
@@ -2399,6 +2487,29 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-ROUTES"),
         station: "dereth-testkit::cpu::plugins::scenario_the_tank_makes_a_route_in_the_game_and_walks_it_jumping_and_through_its_portal",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-makes-each-tier-from-its-least-buffed-skill-when-no-chance-is-told",
+        says: "With the craft dialog off and no answer from the world, the Tank makes each tier of \
+               ammunition only from its least buffed Fletching (where retail's recipe difficulty, or \
+               public data's, puts a 90% chance; or the player's own in CraftSkills), leaves a tier with none and says how to set it, and \
+               changes no setting of the player's.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-THRESHOLDS"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_makes_each_tier_from_its_least_buffed_skill_when_no_chance_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-names-ammunition-as-retail-does-and-keeps-wrapped-heads-off-plain-shafts",
+        says: "The Tank finds the heads for ammunition named as retail names it (Broad heads make \
+               Broadhead ammunition, and some heads on quarrelshafts make a Bolt), and never uses \
+               wrapped heads on a plain bundle of shafts, which is no recipe.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-NAMES"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_names_ammunition_as_retail_does_and_keeps_wrapped_heads_off_plain_shafts",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2455,6 +2566,16 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-TARGETING"),
         station: "dereth-testkit::cpu::plugins::tank::scenario_the_tank_picks_its_target_by_turning_or_range_and_the_players_selection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-readies-the-ammo-it-carries-in-a-fight-rather-than-crafting-better",
+        says: "With a monster at hand, the Tank readies the ammunition it carries at once and makes \
+               none, though the pack holds the heads and shafts for better.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-IN-A-FIGHT"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_readies_the_ammo_it_carries_in_a_fight_rather_than_crafting_better",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2676,6 +2797,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-SLOTS"),
         station: "dereth-testkit::cpu::plugins::scenario_the_tank_takes_the_selected_item_for_a_slot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-takes-the-worlds-recipe-answers-over-the-names-of-its-heads",
+        says: "Where the world answers what the pack's items make, the Tank asks it about its heads \
+               and shafts and makes the best combine at CraftMinChance or better, though the names \
+               alone would have ranked another first.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-WORLD-RECIPES"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_takes_the_worlds_recipe_answers_over_the_names_of_its_heads",
         tier: Tier::Cpu,
     },
     behaviour! {

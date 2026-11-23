@@ -2033,6 +2033,20 @@ impl PluginHost {
             }
         }
         settled.extend(self.net_answers());
+        // A craft question about a plugin's own combine, to that plugin alone.
+        for (plugin, q) in self.shared.actions.new_questions(frame) {
+            if let Some(i) = self.index(&plugin) {
+                let mut data = Value::map()
+                    .with("question", q.context)
+                    .with("item", q.item.0)
+                    .with("target", q.target.0)
+                    .with("text", q.text.as_str());
+                if let Some(c) = q.chance {
+                    data = data.with("chance", f64::from(c));
+                }
+                events.push((Target::One(i), Event::new("craft.confirm", data)));
+            }
+        }
         for s in settled {
             let Some(i) = self.index(&s.plugin) else {
                 continue;
@@ -2224,6 +2238,7 @@ impl PluginHost {
         let standing_first = self.shared.nav.take_standing_first();
         if !standing_first {
             self.shared.actions.start(frame);
+            self.shared.actions.expire_questions(frame);
         }
         if let Some(s) = self.shared.nav.step(frame) {
             self.shared.actions.settle_later(s);

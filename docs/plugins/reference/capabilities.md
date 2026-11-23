@@ -24,3 +24,4 @@ Every capability a host may offer. A plugin lists the ones it cannot run without
 | `messages` | The read-only decoded message stream. |
 | `retail_ui` | Moving and hiding the retail interface's panels. |
 | `game.data` | The game's own data, read only: landblocks and dungeon cells. |
+| `craft.recipes` | What the character's items make used on one another, with the chance of each, where the world answers. |

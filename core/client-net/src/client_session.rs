@@ -1146,6 +1146,15 @@ impl<T: Transport> Session<T> {
         }
     }
 
+    /// `0xF7F0` on queue 5: what the character's `items` make used on one another, asked of a
+    /// server that offered recipe answers (`0xF7EF`). Like `0xF7EE` it has no row in the master
+    /// opcode table, so it is framed here.
+    pub fn send_recipe_query(&mut self, query: &dereth_protocol::admin::RecipeQuery) {
+        if let Ok(blob) = dereth_protocol::write_blob(query) {
+            self.transmit(NetQueue::ClientCache, false, &blob);
+        }
+    }
+
     /// The cache's async get from other sources -- ask the server for one resource the dat
     /// files do not hold, as `0xF7E3 DDD_RequestDataMessage` on queue 5.
     ///

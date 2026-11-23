@@ -38,6 +38,7 @@ pub mod chat_entry;
 /// up in the table of client-side handlers, and anything unrecognised is forwarded verbatim.
 pub mod cmd;
 pub mod combat;
+pub mod crafting;
 pub mod emotes;
 pub mod enchant;
 pub mod fellowship;
@@ -730,6 +731,9 @@ pub enum Request {
     /// The body contains the type, context and acceptance in that order, each padded to
     /// four bytes. A refused send rolls back the action stamp.
     ConfirmationResponse(dereth_protocol::comms::CharacterConfirmationResponse),
+    /// `0xF7F0` on queue 5, not a retail message: what the character's items make used on one
+    /// another, asked of a server that offered recipe answers ([`crate::crafting`]).
+    RecipeQuery(dereth_protocol::admin::RecipeQuery),
 
     // ---------------------------------------------------------------------------------------
     // The twenty requests whose only producer in the retail client is a

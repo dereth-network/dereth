@@ -1,0 +1,30 @@
+says = "craft.recipes fails as no_recipes until the world offers recipe answers, refuses an item that is not the character's, and then settles with the world's answer; the server's craft question about the plugin's own combine comes to it as craft.confirm with the chance, act.confirm answers it once, and a second answer finds no question."
+[scenario]
+world = "scripted"
+seconds = 5
+[[object]]
+id = 0x80000071
+name = "Bundle of Arrowheads"
+type = "misc"
+container = "player"
+useability = 0x00080008
+target_type = "misc"
+[[object]]
+id = 0x80000072
+name = "Bundle of Arrowshafts"
+type = "misc"
+container = "player"
+[[step]]
+after = 1.0
+offer_recipes = true
+[[step]]
+after = 2.0
+answer_recipes = { status = "answered", matches = [{ item = 0x80000071, target = 0x80000072, recipe = 1, skill = 37, difficulty = 5, chance = 0.75, makes = "Arrow", wcid = 300, count = 100, fails = true }] }
+[[step]]
+after = 3.0
+ask_craft = { question = 0x91, text = "You determine that you have a 95 percent chance to succeed." }
+[host]
+policy = { craft = "allow" }
+[expect]
+status = "running"
+console = ["before the offer	false	no_recipes", "not the character's	false", "answered	true	1	Arrow	0.75	true", "asked	true	true	true", "confirmed	true	nil", "again	false	no_such_question"]

@@ -2972,6 +2972,8 @@ impl ObjectStream {
         fresh.preserve_vital_formulas_from(&mut self.world);
         // The world's rules are the world's, not the character's.
         fresh.world_rules = std::mem::take(&mut self.world.world_rules);
+        // So is what its server offered beyond the retail messages.
+        fresh.crafting.recipes_offered = self.world.crafting.recipes_offered;
         self.world = fresh;
     }
 }

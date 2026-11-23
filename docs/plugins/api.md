@@ -132,7 +132,8 @@ action, what it sends, what ends it and its timeout.
 
 | namespace | actions |
 |---|---|
-| `act` | `select(id)`, `use(id)`, `use_on(item, target [, { purpose = "heal" }])`, `appraise(id)` |
+| `act` | `select(id)`, `use(id)`, `use_on(item, target [, { purpose = "heal" }])`, `appraise(id)`, `confirm(question, yes)` |
+| `craft` | `recipes(items)`: what the character's items make used on one another, where the world answers (`craft.recipes`) |
 | `items` | `move(id [, container [, slot]])`, `split(id, count [, container])`, `merge(id, target [, count])`, `drop(id)`, `give(id, target [, count])`, `wield(id)`, `unwield(id)`, `inscribe(id, text)`, `salvage(ids [, tool])` |
 | `vendor` | `buy{ {id =, count =}, … }`, `sell(ids)`, `close()`, `fill_components([max_price])` |
 | `trade` | `open(player)`, `add(id)`, `accept()`, `decline()`, `reset()`, `close()` |
@@ -147,6 +148,15 @@ item, and an item the character wields where it is, as a caster's own spell (a w
 Mana, a Healer's Heart's heal) is cast; `purpose = "heal"` counts a wielded item's restoring spell
 as healing (`auto.heal`), as `magic.cast`'s does. Who may act, and when, is in
 [permissions.md](permissions.md#gestures-and-automation).
+
+**Crafting.** A world whose server answers it (Empyrean does) tells the client what the
+character's items make used on one another: `craft.recipes(ids)` settles with each recipe among
+them, its product, the character's chance now and what a failure destroys, so a plugin can
+choose a combine before it makes it. Any other world gives no such answer, and the call fails as
+`no_recipes`. When the character's craft dialog option is on, the server asks before a combine
+with a chance of failing; for a combine a plugin sent, the question comes to that plugin as
+`craft.confirm`, with the chance, and `act.confirm(question, yes)` answers it. Nothing is shown to
+the player for it, and a question left 10 seconds is answered No.
 
 Combat (`combat.set_mode`, `combat.attack`, `combat.stop`), metas, VTank meta files, expressions,
 and the heal and debuff helpers are in [automation.md](automation.md).

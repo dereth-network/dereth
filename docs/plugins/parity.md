@@ -9,7 +9,7 @@ samples are walked through in [the guide](guide/samples/README.md).
 | program | done | partial | missing |
 |---|---|---|---|
 | Mag-Tools | 15 | 2 | 1 |
-| VTank | 22 | 2 | 2 |
+| VTank | 23 | 2 | 2 |
 | GoArrow | 8 | 1 | 0 |
 | UtilityBelt | 7 | 9 | 6 |
 
@@ -65,7 +65,8 @@ samples are walked through in [the guide](guide/samples/README.md).
 | Settings profiles (`.usd`), imported and exported | done | [Tank](guide/samples/tank.md), Settings |
 | Hotkeys, and the remote control of other clients | done | [Tank](guide/samples/tank.md), Commands and the window |
 | Recharge handlers of a settings profile (`RechargeHandlerSet`) | missing | its layout in a settings profile is not published |
-| Crafting kits, food, ammunition and components | missing | [Tank](guide/samples/tank.md) keeps the options for a run and does not craft: VTank's pages name the recipes only by their results |
+| Crafting ammunition and healing kits | done | [Tank](guide/samples/tank.md), Crafting: missile ammunition from heads and shafts (by the world's recipe answers where it gives them, else by their names), special ammunition by `UseSpecialAmmo`, Plentiful Healing Kits by `AutoCraftItems` and `IdleCraftCount_HealthKits`, and the craft dialog answered by the chance it gives |
+| Crafting foods, and splitting components | missing | [Tank](guide/samples/tank.md) keeps the options for a run: `IdleCraftCount_*Food`, `SplitPeas`, `SpellCompMin-*` |
 
 The Tank asks a [Buffbot](guide/samples/buffbot.md) for buffs too, which VTank leaves to metas.
 

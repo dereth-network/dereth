@@ -39,6 +39,13 @@ pub(crate) mod tank;
 /// The Tank sample's looting, items and trading against VTank's documented behavior.
 pub(crate) mod tank_items;
 
+/// Crafting for plugins: the world's recipe answers and the server's craft questions.
+pub(crate) mod crafting;
+
+/// The Tank sample's crafting of missile ammunition and healing kits against VTank's documented
+/// behavior.
+pub(crate) mod tank_crafting;
+
 /// The Tank sample's following, fellows, summoning and locks against VTank's documented behavior.
 pub(crate) mod tank_fellows;
 
@@ -145,6 +152,7 @@ dereth_testkit::scenarios! {
     scenario_stopping_and_letting_go_are_always_allowed => stopping_and_letting_go_are_always_allowed ["plugins.automation.stopping-and-letting-go-are-always-allowed"],
     scenario_stopping_an_attack_cancels_it_and_fails_its_promise => stopping_an_attack_cancels_it_and_fails_its_promise ["plugins.automation.stopping-an-attack-cancels-it-and-fails-its-promise"],
     scenario_a_heal_is_its_own_domain_and_a_debuff_is_cast_once_per_target => a_heal_is_its_own_domain_and_a_debuff_is_cast_once_per_target ["plugins.automation.a-heal-is-its-own-domain-and-a-debuff-is-cast-once-per-target"],
+    scenario_a_plugin_crafts_by_the_worlds_recipe_answer_and_answers_its_own_craft_question => a_plugin_crafts_by_the_worlds_recipe_answer_and_answers_its_own_craft_question ["plugins.automation.a-plugin-crafts-by-the-worlds-recipe-answer-and-answers-its-own-craft-question"],
     scenario_beneficial_spells_on_another_character_are_their_own_domain => beneficial_spells_on_another_character_are_their_own_domain ["plugins.automation.beneficial-spells-on-another-character-are-their-own-domain"],
     scenario_a_compiled_plugin_counts_what_the_same_lua_plugin_counts => a_compiled_plugin_counts_what_the_same_lua_plugin_counts ["plugins.packages.a-compiled-plugin-counts-what-the-same-lua-plugin-counts"],
     scenario_the_players_own_movement_ends_a_plugins_movement_and_comes_first => the_players_own_movement_ends_a_plugins_movement_and_comes_first ["plugins.nav.the-players-own-movement-ends-a-plugins-movement-and-comes-first"],
@@ -1362,6 +1370,11 @@ fn an_attack_settles_on_what_the_server_does_with_it() {
 fn an_attacks_swing_goes_only_at_its_target() {
     assert_case("automation", "attack-target");
     note_asserted("plugins.automation.an-attacks-swing-goes-only-at-its-target");
+}
+
+fn a_plugin_crafts_by_the_worlds_recipe_answer_and_answers_its_own_craft_question() {
+    assert_case("automation", "craft");
+    note_asserted("plugins.automation.a-plugin-crafts-by-the-worlds-recipe-answer-and-answers-its-own-craft-question");
 }
 
 fn a_heal_is_its_own_domain_and_a_debuff_is_cast_once_per_target() {

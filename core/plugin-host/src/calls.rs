@@ -1727,6 +1727,9 @@ impl HostCalls for Call<'_, '_> {
                 if name == "files.import" {
                     return self.files_import(&a);
                 }
+                if name == "craft.recipes" {
+                    self.capability(&name, HostCapability::CraftRecipes)?;
+                }
                 // A use or a cast right after a move's arrival is made standing.
                 self.shared.nav.act_instead(self.slot.manifest.id.as_str());
                 self.act(&name, &a)

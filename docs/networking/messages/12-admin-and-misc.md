@@ -151,6 +151,33 @@ server's patch logic works unchanged. A server that knows the extension can do m
   did not ask for or cannot open, and with what is pending a stream that breaks, stalls or ends
   early. A server that sees no connection within 120 seconds sends the whole offer as `0xF7E2`s.
 
+### 5.3 The recipe extension (this client and Empyrean only)
+
+The retail client learns what two items make only by combining them. A server that knows this
+extension answers the question beforehand, for the client's plugins:
+
+- **The capability.** Bit 4 of the `0xF7E6` flag word says the client asks recipe questions; the
+  client always sets it. A server that answers them says so with **`0xF7EF`** (server to client,
+  queue 5, once, after the interrogation): a flag word, bit 0 for recipe answers. The client asks
+  no question of a server that has not said so, and a server that knows nothing of the bit reads
+  the word as before.
+- **`0xF7F0`** (client to server, queue 5, in the world): a request number (dword), then a packed
+  list of at most 64 object ids, the character's own items (in its packs or worn).
+- **`0xF7F1`** (server to client, queue 5): the request number, a status (dword: 0 answered, 1
+  asked again sooner than a second after the last, 2 an item not the character's; nothing is
+  looked up for 1 or 2), then a packed list of matches, one for each ordered pair of the items with
+  a recipe: the source and target ids, the recipe id, the skill it checks (0 for none) and its
+  difficulty (dwords), the character's chance of success now (a float, 0 to 1; 0 with the skill
+  untrained), the product's weenie class id, its name (a padded string) and count (dwords), and a
+  dword saying what a failure destroys (bit 0 the source, bit 1 the target). A query changes
+  nothing and sends nothing else.
+
+**The craft question.** With the character's craft dialog option on, the server asks to confirm a
+combine that can fail (`0x0274`, type 5), its text giving the chance ("… a 38 percent chance to
+succeed."). The client holds a question about a combine its plugins sent for that plugin to answer
+(`0x0275`), and answers No itself after 10 seconds, well inside the server's own 30; a question
+about the player's own combine is shown as retail shows it.
+
 ## 6. Where reimplementations differ
 
 | topic | the client | common reimplementations |

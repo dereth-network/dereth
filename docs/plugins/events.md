@@ -75,6 +75,7 @@ are not changes.
 | `inventory.item_removed` | `id` |
 | `inventory.item_moved` | `id`, `container`, `previous` |
 | `items.appraised` | `id`: an appraisal arrived, whoever asked for it |
+| `craft.confirm` | `question`, `item`, `target`, `chance`, `text`: the server asks whether to go on with a combine this plugin sent (`act.use_on`), as it does when the character's craft dialog option is on; `chance` is the one the server gives, 0 to 1 (nil when its text gives none). Only the plugin whose combine it is hears it, and answers it with `act.confirm`; one left unanswered for 10 seconds is answered No. A question about the player's own combine is the player's, and no plugin hears it |
 | `commerce.vendor_opened` | `id` (the vendor) |
 | `commerce.vendor_closed` | `id` |
 | `commerce.trade_opened` | `partner` |

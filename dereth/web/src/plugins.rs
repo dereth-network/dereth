@@ -129,6 +129,7 @@ pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
         HostCapability::UiIcons,
         HostCapability::RetailUi,
         HostCapability::GameData,
+        HostCapability::CraftRecipes,
     ];
     if extras.peers.is_some() {
         caps.push(HostCapability::PeersLocal);

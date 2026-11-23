@@ -1,0 +1,10 @@
+id = "conformance.craft"
+name = "Conformance: craft"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"auto.craft" = "Crafts on its own."
+
+[capabilities]
+optional = ["craft.recipes"]

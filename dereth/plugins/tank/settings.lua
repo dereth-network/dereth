@@ -194,6 +194,21 @@ S.defaults = {
 	-- The kits, foods, potions, mana stones and charges the macro may use, by name, comma separated
 	-- (VTank's Consumables tab; this plugin's own reading: empty means any of them the pack holds).
 	Consumables = "",
+	-- Crafting. Missile ammunition is made from bundles of heads and shafts when the launcher has
+	-- none readied or better can be made (this plugin's own). Special ammunition is made and used
+	-- by VTank's UseSpecialAmmo: 0 none, 1 Raider Lightning, 2 the special currencies' ammunition
+	-- (Burning Sands, Gear Blade Slashing, Olthoi Acid), 3 both. Healing kits are made when the
+	-- Consumables list one and none is carried (AutoCraftItems), and up to IdleCraftCount_HealthKits
+	-- when idle. A combine is made only at CraftMinChance percent or better, where the world or its
+	-- craft dialog says the chance (this plugin's own).
+	CraftAmmo = false,
+	CraftMinChance = 90,
+	-- The player's own least buffed skill for a tier, over the Tank's defaults, comma separated:
+	-- "Deadly Fire = 320, Plentiful Healing Kit = 260" (this plugin's own; see craft.lua).
+	CraftSkills = "",
+	UseSpecialAmmo = 0,
+	AutoCraftItems = false,
+	IdleCraftCount_HealthKits = 0,
 
 	-- Buffing. Recast a buff with less than RebuffTimeRemainingSeconds left; with IdleBuffTopoff,
 	-- when there is nothing to fight, from IdleBuffTopoffTimeSeconds.

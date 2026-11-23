@@ -282,6 +282,27 @@ fn a_client_that_does_not_ask_is_patched_over_udp_as_before() {
     assert_eq!(ts.received::<DddData>(id).len(), RECORDS as usize);
 }
 
+/// Not ACE (V566): a client that asks what its items make (`FLAG_RECIPES`) is told the server
+/// answers it, once, beside its patch; one that does not ask is told nothing new.
+#[test]
+fn a_client_that_asks_for_recipe_answers_is_offered_them_and_one_that_does_not_is_not() {
+    use dereth_protocol::admin::ExtensionOffer;
+    listen();
+    let scratch = dereth_dat::testing::ScratchDir::new("recipes-offer").expect("scratch");
+    let (dats, base) = world(scratch.path());
+    let mut asks = answer(&base, false);
+    asks.flags |= DddInterrogationResponse::FLAG_RECIPES;
+    let (ts, id) = exchange(&dats, &asks);
+    assert_eq!(
+        ts.received::<ExtensionOffer>(id),
+        vec![ExtensionOffer {
+            flags: ExtensionOffer::RECIPES
+        }]
+    );
+    let (ts, id) = exchange(&dats, &answer(&base, false));
+    assert!(ts.received::<ExtensionOffer>(id).is_empty());
+}
+
 #[test]
 fn a_world_with_the_stream_off_patches_a_client_that_asks_as_before() {
     listen();

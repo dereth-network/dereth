@@ -98,4 +98,8 @@ impl GameMessageOpcode {
     pub const DDD_OverlayManifest: Self = Self(0xF7EC);
     /// Not ACE (V519): the bulk patch stream's offer.
     pub const DDD_BulkOffer: Self = Self(0xF7ED);
+    /// Not ACE (V566): what the server answers beyond the patch.
+    pub const ExtensionOffer: Self = Self(0xF7EF);
+    /// Not ACE (V566): the answer to a client's recipe query.
+    pub const RecipeAnswer: Self = Self(0xF7F1);
 }

@@ -182,6 +182,28 @@ pub fn ddd_interrogation_response_with(
                 r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_OVERLAY != 0
             })
     };
+    // DIVERGE (V566): a client that asks what its items make is told the server answers it.
+    let recipes_asked = {
+        let mut body = client_language.to_le_bytes().to_vec();
+        body.extend_from_slice(&rest);
+        dereth_protocol::read_body::<dereth_protocol::admin::DddInterrogationResponse>(&body)
+            .is_ok_and(|r| {
+                r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_RECIPES != 0
+            })
+    };
+    if recipes_asked {
+        enqueue_send(
+            w,
+            session,
+            GameMessage::from_proto(
+                GameMessageOpcode::ExtensionOffer,
+                GameMessageGroup::DatabaseQueue,
+                &dereth_protocol::admin::ExtensionOffer {
+                    flags: dereth_protocol::admin::ExtensionOffer::RECIPES,
+                },
+            ),
+        );
+    }
     let overlay_world = !dat_overlay::overlaid(&dats).is_empty();
     let overlay_patching = overlay_world
         && extension.is_some()
@@ -902,4 +924,162 @@ pub fn ddd_request_data_message_with(
         );
     }
     Ok(())
+}
+
+/// Not ACE (V566): the least time between one session's recipe queries; one sooner is answered
+/// "too soon", with nothing looked up.
+pub const RECIPE_QUERY_SECONDS: f64 = 1.0;
+
+/// Not ACE (V566): `0xF7F0`, what the character's items make used on one another. Only the
+/// character's own items (in its packs or worn), at most `RecipeQuery::MOST`, and one query a
+/// second; the answer names each ordered pair with a recipe, its product, the character's chance
+/// now and what a failure destroys. Nothing is changed and nothing else is sent.
+pub fn recipe_query(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> HandlerResult {
+    use crate::world_objects::player_inventory::{find_object, SearchLocations};
+    use dereth_protocol::admin::{RecipeAnswer, RecipeAnswerStatus, RecipeMatch, RecipeQuery};
+    use empyrean_entity::ObjectGuid;
+
+    let rest = message.read_bytes(message.remaining());
+    let Ok(query) = dereth_protocol::read_body::<RecipeQuery>(&rest) else {
+        log::warn!(
+            "[DDD] client {} sent a recipe query that does not read",
+            account(w, session)
+        );
+        return Ok(());
+    };
+    let Some(player) = w.sessions.player(session) else {
+        return Ok(());
+    };
+    let answer = |status, matches| RecipeAnswer {
+        request: query.request,
+        status,
+        matches,
+    };
+    let now = w.now.utc;
+    let too_soon = w
+        .sessions
+        .get(session)
+        .and_then(|s| s.last_recipe_query)
+        .is_some_and(|t| now < t.add_seconds(RECIPE_QUERY_SECONDS));
+    let reply = if too_soon {
+        answer(RecipeAnswerStatus::TooSoon, Vec::new())
+    } else {
+        if let Some(s) = w.sessions.get_mut(session) {
+            s.last_recipe_query = Some(now);
+        }
+        let items: Vec<ObjectGuid> = query
+            .items
+            .iter()
+            .take(RecipeQuery::MOST)
+            .map(|i| ObjectGuid::new(*i))
+            .collect();
+        let held = |w: &World, i: ObjectGuid| {
+            i != player
+                && find_object(
+                    w,
+                    player,
+                    i,
+                    SearchLocations::MyInventory | SearchLocations::MyEquippedItems,
+                )
+                .result
+                    == Some(i)
+        };
+        if query.items.len() > RecipeQuery::MOST || items.iter().any(|i| !held(w, *i)) {
+            answer(RecipeAnswerStatus::NotHeld, Vec::new())
+        } else {
+            let mut matches = Vec::new();
+            for &source in &items {
+                for &target in &items {
+                    if source == target {
+                        continue;
+                    }
+                    let Some(recipe) =
+                        crate::managers::recipe_manager::get_recipe(w, player, source, target)
+                    else {
+                        continue;
+                    };
+                    let chance = recipe_chance(w, player, source, target, &recipe);
+                    let makes_name = w
+                        .content
+                        .get_cached_weenie(recipe.success_wcid)
+                        .and_then(|x| x.get_name())
+                        .unwrap_or_default();
+                    let mut fails = 0;
+                    if recipe.fail_destroy_source_chance > 0.0 {
+                        fails |= RecipeMatch::FAIL_SOURCE;
+                    }
+                    if recipe.fail_destroy_target_chance > 0.0 {
+                        fails |= RecipeMatch::FAIL_TARGET;
+                    }
+                    matches.push(RecipeMatch {
+                        source: source.full(),
+                        target: target.full(),
+                        recipe: recipe.id,
+                        skill: recipe.skill,
+                        difficulty: recipe.difficulty,
+                        #[allow(clippy::cast_possible_truncation)]
+                        chance: chance as f32,
+                        makes_wcid: recipe.success_wcid,
+                        makes_name,
+                        makes_count: recipe.success_amount,
+                        fails,
+                    });
+                }
+            }
+            answer(RecipeAnswerStatus::Answered, matches)
+        }
+    };
+    enqueue_send(
+        w,
+        session,
+        GameMessage::from_proto(
+            GameMessageOpcode::RecipeAnswer,
+            GameMessageGroup::DatabaseQueue,
+            &reply,
+        ),
+    );
+    Ok(())
+}
+
+/// Not ACE (V566): the character's chance at `recipe` now, as `RecipeManager.GetRecipeChance` and
+/// `GetTinkerChance` reckon it, read without their side effects: an untrained skill is a chance of
+/// 0, and nothing is told to the player.
+fn recipe_chance(
+    w: &mut World,
+    player: empyrean_entity::ObjectGuid,
+    source: empyrean_entity::ObjectGuid,
+    target: empyrean_entity::ObjectGuid,
+    recipe: &empyrean_content::models::world::Recipe,
+) -> f64 {
+    use crate::managers::recipe_manager as rm;
+    use empyrean_entity::enums::{Skill, SkillAdvancementClass};
+    if rm::is_tinkering(recipe) {
+        return rm::get_tinker_chance(w, player, source, target, recipe).unwrap_or(0.0);
+    }
+    if !rm::has_difficulty(recipe) {
+        return 1.0;
+    }
+    let Ok(skill) = i32::try_from(recipe.skill) else {
+        return 0.0;
+    };
+    let skill = crate::world_objects::world_object::convert_to_mo_a_skill(w, player, Skill(skill));
+    let Some(s) = w
+        .objects
+        .get_mut(player)
+        .and_then(|o| o.get_creature_skill(skill, false))
+    else {
+        return 0.0;
+    };
+    let Some(me) = w.objects.get(player) else {
+        return 0.0;
+    };
+    if s.advancement_class(me) < SkillAdvancementClass::Trained {
+        return 0.0;
+    }
+    let lum = u32::try_from(me.lum_aug_skilled_craft()).unwrap_or(0);
+    crate::world_objects::skill_check::get_skill_chance_uint(
+        s.current(w, player).wrapping_add(lum),
+        recipe.difficulty,
+        crate::world_objects::skill_check::DEFAULT_FACTOR,
+    )
 }

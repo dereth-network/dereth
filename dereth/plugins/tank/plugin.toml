@@ -1,6 +1,6 @@
 id = "network.dereth.tank"
 name = "Tank"
-version = "0.3.0"
+version = "0.4.0"
 api = "0.7"
 entry = "main.lua"
 contexts = ["world"]
@@ -15,7 +15,7 @@ license = "MIT"
 "auto.loot" = "Takes from your kills' corpses (and, if you say so, your fellows' and others') what your loot profile keeps, salvages or sells."
 "auto.heal" = "Heals you with kits or spells when your health runs low."
 "auto.buff" = "Keeps your buffs up, and casts the recall spell you name when the macro recalls."
-"auto.craft" = "Refills your worn items' mana from mana stones and charges, fills empty stones, salvages what your loot profile salvages, and stacks and packs your items if you say so."
+"auto.craft" = "Refills your worn items' mana from mana stones and charges, fills empty stones, salvages what your loot profile salvages, stacks and packs your items, and makes ammunition and healing kits, if you say so."
 "auto.vendor" = "Sells at a vendor what your loot profile sells, and buys your buy list."
 "auto.trade" = "Hands the items your route or meta names to the people it names (a quest step)."
 "chat.send" = "Types the lines your route's chat waypoints hold."
@@ -26,4 +26,4 @@ license = "MIT"
 
 [capabilities]
 required = ["nav.moveto", "ui.window"]
-optional = ["nav.journey", "nav.path", "messages", "peers.local", "ui.hud"]
+optional = ["nav.journey", "nav.path", "messages", "peers.local", "ui.hud", "craft.recipes"]

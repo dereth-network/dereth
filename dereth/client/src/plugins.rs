@@ -702,6 +702,7 @@ impl DesktopPlugins {
                 HostCapability::UiIcons,
                 HostCapability::RetailUi,
                 HostCapability::GameData,
+                HostCapability::CraftRecipes,
             ],
         );
         config.watch = self.watch;

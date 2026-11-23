@@ -638,6 +638,8 @@ pub struct Interaction {
     /// widening `apply_events` to take `now` — is a signature change across 22 call sites,
     /// which is not worth a 16 ms correction.
     pub last_use_time: dereth_primitives::LocalTime,
+    /// The clock craft questions are timed by: the frame's time, as the UI requests last ran.
+    pub craft_clock: f64,
     pub stats: InteractionStats,
     /// The magic notices [`Self::handle_magic_action`] raised and the UI has not been handed yet.
     /// Interaction holds no `UiSystem`, so it queues them here and its owner moves them into the
