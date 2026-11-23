@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.18 (2026-11-23)
 - Launch: drudge casters move their arms when they cast, with ac1999's data patches.
 - Portal and lifestone ties now confirm the way retail did.
 - Dereth clients can ask what their items craft, and the chance of each.
