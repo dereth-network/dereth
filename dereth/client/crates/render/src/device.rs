@@ -764,6 +764,15 @@ impl Gpu {
         dispatch!(self, g => g.wait_idle())
     }
 
+    /// Settle with the device for a frame that draws nothing: what was handed to it since the last
+    /// submission goes out, and what it has finished with is freed, without waiting.
+    ///
+    /// # Errors
+    /// The backend's own.
+    pub fn settle(&mut self) -> Result<(), RenderError> {
+        dispatch!(self, g => g.settle())
+    }
+
     /// Whether a frame's command list/buffer is open.
     #[must_use]
     pub fn frame_open(&self) -> bool {

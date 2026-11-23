@@ -196,6 +196,14 @@ pub trait Presentation: std::fmt::Debug {
         world: Option<&crate::world_state::WorldState>,
     ) -> Result<(), PresentError>;
     fn end_frame(&mut self) -> Result<(), PresentError>;
+    /// A frame that is not drawn, in place of the bracket: let go of what was gathered for it, and
+    /// settle with the device what the frame did, so nothing waits for a drawn frame to be freed.
+    fn skip_frame(&mut self) -> Result<(), PresentError> {
+        Ok(())
+    }
+    /// Whether the window can be shown, as the host last said: false while it is minimized, when
+    /// nothing is to be presented, not even the frames a world's loading would present itself.
+    fn set_window_shown(&mut self, _shown: bool) {}
     /// Whether the last frame found its window can't be seen, so nothing waited for the display.
     fn window_hidden(&self) -> bool {
         false
@@ -522,6 +530,7 @@ pub struct NullPresentationCounts {
     pub draw_scene: u64,
     pub draw_ui: u64,
     pub end_frame: u64,
+    pub skip_frame: u64,
     pub wait_idle: u64,
     pub resize: u64,
     pub prepare_ui: u64,
@@ -643,6 +652,10 @@ impl Presentation for NullPresentation {
     }
     fn end_frame(&mut self) -> Result<(), PresentError> {
         self.counts.end_frame += 1;
+        Ok(())
+    }
+    fn skip_frame(&mut self) -> Result<(), PresentError> {
+        self.counts.skip_frame += 1;
         Ok(())
     }
     fn wait_idle(&mut self) -> Result<(), PresentError> {

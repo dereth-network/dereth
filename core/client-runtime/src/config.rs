@@ -277,8 +277,9 @@ pub struct Config {
     /// `--capture <path>`: write the last frame as a PNG; with `--enter-world` and `--linger`, the
     /// frame half a second before the run logs off, so the capture is of the world.
     pub capture: Option<PathBuf>,
-    /// `--capture-at <frame>:<path>`, any number of times: once that many frames have been drawn,
-    /// write the last of them as a PNG, so one run can record a picture before and after a change.
+    /// `--capture-at <frame>:<path>`, any number of times: once that many frames have run, write
+    /// the last of them as a PNG if it was drawn, so one run can record a picture before and after
+    /// a change.
     /// Like `--capture` it reads the offscreen target and needs `--headless`.
     pub capture_at: Vec<(u64, PathBuf)>,
     /// `--set-at <frame>:<Section.Name>=<value>`, any number of times: as that frame starts, set

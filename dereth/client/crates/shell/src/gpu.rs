@@ -206,6 +206,24 @@ mod imp {
             self.preview_lifts.push((id, rect, subtree));
         }
 
+        /// A frame that is not drawn: the spaces queued for it are dropped, as a drawn frame
+        /// drops them, so they are not carried into the next frame that is; and the device
+        /// settles what the frame uploaded and released.
+        ///
+        /// # Errors
+        /// Any failure from the device.
+        pub fn skip_frame(&mut self) -> Result<(), RenderError> {
+            self.preview_draws.clear();
+            self.preview_lifts.clear();
+            self.device.settle()
+        }
+
+        /// How many spaces are queued for the frame, drawn over pictures or under text.
+        #[must_use]
+        pub fn queued_previews(&self) -> usize {
+            self.preview_draws.len() + self.preview_lifts.len()
+        }
+
         /// Upload whatever images this frame's UI draw list needs.
         ///
         /// **Outside `begin_frame`/`end_frame`**, for the same reason [`SceneRenderer::sync_objects`]
@@ -952,6 +970,14 @@ mod imp {
 
         fn end_frame(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::end_frame(self).map_err(crate::present::present_error)
+        }
+
+        fn skip_frame(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
+            Renderer::skip_frame(self).map_err(crate::present::present_error)
+        }
+
+        fn set_window_shown(&mut self, shown: bool) {
+            SceneRenderer::set_window_shown(self, shown);
         }
 
         fn window_hidden(&self) -> bool {

@@ -1323,6 +1323,25 @@ impl Gpu {
         self.probe_result.take()
     }
 
+    /// Settle with the device between frames, for a frame that draws nothing: what was released
+    /// since the last submission is put behind a signal of its own, and every texture and slot the
+    /// device has finished with is taken back. Nothing waits, and nothing has to wait for a drawn
+    /// frame to be freed. A frame in progress settles at its own end instead.
+    ///
+    /// # Errors
+    /// Any failure from the runtime.
+    pub fn settle(&mut self) -> Result<(), RenderError> {
+        if self.frame_open {
+            return Ok(());
+        }
+        let value = self.next_fence_value;
+        self.next_fence_value += 1;
+        // SAFETY: the queue and the fence are owned by self.
+        hr("Signal", unsafe { self.queue.Signal(&self.fence, value) })?;
+        self.collect_retired();
+        Ok(())
+    }
+
     /// Block until every submitted frame has retired.
     ///
     /// # Errors
@@ -3156,6 +3175,33 @@ mod tests {
             assert_eq!(gpu.descriptor_stats().reuses, 1);
             gpu.release_texture(second);
             gpu.wait_idle().expect("idle");
+        });
+    }
+
+    // A client that is not drawing frames (its window minimized) still streams the world: what it
+    // releases between frames must come back without a drawn frame or a wait for the device.
+    #[test]
+    fn a_texture_released_between_frames_comes_back_without_a_frame_drawn() {
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let first = gpu.upload_texture(&tiny_texture()).expect("upload");
+            assert_eq!(gpu.release_texture(first), Released::Freed);
+            assert_eq!(gpu.descriptor_usage().pending, 1);
+            // The device finishes on its own time; each settle is one frame that draws nothing.
+            // The bound only guards against a hang.
+            let mut settles = 0;
+            while gpu.descriptor_usage().pending > 0 && settles < 10_000 {
+                gpu.settle().expect("settle");
+                settles += 1;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert_eq!(gpu.descriptor_usage().pending, 0, "the release came back");
+            assert_eq!(gpu.descriptor_usage().free, 1);
+            assert!(gpu.retired_textures.is_empty(), "the texture was freed");
+            assert!(
+                gpu.pending_uploads.is_empty(),
+                "the upload's staging was freed"
+            );
         });
     }
 

@@ -454,7 +454,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                  Ticked, which it is at first, the client draws about ten frames a second while \
                  its window is not the active one, as the final client always did; unticked, it \
                  keeps its full frame rate in the background, resting to about sixty a second if \
-                 nobody can see the window. The final client had no such choice.",
+                 nobody can see the window. A minimized window draws none either way \
+                 (CD-minimized-draws-nothing). The final client had no such choice.",
         why: "A player who watches the game in a window beside another, or records it, can keep \
               it smooth; one who wants the lighter load in the background keeps the default.",
     },
@@ -532,6 +533,15 @@ pub static DIVERGENCES: &[Divergence] = &[
                  screen's pixels.",
         why: "A resolution in the screen's pixels is half as wide and half as tall on a Retina \
               screen, which makes the login window very small.",
+    },
+    Divergence {
+        id: "CD-minimized-draws-nothing",
+        title: "A minimized window draws nothing",
+        change: "While its window is minimized the client draws and presents no frames; the \
+                 world, the network, input, plugins and chat go on as before, at the same pace. \
+                 The final client drew every frame while minimized, about ten a second.",
+        why: "Nobody can see a minimized window, and drawing it cost several clients on one \
+              computer a large share of its graphics card and processor.",
     },
     Divergence {
         id: "CD-network-channel-lines",

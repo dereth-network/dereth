@@ -541,26 +541,33 @@ fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
     store::clear();
 }
 
-/// A minimized window, which the host reports as having no extent, rests a frame at full rate, and
-/// goes back to full rate when it is restored. The world goes on running throughout.
+/// A minimized window, which the host reports as having no extent, draws and presents nothing
+/// while the world goes on running: the clock and the world's own step advance every frame. Its
+/// frames keep the pace they had: resting at full rate, ten a second in the background while Slow
+/// Down in the Background is on. The first frame after it is restored is drawn.
 ///
-/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+/// Behaviour: frame.minimized.a-minimized-window-draws-nothing-and-the-world-runs-on
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
     ignore = "reads the retail dats: --features retail-dats"
 )]
-fn a_minimized_window_rests_its_frames_until_it_is_restored() {
+fn a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored() {
     use crate::platform::clock::Pacer;
     use dereth_client_contract::options::{background, store};
+    use dereth_client_contract::PrefValue;
     use std::cell::RefCell;
     use std::rc::Rc;
 
     /// What each frame's pace was asked for, never sleeping.
     struct Told(Rc<RefCell<Vec<&'static str>>>);
     impl Pacer for Told {
-        fn frame_sleep(&mut self, _is_active_app: bool) -> u32 {
-            self.0.borrow_mut().push("full rate");
+        fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
+            self.0.borrow_mut().push(if is_active_app {
+                "full rate"
+            } else {
+                "background"
+            });
             0
         }
         fn hidden_frame_sleep(&mut self) -> u32 {
@@ -598,26 +605,84 @@ fn a_minimized_window_rests_its_frames_until_it_is_restored() {
     )
     .expect("bring-up");
     let mut shell = NullShell;
+    let counts = |app: &App<NullShell>| {
+        app.present
+            .as_any()
+            .downcast_ref::<crate::present::NullPresentation>()
+            .unwrap()
+            .counts()
+    };
     store::init();
     assert!(store::set_value(
         background::SLOW_DOWN_IN_BACKGROUND,
-        dereth_client_contract::PrefValue::Bool(false)
+        PrefValue::Bool(false)
     ));
     app.pump.state.is_active_app = false;
     assert!(app.frame(&mut shell));
+    let shown = counts(&app);
+    assert_eq!((shown.start_frame, shown.end_frame), (1, 1));
+
     let minimized = HostEvent::Resized {
         width: 0,
         height: 0,
     };
     app.handle_window_event(&mut shell, &minimized, 0);
-    assert!(app.frame(&mut shell));
+    let mut minimized_frame = |app: &mut App<NullShell>| {
+        let clock = app.timer.local_time;
+        let steps = app.probe().position_use_times();
+        assert!(app.frame(&mut shell));
+        assert!(app.timer.local_time > clock, "the clock stood still");
+        assert!(
+            app.probe().position_use_times() > steps,
+            "the world's step did not run"
+        );
+        assert!(!app.last_frame_drawn());
+    };
+    minimized_frame(&mut app);
+    minimized_frame(&mut app);
+    // The default: ten frames a second in the background, drawn or not.
+    assert!(store::set_value(
+        background::SLOW_DOWN_IN_BACKGROUND,
+        PrefValue::Bool(true)
+    ));
+    minimized_frame(&mut app);
+    let while_minimized = counts(&app);
+    assert_eq!(
+        (
+            while_minimized.prepare_graphics_device,
+            while_minimized.start_frame,
+            while_minimized.set_game_viewport,
+            while_minimized.draw_scene,
+            while_minimized.end_frame,
+        ),
+        (
+            shown.prepare_graphics_device,
+            shown.start_frame,
+            shown.set_game_viewport,
+            shown.draw_scene,
+            shown.end_frame,
+        ),
+        "a minimized window was drawn or presented"
+    );
+    assert_eq!(while_minimized.skip_frame, 3);
+    assert_eq!(app.frames_drawn(), 1);
+
     let restored = HostEvent::Resized {
         width: 64,
         height: 64,
     };
-    app.handle_window_event(&mut shell, &restored, 0);
-    assert!(app.frame(&mut shell));
-    assert_eq!(*told.borrow(), ["full rate", "rests", "full rate"]);
+    app.handle_window_event(&mut NullShell, &restored, 0);
+    assert!(app.frame(&mut NullShell));
+    assert!(
+        app.last_frame_drawn(),
+        "the frame after the restore is drawn"
+    );
+    assert_eq!(app.frames_drawn(), 2);
+    assert_eq!(counts(&app).end_frame, 2);
+    assert_eq!(
+        *told.borrow(),
+        ["full rate", "rests", "rests", "background", "background"]
+    );
     store::clear();
 }
 
@@ -1106,9 +1171,11 @@ fn a_host_can_advance_a_session_without_presenting_over_its_other_view() {
     let mut shell = NullShell;
     assert!(app.frame_with_drawing(&mut shell, false));
     assert_eq!(app.frames_drawn(), 0);
+    assert!(!app.last_frame_drawn());
     assert!(app.timer.local_time > 0.0);
     assert!(app.frame(&mut shell));
     assert_eq!(app.frames_drawn(), 1);
+    assert!(app.last_frame_drawn());
     let (mut present, log) = app.shutdown_retaining_presentation(&mut shell);
     let device = present
         .as_any_mut()
@@ -1116,8 +1183,57 @@ fn a_host_can_advance_a_session_without_presenting_over_its_other_view() {
         .unwrap();
     assert_eq!(device.counts().start_frame, 1);
     assert_eq!(device.counts().end_frame, 1);
+    // The frame not drawn settled with the device in place of the bracket, so what it uploaded and
+    // released does not wait for a drawn frame.
+    assert_eq!(device.counts().skip_frame, 1);
     assert_eq!(device.counts().wait_idle, 1);
     assert_eq!(log.order(), crate::shutdown::Step::ORDER);
+}
+
+/// `--frames n` ends a run after n frames whether or not they were drawn, and `--capture-at` takes
+/// no picture of a frame that was not drawn, where the one still held is an older frame's.
+///
+/// Behaviour: none (tooling: `--frames` and `--capture-at`).
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn frames_and_captures_are_counted_by_frames_run_and_pictures_drawn() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap());
+    let folder = std::env::temp_dir().join(format!("capture-not-drawn-{}", std::process::id()));
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        frames: Some(3),
+        capture_at: vec![(1, folder.join("one.png")), (2, folder.join("two.png"))],
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .unwrap();
+    let mut shell = NullShell;
+    let captures = |app: &App<NullShell>| {
+        app.present
+            .as_any()
+            .downcast_ref::<crate::present::NullPresentation>()
+            .unwrap()
+            .counts()
+            .capture_png
+    };
+    // Frame 1 is not drawn, so frame 2 has no picture of it to take.
+    assert!(app.frame_with_drawing(&mut shell, false));
+    assert!(app.frame(&mut shell));
+    assert_eq!(captures(&app), 0, "a frame not drawn was captured");
+    // Frame 2 was drawn: frame 3 takes its picture, and is the last of the three.
+    assert!(
+        !app.frame_with_drawing(&mut shell, false),
+        "three frames ran"
+    );
+    assert_eq!(captures(&app), 1);
+    assert_eq!(app.frames_drawn(), 1);
 }
 
 /// The world drawn behind the screens before the player is in it is stepped every frame, as the

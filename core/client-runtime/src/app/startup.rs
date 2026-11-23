@@ -348,6 +348,7 @@ impl<S: Shell> App<S> {
             scripted_preferences: Vec::new(),
             scripted_actions: Vec::new(),
             frames_begun: 0,
+            drew_last_frame: false,
             perf: crate::perf::FramePerf::default(),
             perf_steps: [0.0; crate::frame::STEPS],
             perf_font: false,

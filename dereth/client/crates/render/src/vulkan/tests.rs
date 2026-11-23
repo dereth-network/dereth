@@ -316,6 +316,35 @@ fn a_texture_released_and_re_uploaded_gets_its_descriptor_pair_back() {
     });
 }
 
+// A client that is not drawing frames (its window minimized) still streams the world: what it
+// releases between frames must come back without a drawn frame or a wait for the device.
+#[test]
+fn a_texture_released_between_frames_comes_back_without_a_frame_drawn() {
+    crate::device_thread::run(move || {
+        let Some(mut gpu) = test_device(64, 64) else {
+            return;
+        };
+        let first = gpu.upload_texture(&tiny_texture()).expect("upload");
+        assert_eq!(gpu.release_texture(first), Released::Freed);
+        assert_eq!(gpu.descriptor_usage().pending, 1);
+        // The device finishes on its own time; each settle is one frame that draws nothing. The
+        // bound only guards against a hang.
+        let mut settles = 0;
+        while gpu.descriptor_usage().pending > 0 && settles < 10_000 {
+            gpu.settle().expect("settle");
+            settles += 1;
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(gpu.descriptor_usage().pending, 0, "the release came back");
+        assert_eq!(gpu.descriptor_usage().free, 1);
+        assert!(gpu.retired_textures.is_empty(), "the texture was freed");
+        assert!(
+            gpu.pending_uploads.is_empty(),
+            "the upload's staging was freed"
+        );
+    });
+}
+
 #[test]
 fn n_device_releases_then_n_uploads_leave_the_heap_high_water_at_n() {
     crate::device_thread::run(move || {

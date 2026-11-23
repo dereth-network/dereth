@@ -23,12 +23,13 @@ impl<S: Shell> App<S> {
     }
 
     /// Advance the session and scene, optionally presenting the frame. A host can keep a
-    /// connected world current while another view owns the display.
+    /// connected world current while another view owns the display. A minimized window is never
+    /// drawn, whatever `draw` asks.
     #[allow(clippy::too_many_lines)]
     pub fn frame_with_drawing(&mut self, shell: &mut S, draw: bool) -> bool {
         // The frame's spans: the frame and, as each step starts, that step. See
         // `crate::frame::FrameSpans`.
-        let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
+        let mut spans = crate::frame::FrameSpans::begin(self.frames_begun + 1);
         let interval = self
             .perf
             .frame_started(web_time::Instant::now(), self.perf_steps);
@@ -436,7 +437,13 @@ impl<S: Shell> App<S> {
             }
         }
 
-        if draw {
+        // CD-minimized-draws-nothing: a minimized window shows nothing, so while the host says the
+        // window is minimized the frame neither draws nor presents; everything before this runs
+        // as on any frame, and so does the pacing below. The host's word is the one kept: the
+        // device learns that its window can't be seen only by presenting, so it would never learn
+        // of the restore. A restore draws on the next frame.
+        let drawing = draw && !self.window_has_no_extent;
+        if drawing {
             spans.step(FrameStep::PrepareDevice);
             self.events.push(FrameEvent::Step(FrameStep::PrepareDevice));
             self.present.prepare_graphics_device();
@@ -498,7 +505,10 @@ impl<S: Shell> App<S> {
                 return false;
             }
             self.events.push(FrameEvent::FrameDrawn);
+        } else if let Err(e) = self.present.skip_frame() {
+            tracing::warn!("settling a frame not drawn failed: {e}");
         }
+        self.drew_last_frame = drawing;
 
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
@@ -523,8 +533,9 @@ impl<S: Shell> App<S> {
             return false;
         }
 
-        // `--frames n` is this rebuild's test limit; the ordinary client runs until shutdown.
-        if self.cfg.frames.is_some_and(|n| self.frames_drawn() >= n) {
+        // `--frames n` is this rebuild's test limit, counted in frames run, drawn or not; the
+        // ordinary client runs until shutdown.
+        if self.cfg.frames.is_some_and(|n| self.frames_begun >= n) {
             self.pump.done();
             if let Some(effect) = self.resolution.cancel() {
                 self.apply_resolution_effect(effect);

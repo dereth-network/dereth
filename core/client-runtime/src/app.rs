@@ -942,6 +942,8 @@ pub struct App<S: Shell> {
     /// How many frames [`Self::frame`] has begun, which is what `--set-at` and `--capture-at`
     /// count.
     frames_begun: u64,
+    /// Whether the last frame was drawn: a picture of it can be taken only if it was.
+    drew_last_frame: bool,
     /// The last frames' times, for the performance panel.
     pub perf: crate::perf::FramePerf,
     /// How long each step of the last whole frame took.

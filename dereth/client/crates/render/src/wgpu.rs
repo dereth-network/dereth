@@ -949,6 +949,8 @@ impl Gpu {
                     }
                     // The frame's draws are dropped with it, so what it released is free now.
                     self.texture_book.descriptors.retire(self.frame_stamp + 1);
+                    // Its writes still go out, rather than wait for a picture the window takes.
+                    self.queue.submit([]);
                     return Ok(());
                 }
             },
@@ -1174,6 +1176,21 @@ impl Gpu {
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .map_err(|e| RenderError::Device(format!("wait: {e}")))?;
+        Ok(())
+    }
+
+    /// Settle with the device between frames, for a frame that draws nothing: the texture and
+    /// buffer writes made since the last submission go out, and what the device has finished with
+    /// is freed. Writes otherwise wait, with their staging copies and every texture they name, for
+    /// the next frame drawn. A frame in progress settles at its own end instead.
+    ///
+    /// # Errors
+    /// Never; the result matches the other backends'.
+    pub fn settle(&mut self) -> Result<(), RenderError> {
+        if self.frame_open {
+            return Ok(());
+        }
+        self.queue.submit([]);
         Ok(())
     }
 
@@ -2367,6 +2384,59 @@ pub(super) mod tests {
             fog: false,
             lighting: false,
         }
+    }
+
+    /// A client that is not drawing frames (its window minimized) still streams the world: the
+    /// textures it uploads and lets go of between frames reach the device and are freed without a
+    /// frame drawn, rather than wait with their staging copies for the next one.
+    #[test]
+    fn textures_uploaded_and_released_between_frames_are_freed_without_a_frame_drawn() {
+        const MIB: u64 = 1 << 20;
+        let Some(mut gpu) = device(64, 64) else {
+            return;
+        };
+        let allocated = |gpu: &Gpu| {
+            gpu.device
+                .generate_allocator_report()
+                .map(|r| r.total_allocated_bytes)
+        };
+        gpu.wait_idle().expect("idle");
+        let Some(before) = allocated(&gpu) else {
+            eprintln!("skipped: this device reports no allocations");
+            return;
+        };
+        // 256 by 256 with every level given, so nothing is made on the device.
+        let levels = (0..9)
+            .map(|i| vec![0x7F_u8; (256_usize >> i).pow(2) * 4])
+            .collect();
+        let big = TextureData {
+            width: 256,
+            height: 256,
+            format: TextureFormat::Bgra8,
+            levels,
+        };
+        for _ in 0..16 {
+            let slot = gpu.upload_texture(&big).expect("upload");
+            assert_eq!(gpu.release_texture(slot), Released::Freed);
+        }
+        let held = allocated(&gpu).unwrap_or(0);
+        assert!(
+            held > before + 4 * MIB,
+            "the uploads are held until they go out: {before} -> {held}"
+        );
+        // The device finishes on its own time; each settle is one frame that draws nothing. The
+        // bound only guards against a hang.
+        let mut settles = 0;
+        while allocated(&gpu).unwrap_or(0) > before + MIB && settles < 10_000 {
+            gpu.settle().expect("settle");
+            settles += 1;
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let after = allocated(&gpu).unwrap_or(0);
+        assert!(
+            after <= before + MIB,
+            "what was uploaded and released was freed: {before} -> {held} -> {after}"
+        );
     }
 
     pub(super) fn pixel(image: &CapturedImage, x: u32, y: u32) -> [u8; 4] {

@@ -179,6 +179,12 @@ impl<S: Shell> App<S> {
         self.events.total(FrameEventKind::FrameDrawn)
     }
 
+    /// Whether the last frame was drawn: a picture of it can be taken only if it was.
+    #[must_use]
+    pub const fn last_frame_drawn(&self) -> bool {
+        self.drew_last_frame
+    }
+
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.cfg

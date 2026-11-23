@@ -328,6 +328,12 @@ impl<S: Shell> App<S> {
             .map(|(_, p)| p.clone())
             .collect();
         for path in pictures {
+            // A frame that was not drawn has no picture to take; the one still held is an older
+            // frame's.
+            if !self.drew_last_frame {
+                tracing::warn!("--capture-at {drawn}: the frame was not drawn");
+                continue;
+            }
             match self.present.capture_png(&path) {
                 Ok(()) => tracing::info!("frame {drawn} captured to {}", path.display()),
                 Err(e) => tracing::warn!("--capture-at {drawn}: {e}"),
@@ -444,6 +450,13 @@ impl<S: Shell> App<S> {
     /// reads back the buffer the device holds when the drain runs, which is the previously
     /// presented frame.
     pub(super) fn take_action_screenshot(&mut self) {
+        // A frame that was not drawn has no picture to save; the one still held is an older
+        // frame's, so the screenshot is refused as a failed capture is.
+        if !self.drew_last_frame {
+            self.events.push(FrameEvent::ScreenshotFailed);
+            tracing::warn!("screenshot refused: the last frame was not drawn");
+            return;
+        }
         let path = self.screenshot_path();
         match self.present.capture_png(&path) {
             Ok(()) => {

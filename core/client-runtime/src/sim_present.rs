@@ -93,6 +93,12 @@ impl Presentation for SimPresentation {
     fn end_frame(&mut self) -> Result<(), PresentError> {
         self.device.end_frame()
     }
+    fn skip_frame(&mut self) -> Result<(), PresentError> {
+        self.device.skip_frame()
+    }
+    fn set_window_shown(&mut self, shown: bool) {
+        self.device.set_window_shown(shown);
+    }
     fn wait_idle(&mut self) -> Result<(), PresentError> {
         self.device.wait_idle()
     }

@@ -927,6 +927,43 @@ fn the_doll_is_not_built_or_drawn_while_the_backpack_is_closed() {
     app.shutdown();
 }
 
+/// A frame that is not drawn (the window minimized) carries no space into the next frame that is:
+/// the doll is drawn once on the frame after, not once more for every frame that was not drawn.
+///
+/// Behaviour: none (a frame not drawn leaves nothing queued for the next)
+#[test]
+fn frames_not_drawn_leave_no_doll_queued_for_the_next_frame_drawn() {
+    let (events, _) = replay(SESSION);
+    let mut app = app_in_gameplay(4);
+    *app.probe_mut().objects_mut() = replay(SESSION).1;
+    let _ = app.apply_hud_events(&events);
+    open_the_backpack(&mut app);
+    for _ in 0..6 {
+        app.frame();
+    }
+    let before = app.renderer_mut().ui_stats.previews_drawn;
+    app.frame();
+    let one_frame = app.renderer_mut().ui_stats.previews_drawn - before;
+    assert!(one_frame >= 1, "the open backpack draws its doll");
+
+    for _ in 0..20 {
+        app.frame_with_drawing(false);
+    }
+    assert_eq!(
+        app.renderer_mut().queued_previews(),
+        0,
+        "frames not drawn left their spaces queued"
+    );
+    let before = app.renderer_mut().ui_stats.previews_drawn;
+    app.frame();
+    assert_eq!(
+        app.renderer_mut().ui_stats.previews_drawn - before,
+        one_frame,
+        "the frame after draws the doll as any frame does"
+    );
+    app.shutdown();
+}
+
 /// **Initialization hides nine icon grids that otherwise stand where the doll goes.**
 ///
 /// It binds each armour-coverage slot, registers its drag handler and tooltip, and then hides the

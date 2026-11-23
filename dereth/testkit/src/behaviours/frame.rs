@@ -34,6 +34,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "frame.minimized.a-minimized-window-draws-nothing-and-the-world-runs-on",
+        says: "While the window is minimized the client draws and presents nothing, and \
+               everything else goes on every frame as before: the network, the world and its \
+               movement, input, the interface, plugins and chat. Its frames keep the pace they \
+               had: about ten a second while Slow Down in the Background is on, about sixty with \
+               it off. The first frame after the window is restored is drawn.",
+        since: THIS_CLIENT,
+        divergence: "CD-minimized-draws-nothing",
+        evidence: Evidence::Private("AC-EVID-MINIMIZED-DRAWS-NOTHING"),
+        station: "dereth-client-runtime::lib::app::tests::a_minimized_window_draws_nothing_and_keeps_its_pace_until_it_is_restored",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "frame.pace.slowing-down-in-the-background-is-an-option-on-at-first",
         says: "Every interface's Client Options page has a Slow Down in the Background box under \
                Display, after the Performance Panel, ticked at first. Ticked, a frame drawn while \

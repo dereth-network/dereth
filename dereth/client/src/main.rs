@@ -236,7 +236,10 @@ fn run_with(
             match live.next_step() {
                 Some(input_live::Step::Event(event)) => app.queue_window_event(event),
                 Some(input_live::Step::Capture(path)) => {
-                    if let Err(e) = app.renderer_mut().capture_png(&path) {
+                    // A frame that was not drawn has no picture; the one held is an older frame's.
+                    if !app.last_frame_drawn() {
+                        tracing::warn!("--input-live capture: the last frame was not drawn");
+                    } else if let Err(e) = app.renderer_mut().capture_png(&path) {
                         tracing::warn!("--input-live capture: {e}");
                     }
                 }

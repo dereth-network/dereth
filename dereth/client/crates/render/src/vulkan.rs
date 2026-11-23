@@ -2707,6 +2707,22 @@ impl Gpu {
         self.submit_and_wait(&[])
     }
 
+    /// Settle with the device between frames, for a frame that draws nothing: what was released
+    /// since the last submission is put behind a signal of its own, and every upload, texture and
+    /// slot the device has finished with is taken back. Nothing waits, and nothing has to wait for
+    /// a drawn frame to be freed. A frame in progress settles at its own end instead.
+    ///
+    /// # Errors
+    /// Any failure from the driver.
+    pub fn settle(&mut self) -> Result<(), RenderError> {
+        if self.frame_open {
+            return Ok(());
+        }
+        self.submit(&[])?;
+        self.collect_retired();
+        Ok(())
+    }
+
     /// Read the render target back as BGRA8, tightly packed.
     ///
     /// A fixed scene rendered offscreen at 800×600 must read back as the same RGBA8 across three

@@ -65,6 +65,12 @@ mod imp {
         /// Set while the teleport tunnel is up. [`SceneRenderer::draw_scene`] returns early
         /// while it is set.
         world_hidden: bool,
+        /// Whether the window can be shown: false while it is minimized, when nothing is presented.
+        window_shown: bool,
+        /// A loaded world's upload arenas wait to be reserved: the reservation presents empty
+        /// frames, so a world loaded while the window is minimized reserves them as the first
+        /// frame after is begun.
+        arena_wanted: bool,
         /// The override view distance, in force while the view-distance override is
         /// set — the teleport animation's projection collapse. Applied around the world draw
         /// rather than left set, because the client's own global is only ever read from inside a
@@ -298,6 +304,8 @@ mod imp {
                 scene: None,
                 world: None,
                 world_hidden: false,
+                window_shown: true,
+                arena_wanted: false,
                 view_distance: None,
                 previews: std::collections::BTreeMap::new(),
                 world_fov: dereth_render::camera::DEFAULT_FOV_DEGREES
@@ -353,9 +361,12 @@ mod imp {
                 let region = crate::world_scene::world_region(store)?;
                 scene.attach_character(&mut ws, store, &region, &mut self.gpu)?;
             }
-            scene
-                .reserve_upload_arena(&mut self.gpu)
-                .map_err(|e| dereth_world_data::landblock::WorldError::Render(e.to_string()))?;
+            if self.window_shown {
+                scene
+                    .reserve_upload_arena(&mut self.gpu)
+                    .map_err(|e| dereth_world_data::landblock::WorldError::Render(e.to_string()))?;
+            }
+            self.arena_wanted = !self.window_shown;
             self.scene = None;
             self.world = Some(scene);
             *world = Some(ws);
@@ -745,7 +756,18 @@ mod imp {
         /// # Errors
         /// Any failure from the runtime.
         pub fn start_frame(&mut self) -> Result<(), RenderError> {
+            if std::mem::take(&mut self.arena_wanted) {
+                if let Some(world) = self.world.as_ref() {
+                    world.reserve_upload_arena(&mut self.gpu)?;
+                }
+            }
             self.gpu.begin_frame()
+        }
+
+        /// Whether the window can be shown. While it is minimized nothing may be presented, so a
+        /// world loaded meanwhile waits for the first frame drawn to reserve its upload arenas.
+        pub fn set_window_shown(&mut self, shown: bool) {
+            self.window_shown = shown;
         }
 
         /// Whether the world is hidden and the override view distance, pushed in once a frame by
@@ -1184,6 +1206,15 @@ mod imp {
         /// Any failure from the runtime.
         pub fn end_frame(&mut self) -> Result<(), RenderError> {
             self.gpu.end_frame()
+        }
+
+        /// A frame that draws nothing: settle with the device, so what the frame's streaming
+        /// uploaded goes out and what it released is freed without a drawn frame.
+        ///
+        /// # Errors
+        /// Any failure from the runtime.
+        pub fn settle(&mut self) -> Result<(), RenderError> {
+            self.gpu.settle()
         }
 
         /// Whether the last frame found its window can't be seen.

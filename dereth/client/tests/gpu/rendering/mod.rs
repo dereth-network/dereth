@@ -23,6 +23,7 @@ mod interior_cell_views;
 mod interiors_through_outdoor_portals;
 mod landscape_draw_distance;
 mod lighting;
+mod minimized_world_load;
 mod mip_deferral;
 mod names_behind_the_world;
 mod names_on_the_drawn_ground;

@@ -136,10 +136,14 @@ impl<S: Shell> App<S> {
             return;
         };
         let steps = self.perf_steps;
-        let present = &self.present;
+        // A frame that was not drawn cost the device nothing; the costs held are an older frame's.
+        let costs = self
+            .drew_last_frame
+            .then(|| self.present.frame_costs())
+            .flatten();
         let done = capture.frame(self.timer.elapsed_time(), |c| {
             if let Some(dt) = interval {
-                c.record(dt, &steps, present.frame_costs().as_ref());
+                c.record(dt, &steps, costs.as_ref());
             }
         });
         if !done {
