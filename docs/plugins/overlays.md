@@ -104,6 +104,15 @@ way:remove()
 | `reach` | metres along it that are drawn, 1 to 200 | 30 |
 | `from_player` | whether it starts at the character, from the part of it nearest the character on | `true` |
 
+A path's pattern (its repeats, a glow's shimmer and rise and fall) is held at its places along the
+path, so it stays put on the ground as the character walks along it; its reach and its fading
+start at the character.
+
+Each corner of a path is drawn turning round a curve that leaves the leg before it and joins the
+leg after it at most 2.5 metres from the corner (and at most halfway along either leg), as a body
+walking the path turns, rather than folding at the corner's point; a step longer than 30 metres
+(a jump) is not turned round.
+
 A point with a height of its own (`z`) above the ground is drawn over that height, and a point
 without one over the ground, so a path that mixes them zigzags through the air: to lay a route on
 the ground outdoors, give each point as `{ ns, ew }` alone (a VTank route's waypoints carry heights).

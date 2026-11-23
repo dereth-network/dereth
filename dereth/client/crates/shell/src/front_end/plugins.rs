@@ -761,7 +761,7 @@ impl<H: Host> ClientShell<H> {
                             #[allow(clippy::cast_precision_loss)] // 1 to 255
                             a => a as f32 / 255.0,
                         };
-                        trails.push((m.path.clone(), strength));
+                        trails.push((m.path.clone(), (strength, m.along)));
                     }
                     Kind::Shape if m.shape == Some(ShapeKind::Goal) => {
                         goals.extend(m.at);
@@ -806,7 +806,7 @@ impl<H: Host> ClientShell<H> {
                             #[allow(clippy::cast_precision_loss)] // 1 to 255
                             a => a as f32 / 255.0,
                         };
-                        paths.push((m.path.clone(), style.clone(), picture, strength));
+                        paths.push((m.path.clone(), style.clone(), picture, (strength, m.along)));
                     }
                     Kind::Shape if m.shape != Some(ShapeKind::Text) => {
                         marks.extend(mark(&m.path, m.color, m.width, m.on_top));
@@ -884,7 +884,7 @@ impl<H: Host> ClientShell<H> {
                 trail::wisp(line, step, height, time, aspect, *strength, between)
             })
             .collect();
-        bands.extend(trails.iter().flat_map(|(line, strength)| {
+        bands.extend(trails.iter().flat_map(|(line, (strength, _))| {
             trail::motes(line, step, height, time, *strength, between)
         }));
         // The plugins' paths: a glow in the wisp's own picture, at that picture's shape.

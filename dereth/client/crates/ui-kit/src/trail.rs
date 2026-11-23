@@ -217,7 +217,7 @@ pub fn wisp_style() -> PathStyle {
 /// for a body `height` metres tall, at `time` seconds, its picture `aspect` times as long as it is
 /// high and `between(a, b, f)` the place `f` of the way from `a` to `b`: the built-in journey
 /// trail, a path in [`wisp_style`] at `strength` (0 to 1), which a trail coming in or going
-/// out passes.
+/// out passes, its start `along` metres along the journey's way (see [`path_band`]).
 #[must_use]
 pub fn wisp<P: Copy>(
     line: &[P],
@@ -225,7 +225,7 @@ pub fn wisp<P: Copy>(
     height: f32,
     time: f64,
     aspect: f32,
-    strength: f32,
+    (strength, along): (f32, f32),
     between: impl Fn(&P, &P, f32) -> P,
 ) -> WorldBand<P> {
     path_band(
@@ -236,7 +236,7 @@ pub fn wisp<P: Copy>(
         time,
         WISP_TEXTURE,
         aspect,
-        strength,
+        (strength, along),
         between,
     )
 }
@@ -256,9 +256,12 @@ pub fn look_texture(look: &PathLook) -> Option<OverlayTexture> {
 }
 
 /// A path through `line` (places `step` metres apart, the first where it starts) drawn in `style`
-/// with `texture` at `strength` (0 to 1, as it comes in or goes out), for a body `body` metres
-/// tall, at `time` seconds; `aspect` is a picture's width over its height, and `between(a, b, f)`
-/// the place `f` of the way from `a` to `b`.
+/// with `texture` at `strength` (0 to 1, as it comes in or goes out), its start `along` metres
+/// along the plugin's own path, for a body `body` metres tall, at `time` seconds; `aspect` is a
+/// picture's width over its height, and `between(a, b, f)` the place `f` of the way from `a` to
+/// `b`. Its pattern (its repeats, a glow's shimmer and rise and fall) is worked out from how far
+/// along the plugin's path each place is, so it stays where it is on the ground as the start
+/// moves along; its fading runs from its start.
 ///
 /// - A glow leaves its start thin and widens over the first 0.8 m, thins and fades along it,
 ///   rises and falls a little and shimmers a little; its picture repeats along it, as long a
@@ -279,10 +282,12 @@ pub fn path_band<P: Copy>(
     time: f64,
     texture: OverlayTexture,
     aspect: f32,
-    strength: f32,
+    (strength, along): (f32, f32),
     between: impl Fn(&P, &P, f32) -> P,
 ) -> WorldBand<P> {
     use dereth_primitives::num::math::{powf, sinf};
+    // Where the pattern is worked out from: the plugin's path's own start, behind the line's.
+    let ground = along;
     #[allow(clippy::cast_possible_truncation)]
     let t = (time % 3600.0) as f32;
     #[allow(clippy::cast_precision_loss)]
@@ -305,10 +310,11 @@ pub fn path_band<P: Copy>(
         let ending = ((end - s) / WISP_END_FADE).clamp(0.0, 1.0);
         if glow {
             let start = (s / 0.8).clamp(0.0, 1.0);
-            let shimmer = 0.85 + 0.15 * sinf(s * 2.3 - t * 3.1) * sinf(s * 0.9 + t * 1.1 + 1.0);
+            let g = s + ground;
+            let shimmer = 0.85 + 0.15 * sinf(g * 2.3 - t * 3.1) * sinf(g * 0.9 + t * 1.1 + 1.0);
             BandPoint {
                 at,
-                lift: height + 0.05 * sinf(s * 1.1 - t * 1.7) * start,
+                lift: height + 0.05 * sinf(g * 1.1 - t * 1.7) * start,
                 half_width: 0.015 + (half - 0.015).max(0.0) * start * powf(left, 0.6),
                 tint: tinted(
                     style.color,
@@ -345,7 +351,7 @@ pub fn path_band<P: Copy>(
     // Repeated along it: each repeat's picture runs `u` 0 to 1, so where one ends and the next
     // begins the path has two points in one place, the first ending the repeat and the second
     // beginning the next.
-    let offset = style.drift * t;
+    let offset = style.drift * t - ground;
     let along = |s: f32| (s - offset) / tile;
     let mut points = Vec::with_capacity(line.len() * 2);
     for (i, &at) in line.iter().enumerate() {
@@ -510,7 +516,7 @@ mod tests {
 
     #[test]
     fn the_wisp_leaves_the_body_at_its_middle_and_fades_away_along_the_way() {
-        let w = wisp(&line(), 0.4, 1.8, 0.0, 18.4, 1.0, lerp);
+        let w = wisp(&line(), 0.4, 1.8, 0.0, 18.4, (1.0, 0.0), lerp);
         let first = w.points[0];
         assert!(
             (first.lift - 0.99).abs() < 0.06,
@@ -557,7 +563,7 @@ mod tests {
     #[test]
     fn the_wisps_picture_repeats_along_it_and_moves_away_from_the_body() {
         let ends = |time: f64| {
-            let w = wisp(&line(), 0.4, 1.8, time, 10.0, 1.0, lerp);
+            let w = wisp(&line(), 0.4, 1.8, time, 10.0, (1.0, 0.0), lerp);
             assert!(w.points.iter().all(|p| (0.0..=1.0).contains(&p.u)));
             w.points
                 .windows(2)
@@ -584,7 +590,7 @@ mod tests {
     #[test]
     fn a_short_wisp_fades_out_at_its_end_and_is_drawn_at_its_strength() {
         let short: Vec<f32> = (0..=25).map(|i| i as f32 * 0.4).collect(); // 10 m to a portal
-        let w = wisp(&short, 0.4, 1.8, 0.0, 18.4, 1.0, lerp);
+        let w = wisp(&short, 0.4, 1.8, 0.0, 18.4, (1.0, 0.0), lerp);
         let at = |w: &WorldBand<f32>, s: f32| {
             w.points
                 .iter()
@@ -593,7 +599,7 @@ mod tests {
                 .tint
                 >> 24
         };
-        let long = wisp(&line(), 0.4, 1.8, 0.0, 18.4, 1.0, lerp);
+        let long = wisp(&line(), 0.4, 1.8, 0.0, 18.4, (1.0, 0.0), lerp);
         assert_eq!(
             at(&w, 7.6),
             at(&long, 7.6),
@@ -601,7 +607,7 @@ mod tests {
         );
         assert!(at(&w, 9.2) < at(&w, 7.6) / 2, "fading at its end");
         assert_eq!(at(&w, 10.0), 0, "gone at its end");
-        let half = wisp(&short, 0.4, 1.8, 0.0, 18.4, 0.5, lerp);
+        let half = wisp(&short, 0.4, 1.8, 0.0, 18.4, (0.5, 0.0), lerp);
         let (full, halved) = (at(&w, 4.0), at(&half, 4.0));
         assert!(
             halved.abs_diff(full / 2) <= 1,
@@ -617,8 +623,8 @@ mod tests {
     fn the_wisps_phase_carries_on_when_the_line_under_it_changes() {
         let short: Vec<f32> = (0..=40).map(|i| i as f32 * 0.4).collect();
         let (a, b) = (
-            wisp(&line(), 0.4, 1.8, 2.3, 10.0, 1.0, lerp),
-            wisp(&short, 0.4, 1.8, 2.3, 10.0, 1.0, lerp),
+            wisp(&line(), 0.4, 1.8, 2.3, 10.0, (1.0, 0.0), lerp),
+            wisp(&short, 0.4, 1.8, 2.3, 10.0, (1.0, 0.0), lerp),
         );
         assert!((a.points[0].u - b.points[0].u).abs() < 1e-6);
         let ends = |w: &WorldBand<f32>| {
@@ -655,6 +661,66 @@ mod tests {
         assert_ne!(m[0].points[0].at, later[0].points[0].at, "drifting");
     }
 
+    /// A path draws its dashes, and a glow its rise and fall, at the same places on the ground
+    /// however far along it the character has come.
+    #[test]
+    fn a_pattern_held_on_the_ground_stays_put_as_the_start_moves_along() {
+        let lerp = |a: &f32, b: &f32, f: f32| a + (b - a) * f;
+        // The same path on the ground, drawn from its start and from 2 m along it.
+        let from = |start: f32| -> Vec<f32> { (0..=25).map(|i| start + i as f32 * 0.4).collect() };
+        let ends = |style: &PathStyle, start: f32| -> Vec<f32> {
+            path_band(
+                &from(start),
+                0.4,
+                style,
+                1.8,
+                0.0,
+                DASH_TEXTURE,
+                1.0,
+                (1.0, start),
+                lerp,
+            )
+            .points
+            .windows(2)
+            .filter(|w| (w[0].at - w[1].at).abs() < 1e-5 && w[0].u == 1.0 && w[1].u == 0.0)
+            .map(|w| (w[0].at * 1000.0).round() / 1000.0)
+            .filter(|at| (3.0..9.0).contains(at))
+            .collect()
+        };
+        let dashes = PathStyle {
+            look: PathLook::Dashes,
+            fade: 0.0,
+            drift: 0.0,
+            ..wisp_style()
+        };
+        assert!(!ends(&dashes, 0.0).is_empty());
+        assert_eq!(ends(&dashes, 0.0), ends(&dashes, 2.0), "held on the ground");
+        // A glow's rise and fall at a place 6 m along the ground.
+        let glow = PathStyle {
+            fade: 0.0,
+            ..wisp_style()
+        };
+        let lift_at = |start: f32| {
+            path_band(
+                &from(start),
+                0.4,
+                &glow,
+                1.8,
+                0.0,
+                WISP_TEXTURE,
+                18.4,
+                (1.0, start),
+                lerp,
+            )
+            .points
+            .iter()
+            .find(|p| (p.at - 6.0).abs() < 1e-4)
+            .expect("a place 6 m along")
+            .lift
+        };
+        assert!((lift_at(0.0) - lift_at(2.0)).abs() < 1e-5);
+    }
+
     /// Dashes repeat along the path, each repeat's `u` running 0 to 1 and its ends doubled in one
     /// place; a whole repeat's drift later they stand where they stood.
     #[test]
@@ -666,7 +732,17 @@ mod tests {
             ..wisp_style()
         };
         let lerp = |a: &f32, b: &f32, f: f32| a + (b - a) * f;
-        let band = path_band(&line, 0.4, &style, 1.8, 0.0, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let band = path_band(
+            &line,
+            0.4,
+            &style,
+            1.8,
+            0.0,
+            DASH_TEXTURE,
+            1.0,
+            (1.0, 0.0),
+            lerp,
+        );
         let ends: Vec<f32> = band
             .points
             .windows(2)
@@ -680,7 +756,17 @@ mod tests {
             drift: 1.2,
             ..style.clone()
         };
-        let later = path_band(&line, 0.4, &moving, 1.8, 0.5, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let later = path_band(
+            &line,
+            0.4,
+            &moving,
+            1.8,
+            0.5,
+            DASH_TEXTURE,
+            1.0,
+            (1.0, 0.0),
+            lerp,
+        );
         let moved: Vec<f32> = later
             .points
             .iter()
@@ -691,7 +777,17 @@ mod tests {
             moved.iter().any(|a| (a - (ends[0] + 0.6)).abs() < 1e-3),
             "half a second at 1.2 m/s moves each end 0.6 m on: {moved:?}"
         );
-        let round = path_band(&line, 0.4, &moving, 1.8, 1.0, DASH_TEXTURE, 1.0, 1.0, lerp);
+        let round = path_band(
+            &line,
+            0.4,
+            &moving,
+            1.8,
+            1.0,
+            DASH_TEXTURE,
+            1.0,
+            (1.0, 0.0),
+            lerp,
+        );
         let b = round
             .points
             .iter()

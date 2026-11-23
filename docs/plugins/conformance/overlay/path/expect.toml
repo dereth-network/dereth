@@ -5,6 +5,6 @@ seconds = 2
 [expect]
 status = "running"
 console = ["one point\tfalse", "a look not known\tfalse", "a picture it does not have\tfalse", "paths kept\t16"]
-overlays = """shape conformance.path #1 color=#FFFFFF at=42.20N 33.80E shape=path path=62 span=0.4 look=glow width=0.48 height=body reach=30
+overlays = """shape conformance.path #1 color=#FFFFFF at=42.20N 33.80E shape=path path=62 span=0.4 look=glow width=0.48 height=body reach=30 along=12.0
 shape conformance.path #2 color=#FFD700 at=42.15N 33.80E shape=path path=32 span=0.4 look=dashes width=0.30 height=0.05 reach=12
 """

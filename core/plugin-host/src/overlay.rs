@@ -541,6 +541,9 @@ pub struct OverlayView {
     pub reach: Option<f64>,
     /// A path's style.
     pub style: Option<PathStyle>,
+    /// A path drawn from the character: how far along its own points the character is, metres
+    /// (0 for any other).
+    pub along: f32,
 }
 
 /// `p` moved by `dx`, `dy`, `dz` metres in its own cell's frame.
@@ -668,6 +671,12 @@ impl Overlays {
                     width: m.width,
                     on_top: m.on_top,
                     reach: None,
+                    along: match (&m.style, places.player()) {
+                        (Some(s), Some(me)) if s.from_player => {
+                            crate::trail::path_along(&me, &m.points)
+                        }
+                        _ => 0.0,
+                    },
                     style: m.style.clone(),
                 });
             }
@@ -738,6 +747,9 @@ impl Overlays {
                     " look={look} width={:.2} height={height} reach={:.0}",
                     style.width, style.reach
                 );
+                if style.from_player {
+                    let _ = write!(out, " along={:.1}", v.along);
+                }
             }
             if v.on_top {
                 out.push_str(" on_top");

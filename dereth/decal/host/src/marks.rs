@@ -210,6 +210,7 @@ mod tests {
             on_top: false,
             reach: None,
             style: None,
+            along: 0.0,
         }
     }
 

@@ -493,7 +493,7 @@ pub struct PluginHost {
     /// when (frame time) it has been coming in.
     trail_drawn: Option<trail::Drawn>,
     /// The journey trail going out, replaced or ended: its line as last drawn, and since when.
-    trail_going: Option<(Vec<dereth_primitives::Position>, f64)>,
+    trail_going: Option<(Vec<dereth_primitives::Position>, f64, f32)>,
     /// The plugins' paths drawn last frame, and since when (frame time) each has been coming in.
     paths_drawn: Vec<(overlay::OverlayView, f64)>,
     /// The plugins' paths removed, going out where they were last drawn, and since when.
@@ -2653,6 +2653,7 @@ impl PluginHost {
                             on_top: m.on_top,
                             reach: Some(n.within),
                             style: None,
+                            along: 0.0,
                         },
                     ));
                 }
@@ -2703,6 +2704,7 @@ impl PluginHost {
             })
         });
         let last = self.trail_drawn.take();
+        let last_drawn = last.clone();
         let (since, goes) = trail::carried(
             last.as_ref(),
             current
@@ -2712,7 +2714,7 @@ impl PluginHost {
             now,
         );
         if let (true, Some(d)) = (goes, last) {
-            self.trail_going = Some((d.line, now));
+            self.trail_going = Some((d.line, now, d.along));
         }
         let strength = |s: f64| -> u32 {
             if s >= 1.0 {
@@ -2727,7 +2729,8 @@ impl PluginHost {
                     id: i64,
                     shape: overlay::ShapeKind,
                     path: Vec<dereth_primitives::Position>,
-                    color: u32| {
+                    color: u32,
+                    along: f32| {
             overlay::OverlayView {
                 plugin: plugin.to_owned(),
                 id,
@@ -2745,10 +2748,15 @@ impl PluginHost {
                 on_top: false,
                 reach: None,
                 style: None,
+                along,
             }
         };
         let mut out = Vec::new();
         if let Some((plugin, trip, line, way, here, goal)) = current {
+            // Where the line starts along the way, from a place that stays put as the corners
+            // behind drop from its front: the pattern drawn along it stays on the ground.
+            let origin = trail::origin_after(last_drawn.as_ref(), trip, &way);
+            let along = origin + trail::path_along(&here, &way);
             if line.len() > 1 && !own_path {
                 out.push(view(
                     &plugin,
@@ -2756,9 +2764,10 @@ impl PluginHost {
                     overlay::ShapeKind::Trail,
                     line.clone(),
                     strength((now - since) / trail::CROSS_FADE),
+                    along,
                 ));
             }
-            if let Some((going, from)) = &self.trail_going {
+            if let Some((going, from, going_along)) = &self.trail_going {
                 let left = 1.0 - (now - from) / trail::CROSS_FADE;
                 if left > 0.0 && going.len() > 1 {
                     out.push(view(
@@ -2767,6 +2776,7 @@ impl PluginHost {
                         overlay::ShapeKind::Trail,
                         going.clone(),
                         strength(left),
+                        *going_along,
                     ));
                 }
             }
@@ -2777,6 +2787,7 @@ impl PluginHost {
                     overlay::ShapeKind::Goal,
                     vec![goal],
                     JOURNEY,
+                    0.0,
                 ));
             }
             if !own_path {
@@ -2785,9 +2796,11 @@ impl PluginHost {
                     way,
                     line,
                     since,
+                    origin,
+                    along,
                 });
             }
-        } else if let Some((going, from)) = &self.trail_going {
+        } else if let Some((going, from, going_along)) = &self.trail_going {
             // The journey is over, or no longer shown: its trail goes out where it was.
             let left = 1.0 - (now - from) / trail::CROSS_FADE;
             if let (true, Some((plugin, _))) = (
@@ -2800,13 +2813,14 @@ impl PluginHost {
                     overlay::ShapeKind::Trail,
                     going.clone(),
                     strength(left),
+                    *going_along,
                 ));
             }
         }
         if self
             .trail_going
             .as_ref()
-            .is_some_and(|(_, from)| now - from >= trail::CROSS_FADE)
+            .is_some_and(|(_, from, _)| now - from >= trail::CROSS_FADE)
         {
             self.trail_going = None;
         }
@@ -2942,6 +2956,7 @@ impl PluginHost {
                 on_top: false,
                 reach: None,
                 style: None,
+                along: 0.0,
             }
         };
         let label = |leg: &TravelLeg| match leg {

@@ -287,9 +287,10 @@ While a journey runs the host draws it for the plugin (needing the overlay capab
 where the leg goes, the way still to go as a line on the map, and each portal and recall ahead as a
 point on the map and a blip on the radar with its icon. With `overlay.world` it also draws the way
 ahead in the world: a faint wisp that leaves the character at the middle of its body and flows at
-that height along the route, held over the ground and floors, on through the walk's corners and
-the walks after it to where the route next leaves the ground (a portal, a recall) and at most 30
-metres, its strands moving along it away from the character, thinning and fading as it goes and
+that height along the route, held over the ground and floors, turning round the walk's corners on
+a curve and on through the walks after it to where the route next leaves the ground (a portal, a
+recall) and at most 30 metres, its strands held where they are on the ground and drifting slowly
+along it as the character walks past them, thinning and fading as it goes and
 fading out where it ends, with a few faint motes drifting off it where it leaves the body. A new
 plan or a new journey brings a new wisp in over half a second as the old one goes. Once the
 journey's end is within 40 metres, the selection's marker is there, a ring on the ground and an

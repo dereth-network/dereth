@@ -15,7 +15,7 @@ after = 1.0
 say = "/draw"
 [expect]
 status = "running"
-overlays = """shape conformance.journey-own-path #1 color=#FFD700 at=42.20N 33.82E shape=path path=47 span=0.4 look=ribbon width=0.40 height=0.05 reach=30
+overlays = """shape conformance.journey-own-path #1 color=#FFD700 at=42.20N 33.82E shape=path path=47 span=0.4 look=ribbon width=0.40 height=0.05 reach=30 along=3.8
 arrow conformance.journey-own-path #-1 label="Walk" color=#40C0FF at=42.20N 33.90E turn=90 distance=18.0
 map conformance.journey-own-path #-2 label="Journey" color=#40C0FF line=[42.20N 33.82E, 42.20N 33.90E, 0x019E0114 10.0 -40.0 0.0, 0x019E0120 20.0 -40.0 0.0]
 map conformance.journey-own-path #-3 label="Portal: Drudge Hideout" color=#40C0FF at=42.20N 33.90E points=[42.20N 33.90E]

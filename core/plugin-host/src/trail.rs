@@ -73,42 +73,15 @@ fn flat_distance(a: Vec3, b: Vec3) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
-/// The stretch of the way the trail is drawn along: from `here` (where the character stands) to
-/// the place nearest it on the way's nearest stretch, then on along `way` (the way still to walk,
-/// from the corner passed last; see the travel's `way`) through its corners, before the first step
-/// longer than [`TRAIL_JUMP`] and at most [`TRAIL_LENGTH`] metres along. As the character walks
-/// on, and as the corner behind it drops from the way's front, the trail ahead stays where it was.
+/// The stretch of the way the trail is drawn along: from `here` (where the character stands) on
+/// along `way` (the way still to walk, from the corner passed last; see the travel's `way`), its
+/// corners turned round as a plugin's path's are ([`path_ahead`]), before the first step longer
+/// than [`TRAIL_JUMP`] and at most [`TRAIL_LENGTH`] metres along.
 #[must_use]
 pub fn ahead(here: &Position, way: &[Position]) -> Vec<Position> {
-    if way.len() < 2 {
-        return cut(here, way, TRAIL_LENGTH);
-    }
-    // The stretch nearest the character, and how far along it the nearest place lies.
-    let h = global(here);
-    let (i, t, _) = way
-        .windows(2)
-        .enumerate()
-        .map(|(i, w)| {
-            let (a, b) = (global(&w[0]), global(&w[1]));
-            let (dx, dy) = (b.x - a.x, b.y - a.y);
-            let len2 = dx * dx + dy * dy;
-            let t = if len2 > 0.0 {
-                (((h.x - a.x) * dx + (h.y - a.y) * dy) / len2).clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
-            let (px, py) = (a.x + dx * t, a.y + dy * t);
-            (i, t, (px - h.x) * (px - h.x) + (py - h.y) * (py - h.y))
-        })
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .expect("two or more places");
-    let mut rest = Vec::with_capacity(way.len() - i);
-    let on = between(&way[i], &way[i + 1], t);
-    if flat_distance(global(&on), h) > 0.05 && t < 1.0 {
-        rest.push(on);
-    }
-    rest.extend_from_slice(&way[i + 1..]);
-    cut(here, &rest, TRAIL_LENGTH)
+    let way = rounded(way);
+    let start = path_start(here, &way);
+    cut(here, &way[start..], TRAIL_LENGTH)
 }
 
 /// From `from` through `rest`, before the first step longer than [`TRAIL_JUMP`] and at most
@@ -150,6 +123,24 @@ pub struct Drawn {
     pub way: Vec<Position>,
     pub line: Vec<Position>,
     pub since: f64,
+    /// How far the way's first place lies along the way as the trail first drew it, metres: the
+    /// corners dropped from its front since, so the pattern drawn along it stays on the ground.
+    pub origin: f32,
+    /// How far along the way the line starts, from the same place ([`path_along`]).
+    pub along: f32,
+}
+
+/// How far `way`'s first place lies along the way `last` drew, metres, when `way` is that way
+/// walked on (corners dropped from its front); 0 for any other.
+#[must_use]
+pub fn origin_after(last: Option<&Drawn>, trip: u64, way: &[Position]) -> f32 {
+    match last {
+        Some(d) if d.trip == trip && continues(&d.way, way) => {
+            let dropped = d.way.len() - way.len();
+            d.origin + length(&d.way[..=dropped.min(d.way.len().saturating_sub(1))])
+        }
+        _ => 0.0,
+    }
 }
 
 /// What becomes of `last` (the trail drawn last) as a frame draws one along `way` for trip `trip`
@@ -217,21 +208,89 @@ pub fn between(a: &Position, b: &Position, f: f32) -> Position {
     )
 }
 
+/// How far back along each leg a path's corner is turned round, metres, at most: about as far as
+/// a walk cuts a corner across, so the way drawn turns where the character turns.
+pub const CORNER_ROUND: f32 = 2.5;
+
+/// A turn smaller than this, radians, is drawn as it is.
+const CORNER_SLIGHT: f32 = 0.05;
+
+/// How many steps a corner's turn is drawn in.
+const CORNER_STEPS: u16 = 6;
+
+/// `points` with each corner turned round a curve that leaves the leg before it and joins the
+/// leg after it at most [`CORNER_ROUND`] metres from the corner (and at most halfway along
+/// either leg), so the line turns as a body walking it does rather than folding at the point. A
+/// step longer than [`TRAIL_JUMP`] (a jump, not a way to walk) is not turned round.
+#[must_use]
+pub fn rounded(points: &[Position]) -> Vec<Position> {
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let mut out = Vec::with_capacity(points.len());
+    out.push(points[0]);
+    for w in points.windows(3) {
+        let (a, p, b) = (global(&w[0]), global(&w[1]), global(&w[2]));
+        let (la, lb) = (flat_distance(a, p), flat_distance(p, b));
+        let r = CORNER_ROUND.min(la * 0.5).min(lb * 0.5);
+        let turn = if la > 1e-3 && lb > 1e-3 {
+            let (ux, uy) = ((p.x - a.x) / la, (p.y - a.y) / la);
+            let (vx, vy) = ((b.x - p.x) / lb, (b.y - p.y) / lb);
+            dereth_primitives::num::math::acosf((ux * vx + uy * vy).clamp(-1.0, 1.0))
+        } else {
+            0.0
+        };
+        if turn < CORNER_SLIGHT || r < 0.05 || la > TRAIL_JUMP || lb > TRAIL_JUMP {
+            out.push(w[1]);
+            continue;
+        }
+        // A curve from `r` before the corner to `r` after it, drawn toward the corner itself.
+        let entry = between(&w[1], &w[0], r / la);
+        let exit = between(&w[1], &w[2], r / lb);
+        for i in 0..=CORNER_STEPS {
+            let f = f32::from(i) / f32::from(CORNER_STEPS);
+            let (q0, q1) = (between(&entry, &w[1], f), between(&w[1], &exit, f));
+            out.push(between(&q0, &q1, f));
+        }
+    }
+    out.push(points[points.len() - 1]);
+    out
+}
+
+/// Where a path drawn from `here` along `points` (already turned round its corners) goes on
+/// from: the first of `points` after the leg nearest `here`, or `points.len()` when that leg is
+/// the last and `here` is past its end.
+fn path_start(here: &Position, points: &[Position]) -> usize {
+    let (nearest, t) = nearest_leg(here, points);
+    if points.len() >= 2 && nearest + 2 == points.len() && t >= 1.0 {
+        return points.len();
+    }
+    (nearest + 1).min(points.len())
+}
+
 /// A plugin's path as it is drawn this frame: from `player` (where the character stands, when
 /// the path starts there) on along `points` from the leg of them nearest the character, or along
-/// all of `points` without one; ending before the first step longer than [`TRAIL_JUMP`] and at
-/// most `reach` metres along; as places [`TRAIL_STEP`] metres apart.
+/// all of `points` without one, each corner turned round ([`rounded`]); ending before the first
+/// step longer than [`TRAIL_JUMP`] and at most `reach` metres along; as places [`TRAIL_STEP`]
+/// metres apart.
 #[must_use]
 pub fn path_ahead(player: Option<&Position>, points: &[Position], reach: f32) -> Vec<Position> {
+    let points = rounded(points);
     let Some(here) = player else {
         let Some((first, rest)) = points.split_first() else {
             return Vec::new();
         };
         return resampled(&cut(first, rest, reach));
     };
-    // The leg the character is nearest: it goes on from that leg's far end.
+    let start = path_start(here, &points);
+    resampled(&cut(here, &points[start..], reach))
+}
+
+/// The leg of `points` nearest `here`, and how far along it (0 to 1) the place on it nearest
+/// `here` is; the first leg, from its start, for fewer than two points.
+fn nearest_leg(here: &Position, points: &[Position]) -> (usize, f32) {
     let h = global(here);
-    let nearest = points
+    points
         .windows(2)
         .enumerate()
         .map(|(i, w)| {
@@ -244,15 +303,25 @@ pub fn path_ahead(player: Option<&Position>, points: &[Position], reach: f32) ->
                 0.0
             };
             let (px, py) = (a.x + dx * t, a.y + dy * t);
-            (i, (px - h.x) * (px - h.x) + (py - h.y) * (py - h.y))
+            (i, t, (px - h.x) * (px - h.x) + (py - h.y) * (py - h.y))
         })
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map_or(0, |(i, _)| i);
-    resampled(&cut(
-        here,
-        &points[(nearest + 1).min(points.len())..],
-        reach,
-    ))
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map_or((0, 0.0), |(i, t, _)| (i, t))
+}
+
+/// How far along `points` (a plugin's path, turned round its corners) the line [`path_ahead`]
+/// draws from `here` counts its start, metres along the ground from the path's first point: the
+/// first of the path's own places the line goes through is then exactly as far along as it is on
+/// the path, wherever the character stands, so a pattern worked out from it stays where it is on
+/// the ground as the character walks and as the line starts on from one place to the next.
+#[must_use]
+pub fn path_along(here: &Position, points: &[Position]) -> f32 {
+    let points = rounded(points);
+    let start = path_start(here, &points);
+    let Some(first) = points.get(start) else {
+        return length(&points);
+    };
+    length(&points[..=start]) - flat_distance(global(here), global(first))
 }
 
 /// How long `line` is along the ground, metres.
@@ -334,7 +403,14 @@ mod tests {
             way: way.clone(),
             line: Vec::new(),
             since: 3.0,
+            origin: 5.0,
+            along: 0.0,
         };
+        // The pattern's place on the way carries on with it: its first corner dropped, the way
+        // now starts 10 m further along; a new plan or journey starts afresh.
+        assert!((origin_after(Some(&last), 7, &way[1..]) - 15.0).abs() < 1e-4);
+        assert!((origin_after(Some(&last), 7, &way) - 5.0).abs() < 1e-4);
+        assert_eq!(origin_after(Some(&last), 8, &way[1..]), 0.0);
         assert_eq!(
             carried(Some(&last), Some((7, &way[1..])), 9.0),
             (3.0, false),
@@ -378,11 +454,12 @@ mod tests {
             !continues(&way, &[at(0xA9B4_0001, 11.0, 20.0)]),
             "a new plan is a new way"
         );
-        // Past the corner, both lines run through the same places.
+        // Past the corner, both lines run through the same places: where the next corner's curve
+        // joins the leg after it.
         let corner_on = |line: &[Position]| {
             line.iter().map(global).any(|p| {
                 (p.x - (0xA9 as f32 * 192.0 + 30.0)).abs() < 1e-3
-                    && (p.y - (0xB4 as f32 * 192.0 + 20.0)).abs() < 1e-3
+                    && (p.y - (0xB4 as f32 * 192.0 + 22.5)).abs() < 1e-3
             })
         };
         assert!(corner_on(&before) && corner_on(&after));
@@ -412,6 +489,59 @@ mod tests {
         let whole = path_ahead(None, &points, 200.0);
         assert_eq!(whole.first(), points.first());
         assert!((length(&whole) - 90.0).abs() < 0.5);
+    }
+
+    /// A path with a square corner, the character cutting inside it as a walk does: the line
+    /// drawn from the character turns round the corner on a curve rather than going out to the
+    /// corner's point and back, so it never comes within half a metre of the point.
+    #[test]
+    fn a_paths_corner_is_drawn_turning_round_not_folded_at_its_point() {
+        let points = [
+            at(0xA9B4_0001, 10.0, 10.0),
+            at(0xA9B4_0001, 30.0, 10.0),
+            at(0xA9B4_0001, 30.0, 30.0),
+        ];
+        let corner = global(&points[1]);
+        for (x, y) in [(25.0, 10.5), (28.5, 11.5), (29.0, 12.0), (29.6, 14.0)] {
+            let line = path_ahead(Some(&at(0xA9B4_0001, x, y)), &points, 30.0);
+            let nearest = line
+                .iter()
+                .map(|p| flat_distance(global(p), corner))
+                .fold(f32::MAX, f32::min);
+            assert!(
+                nearest > 0.5,
+                "from {x} {y}: the line comes {nearest:.2} m from the corner's point"
+            );
+            let end = global(line.last().expect("a line"));
+            assert!(
+                (end.x - corner.x).abs() < 0.05 && end.y > corner.y + 10.0,
+                "on up the second leg: {end:?}"
+            );
+        }
+        // A slight turn and the path's own ends are drawn as they are.
+        let straight = [
+            at(0xA9B4_0001, 10.0, 10.0),
+            at(0xA9B4_0001, 20.0, 10.0),
+            at(0xA9B4_0001, 30.0, 10.0),
+        ];
+        assert_eq!(rounded(&straight), straight.to_vec());
+        let r = rounded(&points);
+        assert_eq!((r.first(), r.last()), (points.first(), points.last()));
+    }
+
+    #[test]
+    fn how_far_along_a_path_the_character_is_runs_from_its_first_point_to_the_nearest_place() {
+        let points: Vec<Position> = (0..10)
+            .map(|i| at(0xA9B4_0001, 10.0, 10.0 + 10.0 * i as f32))
+            .collect();
+        // Beside the third leg, 2 m off it 25 m up: the line goes on to the place 30 m up, which
+        // it reaches as far along as the path does.
+        let beside = 30.0 - dereth_primitives::num::math::hypotf(2.0, 5.0);
+        assert!((path_along(&at(0xA9B4_0001, 12.0, 35.0), &points) - beside).abs() < 1e-3);
+        assert!((path_along(&at(0xA9B4_0001, 10.0, 130.0), &points) - 90.0).abs() < 1e-3);
+        // 10 m before its first place: the line reaches its second, 10 m along, after 20 m.
+        assert!((path_along(&at(0xA9B4_0001, 10.0, 0.0), &points) + 10.0).abs() < 1e-3);
+        assert!(path_along(&at(0xA9B4_0001, 10.0, 0.0), &points[..1]).abs() < 1e-3);
     }
 
     #[test]
