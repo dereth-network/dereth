@@ -364,7 +364,8 @@ pub fn own_folder(product: Product) -> Option<&'static str> {
 }
 
 /// Whether the changed files `changed` (paths from the repository's root) touch anything under
-/// `folder` but its tests and its `RELEASING.md`, which no one using the product sees.
+/// `folder` but its tests, its test kit (`<folder>testkit/`, which holds its behavior registry)
+/// and its `RELEASING.md`, which no one using the product sees.
 #[must_use]
 pub fn changes_its_own(folder: &str, changed: &[String]) -> bool {
     changed.iter().any(|p| {
@@ -372,6 +373,7 @@ pub fn changes_its_own(folder: &str, changed: &[String]) -> bool {
         p.starts_with(folder)
             && !p.contains("/tests/")
             && !p.ends_with("tests.rs")
+            && !p.starts_with(&format!("{folder}testkit/"))
             && p != format!("{folder}RELEASING.md")
     })
 }

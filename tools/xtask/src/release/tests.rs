@@ -343,6 +343,35 @@ fn a_games_release_is_refused_until_the_launcher_it_holds_is_released() {
     assert!(why.contains("cargo xtask release launcher 0.5.0`"), "{why}");
 }
 
+/// A product's test kit is its tests too: a release whose only change of its own is a row in its
+/// behavior registry is one from the crates it is built from, as Auberean 0.1.13's was.
+#[test]
+fn a_change_to_a_products_test_kit_alone_is_not_its_own() {
+    let files = |f: &[&str]| f.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    let auberean = own_folder(Product::Auberean).expect("Auberean has one");
+    assert!(!changes_its_own(
+        auberean,
+        &files(&["auberean/testkit/src/behaviours/server.rs"])
+    ));
+    assert!(changes_its_own(
+        auberean,
+        &files(&[
+            "auberean/testkit/src/behaviours/server.rs",
+            "auberean/client/src/main.rs",
+        ])
+    ));
+    let yalain = own_folder(Product::Yalain).expect("Yalain has one");
+    assert!(!changes_its_own(
+        yalain,
+        &files(&["yalain/testkit/src/lib.rs", "yalain/RELEASING.md"])
+    ));
+    // A crate merely named like one is the product's own.
+    assert!(changes_its_own(
+        yalain,
+        &files(&["yalain/crates/testkitchen/src/lib.rs"])
+    ));
+}
+
 /// Only a product's own files, its tests aside, make its release one that needs highlights
 /// written by hand; a release from the crates it is built from alone does not.
 #[test]
