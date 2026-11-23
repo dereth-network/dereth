@@ -15,11 +15,12 @@
 //! **Paging** answers with the next or the previous page. **Leaving** is not answered (the client
 //! closes the store itself).
 //!
-//! **Buying** (the client checks the price against the player's money before it asks): the money
-//! goes down by the price times the quantity, the storekeeper opens, the item is made in the
-//! player's pack, the page is sent again, the storekeeper closes. A vendor's stock never runs
-//! out. With no room in the pack, the storekeeper opens and closes, the purchase is refused for
-//! want of room and the page sent again; nothing is paid.
+//! **Buying** (the client checks the price against the player's money before it asks): the
+//! storekeeper opens, the money goes down by the price times the quantity, the item comes into the
+//! player's pack and its move is answered, the storekeeper closes, the page is sent again, and the
+//! item is made for the client. A vendor's stock never runs out. With no room in the pack, the
+//! storekeeper opens and closes, the purchase is refused for want of room and the page sent again;
+//! nothing is paid.
 
 use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::ServerMessage;
@@ -495,16 +496,25 @@ pub fn purchase<S: Store>(
     };
     let left = have - price;
     crate::quals::set_int(&mut p.qualities, MONEY, left.cast_signed());
-    // The money first (2017: before the storekeeper opened in 9 of 10 purchases).
-    progress::send_int(net, world, MONEY, left.cast_signed());
+    // The storekeeper opens before the money is told, and closes and sends the page again between
+    // the move's answer and the item being made (2017, by the order sent: 17 of 17 purchases; the
+    // page came after the item in 6 of them, with nothing seen to tell those apart).
     opens(s, net, keeper, true);
-    crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
+    progress::send_int(net, world, MONEY, left.cast_signed());
+    let closed = std::cell::Cell::new(false);
+    let mut close = |s: &mut Server<S>, net: &mut ServerNet| {
+        opens(s, net, keeper, false);
+        let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
+        progress::private(net, world, &m);
+        closed.set(true);
+    };
+    crate::inventory::bought(s, net, world, sale.product, quantity, keeper, &mut close);
+    if !closed.get() {
+        close(s, net);
+    }
     if hires {
         crate::pets::hire(s, net, world, sale.product, clock);
     }
-    let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
-    progress::private(net, world, &m);
-    opens(s, net, keeper, false);
     crate::world::keep_player(s, world);
 }
 

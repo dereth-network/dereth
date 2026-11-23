@@ -1392,3 +1392,128 @@ fn a_medic_tends_its_owner_and_a_keeper_its_owners_pets() {
     assert!(healed >= Some(600), "tended: {healed:?}");
     assert_eq!(mercs(&h, me).len(), 1, "the other is no mercenary");
 }
+
+/// What a client was sent of a purchase from the storekeeper of an item of `item`, in the order the
+/// server sent it (the sequence in each message's id: visual, private and unordered messages may
+/// arrive in another); a pet added and a mercenary made too.
+fn sent_of_a_purchase(h: &Harness, b: usize, from: usize, item: u32) -> Vec<&'static str> {
+    const MOVE_DONE: u32 = 0x820E_005E;
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| r.message().map(|m| (r.blob_id & 0xFFFF_FFFF, m)))
+        .collect();
+    sent.sort_by_key(|(sequence, _)| *sequence);
+    sent.iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::UpdateInt(q) if q.quality == 3100 => Some("money"),
+            ServerMessage::UpdateBoolVisual(q)
+                if q.object.id == KEEPER && q.quality == yalain_world::store::OPEN =>
+            {
+                Some(if q.value == 1 { "open" } else { "close" })
+            }
+            ServerMessage::Contain(_) => Some("contain"),
+            ServerMessage::PlayerCall(c) if c.function.0 == MOVE_DONE => Some("move"),
+            ServerMessage::PlayerCall(c) if c.function.0 == UPDATE_STORE => Some("page"),
+            ServerMessage::PlayerCall(c) if c.function.0 == REQUEST_DONE => Some("refused"),
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == item => Some("item"),
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == MERCENARY => Some("mercenary"),
+            ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::pets::function::ADD => {
+                Some("pet")
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Buy the store's first sale, from inside its store.
+fn buy_first(h: &mut Harness, b: usize, me: u64) {
+    let stock = yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8;
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(stock),
+            Slot::Ref(None),
+            Slot::Long(me),
+            Slot::Int(1),
+            Slot::Long(KEEPER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+    );
+    h.run(10);
+}
+
+/// A purchase is sent in this order: the storekeeper opens, the money, the item contained, its
+/// move answered, the storekeeper closes, the page again, then the item made; with no room in the
+/// pack, the storekeeper opens and closes, the purchase is refused, then the page again.
+/// Behaviour: server.store.a-purchase-is-sent-in-order
+#[test]
+fn a_purchase_is_sent_opening_money_item_moved_closing_page_then_item() {
+    let mut h = shop();
+    let (b, me) = in_store(&mut h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, 50);
+    }
+    let from = h.bots[b].inbox.len();
+    buy_first(&mut h, b, me);
+    assert_eq!(
+        sent_of_a_purchase(&h, b, from, TEST_ITEM),
+        ["open", "money", "contain", "move", "close", "page", "item"]
+    );
+    for p in h.server.players.values_mut() {
+        for i in 0..yalain_world::inventory::PACK_ROOM {
+            p.play.items.push(yalain_world::state::Held {
+                id: 0x8130_0000_0100_0000 + u64::from(i),
+                template: TEST_ITEM,
+                slot: i,
+                location: 0,
+                quantity: 1,
+            });
+        }
+    }
+    let from = h.bots[b].inbox.len();
+    buy_first(&mut h, b, me);
+    assert_eq!(
+        sent_of_a_purchase(&h, b, from, TEST_ITEM),
+        ["open", "close", "refused", "page"],
+        "no room"
+    );
+}
+
+/// The medic a medic's contract hires.
+const MERCENARY: u32 = 0x4700_3457;
+
+/// A contract bought from a storekeeper is sold as any sale is, and hires its mercenary after: the
+/// pet added and the mercenary made are sent after the page and the item. No recording holds a
+/// contract bought from a storekeeper (2017: none of its 23 purchases was one), so the order is
+/// this server's own.
+/// Behaviour: server.store.a-contract-hires-after-its-sale
+#[test]
+fn a_contract_bought_hires_its_mercenary_after_the_page_and_the_item() {
+    let (mut h, b, me, _) = merc_shop(2000);
+    let from = h.bots[b].inbox.len();
+    assert!(!buy_contract(&mut h, b, me, 0), "bought");
+    assert_eq!(mercs(&h, me), [MERCENARY], "hired");
+    let sent = sent_of_a_purchase(&h, b, from, yalain_testkit::mercenary::MEDIC);
+    assert_eq!(
+        sent[..7],
+        ["open", "money", "contain", "move", "close", "page", "item"],
+        "{sent:?}"
+    );
+    let hire = &sent[7..];
+    assert!(
+        hire.contains(&"pet") && hire.contains(&"mercenary"),
+        "the hire after the sale: {sent:?}"
+    );
+    assert!(
+        hire.iter().all(|l| ["pet", "mercenary"].contains(l)),
+        "{sent:?}"
+    );
+}

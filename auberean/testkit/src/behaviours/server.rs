@@ -19477,12 +19477,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.store.a-contract-hires-after-its-sale",
+        says: "A contract bought from a storekeeper is sold in a purchase's order, and its mercenary \
+               is hired after: the pet added and the mercenary made are sent after the page and the \
+               item. This server's own order: no recording holds a contract bought from a \
+               storekeeper.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-CONTRACT-ORDER"),
+        station: "yalain-testkit::cpu::play::trade::a_contract_bought_hires_its_mercenary_after_the_page_and_the_item",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.a-keeper-opens-for-all-who-see-it",
         says: "A storekeeper opening and closing for a sale is told to every client that knows \
                it, each taking the keeper's visual messages in turn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KEEPER-OPENS-FOR-ALL"),
         station: "yalain-testkit::cpu::play::trade::a_keeper_opening_for_a_sale_is_told_to_those_beside_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.a-purchase-is-sent-in-order",
+        says: "A purchase from a storekeeper is sent in this order: the storekeeper opens, the \
+               money, the item contained, its move answered, the storekeeper closes, the page \
+               again, the item made; with no room in the pack, the opening, the closing, the \
+               refusal, then the page.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-SEND-ORDER"),
+        station: "yalain-testkit::cpu::play::trade::a_purchase_is_sent_opening_money_item_moved_closing_page_then_item",
         tier: Tier::Cpu,
     },
     behaviour! {

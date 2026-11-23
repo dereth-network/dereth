@@ -1531,7 +1531,20 @@ pub fn picked_up<S: Store>(
 }
 
 /// A made item comes into a player's pack: contained, made for the client, the move answered.
-fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u64, mut m: Move) {
+fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u64, m: Move) {
+    arrive_with(s, net, world, id, m, &mut |_, _| {});
+}
+
+/// A made item comes into a player's pack, with what else is said between the move's answer and
+/// the item being made for the client.
+fn arrive_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    id: u64,
+    mut m: Move,
+    between: &mut dyn FnMut(&mut Server<S>, &mut ServerNet),
+) {
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -1560,8 +1573,11 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
         m.template = t.template;
         // The answer first: its client has no such item yet, and calls it "the item".
         progress::private(net, world, &move_done(&m));
-        let create = ServerMessage::CreateObject(item_create(t));
-        net.send(world, queue::EVENT, BlobKind::UNORDERED, create.encode());
+        between(s, net);
+        if let Some(t) = s.things.get(id) {
+            let create = ServerMessage::CreateObject(item_create(t));
+            net.send(world, queue::EVENT, BlobKind::UNORDERED, create.encode());
+        }
     }
     knows(s, world, id);
     crate::world::keep_player(s, world);
@@ -1605,7 +1621,8 @@ pub fn collected<S: Store>(
     );
 }
 
-/// A player has bought items of a template: they are made in its pack.
+/// A player has bought items of a template: they are made in its pack, with what else is said
+/// between the move's answer and the item being made for the client.
 pub fn bought<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1613,7 +1630,7 @@ pub fn bought<S: Store>(
     template: u32,
     quantity: u32,
     from: u64,
-    _clock: Clock,
+    between: &mut dyn FnMut(&mut Server<S>, &mut ServerNet),
 ) {
     let Some(id) = make_item(s, template, quantity, 0) else {
         s.unhandled.note(format!(
@@ -1621,7 +1638,7 @@ pub fn bought<S: Store>(
         ));
         return;
     };
-    arrive(
+    arrive_with(
         s,
         net,
         world,
@@ -1643,6 +1660,7 @@ pub fn bought<S: Store>(
             overflow: true,
             ..Move::default()
         },
+        between,
     );
 }
 
