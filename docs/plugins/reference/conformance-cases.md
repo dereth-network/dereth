@@ -7,7 +7,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | profile | cases |
 |---|---|
 | [Core](#core) | 25 |
-| [UI](#ui) | 16 |
+| [UI](#ui) | 17 |
 | [Overlay](#overlay) | 9 |
 | [Nav](#nav) | 20 |
 | [Pregame](#pregame) | 3 |
@@ -51,6 +51,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 |---|---|---|
 | [`bar`](../conformance/ui/bar/) | The plugin bar lists each plugin active here with what it says it is doing (running, paused or idle; error when it stopped on a fault); a click on it opens its main window, or closes it when open, and the plugin hears ui.opened or ui.closed. | the host's frames alone |
 | [`canvas`](../conformance/ui/canvas/) | A canvas keeps its draw commands and takes new ones, a chart keeps its series, and a draw command of no known operation is refused. | a scripted world |
+| [`canvas-fit`](../conformance/ui/canvas-fit/) | A canvas that fits its room takes the room its window has left and draws its pixels scaled the same both ways to the largest that fits it, in its middle. | the host's frames alone |
 | [`controls`](../conformance/ui/controls/) | A tabs node, a number and a choice are kept in the tree; the player's change of each reaches the plugin as an event and stays on the node, and a tabs node that holds anything but group pages is refused. | the host's frames alone |
 | [`hotkeys`](../conformance/ui/hotkeys/) | A hotkey runs its plugin's command as if the player had typed it, a gesture; a hotkey whose command the plugin has not claimed (the host's own `/plugin` among them) is told to the player and runs nothing, and a hotkey with no Ctrl or Alt is refused. | the host's frames alone |
 | [`hud`](../conformance/ui/hud/) | A HUD is kept as a tree with its anchor, its nodes change like a window's, and a bad anchor, a HUD inside a window or a control in a HUD other than a button, a toggle or a list is refused. | the host's frames alone |

@@ -82,7 +82,7 @@ it was.
 | `tabs` | `selected` (a page from 1) | only `group`s: each a page, its `title` on its tab |
 | `number` | `text`, `value`, `min`, `max`, `step` (numbers), `enabled` | no |
 | `choice` | `text`, `options` (strings), `value` (one of them), `enabled` | no |
-| `canvas` | `width`, `height` (pixels), `background` (a colour), `draw` (draw commands, below) | no |
+| `canvas` | `width`, `height` (pixels), `background` (a colour), `draw` (draw commands, below), `fit` | no |
 | `input` | `text` (its label), `value` (the text), `placeholder`, `enabled`, `width` | no |
 | `textbox` | `value` (the text, lines split at `\n`), `editable` (boolean), `height` (lines), `width` | no |
 | `slider` | `text`, `value`, `min`, `max`, `step` (numbers), `enabled`, `width` | no |
@@ -185,7 +185,12 @@ A `canvas` is a free drawing, in its own pixels from its top left: `draw` is a l
 `{ op = "line", x1, y1, x2, y2, color, width }`, `{ op = "rect", x, y, w, h, color, fill }`,
 `{ op = "circle", x, y, r, color, fill }` and `{ op = "text", x, y, text, color }` (colours
 `"#RRGGBB"` or `0xRRGGBB`, white when left out; at most 2,000 commands). Setting `draw` again
-redraws it: a map, a radar of one's own, a graph. A `chart` draws each series as a line through
+redraws it: a map, a radar of one's own, a graph. A canvas with `fit = true` takes the room its
+window has left (it grows by 1 unless it says its own `grow`, and stretches across its column) and
+draws its pixels scaled the same both ways to the largest that fits that room, in its middle, over
+its background filling the room: its places and sizes are scaled, its lines' widths and its text are
+not, so it stays as readable at any size. In a window the player sizes, a map made larger is drawn
+larger. A `chart` draws each series as a line through
 its values (or as bars side by side), between `min` and `max` (the values' own when left out),
 with each series' label along its top. Both are drawn in the interface's text; a host with no
 display keeps them in the tree.
@@ -232,6 +237,7 @@ cell (nothing when it has no text).
 | `list` | its columns (below), a cell between each two, a line and a gap where a row has an icon, its rim and a gap at each side, and a scrollbar and a gap when it has more rows than it shows; at least 8 cells | a line and 2 for its headings (when it has any), its rows (its `height`, else as many as it has, 1 to 8), and its rim above and below | its columns at their least; three rows, or fewer where it asks for fewer |
 | `image` | 24 cells | 12 lines | its natural size |
 | `canvas`, `chart` | its own pixels | its own pixels | its natural size |
+| `canvas` with `fit` | its own pixels | its own pixels | a quarter of them each way, at least 16 |
 | `separator` | two gaps and 1 | two gaps and 1 | its natural size |
 
 **Columns and rows.** A `column` (and a window, a HUD, a group, each tab's page) sets its nodes one
@@ -257,7 +263,7 @@ size, each in proportion to how far above it it is, none below its least. Each n
 whole units, rounded.
 
 **Across.** In a column every node takes the column's whole width, within its least and most,
-but an image, a canvas and a chart, which keep their own size and stand at the column's start. In a
+but an image, a canvas (unless it fits its room) and a chart, which keep their own size and stand at the column's start. In a
 row a list, a text box, a separator and a container take the row's whole height; every other node
 keeps its own height and stands in the row's middle. A container's `align` (`"stretch"`, the
 default, or `"start"`, `"center"`, `"end"`) otherwise keeps each of its nodes at its natural size

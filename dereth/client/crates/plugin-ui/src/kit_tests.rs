@@ -703,3 +703,81 @@ fn a_canvas_is_drawn_again_only_when_its_drawing_changes() {
         "its own drawing changing makes it again"
     );
 }
+
+/// A canvas that fits its room is drawn as large as fits the room the player gives its window, a
+/// square drawing kept square and in the middle: at two sizes of the window, the larger drawn
+/// larger, and drawn again only as its room changes it.
+/// Behaviour: plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits
+#[test]
+fn a_canvas_that_fits_is_drawn_as_large_as_the_window_the_player_gives_it() {
+    let tree = window(
+        "map",
+        vec![node("canvas")
+            .with("id", "cv")
+            .with("width", 100_i64)
+            .with("height", 100_i64)
+            .with("fit", true)
+            .with(
+                "draw",
+                vec![Value::map()
+                    .with("op", "rect")
+                    .with("x", 0_i64)
+                    .with("y", 0_i64)
+                    .with("w", 100_i64)
+                    .with("h", 100_i64)
+                    .with("color", 0x00FF_0000_i64)
+                    .with("fill", true)],
+            )],
+    );
+    let views = [view(tree, 1)];
+    // The red square's extent on the screen, and the canvas's room (the window's body).
+    let square = |h: &Harness| {
+        let red: Vec<Rect> = h.drawn().windows[0]
+            .2
+            .quads
+            .iter()
+            .filter(|q| q.tex.is_none() && q.colour == 0xFFFF_0000)
+            .map(|q| q.dst)
+            .collect();
+        assert!(!red.is_empty(), "the drawing is drawn");
+        let x0 = red.iter().map(|r| r.x).fold(f32::MAX, f32::min);
+        let y0 = red.iter().map(|r| r.y).fold(f32::MAX, f32::min);
+        let x1 = red.iter().map(Rect::right).fold(f32::MIN, f32::max);
+        let y1 = red.iter().map(Rect::bottom).fold(f32::MIN, f32::max);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
+    };
+    let mut sides = Vec::new();
+    let mut h = Harness::new();
+    for (w, hh) in [(260.0, 400.0), (520.0, 360.0)] {
+        h.frame(&[]);
+        h.layer.ui.place_hint("test.kit", "map", 10.0, 10.0);
+        h.layer.ui.size_hint("test.kit", "map", w, hh);
+        h.frame(&views);
+        h.frame(&views);
+        let s = square(&h);
+        let win = h.rect("map");
+        assert!((s.w - s.h).abs() <= 1.0, "kept square: {s:?}");
+        assert!(
+            s.x >= win.x && s.right() <= win.right() + 0.5 && s.bottom() <= win.bottom() + 0.5,
+            "within its window: {s:?} in {win:?}"
+        );
+        let (left, right) = (s.x - win.x, win.right() - s.right());
+        assert!(
+            (left - right).abs() <= 2.0 || s.w >= win.w - 40.0,
+            "in the middle across, or as wide as the room: {left} and {right}"
+        );
+        sides.push(s.w);
+    }
+    assert!(
+        sides[0] > 150.0,
+        "far larger than its 100 pixels: {sides:?}"
+    );
+    assert!(
+        sides[1] > sides[0] + 50.0,
+        "larger in the larger window: {sides:?}"
+    );
+    assert_eq!(
+        h.layer.ui.drawings_made, 2,
+        "made again as its room changed"
+    );
+}

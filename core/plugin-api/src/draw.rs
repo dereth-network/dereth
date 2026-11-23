@@ -56,6 +56,66 @@ pub enum Command {
     },
 }
 
+/// `commands` drawn `s` times their size: each place and size scaled, each line's width and each
+/// text's size kept, so a drawing made larger or smaller stays as readable.
+#[must_use]
+pub fn scaled(commands: &[Command], s: f64) -> Vec<Command> {
+    commands
+        .iter()
+        .map(|c| match c {
+            Command::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                color,
+                width,
+            } => Command::Line {
+                x1: x1 * s,
+                y1: y1 * s,
+                x2: x2 * s,
+                y2: y2 * s,
+                color: *color,
+                width: *width,
+            },
+            Command::Rect {
+                x,
+                y,
+                w,
+                h,
+                color,
+                fill,
+            } => Command::Rect {
+                x: x * s,
+                y: y * s,
+                w: w * s,
+                h: h * s,
+                color: *color,
+                fill: *fill,
+            },
+            Command::Circle {
+                x,
+                y,
+                r,
+                color,
+                fill,
+            } => Command::Circle {
+                x: x * s,
+                y: y * s,
+                r: r * s,
+                color: *color,
+                fill: *fill,
+            },
+            Command::Text { x, y, text, color } => Command::Text {
+                x: x * s,
+                y: y * s,
+                text: text.clone(),
+                color: *color,
+            },
+        })
+        .collect()
+}
+
 /// The draw operations, as a refusal names them.
 pub const OPS: &[&str] = &["line", "rect", "circle", "text"];
 

@@ -1,0 +1,17 @@
+says = "A canvas that fits its room takes the room its window has left and draws its pixels scaled the same both ways to the largest that fits it, in its middle."
+[[step]]
+after = 0
+bar = "conformance.canvas-fit"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 20
+[expect]
+status = "running"
+layout = """
+window conformance.canvas-fit main
+window #main 280x320
+  label #head 0,0 280x16
+  canvas #map 0,19 280x301 drawn=0,11 280x280
+"""

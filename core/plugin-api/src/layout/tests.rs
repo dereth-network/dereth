@@ -442,3 +442,46 @@ fn with_tabs_a_short_window_scrolls_the_page_under_its_row_of_tabs() {
         "with room for it, the page does not scroll"
     );
 }
+
+/// A canvas that fits its room takes the room its window has left and its whole width, and its
+/// drawing is scaled the same both ways to the largest that fits, in the room's middle: at two
+/// sizes of the window, one wider than tall and one taller than wide, and never smaller than a
+/// quarter of its own pixels.
+/// Behaviour: plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits
+#[test]
+fn a_canvas_that_fits_takes_the_room_left_and_draws_its_pixels_as_large_as_fit() {
+    let t = window(vec![
+        node("label").with("text", "abc"),
+        node("canvas")
+            .with("width", 100_i64)
+            .with("height", 50_i64)
+            .with("fit", true),
+    ]);
+    let canvas = &t.children[1];
+    // 400 across and 216 down under the label: four times its pixels, 8 from the top.
+    let l = lay(&t, (400.0, 235.0));
+    let c = &l.children[1];
+    assert_eq!((c.x, c.y, c.w, c.h), (0.0, 19.0, 400.0, 216.0));
+    let (k, (x, y)) = canvas.canvas_fit(c.w, c.h);
+    assert_eq!((k, x, y), (4.0, 0.0, 8.0));
+    // 150 across and 300 down: one and a half times, in the middle down.
+    let l = lay(&t, (150.0, 319.0));
+    let c = &l.children[1];
+    assert_eq!((c.w, c.h), (150.0, 300.0));
+    let (k, (x, y)) = canvas.canvas_fit(c.w, c.h);
+    assert_eq!((k, x), (1.5, 0.0));
+    assert!((y - 112.5).abs() < 0.01, "{y}");
+    // Smaller than it is: no less than a quarter of its pixels each way.
+    let w = want(&t, &Metrics::reference(), &Cells(7.0));
+    assert_eq!((w.children[1].w.least, w.children[1].h.least), (25.0, 16.0));
+    // Not fitting, the same canvas keeps its own size.
+    let plain = window(vec![node("canvas")
+        .with("width", 100_i64)
+        .with("height", 50_i64)]);
+    let l = lay(&plain, (400.0, 235.0));
+    assert_eq!((l.children[0].w, l.children[0].h), (100.0, 50.0));
+    assert_eq!(
+        plain.children[0].canvas_fit(400.0, 235.0),
+        (1.0, (0.0, 0.0))
+    );
+}

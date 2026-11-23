@@ -445,6 +445,18 @@ fn want_node(n: &UiNode, m: &Metrics, measure: &dyn Measure, auto: &[*const UiNo
             Span::fixed(hint(n, m).unwrap_or(20.0 * m.cell)),
             Span::fixed((m.line * 0.9).max(12.0).ceil()),
         ),
+        NodeKind::Canvas if n.fits() => {
+            // Its own pixels at most four times smaller, and as large as the room it is given.
+            let (pw, ph) = n.pixel_size();
+            let (w, h) = (units(pw.clamp(1, 4096), 1.0), units(ph.clamp(1, 4096), 1.0));
+            let mut l = Want::leaf(
+                Span::new((w / 4.0).max(16.0).ceil(), w),
+                Span::new((h / 4.0).max(16.0).ceil(), h),
+            );
+            l.tall = true;
+            l.grow = 1.0;
+            l
+        }
         NodeKind::Canvas | NodeKind::Chart => {
             let (pw, ph) = n.pixel_size();
             let mut l = Want::leaf(
@@ -1037,6 +1049,21 @@ fn dump_into(n: &UiNode, l: &Laid, depth: usize, out: &mut String) {
         }
         NodeKind::Number | NodeKind::Choice | NodeKind::Input | NodeKind::Slider => {
             let _ = write!(out, " label={}", l.parts.first().copied().unwrap_or(0.0));
+        }
+        NodeKind::Canvas if n.fits() => {
+            // The drawing in its room: where it stands and its size, whole units.
+            let (k, (x, y)) = n.canvas_fit(l.w, l.h);
+            let (pw, ph) = n.pixel_size();
+            #[allow(clippy::cast_precision_loss)] // LINT-OK: a canvas's pixels, at most 4096
+            let (dw, dh) = (pw.clamp(1, 4096) as f32 * k, ph.clamp(1, 4096) as f32 * k);
+            let _ = write!(
+                out,
+                " drawn={},{} {}x{}",
+                x.round(),
+                y.round(),
+                dw.round(),
+                dh.round()
+            );
         }
         _ => {}
     }

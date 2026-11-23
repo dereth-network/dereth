@@ -158,6 +158,9 @@ struct Win {
     /// Each canvas's and chart's drawing as rectangles and placed text, by node: the window's
     /// revision it was last seen at, the hash of what it draws, and the drawing.
     drawings: HashMap<u32, (u64, u64, Arc<Drawing>)>,
+    /// The scale each canvas that fits its room was last drawn at, by node: drawn again when its
+    /// room changes it.
+    fitted: HashMap<u32, f32>,
     /// Where it was drawn last, in screen pixels.
     rect: Rect,
     /// An edge or corner the player holds.
@@ -1753,10 +1756,18 @@ impl PluginUi {
         }
     }
 
-    /// A canvas or a chart: its drawing's rectangles and text, scaled to the node and cut to it.
+    /// A canvas or a chart: its drawing's rectangles and text, scaled to the node and cut to it;
+    /// a canvas that fits its room drawn as large as fits it, in its middle.
     fn drawing(&mut self, p: &mut Painter<'_>, view: &WindowView, n: &UiNode, id: u32, r: Rect) {
         let key = (view.plugin.clone(), view.window.clone());
         let win = self.wins.entry(key).or_default();
+        let k = p.scale;
+        let (fit, (ox, oy)) = n.canvas_fit(r.w / k.max(0.01), r.h / k.max(0.01));
+        // Drawn again at a new size when its room changes.
+        if win.fitted.get(&id).is_some_and(|f| *f != fit) {
+            win.drawings.remove(&id);
+        }
+        win.fitted.insert(id, fit);
         // Made again only when what it draws changes, not whenever something else in its window
         // does: a new revision of the window is looked at once, by what this node holds.
         let drawing = match win.drawings.get(&id) {
@@ -1772,10 +1783,26 @@ impl PluginUi {
                     }
                     _ => {
                         let (w, h) = n.pixel_size();
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+                        // LINT-OK: a canvas's pixels, at most 4096, at a scale that fits a screen
+                        let size = |v: i64, d: i32| {
+                            let v = i32::try_from(v).unwrap_or(d);
+                            if fit == 1.0 {
+                                v
+                            } else {
+                                (v as f32 * fit).round().max(1.0) as i32
+                            }
+                        };
+                        let commands = n.drawing();
+                        let commands = if fit == 1.0 {
+                            commands
+                        } else {
+                            dereth_plugin_api::draw::scaled(&commands, f64::from(fit))
+                        };
                         let d = Arc::new(dereth_plugin_api::draw::rasterize(
-                            &n.drawing(),
-                            i32::try_from(w).unwrap_or(160),
-                            i32::try_from(h).unwrap_or(80),
+                            &commands,
+                            size(w, 160),
+                            size(h, 80),
                         ));
                         win.drawings
                             .insert(id, (view.revision, what, Arc::clone(&d)));
@@ -1788,7 +1815,6 @@ impl PluginUi {
                 }
             }
         };
-        let k = p.scale;
         if let Some(bg) = n
             .props
             .get("background")
@@ -1797,12 +1823,13 @@ impl PluginUi {
             p.fill(r, opaque(bg));
         }
         p.list.push_clip(r);
+        let (left, top) = ((r.x + ox * k).round(), (r.y + oy * k).round());
         #[allow(clippy::cast_precision_loss)]
         for &(x, y, w, h, c) in &drawing.0 {
             p.fill(
                 Rect::new(
-                    r.x + x as f32 * k,
-                    r.y + y as f32 * k,
+                    left + x as f32 * k,
+                    top + y as f32 * k,
                     w as f32 * k,
                     h as f32 * k,
                 ),
@@ -1814,8 +1841,8 @@ impl PluginUi {
         for (x, y, text, c) in &drawing.1 {
             p.text(
                 &style.colour(opaque(*c)),
-                (r.x + *x as f32 * k).round(),
-                (r.y + *y as f32 * k).round(),
+                (left + *x as f32 * k).round(),
+                (top + *y as f32 * k).round(),
                 text,
             );
         }

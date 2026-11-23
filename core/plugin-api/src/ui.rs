@@ -338,6 +338,7 @@ impl NodeKind {
                 ("height", PropType::Int),
                 ("background", PropType::Color),
                 ("draw", PropType::Drawing),
+                ("fit", PropType::Bool),
             ],
             Self::Chart => &[
                 ("width", PropType::Int),
@@ -369,7 +370,7 @@ impl NodeKind {
             Self::Tabs => "Pages under tabs: each child a group, its title on its tab; a tab chosen is a `ui.selected` event (`rows = { page }`) and shows that page.",
             Self::Number => "A number with a step down and a step up, kept between `min` and `max`; a step is a `ui.changed` event with the new value.",
             Self::Choice => "One of `options`, picked by the player from the list of them; a pick is a `ui.changed` event with the new value.",
-            Self::Canvas => "A free drawing `width` by `height` pixels: its `draw` commands (`line`, `rect`, `circle`, `text`) in its own pixels from its top left, over its `background`.",
+            Self::Canvas => "A free drawing `width` by `height` pixels: its `draw` commands (`line`, `rect`, `circle`, `text`) in its own pixels from its top left, over its `background`. With `fit = true` it takes the room its window has left and draws its pixels scaled to the largest that fits it, in its middle.",
             Self::Chart => "Series of numbers drawn as lines (or bars, `style = \"bar\"`) `width` by `height` pixels, between `min` and `max` (the values' own when left out), each series' label along the top.",
             Self::Input => "One line of text the player types; each change is a `ui.changed` event with the text, and a player gesture.",
             Self::TextBox => "Lines of text, wrapped and scrolled; with `editable`, the player types in it and each change is a `ui.changed` event.",
@@ -780,6 +781,32 @@ impl UiNode {
     pub fn pixel_size(&self) -> (i64, i64) {
         let get = |k: &str, d: i64| self.props.get(k).and_then(Value::as_i64).unwrap_or(d);
         (get("width", 160), get("height", 80))
+    }
+
+    /// Whether this is a canvas that fits its drawing to the room it is given (`fit = true`).
+    #[must_use]
+    pub fn fits(&self) -> bool {
+        self.kind == NodeKind::Canvas
+            && self.props.get("fit").and_then(Value::as_bool) == Some(true)
+    }
+
+    /// How a canvas draws its own pixels in a room `w` by `h` (layout units): the scale, and
+    /// where its drawing's top left stands in the room. A canvas that fits ([`Self::fits`]) is
+    /// scaled the same both ways to the largest that fits the room and stands in its middle;
+    /// any other is drawn at its own size from the room's top left.
+    #[must_use]
+    pub fn canvas_fit(&self, w: f32, h: f32) -> (f32, (f32, f32)) {
+        if !self.fits() {
+            return (1.0, (0.0, 0.0));
+        }
+        let (pw, ph) = self.pixel_size();
+        #[allow(clippy::cast_precision_loss)] // LINT-OK: a canvas's pixels, at most 4096
+        let (pw, ph) = (pw.clamp(1, 4096) as f32, ph.clamp(1, 4096) as f32);
+        let s = (w / pw).min(h / ph).max(0.01);
+        (
+            s,
+            (((w - pw * s) / 2.0).max(0.0), ((h - ph * s) / 2.0).max(0.0)),
+        )
     }
 
     /// What a canvas or a chart draws, as canvas commands (none for any other node, or for

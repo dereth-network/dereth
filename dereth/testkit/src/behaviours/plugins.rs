@@ -3475,6 +3475,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits",
+        says: "A canvas declared `fit = true` takes the room its window has left and stretches \
+               across it, and draws its pixels scaled the same both ways to the largest that fits \
+               that room, in its middle, its lines' widths and its text kept: a window the player \
+               makes larger draws it larger.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-CANVAS-FIT"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.ui.a-declared-window-takes-clicks-and-changes",
         says: "A window a plugin declares is kept as a tree of labels, buttons, toggles, meters \
                and lists; a click or a change reaches the plugin, what the plugin changes shows \

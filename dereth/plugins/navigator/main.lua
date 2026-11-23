@@ -109,7 +109,8 @@ if M.available() then
 	map_win = ui.window({
 		id = "dungeon",
 		title = "Dungeon Map",
-		ui.canvas({ id = "map", width = M.SIZE, height = M.SIZE, background = "#101010", draw = {} }),
+		-- Drawn as large as the window the player gives it.
+		ui.canvas({ id = "map", width = M.SIZE, height = M.SIZE, fit = true, background = "#101010", draw = {} }),
 		ui.label({ id = "map_note", text = "" }),
 	})
 	map_win:close()

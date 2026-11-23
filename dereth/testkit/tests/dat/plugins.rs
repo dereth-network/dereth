@@ -179,7 +179,7 @@ fn retail_store() -> Arc<RetailDatStore> {
 /// The Navigator sample's map: carried into a dungeon (`0x01A4`, its first room) by a portal, the
 /// window's Map page reads the dungeon's rooms a few at a time and draws the outline of the floors
 /// at the character's level around it, and dim the levels just above and below, with the
-/// character's dot, on a canvas within its limit.
+/// character's dot, on a canvas within its limit that fits the map's window.
 fn the_navigator_maps_the_dungeon_floor_around_the_character() {
     use dereth_plugin_api::Value;
     const ID: &str = "network.dereth.navigator";
@@ -227,6 +227,14 @@ fn the_navigator_maps_the_dungeon_floor_around_the_character() {
         "the dungeon map's window"
     );
     run.advance(20.0);
+    // Its map fits its window: drawn as large as the room the window gives it.
+    let layout = run.layout_dump();
+    assert!(
+        layout
+            .lines()
+            .any(|l| l.trim_start().starts_with("canvas #map") && l.contains(" drawn=")),
+        "{layout}"
+    );
     let dump = run.ui_dump();
     let canvas = dump
         .lines()
