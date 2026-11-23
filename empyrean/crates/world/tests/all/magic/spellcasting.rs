@@ -3558,3 +3558,128 @@ fn a_crowded_landblocks_tick_warns_its_players_and_moves_the_one_longest_there()
     portal_storm::tick(&mut h.w, id, &players[..1], 127.0);
     assert_eq!(h.w.portal_storms[&id].stage, portal_storm::Stage::Calm);
 }
+
+/// A tie spell as the spell table names it: its id, nothing else.
+fn tie_spell(id: u32) -> Spell {
+    let db = DbSpell {
+        id,
+        ..DbSpell::default()
+    };
+    Spell {
+        rules_category: None,
+        spell_base: Some(SpellBase {
+            meta_spell_id: id,
+            ..spell_base_default()
+        }),
+        spell: Some(Arc::new(db)),
+        formula: None,
+    }
+}
+
+/// Lifestone Tie, Primary Portal Tie and Secondary Portal Tie.
+const LIFESTONE_TIE: u32 = 2644;
+const PORTAL_TIE_1: u32 = 47;
+const PORTAL_TIE_2: u32 = 2646;
+const TIE_PORTAL_WCID: u32 = 4321;
+
+/// A tie that takes is confirmed as retail confirms it, with the error code whose text the client
+/// draws (the lifestone's, the portal's), and no chat line; it links the player as before.
+/// Divergence: V567
+#[test]
+fn a_tie_that_takes_is_confirmed_with_retails_error_code_and_no_chat_line() {
+    use empyrean_world::world_objects::kinds::KindData;
+    let mut h = H::new();
+    h.w.content = Arc::new(
+        content().weenie(
+            ContentWeenie::new(TIE_PORTAL_WCID, "portal", WeenieType::Portal)
+                .with_string(PropertyString::Name, "Portal to Somewhere")
+                .with_did(PropertyDataId::Setup, land::TEST_SETUP)
+                .with_position(
+                    PositionType::Destination,
+                    0xACB4_0001,
+                    [50.0, 50.0, 20.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                ),
+        ),
+    );
+    h.player(100.0, 100.0);
+    let place = |guid: u32, kind: KindData, weenie: WeenieType, wcid: u32| {
+        let mut o = WorldObject {
+            guid: ObjectGuid::new(guid),
+            kind,
+            ..Default::default()
+        };
+        o.biota.weenie_type = weenie;
+        o.biota.weenie_class_id = wcid;
+        o.set_location(Some(Position::from_components(
+            LB | 0x0001,
+            102.0,
+            100.0,
+            20.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            false,
+        )));
+        o
+    };
+    let stone = ObjectGuid::new(0x7000_0020);
+    let portal = ObjectGuid::new(0x7000_0021);
+    h.w.objects
+        .insert(place(
+            stone.full(),
+            KindData::Lifestone(Box::default()),
+            WeenieType::LifeStone,
+            509,
+        ))
+        .expect("fresh guid");
+    h.w.objects
+        .insert(place(
+            portal.full(),
+            KindData::Portal(Box::default()),
+            WeenieType::Portal,
+            TIE_PORTAL_WCID,
+        ))
+        .expect("fresh guid");
+
+    for (spell, target, code) in [
+        (
+            LIFESTONE_TIE,
+            stone,
+            WeenieError::YouSuccessfullyLinkWithLifestone,
+        ),
+        (
+            PORTAL_TIE_1,
+            portal,
+            WeenieError::YouSuccessfullyLinkWithPortal,
+        ),
+        (
+            PORTAL_TIE_2,
+            portal,
+            WeenieError::YouSuccessfullyLinkWithPortal,
+        ),
+    ] {
+        start_capture();
+        world_object_magic::handle_cast_spell_portal_link(
+            &mut h.w,
+            PLAYER,
+            &tie_spell(spell),
+            Some(target),
+        );
+        let got = sent();
+        assert_eq!(
+            events(&got, EV_WEENIE_ERROR),
+            [code.0.cast_unsigned()],
+            "spell {spell}: the tie's own code"
+        );
+        assert!(
+            !got.iter().any(|s| s.op == 0xF7E0 || s.op == 0xF7E1),
+            "spell {spell}: no chat line"
+        );
+    }
+    let p = h.o(PLAYER);
+    assert!(p.linked_lifestone().is_some(), "tied to the lifestone");
+    assert_eq!(p.linked_portal_one_did(), Some(TIE_PORTAL_WCID));
+    assert_eq!(p.linked_portal_two_did(), Some(TIE_PORTAL_WCID));
+}

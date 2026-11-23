@@ -1683,13 +1683,9 @@ pub fn handle_cast_spell_portal_link(
             // Lifestone Tie
             let t = target_of(w);
             if obj(w, t).is_some_and(|o| o.biota.weenie_type == WeenieType::LifeStone) {
-                player_send_chat_message(
-                    w,
-                    player,
-                    Some(this),
-                    "You have successfully linked with the life stone.",
-                    ChatMessageType::Magic,
-                );
+                // V567: retail confirms the tie with its error code, whose text the client draws,
+                // where ACE sends a chat line of its own.
+                send_weenie_error_event(w, player, WeenieError::YouSuccessfullyLinkWithLifestone);
                 let location = obj(w, t).and_then(WorldObject::location);
                 if let Some(p) = w.objects.get_mut(player) {
                     p.set_linked_lifestone(location);
@@ -1766,13 +1762,8 @@ pub fn handle_cast_spell_portal_link(
                 }
             }
 
-            player_send_chat_message(
-                w,
-                player,
-                Some(this),
-                "You have successfully linked with the portal.",
-                ChatMessageType::Magic,
-            );
+            // V567: retail confirms the tie with its error code, as for the lifestone.
+            send_weenie_error_event(w, player, WeenieError::YouSuccessfullyLinkWithPortal);
         }
 
         _ => {}

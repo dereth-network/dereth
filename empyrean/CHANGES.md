@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Portal and lifestone ties now confirm the way retail did.
 - Dereth clients can ask what their items craft, and the chance of each.
 - New characters start at a world's own starting areas, shown on the creation map.
 - A world's overlay can list things it places itself, such as portals and where they lead.
