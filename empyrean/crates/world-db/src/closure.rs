@@ -44,8 +44,11 @@
 //! nothing places, a warning; and every changed room is reported, by landblock, with how many
 //! points are in it and how many of them are outside it now.
 //!
-//! A portal is placed when a placement or a generator makes its class. A record named only by the
-//! destinations of portals nothing places is a warning where the files lack it, not an error.
+//! A portal is placed when a placement or a generator makes its class, or an emote summons it: an
+//! emote action that casts a spell summoning a portal (a spell with a `link`) makes the portal the
+//! caster's link names (`LinkedPortalOne` for link 1, `LinkedPortalTwo` for 2). A record named only
+//! by the destinations of portals nothing places is a warning where the files lack it, not an
+//! error.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -57,7 +60,7 @@ use dereth_dat::container::{CELL_DATFILE, LOCAL_DATFILE, PORTAL_DATFILE};
 use dereth_dat::DatFile;
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 use empyrean_content::WorldContent;
-use empyrean_entity::enums::{PositionType, PropertyDataId, WeenieType};
+use empyrean_entity::enums::{EmoteType, PositionType, PropertyDataId, WeenieType};
 
 use crate::names::{self, Kind};
 use crate::value::R;
@@ -187,6 +190,47 @@ pub struct Named {
     pub points: BTreeMap<u32, Vec<Point>>,
 }
 
+/// The portal classes emotes summon: a weenie whose emote action casts a spell with a `link` (a
+/// spell summoning a portal) makes the portal its link names, `LinkedPortalOne` for link 1 (or
+/// less) and `LinkedPortalTwo` for 2, as the cast does.
+fn summoned(c: &WorldContent) -> BTreeSet<u32> {
+    let links: BTreeMap<u32, i32> = c
+        .spells
+        .iter()
+        .filter_map(|s| s.link.map(|l| (s.id, l)))
+        .collect();
+    let casts = [EmoteType::CastSpell.0, EmoteType::CastSpellInstant.0];
+    let mut out = BTreeSet::new();
+    for w in &c.weenies {
+        for a in w
+            .weenie_properties_emote
+            .iter()
+            .flat_map(|e| &e.weenie_properties_emote_action)
+        {
+            let cast = i32::try_from(a.r#type).is_ok_and(|t| casts.contains(&t));
+            let link = a
+                .spell_id
+                .and_then(|s| u32::try_from(s).ok())
+                .and_then(|s| links.get(&s));
+            let (true, Some(&link)) = (cast, link) else {
+                continue;
+            };
+            let did = if link <= 1 {
+                PropertyDataId::LinkedPortalOne
+            } else {
+                PropertyDataId::LinkedPortalTwo
+            };
+            out.extend(
+                w.weenie_properties_did
+                    .iter()
+                    .filter(|d| d.r#type == did.0)
+                    .map(|d| d.value),
+            );
+        }
+    }
+    out
+}
+
 /// Whether `cell` is a room: `LLLL0100` and up, below the landblock's own records.
 fn is_room(cell: u32) -> bool {
     (0x0100..0xFFFE).contains(&(cell & 0xFFFF))
@@ -235,7 +279,7 @@ impl Named {
     pub fn of(c: &WorldContent) -> Self {
         let mut n = Self::default();
         let did = names::of(Kind::Did);
-        // The classes something places: a placement, or a generator's row.
+        // The classes something places: a placement, a generator's row, or an emote's summoning.
         let placed: BTreeSet<u32> = c
             .landblock_instances
             .iter()
@@ -245,6 +289,7 @@ impl Named {
                     .iter()
                     .map(|g| g.weenie_class_id)
             }))
+            .chain(summoned(c))
             .collect();
         for w in &c.weenies {
             let me = w.class_id;
@@ -1174,8 +1219,98 @@ impl Checker {
 
 #[cfg(test)]
 mod tests {
-    //! Behaviour: none (tooling: the walls of a room and whether a point is in it)
+    //! Behaviour: none (tooling: the walls of a room and whether a point is in it, and which
+    //! portals something places)
     use super::*;
+    use empyrean_content::models::world::{
+        Spell, Weenie, WeeniePropertiesDID, WeeniePropertiesEmote, WeeniePropertiesEmoteAction,
+        WeeniePropertiesPosition,
+    };
+
+    /// Whether the destination `Named::of` finds in room `cell` is a placed portal's.
+    fn destination_placed(c: &WorldContent, cell: u32) -> Option<bool> {
+        Named::of(c)
+            .points
+            .get(&cell)?
+            .iter()
+            .find_map(|p| match p.what {
+                What::Destination { placed } => Some(placed),
+                What::Other => None,
+            })
+    }
+
+    /// A world of a portal (class 30) sending its user to room `A9B40100`, and a weenie (class 40)
+    /// linked to it as its portal `link` names, whose emote casts `spell` (with `link`) by `cast`.
+    fn summoning(spell_link: Option<i32>, link: u16, cast: i32) -> WorldContent {
+        let portal = Weenie {
+            class_id: 30,
+            r#type: 7,
+            weenie_properties_position: vec![WeeniePropertiesPosition {
+                position_type: PositionType::Destination.0,
+                obj_cell_id: 0xA9B4_0100,
+                angles_w: 1.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let summoner = Weenie {
+            class_id: 40,
+            r#type: 10,
+            weenie_properties_did: vec![WeeniePropertiesDID {
+                r#type: link,
+                value: 30,
+                ..Default::default()
+            }],
+            weenie_properties_emote: vec![WeeniePropertiesEmote {
+                weenie_properties_emote_action: vec![WeeniePropertiesEmoteAction {
+                    r#type: u32::try_from(cast).expect("an emote type"),
+                    spell_id: Some(157),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        WorldContent {
+            weenies: vec![portal, summoner],
+            spells: vec![Spell {
+                id: 157,
+                link: spell_link,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_portal_an_emote_summons_is_placed() {
+        let one = PropertyDataId::LinkedPortalOne.0;
+        let two = PropertyDataId::LinkedPortalTwo.0;
+        let (cast, instant) = (EmoteType::CastSpell.0, EmoteType::CastSpellInstant.0);
+        // Summoned by a cast of a spell with link 1, the caster's first linked portal, or of one
+        // with link 2, its second: placed.
+        assert_eq!(
+            destination_placed(&summoning(Some(1), one, cast), 0xA9B4_0100),
+            Some(true)
+        );
+        assert_eq!(
+            destination_placed(&summoning(Some(2), two, instant), 0xA9B4_0100),
+            Some(true)
+        );
+        // The other link, a spell that summons nothing, an emote that casts nothing: not placed.
+        assert_eq!(
+            destination_placed(&summoning(Some(1), two, cast), 0xA9B4_0100),
+            Some(false)
+        );
+        assert_eq!(
+            destination_placed(&summoning(None, one, cast), 0xA9B4_0100),
+            Some(false)
+        );
+        assert_eq!(
+            destination_placed(&summoning(Some(1), one, EmoteType::Say.0), 0xA9B4_0100),
+            Some(false)
+        );
+    }
 
     #[test]
     fn a_point_is_in_a_room_when_no_wall_has_it_further_behind_than_the_slack() {
