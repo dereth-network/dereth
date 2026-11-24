@@ -7,8 +7,8 @@
 //! shared pack format (`dereth-pack`) for reading rows and folding layers, the
 //! entity crate (`empyrean-entity`) for ACE's names of property types, attributes, skills, body
 //! parts, positions and emotes, `empyrean-common` for times and eras, `toml` to read the files and
-//! `serde`/`serde_json` for the source loot tables, which are serde models. **Used by** nothing
-//! yet: the importer will build packs from its rows.
+//! `serde`/`serde_json` for the source loot tables, which are serde models. **Used by** the
+//! importer (`empyrean-import world`), which checks and builds a world of layers from its rows.
 //!
 //! **Must never** write a dump's own ids into a row: they are numbered by rule when the rows are
 //! read, so a row says only what a world holds and the same rows always make the same pack.
@@ -31,7 +31,8 @@
 //! its one order and numbers them by rule, so the same rows always make the same pack.
 //!
 //! Rows are read as the shared pack format reads them ([`layers`]): each sets one item, and a
-//! world of patch layers folds field by field over its base.
+//! world of patch layers folds field by field over its base, at any layer ([`layers::Folding`]),
+//! each layer checked for what its fold finds and the references to nothing it makes ([`refs`]).
 
 pub mod canon;
 pub mod checkpoint;
@@ -40,6 +41,7 @@ pub mod files;
 pub mod kinds;
 pub mod layers;
 pub mod names;
+pub mod refs;
 pub mod row;
 pub mod value;
 pub mod world;

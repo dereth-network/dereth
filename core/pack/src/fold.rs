@@ -1036,6 +1036,15 @@ fn snapshot_setting<V: Value>(f: &Field<V>) -> Setting<V> {
 /// The world at an earlier layer is the fold of the layers up to it ([`resolve`]).
 #[must_use]
 pub fn fold<V: Value>(layers: impl IntoIterator<Item = Input<V>>) -> Folded<V> {
+    fold_each(layers, |_, _| {})
+}
+
+/// [`fold`], `each` shown the world after each layer is folded in, with the layer's place (0 for
+/// the base): every layer's world in one pass, without folding again up to each.
+pub fn fold_each<V: Value>(
+    layers: impl IntoIterator<Item = Input<V>>,
+    mut each: impl FnMut(usize, &Resolved<V>),
+) -> Folded<V> {
     let mut f = Folding {
         world: Resolved::default(),
         ids: Vec::new(),
@@ -1055,6 +1064,7 @@ pub fn fold<V: Value>(layers: impl IntoIterator<Item = Input<V>>) -> Folded<V> {
             prev = Some(snapshot);
         }
         f.apply(layer.change, n);
+        each(n, &f.world);
     }
     Folded {
         world: f.world,

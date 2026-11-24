@@ -4,8 +4,9 @@
 //! Every table is put in its key's order: weenies by class, placements by guid, encounters by
 //! landblock and cell, quests and events by name without case (then with it), spells and recipes by id, the
 //! treasure tables by type (a wielded type's rows keeping their own order). A weenie's typed
-//! properties go by type; a list (a create list, an emote's actions) keeps its order. Then each
-//! table's ids run from 1 in that order, and each child names its parent's.
+//! properties go by type, and a placement's links by their child; a list (a create list, an emote's
+//! actions) keeps its order. Then each table's ids run from 1 in that order, and each child names
+//! its parent's.
 
 use empyrean_content::pack::{Pack, TableId};
 use empyrean_content::{PackError, WorldContent};
@@ -80,6 +81,8 @@ pub fn number(c: &mut WorldContent) {
     c.landblock_instances.sort_by_key(|i| i.guid);
     for i in &mut c.landblock_instances {
         i.landblock = None;
+        // A placement's links are a set of its children, in their guids' order, as ACE writes them.
+        i.landblock_instance_link.sort_by_key(|l| l.child_guid);
         for l in &mut i.landblock_instance_link {
             n.link += 1;
             l.id = n.link;

@@ -28,6 +28,8 @@ serde_json.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 sha2.workspace = true
+# `world`: a world of layers, folded from its rows.
+empyrean-world-db.workspace = true
 
 [build-dependencies]
 sha2.workspace = true

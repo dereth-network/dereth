@@ -23,11 +23,12 @@
 //! A row that says nothing of where it came from came from where its pack's header (`pack.toml`)
 //! says: a base converted from another project's world says `from = "source"` there once.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use dereth_pack::conflict::{Item, Override};
-use dereth_pack::fold::{fold, Folded, Input, Merge, Resolved, Snapshot};
+use dereth_pack::fold::{fold, fold_each, resolve, Folded, Input, Merge, Resolved, Snapshot};
+pub use dereth_pack::fold::{Finding, Severity};
 use dereth_pack::lineage::{Ack, BASE};
 use dereth_pack::pack::PackHeader;
 use dereth_pack::provenance::Provenance;
@@ -443,36 +444,326 @@ fn classes_of(snapshot: &Snapshot<Value>) -> impl Iterator<Item = u32> + '_ {
         .filter_map(|e| e.item.name.strip_prefix("weenie ")?.parse().ok())
 }
 
+/// The fields of a row of `kind` that name its item: every row of it sets them, to the same
+/// values, so setting them again changes nothing worth saying.
+#[must_use]
+pub fn key_fields(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "weenie" => &["class"],
+        "placement" => &["guid"],
+        "encounter" => &["landblock", "cell"],
+        "cook_book" => &["recipe", "source", "target"],
+        "recipe" | "spell" => &["id"],
+        "recipe_vital" => &["recipe"],
+        "quest" | "event" | "poi" => &["name"],
+        "house_portal" => &["house_id", "obj_cell_id"],
+        "treasure_death" | "treasure_wielded" => &["type"],
+        "grouped_treasure" => &["treasure_type"],
+        "treasure_gem_count" => &["gem_code", "tier", "count"],
+        "treasure_material_base" => &["material_code", "tier", "material_id"],
+        "treasure_material_color" => &["material_id", "color_code", "palette_template"],
+        "treasure_material_groups" => &["material_group", "tier"],
+        _ => &[],
+    }
+}
+
+/// A world's layers, read and merged, to fold at any of them.
+#[derive(Debug, Clone)]
+pub struct Folding {
+    /// Each layer's id, the base first.
+    pub ids: Vec<String>,
+    inputs: Vec<Input<Value>>,
+    /// The kind of each item, as of each layer.
+    kinds: Vec<Kinds>,
+    /// The classes each layer's snapshot has (none for a delta).
+    snapshot_classes: Vec<BTreeSet<u32>>,
+    authored_classes: Option<(u32, u32)>,
+    era: EraId,
+    stamp: DotNetDateTime,
+}
+
+/// What a check finds in one layer.
+#[derive(Debug, Clone)]
+pub struct LayerCheck {
+    pub id: String,
+    /// What folding found in the layer: conflicts, stale removals, drift, no-ops, shadowed edits
+    /// (but a row's own key set again, [`key_fields`]).
+    pub findings: Vec<Finding>,
+    /// What the layer breaks: a reference the world below it didn't have and it has to nothing
+    /// ([`crate::refs`]), a weenie outside the world's own classes, a row that doesn't read as its
+    /// kind.
+    pub problems: Vec<String>,
+    /// The references to nothing a snapshot brings (the base's, a checkpoint's): its source's
+    /// own, said once, where it brings them.
+    pub inherited: Vec<String>,
+}
+
+impl LayerCheck {
+    /// Its errors, one line each: the fold's and its problems.
+    #[must_use]
+    pub fn errors(&self) -> Vec<String> {
+        self.findings
+            .iter()
+            .filter(|f| f.severity() == Severity::Error)
+            .map(ToString::to_string)
+            .chain(self.problems.iter().cloned())
+            .collect()
+    }
+}
+
+impl Folding {
+    /// `layers`, read and merged.
+    ///
+    /// # Errors
+    /// What reading the base or a patch finds.
+    pub fn new(layers: Layers, era: EraId, stamp: DotNetDateTime) -> R<Self> {
+        let (snapshot, mut kinds) = snapshot_of(&layers.base)?;
+        let base_classes = classes_of(&snapshot).collect();
+        let (merge, k) = delta_of(&layers.base_packs, &layers.base_overrides)
+            .map_err(|e| format!("{BASE}: {e}"))?;
+        kinds.extend(k);
+        let mut f = Self {
+            ids: vec![BASE.to_owned()],
+            inputs: vec![Input::checkpoint(BASE, snapshot, Vec::new(), merge)],
+            kinds: vec![kinds],
+            snapshot_classes: vec![base_classes],
+            authored_classes: layers.authored_classes,
+            era,
+            stamp,
+        };
+        for p in layers.patches {
+            let (merge, k) =
+                delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
+            match p.checkpoint {
+                Some(c) => {
+                    let c = *c;
+                    let classes = classes_of(&c.snapshot).collect();
+                    let mut all = c.kinds;
+                    all.extend(k);
+                    f.push(
+                        Input::checkpoint(&p.id, c.snapshot, c.drift, merge),
+                        all,
+                        classes,
+                    );
+                }
+                None => f.push(Input::delta(&p.id, merge), k, BTreeSet::new()),
+            }
+        }
+        Ok(f)
+    }
+
+    /// The world with one more layer on top: `input`, the kinds of the items it sets in `kinds`,
+    /// and the classes its snapshot has.
+    pub fn push(&mut self, input: Input<Value>, kinds: Kinds, snapshot_classes: BTreeSet<u32>) {
+        // A later layer's word for an item's kind wins.
+        let mut all = self.kinds.last().cloned().unwrap_or_default();
+        all.extend(kinds);
+        self.ids.push(input.id.clone());
+        self.inputs.push(input);
+        self.kinds.push(all);
+        self.snapshot_classes.push(snapshot_classes);
+    }
+
+    /// How many layers there are, the base among them.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// Whether there are none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    /// Whether layer `n` can change the world below it: the base, a checkpoint, or a delta with
+    /// rows or removals.
+    #[must_use]
+    pub fn changes(&self, n: usize) -> bool {
+        self.inputs.get(n).is_some_and(|i| {
+            n == 0
+                || !matches!(i.kind, dereth_pack::fold::Kind::Delta)
+                || !i.change.edits.is_empty()
+                || !i.change.removals.is_empty()
+        })
+    }
+
+    /// The world at layer `n` folded from `world`, whatever its layers' findings; and a weenie no
+    /// snapshot up to it has outside the world's own classes.
+    fn content_of_layer(
+        &self,
+        n: usize,
+        world: &Resolved<Value>,
+    ) -> (R<WorldContent>, Vec<String>) {
+        let content = content_of(world, &self.kinds[n], self.era, self.stamp);
+        let mut problems = Vec::new();
+        if let (Ok(c), Some((first, last))) = (&content, self.authored_classes) {
+            let known = |class: &u32| {
+                self.snapshot_classes[..=n]
+                    .iter()
+                    .any(|s| s.contains(class))
+            };
+            for w in &c.weenies {
+                if !known(&w.class_id) && !(first..=last).contains(&w.class_id) {
+                    problems.push(format!(
+                        "weenie {}: a class the base doesn't have is the world's own, {first} to {last}",
+                        w.class_id
+                    ));
+                }
+            }
+        }
+        (content, problems)
+    }
+
+    /// The world at layer `n`, its ids not yet numbered; the layers are folded up to it, and
+    /// spent.
+    ///
+    /// # Errors
+    /// Every error of the layers up to it.
+    pub fn content_at(mut self, n: usize) -> R<WorldContent> {
+        if n >= self.len() {
+            return Err(format!("there is no layer {n}"));
+        }
+        let inputs = std::mem::take(&mut self.inputs);
+        let folded = resolve(inputs, n);
+        let mut errors: Vec<String> = folded
+            .errors()
+            .map(|(layer, f)| format!("{layer}: {f}"))
+            .collect();
+        let (content, problems) = self.content_of_layer(n, &folded.world);
+        errors.extend(problems);
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+        content
+    }
+
+    /// Every layer checked, in one fold that spends the layers: what folding found in it, and what
+    /// the world at it names but doesn't have that the world below it had. The references to
+    /// nothing a snapshot brings, at the base or a checkpoint, are its source's
+    /// ([`LayerCheck::inherited`]); a layer that changes nothing has the world below it.
+    #[must_use]
+    pub fn check(self) -> Vec<LayerCheck> {
+        let last = self.len().saturating_sub(1);
+        self.walk(last).0
+    }
+
+    /// The world at layer `n`, its ids not yet numbered, the layers up to it checked as
+    /// [`Folding::check`] checks them, in the same one fold; the layers are spent.
+    ///
+    /// # Errors
+    /// Every error of the layers up to it: the fold's, and the references to nothing a patch
+    /// makes. What a snapshot brings is no error.
+    pub fn checked_content_at(self, n: usize) -> R<WorldContent> {
+        if n >= self.len() {
+            return Err(format!("there is no layer {n}"));
+        }
+        let (checks, content) = self.walk(n);
+        let errors: Vec<String> = checks
+            .iter()
+            .flat_map(|l| {
+                l.errors()
+                    .into_iter()
+                    .map(move |e| format!("{}: {e}", l.id))
+            })
+            .collect();
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+        content.unwrap_or_else(|| Err(format!("layer {n} has no world")))
+    }
+
+    /// The layers up to `upto` folded in one pass and checked; and the world at `upto`.
+    fn walk(mut self, upto: usize) -> (Vec<LayerCheck>, Option<R<WorldContent>>) {
+        let mut inputs = std::mem::take(&mut self.inputs);
+        inputs.truncate(upto + 1);
+        let snapshots: Vec<bool> = (0..inputs.len())
+            .map(|n| n == 0 || !matches!(inputs[n].kind, dereth_pack::fold::Kind::Delta))
+            .collect();
+        let changes: Vec<bool> = (0..inputs.len())
+            .map(|n| {
+                n == 0
+                    || !matches!(inputs[n].kind, dereth_pack::fold::Kind::Delta)
+                    || !inputs[n].change.edits.is_empty()
+                    || !inputs[n].change.removals.is_empty()
+            })
+            .collect();
+        // The last layer that changes the world: its world is the one at `upto`.
+        let last = (0..changes.len()).rev().find(|&n| changes[n]).unwrap_or(0);
+        // The world at each layer that changes it: what it breaks, and what a snapshot brings.
+        let mut own: Vec<(Vec<String>, Vec<String>)> = vec![(Vec::new(), Vec::new()); inputs.len()];
+        let mut below: BTreeSet<String> = BTreeSet::new();
+        let mut kept: Option<R<WorldContent>> = None;
+        let reports = fold_each(inputs, |n, world| {
+            if !changes[n] {
+                return;
+            }
+            let (content, mut problems) = self.content_of_layer(n, world);
+            let mut inherited = Vec::new();
+            match content {
+                Err(e) if n == last => {
+                    problems.push(e.clone());
+                    kept = Some(Err(e));
+                }
+                Ok(c) => {
+                    let dangling = crate::refs::dangling(&c);
+                    let new = dangling.iter().filter(|d| !below.contains(*d)).cloned();
+                    if snapshots[n] {
+                        inherited.extend(new);
+                    } else {
+                        problems.extend(new);
+                    }
+                    below = dangling.into_iter().collect();
+                    if n == last {
+                        kept = Some(Ok(c));
+                    }
+                }
+                Err(e) => problems.push(e),
+            }
+            own[n] = (problems, inherited);
+        })
+        .layers;
+        let kinds = self.kinds.last().cloned().unwrap_or_default();
+        // A row's key, set again by every row of its item, is no change and hides none.
+        let keyed = |item: &str, field: Option<&String>| {
+            field.is_some_and(|f| {
+                kinds
+                    .get(item)
+                    .is_some_and(|k| key_fields(k).contains(&f.as_str()))
+            })
+        };
+        let mut out: Vec<LayerCheck> = Vec::new();
+        for (report, (problems, inherited)) in reports.into_iter().zip(own) {
+            let findings = report
+                .findings
+                .into_iter()
+                .filter(|f| match f {
+                    Finding::NoOp { item, field, .. } => !keyed(item, Some(field)),
+                    Finding::Shadowed { item, field, .. } => !keyed(item, field.as_ref()),
+                    _ => true,
+                })
+                .collect();
+            out.push(LayerCheck {
+                id: report.id,
+                findings,
+                problems,
+                inherited,
+            });
+        }
+        (out, kept)
+    }
+}
+
 /// `layers` folded: the world at the last and what each layer's fold found; every item's kind;
 /// and the classes some snapshot has, which a world's own weenies needn't take from its range.
 ///
 /// # Errors
 /// What reading the base or a patch finds.
-pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, std::collections::BTreeSet<u32>)> {
-    let (snapshot, mut kinds) = snapshot_of(&layers.base)?;
-    let mut known: std::collections::BTreeSet<u32> = classes_of(&snapshot).collect();
-    let (merge, k) =
-        delta_of(&layers.base_packs, &layers.base_overrides).map_err(|e| format!("{BASE}: {e}"))?;
-    kinds.extend(k);
-    let mut inputs = vec![Input::checkpoint(BASE, snapshot, Vec::new(), merge)];
-    for p in layers.patches {
-        let (merge, k) = delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
-        match p.checkpoint {
-            Some(c) => {
-                let c = *c;
-                known.extend(classes_of(&c.snapshot));
-                kinds.extend(c.kinds);
-                kinds.extend(k);
-                inputs.push(Input::checkpoint(&p.id, c.snapshot, c.drift, merge));
-            }
-            None => {
-                // A later layer's word for an item's kind wins.
-                kinds.extend(k);
-                inputs.push(Input::delta(&p.id, merge));
-            }
-        }
-    }
-    Ok((fold(inputs), kinds, known))
+pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, BTreeSet<u32>)> {
+    let mut f = Folding::new(layers, EraId::default(), DotNetDateTime::default())?;
+    let known = f.snapshot_classes.iter().flatten().copied().collect();
+    let kinds = f.kinds.last().cloned().unwrap_or_default();
+    Ok((fold(std::mem::take(&mut f.inputs)), kinds, known))
 }
 
 /// The world at the last of `layers`, folded field by field; its ids not yet numbered.
@@ -481,25 +772,7 @@ pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, std::collections:
 /// What reading the base or a patch finds, every error the fold finds, and a weenie no snapshot
 /// has outside the world's own classes.
 pub fn fold_layers(layers: Layers, era: EraId, stamp: DotNetDateTime) -> R<WorldContent> {
-    let authored_classes = layers.authored_classes;
-    let (folded, kinds, known) = fold_inputs(layers)?;
-    let mut errors: Vec<String> = folded
-        .errors()
-        .map(|(layer, f)| format!("{layer}: {f}"))
-        .collect();
-    let content = content_of(&folded.world, &kinds, era, stamp);
-    if let (Ok(c), Some((first, last))) = (&content, authored_classes) {
-        for w in &c.weenies {
-            if !known.contains(&w.class_id) && !(first..=last).contains(&w.class_id) {
-                errors.push(format!(
-                    "weenie {}: a class the base doesn't have is the world's own, {first} to {last}",
-                    w.class_id
-                ));
-            }
-        }
-    }
-    if !errors.is_empty() {
-        return Err(errors.join("\n"));
-    }
-    content
+    let f = Folding::new(layers, era, stamp)?;
+    let last = f.len() - 1;
+    f.content_at(last)
 }

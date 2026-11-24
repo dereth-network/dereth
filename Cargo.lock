@@ -3004,6 +3004,7 @@ dependencies = [
  "empyrean-content",
  "empyrean-dat",
  "empyrean-entity",
+ "empyrean-world-db",
  "serde_json",
  "sha2",
  "ureq",

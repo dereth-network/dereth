@@ -51,7 +51,7 @@ pub fn validate_schema(actual: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn literal(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn literal(bytes: &[u8]) -> Vec<u8> {
     let mut out = vec![b'\''];
     for &b in bytes {
         match b {

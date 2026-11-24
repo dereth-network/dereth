@@ -29,7 +29,9 @@ use empyrean_content::WorldContent;
 
 use crate::checkpoint::{self, apply_keys, keys_of, match_keys, Keys, Known, Pin};
 use crate::files::{self, meta, read_dir, set_source, Meta};
-use crate::layers::{fold_layers, item_form, snapshot_of, CheckpointLayer, Layers, PatchLayer};
+use crate::layers::{
+    fold_layers, item_form, snapshot_of, CheckpointLayer, Folding, Layers, PatchLayer,
+};
 use crate::value::R;
 
 /// The first game's words for the pack format, as Empyrean's worlds of rows speak them.
@@ -256,4 +258,14 @@ fn spawns_in(packs: &[(String, BTreeMap<String, String>)]) -> Vec<u32> {
 pub fn fold_world(world_toml: &Path, dumps: Option<&Path>) -> R<WorldContent> {
     let (layers, m, _) = layers_of(world_toml, KeysFrom::Files, dumps)?;
     fold_layers(layers, m.era, m.stamp)
+}
+
+/// The layers `world.toml` names, read and merged, to fold at any of them; a checkpoint's dump
+/// from `dumps` as [`layers_of`] says.
+///
+/// # Errors
+/// What [`layers_of`] finds.
+pub fn open(world_toml: &Path, dumps: Option<&Path>) -> R<Folding> {
+    let (layers, m, _) = layers_of(world_toml, KeysFrom::Files, dumps)?;
+    Folding::new(layers, m.era, m.stamp)
 }

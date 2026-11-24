@@ -564,6 +564,26 @@ pub fn launch_rows(profile: Profile) -> Report {
     )
 }
 
+/// The Launch world as a world of layers (tier 1): its base checks and builds at every layer, and
+/// its world SQL builds the converter's records back. NO-ORACLE without the fixture.
+pub fn launch_world(profile: Profile) -> Report {
+    launch_fixture_row(
+        "server real content: empyrean-import (Launch world of layers)",
+        profile,
+        &[
+            "-p",
+            "empyrean-import",
+            "--features",
+            "launch-content",
+            "--bin",
+            "empyrean-import",
+            "world::tests::launch::",
+            "--",
+            "--test-threads=1",
+        ],
+    )
+}
+
 /// The Classic interface's pictures against the Launch portal (tier 1): what it can draw on a Launch
 /// world is there, is made from what is there, or belongs to a system that world lacks, so a new
 /// picture the 1999 files don't have is noticed. Without the fixture the row is NO-ORACLE.

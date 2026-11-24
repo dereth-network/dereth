@@ -5,7 +5,7 @@
 //! requires explicit acceptance of incomplete gameplay support.
 
 mod cells;
-mod convert;
+pub(crate) mod convert;
 mod dat_overlay;
 mod loot;
 mod package;

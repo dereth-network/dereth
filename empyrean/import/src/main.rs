@@ -4,8 +4,9 @@
 //! **Depends on** `empyrean-common` and the content crate (`empyrean-content`), whose importer it
 //! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), the
 //! spell table's records (`dereth-assets`) and the Launch spell fixes (`empyrean-dat`), for
-//! `spawns` on the entity enums (`empyrean-entity`), and for `fetch` on an HTTP client (`ureq`,
-//! over rustls), `zip` and `sha2`. **Used by**
+//! `spawns` on the entity enums (`empyrean-entity`), for `world` on a world's rows
+//! (`empyrean-world-db`), and for `fetch` on an HTTP client (`ureq`, over rustls), `zip` and
+//! `sha2`. **Used by**
 //! nothing: it is the `empyrean-import` binary.
 //!
 //! **Must never** read the wall clock or overwrite the pack an overlay sits on: `--now` (default
@@ -30,6 +31,8 @@
 //!             --allow-incomplete --out <new-directory>
 //! empyrean-import ac1999 package --bundle <bundle> --out <new-directory>
 //! empyrean-import ac1999 dat-overlay --revision <sha> --base <dir> --out <dir> --world-key <name> [--source <repository>] [--with-events --reference <file>...]
+//! empyrean-import world check --world <world.toml> [--dumps <folder>]
+//! empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>]
 //! empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
@@ -102,6 +105,8 @@ mod fetch;
 mod gdle;
 mod schema;
 mod spawns;
+mod world;
+mod world_sql;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -229,6 +234,9 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "schema") {
         return run_schema(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "world") {
+        return world::run(&argv[1..]);
     }
     if argv.first().is_some_and(|a| a == "gdle") {
         return run_gdle(&argv[1..]);

@@ -5,6 +5,7 @@
 //! empyrean-world-db rows <world.pack> <empty folder> [--source <project> --revision <commit>]
 //! empyrean-world-db pack <world.toml | folder of rows> <out.pack>
 //! empyrean-world-db check <world.toml | folder of rows> <world.pack>
+//! empyrean-world-db compare <a.pack> <b.pack>
 //! empyrean-world-db checkpoints <world.toml> [--keys]
 //! ```
 //!
@@ -15,6 +16,7 @@
 //! `--revision` say where they came from. `pack` folds a world's layers (or reads one folder of
 //! rows) and builds its pack, numbered by rule. `check` builds that pack and lists every record of
 //! the given pack it doesn't hold field for field, ids aside; it fails on any.
+//! `compare` lists the same of two packs. `checkpoints` reports each checkpoint layer.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -49,7 +51,7 @@ fn pack_of(c: &WorldContent) -> Result<Vec<u8>, String> {
 }
 
 fn run(args: &[String]) -> Result<bool, String> {
-    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] | pack <world> <out.pack> | check <world> <world.pack> | checkpoints <world.toml> [--keys]; any of them with --dumps <folder>";
+    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] | pack <world> <out.pack> | check <world> <world.pack> | compare <a.pack> <b.pack> | checkpoints <world.toml> [--keys]; any of them with --dumps <folder>";
     let mut args = args.to_vec();
     let dumps = match args.iter().position(|a| a == "--dumps") {
         Some(i) if i + 1 < args.len() => {
@@ -84,6 +86,16 @@ fn run(args: &[String]) -> Result<bool, String> {
             let p = Pack::from_bytes(bytes).map_err(|e| e.to_string())?;
             println!("{out}: content hash {}", hex(&p.header().content_hash));
             Ok(true)
+        }
+        [cmd, a, b] if cmd == "compare" => {
+            let a = Pack::open(Path::new(a)).map_err(|e| e.to_string())?;
+            let b = Pack::open(Path::new(b)).map_err(|e| e.to_string())?;
+            let found = differences(&a, &b).map_err(|e| e.to_string())?;
+            for line in &found {
+                println!("{line}");
+            }
+            println!("{} difference(s), ids aside", found.len());
+            Ok(found.is_empty())
         }
         [cmd, at, pack] if cmd == "check" => {
             let original = Pack::open(Path::new(pack)).map_err(|e| e.to_string())?;
