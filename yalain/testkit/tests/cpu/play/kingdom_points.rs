@@ -544,6 +544,7 @@ fn a_step_for_one_kingdom_runs_only_for_its_players() {
         takes: vec![SLIVER],
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,

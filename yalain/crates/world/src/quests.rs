@@ -78,6 +78,12 @@
 //! wait is over, as a done one is; one with a least level is given only to a player of that level,
 //! the person saying why when it is not.
 //!
+//! **Told when refused.** A step its row marks told when refused, whose giving its quest under way
+//! or its wait to be taken again keeps from running, still says its own line once its pause is
+//! over, as its giving would have come, and the player is told the giving was refused and why
+//! (2017: the explorers' next quest after a finished search, refused so in its line's tick, 9 of
+//! 9). Any other step so kept says and tells nothing.
+//!
 //! **Kills.** A creature's template names the effects its death has, and a quest effect moves its
 //! quest for the killer (the one credited with the kill) and, where the quest says so, for the
 //! killer's fellows. An effect that gives a quest gives it at its first phase if it is not under
@@ -728,7 +734,22 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
             return false;
         }
     }
-    let requires = st.requires.iter().all(|(q, need)| match need {
+    requires_hold(s, p, st, now_unix)
+        && st
+            .takes
+            .iter()
+            .all(|t| crate::inventory::holds(s, world, *t))
+}
+
+/// Are the other quests a step requires where it requires them, for a player?
+fn requires_hold<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    st: &Step,
+    now_unix: i64,
+) -> bool {
+    let held = &p.play.quests;
+    st.requires.iter().all(|(q, need)| match need {
         Need::Phase(n) => phase_of(held, *q) == *n,
         Need::Done => done(held, *q),
         Need::Free => {
@@ -739,12 +760,85 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         }
         Need::Failed => failed_during(held, *q, Some(st.quest)),
         Need::NeverDone => !ever_done(&p.play, *q),
-    });
-    requires
-        && st
-            .takes
-            .iter()
-            .all(|t| crate::inventory::holds(s, world, *t))
+    })
+}
+
+/// Why a step that is told when refused may not give its quest now: the quest under way, or its
+/// wait to be taken again not over (one done once: done). None for a step not told so, one that
+/// gives nothing, a quest free to be given, or a step whose required quests, races or levels keep
+/// it from running all the same.
+fn refusal_of<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> Option<u32> {
+    if !st.told_refused || st.needs != 0 || st.update != Update::Bestow {
+        return None;
+    }
+    let def = s.quests.quest(st.quest)?;
+    let p = s.players.get(&world)?;
+    let held = &p.play.quests;
+    let why = if phase_of(held, st.quest) != 0 {
+        refused::UNDER_WAY
+    } else if given_again(def, held, now_unix) {
+        return None;
+    } else if done(held, st.quest) && def.once {
+        refused::DONE
+    } else {
+        refused::WAITING
+    };
+    let level = crate::examine::level_of(&p.qualities);
+    let fits = st.races.is_empty() || st.races.contains(&p.race);
+    let levels = st.levels.is_none_or(|(a, b)| level >= a && level <= b);
+    (fits && levels && requires_hold(s, p, st, now_unix)).then_some(why)
+}
+
+/// A step told when refused would give its quest and may not: after its pause, as its giving
+/// would come, it says its own line and the player is told the refusal.
+fn told_refused<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &Step,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    clock: Clock,
+) {
+    let pause = pause_of(s, step);
+    if pause > 0.0 {
+        s.after(
+            clock,
+            pause,
+            crate::Timer::StepRefused {
+                world,
+                step: Box::new(step.clone()),
+                who,
+            },
+        );
+        return;
+    }
+    tell_refused(s, net, world, step, who, clock);
+}
+
+/// A refused step's line and its refusal, if its giving is refused still.
+pub fn tell_refused<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &Step,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    clock: Clock,
+) {
+    let Some(why) = refusal_of(s, world, step, clock.unix) else {
+        return;
+    };
+    if let (Some(words), Some((teller, name))) = (&step.tell, who) {
+        let told = Said::Told {
+            teller,
+            name,
+            words: words.clone(),
+        };
+        say_one(s, net, world, &told);
+    }
+    let Some(def) = s.quests.quest(step.quest).cloned() else {
+        return;
+    };
+    refuse(s, net, world, &def, why, true, clock);
 }
 
 /// May a quest be given to a player, by who its setup says it is for, the least level aside: a hero
@@ -960,6 +1054,23 @@ fn run_triggered<S: Store>(
             .find(|st| under_way(s, st))
             .or_else(|| s.quests.steps.iter().find(|st| runs(s, st)));
         let Some(mut step) = found.cloned() else {
+            // A step told when refused, whose giving its quest held keeps from running, says so.
+            let refused = s
+                .quests
+                .steps
+                .iter()
+                .find(|st| {
+                    st.trigger == trigger
+                        && !seen.contains(&st.quest)
+                        && !missed.contains(st)
+                        && refusal_of(s, world, st, clock.unix).is_some()
+                })
+                .cloned();
+            if let Some(st) = refused {
+                moved.push(st.quest);
+                told_refused(s, net, world, &st, who, clock);
+                continue;
+            }
             return kept;
         };
         if several.len() >= 2 && step.needs == 0 && several.contains(&step.quest) {

@@ -331,6 +331,9 @@ pub struct Step {
     pub races: Vec<u32>,
     /// Its effects come after its update, not before it.
     pub effects_last: bool,
+    /// When its giving is refused (its quest under way, or its wait to be taken again not over),
+    /// it still says its line and the player is told the refusal.
+    pub told_refused: bool,
     /// Its effects tell no line of their own (a recipe or a skill they grant is granted in silence);
     /// its text is still told.
     pub effects_quiet: bool,
@@ -1056,6 +1059,7 @@ impl QuestTable {
                         to,
                         races: Vec::new(),
                         effects_last: false,
+                        told_refused: false,
                         effects_quiet: col(20) == "1",
                         fellows: col(14) == "1",
                         wants: if col(15).is_empty() {

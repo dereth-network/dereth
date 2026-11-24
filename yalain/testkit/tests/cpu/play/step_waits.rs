@@ -118,6 +118,7 @@ fn scroll_step(key: &str, person: u32, scroll: u32) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,

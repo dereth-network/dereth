@@ -588,6 +588,9 @@ pub struct Step {
     pub races: Vec<u32>,
     /// Its effects come after its update, not before it.
     pub effects_last: bool,
+    /// It says it is refused: a giving refused (its quest under way or waiting) still says its
+    /// line and tells the refusal.
+    pub told_refused: bool,
     /// Its effects tell no line of their own; its text is still told.
     pub effects_quiet: bool,
     /// Its update is made for each of the player's fellows as well.
@@ -2060,6 +2063,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
             "to",
             "races",
             "effects_last",
+            "told_refused",
             "effects_quiet",
             "fellows",
             "wants",
@@ -3222,6 +3226,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 to: f.symbol("to"),
                 races: f.ids("races"),
                 effects_last: f.bool("effects_last").unwrap_or(false),
+                told_refused: f.bool("told_refused").unwrap_or(false),
                 effects_quiet: f.bool("effects_quiet").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
                 wants: f.u32("wants"),

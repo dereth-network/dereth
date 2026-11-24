@@ -1070,6 +1070,7 @@ fn crop_garden() -> Harness {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,

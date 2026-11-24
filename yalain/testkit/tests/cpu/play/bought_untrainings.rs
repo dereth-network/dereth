@@ -125,6 +125,7 @@ fn sold() -> Step {
         takes: vec![COINS],
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: Some(PRICE),
         fellows: false,

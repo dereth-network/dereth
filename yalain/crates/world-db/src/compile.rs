@@ -1457,6 +1457,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     takes: s.takes.clone(),
                     races: s.races.clone(),
                     effects_last: s.effects_last,
+                    told_refused: s.told_refused,
                     effects_quiet: s.effects_quiet,
                     fellows: s.fellows,
                     wants: s.wants,

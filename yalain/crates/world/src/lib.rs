@@ -823,6 +823,12 @@ pub enum Timer {
         world: ConnId,
         line: Box<quests::Said>,
     },
+    /// A step told when refused says its line and tells the refusal, after its pause.
+    StepRefused {
+        world: ConnId,
+        step: Box<yalain_content::quests::Step>,
+        who: Option<(u64, Option<(u32, u32)>)>,
+    },
     /// A person's turn to face its user takes its next step.
     PersonTurns { id: u64, count: u32 },
     /// A person used now faces its user: what the use says and does.
@@ -1290,6 +1296,9 @@ impl<S: Store> Server<S> {
                 }
                 Timer::LineComes { world, line } => {
                     quests::say_one(self, net, world, &line);
+                }
+                Timer::StepRefused { world, step, who } => {
+                    quests::tell_refused(self, net, world, &step, who, clock);
                 }
                 Timer::PersonTurns { id, count } => {
                     facing::step(self, net, id, count, clock);

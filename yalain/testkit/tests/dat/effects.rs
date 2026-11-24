@@ -3676,6 +3676,7 @@ mod world_recipes {
             to: None,
             races: Vec::new(),
             effects_last: false,
+            told_refused: false,
             effects_quiet: false,
             fellows: false,
             wants: None,

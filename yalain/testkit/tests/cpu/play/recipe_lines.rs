@@ -159,6 +159,7 @@ fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,

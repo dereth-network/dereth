@@ -1790,6 +1790,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 takes: Vec::new(),
                 races: Vec::new(),
                 effects_last: false,
+                told_refused: false,
                 effects_quiet: false,
                 wants: None,
                 fellows: false,

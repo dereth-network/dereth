@@ -16573,6 +16573,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-told-when-refused",
+        says: "A quest step its row says is told when refused, whose giving is refused (its quest \
+               under way, or its wait to be taken again not over), still says its line and the \
+               player is told the refusal with its reason, after the step's pause; steps not so \
+               marked say and tell nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TOLD-REFUSED"),
+        station: "yalain-testkit::cpu::play::quests::a_step_told_when_refused_says_its_line_and_tells_the_refusal_to_one_holding_its_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-trains-its-skills",
         says: "A quest step whose row names skills trains each for good as it runs, after its recipes, \
                as an effect's grant of a skill does: level 1 by the grant, unraisable, costing nothing, \

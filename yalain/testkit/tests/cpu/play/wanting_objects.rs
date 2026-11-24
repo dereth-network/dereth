@@ -111,6 +111,7 @@ fn step(trigger: Trigger, update: Update, takes: Vec<u32>) -> Step {
         takes,
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,

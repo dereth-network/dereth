@@ -23,6 +23,7 @@ const USE: u32 = 0x8216_0016;
 const UPDATE_QUEST: u32 = 0x8213_0024;
 const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
 const DISCRETE_DESTROY: u32 = 0x820E_0058;
+const HEAR_TELL: u32 = 0x8205_0017;
 
 const HALL_QUEST: u32 = 0x4000_0088;
 const NEXT_QUEST: u32 = 0x4000_0085;
@@ -112,6 +113,7 @@ pub(super) fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> 
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        told_refused: false,
         effects_quiet: false,
         wants: None,
         fellows: false,
@@ -1154,6 +1156,128 @@ fn held(h: &Harness, quest: u32) -> Option<(u32, u32)> {
         .next()
         .and_then(|p| p.play.quests.iter().find(|q| q.quest == quest))
         .map(|q| (q.status, q.phase))
+}
+
+/// The tells and quest updates a client was sent since `from`, in the order the server sent
+/// them: a tell as `None`, an update as its answer (0, or why a giving was refused) and kind.
+fn tells_and_updates(h: &Harness, b: usize, from: usize) -> Vec<Option<(u32, u32)>> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| {
+            let ServerMessage::PlayerCall(c) = m else {
+                return None;
+            };
+            match c.function.0 {
+                HEAR_TELL => Some(None),
+                UPDATE_QUEST => {
+                    let v = calls::values(&c.args.as_ref()?.0).ok()?;
+                    match (v.first(), v.last()) {
+                        (Some(Value::Int(answer)), Some(Value::Int(kind))) => {
+                            Some(Some((*answer, *kind)))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// A person's step told when refused: a player who already holds its quest hears its line and is
+/// then told the giving was refused as under way; a player who doesn't hears the line and is
+/// given the quest.
+/// Behaviour: server.quests.a-step-told-when-refused
+#[test]
+fn a_step_told_when_refused_says_its_line_and_tells_the_refusal_to_one_holding_its_quest() {
+    let giving = Step {
+        tell: Some(yalain_content::Words::Ref(0xA303_0C8E, 0x2500_2A34)),
+        told_refused: true,
+        ..step(
+            NEXT_QUEST,
+            0,
+            Trigger::Use(EXPLORER_TEMPLATE),
+            Update::Bestow,
+        )
+    };
+    // Held already: the line, then the refusal.
+    let mut h = explorer_world(vec![quest(NEXT_QUEST, 0, -999)], vec![giving.clone()]);
+    let (b, me) = h.player_in_world("one", "Elara");
+    at_phase(&mut h, NEXT_QUEST, 1);
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(
+        tells_and_updates(&h, b, from),
+        vec![
+            None,
+            Some((yalain_world::quests::refused::UNDER_WAY, 0x1000_0000))
+        ],
+        "the line, then the giving refused as under way"
+    );
+    assert_eq!(
+        held(&h, NEXT_QUEST),
+        Some((status::UNDERWAY, 1)),
+        "as it was"
+    );
+    // Not held: the line, then the giving.
+    let mut h = explorer_world(vec![quest(NEXT_QUEST, 0, -999)], vec![giving]);
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(
+        tells_and_updates(&h, b, from),
+        vec![None, Some((0, 0x1000_0000))],
+        "the line, then the giving"
+    );
+}
+
+/// A step told when refused that pauses tells its refusal once its pause is over, as its giving
+/// would come: a completion sets it off, and the refusal comes the pause after it.
+/// Behaviour: server.quests.a-step-told-when-refused
+#[test]
+fn a_step_told_when_refused_that_pauses_tells_the_refusal_after_its_pause() {
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999), quest(NEXT_QUEST, 0, -999)],
+        vec![
+            step(
+                HALL_QUEST,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            ),
+            Step {
+                key: "s1".into(),
+                told_refused: true,
+                ..step(NEXT_QUEST, 0, Trigger::Done(HALL_QUEST), Update::Bestow)
+            },
+        ],
+    );
+    h.server
+        .content
+        .step_pauses
+        .insert((NEXT_QUEST, "s1".into()), 1500);
+    let (b, me) = h.player_in_world("one", "Elara");
+    at_phase(&mut h, HALL_QUEST, 1);
+    at_phase(&mut h, NEXT_QUEST, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(EXPLORER, 0, me)]),
+    );
+    h.run(10);
+    assert_eq!(
+        tells_and_updates(&h, b, from),
+        vec![Some((0, 0x3000_0000))],
+        "the completion alone at first"
+    );
+    h.run(30);
+    assert_eq!(
+        tells_and_updates(&h, b, from),
+        vec![
+            Some((0, 0x3000_0000)),
+            Some((yalain_world::quests::refused::UNDER_WAY, 0x1000_0000))
+        ],
+        "then the refusal, after the pause"
+    );
 }
 
 /// A hidden quest is held and moved on as any other, but no update of it is ever told: given, it
