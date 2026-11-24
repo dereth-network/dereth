@@ -220,7 +220,10 @@ pub const STORY_AFTER: f64 = 0.134;
 /// (2017's humans: a recall's 10 s power-up 12.68 s to its story, Inner Calm's 1 s 1.257 s).
 pub const POWERUP_SCALE: f64 = 1.268;
 /// From a recall's story into portal space, in portal space, and out of it to the use's end
-/// (2017's humans: 2.48, 1.52, 0.18 s); a recall that fails says so 0.70 s after its story and ends
+/// (2017's humans: 2.48 s into portal space and 0.18 s from coming out to the end; in portal space
+/// a median 1.50 s, as a portal's trip, by each recall: the lifestone's 1.498 s of 154, Portal
+/// Recall's 1.501 s of 135, Cragstone's 1.493 s of 82, the allegiance's 1.502 s of 56, from its
+/// entry to its exit); a recall that fails says so 0.70 s after its story and ends
 /// 0.60 s later. The first is where the install doesn't time its user's body ([`recall_to_portal`]).
 pub const RECALL_TO_PORTAL: f64 = 2.48;
 /// A recall to a place its user keeps enters portal space this long after its story's hook, one to
@@ -238,7 +241,7 @@ pub const POWERUP_LEAD: f64 = 0.23;
 /// 0.023 short on two, 0.116 on a turret casing's two; a Tumerok's 0.057 to 0.072, 0.019 in a bow's
 /// mode, 0.032 over five cycles).
 pub const SPECIAL_POWERUP_LEAD: f64 = 0.04;
-pub const RECALL_IN_PORTAL: f64 = 1.52;
+pub const RECALL_IN_PORTAL: f64 = 1.50;
 pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
 pub const FAILED_ENDS_AFTER: f64 = 0.60;

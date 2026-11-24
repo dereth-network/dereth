@@ -15317,6 +15317,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.recall-in-portal-space",
+        says: "A recall's player stays in portal space a second and a half, as a portal's does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECALL-IN-PORTAL-SPACE"),
+        station: "yalain-testkit::cpu::play::recalls::a_recalls_player_comes_out_of_portal_space_a_second_and_a_half_after_going_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.recall-interrupted",
         says: "Moving while the lifestone recall powers up cuts it short: the use over, \
                interrupted, the player not attacking; no vigor is spent and no wait begins.",

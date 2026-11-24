@@ -309,6 +309,31 @@ fn a_city_recall_takes_the_player_to_its_city_and_protects_it_thirty_seconds() {
     assert!(h.functions(b, still).contains(&effect::REMOVE));
 }
 
+/// A recall's player stays in portal space a second and a half, as a portal's does: its exit comes
+/// that long after its entry.
+/// Behaviour: server.places.recall-in-portal-space
+#[test]
+fn a_recalls_player_comes_out_of_portal_space_a_second_and_a_half_after_going_in() {
+    use yalain_world::places::function::{ENTER_PORTAL_SPACE, EXIT_PORTAL_SPACE};
+    let (mut h, b, _) = in_city_world();
+    let from = use_skill(&mut h, b, CRAGSTONE_RECALL);
+    let told = |h: &Harness, f: u32| h.functions(b, from).contains(&f);
+    let (mut entered, mut exited) = (None, None);
+    for _ in 0..3000 {
+        h.step_by(0.01);
+        if entered.is_none() && told(&h, ENTER_PORTAL_SPACE) {
+            entered = Some(h.now.0);
+        }
+        if exited.is_none() && told(&h, EXIT_PORTAL_SPACE) {
+            exited = Some(h.now.0);
+            break;
+        }
+    }
+    let (entered, exited) = (entered.expect("in"), exited.expect("out"));
+    let inside = exited - entered;
+    assert!((1.495..1.515).contains(&inside), "{inside}");
+}
+
 /// Arramora's recall takes the player to its place as the cities' do, protected the same, with no
 /// word of where it came out (2017: none of its 4).
 /// Behaviour: server.places.arramora-recall
