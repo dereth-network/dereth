@@ -128,6 +128,119 @@ pub const NEW_DERETH: WorldLine = WorldLine {
 /// Every world `fetch` knows, the default first.
 pub const WORLDS: [WorldLine; 3] = [PATCHES, SIXTEEN_PY, AC1999];
 
+/// A world kept as patch layers in a repository of its own, served at one of its layers: each of
+/// its releases carries the packs of its written layers and a manifest naming every layer, its
+/// world's dataset id and era, and the release and asset holding its pack. `fetch` reads the
+/// manifest of one release and downloads the one pack its layer names, which may be in an earlier
+/// release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldRepo {
+    /// The name `fetch --world` takes.
+    pub id: &'static str,
+    /// The GitHub repository whose releases carry the world.
+    pub repository: &'static str,
+    /// The release this build is tested against; empty for a world that follows its newest.
+    pub pinned_tag: &'static str,
+    /// The SHA-256 of the pinned release's `manifest.json`, lowercase hex; empty with no pin. It
+    /// pins every layer's pack at once, since the manifest names each pack's SHA-256.
+    pub pinned_manifest_sha256: &'static str,
+    /// The layer served unless another is named.
+    pub layer: &'static str,
+}
+
+/// The manifest every release of a world repository carries.
+pub const MANIFEST: &str = "manifest.json";
+
+/// Dereth from launch, at Launch: its base.
+pub const DERETH_LAUNCH: WorldRepo = WorldRepo {
+    id: "dereth-launch",
+    repository: "dereth-network/empyrean-world",
+    pinned_tag: "",
+    pinned_manifest_sha256: "",
+    layer: "base",
+};
+
+/// Dereth at Infiltration, February 2005: its checkpoint.
+pub const DERETH_INFILTRATION: WorldRepo = WorldRepo {
+    layer: "2005-02-infiltration",
+    id: "dereth-infiltration",
+    ..DERETH_LAUNCH
+};
+
+/// Dereth at the end of retail, the May 2014 patch: its checkpoint.
+pub const DERETH_EOR: WorldRepo = WorldRepo {
+    layer: "2014-05-may-patch",
+    id: "dereth-eor",
+    ..DERETH_LAUNCH
+};
+
+/// New Dereth at Emergence, its first day: its base.
+pub const NEW_DERETH_EMERGENCE: WorldRepo = WorldRepo {
+    id: "newdereth-emergence",
+    repository: "dereth-network/empyrean-world-newdereth",
+    pinned_tag: "",
+    pinned_manifest_sha256: "",
+    layer: "base",
+};
+
+/// Every world repository line `fetch` knows. None is a default yet.
+pub const WORLD_REPOS: [WorldRepo; 4] = [
+    DERETH_LAUNCH,
+    DERETH_INFILTRATION,
+    DERETH_EOR,
+    NEW_DERETH_EMERGENCE,
+];
+
+impl WorldRepo {
+    /// The line named `id` (any case).
+    #[must_use]
+    pub fn by_id(id: &str) -> Option<&'static WorldRepo> {
+        WORLD_REPOS
+            .iter()
+            .find(|w| w.id.eq_ignore_ascii_case(id.trim()))
+    }
+
+    /// The world's own name, the repository's: what its manifests say they are of.
+    #[must_use]
+    pub fn key(&self) -> &'static str {
+        self.repository
+            .rsplit_once('/')
+            .map_or(self.repository, |(_, name)| name)
+    }
+
+    /// Whether this build names one release of the world.
+    #[must_use]
+    pub fn has_pin(&self) -> bool {
+        !self.pinned_tag.is_empty()
+    }
+
+    /// The download address of release `tag`'s asset `asset` (GitHub redirects it to the file).
+    #[must_use]
+    pub fn asset_url(&self, tag: &str, asset: &str) -> String {
+        format!(
+            "https://github.com/{}/releases/download/{tag}/{asset}",
+            self.repository
+        )
+    }
+
+    /// The releases API's address of release `tag`, or of the newest with `None`.
+    #[must_use]
+    pub fn release_api(&self, tag: Option<&str>) -> String {
+        let api = format!("https://api.github.com/repos/{}/releases", self.repository);
+        match tag {
+            Some(t) => format!("{api}/tags/{t}"),
+            None => format!("{api}/latest"),
+        }
+    }
+
+    /// The cached pack of the world with dataset id `dataset_id`: layers of one world, in any
+    /// release, share it.
+    #[must_use]
+    pub fn pack_name(&self, dataset_id: &str) -> String {
+        format!("{}-{dataset_id}.pack", self.key())
+    }
+}
+
 impl WorldLine {
     /// The world an era plays unless its operator names another.
     #[must_use]

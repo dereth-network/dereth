@@ -16,22 +16,22 @@
 //!
 //! ```json
 //! {
-//!   "format": 1,
-//!   "world": "empyrean-world-dereth",
+//!   "format": 2,
+//!   "world": "empyrean-world",
 //!   "release": "v0.1.0",
 //!   "layers": [
-//!     { "id": "base", "dataset_id": "…", "written": true,
+//!     { "id": "base", "dataset_id": "…", "era": "launch", "written": true,
 //!       "pack": { "release": "v0.1.0", "asset": "base.pack", "sha256": "…", "size": 116000000,
 //!                 "sql": ["base.world.sql", "base.empyrean.sql"] } },
-//!     { "id": "1999-12-sudden-season", "dataset_id": "…", "written": false,
+//!     { "id": "1999-12-sudden-season", "dataset_id": "…", "era": "launch", "written": false,
 //!       "pack": { "release": "v0.1.0", "asset": "base.pack", … } },
-//!     { "id": "…", "dataset_id": "…", "written": false, "pack": null }
+//!     { "id": "…", "dataset_id": "…", "era": "launch", "written": false, "pack": null }
 //!   ]
 //! }
 //! ```
 //!
 //! so one manifest, the newest, says where every layer's world is, and fetching a layer is
-//! downloading one pack. `SHA256SUMS` lists every file written.
+//! downloading one pack. A layer's `era` is the era its world's pack records. `SHA256SUMS` lists every file written.
 //!
 //! Memory is kept to a check's: the one fold holds one layer's world at a time and packs nothing;
 //! each pack is made afterwards, its layer's world folded again on its own, and its dataset id
@@ -46,8 +46,8 @@ use sha2::{Digest, Sha256};
 use empyrean_world_db::compare::dataset_of;
 use empyrean_world_db::files::default_stamp;
 
-/// The manifest's format.
-pub const FORMAT: u64 = 1;
+/// The manifest's format: 2 gives each layer its era.
+pub const FORMAT: u64 = 2;
 
 /// Where a world's pack is: the release holding it, its asset, its SHA-256 and size, and its SQL.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,12 +59,14 @@ pub struct PackRef {
     pub sql: Vec<String>,
 }
 
-/// One layer of the manifest: its id, its world's dataset id, whether its rows are written, and
-/// the pack holding its world, if any does.
+/// One layer of the manifest: its id, its world's dataset id and era, whether its rows are written,
+/// and the pack holding its world, if any does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layer {
     pub id: String,
     pub dataset_id: String,
+    /// The era its world's pack records, by name (`launch`, `eor`, …).
+    pub era: String,
     pub written: bool,
     pub pack: Option<PackRef>,
 }
@@ -88,6 +90,7 @@ impl Manifest {
                 json!({
                     "id": l.id,
                     "dataset_id": l.dataset_id,
+                    "era": l.era,
                     "written": l.written,
                     "pack": l.pack.as_ref().map(|p| json!({
                         "release": p.release,
@@ -147,6 +150,7 @@ impl Manifest {
             layers.push(Layer {
                 id: s(l, "id")?,
                 dataset_id: s(l, "dataset_id")?,
+                era: s(l, "era")?,
                 written: l["written"].as_bool().unwrap_or(false),
                 pack,
             });
@@ -207,20 +211,21 @@ pub fn release(
         }
     }
     // The one fold: each layer's dataset id, and the written layers whose worlds need a pack.
-    let mut datasets: Vec<Option<String>> = vec![None; ids.len()];
+    let mut datasets: Vec<Option<(String, &'static str)>> = vec![None; ids.len()];
     let mut to_pack: BTreeMap<String, usize> = BTreeMap::new();
     let mut failure: Option<String> = None;
     let checks = folding.check_each(&mut |n, c| {
         if failure.is_some() {
             return;
         }
+        let era = c.era.name();
         match dataset_of_world(c) {
             Ok((dataset, _)) => {
                 let id = hex(&dataset);
                 if written.get(n).copied().unwrap_or(false) && !packed.contains_key(&id) {
                     to_pack.entry(id.clone()).or_insert(n);
                 }
-                datasets[n] = Some(id);
+                datasets[n] = Some((id, era));
             }
             Err(e) => failure = Some(format!("{}: {e}", ids[n])),
         }
@@ -257,20 +262,21 @@ pub fn release(
         packed.insert(id.clone(), p);
     }
     let mut layers = Vec::with_capacity(ids.len());
-    let mut below: Option<String> = None;
+    let mut below: Option<(String, &'static str)> = None;
     for (n, id) in ids.iter().enumerate() {
         // A layer that changes nothing has the world below it.
-        let dataset = datasets[n]
+        let (dataset, era) = datasets[n]
             .clone()
             .or_else(|| below.clone())
             .ok_or_else(|| format!("{id}: no world"))?;
         layers.push(Layer {
             id: id.clone(),
             dataset_id: dataset.clone(),
+            era: era.to_owned(),
             written: written.get(n).copied().unwrap_or(false),
             pack: packed.get(&dataset).cloned(),
         });
-        below = Some(dataset);
+        below = Some((dataset, era));
     }
     let manifest = Manifest {
         world: key.to_owned(),

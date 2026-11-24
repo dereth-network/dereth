@@ -102,6 +102,7 @@
 mod ac1999;
 mod dat_overlay;
 mod fetch;
+mod fetch_repo;
 mod gdle;
 mod schema;
 mod spawns;
@@ -385,6 +386,16 @@ fn main() -> ExitCode {
 
 /// `empyrean-import fetch …`: fetches the release, then builds the pack when `--pack` asks.
 fn run_fetch(args: &[String]) -> ExitCode {
+    // A world kept in a repository of its own: one layer's pack from its release.
+    if fetch_repo::names_a_repo(args) {
+        return match fetch_repo::run(args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("empyrean-import fetch: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let opts = match fetch::parse_args(args) {
         Ok(o) => o,
         Err(e) => {

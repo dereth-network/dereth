@@ -9,7 +9,9 @@
 //! - `--era` names the era to play, `launch`, `infiltration` or `eor`, and fetches that era's world.
 //! - `--world` names a world database instead (`empyrean_common::world_release::WORLDS`): `patches`, the
 //!   end-of-retail world and the default, `16py`, the February 2005 world, or `ac1999`, the world
-//!   as it launched in 1999. Each has its own repository.
+//!   as it launched in 1999. Each has its own repository. A world kept as patch layers in a
+//!   repository of its own (`dereth-launch`, `dereth-infiltration`, `dereth-eor`,
+//!   `newdereth-emergence`) is fetched a layer at a time ([`crate::fetch_repo`]).
 //! - `ac1999`'s releases carry a built pack, not a dump, and it has no pin: with no version it
 //!   fetches the newest published release. `--pack` copies that pack to `--out`; `--report` does
 //!   not apply, since the release's zip holds the report it was built with.
@@ -89,7 +91,11 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--world" => {
                 let v = value()?;
                 world = Some(WorldLine::by_id(&v).ok_or_else(|| {
-                    let known: Vec<&str> = world_release::WORLDS.iter().map(|w| w.id).collect();
+                    let known: Vec<&str> = world_release::WORLDS
+                        .iter()
+                        .map(|w| w.id)
+                        .chain(world_release::WORLD_REPOS.iter().map(|w| w.id))
+                        .collect();
                     format!("--world wants one of {known:?}, got {v:?}")
                 })?);
             }

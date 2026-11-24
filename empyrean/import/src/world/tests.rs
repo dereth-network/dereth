@@ -1,4 +1,4 @@
-//! Behaviour: none (tooling: a world of layers checked layer by layer, built at a layer into its pack and ACE's world SQL, and released with a manifest of every layer)
+//! Behaviour: none (tooling: a world of layers checked layer by layer, built at a layer into its pack and ACE's world SQL, and released with a manifest of every layer, and a layer's pack fetched from those releases)
 //! A world folded at each layer is checked for what its fold finds and what it names but doesn't
 //! have; built at a layer, it is the pack its rows make, and its world SQL builds that pack back.
 //! Its loot is held to the swap from the source's to ACE's being whole, its records to the data
@@ -1513,5 +1513,217 @@ fn a_world_with_an_error_is_not_released() {
     assert!(
         !out.join("base.pack").exists(),
         "packs are made after the check"
+    );
+}
+
+/// Releases kept in a folder, `<tag>/<asset>`, served as GitHub serves a repository's: an asset at
+/// its download address, and the releases API's answer for a tag or the newest, with each manifest's
+/// published digest. It counts the downloads.
+struct Releases {
+    root: PathBuf,
+    newest: String,
+    downloads: std::cell::RefCell<Vec<String>>,
+}
+
+impl crate::fetch_repo::Get for Releases {
+    fn json(&self, url: &str) -> Result<String, String> {
+        let tag = url
+            .rsplit_once("/tags/")
+            .map_or(self.newest.clone(), |(_, t)| t.to_owned());
+        let manifest = std::fs::read(self.root.join(&tag).join("manifest.json"))
+            .map_err(|_| format!("{url} was not found (HTTP 404)"))?;
+        Ok(serde_json::json!({
+            "tag_name": tag,
+            "assets": [{
+                "name": "manifest.json",
+                "browser_download_url": format!("https://github.com/x/test-world/releases/download/{tag}/manifest.json"),
+                "digest": format!("sha256:{}", crate::fetch::sha256_of(&manifest)),
+            }],
+        })
+        .to_string())
+    }
+
+    fn bytes(&self, url: &str, _limit: u64) -> Result<Vec<u8>, String> {
+        let rest = url
+            .strip_prefix("https://github.com/x/test-world/releases/download/")
+            .ok_or_else(|| format!("{url} is not this repository's"))?;
+        self.downloads.borrow_mut().push(rest.to_owned());
+        std::fs::read(self.root.join(rest)).map_err(|_| format!("{url} was not found (HTTP 404)"))
+    }
+}
+
+/// A line of the repository `x/test-world`, pinned to `tag` and its manifest's `sha256` (empty:
+/// the newest release), serving `layer`.
+fn line(
+    tag: &str,
+    sha256: &str,
+    layer: &str,
+) -> &'static empyrean_common::world_release::WorldRepo {
+    let leak = |s: &str| -> &'static str { Box::leak(s.to_owned().into_boxed_str()) };
+    Box::leak(Box::new(empyrean_common::world_release::WorldRepo {
+        id: "test-world-line",
+        repository: "x/test-world",
+        pinned_tag: leak(tag),
+        pinned_manifest_sha256: leak(sha256),
+        layer: leak(layer),
+    }))
+}
+
+/// A layer's pack fetched from a world repository's releases: the manifest the line pins (or the
+/// newest release's, by the digest GitHub publishes), the one pack the layer names, in whichever
+/// release holds it, checked against the manifest's SHA-256, dataset id and era, and cached by its
+/// dataset id, so a layer of the same world in another release is fetched from the cache. A layer
+/// whose world no release packs is refused with how to build it; a pack or a manifest that isn't
+/// the one it must be is refused, and nothing is cached.
+#[test]
+fn a_layers_pack_is_fetched_from_the_release_its_manifest_names_and_cached_by_its_dataset_id() {
+    use crate::fetch::Version;
+    use crate::fetch_repo::{fetch, RepoOptions};
+    let dir = Scratch::new("fetch-repo");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[
+            (
+                "1999-12-sudden-season",
+                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
+            ),
+            ("2000-01-dark-thaw", None),
+            (
+                "2000-02-shadows",
+                Some("[[weenie]]\nclass = 12\nint = { Value = 9 }\n"),
+            ),
+        ],
+    );
+    keyed(&path);
+    let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
+    append(&patch("2000-02-shadows"), "status = \"written\"\n");
+    let root = dir.0.join("releases");
+    let m1 = released(&path, "v0.1.0", None, &root.join("v0.1.0")).expect("released");
+    let m2 = released(&path, "v0.2.0", Some(&m1), &root.join("v0.2.0")).expect("released");
+    assert!(
+        m2.layers.iter().all(|l| l.era == "launch"),
+        "{:?}",
+        m2.layers
+    );
+    let sha = |tag: &str| {
+        crate::fetch::sha256_of(&std::fs::read(root.join(tag).join("manifest.json")).expect("read"))
+    };
+    let net = Releases {
+        root: root.clone(),
+        newest: "v0.2.0".into(),
+        downloads: std::cell::RefCell::new(Vec::new()),
+    };
+    let cache = dir.0.join("cache");
+    let opts =
+        |line: &'static empyrean_common::world_release::WorldRepo, layer: &str| RepoOptions {
+            line,
+            layer: layer.into(),
+            version: Version::Pinned,
+            dir: Some(cache.clone()),
+            out: None,
+        };
+    // Pinned to v0.2.0, whose base names v0.1.0's pack: the pack comes from v0.1.0.
+    let base = fetch(&opts(line("v0.2.0", &sha("v0.2.0"), "base"), "base"), &net).expect("fetched");
+    assert_eq!(
+        base,
+        cache.join(format!("test-world-{}.pack", m2.layers[0].dataset_id))
+    );
+    assert_eq!(
+        std::fs::read(&base).expect("cached"),
+        std::fs::read(root.join("v0.1.0").join("base.pack")).expect("released")
+    );
+    assert_eq!(
+        *net.downloads.borrow(),
+        ["v0.2.0/manifest.json", "v0.1.0/base.pack"]
+    );
+    // The newest release, with no pin; its written patch's world, cached once.
+    let newest = line("", "", "base");
+    let shadows = fetch(&opts(newest, "2000-02-shadows"), &net).expect("fetched");
+    assert!(net.downloads.borrow().ends_with(&[
+        "v0.2.0/manifest.json".to_owned(),
+        "v0.1.0/2000-02-shadows.pack".to_owned()
+    ]));
+    // The same world at v0.1.0's manifest: the cache serves it, nothing but the manifest is fetched.
+    net.downloads.borrow_mut().clear();
+    let again = fetch(
+        &RepoOptions {
+            version: Version::Tag("v0.1.0".into()),
+            ..opts(newest, "2000-02-shadows")
+        },
+        &net,
+    )
+    .expect("fetched");
+    assert_eq!(again, shadows);
+    assert_eq!(*net.downloads.borrow(), ["v0.1.0/manifest.json"]);
+    // A cached file that isn't the layer's world is refused, and said how to mend.
+    let wrong = dir.0.join("wrong");
+    std::fs::create_dir_all(&wrong).expect("folder");
+    std::fs::copy(
+        &shadows,
+        wrong.join(format!("test-world-{}.pack", m2.layers[0].dataset_id)),
+    )
+    .expect("copied");
+    let e = fetch(
+        &RepoOptions {
+            dir: Some(wrong),
+            ..opts(newest, "base")
+        },
+        &net,
+    )
+    .expect_err("refused");
+    assert!(
+        e.contains("the cached pack isn't the layer's") && e.contains("is dataset"),
+        "{e}"
+    );
+    // A layer whose world no release packs, and a layer the world doesn't have.
+    let e = fetch(&opts(newest, "1999-12-sudden-season"), &net).expect_err("refused");
+    assert!(
+        e.contains("has no pack in any release") && e.contains("world build"),
+        "{e}"
+    );
+    let e = fetch(&opts(newest, "2099-01-none"), &net).expect_err("refused");
+    assert!(e.contains("has no layer") && e.contains("base"), "{e}");
+    // A manifest that isn't the pinned one, a manifest of another world, and a pack that isn't
+    // the one the manifest hashes: refused, and nothing is cached.
+    let e =
+        fetch(&opts(line("v0.2.0", &"0".repeat(64), "base"), "base"), &net).expect_err("refused");
+    assert!(
+        e.contains("does not match the SHA-256 committed with the pin"),
+        "{e}"
+    );
+    let mut other = m2.clone();
+    other.world = "another-world".into();
+    std::fs::create_dir_all(root.join("v0.3.0")).expect("folder");
+    std::fs::write(root.join("v0.3.0").join("manifest.json"), other.to_json()).expect("written");
+    let e = fetch(
+        &RepoOptions {
+            version: Version::Tag("v0.3.0".into()),
+            ..opts(newest, "base")
+        },
+        &net,
+    )
+    .expect_err("refused");
+    assert!(e.contains("is of another-world"), "{e}");
+    let fresh = dir.0.join("fresh");
+    let mut tampered = std::fs::read(root.join("v0.1.0").join("base.pack")).expect("read");
+    let last = tampered.len() - 1;
+    tampered[last] ^= 1;
+    std::fs::write(root.join("v0.1.0").join("base.pack"), &tampered).expect("written");
+    let e = fetch(
+        &RepoOptions {
+            dir: Some(fresh.clone()),
+            ..opts(newest, "base")
+        },
+        &net,
+    )
+    .expect_err("refused");
+    assert!(
+        e.contains("does not match the SHA-256 manifest.json gives"),
+        "{e}"
+    );
+    assert!(
+        !fresh.exists() || std::fs::read_dir(&fresh).expect("read").next().is_none(),
+        "nothing cached"
     );
 }
