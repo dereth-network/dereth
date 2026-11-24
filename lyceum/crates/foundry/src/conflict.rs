@@ -16,6 +16,7 @@
 //! | `spawn 0x7A9B4001` | an instance: its row, and its links to the instances it owns |
 //! | `quest drudgekills` | a quest's registration, by its name in lower case |
 //! | `death-treasure 37`, `wielded-treasure 37` | a loot table, every row of it |
+//! | `skill 6 trained-cost`, `level 20 xp`, `starter-area arwic at` | one field of one of the game's tables ([`crate::tables`]) |
 //!
 //! Sources that set an item alike agree. Set differently, the item is a conflict, and a build
 //! stops with one report of every conflict: the item, and each pack, file and line with what it

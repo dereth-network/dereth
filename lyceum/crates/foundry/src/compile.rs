@@ -151,6 +151,8 @@ pub enum Part {
     CellStatics(u16),
     /// The server SQL.
     Sql,
+    /// The game's tables the packs change field by field ([`crate::tables`]).
+    Tables,
 }
 
 impl Compiled {
@@ -227,6 +229,45 @@ impl View<'_> {
     fn get_portal(&self, id: u32) -> Option<(Vec<u8>, u16)> {
         self.get(ModernDat::Portal, id)
             .or_else(|| self.get(ModernDat::HighRes, id))
+    }
+}
+
+impl crate::tables::Below for View<'_> {
+    /// A record the packs compiled, else the one under them.
+    fn portal(&self, id: u32) -> Option<(Vec<u8>, u16)> {
+        for t in [ModernDat::Portal, ModernDat::HighRes] {
+            if let Some(s) = self.c.records.get(&t).and_then(|r| r.get(&id)) {
+                return Some((s.bytes.clone(), s.version));
+            }
+        }
+        self.get_portal(id)
+    }
+
+    /// The ground of the terrain as the packs edited it, else as the files below hold it.
+    fn ground(&self, cell: u32, x: f32, y: f32) -> Option<f32> {
+        if cell & 0xFFFF >= 0x0100 {
+            return None;
+        }
+        let id = (cell & 0xFFFF_0000) | 0xFFFF;
+        let bytes = match self
+            .c
+            .records
+            .get(&ModernDat::Cell)
+            .and_then(|r| r.get(&id))
+        {
+            Some(s) => s.bytes.clone(),
+            None => self.get(ModernDat::Cell, id)?.0,
+        };
+        let land: CellLandblock = self.base.decode(DataId(id), &bytes).ok()?;
+        let (region, _) = self.get_portal(0x1300_0000)?;
+        let region: Region = self.base.decode(DataId(0x1300_0000), &region).ok()?;
+        Some(ground(
+            &land,
+            &region,
+            u16::try_from(cell >> 16).ok()?,
+            x,
+            y,
+        ))
     }
 }
 
@@ -2359,11 +2400,33 @@ pub fn compile_with(
     c.settled.insert(Part::Records, defs.settled.clone());
     ac2_kits(packs, base, ac2, &mut c)?;
     edit_landblocks(packs, base, &mut c, None)?;
+    game_tables(packs, base, &mut c)?;
     fill_sql(packs, &defs.defined, &tokens, &mut c)?;
     // A record that came out as the base holds it is left to the base.
     leave_to_base(&mut c, base, None);
     flag_statics(&mut c, base, None)?;
     Ok(c)
+}
+
+/// The game's tables the packs change, over those below, on the terrain as edited.
+fn game_tables(packs: &[Pack], base: &DatSet, c: &mut Compiled) -> Result<(), Error> {
+    let mut settled = Settled::default();
+    let written = {
+        let view = View { base, c };
+        crate::tables::compile(packs, &c.overrides, base.era, &view, &mut settled)?
+    };
+    for w in written {
+        c.records.entry(ModernDat::Portal).or_default().insert(
+            w.id,
+            Staged {
+                bytes: w.bytes,
+                version: w.version,
+            },
+        );
+        c.summary.push(w.summary);
+    }
+    c.settled.insert(Part::Tables, settled);
+    Ok(())
 }
 
 /// Compile again the landblocks in `touched`, after their operations changed: their terrain and

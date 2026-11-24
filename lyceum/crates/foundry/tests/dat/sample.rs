@@ -1,4 +1,4 @@
-//! Behaviour: none (tooling: the sample world built, baked and exported over the retail files)
+//! Behaviour: none (tooling: the sample world built, baked and exported over the retail files, and its changes to the game's own tables compiled into its overlay)
 
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -356,4 +356,344 @@ fn the_sample_world_builds_on_the_february_2005_files() {
     )
     .unwrap();
     assert_eq!(info.objects.len(), 3);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The game's tables a pack changes
+// ---------------------------------------------------------------------------------------------
+
+mod tables {
+    //! Behaviour: none (tooling: a world's changes to the game's own tables compiled into its overlay, over the retail files)
+
+    use super::sample;
+    use dereth_assets::tables::{CharGen, SkillTable, SpellTable, XpTable};
+    use dereth_assets::world::CellLandblock;
+    use dereth_assets::{Decode, Region};
+    use dereth_dat::ModernDat;
+    use dereth_primitives::DataId;
+    use lyceum_foundry::compile::{self, Compiled};
+    use lyceum_foundry::dats::DatSet;
+    use lyceum_foundry::tables::{CHARGEN, EXPERIENCE, SKILLS, SPELLS};
+    use lyceum_foundry::world::World;
+
+    /// The sample world with `rows` as the sample pack's `records/rules.toml`, and `rival` (when given)
+    /// as a second pack's, loaded after it; compiled over the retail files.
+    fn compiled(
+        tag: &str,
+        rows: &str,
+        rival: Option<&str>,
+        world_extra: &str,
+    ) -> Result<Compiled, String> {
+        let (dir, world) = sample(tag);
+        let root = dir.path();
+        std::fs::write(root.join("holtburg/records/rules.toml"), rows).unwrap();
+        if let Some(rival) = rival {
+            std::fs::create_dir_all(root.join("rival/records")).unwrap();
+            std::fs::write(
+                root.join("rival/pack.toml"),
+                "name = \"rival\"\nformat_version = 1\nversion = \"0.1.0\"\nauthors = [\"Dereth\"]\n",
+            )
+            .unwrap();
+            std::fs::write(root.join("rival/records/rules.toml"), rival).unwrap();
+            let text = std::fs::read_to_string(&world).unwrap();
+            std::fs::write(
+                &world,
+                text.replace(
+                    "packs = [\"holtburg\"]",
+                    "packs = [\"holtburg\", \"rival\"]",
+                ) + world_extra,
+            )
+            .unwrap();
+        }
+        let w = World::read(&world).map_err(|e| e.to_string())?;
+        let packs = w
+            .packs
+            .iter()
+            .map(|p| lyceum_foundry::source::read_pack(p))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        let lock = lyceum_foundry::lock::Lock::read(&w.lock_path()).unwrap();
+        let base = DatSet::open(&dereth_dat::testing::dat_dir()).unwrap();
+        compile::compile(&w, &packs, &base, &lock).map_err(|e| e.to_string())
+    }
+
+    fn base() -> DatSet {
+        DatSet::open(&dereth_dat::testing::dat_dir()).unwrap()
+    }
+
+    /// A table as the build compiled it, or `None` when the build left it to the base.
+    fn table<T: Decode>(c: &Compiled, id: u32) -> Option<T> {
+        let s = c.records.get(&ModernDat::Portal)?.get(&id)?;
+        Some(T::decode_payload(DataId(id), &s.bytes).unwrap())
+    }
+
+    /// A table as the retail files hold it.
+    fn retail<T: Decode>(id: u32) -> T {
+        T::decode_payload(DataId(id), &base().read_portal(DataId(id)).unwrap()).unwrap()
+    }
+
+    const ROWS: &str = r#"
+    [[skill]]
+    skill = "melee defense"
+    trained_cost = 4
+    specialized_cost = 8
+
+    [[skill]]
+    id = 1
+    like = "Heavy Weapons"
+    name = "Axe"
+    description = "Helps you fight with axes."
+    formula = { attributes = ["Strength", "Coordination"], divisor = 3 }
+
+    [[experience]]
+    max_level = 20
+
+    [[level]]
+    level = 2
+    xp = 900
+    credits = 2
+
+    [[spell]]
+    id = 6
+    name = "Mend Self I"
+    mana = 10
+
+    [[starter-area]]
+    name = "Holtburg Gate"
+    heritages = ["Aluvian"]
+    at = [{ cell = 0xA9B40025, at = [100.0, 100.0, "ground"], heading = 90.0 }]
+
+    [[heritage]]
+    heritage = "aluvian"
+    skill_credits = 60
+
+    [[heritage-skill]]
+    heritage = "Aluvian"
+    skill = "Axe"
+    trained_cost = 6
+    specialized_cost = 10
+
+    [[heritage-template]]
+    heritage = "Aluvian"
+    name = "Axeman"
+    strength = 100
+    trained = ["Axe", "Melee Defense"]
+    specialized = ["Axe"]
+    "#;
+
+    /// Each table a pack changes is compiled into the overlay over the player's own, changed only where
+    /// the rows say: a skill's costs, a new skill copied from another and named, a shorter curve with one
+    /// level changed, a renamed spell, a new starter area standing on the ground for one heritage, a
+    /// heritage's credits, a skill's cost to it and a new template.
+    #[test]
+    fn each_table_a_pack_changes_compiles_over_the_players_own_where_its_rows_say() {
+        let c = compiled("tables-each", ROWS, None, "").unwrap();
+
+        let was: SkillTable = retail(SKILLS);
+        let mut skills: SkillTable = table(&c, SKILLS).expect("the skill table");
+        let md = &skills.skills[&6];
+        assert_eq!((md.trained_cost, md.specialized_cost), (4, 8));
+        let axe = skills.skills.remove(&1).expect("Axe");
+        let heavy = &was.skills[&44];
+        assert_eq!(
+            (axe.name.as_str(), axe.trained_cost),
+            ("Axe", heavy.trained_cost)
+        );
+        assert_eq!((axe.formula.x, axe.formula.y, axe.formula.z), (1, 1, 3));
+        assert_eq!((axe.formula.attr1, axe.formula.attr2), (1, 4));
+        for (k, s) in &skills.skills {
+            if *k != 6 {
+                assert_eq!(s, &was.skills[k], "skill {k}");
+            }
+        }
+
+        let xp_was: XpTable = retail(EXPERIENCE);
+        let xp: XpTable = table(&c, EXPERIENCE).expect("the experience table");
+        assert_eq!(xp.level_xp.len(), 21);
+        assert_eq!((xp.level_xp[2], xp.level_credits[2]), (900, 2));
+        assert_eq!(xp.level_xp[3..], xp_was.level_xp[3..21]);
+        assert_eq!(xp.attribute_xp, xp_was.attribute_xp);
+
+        let spells_was: SpellTable = retail(SPELLS);
+        let spells: SpellTable = table(&c, SPELLS).expect("the spell table");
+        let mend = &spells.spells[&6];
+        assert_eq!((mend.name.as_str(), mend.base_mana), ("Mend Self I", 10));
+        assert_eq!(
+            mend.comps, spells_was.spells[&6].comps,
+            "its components kept"
+        );
+        assert_eq!(spells.spells[&27], spells_was.spells[&27]);
+
+        let cg_was: CharGen = retail(CHARGEN);
+        let cg: CharGen = table(&c, CHARGEN).expect("character creation");
+        let gate = cg.starter_areas.last().unwrap();
+        assert_eq!(
+            (gate.name.as_str(), gate.locations.len()),
+            ("Holtburg Gate", 1)
+        );
+        let p = gate.locations[0];
+        let land = CellLandblock::decode_payload(
+            DataId(0xA9B4_FFFF),
+            &base().cell.read(DataId(0xA9B4_FFFF)).unwrap(),
+        )
+        .unwrap();
+        let region: Region = retail(0x1300_0000);
+        assert_eq!(
+            p.frame.origin.z,
+            compile::ground(&land, &region, 0xA9B4, 100.0, 100.0)
+        );
+        let index = u32::try_from(cg.starter_areas.len() - 1).unwrap();
+        for (k, h) in &cg.heritage_groups {
+            assert_eq!(
+                h.primary_start_areas.contains(&index),
+                *k == 1,
+                "heritage {k}"
+            );
+        }
+        let aluvian = &cg.heritage_groups[&1];
+        assert_eq!(aluvian.skill_credits, 60);
+        assert_eq!(
+            aluvian.attribute_credits,
+            cg_was.heritage_groups[&1].attribute_credits
+        );
+        assert!(aluvian.skills.contains(&(1, 6, 10)));
+        let axeman = aluvian.templates.last().unwrap();
+        assert_eq!(
+            (axeman.name.as_str(), axeman.attributes[0]),
+            ("Axeman", 100)
+        );
+        assert_eq!(
+            (axeman.normal_skills.clone(), axeman.primary_skills.clone()),
+            (vec![1, 6], vec![1])
+        );
+        assert_eq!(cg.heritage_groups[&2], cg_was.heritage_groups[&2]);
+    }
+
+    /// A row that sets what the table below already holds changes nothing, and the build leaves the
+    /// table to the player's own files.
+    #[test]
+    fn rows_that_change_nothing_leave_the_table_to_the_base() {
+        let was: SkillTable = retail(SKILLS);
+        let md = &was.skills[&6];
+        let c = compiled(
+            "tables-same",
+            &format!(
+                "[[skill]]\nskill = \"Melee Defense\"\ntrained_cost = {}\n",
+                md.trained_cost
+            ),
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(table::<SkillTable>(&c, SKILLS).is_none());
+    }
+
+    /// Two packs that set one field of a table differently are a conflict, named by the field; the
+    /// world settles it by saying which pack wins, and the winner's value is compiled.
+    #[test]
+    fn two_packs_setting_a_tables_field_differently_conflict_until_the_world_settles_it() {
+        let mine = "[[skill]]\nskill = \"Melee Defense\"\ntrained_cost = 4\n\n[[heritage]]\nheritage = \"Aluvian\"\nskill_credits = 60\n";
+        let theirs = "[[skill]]\nskill = \"Melee Defense\"\ntrained_cost = 5\nspecialized_cost = 9\n\n[[heritage]]\nheritage = \"aluvian\"\nskill_credits = 61\n";
+        let c = compiled("tables-conflict", mine, Some(theirs), "").unwrap();
+        let items: Vec<String> = c.conflicts().iter().map(|x| x.what.clone()).collect();
+        assert_eq!(
+            items,
+            ["skill 6 trained-cost", "heritage aluvian skill-credits"]
+        );
+        let settled = compiled(
+            "tables-settled",
+            mine,
+            Some(theirs),
+            "\n[[override]]\npack = \"holtburg\"\nover = \"rival\"\n",
+        )
+        .unwrap();
+        assert!(settled.conflicts().is_empty());
+        let md = &table::<SkillTable>(&settled, SKILLS).unwrap().skills[&6];
+        assert_eq!((md.trained_cost, md.specialized_cost), (4, 9));
+        let cg: CharGen = table(&settled, CHARGEN).unwrap();
+        assert_eq!(cg.heritage_groups[&1].skill_credits, 60);
+    }
+
+    /// Rows the tables can't take are refused at the row: a skill the table doesn't have, a level the
+    /// cap adds with no experience, a curve that falls, a duration on a spell that doesn't run out, a
+    /// spell the table doesn't have, and the first template taken out.
+    #[test]
+    fn rows_the_tables_cant_take_are_refused_where_they_are() {
+        let refused = |tag: &str, rows: &str, says: &str| {
+            let e = compiled(tag, rows, None, "").expect_err(rows);
+            assert!(e.contains("rules.toml") && e.contains(says), "{e}");
+        };
+        refused(
+            "tables-no-skill",
+            "[[skill]]\nskill = \"Basket Weaving\"\nicon = 1\n",
+            "no skill \"Basket Weaving\"",
+        );
+        refused(
+            "tables-no-xp",
+            "[[experience]]\nmax_level = 300\n",
+            "level 276 is new",
+        );
+        refused(
+            "tables-falls",
+            "[[level]]\nlevel = 3\nxp = 1\n",
+            "takes less experience",
+        );
+        refused(
+            "tables-duration",
+            "[[spell]]\nid = 6\nduration = 60.0\n",
+            "does not run out",
+        );
+        refused(
+            "tables-no-spell",
+            "[[spell]]\nid = 999999\nmana = 1\n",
+            "no spell 999999",
+        );
+        let first = &retail::<CharGen>(CHARGEN).heritage_groups[&1].templates[0].name;
+        refused(
+            "tables-first-template",
+            &format!(
+                "[[heritage-template]]\nheritage = \"Aluvian\"\nname = {first:?}\nremove = true\n"
+            ),
+            "first template",
+        );
+    }
+
+    /// A heritage a pack takes out is no longer in character creation, so the game no longer offers
+    /// it: gone from the table and from its order, with what another row changed of it; the others
+    /// are as the files have them. A pack can't take out every heritage.
+    #[test]
+    fn a_heritage_taken_out_is_no_longer_in_character_creation() {
+        let was: CharGen = retail(CHARGEN);
+        let lugian = was
+            .heritage_groups
+            .iter()
+            .find(|(_, h)| h.name == "Lugian")
+            .map(|(k, _)| *k)
+            .expect("Lugian");
+        let rows = "[[heritage]]\nheritage = \"Lugian\"\nremove = true\n\n[[heritage-template]]\nheritage = \"Lugian\"\nname = \"Bruiser\"\nstrength = 100\n";
+        let c = compiled("tables-heritage-out", rows, None, "").unwrap();
+        let cg: CharGen = table(&c, CHARGEN).expect("character creation");
+        assert!(!cg.heritage_groups.contains_key(&lugian));
+        let kept: Vec<u32> = was
+            .heritage_order
+            .iter()
+            .copied()
+            .filter(|k| *k != lugian)
+            .collect();
+        assert_eq!(
+            cg.heritage_order, kept,
+            "the others in the record's own order"
+        );
+        assert_eq!(cg.heritage_groups.len(), was.heritage_groups.len() - 1);
+        for (k, h) in &cg.heritage_groups {
+            assert_eq!(h, &was.heritage_groups[k], "heritage {k}");
+        }
+        let all: String = was
+            .heritage_groups
+            .values()
+            .map(|h| format!("[[heritage]]\nheritage = {:?}\nremove = true\n\n", h.name))
+            .collect();
+        let e = compiled("tables-heritage-none", &all, None, "").expect_err("none left");
+        assert!(e.contains("at least one heritage"), "{e}");
+    }
 }

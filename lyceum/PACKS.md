@@ -11,7 +11,7 @@ command, see [README.md](README.md).
 mypack/
   pack.toml                    name, version, game, authors, license, description
   art/*.png                    pictures for new textures
-  records/*.toml               new records: pictures, textures, surfaces, models, pieces
+  records/*.toml               new records: pictures, textures, surfaces, models, pieces; the game's tables
   edits/landblocks/XXYY.toml   changes to one landblock
   server/sql/**/*.sql          the server's content, as ACE's SQL
 ```
@@ -132,6 +132,66 @@ becomes an environment, each of the kit's looks a list of surfaces for it, and t
 light setups, all numbered in the world's lockfile by what they are (`ac2-environment-0100004a-bymaterial`,
 `ac2-light-ffd450-12m`), so the same install gives the same ids. Rooms place them as `[[cell]]` rows
 with those ids, as any piece.
+
+### The game's tables
+
+A pack can change the skill table, the experience table, the spell table and character creation,
+which the game reads as well as the server. Each row in `records/` sets only the fields it names;
+the rest stay as the player's own files have them (or the world's imports, when it has some).
+
+```toml
+[[skill]]
+skill = "Melee Defense"      # a skill by its name, spaces and case aside
+trained_cost = 4
+specialized_cost = 8
+
+[[skill]]
+id = 1                       # a skill the table lacks, by its number
+like = "Heavy Weapons"       # optional: start as a copy of another
+name = "Axe"
+formula = { attributes = ["Strength", "Coordination"], divisor = 3 }
+# remove = true takes a skill out
+
+[[experience]]
+max_level = 50               # the highest level
+attribute = [0, 110, 277]    # optional whole lists: attribute, vital, trained, specialized
+
+[[level]]
+level = 2
+xp = 1000                    # experience to reach it; a level the cap adds needs one
+credits = 1
+
+[[spell]]
+id = 6                       # by number: several spells can share a name
+name = "Mend Self I"
+mana = 10
+
+[[starter-area]]
+name = "Arwic"               # a new name is a new area; remove = true takes one out
+heritages = "all"            # or a list of heritages
+at = [{ cell = 0xC6A90009, at = [84.0, 141.0, "ground"], heading = 90.0 }]
+
+[[heritage]]
+heritage = "Aluvian"
+skill_credits = 50           # remove = true takes a heritage out of character creation
+
+[[heritage-skill]]           # what a skill costs a heritage at creation
+heritage = "Aluvian"
+skill = "Axe"
+trained_cost = 6
+specialized_cost = 10
+
+[[heritage-template]]        # a class on the creation screen
+heritage = "Aluvian"
+name = "Axeman"
+strength = 100               # and endurance, coordination, quickness, focus, self
+trained = ["Axe", "Melee Defense"]
+specialized = ["Axe"]
+```
+
+The other fields each row can set are listed in the Foundry's `tables` module. A build refuses a row
+the table can't take: a skill or spell the table doesn't have, a level with no experience, a curve
+that goes down. Character creation can only be written for the end of retail's files.
 
 ### Changes to a landblock
 
@@ -340,6 +400,8 @@ them with its checks and refuses an edit that would make a new one.
 | `spawn 0x7A9B4001` | an instance and its links |
 | `quest drudgekills` | a quest's registration |
 | `death-treasure 37`, `wielded-treasure 37` | a loot table, every row of it |
+| `skill 6 trained-cost`, `level 20 xp`, `spell 6 name` | one field of one of the game's tables |
+| `starter-area arwic at`, `heritage aluvian skill-credits` | one field of character creation |
 
 A world says which pack wins:
 

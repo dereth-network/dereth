@@ -14,6 +14,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - New worlds can have finer land, down to 8 m between vertices, and every vertex can be edited.
 - New worlds can start from another tool's world, such as the AC2-in-AC1 world.
 - Build dungeons from AC2's dungeon kits, in AC2's looks, from your own AC2 install.
+- Packs can change skills, the experience curve, spells and character creation.
 
 ## 0.2.8 (2026-11-23)
 

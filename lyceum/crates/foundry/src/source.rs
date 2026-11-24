@@ -4,7 +4,8 @@
 //! mypack/
 //!   pack.toml                    name, version, game, authors, license, description
 //!   art/*.png                    pictures for new textures
-//!   records/*.toml               new records: render surfaces, surface textures, surfaces
+//!   records/*.toml               new records: render surfaces, surface textures, surfaces; the
+//!                                game's tables, changed field by field ([`crate::tables`])
 //!   edits/landblocks/XXYY.toml   operations on one landblock: statics and terrain vertices
 //!   server/sql/**/*.sql          ACE's SQL, with {{kind:symbol}} where an id goes
 //! ```
@@ -149,6 +150,8 @@ pub struct Pack {
     /// The AC2 dungeon kits it asks for (`[[ac2-kit]]`), made from the player's AC2 install when
     /// the world is built ([`crate::ac2_kit`]).
     pub ac2_kits: Vec<Located<crate::ac2_kit::Kit>>,
+    /// The rows that change the game's own tables, in file order ([`crate::tables`]).
+    pub tables: Vec<Located<crate::tables::TableRow>>,
 }
 
 impl Pack {
@@ -583,6 +586,22 @@ struct RecordsFile {
     surface: Vec<Spanned<SurfaceRow>>,
     #[serde(default, rename = "ac2-kit")]
     ac2_kit: Vec<Spanned<Ac2KitRow>>,
+    #[serde(default)]
+    skill: Vec<Spanned<crate::tables::SkillRow>>,
+    #[serde(default)]
+    experience: Vec<Spanned<crate::tables::ExperienceRow>>,
+    #[serde(default)]
+    level: Vec<Spanned<crate::tables::LevelRow>>,
+    #[serde(default)]
+    spell: Vec<Spanned<crate::tables::SpellRow>>,
+    #[serde(default, rename = "starter-area")]
+    starter_area: Vec<Spanned<crate::tables::StarterAreaRow>>,
+    #[serde(default)]
+    heritage: Vec<Spanned<crate::tables::HeritageRow>>,
+    #[serde(default, rename = "heritage-skill")]
+    heritage_skill: Vec<Spanned<crate::tables::HeritageSkillRow>>,
+    #[serde(default, rename = "heritage-template")]
+    heritage_template: Vec<Spanned<crate::tables::HeritageTemplateRow>>,
 }
 
 #[derive(Deserialize)]
@@ -981,11 +1000,36 @@ fn read_records(
     path: &Path,
     rows: &mut Rows,
     kits: &mut Vec<Located<crate::ac2_kit::Kit>>,
+    tables: &mut Vec<Located<crate::tables::TableRow>>,
 ) -> Result<Vec<Located<NewRecord>>, Error> {
+    use crate::tables::TableRow;
     let text = read_text(path)?;
     let file: RecordsFile = parse_toml(path, &text)?;
     let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
     let loc = |start: usize| Loc::at(path, &text, start);
+    // The tables' rows, in the file's order.
+    let mut table_rows: Vec<(usize, TableRow)> = Vec::new();
+    macro_rules! table {
+        ($field:ident, $variant:ident) => {
+            for row in &file.$field {
+                table_rows.push((row.span().start, TableRow::$variant(row.get_ref().clone())));
+            }
+        };
+    }
+    table!(skill, Skill);
+    table!(experience, Experience);
+    table!(level, Level);
+    table!(spell, Spell);
+    table!(starter_area, StarterArea);
+    table!(heritage, Heritage);
+    table!(heritage_skill, HeritageSkill);
+    table!(heritage_template, HeritageTemplate);
+    table_rows.sort_by_key(|(start, _)| *start);
+    for (start, item) in table_rows {
+        let at = loc(start);
+        rows.note(&at, item.prov());
+        tables.push(Located { at, item });
+    }
     for row in &file.ac2_kit {
         let at = loc(row.span().start);
         let name = &row.get_ref().kit;
@@ -1944,12 +1988,15 @@ pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
         sql: Vec::new(),
         provenance: Rows::default(),
         ac2_kits: Vec::new(),
+        tables: Vec::new(),
     };
     for path in files_in(&dir.join("records"), "toml")? {
         let mut rows = Rows::default();
         let mut kits = Vec::new();
-        let records = read_records(&pack, &path, &mut rows, &mut kits)?;
+        let mut tables = Vec::new();
+        let records = read_records(&pack, &path, &mut rows, &mut kits, &mut tables)?;
         pack.ac2_kits.extend(kits);
+        pack.tables.extend(tables);
         pack.provenance.extend(rows);
         pack.records.extend(records);
     }

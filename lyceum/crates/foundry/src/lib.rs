@@ -18,7 +18,8 @@
 //!
 //! A **pack** is a folder of text and pictures ([`source`]): new records described in text, edits
 //! to the world's own records as operations (place, move or remove a static; set a terrain
-//! vertex), and server content as ACE's SQL. Everything new is named by a symbol, never numbered.
+//! vertex), changes to the game's own tables field by field ([`tables`]), and server content as
+//! ACE's SQL. Everything new is named by a symbol, never numbered.
 //! A **world** ([`world`]) lists its packs in order; [`compile`] reads the data files on this
 //! machine, numbers the symbols for that world alone and pins them in its lockfile ([`lock`]),
 //! applies the operations, encodes the records, checks the result ([`validate`]) and writes the
@@ -98,6 +99,7 @@ pub mod sql;
 pub mod sql_ids;
 pub mod stab;
 pub mod symbol;
+pub mod tables;
 pub mod validate;
 pub mod walk;
 pub mod wielded;
