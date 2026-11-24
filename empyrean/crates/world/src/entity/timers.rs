@@ -7,6 +7,7 @@
 //! loop advances it by each iteration's measured time with
 //! [`advance_portal_year_ticks`] and takes the next tick's `ClockSnapshot` from it.
 
+use empyrean_common::calendar::Calendar;
 use empyrean_common::clock::{Clock, ClockSnapshot};
 use empyrean_common::dereth_date_time::DerethDateTime;
 use empyrean_common::dotnet::datetime::{DotNetDateTime, TimeSpan};
@@ -44,6 +45,37 @@ impl TimersState {
         }
     }
 
+    /// Not ACE: the start state of a world whose era's calendar is `calendar`, launched at
+    /// `launched_at` when the calendar starts at its launch: ACE's ([`Self::new`]) for ACE's
+    /// calendar, else game time is the calendar's at the launch plus the seconds since.
+    ///
+    /// # Errors
+    /// A calendar that starts at the world's launch without one.
+    ///
+    /// # Panics
+    /// As [`Self::new`], for ACE's calendar.
+    // DIVERGE: V568
+    pub fn for_era(
+        clock: &dyn Clock,
+        calendar: Calendar,
+        launched_at: Option<DotNetDateTime>,
+    ) -> Result<Self, String> {
+        if !calendar.needs_launch() {
+            return Ok(Self::new(clock));
+        }
+        let launched_at = launched_at
+            .ok_or("this era's calendar starts at the world's launch, which is not given")?;
+        let world_start_time = clock.utc_now();
+        let ticks = calendar
+            .from_launch(world_start_time, launched_at)
+            .ok_or("this era's calendar starts at the world's launch")?;
+        Ok(TimersState {
+            world_start_time,
+            world_start_lore_ticks: ticks,
+            portal_year_ticks: ticks,
+        })
+    }
+
     /// The start state for a world whose first tick is `now`: its UTC time is the start time and
     /// its game time is the start lore time. This is what `World::new` should use.
     pub fn from_snapshot(now: &ClockSnapshot) -> Self {
@@ -77,8 +109,9 @@ pub fn running_time(w: &World) -> f64 {
 ///
 /// # Panics
 /// When the start ticks are outside the calendar (`ArgumentOutOfRangeException`).
+// DIVERGE: V568 read past the calendar's end for an era that starts later in it.
 pub fn world_start_lore_time(w: &World) -> DerethDateTime {
-    DerethDateTime::from_ticks(w.timers.world_start_lore_ticks)
+    DerethDateTime::from_game_ticks(w.timers.world_start_lore_ticks)
 }
 
 // ACE: Timers.CurrentLoreTime
@@ -92,8 +125,9 @@ pub fn current_lore_time(w: &World) -> DerethDateTime {
 ///
 /// # Panics
 /// When `PortalYearTicks` is outside the calendar (`ArgumentOutOfRangeException`).
+// DIVERGE: V568 read past the calendar's end for an era that starts later in it.
 pub fn current_in_game_time(w: &World) -> DerethDateTime {
-    DerethDateTime::from_ticks(portal_year_ticks(w))
+    DerethDateTime::from_game_ticks(portal_year_ticks(w))
 }
 
 // ACE: Timers.PortalYearTicks

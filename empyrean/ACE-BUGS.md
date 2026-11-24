@@ -13,7 +13,7 @@ not this file.
 
 | # | ACE member | Rust location | defect |
 |---:|---|---|---|
-| 1 | `DerethDateTime.SubtractTicks` | `empyrean/crates/common/src/dereth_date_time.rs:693` | the range check adds the ticks, but the result subtracts them. |
+| 1 | `DerethDateTime.SubtractTicks` | `empyrean/crates/common/src/dereth_date_time.rs:714` | the range check adds the ticks, but the result subtracts them. |
 | 2 | `CharacterNameExtensions.StringArrayToCharacterName` | `empyrean/crates/common/src/extensions/character_name_extensions.rs:13` | the join is skipped unless the array has more than two elements, so `["A", "B"]` from element 0 yields "A". |
 | 3 | `ThreadSafeRandom.Next(int, int)` | `empyrean/crates/common/src/thread_safe_random.rs:33` | `max + 1` overflows for int.MaxValue (unchecked C# wraps), so the call throws. |
 | 4 | `DamageTypeExtensions.SelectDamageType` | `empyrean/crates/entity/src/enums/ext/damage_type.rs:43` | `EnumHelper.GetFlags` lists every declared member whose bits are all set, so the composite `Physical`/`Elemental` members are candidates too and `Next(1, Count - 1)` can return a multi-damage type. |

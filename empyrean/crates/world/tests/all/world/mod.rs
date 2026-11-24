@@ -1,4 +1,5 @@
 pub(crate) mod actions;
+mod calendar;
 pub(crate) mod event_manager;
 pub(crate) mod generators;
 pub(crate) mod guid_recycling;

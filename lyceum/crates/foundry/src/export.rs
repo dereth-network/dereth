@@ -167,7 +167,8 @@ impl Era {
     pub const fn of(era: dereth_primitives::EraId) -> Self {
         match era {
             dereth_primitives::EraId::Launch => Self::Launch,
-            dereth_primitives::EraId::Eor => Self::Eor,
+            // New Dereth is built on the end of retail's files.
+            dereth_primitives::EraId::Eor | dereth_primitives::EraId::NewDereth => Self::Eor,
             dereth_primitives::EraId::Infiltration => Self::Infiltration,
         }
     }

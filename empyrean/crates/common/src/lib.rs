@@ -24,7 +24,7 @@
 //!   `empyrean-world` and `empyrean-command` can reach it).
 //!
 //! Not ACE: [`backups`] (the copies kept of a data file before it is upgraded or replaced),
-//! [`brand`] (the server software's own names and addresses), [`dotnet`] (runtime
+//! [`brand`] (the server software's own names and addresses), [`calendar`] (each era's calendar), [`dotnet`] (runtime
 //! semantics), [`json`] (the `System.Text.Json` options), [`clock`], [`random`]'s generator,
 //! [`math`] (portable transcendental functions), [`not_ported`](mod@not_ported), [`toml_config`] (`empyrean.toml`,
 //! the native configuration), [`config_paths`] (how its paths resolve), [`test_paths`] (where
@@ -34,6 +34,7 @@
 pub mod account_defaults;
 pub mod backups;
 pub mod brand;
+pub mod calendar;
 pub mod clock;
 pub mod config_manager;
 pub mod config_paths;

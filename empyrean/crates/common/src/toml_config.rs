@@ -699,10 +699,19 @@ pub const SECTIONS: &[Section] = &[
             e(
                 "profile",
                 "Profile",
-                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999). world.pack\n\
-                 must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
-                 to start otherwise.",
+                "\"eor\" (end of retail), \"infiltration\" (February 2005), \"launch\" (1999), or \"newdereth\"\n\
+                 (New Dereth, Emergence). world.pack must have been built for the same era\n\
+                 (`empyrean-import --era <era>`); the server refuses to start otherwise.",
             ),
+            Key {
+                toml: "launched_at",
+                ace: "LaunchedAt",
+                in_ace: false,
+                help: "A New Dereth world: the moment it launched, in UTC (\"2026-12-01T00:00:00Z\"), which is the\n\
+                       first day of Leafcull, 498 P.Y., in game. The world does not start without it.",
+                unset: "\"\"",
+                written: false,
+            },
             Key {
                 toml: "max_characters_per_account",
                 ace: "MaxCharactersPerAccount",

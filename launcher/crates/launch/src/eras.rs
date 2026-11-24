@@ -77,6 +77,7 @@ fn era_label(era: EraId) -> &'static str {
         EraId::Launch => "Launch (1999)",
         EraId::Infiltration => "Infiltration (February 2005)",
         EraId::Eor => "End of Retail",
+        EraId::NewDereth => "New Dereth, Emergence",
     }
 }
 
@@ -90,11 +91,13 @@ pub fn label(era: Option<&str>) -> String {
     }
 }
 
-/// Every era, latest first: the end of retail is what most worlds play.
+/// Every era a hosted world can play, latest first: the end of retail is what most worlds play.
+/// New Dereth is not offered until its world database has a release.
 pub fn eras() -> Vec<EraInfo> {
     EraId::ALL
         .iter()
         .rev()
+        .filter(|&&e| e != EraId::NewDereth)
         .map(|&e| EraInfo {
             name: e.name(),
             label: era_label(e),

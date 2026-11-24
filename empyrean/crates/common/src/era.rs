@@ -17,8 +17,15 @@
 //! [`EraId::Launch`] is November 1999. Its table names each of its formulas
 //! ([`EraFormulas::LAUNCH`]) rather than taking a later era's, and every later system, action and
 //! rule is off in its feature table, each one a key a world can turn back on.
+//!
+//! [`EraId::NewDereth`] is New Dereth, Emergence: a new world on the land after the Devastation.
+//! Its rules start as the end of retail's; its calendar is its own, AC1's from Leafcull 1, 498 P.Y.
+//! at the world's launch ([`crate::calendar`]).
 
 use serde::{Deserialize, Serialize};
+
+use crate::calendar::{self, Calendar};
+use crate::dotnet::datetime::DotNetDateTime;
 
 pub use dereth_primitives::era::{EraFeatureOverrides, EraFeatures, EraId, VitaeRecovery};
 
@@ -39,6 +46,7 @@ impl EraExt for EraId {
             Self::Eor => 0,
             Self::Infiltration => 1,
             Self::Launch => 2,
+            Self::NewDereth => 3,
         }
     }
 
@@ -51,6 +59,7 @@ impl EraExt for EraId {
             Self::Eor => &EOR,
             Self::Infiltration => &INFILTRATION,
             Self::Launch => &LAUNCH,
+            Self::NewDereth => &NEW_DERETH,
         }
     }
 }
@@ -155,6 +164,8 @@ pub struct EraRules {
     pub welcome_letter: Option<u32>,
     /// Which loot tables and mutation scripts random loot is made with.
     pub loot_rules: LootRules,
+    /// How the era's game time starts.
+    pub calendar: Calendar,
 }
 
 /// The loot tables and mutation scripts random loot is made with.
@@ -451,6 +462,7 @@ pub static EOR: EraRules = EraRules {
     starter_gear: StarterGearSet::EndOfRetail,
     welcome_letter: None,
     loot_rules: LootRules::EndOfRetail,
+    calendar: Calendar::SinceRetailClosed,
 };
 
 const fn at(area: &'static str, cell: u32, origin: [f32; 3], rotation: [f32; 4]) -> StartPosition {
@@ -536,6 +548,7 @@ pub static INFILTRATION: EraRules = EraRules {
     // The Welcome Letter.
     welcome_letter: Some(1077),
     loot_rules: LootRules::Infiltration,
+    calendar: Calendar::SinceRetailClosed,
 };
 
 /// November 1999 (Launch). Skill costs and the experience curves come from the
@@ -561,7 +574,36 @@ pub static LAUNCH: EraRules = EraRules {
     starter_gear: StarterGearSet::Launch,
     welcome_letter: None,
     loot_rules: LootRules::Ac1999,
+    calendar: Calendar::SinceRetailClosed,
 };
+
+/// New Dereth, Emergence. Its rules are the end of retail's, the starting point the era's own are
+/// tuned from; its calendar starts at Leafcull 1, 498 P.Y. when the world launches.
+pub static NEW_DERETH: EraRules = EraRules {
+    training_skills: None,
+    id: EraId::NewDereth,
+    start_positions: StartPositions::FromCharGen,
+    account_has_tod: true,
+    max_level: None,
+    loot: LootTables::AsTables,
+    creation_skills: None,
+    heritages: None,
+    features: EraFeatures::END_OF_RETAIL,
+    property_defaults: &[],
+    long_property_defaults: &[],
+    string_property_defaults: &[],
+    formulas: EraFormulas::END_OF_RETAIL,
+    starter_gear: StarterGearSet::EndOfRetail,
+    welcome_letter: None,
+    loot_rules: LootRules::EndOfRetail,
+    // DIVERGE: V568 the world's launch is the first day of Leafcull, 498 P.Y.
+    calendar: Calendar::FromLaunch {
+        at_launch: NEW_DERETH_FIRST_DAY,
+    },
+};
+
+/// New Dereth's first day: Leafcull 1, 498 P.Y., from its first moment.
+pub const NEW_DERETH_FIRST_DAY: f64 = calendar::day_begins(498, calendar::LEAFCULL);
 
 /// Launch skills, including the original appraisal skills and excluding Salvaging.
 pub static LAUNCH_SKILLS: [u32; 35] = [
@@ -605,6 +647,10 @@ pub struct EraConfiguration {
     /// The characters an account may hold, over the era's own number.
     #[serde(rename = "MaxCharactersPerAccount")]
     pub max_characters_per_account: Option<u32>,
+    /// The moment the world launched, in UTC (`2026-12-01T00:00:00Z`), for an era whose calendar
+    /// starts at its launch ([`Calendar::FromLaunch`]).
+    #[serde(rename = "LaunchedAt")]
+    pub launched_at: Option<String>,
     /// The systems the world turns on or off over its era's table: one key per system, named as
     /// [`EraFeatures::NAMES`] spells it (`Aetheria`, `SpellResearch`, ... in the serde form).
     #[serde(flatten, with = "feature_settings")]
@@ -612,6 +658,26 @@ pub struct EraConfiguration {
 }
 
 impl EraConfiguration {
+    /// The world's launch, for an era whose calendar starts at it; `None` for one that does not.
+    ///
+    /// # Errors
+    /// An era whose calendar starts at the world's launch without `launched_at`, or a
+    /// `launched_at` that is not a moment in UTC.
+    pub fn launch(&self) -> Result<Option<DotNetDateTime>, String> {
+        if !self.profile.rules().calendar.needs_launch() {
+            return Ok(None);
+        }
+        let text = self.launched_at.as_deref().ok_or_else(|| {
+            format!(
+                "a {} world's calendar starts at its launch: give [era] launched_at, the moment in UTC (\"2026-12-01T00:00:00Z\")",
+                self.profile.name()
+            )
+        })?;
+        calendar::parse_utc(text)
+            .map(Some)
+            .map_err(|why| format!("[era] launched_at: {why}"))
+    }
+
     /// The world's rules: the profile's, with the configured systems over its table.
     #[must_use]
     pub fn rules(&self) -> &'static EraRules {
@@ -788,6 +854,51 @@ mod tests {
         for rules in [&EOR, &INFILTRATION] {
             assert!(!rules.formulas.thrown_reach_by_strength);
         }
+    }
+
+    /// Divergence: V568
+    /// New Dereth plays the end of retail's rules, with a pack code and a calendar of its own,
+    /// whose world names its launch.
+    #[test]
+    fn new_dereth_starts_from_the_end_of_retails_rules_with_its_own_calendar() {
+        assert_eq!(EraId::parse("NewDereth"), Some(EraId::NewDereth));
+        assert_eq!(EraId::NewDereth.pack_code(), 3);
+        assert_eq!(EraId::from_pack_code(3), Some(EraId::NewDereth));
+        let rules = EraId::NewDereth.rules();
+        assert_eq!(
+            EraRules {
+                id: EraId::Eor,
+                calendar: Calendar::SinceRetailClosed,
+                ..*rules
+            },
+            EOR
+        );
+        assert_eq!(
+            rules.calendar,
+            Calendar::FromLaunch {
+                at_launch: NEW_DERETH_FIRST_DAY
+            }
+        );
+        for era in [EraId::Eor, EraId::Infiltration, EraId::Launch] {
+            assert_eq!(era.rules().calendar, Calendar::SinceRetailClosed);
+        }
+
+        let mut c = EraConfiguration {
+            profile: EraId::NewDereth,
+            ..EraConfiguration::default()
+        };
+        let e = c.launch().unwrap_err();
+        assert!(e.contains("give [era] launched_at"), "{e}");
+        c.launched_at = Some("2026-12-01T18:00:00Z".into());
+        assert_eq!(
+            c.launch(),
+            Ok(Some(DotNetDateTime::new_hms(2026, 12, 1, 18, 0, 0)))
+        );
+        c.launched_at = Some("2026-02-30".into());
+        assert!(c.launch().unwrap_err().contains("is not a moment in UTC"));
+        // An era on ACE's calendar takes no launch, and ignores one given.
+        c.profile = EraId::Eor;
+        assert_eq!(c.launch(), Ok(None));
     }
 
     /// Divergence: V516

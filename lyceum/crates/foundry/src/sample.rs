@@ -58,7 +58,7 @@ pub const PACK: &str = "holtburg";
 #[must_use]
 pub fn file_for<'a>(era: EraId, rel: &str, bytes: &'a [u8]) -> Cow<'a, [u8]> {
     match era {
-        EraId::Eor => Cow::Borrowed(bytes),
+        EraId::Eor | EraId::NewDereth => Cow::Borrowed(bytes),
         EraId::Infiltration if rel.ends_with("weenies/guide.sql") => Cow::Owned(
             String::from_utf8_lossy(bytes)
                 .replace("0x090001D0", "0x09000008")

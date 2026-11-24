@@ -113,6 +113,18 @@ pub const AC1999: WorldLine = WorldLine {
     form: ReleaseForm::BuiltPack,
 };
 
+/// New Dereth's world, built as ac1999's is; it has no release yet, so it is not in [`WORLDS`].
+pub const NEW_DERETH: WorldLine = WorldLine {
+    id: "newdereth",
+    repository: "dereth-network/empyrean-world-newdereth",
+    asset_prefix: "empyrean-world-newdereth-",
+    pinned_tag: "",
+    pinned_zip_sha256: "",
+    pinned_dataset_id: "",
+    era: EraId::NewDereth,
+    form: ReleaseForm::BuiltPack,
+};
+
 /// Every world `fetch` knows, the default first.
 pub const WORLDS: [WorldLine; 3] = [PATCHES, SIXTEEN_PY, AC1999];
 
@@ -124,6 +136,7 @@ impl WorldLine {
             EraId::Launch => &AC1999,
             EraId::Infiltration => &SIXTEEN_PY,
             EraId::Eor => &PATCHES,
+            EraId::NewDereth => &NEW_DERETH,
         }
     }
 

@@ -176,6 +176,11 @@ pub fn main(options: &Options) -> ExitCode {
     };
     apply_log_level(&config.server.log_level);
     log_paths(&config, &paths);
+    // Not ACE (V568): an era whose calendar starts at the world's launch is told when that was.
+    if let Err(why) = config.era.launch() {
+        log::error!("{why}");
+        return ExitCode::FAILURE;
+    }
     if config.era.profile == empyrean_common::era::EraId::Launch {
         log::warn!("A Launch world's rules and content are still being checked against 1999, and characters do not move between eras");
     }
@@ -991,7 +996,11 @@ fn new_world(
     content: Arc<dyn WorldDatabase>,
     config: &MasterConfiguration,
 ) -> World {
-    let timers = TimersState::new(clock);
+    // DIVERGE: V568 each era's calendar, checked at start (`EraConfiguration::launch`).
+    let calendar = config.era.rules().calendar;
+    let launched_at = config.era.launch().ok().flatten();
+    let timers = TimersState::for_era(clock, calendar, launched_at)
+        .unwrap_or_else(|_| TimersState::new(clock));
     let now = ClockSnapshot::take(clock, timers.portal_year_ticks);
     let mut world = World::new(now, dats);
     world.timers = timers;

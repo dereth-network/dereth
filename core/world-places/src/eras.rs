@@ -5,6 +5,7 @@
 //! | end of retail | ACE's world database with its patches (`ACEmulator/ACE-World-16PY-Patches`) | one release, pinned with the SHA-256 of its zip |
 //! | Infiltration | ACE's February 2005 world database (`ACEmulator/ACE-World-16PY`) | one release, pinned the same way |
 //! | Launch | the ac1999 world converted for Empyrean (`dereth-network/empyrean-world-launch`) | its newest release, checked against the SHA-256 the release lists |
+//! | New Dereth | its own world (`dereth-network/empyrean-world-newdereth`), built as Launch's is | none yet |
 //!
 //! The first two releases are a zipped SQL dump. The Launch release's zip holds a built world with
 //! the SQL it was built from, `world.sql`, beside it. A copy is kept as one SQL file per release:
@@ -67,7 +68,18 @@ pub const LAUNCH: EraDatabase = EraDatabase {
     form: Form::BuiltWorld,
 };
 
-/// Every era's database.
+/// New Dereth, Emergence: its world database (`dereth-network/empyrean-world-newdereth`), built as
+/// the Launch world is; nothing is released yet.
+pub const NEW_DERETH: EraDatabase = EraDatabase {
+    era: EraId::NewDereth,
+    repository: "dereth-network/empyrean-world-newdereth",
+    asset_prefix: "empyrean-world-newdereth-",
+    tag: "",
+    zip_sha256: "",
+    form: Form::BuiltWorld,
+};
+
+/// Every era's database that has a release.
 pub const ALL: [EraDatabase; 3] = [LAUNCH, INFILTRATION, EOR];
 
 impl EraDatabase {
@@ -78,6 +90,7 @@ impl EraDatabase {
             EraId::Launch => &LAUNCH,
             EraId::Infiltration => &INFILTRATION,
             EraId::Eor => &EOR,
+            EraId::NewDereth => &NEW_DERETH,
         }
     }
 

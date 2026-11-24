@@ -29,7 +29,8 @@ impl EraUiFacts {
     #[must_use]
     pub const fn for_profile(profile: EraId) -> Self {
         match profile {
-            EraId::Eor => Self {
+            // New Dereth plays the end of retail's interface.
+            EraId::Eor | EraId::NewDereth => Self {
                 void_magic: true,
                 spell_level_eight: true,
                 spell_favorite_tabs: 8,

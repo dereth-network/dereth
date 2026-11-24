@@ -16,11 +16,14 @@ pub enum EraId {
     /// The end of retail.
     #[default]
     Eor,
+    /// New Dereth, Emergence: a new world on the land after the Devastation, from 498 P.Y. Its
+    /// rules start as the end of retail's.
+    NewDereth,
 }
 
 impl EraId {
     /// Every era, in order.
-    pub const ALL: [Self; 3] = [Self::Launch, Self::Infiltration, Self::Eor];
+    pub const ALL: [Self; 4] = [Self::Launch, Self::Infiltration, Self::Eor, Self::NewDereth];
 
     /// The era's name as configuration files, command lines and status documents spell it.
     #[must_use]
@@ -29,6 +32,7 @@ impl EraId {
             Self::Launch => "launch",
             Self::Infiltration => "infiltration",
             Self::Eor => "eor",
+            Self::NewDereth => "newdereth",
         }
     }
 
@@ -46,7 +50,7 @@ impl EraId {
         match self {
             Self::Launch => EraFeatures::LAUNCH,
             Self::Infiltration => EraFeatures::INFILTRATION,
-            Self::Eor => EraFeatures::END_OF_RETAIL,
+            Self::Eor | Self::NewDereth => EraFeatures::END_OF_RETAIL,
         }
     }
 
@@ -56,7 +60,7 @@ impl EraId {
     pub const fn container_era(self) -> crate::ContainerEra {
         match self {
             Self::Launch | Self::Infiltration => crate::ContainerEra::Classic,
-            Self::Eor => crate::ContainerEra::Modern,
+            Self::Eor | Self::NewDereth => crate::ContainerEra::Modern,
         }
     }
 
@@ -79,7 +83,7 @@ impl EraId {
                 portal: Some((2021, u32::MAX)),
                 cell: Some((1537, u32::MAX)),
             },
-            Self::Eor => ExpectedDats {
+            Self::Eor | Self::NewDereth => ExpectedDats {
                 container: crate::ContainerEra::Modern,
                 portal: None,
                 cell: None,
@@ -92,7 +96,7 @@ impl EraId {
     pub const fn vitae_recovery(self) -> VitaeRecovery {
         match self {
             Self::Launch | Self::Infiltration => VitaeRecovery::BeforeThroneOfDestiny,
-            Self::Eor => VitaeRecovery::EndOfRetail,
+            Self::Eor | Self::NewDereth => VitaeRecovery::EndOfRetail,
         }
     }
 }

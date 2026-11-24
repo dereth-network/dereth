@@ -547,6 +547,27 @@ impl DerethDateTime {
         d
     }
 
+    /// Not ACE: `new DerethDateTime(ticks)` for game time past the calendar's end (401 P.Y.), as an
+    /// era that starts later in it has ([`crate::calendar`]): the whole years are taken off, the
+    /// date read within its year, and the years put back. Game time within the calendar is read as
+    /// `new DerethDateTime(ticks)` reads it.
+    ///
+    /// # Panics
+    /// When `ticks` is below `MinValue` (`ArgumentOutOfRangeException`).
+    // DIVERGE: V568
+    #[must_use]
+    pub fn from_game_ticks(ticks: f64) -> Self {
+        // NaN, as anything within the calendar, is read as ACE reads it.
+        if ticks.is_nan() || ticks <= Self::MAX_VALUE {
+            return Self::from_ticks(ticks);
+        }
+        let years = (ticks / YEAR_TICKS).floor();
+        let mut d = Self::from_ticks(ticks - years * YEAR_TICKS);
+        let years: i32 = years.cs_cast();
+        d.year += years;
+        d
+    }
+
     // ACE: DerethDateTime.SetDateTimeFromTicks
     fn set_date_time_from_ticks(&mut self) {
         let hours_in_ticks = self.ticks / HOUR_TICKS;

@@ -179,7 +179,7 @@ impl CellLandblock {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -254,7 +254,7 @@ impl LandblockInfo {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -329,7 +329,7 @@ impl EnvCell {
                 value: 0,
             }),
             EraId::Infiltration => Ok(self.encode_older()),
-            EraId::Eor => Ok(self.encode()),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 
@@ -410,7 +410,7 @@ impl Surface {
                 o.0.extend_from_slice(&self.encode());
                 Ok(o.0)
             }
-            EraId::Eor => Ok(self.encode()),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -446,7 +446,7 @@ impl SurfaceTexture {
                 what: "image texture naming its images, in files whose textures hold pixels",
                 value: u32::try_from(self.source_levels.len()).unwrap_or(u32::MAX),
             }),
-            EraId::Eor => Ok(self.encode()),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -499,7 +499,7 @@ impl RenderSurface {
                 o.0.extend_from_slice(pixels);
                 Ok(o.0)
             }
-            EraId::Eor => Ok(self.encode(pixels)),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode(pixels)),
         }
     }
 
@@ -543,7 +543,7 @@ impl RenderSurface {
                 o.align();
                 Ok(o.0)
             }
-            EraId::Eor => Err(AssetError::Unsupported {
+            EraId::Eor | EraId::NewDereth => Err(AssetError::Unsupported {
                 what: "image texture holding pixels, in files whose textures name images",
                 value: self.format,
             }),
@@ -728,7 +728,7 @@ impl GfxObj {
                 }
                 Ok(self.encode_in(ContainerEra::Classic, self.flags & !8))
             }
-            EraId::Eor => Ok(self.encode()),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 
@@ -907,7 +907,7 @@ impl Animation {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -1011,7 +1011,7 @@ impl Setup {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -1041,7 +1041,7 @@ impl PhysicsScript {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -1103,7 +1103,7 @@ impl ParticleEmitterInfo {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -1136,7 +1136,7 @@ impl GfxObjDegradeInfo {
                 what: "Launch asset encoding",
                 value: 0,
             }),
-            EraId::Infiltration | EraId::Eor => Ok(self.encode()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 }
@@ -1410,7 +1410,7 @@ impl Environment {
                 value: 0,
             }),
             EraId::Infiltration => Ok(self.encode_in(ContainerEra::Classic)),
-            EraId::Eor => Ok(self.encode()),
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
     }
 

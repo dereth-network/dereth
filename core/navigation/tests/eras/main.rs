@@ -127,7 +127,7 @@ const LEVELS: [i32; 4] = [1, 20, 60, 126];
 /// The era's data files.
 fn store(era: EraId) -> RetailDatStore {
     match era {
-        EraId::Eor => dereth_dat::testing::open_store_or_fail(),
+        EraId::Eor | EraId::NewDereth => dereth_dat::testing::open_store_or_fail(),
         EraId::Infiltration => dereth_dat::testing::open_classic_store_or_fail(),
         EraId::Launch => {
             let dir = std::env::var_os("DERETH_TEST_DAT_CAPTURES_DIR")

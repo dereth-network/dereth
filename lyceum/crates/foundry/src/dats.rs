@@ -79,6 +79,7 @@ pub const fn era_name(era: EraId) -> &'static str {
         EraId::Launch => "Launch",
         EraId::Infiltration => "Infiltration",
         EraId::Eor => "end-of-retail",
+        EraId::NewDereth => "New Dereth",
     }
 }
 
