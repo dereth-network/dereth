@@ -60,8 +60,10 @@
 //! when the target has gone out of its user's sight by then); a strike lands at its animation's hit
 //! point. The special's damage is a basic attack's with the hook's
 //! own added. When the special's animation is over, the skill's information (when it was last
-//! used, from which its recovery counts), the player not attacking, stopped and at peace. Inside
-//! an attack run, a special takes the run's next swing, and the run goes on after it.
+//! used, from which its recovery counts), the player not attacking and at peace; a player it
+//! turned or walked is stopped just before the attack state is lowered, or after the peace for a
+//! skill used on the move. Inside an attack run, a special takes the run's next swing, and the run
+//! goes on after it.
 //!
 //! **A recall** powers up for its time (the player's behavior held), then its story and its vigor
 //! (the whole of it), into portal space and out where its recall effect says, its text ("You
@@ -3249,8 +3251,8 @@ fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
 /// A use is over: the skill's information (when it was last used, from which its recovery counts,
 /// or never, for a summoning that set no pet down of a skill whose definition says it is then
 /// unused; a recall's start of the wait every skill shares), and, used from rest, the player not
-/// attacking, stopped and at peace; inside a run, the run's next swing. A request waiting is taken
-/// up.
+/// attacking and at peace, stopped where the use turned or walked it ([`stops_before_lowering`]);
+/// inside a run, the run's next swing. A request waiting is taken up.
 fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let now_game = net.game_time(clock.local);
     let Some(p) = s.players.get_mut(&world) else {
@@ -3357,14 +3359,16 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
         // of 104 such ends with nothing refused in the tick, the line after the lowering in 103 of
         // 104).
         let followed = crate::follow::order_stopped(s, net, world);
-        progress::private(net, world, &combat::attack_state(false));
-        if x.turned && !followed {
-            if let Some(p) = s.players.get_mut(&world) {
-                let stop = stop_moving(p);
-                to_all_seeing(s, net, me, &stop);
-            }
+        let stops = x.turned && !followed;
+        let first = stops && stops_before_lowering(&x.usage);
+        if first {
+            stop_at_end(s, net, world, me);
         }
+        progress::private(net, world, &combat::attack_state(false));
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        if stops && !first {
+            stop_at_end(s, net, world, me);
+        }
         if followed {
             crate::follow::told_stopped(net, world);
         }
@@ -3461,27 +3465,45 @@ fn turns_on<S: Store>(
     let followed = x.alone && crate::follow::order_stopped(s, net, world);
     progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
     skill_info(s, net, world, x, now_game, TOGGLED_ON);
-    if x.alone {
-        progress::private(net, world, &combat::attack_state(false));
-    }
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let me = p.character;
+    let stops = x.alone && x.turned && !followed;
+    let first = stops && stops_before_lowering(&x.usage);
+    if first {
+        stop_at_end(s, net, world, me);
+    }
     if x.alone {
-        if x.turned && !followed {
-            if let Some(p) = s.players.get_mut(&world) {
-                let stop = stop_moving(p);
-                to_all_seeing(s, net, me, &stop);
-            }
-        }
+        progress::private(net, world, &combat::attack_state(false));
+    }
+    if x.alone {
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        if stops && !first {
+            stop_at_end(s, net, world, me);
+        }
         if followed {
             crate::follow::told_stopped(net, world);
         }
         run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
+    }
+}
+
+/// Does a use that turned or walked its user stop it before the attack state is lowered (one not
+/// used on the move), or after the peace (one used on the move)? (2017: of the ends that told both
+/// the stop and the lowering in one tick, 2,332 of 2,332 not used on the move stopped first; 850 of
+/// 851 used on the move stopped after the peace.)
+fn stops_before_lowering(u: &Usage) -> bool {
+    u.ui_flags & ui_flag::USE_WHILE_MOVING == 0
+}
+
+/// The player stopped as its use ends, for everyone who sees it.
+fn stop_at_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, me: u64) {
+    if let Some(p) = s.players.get_mut(&world) {
+        let stop = stop_moving(p);
+        to_all_seeing(s, net, me, &stop);
     }
 }
 

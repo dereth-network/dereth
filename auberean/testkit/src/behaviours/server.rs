@@ -20027,12 +20027,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.end-stop-by-the-move-flag",
+        says: "A special that turned or walked its user stops it as the use ends: a skill not used \
+               on the move just before the attack state is lowered, after its information; one \
+               used on the move after the peace.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-END-STOP"),
+        station: "yalain-testkit::cpu::play::specials::a_special_that_turned_its_user_stops_it_before_or_after_the_peace_by_its_move_flag",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.from-rest",
         says: "A special used from rest raises the attack state, puts the player in its weapon's \
                combat mode and turns it to its target, pays its vigor (the skill's and the \
                weapon's), tells the special's story with the use's number, then at the \
-               animation's end sends the skill's information, lowers the attack state, stops the \
-               player and puts it at peace; a missile's outcome is told by its target as it \
+               animation's end sends the skill's information, stops the player, lowers the attack \
+               state and puts it at peace; a missile's outcome is told by its target as it \
                arrives.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-REST"),

@@ -2439,3 +2439,78 @@ fn a_skill_that_walks_its_user_walks_into_its_own_range() {
         "struck from within 20 m"
     );
 }
+
+/// The end of a special that turned or walked its user, in the order the server sent it, from the
+/// skill's information on: the information, the stop, the attack state lowered, the peace.
+fn end_in_send_order(h: &Harness, b: usize, from: usize, me: u64) -> Vec<&'static str> {
+    let sent = h.sent_messages(b, from);
+    let at = sent
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == SKILL_INFO))
+        .expect("the skill's information");
+    sent[at..]
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == SKILL_INFO => Some("information"),
+            ServerMessage::PlayerCall(c) if c.function.0 == ATTACK_STATE => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok());
+                (v == Some(vec![Value::Int(0)])).then_some("lowered")
+            }
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40 => {
+                Some("stop")
+            }
+            ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001 => {
+                Some("peace")
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A special that turned its user to its target (Deadeye) and is not used on the move stops the
+/// player just before the attack state is lowered: the information, the stop, the lowering, the
+/// peace. One used on the move (Riposte, which walks its user; Deadeye marked so) stops the player
+/// after the peace.
+/// Behaviour: server.specials.end-stop-by-the-move-flag
+#[test]
+fn a_special_that_turned_its_user_stops_it_before_or_after_the_peace_by_its_move_flag() {
+    use yalain_world::skill_use::ui_flag;
+    let ended = |skill: u32, weapon: u32, on_the_move: Option<bool>| {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, weapon);
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&skill)
+            .and_then(|d| d.usage.as_mut())
+            .expect("the skill is used");
+        if skill == RIPOSTE {
+            u.max_range = 20.0;
+        }
+        match on_the_move {
+            Some(true) => u.ui_flags |= ui_flag::USE_WHILE_MOVING,
+            Some(false) => u.ui_flags &= !ui_flag::USE_WHILE_MOVING,
+            None => {}
+        }
+        let from = use_skill(&mut h, b, 6, skill, beetle);
+        h.run(120);
+        assert!(h.server.players.values().all(|p| p.using.is_none()), "over");
+        end_in_send_order(&h, b, from, me)
+    };
+    let first = vec!["information", "stop", "lowered", "peace"];
+    let last = vec!["information", "lowered", "peace", "stop"];
+    assert_eq!(ended(DEADEYE, BOW, None), first, "turned, not on the move");
+    assert_eq!(ended(DEADEYE, BOW, Some(true)), last, "turned, on the move");
+    assert_eq!(
+        ended(RIPOSTE, SWORD, Some(true)),
+        last,
+        "walked, on the move"
+    );
+    assert_eq!(
+        ended(RIPOSTE, SWORD, Some(false)),
+        first,
+        "walked, not on the move"
+    );
+}
