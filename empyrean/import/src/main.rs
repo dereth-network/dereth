@@ -5,7 +5,8 @@
 //! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), the
 //! spell table's records (`dereth-assets`) and the Launch spell fixes (`empyrean-dat`), for
 //! `spawns` on the entity enums (`empyrean-entity`), for `world` on a world's rows
-//! (`empyrean-world-db`) and, for `world cutover`, a shard database's (`empyrean-store`), and for
+//! (`empyrean-world-db`), the fold's findings it reports (`dereth-pack`) and, for `world cutover`,
+//! a shard database's (`empyrean-store`), and for
 //! `fetch` on an HTTP client (`ureq`, over rustls), `zip` and `sha2`. **Used by** nothing: it is
 //! the `empyrean-import` binary.
 //!

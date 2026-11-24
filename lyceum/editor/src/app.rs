@@ -765,6 +765,9 @@ pub struct EditorApp {
     pub rows: rows_tab::RowsView,
     /// Whether the world itself is a world repository, opened at its newest layer.
     pub repo_world: bool,
+    /// Its check going on after a save, and what the last one found.
+    repo_checking: Option<repo_check::Checking>,
+    repo_found: Option<repo_check::Checked>,
     character_work: Option<characters_tab::Work>,
     /// Frames counted while the Characters tab shows, for when the creatures round the camera
     /// are gathered again.
@@ -1235,6 +1238,8 @@ impl EditorApp {
             characters,
             rows: rows_tab::RowsView::default(),
             repo_world: false,
+            repo_checking: None,
+            repo_found: None,
             character_work: None,
             place_ticks: 0,
             play_options: play::read_play_options(&play::playtest_dir(&args.world).join("client")),
@@ -2419,6 +2424,8 @@ impl EditorApp {
                 Ok(w) => {
                     self.saved = Some((self.session.history().0, self.core.timer.local_time));
                     self.panels.message = self.say_with("messages.saved", &[("n", &w.len())]);
+                    // A repository is checked as it is saved.
+                    self.start_repo_check();
                     Ok(())
                 }
                 Err(e) => Err(e.to_string()),
@@ -5225,6 +5232,9 @@ mod rows_tab;
 
 #[path = "rows_edit.rs"]
 mod rows_edit;
+
+#[path = "repo_check.rs"]
+mod repo_check;
 
 #[path = "characters_tab.rs"]
 mod characters_tab;

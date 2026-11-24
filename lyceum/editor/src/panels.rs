@@ -591,6 +591,7 @@ impl EditorApp {
             count("checks.error", "checks.errors", faults),
             count("checks.warning", "checks.warnings", warnings)
         );
+        self.repo_findings(ui, out);
         let open = self.panels.findings_open;
         let header = egui::CollapsingHeader::new(head)
             .id_salt("findings")

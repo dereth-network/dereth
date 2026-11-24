@@ -174,7 +174,8 @@ pub fn write_play_options(settings: &Path, o: PlayOptions) -> Result<(), String>
 
 impl LiveArgs {
     /// What the world is made of: over the data files of `era` in `dats`, its world database made
-    /// from `sql` (the server's SQL); and the later files the client plays it with beside them,
+    /// from `sql` (the server's SQL), or from world repository `repo` (its world file, the layer
+    /// it is built at, its rules' era); and the later files the client plays it with beside them,
     /// in `client_dats`.
     ///
     /// # Errors
@@ -184,13 +185,20 @@ impl LiveArgs {
         (dats, era): (&std::path::Path, dereth_primitives::EraId),
         client_dats: &std::path::Path,
         sql: Option<&std::path::Path>,
+        repo: Option<(PathBuf, String, dereth_primitives::EraId)>,
     ) -> Result<LiveSetup, String> {
         let at = self.empyrean.as_deref();
         let server = program(at, "empyrean-server")
             .ok_or("no empyrean-server: name the server's folder with --empyrean")?;
         let import = program(at, "empyrean-import")
             .ok_or("no empyrean-import: name the server's folder with --empyrean")?;
-        let sql = sql.ok_or("no server SQL to make the world of: name it with --weenies")?;
+        let sql = match (sql, &repo) {
+            (Some(s), _) => s.to_path_buf(),
+            (None, Some(_)) => PathBuf::new(),
+            (None, None) => {
+                return Err("no server SQL to make the world of: name it with --weenies".into())
+            }
+        };
         let (dir, keep) = match &self.dir {
             Some(d) => (d.clone(), true),
             None => (self.playtest.join("world"), true),
@@ -198,12 +206,17 @@ impl LiveArgs {
         Ok(LiveSetup {
             server,
             import,
-            sql: sql.to_path_buf(),
+            sql,
             dats: dats.to_path_buf(),
             era,
             client_dats: client_dats.to_path_buf(),
             dir,
             keep,
+            launched_at: repo.as_ref().and_then(|(world, _, _)| {
+                let r = lyceum_foundry::repo::Repo::open(world).ok()?;
+                lyceum_foundry::repo_world::launched_at(&r).ok()?
+            }),
+            repo,
         })
     }
 }
@@ -284,7 +297,18 @@ impl EditorApp {
         let text = self.text.table();
         let args = &mut self.live_args;
         crate::programs::ready(&mut args.empyrean, &text)?;
-        if self.server_sql.is_none() {
+        // A world repository is checked first, and its world built at the layer edited.
+        let repo = if self.repo_world {
+            self.repo_check_now()?;
+            let layer = self.session.mirror().map(|m| m.layer.clone());
+            let rules = self.rows.repo.as_ref().map(|r| r.era);
+            layer
+                .zip(rules)
+                .map(|(l, e)| (self.session.world().path.clone(), l, e))
+        } else {
+            None
+        };
+        if self.server_sql.is_none() && repo.is_none() {
             return Err(self.say("messages.database_needed"));
         }
         let base = self.session.base();
@@ -292,9 +316,12 @@ impl EditorApp {
             (&base.dir, base.era),
             &self.core.cfg.dat_dir,
             self.server_sql.as_deref(),
+            repo,
         )?;
         tracing::info!("starting the editor's world in {}", setup.dir.display());
-        self.starting = Some(Live::launch(&setup, &self.session)?);
+        // A world built from a repository holds its layer's items as saved already.
+        let built = self.session.mirror_saved();
+        self.starting = Some(Live::launch(&setup, &self.session, built)?);
         self.panels.message = self.say("messages.live_starting");
         Ok(())
     }
@@ -508,6 +535,7 @@ impl EditorApp {
     /// Each frame: the start's end, the edits waiting (once no drag or stroke goes on), the
     /// server's answers, and a server that ended.
     pub(super) fn live_frame(&mut self) {
+        self.poll_repo_check();
         if let Some(result) = self
             .fetching
             .as_ref()
@@ -819,12 +847,12 @@ mod tests {
         );
         let client = std::path::Path::new("dats");
         // No programs there; then no import tool; then no SQL.
-        assert!(a.setup(dats, client, Some(sql)).is_err());
+        assert!(a.setup(dats, client, Some(sql), None).is_err());
         std::fs::write(exe("empyrean-server"), b"").unwrap();
-        assert!(a.setup(dats, client, Some(sql)).is_err());
+        assert!(a.setup(dats, client, Some(sql), None).is_err());
         std::fs::write(exe("empyrean-import"), b"").unwrap();
-        assert!(a.setup(dats, client, None).is_err());
-        let s = a.setup(dats, client, Some(sql)).unwrap();
+        assert!(a.setup(dats, client, None, None).is_err());
+        let s = a.setup(dats, client, Some(sql), None).unwrap();
         assert_eq!(
             (s.server, s.import, s.sql),
             (
@@ -838,7 +866,7 @@ mod tests {
             (std::path::Path::new("live"), true)
         );
         let b = LiveArgs { dir: None, ..a };
-        let s = b.setup(dats, client, Some(sql)).unwrap();
+        let s = b.setup(dats, client, Some(sql), None).unwrap();
         assert!(s.keep, "playtest characters survive closing the editor");
         assert_eq!(s.dir, Path::new("worlds/mine/.playtest/world"));
         let _ = std::fs::remove_dir_all(&dir);

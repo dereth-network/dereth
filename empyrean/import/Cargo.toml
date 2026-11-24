@@ -21,6 +21,7 @@ dereth-primitives.workspace = true
 # `ac1999 dat-overlay`: the spell table's records as the fixes read them, and the fixes themselves.
 dereth-assets.workspace = true
 empyrean-dat.workspace = true
+dereth-pack.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 # `fetch`: downloading ACE-World's release over HTTPS (rustls with its ring provider and the
@@ -35,7 +36,6 @@ empyrean-store.workspace = true
 
 [dev-dependencies]
 # The row schema's items, made as the shared pack format makes them.
-dereth-pack.workspace = true
 
 [build-dependencies]
 sha2.workspace = true

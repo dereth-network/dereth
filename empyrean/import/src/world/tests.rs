@@ -280,6 +280,35 @@ fn every_layer_is_checked_and_a_layer_that_changes_nothing_has_the_world_below_i
         "{:?}",
         checks[5].problems
     );
+    // Said for an editor, each thing is its layer's, of its item, and where it is written when
+    // that is known; as JSON, the same.
+    let (said, layers, quiet, errors) = super::check_said(f.clone());
+    assert_eq!((layers, quiet, errors), (6, 5, 2));
+    let no_op = said
+        .iter()
+        .find(|s| {
+            s.text
+                .contains("weenie 11 int.Value: changes nothing below")
+        })
+        .expect("the no-op");
+    assert_eq!(
+        (no_op.layer.as_str(), no_op.severity, no_op.item.as_deref()),
+        ("2000-02-shadows", "warning", Some("weenie 11"))
+    );
+    assert!(no_op.at.is_some(), "{no_op:?}");
+    let broken = said
+        .iter()
+        .find(|s| s.text == "spawn 0x7A9B4002: class 4000 is in no weenie")
+        .expect("the broken spawn");
+    assert_eq!(
+        (broken.severity, broken.item.as_deref()),
+        ("error", Some("spawn 0x7A9B4002"))
+    );
+    let json: serde_json::Value = serde_json::from_str(&no_op.json()).expect("JSON");
+    assert_eq!(json["item"], "weenie 11");
+    assert_eq!(json["severity"], "warning");
+    assert!(json["file"].as_str().is_some_and(|f| f.ends_with(".toml")));
+    assert!(json["line"].as_u64().is_some());
     let (lines, errors) = check_lines(f);
     assert_eq!(errors, 2, "{lines:?}");
     assert_eq!(

@@ -2,7 +2,7 @@
 //! layer by layer, and built at any layer into Empyrean's pack and ACE's world SQL.
 //!
 //! ```text
-//! empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...
+//! empyrean-import world check --world <world.toml> [--json] [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>
@@ -29,6 +29,11 @@
 //! warnings, said once. A layer that changes nothing has the world below it. A layer whose data
 //! files aren't among those given isn't checked for closure, and says so. What a patch's data files
 //! find is a warning until its `patch.toml` says `status = "written"`, and its error after.
+//!
+//! `check --json` says the same, one line of JSON for each thing found (`layer`, `severity`:
+//! `error`, `warning` or `report`, `text` as the plain check says it, and `item`, `file` and `line`
+//! when it is known), then one of the counts (`layers`, `quiet`, `errors`): what a world editor
+//! reads to list them.
 //!
 //! `build` folds the world up to `--layer` (the last, when left out), checks the layers up to it as
 //! `check` does and refuses on any error, numbers it by rule and writes its pack, the same bytes
@@ -102,55 +107,134 @@ pub fn pack_of(c: &WorldContent) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Each layer's errors, warnings and reports, as lines; and how many errors there were.
+/// One thing the check says of a layer: how bad, the item it is of and where it is written, when
+/// known, and what it says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Said {
+    pub layer: String,
+    pub severity: &'static str,
+    pub item: Option<String>,
+    pub at: Option<dereth_pack::Loc>,
+    pub text: String,
+}
+
+impl Said {
+    /// As one line of JSON: `layer`, `severity`, `text`, and `item`, `file` and `line` when known.
+    #[must_use]
+    pub fn json(&self) -> String {
+        let mut o = serde_json::json!({
+            "layer": self.layer,
+            "severity": self.severity,
+            "text": self.text,
+        });
+        if let Some(i) = &self.item {
+            o["item"] = i.clone().into();
+        }
+        if let Some(at) = &self.at {
+            o["file"] = at.file.display().to_string().into();
+            o["line"] = at.line.into();
+        }
+        o.to_string()
+    }
+}
+
+/// The item a line of the check begins with (`<item>: ...`), when it begins with one.
+fn item_said(text: &str) -> Option<String> {
+    let (head, _) = text.split_once(": ")?;
+    empyrean_world_db::layers::item_form(head)
+}
+
+/// The item a fold's finding is of.
+fn item_found(x: &dereth_pack::fold::Finding) -> Option<String> {
+    use dereth_pack::fold::Finding as F;
+    match x {
+        F::Conflict(c) => empyrean_world_db::layers::item_form(&c.what).or_else(|| {
+            c.what
+                .rsplit_once(' ')
+                .and_then(|(i, _)| empyrean_world_db::layers::item_form(i))
+        }),
+        F::Drift(d) => Some(d.item.clone()),
+        F::SetTwice { item, .. }
+        | F::StaleRemoval { item, .. }
+        | F::StaleAck { item, .. }
+        | F::NoOp { item, .. }
+        | F::Shadowed { item, .. } => Some(item.clone()),
+    }
+}
+
+/// Everything the check says, layer by layer; how many layers there are, how many have nothing to
+/// say, and how many errors there were.
 #[must_use]
-pub fn check_lines(f: Folding) -> (Vec<String>, usize) {
+pub fn check_said(f: Folding) -> (Vec<Said>, usize, usize, usize) {
     let layers = f.len();
-    let mut lines = Vec::new();
+    let mut out = Vec::new();
     let mut errors = 0;
     let mut quiet = 0;
     for l in &f.check() {
-        let shown: Vec<String> = l
-            .findings
-            .iter()
-            .map(|x| {
-                let word = match x.severity() {
-                    Severity::Error => "error",
-                    Severity::Warning => "warning",
-                    Severity::Report => "report",
-                };
-                format!("  {word}: {x}")
-            })
-            .collect();
-        errors += l
-            .findings
-            .iter()
-            .filter(|x| x.severity() == Severity::Error)
-            .count();
-        errors += l.problems.len();
-        let problems: Vec<String> = l
-            .problems
-            .iter()
-            .map(|p| format!("  error: {p}"))
-            .chain(
-                l.inherited
-                    .iter()
-                    .map(|p| format!("  warning: {p} (its source's own)")),
-            )
-            .chain(l.warnings.iter().map(|w| format!("  warning: {w}")))
-            .chain(l.reports.iter().map(|r| format!("  report: {r}")))
-            .collect();
-        if shown.is_empty() && problems.is_empty() {
-            quiet += 1;
-            continue;
+        let before = out.len();
+        let said = |severity: &'static str, item, at, text: String| Said {
+            layer: l.id.clone(),
+            severity,
+            item,
+            at,
+            text,
+        };
+        for x in &l.findings {
+            let severity = match x.severity() {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Report => "report",
+            };
+            if x.severity() == Severity::Error {
+                errors += 1;
+            }
+            out.push(said(
+                severity,
+                item_found(x),
+                x.at().cloned(),
+                x.to_string(),
+            ));
         }
-        lines.push(format!("{}:", l.id));
-        lines.extend(shown);
-        lines.extend(problems);
+        errors += l.problems.len();
+        for p in &l.problems {
+            out.push(said("error", item_said(p), None, p.clone()));
+        }
+        for p in &l.inherited {
+            out.push(said(
+                "warning",
+                item_said(p),
+                None,
+                format!("{p} (its source's own)"),
+            ));
+        }
+        for w in &l.warnings {
+            out.push(said("warning", item_said(w), None, w.clone()));
+        }
+        for r in &l.reports {
+            out.push(said("report", item_said(r), None, r.clone()));
+        }
+        if out.len() == before {
+            quiet += 1;
+        }
+    }
+    (out, layers, quiet, errors)
+}
+
+/// Each layer's errors, warnings and reports, as lines; and how many errors there were.
+#[must_use]
+pub fn check_lines(f: Folding) -> (Vec<String>, usize) {
+    let (said, layers, quiet, errors) = check_said(f);
+    let mut lines = Vec::new();
+    let mut layer: Option<&str> = None;
+    for s in &said {
+        if layer != Some(s.layer.as_str()) {
+            lines.push(format!("{}:", s.layer));
+            layer = Some(&s.layer);
+        }
+        lines.push(format!("  {}: {}", s.severity, s.text));
     }
     lines.push(format!(
-        "{} layers, {quiet} with nothing to say; {errors} errors",
-        layers
+        "{layers} layers, {quiet} with nothing to say; {errors} errors"
     ));
     (lines, errors)
 }
@@ -159,6 +243,7 @@ fn run_check(args: &[String]) -> Result<bool, String> {
     let mut world: Option<PathBuf> = None;
     let mut dumps: Option<PathBuf> = None;
     let mut dats: Vec<PathBuf> = Vec::new();
+    let mut json = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || {
@@ -170,6 +255,7 @@ fn run_check(args: &[String]) -> Result<bool, String> {
             "--world" => world = Some(value()?.into()),
             "--dumps" => dumps = Some(value()?.into()),
             "--dats" => dats.push(value()?.into()),
+            "--json" => json = true,
             _ => return Err(USAGE.into()),
         }
     }
@@ -177,8 +263,22 @@ fn run_check(args: &[String]) -> Result<bool, String> {
     let mut f = empyrean_world_db::world::open(&world, dumps.as_deref())?;
     if !dats.is_empty() {
         let d = Dats::scan(&dats)?;
-        println!("{}", d.summary());
+        if !json {
+            println!("{}", d.summary());
+        }
         f = f.with_dats(d);
+    }
+    if json {
+        // One line of JSON for each thing said, then one of the counts.
+        let (said, layers, quiet, errors) = check_said(f);
+        for s in &said {
+            println!("{}", s.json());
+        }
+        println!(
+            "{}",
+            serde_json::json!({ "layers": layers, "quiet": quiet, "errors": errors })
+        );
+        return Ok(errors == 0);
     }
     let (lines, errors) = check_lines(f);
     for l in &lines {
@@ -237,7 +337,7 @@ fn run_build(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
-const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>";
+const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--json] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>";
 
 /// `empyrean-import world ...`.
 pub fn run(args: &[String]) -> ExitCode {

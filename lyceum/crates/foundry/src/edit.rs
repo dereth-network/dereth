@@ -3266,6 +3266,34 @@ impl Session {
                 .is_some_and(|(f, _)| m.holds(&f))
     }
 
+    /// The mirror's files of a repository's layer as last saved (or as made), by their path as
+    /// the compiled SQL names them (the pack's name, then the path in its `server/sql`): what a
+    /// world built from the saved repository already holds.
+    pub fn mirror_saved(&mut self) -> BTreeMap<PathBuf, String> {
+        let Some(dir) = self.mirror.as_ref().map(|m| m.dir.clone()) else {
+            return BTreeMap::new();
+        };
+        let pack = self.packs[self.target].name.clone();
+        let sql_dir = self.pack_dir().join("server").join("sql");
+        let paths: Vec<PathBuf> = self.packs[self.target]
+            .sql
+            .iter()
+            .filter(|f| f.path.starts_with(&dir))
+            .map(|f| f.path.clone())
+            .collect();
+        let mut out = BTreeMap::new();
+        for p in paths {
+            let (Some(text), Ok(rel)) = (
+                self.sources.stored(&DiskStore, &p),
+                p.strip_prefix(&sql_dir),
+            ) else {
+                continue;
+            };
+            out.insert(Path::new(&pack).join(rel), text);
+        }
+        out
+    }
+
     /// Whether a file of the world repository whose rows are edited differs from the disk's.
     #[must_use]
     pub fn rows_unsaved(&self) -> bool {

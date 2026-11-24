@@ -451,7 +451,15 @@ fn write_sql(
 pub fn content_place(rel: &Path, text: &str) -> Option<(PathBuf, String)> {
     let mut parts = rel.components();
     let pack = parts.next()?.as_os_str().to_str()?;
-    let kind = parts.next()?.as_os_str().to_str()?;
+    let mut kind = parts.next()?.as_os_str().to_str()?;
+    // A world repository's layer, mirrored in the pack: its item's kind is the folder within.
+    if kind == crate::mirror::MIRROR {
+        kind = match parts.next()?.as_os_str().to_str()? {
+            "weenie" => "weenies",
+            "quest" => "quests",
+            other => other,
+        };
+    }
     let name = rel.file_name()?.to_str()?;
     let stem = rel.file_stem()?.to_str()?;
     match kind {

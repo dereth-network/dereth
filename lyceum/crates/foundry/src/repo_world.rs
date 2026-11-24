@@ -135,6 +135,27 @@ pub fn check_lock(repo: &Repo, land: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
+/// The moment the repository's world's calendar starts, in UTC (`2026-12-01T00:00:00Z`): its
+/// `[calendar] starts_at` once it has launched, else the first moment of the month its base opens
+/// (`[base] month`); `None` when it names neither.
+///
+/// # Errors
+/// A world file that doesn't read.
+pub fn launched_at(repo: &Repo) -> Result<Option<String>, String> {
+    let world = world_table(repo)?;
+    let s = |table: &str, key: &str| {
+        world
+            .get(table)
+            .and_then(|t| t.get(key))
+            .and_then(toml::Value::as_str)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    };
+    Ok(s("calendar", "starts_at")
+        .or_else(|| s("base", "month").map(|m| format!("{m}-01T00:00:00Z"))))
+}
+
 /// The repository's key: its world file's, else its folder's name.
 ///
 /// # Errors

@@ -1,6 +1,8 @@
 //! The editor's own world: an Empyrean server it starts on the loopback, in a folder of its own,
 //! over the player's data files with the world's compiled overlay laid over them and a world
-//! database of its own, made from the server's SQL. Each change is pushed to it as the server's own tools take it: the packs'
+//! database of its own, made from the server's SQL, or for a world repository built from it at the
+//! layer edited (its world's SQL beside it, for the server's own overlay), its layer's items as
+//! saved in it already. Each change is pushed to it as the server's own tools take it: the packs'
 //! SQL written into its content folder and imported (`import-sql`), the data files written as a
 //! new overlay folder and read again (`reload-dat-overlay`), and every landblock the change
 //! reaches built again. A Dereth client started against it plays the world as it is being made.
@@ -38,6 +40,11 @@ pub struct LiveSetup {
     /// The folder the server runs in (made afresh), and whether it stays when the server ends.
     pub dir: PathBuf,
     pub keep: bool,
+    /// A world repository the world is made of in place of `sql`: its world file, the layer it is
+    /// built at, and the era whose rules it plays.
+    pub repo: Option<(PathBuf, String, dereth_primitives::EraId)>,
+    /// The moment the world's calendar starts, in UTC, for an era that keeps one.
+    pub launched_at: Option<String>,
 }
 
 /// A program of the server's or the client's, `name`: in `dir` when one is named, else beside the
@@ -192,16 +199,25 @@ const PATIENCE: Duration = Duration::from_secs(120);
 /// administrators, everything else the defaults.
 #[must_use]
 pub fn config_text(
-    (dats, era): (&Path, dereth_primitives::EraId),
-    (pack, sql): (&Path, &Path),
+    (dats, era, launched_at): (&Path, dereth_primitives::EraId, Option<&str>),
+    (pack, sql, patches): (&Path, &Path, &[PathBuf]),
     dir: &Path,
     port: u16,
     overlay: &Path,
 ) -> String {
     let p = |p: &Path| p.display().to_string().replace('\\', "/");
+    let patches = patches
+        .iter()
+        .map(|x| format!("\"{}\"", p(x)))
+        .collect::<Vec<_>>()
+        .join(", ");
     let era = match era {
         dereth_primitives::EraId::Eor => String::new(),
-        other => format!("\n[era]\nprofile = \"{}\"\n", other.name()),
+        other => format!(
+            "\n[era]\nprofile = \"{}\"\n{}",
+            other.name(),
+            launched_at.map_or_else(String::new, |at| format!("launched_at = \"{at}\"\n"))
+        ),
     };
     format!(
         "# The world editor's own server: the loopback only, written by the editor.\n\
@@ -211,6 +227,7 @@ pub fn config_text(
          world_pack_path = \"{pack}\"\n\
          world_overlay_path = \"{run}/content.overlay\"\n\
          world_base_sql = \"{sql}\"\n\
+         world_base_patches = [{patches}]\n\
          interactive_console = true\n\
          landblock_preloading = false\n\
          log_level = \"info\"\n\
@@ -796,7 +813,11 @@ impl Live {
     ///
     /// # Errors
     /// The folder or the overlay would not write.
-    pub fn launch(setup: &LiveSetup, session: &Session) -> Result<Starting, String> {
+    pub fn launch(
+        setup: &LiveSetup,
+        session: &Session,
+        built: BTreeMap<PathBuf, String>,
+    ) -> Result<Starting, String> {
         let dir = setup.dir.clone();
         let (lock, run) = prepare_folder(&dir)?;
         let overlay = run.join("overlay-0");
@@ -807,7 +828,9 @@ impl Live {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             // A start nobody waits for any more ends its server as it is dropped.
-            let _ = tx.send(Self::start(&setup, overlay, records, tombstones, lock));
+            let _ = tx.send(Self::start(
+                &setup, overlay, records, tombstones, lock, &built,
+            ));
         });
         Ok(Starting { rx })
     }
@@ -820,18 +843,41 @@ impl Live {
         records: Records,
         tombstones: BTreeMap<ModernDat, BTreeSet<(u32, u32)>>,
         lock: std::fs::File,
+        built: &BTreeMap<PathBuf, String>,
     ) -> Result<Self, String> {
         let dir = setup.dir.clone();
         let pack = dir.join("world.pack");
         let mut import = Command::new(&setup.import);
-        import
-            .arg("--sql")
-            .arg(&setup.sql)
-            .arg("--era")
-            .arg(setup.era.name())
-            .arg("--out")
-            .arg(&pack)
-            .stdin(Stdio::null());
+        // A world repository's world is built at its layer, with its SQL beside it for the
+        // server's overlay: the world's own (its base) and the server's own tables (a patch).
+        let built_sql = dir.join("sql");
+        let (base_sql, patches, profile) = match &setup.repo {
+            Some((world, layer, rules)) => {
+                import
+                    .args(["world", "build", "--world"])
+                    .arg(world)
+                    .args(["--layer", layer, "--out"])
+                    .arg(&pack)
+                    .arg("--sql")
+                    .arg(&built_sql);
+                (
+                    built_sql.join("world.sql"),
+                    vec![built_sql.join("empyrean.sql")],
+                    *rules,
+                )
+            }
+            None => {
+                import
+                    .arg("--sql")
+                    .arg(&setup.sql)
+                    .arg("--era")
+                    .arg(setup.era.name())
+                    .arg("--out")
+                    .arg(&pack);
+                (setup.sql.clone(), Vec::new(), setup.era)
+            }
+        };
+        import.stdin(Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -844,7 +890,11 @@ impl Live {
             return Err(format!(
                 "{} made no world database of {}: {}",
                 setup.import.display(),
-                setup.sql.display(),
+                setup
+                    .repo
+                    .as_ref()
+                    .map_or(&setup.sql, |(w, _, _)| w)
+                    .display(),
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
@@ -855,8 +905,8 @@ impl Live {
         std::fs::write(
             &config,
             config_text(
-                (&setup.dats, setup.era),
-                (&pack, &setup.sql),
+                (&setup.dats, profile, setup.launched_at.as_deref()),
+                (&pack, &base_sql, &patches),
                 &dir,
                 port,
                 &overlay,
@@ -923,7 +973,8 @@ impl Live {
             port,
             overlay: overlay.clone(),
             turns: 0,
-            pushed: BTreeMap::new(),
+            // What the world was built with is in it already: only a change of it is pushed.
+            pushed: placed(built),
             records,
             tombstones,
             keep: setup.keep,
@@ -1541,10 +1592,11 @@ DELETE FROM `landblock_instance` WHERE `guid` = 0x{g:08X};
     #[test]
     fn the_servers_configuration_is_the_loopback_its_folder_and_the_overlay_never_patched() {
         let t = config_text(
-            (Path::new("C:\\dats"), dereth_primitives::EraId::Eor),
+            (Path::new("C:\\dats"), dereth_primitives::EraId::Eor, None),
             (
                 Path::new("D:/live/world.pack"),
                 Path::new("D:\\db\\dump.sql"),
+                &[],
             ),
             Path::new("D:/live"),
             9123,
@@ -1570,14 +1622,24 @@ DELETE FROM `landblock_instance` WHERE `guid` = 0x{g:08X};
             (
                 Path::new("C:/feb2005"),
                 dereth_primitives::EraId::Infiltration,
+                None,
             ),
-            (Path::new("D:/live/world.pack"), Path::new("D:/db/16py.sql")),
+            (
+                Path::new("D:/live/world.pack"),
+                Path::new("D:/db/16py.sql"),
+                &[PathBuf::from("D:/live/sql/empyrean.sql")],
+            ),
             Path::new("D:/live"),
             9123,
             Path::new("D:/live/overlay-0"),
         );
         let table = t.parse::<toml::Table>().unwrap();
         assert_eq!(table["era"]["profile"].as_str(), Some("infiltration"));
+        // And a world built with patches over its base names them.
+        assert_eq!(
+            table["server"]["world_base_patches"][0].as_str(),
+            Some("D:/live/sql/empyrean.sql")
+        );
         assert!(t.contains("dat_files_directory = \"C:/feb2005\""), "{t}");
     }
 
@@ -1792,6 +1854,46 @@ DELETE FROM `landblock_instance` WHERE `guid` = 0x{g:08X};
         );
         let old = ["Unknown command: roll-treasure".to_owned()];
         assert!(matches!(rolled_from(&old, 9), Some(Err(_))));
+    }
+
+    /// A world built from a repository holds its layer's items as saved: they are pushed as they
+    /// change, each to the import that takes its kind, and not before.
+    #[test]
+    fn a_repositorys_items_mirrored_in_the_pack_are_pushed_only_as_they_change() {
+        let own = none();
+        let weenie = |level: u32| {
+            format!(
+                "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\n\
+                 VALUES (2000001, 'scout', 10, '2005-02-09 10:00:00');\n\
+                 INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)\n\
+                 VALUES (2000001, 25, {level});\n"
+            )
+        };
+        let saved: BTreeMap<PathBuf, String> = [(
+            PathBuf::from("emergence/.repository/weenie/weenie_2000001.sql"),
+            weenie(5),
+        )]
+        .into();
+        let pushed = placed(&saved);
+        assert_eq!(pushed.len(), 1, "a mirrored weenie has its place");
+        assert!(plan(&pushed, &saved, &own).writes.is_empty());
+        let mut now = saved.clone();
+        now.insert(
+            PathBuf::from("emergence/.repository/weenie/weenie_2000001.sql"),
+            weenie(6),
+        );
+        now.insert(
+            PathBuf::from("emergence/.repository/quests/Scouting.sql"),
+            "INSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\n\
+             VALUES ('Scouting', 60, -1, NULL, '2005-02-09 10:00:00');\n"
+                .to_owned(),
+        );
+        let p = plan(&pushed, &now, &own);
+        let imports: BTreeSet<&str> = p.writes.values().map(|(_, i)| i.as_str()).collect();
+        assert_eq!(
+            imports,
+            BTreeSet::from(["import-sql weenie 2000001", "import-sql quest Scouting"])
+        );
     }
 
     #[test]
