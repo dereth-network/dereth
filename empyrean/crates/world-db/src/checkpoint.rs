@@ -9,7 +9,12 @@
 //! url = "https://github.com/ACEmulator/ACE-World-16PY/releases/download/v0.8.8/ACE-World-16PY-db-v0.8.8.sql.zip"
 //! sha256 = "..."                 # the release's zip
 //! dataset_id = "..."             # the dump's: what the dump inside it must hash to
+//! era = "infiltration"           # optional: the era the world is from here on, by name
 //! ```
+//!
+//! A checkpoint that names an era changes the world's: the checkpoint and every layer above it,
+//! until the next checkpoint that names one, fold and build in it. One that names none keeps the
+//! era of the layer below.
 //!
 //! The dump is read from a folder of dumps the caller names (`--dumps`, else the [`DUMPS_VAR`]
 //! variable), else from the per-user cache `empyrean-import fetch --world <world>` fills; it must be
@@ -52,6 +57,8 @@ pub struct Pin {
     pub tag: String,
     /// The dump's dataset id, lowercase hex: the first 16 bytes of its BLAKE3.
     pub dataset_id: String,
+    /// The era the world is from this checkpoint on, when it names one.
+    pub era: Option<EraId>,
 }
 
 /// The checkpoint a layer's pin names.
@@ -77,11 +84,22 @@ pub fn pin_of(p: &dereth_pack::lineage::Pin) -> R<Pin> {
     let dataset_id = word("dataset_id")
         .ok_or("checkpoint.toml: dataset_id, the dump's")?
         .to_owned();
+    let era = match p.rest.get("era") {
+        None => None,
+        Some(v) => {
+            let name = v.as_str().ok_or("checkpoint.toml: era is an era's name")?;
+            Some(EraId::parse(name).ok_or_else(|| {
+                let known: Vec<&str> = EraId::ALL.iter().map(|e| e.name()).collect();
+                format!("checkpoint.toml: era {name:?} is not an era; the eras are {known:?}")
+            })?)
+        }
+    };
     Ok(Pin {
         world,
         source: p.source.clone(),
         tag,
         dataset_id,
+        era,
     })
 }
 

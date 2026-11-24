@@ -353,6 +353,7 @@ items = ["spawn 0x7a9b400a", "wielded-treasure 364"]
         base,
         patches: vec![PatchLayer {
             id: "1999-12-dark-thaw".into(),
+            era: None,
             packs: vec![(
                 "fixes".into(),
                 BTreeMap::from([("fixes.toml".into(), patch.into())]),
@@ -392,6 +393,7 @@ fn a_patch_that_removes_what_no_layer_has_or_names_no_item_is_refused() {
         base: base.clone(),
         patches: vec![PatchLayer {
             id: "1999-12-dark-thaw".into(),
+            era: None,
             packs: vec![(
                 "fixes".into(),
                 BTreeMap::from([("fixes.toml".into(), text.to_owned())]),
@@ -646,6 +648,7 @@ fn a_checkpoints_dump_is_read_from_the_folder_it_is_given() {
         source: "ACE-World-16PY".into(),
         tag: "v0.8.8".into(),
         dataset_id: String::new(),
+        era: None,
     };
     let dir = std::env::temp_dir().join(format!("empyrean-world-db-dumps-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a folder");
@@ -674,6 +677,7 @@ fn a_checkpoints_keys_are_written_read_back_and_carry_its_links() {
         source: "ACE-World-16PY".into(),
         tag: "v0.8.8".into(),
         dataset_id: String::new(),
+        era: None,
     };
     let text = keys_text(&keys, &pin);
     assert_eq!(keys_of(&text), Ok(keys.clone()));
@@ -728,6 +732,7 @@ message = "A fixed flag"
         )],
         patches: vec![PatchLayer {
             id: "2005-02-later".into(),
+            era: None,
             checkpoint: Some(Box::new(CheckpointLayer {
                 snapshot: snapshot.clone(),
                 kinds: kinds.clone(),
@@ -834,4 +839,47 @@ mod launch {
             found.first()
         );
     }
+}
+
+/// A checkpoint names the era the world is from there on by its name, or none; a name that is no
+/// era, or an era that isn't a name, doesn't read.
+#[test]
+fn a_checkpoints_era_is_read_by_name_and_one_that_is_no_era_is_refused() {
+    use empyrean_common::era::EraId;
+    use empyrean_common::world_release::SIXTEEN_PY;
+    let pin = |era: Option<toml::Value>| {
+        let mut rest = toml::Table::new();
+        rest.insert("world".into(), "16py".into());
+        rest.insert(
+            "dataset_id".into(),
+            "eaad46237744c2e10860df74d837c5bb".into(),
+        );
+        if let Some(e) = era {
+            rest.insert("era".into(), e);
+        }
+        crate::checkpoint::pin_of(&dereth_pack::lineage::Pin {
+            source: "ACE-World-16PY".into(),
+            revision: "v0.8.8".into(),
+            url: Some(SIXTEEN_PY.download_url("v0.8.8")),
+            sha256: Some(SIXTEEN_PY.pinned_zip_sha256.into()),
+            converter: None,
+            rest,
+        })
+    };
+    assert_eq!(pin(None).expect("reads").era, None);
+    assert_eq!(
+        pin(Some("infiltration".into())).expect("reads").era,
+        Some(EraId::Infiltration)
+    );
+    assert_eq!(
+        pin(Some("EOR".into())).expect("reads").era,
+        Some(EraId::Eor)
+    );
+    let e = pin(Some("medieval".into())).expect_err("refused");
+    assert!(
+        e.contains("\"medieval\" is not an era") && e.contains("launch"),
+        "{e}"
+    );
+    let e = pin(Some(3.into())).expect_err("refused");
+    assert!(e.contains("era is an era's name"), "{e}");
 }

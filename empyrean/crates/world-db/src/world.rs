@@ -243,13 +243,17 @@ fn read_layers(
     };
     let mut read = Vec::new();
     let mut spawns: Vec<u32> = Vec::new();
+    // The era each layer folds in: the base's, until a checkpoint names another.
+    let mut era = m.era;
     for p in patches {
+        let below = era;
         let packs = packs_of(p)?;
         spawns.extend(spawns_in(&packs));
         let mut checkpoint = None;
         let mut pending = None;
         if let Some(pin) = &p.checkpoint {
             let pin = checkpoint::pin_of(pin).map_err(|e| format!("{}: {e}", p.id))?;
+            era = pin.era.unwrap_or(era);
             let dump = pin.dump(dumps).map_err(|e| format!("{}: {e}", p.id))?;
             let keys_path = p.dir.join("keys.toml");
             let file_keys = match (keys, keys_path.is_file()) {
@@ -266,7 +270,7 @@ fn read_layers(
                 dump,
                 keys: file_keys,
                 spawns: std::mem::take(&mut spawns),
-                era: m.era,
+                era,
                 stamp: m.stamp,
             };
             if lazy {
@@ -288,6 +292,7 @@ fn read_layers(
         }
         layers.patches.push(PatchLayer {
             id: p.id.clone(),
+            era: (era != below).then_some(era),
             packs,
             overrides: p.overrides.clone(),
             checkpoint,

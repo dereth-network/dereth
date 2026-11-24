@@ -477,6 +477,9 @@ pub struct Layers {
 #[derive(Debug, Default, Clone)]
 pub struct PatchLayer {
     pub id: String,
+    /// The era the world is from this layer on, when it changes here; `None` keeps the era of
+    /// the layer below.
+    pub era: Option<EraId>,
     pub packs: Vec<(String, BTreeMap<String, String>)>,
     pub overrides: Vec<Override>,
     pub checkpoint: Option<Box<CheckpointLayer>>,
@@ -553,7 +556,8 @@ pub struct Folding {
     /// The classes each layer's snapshot has (none for a delta).
     snapshot_classes: Vec<BTreeSet<u32>>,
     authored_classes: Option<(u32, u32)>,
-    era: EraId,
+    /// The era each layer's world is in: the base's, until a layer changes it.
+    eras: Vec<EraId>,
     stamp: DotNetDateTime,
     /// Each layer's checkpoint still to read, and what keying it reads.
     pending: Vec<Option<Box<crate::world::PendingCheckpoint>>>,
@@ -632,7 +636,7 @@ impl Folding {
             kinds,
             snapshot_classes: vec![base_classes],
             authored_classes: layers.authored_classes,
-            era,
+            eras: vec![era],
             stamp,
             pending: vec![None],
             keying: layers.keying,
@@ -642,6 +646,7 @@ impl Folding {
         };
         for p in layers.patches {
             let iterations = p.iterations;
+            let era = p.era;
             let written = p.written || p.checkpoint.is_some() || p.pending.is_some();
             let (merge, k) =
                 delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
@@ -655,6 +660,9 @@ impl Folding {
                 *f.pending.last_mut().expect("a layer was pushed") = Some(todo);
                 *f.iterations.last_mut().expect("a layer was pushed") = iterations;
                 *f.written.last_mut().expect("a layer was pushed") = written;
+                if let Some(e) = era {
+                    *f.eras.last_mut().expect("a layer was pushed") = e;
+                }
                 continue;
             }
             match p.checkpoint {
@@ -673,6 +681,9 @@ impl Folding {
             }
             *f.iterations.last_mut().expect("a layer was pushed") = iterations;
             *f.written.last_mut().expect("a layer was pushed") = written;
+            if let Some(e) = era {
+                *f.eras.last_mut().expect("a layer was pushed") = e;
+            }
         }
         Ok(f)
     }
@@ -695,6 +706,15 @@ impl Folding {
         self.pending.push(None);
         self.iterations.push(BTreeMap::new());
         self.written.push(true);
+        // A layer keeps the era of the one below it until told otherwise.
+        let below = self.eras.last().copied().unwrap_or_default();
+        self.eras.push(below);
+    }
+
+    /// The era each layer's world is in, the base first.
+    #[must_use]
+    pub fn eras(&self) -> &[EraId] {
+        &self.eras
     }
 
     /// How many layers there are, the base among them.
@@ -729,7 +749,8 @@ impl Folding {
         n: usize,
         world: &Resolved<Value>,
     ) -> (R<WorldContent>, Vec<String>) {
-        let content = content_of(world, &read.kinds.borrow(), self.era, self.stamp);
+        let era = self.eras.get(n).copied().unwrap_or_default();
+        let content = content_of(world, &read.kinds.borrow(), era, self.stamp);
         let mut problems = Vec::new();
         if let (Ok(c), Some((first, last))) = (&content, self.authored_classes) {
             let classes = read.classes.borrow();

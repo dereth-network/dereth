@@ -471,6 +471,7 @@ fn a_checkpoints_own_references_to_nothing_are_its_sources_and_a_patchs_are_erro
         patches: vec![
             PatchLayer {
                 id: "2005-02-infiltration".into(),
+                era: None,
                 checkpoint: Some(Box::new(CheckpointLayer {
                     snapshot,
                     kinds,
@@ -480,6 +481,7 @@ fn a_checkpoints_own_references_to_nothing_are_its_sources_and_a_patchs_are_erro
             },
             PatchLayer {
                 id: "2005-03-later".into(),
+                era: None,
                 packs: vec![("fixes".into(), patch)],
                 ..Default::default()
             },
@@ -695,6 +697,7 @@ fn a_checkpoint_whose_source_loot_is_aces_is_the_swap_and_is_reported_not_an_err
         base: rows(&base),
         patches: vec![PatchLayer {
             id: "2005-02-infiltration".into(),
+            era: None,
             checkpoint: Some(Box::new(CheckpointLayer {
                 snapshot,
                 kinds,
@@ -1725,5 +1728,148 @@ fn a_layers_pack_is_fetched_from_the_release_its_manifest_names_and_cached_by_it
     assert!(
         !fresh.exists() || std::fs::read_dir(&fresh).expect("read").next().is_none(),
         "nothing cached"
+    );
+}
+
+/// A checkpoint that names an era changes the world's from there on: each layer folds and builds
+/// in its own era, its pack records it, and the release's manifest says it, a layer that names
+/// none keeping the era of the one below.
+#[test]
+fn each_layer_builds_in_the_era_its_last_checkpoint_names() {
+    use empyrean_common::era::EraId;
+    use empyrean_world_db::layers::{snapshot_of, CheckpointLayer, Folding, Layers, PatchLayer};
+    let rows = |c: &WorldContent| {
+        let mut files = empyrean_world_db::write(c, default_stamp()).expect("written");
+        set_source(&mut files, "test-world", "r1").expect("a source");
+        files
+    };
+    // A checkpoint's world: the sample moved along x, and with the apple's value the patch below
+    // the second sets (`valued`), so it takes nothing back.
+    let checkpoint = |id: &str, era: EraId, x: f32, valued: bool| {
+        let mut c = sample();
+        c.landblock_instances[0].origin_x = x;
+        if valued {
+            let apple = c
+                .weenies
+                .iter_mut()
+                .find(|w| w.class_id == 11)
+                .expect("the apple");
+            apple.weenie_properties_int.push(WeeniePropertiesInt {
+                r#type: 19,
+                value: 5,
+                ..Default::default()
+            });
+        }
+        let (snapshot, kinds) = snapshot_of(&rows(&c)).expect("a snapshot");
+        PatchLayer {
+            id: id.into(),
+            era: Some(era),
+            checkpoint: Some(Box::new(CheckpointLayer {
+                snapshot,
+                kinds,
+                drift: Vec::new(),
+            })),
+            ..Default::default()
+        }
+    };
+    let layers = Layers {
+        base: rows(&sample()),
+        patches: vec![
+            checkpoint("2005-02-infiltration", EraId::Infiltration, 11.0, false),
+            PatchLayer {
+                id: "2005-03-later".into(),
+                era: None,
+                packs: vec![(
+                    "fixes".into(),
+                    BTreeMap::from([(
+                        "rows.toml".to_owned(),
+                        "[[weenie]]\nclass = 11\nint = { Value = 5 }\n".to_owned(),
+                    )]),
+                )],
+                ..Default::default()
+            },
+            checkpoint("2014-05-may-patch", EraId::Eor, 12.0, true),
+        ],
+        ..Default::default()
+    };
+    let folding = Folding::new(layers, EraId::Launch, default_stamp()).expect("read");
+    let want = [
+        EraId::Launch,
+        EraId::Infiltration,
+        EraId::Infiltration,
+        EraId::Eor,
+    ];
+    assert_eq!(folding.eras(), want);
+    for (n, era) in want.iter().enumerate() {
+        let c = folding.clone().content_at(n).expect("builds");
+        assert_eq!(c.era, *era, "layer {n}");
+    }
+    let dir = Scratch::new("eras");
+    let open = || Ok(folding.clone());
+    let m = super::release::release(&open, "test-world", "v0.1.0", None, &dir.0).expect("released");
+    assert_eq!(
+        m.layers.iter().map(|l| l.era.as_str()).collect::<Vec<_>>(),
+        ["launch", "infiltration", "infiltration", "eor"]
+    );
+    for (asset, era) in [
+        ("base.pack", EraId::Launch),
+        ("2005-02-infiltration.pack", EraId::Infiltration),
+        ("2014-05-may-patch.pack", EraId::Eor),
+    ] {
+        let p = Pack::open(&dir.0.join(asset)).expect("a pack");
+        assert_eq!(p.era(), era, "{asset}");
+    }
+}
+
+/// A world on disk whose checkpoint's `checkpoint.toml` names an era: the checkpoint and the patch
+/// above it are in that era, the base in its own; one naming none keeps the era below, and one
+/// naming no era there is doesn't read. (The world is read before a checkpoint's dump is: each layer
+/// builds in its era as `each_layer_builds_in_the_era_its_last_checkpoint_names` shows.)
+#[test]
+fn a_checkpoint_that_names_an_era_changes_the_worlds_from_there_on() {
+    use empyrean_common::era::EraId;
+    use empyrean_common::world_release::SIXTEEN_PY;
+    let dir = Scratch::new("checkpoint-era");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[
+            ("2005-02-infiltration", None),
+            (
+                "2005-03-later",
+                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
+            ),
+        ],
+    );
+    let dumps = dir.0.join("dumps");
+    std::fs::create_dir_all(&dumps).expect("folder");
+    std::fs::write(dumps.join("ACE-World-16PY-db-v0.8.7.sql"), "").expect("written");
+    let checkpoint = dir
+        .0
+        .join("patches")
+        .join("2005-02-infiltration")
+        .join("checkpoint.toml");
+    let pin = |era: &str| {
+        std::fs::write(
+            &checkpoint,
+            format!(
+                "world = \"16py\"\nsource = \"ACE-World-16PY\"\nrevision = \"v0.8.7\"\nurl = \"{}\"\nsha256 = \"{}\"\ndataset_id = \"{}\"\n{era}",
+                SIXTEEN_PY.download_url("v0.8.7"),
+                "0".repeat(64),
+                "0".repeat(32),
+            ),
+        )
+        .expect("written");
+        empyrean_world_db::world::open(&path, Some(&dumps))
+    };
+    let f = pin("era = \"infiltration\"\n").expect("read");
+    let base = f.eras()[0];
+    assert_ne!(base, EraId::Infiltration);
+    assert_eq!(f.eras(), [base, EraId::Infiltration, EraId::Infiltration]);
+    assert_eq!(pin("").expect("read").eras(), [base, base, base]);
+    let e = pin("era = \"medieval\"\n").expect_err("refused");
+    assert!(
+        e.contains("2005-02-infiltration") && e.contains("is not an era"),
+        "{e}"
     );
 }
