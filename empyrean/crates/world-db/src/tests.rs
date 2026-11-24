@@ -437,6 +437,48 @@ fn a_patch_that_removes_what_no_layer_has_or_names_no_item_is_refused() {
 }
 
 #[test]
+fn a_new_weenie_from_another_world_keeps_its_source_class_and_an_authored_one_takes_the_worlds_own()
+{
+    use crate::layers::{fold_layers, Layers, PatchLayer};
+    let mut base = write(&sample(), default_stamp()).expect("written");
+    base.remove(crate::files::META);
+    let layers = |patches: &[&str]| Layers {
+        base: base.clone(),
+        patches: patches
+            .iter()
+            .enumerate()
+            .map(|(i, text)| PatchLayer {
+                id: format!("1999-12-patch-{i}"),
+                packs: vec![(
+                    format!("rows-{i}"),
+                    BTreeMap::from([("rows.toml".into(), (*text).to_owned())]),
+                )],
+                ..Default::default()
+            })
+            .collect(),
+        authored_classes: Some((1_000_000, 1_999_999)),
+        ..Default::default()
+    };
+    let fold = |patches: &[&str]| fold_layers(layers(patches), Default::default(), default_stamp());
+    let sourced = "[[weenie]]\nclass = 4000\nclass_name = \"retail\"\ntype = \"Generic\"\n\
+        prov = { from = \"source\", source = \"ACE-World-16PY\", revision = \"v0.8.8\" }\n";
+    let w = fold(&[sourced]).expect("another world's class is its own");
+    assert!(w.weenies.iter().any(|w| w.class_id == 4000));
+    // A person's later edit of it leaves the rest of it the source's.
+    let edit = "[[weenie]]\nclass = 4000\nint = { Value = 25 }\n";
+    fold(&[sourced, edit]).expect("edited, still the source's");
+    let authored = "[[weenie]]\nclass = 4000\nclass_name = \"made here\"\ntype = \"Generic\"\n\
+        prov = { from = \"authored\", by = \"a-builder\" }\n";
+    let e = fold(&[authored]).expect_err("an authored class outside the world's own");
+    assert!(
+        e.contains(
+            "weenie 4000: a class the base doesn't have is the world's own, 1000000 to 1999999"
+        ),
+        "{e}"
+    );
+}
+
+#[test]
 fn a_world_file_folds_its_base_pack_and_each_patch_in_its_lineage() {
     let dir = std::env::temp_dir().join(format!("world-db-lineage-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

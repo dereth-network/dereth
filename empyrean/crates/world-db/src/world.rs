@@ -15,7 +15,8 @@
 //!
 //! The base's first pack is the snapshot every later layer folds over; its other packs, and every
 //! patch's, are rows that set, unset and remove field by field ([`crate::layers`]). A weenie the
-//! base doesn't have takes a class of the world's own, `[ids] classes = [first, last]`.
+//! base doesn't have takes a class of the world's own, `[ids] classes = [first, last]`, unless
+//! another world's row brings it (`from = "source"`): that keeps its source's class.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

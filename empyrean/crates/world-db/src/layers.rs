@@ -32,7 +32,7 @@ use dereth_pack::fold::{fold, fold_each, resolve, Folded, Input, Merge, Resolved
 pub use dereth_pack::fold::{Finding, Severity};
 use dereth_pack::lineage::{Ack, BASE};
 use dereth_pack::pack::PackHeader;
-use dereth_pack::provenance::Provenance;
+use dereth_pack::provenance::{Provenance, Source};
 use dereth_pack::records::{self, Kinds, RowKinds};
 use dereth_pack::Loc;
 use empyrean_common::dotnet::DotNetDateTime;
@@ -472,7 +472,8 @@ pub struct Layers {
     pub base_packs: Vec<(String, BTreeMap<String, String>)>,
     pub base_overrides: Vec<Override>,
     pub patches: Vec<PatchLayer>,
-    /// The classes a weenie the base doesn't have may take, inclusive: the world's own.
+    /// The classes a weenie the base doesn't have may take, inclusive: the world's own. A weenie
+    /// another world's row brings (`from = "source"`) keeps its source's class.
     pub authored_classes: Option<(u32, u32)>,
     /// What keying the next checkpoint read reads: the placements and keys so far.
     pub keying: crate::world::Keying,
@@ -750,7 +751,8 @@ impl Folding {
     }
 
     /// The world at layer `n` folded from `world`, whatever its layers' findings; and a weenie no
-    /// snapshot up to it has outside the world's own classes.
+    /// snapshot up to it has outside the world's own classes, unless it is another world's: a
+    /// field of it says it came from a source, whose class it keeps.
     fn content_of_layer(
         &self,
         read: &Read,
@@ -763,8 +765,18 @@ impl Folding {
         if let (Ok(c), Some((first, last))) = (&content, self.authored_classes) {
             let classes = read.classes.borrow();
             let known = |class: &u32| classes[..=n].iter().any(|s| s.contains(class));
+            let sourced = |class: u32| {
+                world.get(&format!("weenie {class}")).is_some_and(|e| {
+                    e.fields
+                        .iter()
+                        .any(|(_, f)| f.prov.source == Source::Snapshot)
+                })
+            };
             for w in &c.weenies {
-                if !known(&w.class_id) && !(first..=last).contains(&w.class_id) {
+                if !known(&w.class_id)
+                    && !(first..=last).contains(&w.class_id)
+                    && !sourced(w.class_id)
+                {
                     problems.push(format!(
                         "weenie {}: a class the base doesn't have is the world's own, {first} to {last}",
                         w.class_id
@@ -1086,7 +1098,7 @@ pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, BTreeSet<u32>)> {
 ///
 /// # Errors
 /// What reading the base or a patch finds, every error the fold finds, and a weenie no snapshot
-/// has outside the world's own classes.
+/// has outside the world's own classes and no source's row brings.
 pub fn fold_layers(layers: Layers, era: EraId, stamp: DotNetDateTime) -> R<WorldContent> {
     let f = Folding::new(layers, era, stamp)?;
     let last = f.len() - 1;
