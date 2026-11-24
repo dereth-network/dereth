@@ -9113,6 +9113,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.a-use-plays-a-moment-after-its-request",
+        says: "An item's use behavior goes out a moment after its request (a user still moving then \
+               is stopped first, the behavior just after the stop), and the use is carried out as \
+               the behavior plays out: a drink 3.94 s after its behavior; a jump in the moment cuts \
+               the use short.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-BEHAVIOR-TIMING"),
+        station: "yalain-testkit::cpu::play::items::a_drinks_behavior_comes_a_moment_after_the_request_and_its_answer_as_it_plays_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.a-weapon-binds-as-its-blows-land",
         says: "Starting a fight binds nothing. Each blow a player lands may bind what it holds marked \
                to, one in ten; armor is not bound by the blows its wearer strikes. Our choice: the \

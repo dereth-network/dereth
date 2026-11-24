@@ -94,9 +94,9 @@ pub fn kinds_missing(rows: &DyePlants) -> Vec<&'static str> {
 }
 
 /// The planting behavior (a seed's use behavior), and how long it plays before the plant stands,
-/// in seconds.
+/// in seconds from the behavior (2017: a median 2.02 s, 9 plantings).
 pub const PLANTING_BEHAVIOR: u32 = 0x4100_0021;
-pub const PLANTING_SECONDS: f64 = 2.0;
+pub const PLANTING_SECONDS: f64 = 2.02;
 
 /// The bits of a harvest's behavior: the behavior, the words of flags `0x20` and `0x100` (each 1),
 /// the context.

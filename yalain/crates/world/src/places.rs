@@ -860,6 +860,7 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
                 | Timer::Butcher { world: w, .. }
                 | Timer::Mine { world: w, .. }
                 | Timer::QuestMine { world: w, .. }
+                | Timer::ItemUseBegins { world: w, .. }
                 | Timer::ItemUse { world: w, .. }
                 | Timer::Harvest { world: w, .. }
                 | Timer::Interaction { world: w, .. } if *w == world)

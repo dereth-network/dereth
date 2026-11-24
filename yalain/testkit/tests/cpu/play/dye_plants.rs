@@ -310,7 +310,10 @@ fn the_plant(h: &Harness) -> Option<u64> {
 fn planted(h: &mut Harness, b: usize, me: u64, world: ConnId) -> u64 {
     let (seed, _) = held(h, world, SEED).expect("a seed held");
     send_use(h, b, me, seed, 0);
-    run_for(h, 2.1);
+    run_for(
+        h,
+        yalain_world::item_use::BEHAVIOR_WAIT + yalain_world::plants::PLANTING_SECONDS + 0.1,
+    );
     the_plant(h).expect("planted")
 }
 
@@ -331,8 +334,8 @@ fn ripen(h: &mut Harness, plant: u64) {
     }
 }
 
-/// A seed used in its garden plays the planting behavior with the seed in hand; when that has
-/// played out (2.0 s) the planter is told of its new pet (the plants' class and flags, no icon),
+/// A seed used in its garden plays the planting behavior with the seed in hand, a moment after the
+/// request; when that has played out (2.02 s) the planter is told of its new pet (the plants' class and flags, no icon),
 /// the plant stands two meters straight ahead facing as the planter faces, one seed is spent and
 /// the use answered "You use {the} %1." (the flags of a use that took its time, spent, not while
 /// moving, letting its user go: 9021). Selected, it is answered with its health and vigor. A seed
@@ -345,15 +348,16 @@ fn a_seed_used_in_its_garden_stands_its_plant_two_meters_ahead_once_its_planting
     let (seed, _) = held(&h, world, SEED).expect("seeds");
     let from = h.bots[a].inbox.len();
     send_use(&mut h, a, me, seed, 0);
+    run_for(&mut h, item_use::BEHAVIOR_WAIT);
     assert_eq!(
         played(&h, a, from, me).first().map(|x| (x.0, x.1)),
         Some((plants::PLANTING_BEHAVIOR, item_use::BEHAVIOR_BITS)),
-        "the planting played at once"
+        "the planting played a moment after the request"
     );
     run_for(&mut h, 1.7);
-    assert!(the_plant(&h).is_none(), "not yet, 1.85 s in");
+    assert!(the_plant(&h).is_none(), "not yet, 2.07 s in");
     run_for(&mut h, 0.4);
-    let plant = the_plant(&h).expect("standing 2.25 s in");
+    let plant = the_plant(&h).expect("standing 2.47 s in");
     let calls = h.calls(a, from);
     let add = calls
         .iter()
@@ -1127,7 +1131,7 @@ fn crops_planted(h: &mut Harness, b: usize, me: u64, world: ConnId) -> Vec<u64> 
     crop_quest_at(h, world, 2);
     let (seed, _) = held(h, world, CROP_SEED).expect("the crop's seed");
     send_use(h, b, me, seed, 0);
-    run_for(h, 2.1);
+    run_for(h, item_use::BEHAVIOR_WAIT + plants::PLANTING_SECONDS + 0.1);
     crops(h)
 }
 

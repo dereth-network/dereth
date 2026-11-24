@@ -845,6 +845,12 @@ pub enum Timer {
         world: ConnId,
         used: Box<places::Use>,
     },
+    /// A player's use of an item is due to play its behavior (a user still moving stopped first).
+    ItemUseBegins {
+        world: ConnId,
+        using: Box<item_use::Using>,
+        stopped: bool,
+    },
     /// A player's use of an item has played out.
     ItemUse {
         world: ConnId,
@@ -1296,6 +1302,13 @@ impl<S: Store> Server<S> {
                 }
                 Timer::HeldHereEnds { object } => {
                     usable::interactions::held_ends(self, net, object, clock);
+                }
+                Timer::ItemUseBegins {
+                    world,
+                    using,
+                    stopped,
+                } => {
+                    item_use::behavior_due(self, net, world, &using, stopped, clock);
                 }
                 Timer::ItemUse { world, using } => {
                     item_use::played(self, net, world, &using, clock);

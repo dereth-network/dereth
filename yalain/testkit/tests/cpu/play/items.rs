@@ -1262,6 +1262,176 @@ fn a_jump_or_a_death_cuts_a_drink_short() {
     assert!(records_from(&h, world, potion).is_empty());
 }
 
+/// What a client was sent of a use each step since `from`, with the clock's time of the step: "stop"
+/// (its user's stop order), "behavior" (the use's behavior), "answer" (the use's answer).
+fn use_steps(
+    h: &mut Harness,
+    b: usize,
+    from: usize,
+    me: u64,
+    seconds: f64,
+) -> Vec<(f64, &'static str)> {
+    let mut seen = Vec::new();
+    let mut at = from;
+    let end = h.now.0 + seconds;
+    while h.now.0 < end {
+        h.step();
+        let now = h.now.0;
+        let mut step: Vec<(u64, &'static str)> = h.bots[b].inbox[at..]
+            .iter()
+            .filter(|r| r.world)
+            .filter_map(|r| {
+                let c = match r.message()? {
+                    ServerMessage::MoveTo(e)
+                        if e.sender.id == me && e.action.params.flags == 0x40 =>
+                    {
+                        "stop"
+                    }
+                    ServerMessage::PlayBehavior(e) if e.sender.id == me => "behavior",
+                    ServerMessage::PlayerCall(c) if c.function.0 == USE_DONE => "answer",
+                    _ => return None,
+                };
+                Some((r.blob_id & 0xFFFF_FFFF, c))
+            })
+            .collect();
+        step.sort_by_key(|(n, _)| *n);
+        seen.extend(step.into_iter().map(|(_, c)| (now, c)));
+        at = h.bots[b].inbox.len();
+    }
+    seen
+}
+
+/// A use's behavior goes out a moment after its request, and the drink's use is carried out as the
+/// drink plays out, 3.94 s after its behavior; a user still moving as the moment ends is stopped
+/// first, the behavior just after the stop; a jump in the moment cuts the use short, answered as
+/// interrupted, with no behavior (2017: the request to the behavior a median 0.30 s with no stop,
+/// 188 uses; the stop to the behavior 0.06 s, 33; the behavior to the drink's answer 3.94 s, 149).
+/// Behaviour: server.items.a-use-plays-a-moment-after-its-request
+#[test]
+fn a_drinks_behavior_comes_a_moment_after_the_request_and_its_answer_as_it_plays_out() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h);
+    let potion = give(&mut h, world, POTION, 2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(potion, me)]),
+    );
+    // The server's own moments, read from its timers step by step: the request handled (its wait
+    // begun), the behavior sent (its play begun), the use carried out.
+    let phase = |h: &Harness| {
+        let of = |t: &yalain_world::Timer| match t {
+            yalain_world::Timer::ItemUseBegins { world: w, .. } if *w == world => 1,
+            yalain_world::Timer::ItemUse { world: w, .. } if *w == world => 2,
+            _ => 0,
+        };
+        h.server
+            .timers
+            .iter()
+            .map(|(_, t)| of(t))
+            .max()
+            .unwrap_or(0)
+    };
+    let mut moments = Vec::new();
+    let mut was = 0;
+    let end = h.now.0 + 5.0;
+    while h.now.0 < end {
+        h.step();
+        let now = phase(&h);
+        if now != was {
+            moments.push((h.now.0, now));
+            was = now;
+        }
+    }
+    let at = |p: i32| moments.iter().find(|(_, x)| *x == p).map(|(t, _)| *t);
+    let handled = at(1).expect("the request handled");
+    let played = at(2).expect("the drink played");
+    let done = moments
+        .iter()
+        .rev()
+        .find(|(_, x)| *x == 0)
+        .map(|(t, _)| *t)
+        .expect("carried out");
+    assert!(
+        (0.15..=0.30).contains(&(played - handled)),
+        "the behavior {:.3} s after the request",
+        played - handled
+    );
+    assert!(
+        (done - played - 3.94).abs() <= 0.1,
+        "carried out {:.3} s after the behavior",
+        done - played
+    );
+    let seen: Vec<&str> = h.bots[b].inbox[from..]
+        .iter()
+        .filter_map(|r| match r.message()? {
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40 => {
+                Some("stop")
+            }
+            ServerMessage::PlayBehavior(e) if e.sender.id == me => Some("behavior"),
+            ServerMessage::PlayerCall(c) if c.function.0 == USE_DONE => Some("answer"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        ["behavior", "answer"],
+        "a user standing still is not stopped"
+    );
+    // Moving as the moment ends: stopped first, the behavior just after.
+    let idle = h.server.players[&world].heading_motion;
+    h.server.players.get_mut(&world).expect("in").heading_motion = idle & 0xFF00_0000 | 0x0001;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(potion, me)]),
+    );
+    let seen = use_steps(&mut h, b, from, me, 1.0);
+    let order: Vec<&str> = seen.iter().map(|(_, c)| *c).collect();
+    assert_eq!(order, ["stop", "behavior"], "a moving user stopped first");
+    assert!(
+        seen[1].0 > seen[0].0,
+        "the behavior a moment after the stop: {seen:?}"
+    );
+    h.server.players.get_mut(&world).expect("in").heading_motion = idle;
+    run_for(&mut h, 5.0);
+    // A jump in the moment: interrupted, and no behavior.
+    let potion = give(&mut h, world, POTION, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(potion, me)]),
+    );
+    h.step();
+    let at_pos = h.server.players[&world].position;
+    let mut jump = yalain_testkit::play::report(
+        at_pos.cell,
+        auberean_primitives::Vec3::new(at_pos.origin[0], at_pos.origin[1], at_pos.origin[2]),
+        0,
+        yalain_world::world::IDLE_MOTION,
+        h.server.players[&world].teleport_stamp,
+    );
+    if let auberean_protocol::ClientMessage::Position(p) = &mut jump {
+        p.flags |= auberean_protocol::physics::position_flags::JUMP;
+    }
+    h.bots[b].send(true, queue::WEENIE, &jump);
+    let seen = use_steps(&mut h, b, from, me, 1.0);
+    assert!(
+        !seen.iter().any(|(_, c)| *c == "behavior"),
+        "no behavior after the jump: {seen:?}"
+    );
+    assert_eq!(
+        answers(&h, b, from)
+            .iter()
+            .map(|a| a.status)
+            .collect::<Vec<_>>(),
+        vec![item_use::INTERRUPTED]
+    );
+}
+
 /// A forager's food: drunk as a potion is, then at once health and vigor each healed by 244 (its
 /// effects at the spellcraft of 40, the greatest values a cap), the answer with the drink's text
 /// and the flags of a use that took its time (never spent), and the food one durability down;

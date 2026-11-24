@@ -16,9 +16,10 @@
 //! where it needs it; when the player is below its least level.
 //!
 //! **A use that takes time.** An item with a use behavior (its template's `Usage_UserAnimation`,
-//! else the drink for a potion's usage action) is used from the pack at once: the player plays the
-//! behavior with the item cloned into its hand, for everyone in view; when it has played out (a
-//! drink 4.24 s, the others about 2.8 s) everything happens in one instant: the item's effects
+//! else the drink for a potion's usage action) is used from the pack: a moment after the request
+//! (a user still moving then is stopped first, and plays it just after the stop) the player plays
+//! the behavior with the item cloned into its hand, for everyone in view; when it has played out
+//! (a drink 3.94 s, the others 2 to 2.8 s) everything happens in one instant: the item's effects
 //! put on its user in order, cast by it from the item, the item spent, the use answered with
 //! "You drink {the} %1." (the drink) or "You use {the} %1." (the others), or the template's own
 //! message. Nothing else may be done while it plays; a jump or the user's death cuts it short.
@@ -301,18 +302,30 @@ pub mod feedback {
     pub const DISTANCE: u32 = 2;
 }
 
-/// How long a use behavior plays before the use is carried out, in seconds (2017: the drink a
-/// median 4.24 s, 129 uses; `0x410000FC` 2.77 s, 47; a seed's planting 2.0 s, 9).
+/// How long a use behavior plays before the use is carried out, in seconds from the behavior
+/// (2017, from the behavior to the answer: the drink a median 3.94 s, 149 uses; `0x410000FC` 2.50 s,
+/// 47; a seed's planting 2.02 s, 9).
 #[must_use]
 pub fn behavior_seconds(behavior: u32) -> f64 {
     if behavior == DRINK {
-        4.24
+        3.94
+    } else if behavior == TESSERA_BEHAVIOR {
+        2.50
     } else if behavior == crate::plants::PLANTING_BEHAVIOR {
         crate::plants::PLANTING_SECONDS
     } else {
         2.77
     }
 }
+
+/// How long after a request is handled its use behavior goes out (2017: a median 0.30 s from the
+/// request, 188 uses with no stop first, the round trip of a request answered at once being
+/// 0.075 s).
+pub const BEHAVIOR_WAIT: f64 = 0.22;
+
+/// A user still moving as the wait ends is stopped, and its behavior goes out this long after the
+/// stop (2017: a median 0.06 s, 33 uses).
+pub const AFTER_THE_STOP: f64 = 0.06;
 
 /// The bits of a use behavior: the behavior, the item it is played toward, its look cloned, flag
 /// `0x100` and the context.
@@ -441,7 +454,6 @@ pub fn begin<S: Store>(
         return false;
     }
     let props = t.props.clone();
-    let (look, appearance) = crate::inventory::hand_look(s, u.item);
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
@@ -511,15 +523,71 @@ pub fn begin<S: Store>(
         carry_out(s, net, world, u.clone(), false, clock);
         return true;
     };
+    s.after(
+        clock,
+        BEHAVIOR_WAIT,
+        Timer::ItemUseBegins {
+            world,
+            using: Box::new(Using {
+                used: u.clone(),
+                behavior,
+            }),
+            stopped: false,
+        },
+    );
+    true
+}
+
+/// A use's wait is over: a user still moving is stopped first, and plays the behavior a moment after
+/// the stop; else the behavior plays now, the item cloned into its hand, for everyone in view, and
+/// the use is carried out as it plays out. An item gone from the pack meanwhile is not used.
+pub fn behavior_due<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    using: &Using,
+    stopped: bool,
+    clock: Clock,
+) {
+    let item = using.used.item;
+    let held = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.play.items.iter().any(|h| h.id == item));
+    if !held {
+        return;
+    }
+    if !stopped {
+        if let Some(p) = s
+            .players
+            .get_mut(&world)
+            .filter(|p| crate::skill_use::moving(p))
+        {
+            let id = p.character;
+            let stop = crate::skill_use::stop_moving(p);
+            crate::places::to_all_knowing(s, net, id, &stop);
+            s.after(
+                clock,
+                AFTER_THE_STOP,
+                Timer::ItemUseBegins {
+                    world,
+                    using: Box::new(using.clone()),
+                    stopped: true,
+                },
+            );
+            return;
+        }
+    }
+    let (look, appearance) = crate::inventory::hand_look(s, item);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {
-        return true;
+        return;
     };
     let mut b = BehaviorParams {
         bits: BEHAVIOR_BITS,
-        behavior,
-        target: u.item,
+        behavior: using.behavior,
+        target: item,
         clone_visual: look,
         clone_appearance: appearance,
         context,
@@ -532,16 +600,12 @@ pub fn begin<S: Store>(
     crate::places::to_all_knowing(s, net, id, &plays);
     s.after(
         clock,
-        behavior_seconds(behavior),
+        behavior_seconds(using.behavior),
         Timer::ItemUse {
             world,
-            using: Box::new(Using {
-                used: u.clone(),
-                behavior,
-            }),
+            using: Box::new(using.clone()),
         },
     );
-    true
 }
 
 /// The effects of items whose use makes something no rule here makes (a band, an explosion), though
@@ -921,18 +985,16 @@ pub fn played<S: Store>(
 /// The answer's status of a use cut short.
 pub const INTERRUPTED: u32 = 91;
 
-/// A use whose behavior is playing is cut short (its user jumped or died): answered as interrupted
-/// with the flags of a use that takes its time, nothing done, the item kept.
+/// A use waiting to play its behavior, or playing it, is cut short (its user jumped or died):
+/// answered as interrupted with the flags of a use that takes its time, nothing done, the item kept.
 pub fn cut_short<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
-    let Some(i) = s
-        .timers
-        .iter()
-        .position(|(_, t)| matches!(t, Timer::ItemUse { world: w, .. } if *w == world))
-    else {
+    let Some(i) = s.timers.iter().position(|(_, t)| {
+        matches!(t, Timer::ItemUse { world: w, .. } | Timer::ItemUseBegins { world: w, .. } if *w == world)
+    }) else {
         return;
     };
     let (_, timer) = s.timers.remove(i);
-    let Timer::ItemUse { using, .. } = timer else {
+    let (Timer::ItemUse { using, .. } | Timer::ItemUseBegins { using, .. }) = timer else {
         return;
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
