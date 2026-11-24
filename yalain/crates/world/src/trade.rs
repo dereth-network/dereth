@@ -325,6 +325,17 @@ pub fn close<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     }
 }
 
+/// A player asks to log off: its trade is closed for both, as closed by it because it logs out
+/// (2017: 12 of 12 leavers told so 0.14 to 0.59 s after the request, the partner as well).
+pub fn logging_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    if let Some(i) = s.trades.of(me) {
+        close_trade(s, net, i, me, error::LOGGED_OUT);
+    }
+}
+
 /// A player leaves the world: its trade is closed for the other.
 pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     if let Some(i) = s.trades.of(id) {

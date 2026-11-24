@@ -72,6 +72,7 @@ mod kingdom_points;
 mod kingdoms;
 mod level_ups;
 mod levers;
+mod logging_off;
 mod lying_client;
 mod made_chests;
 mod made_portals;

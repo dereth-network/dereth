@@ -997,7 +997,7 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
 pub enum LogOffStep {
     /// The leaving behavior plays.
     Behavior,
-    /// Into portal space, its effects that end at logout off, its own look.
+    /// Into portal space, its effects that end at logout off, its fellowship left, its own look.
     Leaves,
     /// Out of the world, and the login told.
     Out,
@@ -1018,8 +1018,9 @@ pub mod log_off {
     pub const DROPPED_OUT_AFTER_BEHAVIOR: f64 = 0.1;
 }
 
-/// A character's player logs off: it begins to leave (frozen, glowing), out of the world 18.9 s
-/// on. Returns false for a connection with no character in the world.
+/// A character's player logs off: it begins to leave (frozen, glowing), its trade closed, out of
+/// the world 18.9 s on; an attack under way ends at its next swing. Returns false for a connection
+/// with no character in the world.
 pub fn log_off<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1034,6 +1035,7 @@ pub fn log_off<S: Store>(
     }
     p.logging_off = true;
     begin_leaving(s, net, world, clock, false);
+    crate::trade::logging_off(s, net, world);
     true
 }
 
@@ -1165,6 +1167,11 @@ pub fn log_off_step<S: Store>(
             }
             // So do its quests that fail as it leaves the world, told while it still hears.
             crate::quests::leaves_world(s, net, world, clock);
+            // Its fellowship goes on without it, told before its look (2017: 30 of 30 leavers'
+            // fellowships cleared after the records' removals and before the look).
+            if let Some(id) = s.players.get(&world).map(|p| p.character) {
+                crate::fellowship::leave(s, net, id);
+            }
             let Some(p) = s.players.get_mut(&world) else {
                 return;
             };

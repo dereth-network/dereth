@@ -75,6 +75,8 @@ pub mod error {
     /// The target is one a player talks to, not one it fights.
     pub const CANNOT_USE_ON_NPC: u32 = 22014;
     pub const TOO_FAR: u32 = 30019;
+    /// Its player is logging off.
+    pub const ACTIONS_LOCKED: u32 = 1029;
 }
 
 /// How the line of a creature players may not harm is shown when one attacks it: as a refusal.
@@ -848,6 +850,13 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(run) = s.players.get(&world).and_then(|p| p.attacking) else {
         return;
     };
+    // A player logging off swings no more: its run ends, the attacks failed as its actions are
+    // locked (2017: 2 of 2 runs under way at a logoff request ended 0.5 and 1.8 s after it).
+    if s.players.get(&world).is_some_and(|p| p.logging_off) {
+        progress::private(net, world, &failed(error::ACTIONS_LOCKED));
+        end(s, net, world);
+        return;
+    }
     // In portal space the run waits for its player to come out.
     if s.players.get(&world).is_some_and(|p| p.trip.is_some()) {
         if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {

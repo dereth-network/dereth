@@ -9646,6 +9646,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.logging-off.closes-a-trade-at-the-request",
+        says: "A trade under way when one of its two asks to log off is closed for both at once, \
+               as closed by the leaver because it logs out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOGOFF-TRADE"),
+        station: "yalain-testkit::cpu::play::logging_off::a_trade_under_way_is_closed_for_both_when_one_asks_to_log_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.logging-off.ends-an-attack",
+        says: "An attack under way when its player asks to log off ends at its next swing: its \
+               attacks failed as its actions are locked, the attack state off, peace.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOGOFF-ATTACK"),
+        station: "yalain-testkit::cpu::play::logging_off::an_attack_under_way_ends_when_its_player_asks_to_log_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.logging-off.leaves-its-fellowship-before-its-look",
+        says: "A player logging off leaves its fellowship in the leaving's last tick, after the \
+               records that end at logout are taken off and before its own look.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOGOFF-FELLOWSHIP"),
+        station: "yalain-testkit::cpu::play::logging_off::a_leaver_leaves_its_fellowship_after_its_records_and_before_its_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.login.a-new-session-enters-after-a-log-off",
         says: "A new client of an account whose character has logged off and left enters that \
                character at once.",

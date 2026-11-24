@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Logging off now closes an open trade at once.
 - Your fellows now see your new level as soon as you reach it.
 - Recipes now remember the spinner you last made them at.
 - Corpses now play their opening before showing what they hold, as in retail.
