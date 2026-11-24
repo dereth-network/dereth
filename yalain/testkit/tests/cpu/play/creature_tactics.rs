@@ -244,9 +244,9 @@ fn stand_off(h: &mut Harness, me: u64, home: yalain_store::StoredPosition, by: f
 
 /// A creature wields its weapons as objects of their own: none sent while it is at peace; as it
 /// goes after a player, each made hanging from it (the axe at its first place, the shield at its
-/// second hand's), held by it, then its stance; as it gives up, each let go of (the shield first),
-/// the monster's mode and peace; going after the player again, each attached again; as it leaves
-/// the world, they go with it.
+/// second hand's), held by it, then its stance; as it gives up, each let go of (the shield first,
+/// then the axe's own stance, then the axe), the monster's mode and peace; going after the player
+/// again, each attached again; as it leaves the world, they go with it.
 /// Behaviour: server.creatures.weapon-objects
 #[test]
 fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
@@ -288,7 +288,8 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
         at(&|m| matches!(m, ServerMessage::CreateObject(o) if o.id == held[0])).expect("made")
             < stance
     );
-    // It gives up: let go of, shield first, then the monster's mode and peace.
+    // It gives up: let go of, shield first, the axe's stance as it holds it alone, then the axe,
+    // the monster's mode and peace.
     far(&mut h, 60.0);
     let from = h.bots[b].inbox.len();
     assert!(
@@ -312,7 +313,7 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
             _ => None,
         })
         .collect();
-    assert_eq!(modes, vec![0x4100_0012, 0x4000_0001]);
+    assert_eq!(modes, vec![0x4100_000A, 0x4100_0012, 0x4000_0001]);
     // Back at it: attached again, the count two more.
     far(&mut h, 0.0);
     let from = h.bots[b].inbox.len();

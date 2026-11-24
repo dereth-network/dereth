@@ -297,6 +297,85 @@ fn a_creature_moves_the_drawn_slider_as_it_draws_and_puts_away_its_weapons() {
     assert!(!h.world_messages(b, 0).iter().any(|m| slid(m, id)));
 }
 
+/// What a client was sent of a creature giving up since `from`, in the order sent: its weapons let
+/// go of, its modes, its slider.
+fn calm_order(h: &Harness, b: usize, from: usize, id: u64) -> Vec<String> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DeParent(e) if e.sender.id == id => Some("let go".to_string()),
+            ServerMessage::DoMode(e) if e.sender.id == id => {
+                Some(format!("mode {:08X}", e.action.0))
+            }
+            ServerMessage::MoveSlider(e) if e.sender.id == id => Some("slider".to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A creature giving up with two weapons lets go of the second, takes the stance of the one it
+/// still holds (that weapon's own single stance), lets go of the first, then the slider, the
+/// monster's mode and peace; with one weapon nothing comes between letting go and the slider.
+/// Behaviour: server.creatures.two-weapons-away-in-turn
+#[test]
+fn a_creature_putting_two_weapons_away_takes_the_stance_of_the_one_still_held_between() {
+    let berserker = || {
+        creature(&[
+            ("AI_Inventory1", Prop::Text("SwordBerserkerChaos".into())),
+            ("AI_Inventory1Quantity", Prop::Int(2)),
+            ("AICombat_CanDualWield", Prop::Bool(true)),
+            WIELDS,
+        ])
+    };
+    for (sword, single) in [
+        (Props::default(), 0x4100_000A),
+        (stance_props(0x4100_000F), 0x4100_000F),
+    ] {
+        let mut h = world(berserker(), &[("SwordBerserkerChaos", SWORD, sword)]);
+        let (b, me, id) = noticed(&mut h);
+        assert_eq!(held(&h, id).len(), 2, "two swords");
+        if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+            p.position.origin[0] -= 60.0;
+        }
+        let from = h.bots[b].inbox.len();
+        assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)));
+        h.run(4);
+        let single = format!("mode {single:08X}");
+        assert_eq!(
+            calm_order(&h, b, from, id),
+            vec![
+                "let go".to_string(),
+                single,
+                "let go".into(),
+                "slider".into(),
+                "mode 41000012".into(),
+                "mode 40000001".into(),
+            ]
+        );
+    }
+    let mut h = world(
+        creature(&[
+            (
+                "AI_Inventory1",
+                Prop::Text("StaffGurogWarlockConjurer".into()),
+            ),
+            WIELDS,
+        ]),
+        &[("StaffGurogWarlockConjurer", STAFF, Props::default())],
+    );
+    let (b, me, id) = noticed(&mut h);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        p.position.origin[0] -= 60.0;
+    }
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)));
+    h.run(4);
+    assert_eq!(
+        calm_order(&h, b, from, id),
+        vec!["let go", "slider", "mode 41000012", "mode 40000001"]
+    );
+}
+
 /// What a creature's attacks came out as on the player since a message, by the skill they used:
 /// struck or arrived, each hook's result.
 fn results_of(h: &Harness, b: usize, from: usize, id: u64, skill: u32) -> Vec<u32> {

@@ -399,13 +399,29 @@ fn attach<S: Store>(s: &Server<S>, item: u64) -> Option<ServerMessage> {
     }))
 }
 
+/// The stance of a creature holding its first weapon alone: that weapon's single stance.
+fn single_stance<S: Store>(s: &Server<S>, creature: u64) -> Option<u32> {
+    let c = s.things.get(creature)?.creature.as_ref()?;
+    let first = s.things.get(*c.weapons.first()?)?;
+    let name = c.stats.weapon.as_deref()?;
+    let props = s.catalog.get(first.template).map(|t| &t.props);
+    Some(stances(name, props, s.creature_weapon_rules.get(name))[0])
+}
+
 /// A creature puts its weapons away as it gives up: those who know each are told the creature
-/// lets go of it, the second first; then everyone who sees it, the slider.
+/// lets go of it, the second first, and between the two everyone who sees it the stance of the
+/// one still held (2017: 202 of the 215 calms that let go of two); then everyone who sees it, the
+/// slider.
 pub fn put_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64) {
     let weapons = weapons_of(s, creature);
     if weapons.is_empty() {
         return;
     }
+    let between = if weapons.len() == 2 {
+        single_stance(s, creature)
+    } else {
+        None
+    };
     bump(s, creature);
     let Some(c) = s.things.get(creature) else {
         return;
@@ -416,7 +432,16 @@ pub fn put_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64)
         instance_stamp: c.instance,
         other_stamp: 0,
     };
-    for w in weapons.iter().rev() {
+    for (i, w) in weapons.iter().rev().enumerate() {
+        if i == 1 {
+            if let Some(stance) = between {
+                let m = ServerMessage::DoMode(ObjectEvent {
+                    sender: crate::inventory::visual(s, creature),
+                    action: auberean_protocol::physics::Word(stance),
+                });
+                crate::combat::to_all_seeing(s, net, creature, &m);
+            }
+        }
         let Some(t) = s.things.get(*w) else { continue };
         let m = ServerMessage::DeParent(ObjectEvent {
             sender,

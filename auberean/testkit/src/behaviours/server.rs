@@ -4629,6 +4629,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.two-weapons-away-in-turn",
+        says: "A creature giving up with two weapons lets go of the second, takes the stance of \
+               the one it still holds, then lets go of that one; with one weapon nothing comes \
+               between letting go and the slider.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-WEAPONS-AWAY"),
+        station: "yalain-testkit::cpu::play::creature_weapons::a_creature_putting_two_weapons_away_takes_the_stance_of_the_one_still_held_between",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.unharmed-turn-to-another",
         says: "A creature that no player has hurt lately turns now and then to another player within \
                its perception, more often to a nearer one.",
