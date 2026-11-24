@@ -2482,8 +2482,8 @@ pub fn creature_strike_lands<S: Store>(
 /// plain and strong melee attacks: 2017's openings followed them, 724 and 611 times).
 pub const OPENS_AFTER_ATTACK: [u32; 2] = [1845, 1846];
 
-/// A player loses health (down to none): its health is sent to it. Returns its share of health
-/// after and before.
+/// A player loses health (down to none): its health is sent to it when that changed it. Returns
+/// its share of health after and before.
 pub(crate) fn lose_health<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2501,7 +2501,11 @@ pub(crate) fn lose_health<S: Store>(
     let least = i32::from(p.admin.never_say_die);
     let now = (health - damage).clamp(least, max.max(health));
     quals::set_int(&mut p.qualities, quality::HEALTH, now);
-    progress::send_int(net, world, quality::HEALTH, now);
+    // Only a change is sent: a hit that takes nothing sends no health (2017: 912 of 912 hits with
+    // no change of health sent none).
+    if now != health {
+        progress::send_int(net, world, quality::HEALTH, now);
+    }
     #[allow(clippy::cast_precision_loss)]
     let shares = (now as f32 / max as f32, health as f32 / max as f32);
     shares

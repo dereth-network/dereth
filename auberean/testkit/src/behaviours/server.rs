@@ -1556,6 +1556,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.a-hit-that-takes-nothing-sends-no-health",
+        says: "A creature's hit on a player sends the player its health only when the hit changed \
+               it: one that takes nothing sends none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HIT-NO-CHANGE"),
+        station: "yalain-testkit::cpu::play::fights::a_creature_hit_that_takes_no_health_sends_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.armor-capped-by-level",
         says: "A player's worn armor with what effects give counts no more than its level's armor cap, \
                and its shield, apart, no more than the level's shield cap; the level table holds both.",

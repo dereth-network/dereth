@@ -163,6 +163,59 @@ fn fight_with(setup: impl FnOnce(&mut Harness)) -> (Harness, usize, u64, u64) {
     (h, b, me, beetle)
 }
 
+/// A creature's hit on a player sends the player its health only when the hit changed it: one that
+/// takes nothing sends none, one that hurts sends the health left (2017: 912 of 912 hits with no
+/// change of health sent none).
+/// Behaviour: server.combat.a-hit-that-takes-nothing-sends-no-health
+#[test]
+fn a_creature_hit_that_takes_no_health_sends_none() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.server.levels = levels();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let beetle = creature_of(&h, b);
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let mut told = Vec::new();
+    for left in [0, 5] {
+        let from = h.bots[b].inbox.len();
+        let clock = h.clock();
+        yalain_world::combat::creature_strike_lands(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            world,
+            yalain_world::effects::Harm { left, back: 0 },
+            clock,
+        );
+        h.run(2);
+        let health: Vec<i32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateInt(q)
+                    if q.quality == yalain_world::player::quality::HEALTH =>
+                {
+                    Some(q.value)
+                }
+                _ => None,
+            })
+            .collect();
+        told.push(health);
+    }
+    let left = h
+        .server
+        .players
+        .get(&world)
+        .and_then(|p| yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH))
+        .expect("its health");
+    assert_eq!(
+        told,
+        [vec![], vec![left]],
+        "nothing for the hit that took nothing"
+    );
+}
+
 /// Asked once to attack, the server answers that the player attacks and swings for it, each swing
 /// a story from the player with a hit or an evade on the target, until the target dies; its
 /// killer is paid its death experience (11 for a level 2 beetle at level 1) and reaches level 2,
