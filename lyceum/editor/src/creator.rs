@@ -420,6 +420,12 @@ impl EditorApp {
     /// # Errors
     /// No server database, or no such class in it.
     fn server_template(&mut self, class: u32, name: &str, blank: bool) -> Result<String, String> {
+        // A world repository's layer being edited: the world below it is the server's.
+        if let Some(below) = self.rows_server_class(class) {
+            return below
+                .and_then(|text| content::template(&text, class, name, blank))
+                .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &class)]));
+        }
         let world = self.server_world()?;
         content::template(&world, class, name, blank)
             .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &class)]))
@@ -436,14 +442,28 @@ impl EditorApp {
         made: &str,
     ) -> Result<Weenie, String> {
         let header = format!("/* {name}: {made}. */\n");
+        // A world repository's layer being edited numbers it itself, from the repository's own
+        // classes: its rows name it by its class.
+        let (text, w) = match self.session.mirror() {
+            Some(m) => {
+                let class = m
+                    .free_class(&std::collections::BTreeSet::new())
+                    .ok_or_else(|| self.say("messages.no_class_free"))?;
+                let bare = sym.rsplit(':').next().unwrap_or(&sym);
+                let text = text
+                    .replace(&format!("{{{{wcid:{sym}}}}}"), &class.to_string())
+                    .replace(&format!("{{{{wcid:{bare}}}}}"), &class.to_string());
+                (text, Weenie::Class(class))
+            }
+            None => (text.to_owned(), Weenie::Symbol(sym)),
+        };
         self.apply(
             &Op::WriteSql {
                 file,
-                text: Some(header + text),
+                text: Some(header + &text),
             },
             false,
         )?;
-        let w = Weenie::Symbol(sym);
         self.panels.weenie = Some(w.clone());
         Ok(w)
     }

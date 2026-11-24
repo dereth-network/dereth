@@ -1,0 +1,8 @@
+[[treasure_wielded]]
+type = 10
+
+[[treasure_wielded.entry]]
+weenie_class_id = 500
+stack_size = 1
+probability = 1.0
+last_modified = "2021-11-01 00:00:00"

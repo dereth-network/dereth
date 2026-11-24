@@ -1,0 +1,17 @@
+[[treasure_death]]
+type = 5
+tier = 1
+loot_quality_mod = 0.25
+item_chance = 100
+item_min_amount = 1
+item_max_amount = 2
+item_treasure_type_selection_chances = 8
+magic_item_chance = 50
+magic_item_min_amount = 1
+magic_item_max_amount = 1
+magic_item_treasure_type_selection_chances = 9
+mundane_item_chance = 50
+mundane_item_min_amount = 1
+mundane_item_max_amount = 2
+mundane_item_type_selection_chances = 10
+last_modified = "2021-11-01 00:00:00"

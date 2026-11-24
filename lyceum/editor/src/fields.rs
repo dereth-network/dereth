@@ -2869,10 +2869,6 @@ impl EditorApp {
     /// for any other weenie, and while it is being read.
     fn server_doc(&mut self, ui: &egui::Ui, w: &Weenie) -> Option<std::rc::Rc<SqlDoc>> {
         let Weenie::Class(c) = w else { return None };
-        // A weenie of the world repository being edited: as the world below its layer has it.
-        if let Some(below) = self.rows_below_doc(*c) {
-            return below;
-        }
         self.session.weenie_file(w)?;
         match self.server_doc_of(*c) {
             None => {

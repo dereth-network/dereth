@@ -1017,52 +1017,69 @@ fn a_packs_world_builder_folders_hold_no_rows_and_are_passed_over() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The weenie's SQL tables name a column for every field its rows describe, and nothing else: its
-/// own fields, each map's values, its book and each list's entries, an emote's actions among them.
+/// Every kind written as SQL (the weenie, the quest, the death and wielded treasures) names a
+/// column for every field its rows describe, and nothing else: its own fields, each map's values,
+/// each table and each list's entries, an emote's actions among them.
 #[test]
-fn the_weenies_sql_tables_name_a_column_for_every_field_its_rows_hold() {
+fn a_kinds_sql_tables_name_a_column_for_every_field_its_rows_hold() {
     use serde_json::Value;
-    let rows = crate::schema::rows();
-    let w = &rows["weenie"];
-    let sql = &w["sql"];
-    let names = |v: &Value| -> Vec<String> {
+    fn names(v: &Value) -> Vec<String> {
         v.as_object()
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default()
-    };
-    let mut why = Vec::new();
-    let mut same = |at: &str, described: &Value, columns: &Value| {
-        if names(described) != names(columns) {
+    }
+    // A description (`fields`, `maps`, `tables`, `lists`) against its `sql`.
+    fn check(at: &str, d: &Value, sql: &Value, why: &mut Vec<String>) {
+        if names(&d["fields"]) != names(&sql["columns"]) {
             why.push(format!(
                 "{at}: {:?} described, {:?} in columns",
-                names(described),
-                names(columns)
+                names(&d["fields"]),
+                names(&sql["columns"])
             ));
         }
-    };
-    same("weenie", &w["fields"], &sql["columns"]);
-    for (m, d) in w["maps"].as_object().unwrap() {
-        let s = &sql["maps"][m];
-        assert!(s["table"].is_string() && s["key"].is_string(), "{m}: {s}");
-        match d["value"].get("fields") {
-            Some(f) => same(m, f, &s["columns"]),
-            None => assert!(s["value"].is_string(), "{m}: {s}"),
+        for (m, md) in d["maps"].as_object().into_iter().flatten() {
+            let s = &sql["maps"][m];
+            if !(s["table"].is_string() && s["key"].is_string()) {
+                why.push(format!("{at}.{m}: no table or key"));
+            }
+            match md["value"].get("fields") {
+                Some(f) if names(f) != names(&s["columns"]) => why.push(format!("{at}.{m}")),
+                None if !s["value"].is_string() => why.push(format!("{at}.{m}: no value")),
+                _ => {}
+            }
+        }
+        for (t, td) in d["tables"].as_object().into_iter().flatten() {
+            if names(td) != names(&sql["tables"][t]["columns"]) {
+                why.push(format!("{at}.{t}"));
+            }
+        }
+        for (l, ld) in d["lists"].as_object().into_iter().flatten() {
+            check(&format!("{at}.{l}"), ld, &sql["lists"][l], why);
         }
     }
-    same(
-        "book",
-        &w["tables"]["book"],
-        &sql["tables"]["book"]["columns"],
-    );
-    for (l, d) in w["lists"].as_object().unwrap() {
-        same(l, &d["fields"], &sql["lists"][l]["columns"]);
+    let rows = crate::schema::rows();
+    let mut why = Vec::new();
+    let mut seen = Vec::new();
+    for (kind, d) in rows.as_object().unwrap() {
+        if let Some(sql) = d.get("sql") {
+            seen.push(kind.as_str());
+            check(kind, d, sql, &mut why);
+        }
     }
-    same(
-        "emote.action",
-        &w["lists"]["emote"]["lists"]["action"]["fields"],
-        &sql["lists"]["emote"]["lists"]["action"]["columns"],
-    );
     assert!(why.is_empty(), "{}", why.join("\n"));
-    assert_eq!(sql["maps"]["attribute"]["key"], "type");
-    assert_eq!(sql["maps"]["position"]["columns"]["at"][0], "origin_X");
+    assert_eq!(
+        seen,
+        ["quest", "treasure_death", "treasure_wielded", "weenie"]
+    );
+    let w = &rows["weenie"]["sql"];
+    assert_eq!(w["maps"]["attribute"]["key"], "type");
+    assert_eq!(w["maps"]["position"]["columns"]["at"][0], "origin_X");
+    assert_eq!(
+        rows["treasure_death"]["sql"]["columns"]["type"],
+        "treasure_Type"
+    );
+    assert_eq!(
+        rows["treasure_wielded"]["sql"]["lists"]["entry"]["parent"],
+        "treasure_Type"
+    );
 }

@@ -1,0 +1,19 @@
+[[treasure_wielded]]
+type = 9
+
+[[treasure_wielded.entry]]
+weenie_class_id = 300
+stack_size = 1
+probability = 0.5
+set_start = true
+last_modified = "2021-11-01 00:00:00"
+
+[[treasure_wielded.entry]]
+weenie_class_id = 400
+shade = 0.5
+stack_size = 2
+stack_size_variance = 0.25
+probability = 0.5
+has_sub_set = true
+continues_previous_set = true
+last_modified = "2021-11-01 00:00:00"

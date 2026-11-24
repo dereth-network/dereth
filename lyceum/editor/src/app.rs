@@ -2316,7 +2316,9 @@ impl EditorApp {
             UiAction::PutBackSaved(w) => self.put_back_saved(&w),
             UiAction::PutBackServer(c) => self.put_back_server(c),
             UiAction::DeleteWeenie(w) => self.delete_weenie(&w),
-            UiAction::RemoveInPatch(c, gone) => self.rows_remove(c, gone),
+            UiAction::RemoveInPatch(c, gone) => {
+                self.rows_remove(&rows_edit::Removable::Weenie(c), gone)
+            }
             UiAction::EditorBack => {
                 self.editor.back();
                 Ok(())

@@ -101,6 +101,20 @@ impl<'a> RowSql<'a> {
         })
     }
 
+    /// How field `f` of an entry described as `sql` is left out: never, for a field of the kind's
+    /// key, which every row names.
+    fn absent_of(&self, sql: &J, f: &str, ty: &J) -> Absent {
+        let key = std::ptr::eq(sql, self.sql)
+            && self.described["key"]
+                .as_array()
+                .is_some_and(|k| k.iter().any(|x| x == f));
+        if key {
+            Absent::Never
+        } else {
+            absent(sql, f, ty)
+        }
+    }
+
     // ---- values -------------------------------------------------------------------------------
 
     /// `v` (or its absence) of type `ty` as SQL.
@@ -252,7 +266,7 @@ impl<'a> RowSql<'a> {
             let ty = fields
                 .get(f)
                 .ok_or_else(|| format!("{f} isn't described"))?;
-            let how = absent(sql, f, ty);
+            let how = self.absent_of(sql, f, ty);
             match col {
                 J::String(c) => out.push((c.clone(), self.put(ty, row.get(f), how)?)),
                 J::Array(cs) => {
@@ -288,7 +302,7 @@ impl<'a> RowSql<'a> {
             let ty = fields
                 .get(f)
                 .ok_or_else(|| format!("{f} isn't described"))?;
-            let how = absent(sql, f, ty);
+            let how = self.absent_of(sql, f, ty);
             match col {
                 J::String(c) => {
                     let raw = doc.raw(r, c).unwrap_or("NULL");
@@ -324,8 +338,42 @@ impl<'a> RowSql<'a> {
     /// A field or key the schema doesn't describe, or a value not of its type.
     pub fn to_sql(&self, row: &toml::Table) -> Result<SqlDoc, String> {
         let mut doc = SqlDoc::default();
+        self.add_to(&mut doc, row)?;
+        Ok(doc)
+    }
+
+    /// The list a kind is written as the rows of (a wielded treasure's entries), when it is.
+    fn group(&self) -> Option<&str> {
+        self.sql.get("group").and_then(J::as_str)
+    }
+
+    /// Whether a document holds one item of the kind across tables (a weenie), rather than one
+    /// for each row (a quest) or each group of rows (a wielded treasure).
+    fn whole(&self) -> bool {
+        self.group().is_none()
+            && ["maps", "tables", "lists"]
+                .iter()
+                .any(|p| self.sql.get(*p).is_some())
+    }
+
+    /// Row `row` of the kind written into `doc`, after what it holds.
+    ///
+    /// # Errors
+    /// As [`Self::to_sql`].
+    pub fn add_to(&self, doc: &mut SqlDoc, row: &toml::Table) -> Result<(), String> {
         let own = self.put_entry(&self.described["fields"], self.sql, row)?;
-        add(&mut doc, s(self.sql, "table")?, None, &own, None);
+        if let Some(g) = self.group() {
+            let l = &self.sql["lists"][g];
+            let d = &self.described["lists"][g]["fields"];
+            for e in row.get(g).and_then(T::as_array).into_iter().flatten() {
+                let e = e.as_table().ok_or_else(|| format!("a {g} isn't a table"))?;
+                let mut values = own.clone();
+                values.extend(self.put_entry(d, l, e)?);
+                add(doc, s(self.sql, "table")?, None, &values, None);
+            }
+            return Ok(());
+        }
+        add(doc, s(self.sql, "table")?, None, &own, None);
         let maps = self.sql.get("maps").and_then(J::as_object);
         for (name, m) in maps.into_iter().flatten() {
             let Some(entries) = row.get(name).and_then(T::as_table) else {
@@ -355,7 +403,7 @@ impl<'a> RowSql<'a> {
                 }
                 let named = d["key"].get("property").is_some() || d["key"].get("name").is_some();
                 add(
-                    &mut doc,
+                    doc,
                     table,
                     m.get("parent"),
                     &values,
@@ -367,7 +415,7 @@ impl<'a> RowSql<'a> {
         for (name, t) in tables.into_iter().flatten() {
             if let Some(v) = row.get(name).and_then(T::as_table) {
                 let values = self.put_entry(&self.described["tables"][name], t, v)?;
-                add(&mut doc, s(t, "table")?, t.get("parent"), &values, None);
+                add(doc, s(t, "table")?, t.get("parent"), &values, None);
             }
         }
         let lists = self.sql.get("lists").and_then(J::as_object);
@@ -382,7 +430,7 @@ impl<'a> RowSql<'a> {
                     .ok_or_else(|| format!("a {name} isn't a table"))?;
                 let values = self.put_entry(&d["fields"], l, e)?;
                 let Some(subs) = l.get("lists").and_then(J::as_object) else {
-                    add(&mut doc, s(l, "table")?, l.get("parent"), &values, None);
+                    add(doc, s(l, "table")?, l.get("parent"), &values, None);
                     continue;
                 };
                 // A list of lists is an emote's: its set, then its actions.
@@ -422,21 +470,66 @@ impl<'a> RowSql<'a> {
                 }
             }
         }
-        Ok(doc)
+        Ok(())
     }
 
-    /// Document `doc` read back as the kind's row.
+    /// Document `doc` read back as the kind's row: its first item ([`Self::rows`]).
+    ///
+    /// # Errors
+    /// A document with none, or as [`Self::rows`].
+    pub fn to_row(&self, doc: &SqlDoc) -> Result<toml::Table, String> {
+        self.rows(doc)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("no {} row", self.sql["table"]))
+    }
+
+    /// Every item of the kind document `doc` holds, as its rows, in the order written.
     ///
     /// # Errors
     /// A value not of its field's type, or a key not of its map's.
-    pub fn to_row(&self, doc: &SqlDoc) -> Result<toml::Table, String> {
+    pub fn rows(&self, doc: &SqlDoc) -> Result<Vec<toml::Table>, String> {
         let own_table = s(self.sql, "table")?;
-        let own = doc
-            .rows(own_table)
-            .first()
-            .copied()
-            .ok_or_else(|| format!("no {own_table} row"))?;
-        let mut row = self.take_entry(&self.described["fields"], self.sql, doc, own)?;
+        let fields = &self.described["fields"];
+        if let Some(g) = self.group() {
+            // The rows of one key are an item; its entries are those rows.
+            let l = &self.sql["lists"][g];
+            let d = &self.described["lists"][g]["fields"];
+            let mut out: Vec<toml::Table> = Vec::new();
+            for r in doc.rows(own_table) {
+                let own = self.take_entry(fields, self.sql, doc, r)?;
+                let entry = T::Table(self.take_entry(d, l, doc, r)?);
+                let at = out.iter_mut().find(|o| {
+                    let mut k = (*o).clone();
+                    k.remove(g);
+                    k == own
+                });
+                match at {
+                    Some(o) => {
+                        if let Some(T::Array(a)) = o.get_mut(g) {
+                            a.push(entry);
+                        }
+                    }
+                    None => {
+                        let mut o = own;
+                        o.insert(g.to_owned(), T::Array(vec![entry]));
+                        out.push(o);
+                    }
+                }
+            }
+            return Ok(out);
+        }
+        if !self.whole() {
+            return doc
+                .rows(own_table)
+                .into_iter()
+                .map(|r| self.take_entry(fields, self.sql, doc, r))
+                .collect();
+        }
+        let Some(own) = doc.rows(own_table).first().copied() else {
+            return Ok(Vec::new());
+        };
+        let mut row = self.take_entry(fields, self.sql, doc, own)?;
         let maps = self.sql.get("maps").and_then(J::as_object);
         for (name, m) in maps.into_iter().flatten() {
             let d = &self.described["maps"][name];
@@ -502,7 +595,7 @@ impl<'a> RowSql<'a> {
                 row.insert(name.clone(), T::Array(out));
             }
         }
-        Ok(row)
+        Ok(vec![row])
     }
 }
 

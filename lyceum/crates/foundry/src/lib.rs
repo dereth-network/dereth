@@ -83,6 +83,7 @@ pub mod layer_rows;
 pub mod lock;
 pub mod loot;
 pub mod map;
+pub mod mirror;
 pub mod model_import;
 pub mod models;
 pub mod moves;

@@ -454,6 +454,8 @@ pub struct Session {
     /// The world repository whose rows are edited, its folder, and the pack of the layer edits go
     /// into ([`Self::set_rows`]).
     rows: Option<(PathBuf, PathBuf)>,
+    /// The layer of the repository being edited, as the pack's SQL ([`Self::open_repository`]).
+    mirror: Option<crate::mirror::Mirror>,
     /// How many times a landblock's cells were read, and how many of the server's own
     /// instances were read as spawns.
     cell_reads: std::cell::Cell<u64>,
@@ -1280,6 +1282,7 @@ impl Session {
             retail_uses: BTreeMap::new(),
             retail_body_parts: BTreeMap::new(),
             rows: None,
+            mirror: None,
             retail_quest_uses: BTreeMap::new(),
             schema: None,
             cell_reads: std::cell::Cell::new(0),
@@ -1603,10 +1606,15 @@ impl Session {
     /// One of the server's weenies (a pack's change of one is put back instead), another pack's,
     /// one whose file writes other weenies too, or one still named anywhere.
     pub fn weenie_removal(&self, w: &Weenie) -> Result<Op, Error> {
-        let Weenie::Symbol(sym) = w else {
-            return Err(Error::Refused(
-                "the server's weenies are not deleted; a pack's change of one is put back".into(),
-            ));
+        let sym = match w {
+            Weenie::Symbol(s) => s.clone(),
+            Weenie::Class(c) if self.layer_makes(*c) => c.to_string(),
+            Weenie::Class(_) => {
+                return Err(Error::Refused(
+                    "the server's weenies are not deleted; a pack's change of one is put back"
+                        .into(),
+                ))
+            }
         };
         let (file, mine) = self
             .weenie_file(w)
@@ -1675,9 +1683,7 @@ impl Session {
                 }
             })
             .collect();
-        self.pack_dir()
-            .join("server")
-            .join("sql")
+        self.content_dir()
             .join("quests")
             .join(format!("{stem}.sql"))
     }
@@ -1692,7 +1698,11 @@ impl Session {
              VALUES ({n}, {}, {}, {}, '{}');\n",
             q.min_delta,
             q.max_solves,
-            crate::content::quote(&q.message),
+            if q.message.is_empty() {
+                "NULL".to_owned()
+            } else {
+                crate::content::quote(&q.message)
+            },
             self.today
         )
     }
@@ -2112,9 +2122,7 @@ impl Session {
             )));
         }
         let file = self
-            .pack_dir()
-            .join("server")
-            .join("sql")
+            .content_dir()
             .join("weenies")
             .join(format!("{name}.sql"));
         Ok((file, sym))
@@ -2133,9 +2141,7 @@ impl Session {
                 }
             })
             .collect();
-        self.pack_dir()
-            .join("server")
-            .join("sql")
+        self.content_dir()
             .join("weenies")
             .join(format!("{class} {}.sql", name.trim()))
     }
@@ -3097,6 +3103,156 @@ impl Session {
         self.text(path)
     }
 
+    /// The folder the pack being edited's server content goes in: its `server/sql`, or, while a
+    /// world repository's layer is edited, the mirror of that layer in it.
+    #[must_use]
+    pub fn content_dir(&self) -> PathBuf {
+        self.mirror.as_ref().map_or_else(
+            || self.pack_dir().join("server").join("sql"),
+            |m| m.dir.clone(),
+        )
+    }
+
+    /// The layer of a repository being edited, when one is.
+    #[must_use]
+    pub fn mirror(&self) -> Option<&crate::mirror::Mirror> {
+        self.mirror.as_ref()
+    }
+
+    /// Edit layer `layer` of world repository `repo` ([`crate::mirror`]): the world below it is
+    /// the server's content from now, learned in place of what was, and each item the layer sets
+    /// is a file of the pack being edited's SQL, whose changes are written as the layer's rows.
+    /// The server's names must have been given ([`Self::set_schema`]).
+    ///
+    /// # Errors
+    /// No names given, a layer that can't be edited, or a world that doesn't fold or compile.
+    pub fn open_repository(&mut self, repo: &crate::repo::Repo, layer: usize) -> Result<(), Error> {
+        let names = self
+            .schema
+            .clone()
+            .ok_or_else(|| Error::Refused("the server's names aren't read".into()))?;
+        let sql_dir = self.pack_dir().join("server").join("sql");
+        let mut mirror =
+            crate::mirror::Mirror::new(repo, &names, layer, &sql_dir).map_err(Error::Refused)?;
+        let files = mirror.files(repo).map_err(Error::Refused)?;
+        let below = mirror.below_sql().map_err(Error::Refused)?;
+        self.close_repository()?;
+        let mut texts = BTreeMap::new();
+        for (path, text) in &files {
+            texts.insert(path.clone(), Some(text.clone()));
+        }
+        self.rows = Some((mirror.repo.clone(), mirror.pack.clone()));
+        self.mirror = Some(mirror);
+        self.set_texts(&texts)?;
+        for (path, text) in files {
+            self.sources.set_stored(&path, Some(text));
+        }
+        self.forget_server();
+        self.learn_weenies(&below);
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// No repository's layer edited any longer: its mirror let go of, unsaved changes of it with
+    /// it (its rows' files are the world's own, and stay).
+    ///
+    /// # Errors
+    /// A world that doesn't compile without it.
+    pub fn close_repository(&mut self) -> Result<(), Error> {
+        let Some(m) = self.mirror.take() else {
+            return Ok(());
+        };
+        let gone: Vec<PathBuf> = self
+            .sources
+            .iter()
+            .map(|(p, _)| p.to_path_buf())
+            .filter(|p| m.holds(p))
+            .collect();
+        for p in &gone {
+            self.sources.forget(p);
+        }
+        self.packs[self.target].sql.retain(|f| !m.holds(&f.path));
+        self.rows = None;
+        self.invalidate();
+        self.refresh()
+    }
+
+    /// The server's content forgotten: what it learned of its weenies, spawns, quests and loot.
+    pub fn forget_server(&mut self) {
+        self.retail.clear();
+        self.retail_instances.clear();
+        self.retail_by_class = RetailByClass::default();
+        self.retail_links.clear();
+        self.retail_quests.clear();
+        self.retail_treasure.clear();
+        self.retail_wielded.clear();
+        self.retail_loot_uses.clear();
+        self.retail_uses.clear();
+        self.retail_body_parts.clear();
+        self.retail_quest_uses.clear();
+        self.link_table = std::cell::OnceCell::new();
+    }
+
+    /// What the pack's files hold, gathered again the next time it is wanted.
+    fn invalidate(&mut self) {
+        self.weenie_files = std::cell::OnceCell::new();
+        self.pack_loot = std::cell::OnceCell::new();
+        self.link_table = std::cell::OnceCell::new();
+        self.pack_class_facts = std::cell::OnceCell::new();
+        self.pack_weenie_facts = std::cell::OnceCell::new();
+    }
+
+    /// The SQL the world serves filled anew from the packs' files.
+    fn refresh(&mut self) -> Result<(), Error> {
+        compile::refresh_sql(
+            &self.world,
+            &self.packs,
+            &self.base,
+            &self.opened_lock,
+            &mut self.compiled,
+        )
+    }
+
+    /// A step's files `texts`, with the rows of a repository's layer its mirror files' changes
+    /// make ([`crate::mirror::Mirror::rows_for`]).
+    fn mirrored(
+        &mut self,
+        mut texts: BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<BTreeMap<PathBuf, Option<String>>, Error> {
+        let Some(mut m) = self.mirror.take() else {
+            return Ok(texts);
+        };
+        struct Held<'a>(&'a mut Sources);
+        impl crate::mirror::Files for Held<'_> {
+            fn now(&mut self, path: &Path) -> Option<String> {
+                self.0.text(&DiskStore, path)
+            }
+            fn saved(&mut self, path: &Path) -> Option<Option<String>> {
+                self.0.holds(path).then(|| self.0.stored(&DiskStore, path))
+            }
+        }
+        let rows = m.rows_for(&texts, &mut Held(&mut self.sources));
+        self.mirror = Some(m);
+        texts.extend(rows.map_err(Error::Refused)?);
+        Ok(texts)
+    }
+
+    /// Whether class `class` is a weenie the repository's layer being edited makes: its file is
+    /// the layer's, and the world below has none.
+    #[must_use]
+    pub fn layer_makes(&self, class: u32) -> bool {
+        let Some(m) = &self.mirror else {
+            return false;
+        };
+        let mut row = toml::Table::new();
+        row.insert("class".into(), toml::Value::Integer(i64::from(class)));
+        let item = crate::repo::item_of(m.vocabulary(), "weenie", &row);
+        item.is_some_and(|i| !m.below_has(&i))
+            && self
+                .weenie_file(&Weenie::Class(class))
+                .is_some_and(|(f, _)| m.holds(&f))
+    }
+
     /// Whether a file of the world repository whose rows are edited differs from the disk's.
     #[must_use]
     pub fn rows_unsaved(&self) -> bool {
@@ -3346,6 +3502,7 @@ impl Session {
             return Ok(all);
         }
         let (texts, placed, spawned) = self.draft(op)?;
+        let texts = self.mirrored(texts)?;
         let before: BTreeMap<PathBuf, Option<String>> =
             texts.keys().map(|p| (p.clone(), self.text(p))).collect();
         let touched = self.change(&texts)?;
@@ -3392,6 +3549,7 @@ impl Session {
         if texts.is_empty() {
             return Ok(Applied::default());
         }
+        let texts = self.mirrored(texts)?;
         let before: BTreeMap<PathBuf, Option<String>> =
             texts.keys().map(|p| (p.clone(), self.text(p))).collect();
         let touched = self.change(&texts)?;
@@ -3484,10 +3642,22 @@ impl Session {
     /// # Errors
     /// A file that will not write.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, Error> {
+        // The mirror of a repository's layer is never saved: its rows are.
+        let mirror = self.mirror.as_ref().map(|m| m.dir.clone());
+        let mirrored = |p: &Path| mirror.as_ref().is_some_and(|d| p.starts_with(d));
         let mut written = self
             .sources
-            .save(&DiskStore)
+            .save_where(&DiskStore, |p| !mirrored(p))
             .map_err(|(path, e)| Error::io(&path, e))?;
+        let held: Vec<(PathBuf, Option<String>)> = self
+            .sources
+            .iter()
+            .filter(|(p, _)| mirrored(p))
+            .map(|(p, t)| (p.to_path_buf(), t.map(str::to_owned)))
+            .collect();
+        for (p, t) in held {
+            self.sources.set_stored(&p, t);
+        }
         let lock_path = self.world.lock_path();
         if self.compiled.lock.save(&DiskStore, &lock_path)? {
             written.push(lock_path);

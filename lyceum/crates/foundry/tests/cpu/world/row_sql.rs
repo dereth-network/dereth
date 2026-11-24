@@ -1,7 +1,8 @@
-//! Behaviour: none (tooling: a world repository's weenie rows viewed as the server's SQL and read back)
+//! Behaviour: none (tooling: a world repository's rows viewed as the server's SQL and read back)
 //!
-//! Vectors: `row_sql_pair/`, the server's fixture world's weenies as its rows and as its SQL, with
-//! a schema of the names they use; the server's own import test writes them and keeps them its own.
+//! Vectors: `row_sql_pair/`, the server's fixture world's weenies, quests and treasures as its rows
+//! and as its SQL, with a schema of the names they use; the server's own import test writes them
+//! and keeps them its own.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -17,35 +18,52 @@ fn pair_dir() -> &'static Path {
     ))
 }
 
-/// The pair's schema, and each weenie: its class, its row and the server's SQL of it.
-fn pair() -> (Schema, Vec<(u32, toml::Table, SqlDoc)>) {
+/// One file of the pair: its kind, its name, its rows and the server's SQL of them.
+struct Item {
+    kind: String,
+    name: String,
+    rows: Vec<toml::Table>,
+    sql: SqlDoc,
+}
+
+/// The pair's schema, and each of its files.
+fn pair() -> (Schema, Vec<Item>) {
     let dir = pair_dir();
     let schema =
         Schema::read(&std::fs::read_to_string(dir.join("schema.json")).expect("the schema"))
             .expect("a schema");
-    let mut weenies = Vec::new();
+    let mut items = Vec::new();
     for e in std::fs::read_dir(dir).expect("the pair") {
         let p = e.expect("a file").path();
-        let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        let Some(class) = name
-            .strip_prefix("weenie-")
-            .and_then(|n| n.strip_suffix(".toml"))
-        else {
+        let file = p.file_name().unwrap().to_string_lossy().into_owned();
+        let Some(name) = file.strip_suffix(".toml") else {
             continue;
         };
-        let class: u32 = class.parse().expect("a class");
-        let rows: toml::Table =
+        let kind = name.rsplit_once('-').expect("<kind>-<key>").0.to_owned();
+        let all: toml::Table =
             toml::from_str(&std::fs::read_to_string(&p).expect("rows")).expect("TOML");
-        let row = rows["weenie"].as_array().expect("weenies")[0]
-            .as_table()
-            .expect("a weenie")
-            .clone();
-        let sql = std::fs::read_to_string(dir.join(format!("weenie-{class}.sql"))).expect("SQL");
-        weenies.push((class, row, SqlDoc::parse(&sql)));
+        let rows = all[&kind]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|r| r.as_table().expect("a row").clone())
+            .collect();
+        let sql = std::fs::read_to_string(dir.join(format!("{name}.sql"))).expect("SQL");
+        items.push(Item {
+            kind,
+            name: name.to_owned(),
+            rows,
+            sql: SqlDoc::parse(&sql),
+        });
     }
-    weenies.sort_by_key(|w| w.0);
-    assert!(weenies.len() >= 2, "the pair holds weenies");
-    (schema, weenies)
+    items.sort_by(|a, b| a.name.cmp(&b.name));
+    for kind in ["weenie", "quest", "treasure_death", "treasure_wielded"] {
+        assert!(
+            items.iter().any(|i| i.kind == kind),
+            "the pair has a {kind}"
+        );
+    }
+    (schema, items)
 }
 
 /// A text as SQL reads it back from the server's spelling, which doubles a quote and writes a
@@ -155,27 +173,30 @@ fn sorted(v: &toml::Value) -> toml::Value {
     }
 }
 
-/// Each weenie's rows, viewed as SQL, are what the server writes as its SQL, table by table and
-/// value by value: every property by its number, every enum by its value, every list entry and
-/// every emote's actions.
+/// Each item's rows (a weenie's, a quest's, a death or wielded treasure's), viewed as SQL, are what
+/// the server writes as its SQL, table by table and value by value: every property by its number,
+/// every enum by its value, every list entry, every emote's actions and every wielded entry.
 #[test]
-fn a_weenies_rows_viewed_as_sql_are_the_servers_own_sql_of_it() {
-    let (schema, weenies) = pair();
-    let mut all = BTreeMap::new();
-    tables(&schema.rows.as_ref().unwrap()["weenie"]["sql"], &mut all);
-    let stamp = None;
-    let view = RowSql::new(&schema, "weenie", stamp).expect("a view of weenies");
+fn an_items_rows_viewed_as_sql_are_the_servers_own_sql_of_it() {
+    let (schema, items) = pair();
     let mut why = Vec::new();
-    for (class, row, theirs) in &weenies {
-        let ours = view.to_sql(row).expect("its SQL");
+    for item in &items {
+        let mut all = BTreeMap::new();
+        tables(&schema.rows.as_ref().unwrap()[&item.kind]["sql"], &mut all);
+        let view = RowSql::new(&schema, &item.kind, None).expect("a view");
+        let mut ours = SqlDoc::default();
+        for r in &item.rows {
+            view.add_to(&mut ours, r).expect("its SQL");
+        }
         for (table, cols) in &all {
             let (a, b) = (
                 rows_of(&ours, table, cols, true),
-                rows_of(theirs, table, cols, false),
+                rows_of(&item.sql, table, cols, false),
             );
             if a != b {
                 why.push(format!(
-                    "weenie {class} {table}:\n  ours   {a:?}\n  theirs {b:?}"
+                    "{} {table}:\n  ours   {a:?}\n  theirs {b:?}",
+                    item.name
                 ));
             }
         }
@@ -183,31 +204,35 @@ fn a_weenies_rows_viewed_as_sql_are_the_servers_own_sql_of_it() {
     assert!(why.is_empty(), "{}", why.join("\n"));
 }
 
-/// The server's SQL of each weenie, read back, is its rows (their lists in any order, as the
+/// The server's SQL of each item, read back, is its rows (their lists in any order, as the
 /// server's SQL orders some of them).
 #[test]
-fn the_servers_sql_of_a_weenie_read_back_is_its_rows() {
-    let (schema, weenies) = pair();
-    let view = RowSql::new(&schema, "weenie", None).expect("a view of weenies");
-    for (class, row, theirs) in &weenies {
-        let back = view.to_row(theirs).expect("its row");
-        assert_eq!(
-            sorted(&toml::Value::Table(back)),
-            sorted(&toml::Value::Table(row.clone())),
-            "weenie {class}"
-        );
+fn the_servers_sql_of_an_item_read_back_is_its_rows() {
+    let (schema, items) = pair();
+    for item in &items {
+        let view = RowSql::new(&schema, &item.kind, None).expect("a view");
+        let back = view.rows(&item.sql).expect("its rows");
+        let as_value = |rows: &[toml::Table]| {
+            sorted(&toml::Value::Array(
+                rows.iter().cloned().map(toml::Value::Table).collect(),
+            ))
+        };
+        assert_eq!(as_value(&back), as_value(&item.rows), "{}", item.name);
     }
 }
 
-/// A weenie's rows, viewed as SQL and read back unchanged, are the same rows, in the same order:
+/// An item's rows, viewed as SQL and read back unchanged, are the same rows, in the same order:
 /// what a form leaves alone is never written again.
 #[test]
-fn a_weenies_rows_viewed_and_read_back_are_the_same_rows() {
-    let (schema, weenies) = pair();
-    let view = RowSql::new(&schema, "weenie", None).expect("a view of weenies");
-    for (class, row, _) in &weenies {
-        let doc = view.to_sql(row).expect("its SQL");
-        let back = view.to_row(&SqlDoc::parse(&doc.render())).expect("its row");
-        assert_eq!(&back, row, "weenie {class}:\n{}", doc.render());
+fn an_items_rows_viewed_and_read_back_are_the_same_rows() {
+    let (schema, items) = pair();
+    for item in &items {
+        let view = RowSql::new(&schema, &item.kind, None).expect("a view");
+        let mut doc = SqlDoc::default();
+        for r in &item.rows {
+            view.add_to(&mut doc, r).expect("its SQL");
+        }
+        let back = view.rows(&SqlDoc::parse(&doc.render())).expect("its rows");
+        assert_eq!(back, item.rows, "{}:\n{}", item.name, doc.render());
     }
 }

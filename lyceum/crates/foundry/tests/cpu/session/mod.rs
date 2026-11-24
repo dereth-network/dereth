@@ -5,6 +5,7 @@ mod fit;
 mod links;
 mod loot;
 mod map;
+mod mirror;
 mod models;
 mod place_quests;
 mod quests;

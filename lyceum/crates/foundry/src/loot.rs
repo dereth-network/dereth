@@ -1087,10 +1087,7 @@ impl Session {
 
     /// The file the pack being edited holds a table of `kind` named `name` in.
     fn loot_file_named(&self, kind: LootKind, name: &str) -> PathBuf {
-        self.packs()[self.target()]
-            .dir
-            .join("server")
-            .join("sql")
+        self.content_dir()
             .join(kind.table())
             .join(format!("{name}.sql"))
     }

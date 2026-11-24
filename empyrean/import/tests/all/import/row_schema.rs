@@ -7,7 +7,8 @@
 //! Fixture: the synthetic dump's world written as rows, with a recipe's vital requirement and a
 //! rules row added.
 //!
-//! The same world's weenies, as rows and as ACE's SQL, with a schema of just the names they use,
+//! The same world's weenies, quests and treasures, as rows and as ACE's SQL, with a schema of just
+//! the names they use,
 //! are the pair an editor's SQL view of a weenie's rows is checked against (Lyceum's
 //! `world::row_sql` test): kept in Lyceum's tests, and the same as this world writes them.
 //! `EMPYREAN_WRITE_ROW_SQL=1` writes them again.
@@ -302,9 +303,9 @@ fn words(v: &T, out: &mut BTreeSet<String>) {
     }
 }
 
-/// The fixture world's weenies as rows (`weenie-<class>.toml`) and as ACE's SQL
-/// (`weenie-<class>.sql`), and the schema with the names they use (`schema.json`), are the pair
-/// kept in Lyceum's tests for its SQL view of a weenie's rows.
+/// The fixture world's weenies, quests and death and wielded treasures as rows
+/// (`<kind>-<key>.toml`) and as ACE's SQL (`<kind>-<key>.sql`), and the schema with the names they
+/// use (`schema.json`), are the pair kept in Lyceum's tests for its SQL view of rows.
 #[test]
 fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
     let c = fixture_world();
@@ -312,28 +313,70 @@ fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
         empyrean_world_db::write(&c, empyrean_world_db::files::default_stamp()).expect("its rows");
     let mut want: Vec<(String, String)> = Vec::new();
     let mut used = BTreeSet::new();
+    use empyrean_content::export::sql::{
+        quest_sql_writer::QuestSQLWriter, sql_writer::SqlOut,
+        treasure_death_sql_writer::TreasureDeathSQLWriter,
+        treasure_wielded_sql_writer::TreasureWieldedSQLWriter, weenie_sql_writer::WeenieSQLWriter,
+    };
     for (path, text) in &files {
-        let Some(class) = path
-            .strip_prefix("weenie/")
-            .and_then(|f| f.strip_suffix(".toml"))
-        else {
+        let Some((kind, key)) = path.strip_suffix(".toml").and_then(|p| p.split_once('/')) else {
             continue;
         };
-        let class: u32 = class.parse().expect("a class");
-        words(&toml::from_str(text).expect("rows"), &mut used);
-        want.push((format!("weenie-{class}.toml"), text.clone()));
-        let w = c
-            .weenies
-            .iter()
-            .find(|w| w.class_id == class)
-            .expect("its weenie");
-        let mut out = empyrean_content::export::sql::sql_writer::SqlOut::new("\n");
-        empyrean_content::export::sql::weenie_sql_writer::WeenieSQLWriter::default()
-            .create_sql_insert_statement(w, &mut out)
-            .expect("its SQL");
-        want.push((format!("weenie-{class}.sql"), out.text));
+        let rows: toml::Table = toml::from_str(text).expect("rows");
+        let mut out = SqlOut::new("\n");
+        match kind {
+            "weenie" => {
+                let class: u32 = key.parse().expect("a class");
+                let w = c
+                    .weenies
+                    .iter()
+                    .find(|w| w.class_id == class)
+                    .expect("its weenie");
+                WeenieSQLWriter::default()
+                    .create_sql_insert_statement(w, &mut out)
+                    .expect("its SQL");
+            }
+            "quest" => {
+                for r in rows["quest"].as_array().expect("quests") {
+                    let name = r["name"].as_str().expect("a name");
+                    let q = c.quests.iter().find(|q| q.name == name).expect("its quest");
+                    QuestSQLWriter::default().create_sql_insert_statement(q, &mut out);
+                }
+            }
+            "treasure_death" => {
+                let t: u32 = key.parse().expect("a type");
+                let d = c
+                    .treasure_death
+                    .iter()
+                    .find(|d| d.treasure_type == t)
+                    .expect("its treasure");
+                TreasureDeathSQLWriter::default().create_sql_insert_statement(d, &mut out);
+            }
+            "treasure_wielded" => {
+                let t: u32 = key.parse().expect("a type");
+                let entries: Vec<_> = c
+                    .treasure_wielded
+                    .iter()
+                    .filter(|w| w.treasure_type == t)
+                    .cloned()
+                    .collect();
+                TreasureWieldedSQLWriter::default()
+                    .create_sql_insert_statement(&entries, &mut out)
+                    .expect("its SQL");
+            }
+            _ => continue,
+        }
+        words(&T::Table(rows), &mut used);
+        let name = format!("{kind}-{}", key.trim_start_matches('0'));
+        want.push((format!("{name}.toml"), text.clone()));
+        want.push((format!("{name}.sql"), out.text));
     }
-    assert!(want.len() >= 2, "the fixture has weenies");
+    for kind in ["weenie", "quest", "treasure_death", "treasure_wielded"] {
+        assert!(
+            want.iter().any(|(n, _)| n.starts_with(&format!("{kind}-"))),
+            "the fixture has a {kind}"
+        );
+    }
     // The schema's names the rows use, and the weenie's rows' description.
     let mut schema = empyrean_import_schema();
     for part in ["properties", "enums"] {
@@ -348,8 +391,11 @@ fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
             .expect(part)
             .retain(|_, names| !names.as_object().is_some_and(serde_json::Map::is_empty));
     }
-    let weenie = schema["rows"]["weenie"].take();
-    schema["rows"] = serde_json::json!({ "weenie": weenie });
+    let mut rows = serde_json::Map::new();
+    for kind in ["weenie", "quest", "treasure_death", "treasure_wielded"] {
+        rows.insert(kind.into(), schema["rows"][kind].take());
+    }
+    schema["rows"] = J::Object(rows);
     want.push((
         "schema.json".into(),
         serde_json::to_string_pretty(&schema).expect("JSON") + "\n",

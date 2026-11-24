@@ -1,0 +1,5 @@
+[[quest]]
+name = "OtherQuest"
+max_solves = 5
+message = "done"
+last_modified = "2021-11-01 00:00:00"

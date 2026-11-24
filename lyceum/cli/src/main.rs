@@ -209,21 +209,26 @@ fn rows(args: &Args) -> ExitCode {
                     println!("  {f}");
                 }
                 if sql {
-                    // Each item of a kind written as SQL, viewed and read back.
-                    let (mut seen, mut changed) = (0, Vec::new());
+                    // Each item of a kind written as SQL, viewed and read back: changed when its
+                    // SQL is (what it means), and written otherwise when only its row is (a
+                    // default written out, which a row may leave out).
+                    let (mut seen, mut otherwise, mut changed) = (0, 0, Vec::new());
                     for (name, item) in &world.items {
                         let Ok(v) = view(&item.kind) else { continue };
                         let row = item.row(&vocabulary);
-                        let back = v.to_sql(&row).and_then(|d| v.to_row(&d));
                         seen += 1;
-                        match back {
-                            Ok(b) if b == row => {}
-                            Ok(_) => changed.push(format!("{name}: read back changed")),
+                        let back = v.to_sql(&row).and_then(|d| Ok((d.render(), v.to_row(&d)?)));
+                        match back.and_then(|(sql, b)| Ok((sql, v.to_sql(&b)?.render(), b))) {
+                            Ok((a, b, _)) if a != b => {
+                                changed.push(format!("{name}: read back changed"));
+                            }
+                            Ok((_, _, b)) if b != row => otherwise += 1,
+                            Ok(_) => {}
                             Err(e) => changed.push(format!("{name}: {e}")),
                         }
                     }
                     println!(
-                        "{seen} item(s) viewed as SQL, {} read back changed",
+                        "{seen} item(s) viewed as SQL, {} read back changed, {otherwise} written otherwise",
                         changed.len()
                     );
                     for c in &changed {

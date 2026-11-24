@@ -40,6 +40,8 @@ pub enum LootAction {
     PutBack(LootKind, u32),
     /// The pack's own table taken away, once nothing names it.
     Delete(LootKind, u32),
+    /// The table taken away in the world repository's patch being edited (`true`), or no longer.
+    RemoveInPatch(LootKind, u32, bool),
     /// A new table of the pack's: a copy of `from`, else a plain start (a wielded one's with
     /// `first`, as a list's row writes it); named `name`, else the first free name.
     New {
@@ -376,6 +378,9 @@ impl EditorApp {
                     .map_err(refused)?;
                 self.apply(&op, false).map(|_| ())
             }
+            LootAction::RemoveInPatch(kind, id, gone) => {
+                self.rows_remove(&super::rows_edit::Removable::Loot(kind, id), gone)
+            }
             LootAction::Delete(kind, id) => {
                 if let Some(t) = self.loot_table(kind, id).filter(|t| !t.uses.is_empty()) {
                     return Err(self.say_with("loot.still_used", &[("n", &t.places())]));
@@ -693,12 +698,27 @@ impl EditorApp {
             Whose::Pack { mine: true } => Some(("delete", LootAction::Delete(kind, id))),
             _ => None,
         };
+        let removal = self.patch_removal(&super::rows_edit::Removable::Loot(kind, id));
         ui.horizontal_wrapped(|ui| {
             if let Some((what, action)) = change {
                 let r = ui.button(t.get(&format!("loot.{what}")));
                 self.loot.buttons.push((what.into(), r.rect));
                 if r.clicked() {
                     out.push(UiAction::Loot(action));
+                }
+            }
+            if let Some(removed) = removal {
+                let what = if removed {
+                    "keep_in_patch"
+                } else {
+                    "remove_in_patch"
+                };
+                let r = ui.button(t.get(&format!("loot.{what}")));
+                self.loot.buttons.push((what.into(), r.rect));
+                if r.clicked() {
+                    out.push(UiAction::Loot(LootAction::RemoveInPatch(
+                        kind, id, !removed,
+                    )));
                 }
             }
             if table.rows.is_some() {

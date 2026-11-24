@@ -54,6 +54,8 @@ pub enum QuestAction {
     CancelRename,
     /// The pack's own quest taken away, once nothing names it.
     Delete(String),
+    /// The quest taken away in the world repository's patch being edited (`true`), or no longer.
+    RemoveInPatch(String, bool),
     /// A quest opened in the tab, or the list again.
     Open(Option<String>),
     /// A weenie that names a quest, shown in the Definition pane and opened in the editor (a
@@ -287,6 +289,9 @@ impl EditorApp {
                     .quest_unregister(&name, true)
                     .map_err(refused)?;
                 self.apply(&op, false).map(|_| ())
+            }
+            QuestAction::RemoveInPatch(name, gone) => {
+                self.rows_remove(&super::rows_edit::Removable::Quest(name), gone)
             }
             QuestAction::Copy { from, to } => {
                 if let Some(why) = self.refuse_quest_name(&to) {
@@ -573,6 +578,17 @@ impl EditorApp {
         if let Some((what, action)) = change {
             if button(self, ui, what) {
                 push(out, action);
+            }
+        }
+        let removable = super::rows_edit::Removable::Quest(q.name.clone());
+        if let Some(removed) = self.patch_removal(&removable) {
+            let (what, gone) = if removed {
+                ("keep_in_patch", false)
+            } else {
+                ("remove_in_patch", true)
+            };
+            if button(self, ui, what) {
+                push(out, QuestAction::RemoveInPatch(q.name.clone(), gone));
             }
         }
         let named = matches!(q.whose, Whose::Pack { mine: true }) || server;

@@ -53,7 +53,9 @@
 //! Each entry is written in `table`, linked to the row that holds it by its `parent` column. A map
 //! key is the `key` column (a property's number, an enum's value, a spell); its value is the
 //! `value` column, or its fields the `columns`. A field written in several columns names them in
-//! order (a position's `at` is `origin_X`, `origin_Y`, `origin_Z`). A field a row leaves out is
+//! order (a position's `at` is `origin_X`, `origin_Y`, `origin_Z`). A kind written as rows of a
+//! list (`"group": "entry"`, a wielded treasure) is those rows alone, each carrying the kind's own
+//! columns (its `treasure_Type`). A field a row leaves out is
 //! `NULL` when it is among the entry's `nullable` fields, and its default (0, false, empty)
 //! otherwise; a kind's `time` left out is the world's stamp (`world-db.toml`).
 
@@ -188,6 +190,32 @@ fn values<T: FromRow>(key: &str, value: &str) -> Value {
         "parent": col::<T>("object_id"),
         "key": col::<T>(key),
         "value": col::<T>(value),
+    })
+}
+
+/// `T`'s rows as one table of their own: its fields' columns (`key` the column of its `key_field`,
+/// a field the row names `key`), and those that may be unset.
+fn own<T: FromRow + Fields>(key: Option<(&str, &str)>) -> Value {
+    let mut cols = Map::new();
+    if let Some((name, field)) = key {
+        cols.insert(name.to_owned(), col::<T>(field).into());
+    }
+    cols.extend(columns::<T>(key.map_or("", |(_, f)| f), &[]));
+    json!({ "table": T::TABLE, "columns": cols, "nullable": T::optional() })
+}
+
+/// A wielded treasure's rows as ACE's SQL table: its entries, each with its type.
+fn wielded_sql() -> Value {
+    json!({
+        "table": TreasureWielded::TABLE,
+        "columns": { "type": col::<TreasureWielded>("treasure_type") },
+        "group": "entry",
+        "lists": { "entry": {
+            "table": TreasureWielded::TABLE,
+            "parent": col::<TreasureWielded>("treasure_type"),
+            "columns": columns::<TreasureWielded>("treasure_type", &[]),
+            "nullable": TreasureWielded::optional(),
+        } },
     })
 }
 
@@ -427,15 +455,16 @@ pub fn rows() -> Value {
             "event" => fields::<Event>(&[]),
             _ => fields::<PointsOfInterest>(&[]),
         };
-        kinds.insert(
-            kind.into(),
-            plain(
-                &format!("{kind}/{{name:file}}.toml"),
-                &format!("{item} {{name:lower}}"),
-                &["name"],
-                f,
-            ),
+        let mut k = plain(
+            &format!("{kind}/{{name:file}}.toml"),
+            &format!("{item} {{name:lower}}"),
+            &["name"],
+            f,
         );
+        if kind == "quest" {
+            k["sql"] = own::<Quest>(None);
+        }
+        kinds.insert(kind.into(), k);
     }
     kinds.insert(
         "house_portal".into(),
@@ -446,15 +475,14 @@ pub fn rows() -> Value {
             fields::<HousePortal>(&[]),
         ),
     );
-    kinds.insert(
-        "treasure_death".into(),
-        plain(
-            "treasure_death/{type}.toml",
-            "death-treasure {type}",
-            &["type"],
-            with::<TreasureDeath>(&[("type", "int".into())], &[]),
-        ),
+    let mut death = plain(
+        "treasure_death/{type}.toml",
+        "death-treasure {type}",
+        &["type"],
+        with::<TreasureDeath>(&[("type", "int".into())], &[]),
     );
+    death["sql"] = own::<TreasureDeath>(Some(("type", "treasure_type")));
+    kinds.insert("treasure_death".into(), death);
     kinds.insert(
         "treasure_wielded".into(),
         json!({
@@ -463,6 +491,7 @@ pub fn rows() -> Value {
             "key": ["type"],
             "fields": { "type": "int" },
             "lists": { "entry": entries::<TreasureWielded>() },
+            "sql": wielded_sql(),
         }),
     );
     for (kind, file, item, key, f) in [

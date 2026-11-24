@@ -313,7 +313,10 @@ impl EditorApp {
             if item(ui, t.get("creator.open")).clicked() {
                 out.push(UiAction::NewWeenie(None));
             }
-            if matches!(owner, Owner::Pack { mine: true, .. }) {
+            if matches!(
+                owner,
+                Owner::Pack { mine: true, .. } | Owner::Layer { own: true, .. }
+            ) {
                 let r = item(ui, t.get("definition.delete"));
                 self.definition.delete_button = Some(r.rect);
                 if r.clicked() {

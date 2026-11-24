@@ -666,6 +666,17 @@ fn write(
     dats: &Path,
     opts: &Options<'_>,
 ) -> Result<Exported, Error> {
+    // A world repository's layer, mirrored in the pack being edited, is the repository's, not
+    // the world's: an export never carries it.
+    let sql: BTreeMap<PathBuf, String> = sql
+        .iter()
+        .filter(|(p, _)| {
+            !p.components()
+                .any(|c| c.as_os_str() == crate::mirror::MIRROR)
+        })
+        .map(|(p, t)| (p.clone(), t.clone()))
+        .collect();
+    let sql = &sql;
     let out = opts.out;
     let mut wrote = Vec::new();
     let readme = match opts.target {

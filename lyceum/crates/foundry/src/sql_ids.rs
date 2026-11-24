@@ -1451,6 +1451,9 @@ fn fact(out: &mut BTreeMap<String, WeenieFacts>, row: &Row<'_>) {
 /// character.
 fn unquote_string(v: &str) -> String {
     let v = v.trim();
+    if v.eq_ignore_ascii_case("NULL") {
+        return String::new();
+    }
     let Some(inner) = v
         .strip_prefix('\'')
         .and_then(|s| s.strip_suffix('\''))

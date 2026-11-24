@@ -74,6 +74,12 @@ impl Sources {
         }
     }
 
+    /// Let go of `path`: the session holds no text of it, as though it never read it.
+    pub fn forget(&mut self, path: &Path) {
+        self.texts.remove(path);
+        self.stored.remove(path);
+    }
+
     /// Whether the session holds a text (or no file) for `path`: one it has read or changed.
     #[must_use]
     pub fn holds(&self, path: &Path) -> bool {

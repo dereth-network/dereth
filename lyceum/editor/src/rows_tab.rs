@@ -271,10 +271,10 @@ impl EditorApp {
     /// The line naming the layer edits go into, with New Patch; or why the repository can't be
     /// edited.
     fn rows_editing_line(&mut self, ui: &mut egui::Ui, t: &crate::text::Table) {
-        if let Some(e) = &self.rows.editing {
+        if let Some(m) = self.session.mirror() {
             let line = t.fill(
                 "rows.edits_into",
-                &[("layer", &e.layer_id), ("pack", &e.pack_name)],
+                &[("layer", &m.layer), ("pack", &m.pack_name)],
             );
             ui.horizontal(|ui| {
                 ui.label(line);

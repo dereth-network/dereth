@@ -70,6 +70,150 @@
     }
   },
   "rows": {
+    "quest": {
+      "fields": {
+        "last_modified": "time",
+        "max_solves": "int",
+        "message": "text",
+        "min_delta": "int",
+        "name": "text"
+      },
+      "file": "quest/{name:file}.toml",
+      "item": "quest {name:lower}",
+      "key": [
+        "name"
+      ],
+      "sql": {
+        "columns": {
+          "last_modified": "last_Modified",
+          "max_solves": "max_Solves",
+          "message": "message",
+          "min_delta": "min_Delta",
+          "name": "name"
+        },
+        "nullable": [
+          "message"
+        ],
+        "table": "quest"
+      }
+    },
+    "treasure_death": {
+      "fields": {
+        "item_chance": "int",
+        "item_max_amount": "int",
+        "item_min_amount": "int",
+        "item_treasure_type_selection_chances": "int",
+        "last_modified": "time",
+        "loot_quality_mod": "float",
+        "magic_item_chance": "int",
+        "magic_item_max_amount": "int",
+        "magic_item_min_amount": "int",
+        "magic_item_treasure_type_selection_chances": "int",
+        "mundane_item_chance": "int",
+        "mundane_item_max_amount": "int",
+        "mundane_item_min_amount": "int",
+        "mundane_item_type_selection_chances": "int",
+        "tier": "int",
+        "type": "int",
+        "unknown_chances": "int"
+      },
+      "file": "treasure_death/{type}.toml",
+      "item": "death-treasure {type}",
+      "key": [
+        "type"
+      ],
+      "sql": {
+        "columns": {
+          "item_chance": "item_Chance",
+          "item_max_amount": "item_Max_Amount",
+          "item_min_amount": "item_Min_Amount",
+          "item_treasure_type_selection_chances": "item_Treasure_Type_Selection_Chances",
+          "last_modified": "last_Modified",
+          "loot_quality_mod": "loot_Quality_Mod",
+          "magic_item_chance": "magic_Item_Chance",
+          "magic_item_max_amount": "magic_Item_Max_Amount",
+          "magic_item_min_amount": "magic_Item_Min_Amount",
+          "magic_item_treasure_type_selection_chances": "magic_Item_Treasure_Type_Selection_Chances",
+          "mundane_item_chance": "mundane_Item_Chance",
+          "mundane_item_max_amount": "mundane_Item_Max_Amount",
+          "mundane_item_min_amount": "mundane_Item_Min_Amount",
+          "mundane_item_type_selection_chances": "mundane_Item_Type_Selection_Chances",
+          "tier": "tier",
+          "type": "treasure_Type",
+          "unknown_chances": "unknown_Chances"
+        },
+        "nullable": [],
+        "table": "treasure_death"
+      }
+    },
+    "treasure_wielded": {
+      "fields": {
+        "type": "int"
+      },
+      "file": "treasure_wielded/{type:05}.toml",
+      "item": "wielded-treasure {type}",
+      "key": [
+        "type"
+      ],
+      "lists": {
+        "entry": {
+          "fields": {
+            "continues_previous_set": "bool",
+            "has_sub_set": "bool",
+            "last_modified": "time",
+            "palette_id": "int",
+            "probability": "float",
+            "set_start": "bool",
+            "shade": "float",
+            "stack_size": "int",
+            "stack_size_variance": "float",
+            "unknown_1": "int",
+            "unknown_10": "int",
+            "unknown_11": "int",
+            "unknown_12": "int",
+            "unknown_3": "int",
+            "unknown_4": "int",
+            "unknown_5": "int",
+            "unknown_9": "int",
+            "weenie_class_id": "int"
+          }
+        }
+      },
+      "sql": {
+        "columns": {
+          "type": "treasure_Type"
+        },
+        "group": "entry",
+        "lists": {
+          "entry": {
+            "columns": {
+              "continues_previous_set": "continues_Previous_Set",
+              "has_sub_set": "has_Sub_Set",
+              "last_modified": "last_Modified",
+              "palette_id": "palette_Id",
+              "probability": "probability",
+              "set_start": "set_Start",
+              "shade": "shade",
+              "stack_size": "stack_Size",
+              "stack_size_variance": "stack_Size_Variance",
+              "unknown_1": "unknown_1",
+              "unknown_10": "unknown_10",
+              "unknown_11": "unknown_11",
+              "unknown_12": "unknown_12",
+              "unknown_3": "unknown_3",
+              "unknown_4": "unknown_4",
+              "unknown_5": "unknown_5",
+              "unknown_9": "unknown_9",
+              "weenie_class_id": "weenie_Class_Id"
+            },
+            "nullable": [],
+            "parent": "treasure_Type",
+            "table": "treasure_wielded"
+          }
+        },
+        "table": "treasure_wielded"
+      }
+    },
     "weenie": {
       "fields": {
         "class": "int",
