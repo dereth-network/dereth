@@ -4,8 +4,8 @@
 //! when its value is not the server's default, so a new world's file stays short.
 //!
 //! The era chooses the world database too: the end of retail plays `world.pack`, Infiltration
-//! `world.pack.infiltration`, Launch `world.pack.launch`, each fetched by Get world database for
-//! its era. A world whose configuration names a world database of its own keeps it.
+//! `world.pack.infiltration`, Launch `world.pack.launch`, New Dereth `world.pack.newdereth`, each
+//! fetched by Get world database for its era. A world whose configuration names a world database of its own keeps it.
 //!
 //! The era also chooses the game data the world is drawn from, by the client's own rule
 //! ([`dereth_launch::eras::required_set`]): an era before Throne of Destiny the Classic pair whose
@@ -19,8 +19,12 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use toml_edit::{value, DocumentMut};
 
-/// The eras a world can play, as `[era] profile` names them.
-pub const ERAS: [&str; 3] = ["eor", "infiltration", "launch"];
+/// The eras a world can play, as `[era] profile` names them: those the launcher offers
+/// ([`dereth_launch::eras::eras`]).
+#[must_use]
+pub fn eras() -> Vec<&'static str> {
+    dereth_launch::eras::eras().iter().map(|e| e.name).collect()
+}
 
 /// The log levels `server.log_level` takes.
 pub const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
@@ -99,6 +103,7 @@ pub fn era_pack(era: &str) -> &'static str {
     match era {
         "infiltration" => "world.pack.infiltration",
         "launch" => "world.pack.launch",
+        "newdereth" => "world.pack.newdereth",
         _ => "world.pack",
     }
 }
@@ -531,7 +536,7 @@ pub fn plays(text: &str, dir: &Path) -> Plays {
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs());
-    let plays_era_pack = ERAS
+    let plays_era_pack = eras()
         .iter()
         .any(|e| pack == era_pack(e) || pack.strip_prefix("./") == Some(era_pack(e)));
     let key_file =
@@ -557,11 +562,11 @@ pub fn plays(text: &str, dir: &Path) -> Plays {
             "own"
         },
         base,
-        era_bases: ERAS
-            .iter()
+        era_bases: eras()
+            .into_iter()
             .map(|e| (e, dir.join(era_pack(e))))
             .filter(|(_, pack)| pack.is_file())
-            .filter_map(|(e, pack)| recorded_base(&pack).filter(|b| b.era == *e))
+            .filter_map(|(e, pack)| recorded_base(&pack).filter(|b| b.era == e))
             .collect(),
         pack,
         dat_overlay,
@@ -635,7 +640,7 @@ impl Settings {
         if !self.dats.is_absolute() {
             return Err("Choose the full path to your game data folder.".into());
         }
-        if !ERAS.contains(&self.era.as_str()) {
+        if !eras().contains(&self.era.as_str()) {
             return Err("Choose an era the world can play.".into());
         }
         let names = system_names();
@@ -912,7 +917,8 @@ impl Settings {
             .and_then(toml_edit::Item::as_str)
             .map(str::to_owned);
         let ours = |p: &str| {
-            ERAS.iter()
+            eras()
+                .iter()
                 .any(|e| p == era_pack(e) || p.strip_prefix("./") == Some(era_pack(e)))
         };
         if pack.as_deref().is_none_or(ours) {

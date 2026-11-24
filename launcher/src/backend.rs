@@ -5433,7 +5433,7 @@ mod tests {
         assert_eq!(s.worlds[0].slug, "leafcull");
         assert!(s.list_fetched_at.is_some());
         assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
-        assert_eq!(s.eras.len(), 3);
+        assert_eq!(s.eras.len(), eras::eras().len());
     }
 
     /// A launcher started on another hub's list (`DERETH_HUB_LIST`) reads that hub's list at

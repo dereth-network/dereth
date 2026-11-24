@@ -1329,13 +1329,14 @@ pub fn open_host_world(
 }
 
 /// What `empyrean-import fetch` is told to get a world of `era`'s database. The end of retail's is
-/// the default. A world made before Empyrean 0.3.9 keeps its own Empyrean, whose import tool has no
+/// the default; New Dereth's is its world repository's line. A world made before Empyrean 0.3.9 keeps its own Empyrean, whose import tool has no
 /// `--era`, and of the later eras only Infiltration could be played on one: that tool knows its
 /// world by name.
 fn world_arguments(era: &str) -> Vec<String> {
     match era {
         "eor" => Vec::new(),
         "infiltration" => vec!["--world".to_owned(), "16py".to_owned()],
+        "newdereth" => vec!["--world".to_owned(), "newdereth-emergence".to_owned()],
         era => vec!["--era".to_owned(), era.to_owned()],
     }
 }
@@ -1370,6 +1371,10 @@ mod tests {
     fn a_world_on_an_older_empyrean_can_still_get_its_database() {
         assert!(world_arguments("eor").is_empty());
         assert_eq!(world_arguments("infiltration"), ["--world", "16py"]);
+        assert_eq!(
+            world_arguments("newdereth"),
+            ["--world", "newdereth-emergence"]
+        );
         assert_eq!(world_arguments("launch"), ["--era", "launch"]);
     }
 

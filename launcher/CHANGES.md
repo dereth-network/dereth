@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- New Dereth can now be chosen as a world's era.
 
 ## 0.5.10 (2026-11-23)
 

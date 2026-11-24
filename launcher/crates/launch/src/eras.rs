@@ -91,13 +91,17 @@ pub fn label(era: Option<&str>) -> String {
     }
 }
 
+/// Whether the launcher offers New Dereth: a hosted world may play it and a world a player adds
+/// may say it does. `false` hides it everywhere again.
+pub const OFFER_NEW_DERETH: bool = true;
+
 /// Every era a hosted world can play, latest first: the end of retail is what most worlds play.
-/// New Dereth is not offered until its world database has a release.
+/// New Dereth only while [`OFFER_NEW_DERETH`] says so.
 pub fn eras() -> Vec<EraInfo> {
     EraId::ALL
         .iter()
         .rev()
-        .filter(|&&e| e != EraId::NewDereth)
+        .filter(|&&e| OFFER_NEW_DERETH || e != EraId::NewDereth)
         .map(|&e| EraInfo {
             name: e.name(),
             label: era_label(e),
@@ -211,7 +215,12 @@ mod tests {
 
     #[test]
     fn the_eras_are_the_clients_table_latest_first_with_the_set_each_needs() {
-        let e = eras();
+        let mut e = eras();
+        // New Dereth, the latest, first while the launcher offers it, on the later files.
+        assert_eq!(e[0].name == "newdereth", OFFER_NEW_DERETH);
+        if OFFER_NEW_DERETH {
+            assert_eq!(e.remove(0).needs, SetKind::Modern);
+        }
         assert_eq!(
             e.iter().map(|e| e.name).collect::<Vec<_>>(),
             ["eor", "infiltration", "launch"]
