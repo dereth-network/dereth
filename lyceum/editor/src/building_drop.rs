@@ -428,7 +428,7 @@ impl EditorApp {
         }
         let edges = std::rc::Rc::new(
             self.models
-                .get(self.session.base(), m)
+                .get_compiled(&self.session, m)
                 .map(|model| edges_of(&model.triangles))
                 .unwrap_or_default(),
         );

@@ -2487,7 +2487,7 @@ impl EditorApp {
         if !self.panels.show_bounds {
             return;
         }
-        let Some(m) = self.models.get(self.session.base(), model) else {
+        let Some(m) = self.models.get_compiled(&self.session, model) else {
             return;
         };
         let mut lo = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);

@@ -264,7 +264,11 @@ impl EditorApp {
     fn database_ready(&mut self, path: PathBuf) {
         self.server_sql = Some(path.clone());
         self.catalog = Some(crate::catalog::Catalog::start(
-            (self.session.base().dir.clone(), self.session.base().era),
+            (
+                self.session.base().dir.clone(),
+                self.session.base().era,
+                self.session.world().imports.clone(),
+            ),
             self.session.region().cloned(),
             Some(path),
             None,

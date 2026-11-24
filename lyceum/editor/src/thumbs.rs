@@ -5,7 +5,7 @@
 //! placement, lit by one light, seen from the south-west and a little above, framed to its
 //! bounding box, on black. It is drawn [`SIZE`] * 2 pixels square and halved, so its edges are
 //! smooth. The cache folder holds one folder per set of files (named by the portal file's
-//! fingerprint), so pictures of other files are never shown.
+//! fingerprint and the overlay over it), so pictures of other files are never shown.
 //!
 //! The pictures are read and drawn on a thread of their own ([`Worker`]), on its own device, so
 //! the editor's frame never waits on one: a picture asked for is shown in a later frame.
@@ -257,10 +257,11 @@ impl Drop for Worker {
     }
 }
 
-/// The folder the pictures of `store`'s files are kept in, under `root`.
+/// The folder the pictures of `store`'s files are kept in, under `root`: named by the portal
+/// file and the overlay over it, if any ([`lyceum_foundry::dats::files_key`]).
 #[must_use]
 pub fn folder(root: &Path, store: &RetailDatStore) -> PathBuf {
-    let fp = dereth_dat::overlay::fingerprint(store.portal());
+    let fp = lyceum_foundry::dats::files_key(store.portal());
     let name: String = fp[..8].iter().map(|b| format!("{b:02x}")).collect();
     root.join(name)
 }

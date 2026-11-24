@@ -1,7 +1,8 @@
 //! What the model browser knows of every model, and the map's picture of the world, gathered off
-//! the frame loop: where the data files place each model and the world drawn from above (each
-//! kept in a file in the picture cache, by the files' fingerprints, so the next start reads it at
-//! once); unless the command line named its own SQL, the weenies of the server database
+//! the frame loop: where the data files place each model and the world drawn from above, with
+//! the world's import laid over the files as its packs are compiled over them (a converted land's
+//! buildings and statics are its import's), each kept in a file in the picture cache, by the
+//! files' and the import's fingerprints, so the next start reads it at once; unless the command line named its own SQL, the weenies of the server database
 //! `empyrean-import fetch` keeps in the user's cache folder; and every building the world places,
 //! with the doors that database stands at them ([`lyceum_foundry::buildings`]), kept beside the
 //! placements by the files' and the database's fingerprints; and the world's own dungeons, so the
@@ -45,13 +46,14 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// Gather the placements of the data files of `era` in `dats` (and the scenery of `region`)
-    /// and the map drawn with the terrain types' `colors`, kept under `cache`, the weenies of the
+    /// Gather the placements of the data files of `era` in `dats` with the world's `imports` over
+    /// them (and the scenery of `region`) and the map drawn with the terrain types' `colors`, kept
+    /// under `cache`, the weenies of the
     /// SQL file `database`, and the building catalog with the doors of `doors` (the server
     /// database the session was given, or `database`), on a thread of its own.
     #[must_use]
     pub fn start(
-        (dats, era): (PathBuf, EraId),
+        (dats, era, imports): (PathBuf, EraId, Vec<PathBuf>),
         region: Option<Region>,
         database: Option<PathBuf>,
         doors: Option<PathBuf>,
@@ -65,7 +67,7 @@ impl Catalog {
             .spawn(move || {
                 let _ = tx.send(gather(
                     &dats,
-                    era,
+                    (era, &imports),
                     region.as_ref(),
                     database,
                     doors.as_deref(),
@@ -121,12 +123,13 @@ impl Catalog {
 }
 
 /// The file the placements of `set` are kept in, under `cache`: a folder by the portal file's
-/// fingerprint (the pictures' own), named by the cell file's.
+/// key (the pictures' own), named by the cell file's; each key the file's fingerprint and the
+/// overlay over it, if any ([`lyceum_foundry::dats::files_key`]).
 #[must_use]
 pub fn placements_file(cache: &Path, set: &DatSet) -> PathBuf {
     let hex = |fp: [u8; 32]| -> String { fp[..8].iter().map(|b| format!("{b:02x}")).collect() };
-    let portal = hex(dereth_dat::overlay::fingerprint(&set.portal));
-    let cell = hex(dereth_dat::overlay::fingerprint(&set.cell));
+    let portal = hex(lyceum_foundry::dats::files_key(&set.portal));
+    let cell = hex(lyceum_foundry::dats::files_key(&set.cell));
     cache.join(portal).join(format!("placements-{cell}.tsv"))
 }
 
@@ -176,7 +179,7 @@ pub fn buildings_file(cache: &Path, set: &DatSet, doors: Option<&Path>) -> PathB
 
 fn gather(
     dats: &Path,
-    era: EraId,
+    (era, imports): (EraId, &[PathBuf]),
     region: Option<&Region>,
     database: Option<PathBuf>,
     doors: Option<&Path>,
@@ -184,7 +187,12 @@ fn gather(
     colors: &[[u8; 3]],
 ) -> Ready {
     let mut problem = None;
-    let opened = DatSet::open_era(dats, era);
+    let opened = DatSet::open_era(dats, era).map(|set| {
+        set.with_imports(imports).unwrap_or_else(|e| {
+            tracing::warn!("the model browser lists the files without the world's imports: {e}");
+            set
+        })
+    });
     let (placements, map) = match &opened {
         Ok(set) => {
             let file = placements_file(cache, set);

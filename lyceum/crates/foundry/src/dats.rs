@@ -237,6 +237,31 @@ impl DatSet {
         f.read(id).ok()
     }
 
+    /// The same files with a world's imports (`World::imports`) over them, as its packs are
+    /// compiled over them: what the world holds before any pack changes it, its imported models,
+    /// statics and buildings among it.
+    ///
+    /// # Errors
+    /// An import made against other files, or one that will not open; or more than one import,
+    /// which a set of files can't lay over itself (only the compiler can).
+    pub fn with_imports(&self, imports: &[PathBuf]) -> Result<Self, Error> {
+        match imports {
+            [] => Ok(Self {
+                dir: self.dir.clone(),
+                era: self.era,
+                portal: self.portal.clone(),
+                cell: self.cell.clone(),
+                local: self.local.clone(),
+                highres: self.highres.clone(),
+            }),
+            [one] => self.with_overlay(one, None),
+            more => Err(Error::Refused(format!(
+                "{} imports are laid under the packs, and the files can hold only one",
+                more.len()
+            ))),
+        }
+    }
+
     /// The same files with the overlay in `overlay` over them. `world_key`, when given, is the
     /// world the overlay must belong to.
     ///
@@ -267,4 +292,21 @@ impl DatSet {
                 .transpose()?,
         })
     }
+}
+
+/// What names the records `file` holds as it is read: its own layout's fingerprint, and the
+/// records of the overlay over it, if any. Two files with the same key read the same; a file with
+/// another overlay over it has another key.
+#[must_use]
+pub fn files_key(file: &DatFile) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let own = dereth_dat::overlay::fingerprint(file);
+    let Some(layer) = file.layer() else {
+        return own;
+    };
+    let mut h = Sha256::new();
+    h.update(b"files with an overlay 1");
+    h.update(own);
+    h.update(layer.manifest().encode());
+    h.finalize().into()
 }

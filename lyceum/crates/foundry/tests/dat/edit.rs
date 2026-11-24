@@ -160,6 +160,112 @@ fn a_pick_names_the_static_the_building_and_the_ground_vertex_under_it() {
     assert!((point.x - (f32::from(0xA8u8) * BLOCK + 100.0)).abs() < 0.01);
 }
 
+/// A static a world's import places with a model the import adds (as a converted land places its
+/// buildings and statics): the session picks it, and the files with the import over them list its
+/// model where the world places it.
+#[test]
+fn a_static_an_import_places_with_its_own_model_is_picked_and_listed() {
+    use dereth_assets::world::{LandblockInfo, ObjectEntry};
+    use dereth_primitives::{Frame, Quat};
+    use lyceum_foundry::compile::{Records, Staged};
+    use lyceum_foundry::dats::{files_key, DatSet};
+    use lyceum_foundry::models::{Category, ModelNames, Placements};
+
+    let (dir, world) = super::sample::sample("edit-import-static");
+    let base = DatSet::open(&dereth_dat::testing::dat_dir()).unwrap();
+    // The sample's stone, under an id the files don't hold.
+    let (stone, new) = (DataId(0x0200_040B), DataId(0x02FF_F001));
+    assert!(!base.has_portal(new));
+    let mut setup = base.read_portal(stone).unwrap();
+    setup[..4].copy_from_slice(&new.raw().to_le_bytes());
+    // Placed over the open sea, where the files place nothing.
+    let lb = 0x0101u16;
+    let lid = DataId(0x0101_FFFE);
+    let info = LandblockInfo {
+        id: lid,
+        num_cells: 0,
+        objects: vec![ObjectEntry {
+            id: new,
+            frame: Frame::new(Vec3::new(100.0, 100.0, 20.0), Quat::IDENTITY),
+        }],
+        pack_mask: 0,
+        buildings: Vec::new(),
+        restrictions: None,
+    };
+    let mut records = Records::new();
+    records.entry(ModernDat::Portal).or_default().insert(
+        new.raw(),
+        Staged {
+            bytes: setup.into(),
+            version: 3,
+        },
+    );
+    records.entry(ModernDat::Cell).or_default().insert(
+        lid.raw(),
+        Staged {
+            bytes: info.encode().into(),
+            version: 3,
+        },
+    );
+    let overlay = dir.path().join("import");
+    compile::write_records(
+        &records,
+        &std::collections::BTreeMap::new(),
+        &base,
+        "an-import",
+        &overlay,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&world).unwrap();
+    let imports = format!(
+        "imports = [{:?}]\npacks",
+        overlay.display().to_string().replace('\\', "/")
+    );
+    std::fs::write(&world, text.replacen("packs", &imports, 1)).unwrap();
+
+    let s = Session::open(&world, &dereth_dat::testing::dat_dir(), None).unwrap();
+    let statics = Mask {
+        statics: true,
+        buildings: false,
+        spawns: false,
+        ground: false,
+        cell_statics: false,
+        cells: false,
+    };
+    let hit = pick::pick(
+        &s,
+        &mut Models::default(),
+        &down(lb, 100.0, 100.0),
+        &[lb],
+        statics,
+    )
+    .expect("the import's static is met");
+    assert_eq!(
+        hit.hit,
+        Hit::Static {
+            landblock: lb,
+            index: 0,
+            model: new
+        }
+    );
+
+    let under = base.with_imports(&s.world().imports).unwrap();
+    assert!(under.has_portal(new));
+    assert_ne!(files_key(&under.portal), files_key(&base.portal));
+    assert_eq!(
+        files_key(&base.portal),
+        dereth_dat::overlay::fingerprint(&base.portal)
+    );
+    let names = ModelNames::new(
+        &Placements::read(&under, None, &|_| None),
+        &std::collections::BTreeMap::new(),
+    );
+    assert_eq!(names.get(new).map(|u| u.outdoors), Some(1));
+    assert_eq!(names.category(new), Category::BuildingPiece);
+    // Two imports are more than the files can hold.
+    assert!(base.with_imports(&[overlay.clone(), overlay]).is_err());
+}
+
 /// A world on a finer land than its files', built and edited over the retail files.
 mod land {
     use std::path::PathBuf;

@@ -8,15 +8,17 @@
 //! frame: its bounding sphere first, then its triangles, the nearest of which is the hit. The
 //! ground is each landblock's terrain triangles, cut as the client cuts each cell, and its hit
 //! names the nearest grid vertex. A spawn is its setup's selection sphere, or a meter's sphere when
-//! the session does not know its setup.
+//! the session does not know its setup. Models are read as the world compiles them: an import's
+//! (a converted land's buildings and statics) and a pack's own as well as the base files'.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dereth_assets::{GfxObj, Setup};
 use dereth_primitives::frame::{globaltolocal, globaltolocalvec, l2g, localtoglobal, V3};
-use dereth_primitives::{DataId, Frame, Vec3};
+use dereth_primitives::{DataId, EraId, Frame, Vec3};
 
+use dereth_dat::ModernDat;
 use dereth_primitives::land_grid::LandGrid;
 
 use crate::dats::DatSet;
@@ -204,8 +206,12 @@ pub struct Models {
     read: BTreeMap<u32, Option<Arc<Model>>>,
 }
 
-fn gfxobj_triangles(set: &DatSet, id: DataId) -> Option<Vec<[Vec3; 3]>> {
-    let g = set.decode::<GfxObj>(id, &set.read_portal(id)?).ok()?;
+/// Reads a portal-file record's bytes.
+type Read<'a> = &'a dyn Fn(DataId) -> Option<Vec<u8>>;
+
+fn gfxobj_triangles(read: Read<'_>, era: EraId, id: DataId) -> Option<Vec<[Vec3; 3]>> {
+    use dereth_assets::Decode;
+    let g = GfxObj::decode_payload_for(era, id, &read(id)?).ok()?;
     let at = |i: u16| {
         g.vertex_array
             .vertices
@@ -232,13 +238,33 @@ fn gfxobj_triangles(set: &DatSet, id: DataId) -> Option<Vec<[Vec3; 3]>> {
 impl Models {
     /// Model `id` (a GfxObj or a Setup), read from `set` the first time.
     pub fn get(&mut self, set: &DatSet, id: DataId) -> Option<Arc<Model>> {
+        self.get_from(&|id| set.read_portal(id), set.era, id)
+    }
+
+    /// Model `id`, read the first time as `session` compiles the world: from its imports and
+    /// packs over the base files.
+    pub fn get_compiled(&mut self, session: &Session, id: DataId) -> Option<Arc<Model>> {
+        let read = |id: DataId| {
+            crate::compile::read_compiled(
+                session.compiled(),
+                session.base(),
+                ModernDat::Portal,
+                id.raw(),
+            )
+        };
+        self.get_from(&read, session.base().era, id)
+    }
+
+    /// Model `id`, its records read by `read` in the layout of `era`'s files, the first time.
+    pub fn get_from(&mut self, read: Read<'_>, era: EraId, id: DataId) -> Option<Arc<Model>> {
+        use dereth_assets::Decode;
         self.read
             .entry(id.raw())
             .or_insert_with(|| {
                 let triangles = match id.raw() >> 24 {
-                    0x01 => gfxobj_triangles(set, id)?,
+                    0x01 => gfxobj_triangles(read, era, id)?,
                     0x02 => {
-                        let s = set.decode::<Setup>(id, &set.read_portal(id)?).ok()?;
+                        let s = Setup::decode_payload_for(era, id, &read(id)?).ok()?;
                         let placement = s
                             .placement_frames
                             .get(&RESTING)
@@ -253,7 +279,7 @@ impl Models {
                                 .as_ref()
                                 .and_then(|d| d.get(i).copied())
                                 .unwrap_or(Vec3::new(1.0, 1.0, 1.0));
-                            for t in gfxobj_triangles(set, *part).unwrap_or_default() {
+                            for t in gfxobj_triangles(read, era, *part).unwrap_or_default() {
                                 out.push(t.map(|p| {
                                     localtoglobal(
                                         &frame,
@@ -306,14 +332,13 @@ pub fn pick(
             best = Some(Picked { hit, distance });
         }
     };
-    let set = session.base();
     for &lb in landblocks {
         if mask.cell_statics || mask.cells {
             let cells = session.cells(lb);
             if mask.cell_statics {
                 for (n, cell) in &cells {
                     for (index, o) in cell.static_objects.iter().enumerate() {
-                        let Some(m) = models.get(set, o.id) else {
+                        let Some(m) = models.get_compiled(session, o.id) else {
                             continue;
                         };
                         if let Some(d) = m.hit(&into_frame(ray, lb, &o.frame)) {
@@ -356,7 +381,7 @@ pub fn pick(
         };
         if mask.statics {
             for (index, o) in info.objects.iter().enumerate() {
-                let Some(m) = models.get(set, o.id) else {
+                let Some(m) = models.get_compiled(session, o.id) else {
                     continue;
                 };
                 if let Some(d) = m.hit(&into_frame(ray, lb, &o.frame)) {
@@ -373,7 +398,7 @@ pub fn pick(
         }
         if mask.buildings {
             for (index, b) in info.buildings.iter().enumerate() {
-                let Some(m) = models.get(set, b.id) else {
+                let Some(m) = models.get_compiled(session, b.id) else {
                     continue;
                 };
                 if let Some(d) = m.hit(&into_frame(ray, lb, &b.frame)) {
@@ -394,7 +419,7 @@ pub fn pick(
             if !landblocks.contains(&s.landblock()) {
                 continue;
             }
-            let model = s.setup.and_then(|id| models.get(set, id));
+            let model = s.setup.and_then(|id| models.get_compiled(session, id));
             let local = into_frame(ray, s.landblock(), &s.frame);
             let d = match model.filter(|m| !m.triangles.is_empty()) {
                 Some(m) => m

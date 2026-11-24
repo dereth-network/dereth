@@ -212,6 +212,48 @@ impl Mode {
     }
 }
 
+/// The files `base` with the world's one import over them, or `base` itself with none (or more
+/// than one, which a set of files can't hold, or one that will not open).
+fn imported_store(
+    base: &Arc<dereth_dat::RetailDatStore>,
+    imports: &[PathBuf],
+) -> Arc<dereth_dat::RetailDatStore> {
+    let [one] = imports else {
+        return Arc::clone(base);
+    };
+    let laid = dereth_dat::overlay::OverlayDir::new(one)
+        .map_err(|e| e.to_string())
+        .and_then(|dir| {
+            let key = dir.world_key();
+            base.as_ref()
+                .clone()
+                .with_overlay(&dir, key.as_deref())
+                .map_err(|e| e.to_string())
+        });
+    match laid {
+        Ok(store) => Arc::new(store),
+        Err(e) => {
+            tracing::warn!("{}: the pictures are drawn without it: {e}", one.display());
+            Arc::clone(base)
+        }
+    }
+}
+
+/// Every model the world holds, by id: the base files' and those its imports and packs add (a
+/// converted land's buildings and statics), each once.
+fn world_models(session: &Session) -> Vec<DataId> {
+    let model = |id: &DataId| matches!(id.raw() >> 24, 0x01 | 0x02);
+    let mut all: BTreeSet<DataId> = session.base().portal.iter_ids().filter(model).collect();
+    if let Some(r) = session
+        .compiled()
+        .records
+        .get(&dereth_dat::ModernDat::Portal)
+    {
+        all.extend(r.keys().map(|&id| DataId(id)).filter(model));
+    }
+    all.into_iter().collect()
+}
+
 /// What is selected.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Selection {
@@ -638,7 +680,8 @@ pub struct EditorApp {
     /// The browser's pictures: opened when first shown, with the folder they are kept in.
     thumbs: Option<crate::thumbs::Worker>,
     thumbs_root: PathBuf,
-    /// The files the pictures are drawn from: the player's, without the world's overlay.
+    /// The files the pictures are drawn from: the player's with the world's import over them (a
+    /// converted land's models and pictures), without the packs' changes.
     base_store: Arc<dereth_dat::RetailDatStore>,
     /// Each model's picture, as the panels' texture.
     pictures: Pictures,
@@ -946,7 +989,11 @@ impl EditorApp {
             )
         }
         .map_err(|e| e.to_string())?;
-        let world_files = (session.base().dir.clone(), session.base().era);
+        let world_files = (
+            session.base().dir.clone(),
+            session.base().era,
+            session.world().imports.clone(),
+        );
         if let Some(w) = &args.weenies {
             let text = std::fs::read_to_string(w).map_err(|e| format!("{}: {e}", w.display()))?;
             session.learn_weenies(&text);
@@ -980,7 +1027,7 @@ impl EditorApp {
         let base = Arc::new(
             dereth_client_runtime::assets::open_store(&base_cfg).map_err(|e| e.cause.clone())?,
         );
-        let base_store = Arc::clone(&base);
+        let base_store = imported_store(&base, &session.world().imports);
         let mut shell = EditorShell::default();
         let events = std::rc::Rc::clone(&shell.events);
         let headless = cfg.headless;
@@ -1022,12 +1069,7 @@ impl EditorApp {
             .map_or(FlyCamera::new(Vec3::ZERO, 0.0, 0.0), |w| {
                 FlyCamera::from_free(&w.camera, block, 3)
             });
-        let all_models: Vec<DataId> = session
-            .base()
-            .portal
-            .iter_ids()
-            .filter(|id| matches!(id.raw() >> 24, 0x01 | 0x02))
-            .collect();
+        let all_models = world_models(&session);
         let thumbs_root = args
             .thumbnails
             .clone()
