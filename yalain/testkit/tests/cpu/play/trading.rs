@@ -279,6 +279,62 @@ fn a_traded_item_is_held_by_its_receiver_before_its_move_is_told() {
     );
 }
 
+/// In the order the server sends them, each whole item the receiver gets in a two-item swap has
+/// its container emptied, then is contained, then is held by the receiver, then its move is told.
+/// Behaviour: server.trade.received-item-order
+#[test]
+fn each_received_item_is_emptied_contained_held_then_its_move_told() {
+    use yalain_world::calls::{self, Node};
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bows = [hold(&mut h, aid, BOW, 1), hold(&mut h, aid, BOW, 1)];
+    opened(&mut h, (a, aid), (b, bid));
+    for bow in bows {
+        h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    }
+    let fb = h.bots[b].inbox.len();
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let sent = h.sent_messages(b, fb);
+    let moved_item = |m: &ServerMessage| -> Option<u64> {
+        let ServerMessage::PlayerCall(c) = m else {
+            return None;
+        };
+        if c.function.0 != 0x820E_005E {
+            return None;
+        }
+        calls::values(&c.args.as_ref()?.0)
+            .ok()?
+            .iter()
+            .find_map(|x| match x.root() {
+                Some(Node::Script { slots, .. }) => {
+                    Some(u64::from(slots[45].1) << 32 | u64::from(slots[44].1))
+                }
+                _ => None,
+            })
+    };
+    for bow in bows {
+        let order: Vec<&str> = sent
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateInstanceIdVisual(q)
+                    if q.object.id == bow && q.quality == 258 && q.value == 0 =>
+                {
+                    Some("emptied")
+                }
+                ServerMessage::Contain(o) if o.0.id == bow => Some("contained"),
+                ServerMessage::UpdateInstanceIdVisual(q)
+                    if q.object.id == bow && q.quality == 258 && q.value == bid =>
+                {
+                    Some("held")
+                }
+                _ if moved_item(m) == Some(bow) => Some("moved"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(order, ["emptied", "contained", "held", "moved"], "{bow:#x}");
+    }
+}
+
 /// When both have accepted and the other's pack has no room for what it would receive, both are
 /// told the trade failed for the other's want of room; nothing moves, and once the other has made
 /// room both must accept again and the item moves.

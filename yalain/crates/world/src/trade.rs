@@ -852,19 +852,24 @@ fn give<S: Store>(
     };
     // The item's containing and its holders before the move's answer, a new stack made after it
     // (2017, by the order sent: a traded item's container before the answer 296 of 296, its
-    // Contain 219 of 219).
+    // Contain 219 of 219); a whole item's container emptied, then its Contain, then the receiver
+    // as its container, then the answer (244 of 250 items received, the others split off).
+    let container = |s: &mut Server<S>, net: &mut ServerNet, owner: u64| {
+        let stamp = inventory::visual(s, moved);
+        let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+            object: stamp,
+            quality: CONTAINER,
+            value: owner,
+        });
+        inventory::to_holder(s, net, rw, moved, &m);
+    };
+    if whole {
+        container(s, net, 0);
+    }
     let contain = ServerMessage::Contain(ObjectOnly(inventory::contain_stamp(s, moved)));
     net.send(rw, queue::EVENT, BlobKind::UNORDERED, contain.encode());
     if whole {
-        for owner in [0, receiver] {
-            let stamp = inventory::visual(s, moved);
-            let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
-                object: stamp,
-                quality: CONTAINER,
-                value: owner,
-            });
-            inventory::to_holder(s, net, rw, moved, &m);
-        }
+        container(s, net, receiver);
     }
     both(s, net, t, &inventory::move_done(&m));
     if !whole {

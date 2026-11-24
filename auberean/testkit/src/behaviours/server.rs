@@ -20613,6 +20613,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.trade.received-item-order",
+        says: "Each whole item a trade's swap gives a player is told to its receiver in order: its \
+               container emptied, its Contain, the receiver as its container, then its move.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-RECEIVED-ORDER"),
+        station: "yalain-testkit::cpu::play::trading::each_received_item_is_emptied_contained_held_then_its_move_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.waits-for-a-use-under-way",
         says: "A trade cannot complete while a use under way counts on a side's pack: it fails and nothing \
                moves. Our own rule: no recording tells.",
