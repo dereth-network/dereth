@@ -106,6 +106,7 @@ dereth_testkit::scenarios! {
     scenario_with_tabs_only_the_pages_content_scrolls => with_tabs_only_the_pages_content_scrolls ["plugins.ui.with-tabs-only-the-pages-content-scrolls"],
     scenario_while_the_huds_are_unlocked_a_huds_controls_take_no_input => while_the_huds_are_unlocked_a_huds_controls_take_no_input ["plugins.ui.while-the-huds-are-unlocked-a-huds-controls-take-no-input"],
     scenario_the_spell_book_is_read_whole_or_a_page_at_a_time => the_spell_book_is_read_whole_or_a_page_at_a_time ["plugins.game.the-spell-book-is-read-whole-or-a-page-at-a-time"],
+    scenario_a_spell_is_found_by_its_name_known_ones_first => a_spell_is_found_by_its_name_known_ones_first ["plugins.game.a-spell-is-found-by-its-name-known-ones-first"],
     scenario_a_hud_is_kept_with_its_anchor_and_changes_like_a_window => a_hud_is_kept_with_its_anchor_and_changes_like_a_window ["plugins.ui.a-hud-is-kept-with-its-anchor-and-changes-like-a-window"],
     scenario_markers_are_kept_with_what_they_mark_and_go_when_removed_or_due => markers_are_kept_with_what_they_mark_and_go_when_removed_or_due ["plugins.overlay.markers-are-kept-with-what-they-mark-and-go-when-removed-or-due"],
     scenario_an_image_shows_a_png_from_the_package_or_one_fetched => an_image_shows_a_png_from_the_package_or_one_fetched ["plugins.ui.an-image-shows-a-png-from-the-package-or-one-fetched"],
@@ -771,6 +772,58 @@ fn the_spell_book_is_read_whole_or_a_page_at_a_time() {
         "spell-book",
         "plugins.game.the-spell-book-is-read-whole-or-a-page-at-a-time",
     );
+}
+
+fn a_spell_is_found_by_its_name_known_ones_first() {
+    core(
+        "spell-find",
+        "plugins.game.a-spell-is-found-by-its-name-known-ones-first",
+    );
+}
+
+/// The spec's mini-control example runs: its strip shows each switch with the icon of the spell it
+/// names, found by name (a known spell's, where one name is several spells), and a command turns a
+/// switch.
+#[test]
+fn the_mini_control_example_shows_each_switch_with_its_spells_icon() {
+    let dir =
+        dereth_testkit::conformance::workspace_root().join("docs/plugins/examples/mini-control");
+    let mut run = PluginRun::new().with_spells(
+        &[
+            (4930, "Flame Bolt I", 1),
+            (982, "Sprint Self I", 4),
+            (581, "Item Enchantment Mastery Self I", 3),
+        ],
+        false,
+    );
+    run.load(read_package(&dir));
+    run.scripted_world("Tester", Vec::new());
+    run.type_line("/mini 3");
+    run.advance(0.5);
+    assert_eq!(
+        run.status("example.mini-control"),
+        "running",
+        "{:?}",
+        run.console("example.mini-control")
+    );
+    let ui = run.ui_dump();
+    for (node, spell, on) in [
+        ("fight", 27, true),
+        ("buff", 1, true),
+        ("heal", 15, true),
+        ("move", 982, true),
+        ("loot", 581, false),
+    ] {
+        let line = ui
+            .lines()
+            .find(|l| l.contains(&format!("toggle #{node} ")))
+            .unwrap_or_else(|| panic!("no {node} in {ui}"));
+        assert!(
+            line.contains(&format!("icon={}", 0x0600_0000_u32 | spell)),
+            "{line}"
+        );
+        assert!(line.contains(&format!("value={on}")), "{line}");
+    }
 }
 
 fn a_hud_is_kept_with_its_anchor_and_changes_like_a_window() {

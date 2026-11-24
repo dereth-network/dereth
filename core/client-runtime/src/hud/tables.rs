@@ -455,6 +455,19 @@ impl Hud {
             .collect()
     }
 
+    /// The ids of the spells the spell table names `name`, case aside, in id order (a world's data
+    /// overlay included, as it is in the table).
+    #[must_use]
+    pub fn spells_named(&self, name: &str) -> Vec<u32> {
+        self.spell_table.as_ref().map_or_else(Vec::new, |t| {
+            t.spells
+                .iter()
+                .filter(|(_, b)| dereth_client_contract::spellbook::same_spell_name(&b.name, name))
+                .map(|(id, _)| *id)
+                .collect()
+        })
+    }
+
     /// One `SpellTable` row as a [`SpellEntry`] —
     /// with the four derivations [`Self::build_spells`] needs.
     ///

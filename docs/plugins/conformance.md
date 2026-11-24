@@ -132,7 +132,9 @@ the scripted world as that character, and a character listed `still_in_world` is
 the server refuses it. `[net]` answers HTTPS requests from files in the case's folder; `[host]`
 may give the world's published `policy_document` or the player's `policy_rules`. The scripted world
 has a small spell table (a few self buffs, a buff for another, a debuff and a bolt), so casting
-is tested with no game data.
+is tested with no game data; each of its spells has an icon of its own. A case's `[[spell]]`s add
+spells to it: each an `id`, a `name`, a `school` (1 when absent) and whether the character knows
+it (`known`, not when absent).
 
 Dereth's driver replays the recordings through its own session and game model with no game data
 files and no display (`dereth-testkit`, `plugins` and `conformance`), stepping the host 30 times a

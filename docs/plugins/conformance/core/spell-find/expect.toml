@@ -1,0 +1,17 @@
+says = "A spell is found by its name, case aside: every spell of that name, the ones the character knows first, then the rest, each in id order, each as the spell table gives it, its icon among it; a name no spell has finds none."
+[scenario]
+world = "scripted"
+seconds = 3
+[[spell]]
+id = 4936
+name = "Flame Bolt I"
+known = true
+[[spell]]
+id = 4930
+name = "Flame Bolt I"
+[[step]]
+after = 1
+say = "/find"
+[expect]
+status = "running"
+console = ["bolt\t27+,4936+,4930", "case\t15+", "none\t0", "icons\t0x0600001B 0x06001342", "record\tHeal Self I\t2\ttrue"]

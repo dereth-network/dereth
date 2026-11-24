@@ -380,6 +380,23 @@ pub trait GameView: std::fmt::Debug {
         self.spellbook().iter().find(|s| s.id == spell_id).cloned()
     }
 
+    /// The ids of the spells in the spell table named `name`, case aside
+    /// ([`crate::spellbook::same_spell_name`]), in id order. One name can be several spells: a
+    /// spell and the versions an item or a creature casts often share it.
+    ///
+    /// The default searches the join, as [`Self::spell`] answers from it.
+    fn spells_named(&self, name: &str) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .spellbook()
+            .iter()
+            .filter(|s| crate::spellbook::same_spell_name(&s.name, name))
+            .map(|s| s.id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// The spell's category in the spell table: the spells of one category are one family (the
     /// levels of a buff and its higher-level namesakes), of which a character holds the strongest.
     /// `None` where the host has no spell table, or the spell has no category (0).

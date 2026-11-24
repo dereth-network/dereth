@@ -844,6 +844,10 @@ impl GameView for HudView<'_> {
         self.hud.spell_entry(spell_id)
     }
 
+    fn spells_named(&self, name: &str) -> Vec<u32> {
+        self.hud.spells_named(name)
+    }
+
     fn spell_category(&self, spell_id: u32) -> Option<u32> {
         self.hud
             .spell_table

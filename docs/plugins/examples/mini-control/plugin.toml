@@ -1,0 +1,11 @@
+id = "example.mini-control"
+name = "Mini control"
+version = "0.1.0"
+api = "0.7"
+contexts = ["world"]
+
+[permissions]
+"act.interactive" = "Its slash command turns its switches."
+
+[capabilities]
+required = ["ui.hud"]

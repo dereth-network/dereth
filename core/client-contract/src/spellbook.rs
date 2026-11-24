@@ -21,6 +21,15 @@ pub const fn power_component(raw_comp0: u32, comp_key: u32) -> u32 {
     }
 }
 
+/// Whether two spell names are the same name, case aside: the rule [`GameView::spells_named`]
+/// matches by. Letters fold as Unicode lowercases them.
+#[must_use]
+pub fn same_spell_name(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
+}
+
 /// The school and level masks use different, disjoint bits.
 #[must_use]
 pub const fn school_mask(school: u32) -> u32 {

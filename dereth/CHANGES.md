@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - dereth-art can build the AC2-in-AC1 world from your own installs.
 - A world can color its sky by the hour, as the AC2-in-AC1 world now does.
+- Plugins can find a spell by its name, icon included.
 
 ## 0.4.23 (2026-11-23)
 - Horizon: fixed plugin windows over a moved party list not taking clicks or drags.

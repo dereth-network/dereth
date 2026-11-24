@@ -115,6 +115,9 @@ interface host {
     /// A spell of the spell table, or null.
     magic-spell: func(spell: s64) -> result<value, string>;
 
+    /// Every spell of the spell table with this name, case aside, as `magic.spell` gives each: the ones the character knows first, then the rest, each in id order. One name can be several spells.
+    magic-find: func(name: string) -> result<value, string>;
+
     /// The character's spell book, in id order: every spell it knows that the spell table has, or `count` of them from the `from`th (from 1).
     magic-known: func(%from: option<s64>, count: option<s64>) -> result<value, string>;
 

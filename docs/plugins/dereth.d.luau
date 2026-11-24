@@ -35,6 +35,8 @@ declare game: {
 declare magic: {
 	-- A spell of the spell table, or null.
 	spell: (spell: number) -> any,
+	-- Every spell of the spell table with this name, case aside, as `magic.spell` gives each: the ones the character knows first, then the rest, each in id order. One name can be several spells.
+	find: (name: string) -> any,
 	-- The character's spell book, in id order: every spell it knows that the spell table has, or `count` of them from the `from`th (from 1).
 	known: (from: number?, count: number?) -> any,
 }

@@ -1622,21 +1622,23 @@ impl HostCalls for Call<'_, '_> {
                     .and_then(Value::as_i64)
                     .and_then(|i| u32::try_from(i).ok())
                     .ok_or_else(|| bad("a spell id must be a whole number"))?;
+                Ok(spell_record(self.frame(op)?.view, id))
+            }
+            "magic.find" => {
+                let name = args
+                    .first()
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| bad("a spell's name must be a string"))?;
                 let view = self.frame(op)?.view;
-                Ok(view.spell(id).map_or(Value::Nil, |s| {
-                    Value::map()
-                        .with("id", id)
-                        .with("name", s.name.as_str())
-                        .with("icon", s.icon.map(|d| d.0))
-                        .with("known", view.is_spell_known(id))
-                        .with("school", s.school)
-                        .with("level", s.level)
-                        .with("category", view.spell_category(id))
-                        .with("description", view.spell_description(id))
-                        .with("difficulty", view.spell_cost(id).map(|c| c.0))
-                        .with("mana", view.spell_cost(id).map(|c| c.1))
-                        .with("duration", view.spell_duration(id))
-                }))
+                // Known spells first, each part in id order (the view's order, which the sort keeps).
+                let mut ids = view.spells_named(name);
+                ids.sort_by_key(|&id| !view.is_spell_known(id));
+                Ok(Value::List(
+                    ids.into_iter()
+                        .map(|id| spell_record(view, id))
+                        .filter(|v| !matches!(v, Value::Nil))
+                        .collect(),
+                ))
             }
             "magic.known" => {
                 // The book itself (the character's qualities), each spell looked up in the table;
@@ -2415,6 +2417,25 @@ impl HostCalls for Call<'_, '_> {
 }
 
 /// A recall a plugin named: `"lifestone"`, `"marketplace"`, or a recall spell's id.
+/// Spell `id` of the view's spell table, as `magic.spell` answers it; nil when the table has no
+/// such spell.
+fn spell_record(view: &dyn dereth_client_contract::GameView, id: u32) -> Value {
+    view.spell(id).map_or(Value::Nil, |s| {
+        Value::map()
+            .with("id", id)
+            .with("name", s.name.as_str())
+            .with("icon", s.icon.map(|d| d.0))
+            .with("known", view.is_spell_known(id))
+            .with("school", s.school)
+            .with("level", s.level)
+            .with("category", view.spell_category(id))
+            .with("description", view.spell_description(id))
+            .with("difficulty", view.spell_cost(id).map(|c| c.0))
+            .with("mana", view.spell_cost(id).map(|c| c.1))
+            .with("duration", view.spell_duration(id))
+    })
+}
+
 fn recall_of(v: &Value) -> Result<dereth_navigation::Recall, CallError> {
     use dereth_navigation::Recall;
     match (v.as_str(), v.as_i64()) {

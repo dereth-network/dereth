@@ -176,6 +176,9 @@ api.magic = {
 	spell = function(id)
 		return hostcall("magic.spell", id)
 	end,
+	find = function(name)
+		return hostcall("magic.find", name)
+	end,
 	known = function(from, count)
 		return hostcall("magic.known", from, count)
 	end,

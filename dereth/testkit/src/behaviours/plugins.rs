@@ -544,6 +544,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.game.a-spell-is-found-by-its-name-known-ones-first",
+        says: "A plugin finds a spell by its name, case aside: every spell of the spell table with \
+               that name, the ones the character knows first, then the rest, each in id order and \
+               each as the spell table gives it; a name no spell has finds none.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-SPELL-FIND"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_spell_is_found_by_its_name_known_ones_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.game.the-spell-book-is-read-whole-or-a-page-at-a-time",
         says: "A plugin reads the character's spell book in id order, whole or a page at a time \
                (from a position counting from 1, so many spells); a page past the end is empty; \

@@ -32,7 +32,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `inventory` | `inventory.items`, `inventory.open_container`, `inventory.free_slots`, `inventory.packs` |
 | `vendor` | `vendor.info` |
 | `trade` | `trade.info` |
-| `magic` | `magic.spell`, `magic.known` |
+| `magic` | `magic.spell`, `magic.find`, `magic.known` |
 | `files` | `files.package`, `files.package_list`, `files.data`, `files.data_list`, `files.save_data` |
 | `act` | `act.request` |
 | `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.search`, `nav.knowledge`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
@@ -53,7 +53,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `host` | `host.info`, `host.has` |
 | `time` | `time.clock`, `time.unix` |
 
-90 operations in 31 namespaces.
+91 operations in 31 namespaces.
 
 ## `console`
 
@@ -323,6 +323,13 @@ A spell of the spell table, or null.
 
 - WIT: `magic-spell: func(spell: s64) -> result<value, string>`
 - Lua: `magic.spell(spell: number) -> any`
+
+### `magic.find`
+
+Every spell of the spell table with this name, case aside, as `magic.spell` gives each: the ones the character knows first, then the rest, each in id order. One name can be several spells.
+
+- WIT: `magic-find: func(name: string) -> result<value, string>`
+- Lua: `magic.find(name: string) -> any`
 
 ### `magic.known`
 

@@ -33,6 +33,10 @@
 //!                            #   (its uses, a salvage bag's units) likewise
 //! vendor = { buys = "misc" } # optional: a vendor, used it shows the objects in it, sells them
 //!                            #   at their value and buys what its item types cover
+//! [[spell]]                  # a scripted world's other spells, besides the scripted spell table's
+//! id = 4930                  #   (`crate::plugins::SCRIPTED_SPELLS`): id, name, school (1 when
+//! name = "Flame Bolt I"      #   absent), and whether the character knows it (not when absent)
+//! known = true
 //! [[wall]]                   # a scripted world's walls: each stops the character, blocks a line
 //! from = [42.2, 33.8]        #   of sight across it, and walking routes go round it; on the ground
 //! to = [42.21, 33.8]         #   from one place to the other, each [ns, ew]
@@ -696,6 +700,38 @@ fn case_flag(case: &Case, key: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// A case's scripted world's other spells (`[[spell]]`): id, name, school and whether the
+/// character knows it.
+fn case_spells(case: &Case) -> Vec<(u32, String, u32, bool)> {
+    let path = case.dir.join("expect.toml");
+    let table = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Table>(&t).ok());
+    let Some(list) = table.as_ref().and_then(|t| t.get("spell")?.as_array()) else {
+        return Vec::new();
+    };
+    let whole = |v: &toml::Value, key: &str| {
+        v.get(key)
+            .and_then(toml::Value::as_integer)
+            .and_then(|n| u32::try_from(n).ok())
+    };
+    list.iter()
+        .map(|v| {
+            (
+                whole(v, "id").unwrap_or_else(|| panic!("{}: a spell's id", path.display())),
+                v.get("name")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or_else(|| panic!("{}: a spell's name", path.display()))
+                    .to_owned(),
+                whole(v, "school").unwrap_or(1),
+                v.get("known")
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or(false),
+            )
+        })
+        .collect()
+}
+
 /// The codes a case's scripted server refuses its first attacks with
 /// (`[scenario] attack_refusals`).
 fn case_attack_refusals(case: &Case) -> Vec<u32> {
@@ -749,6 +785,9 @@ pub fn run(case: &Case) -> Outcome {
         run = run.with_player_killer();
     }
     run = run.with_attack_refusals(case_attack_refusals(case));
+    for (id, name, school, known) in case_spells(case) {
+        run = run.with_spells(&[(id, name.as_str(), school)], known);
+    }
     if case_flag(case, "repeat_attacks") {
         run = run.with_repeating_attacks();
     }

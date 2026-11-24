@@ -151,6 +151,8 @@ pub const OPS: &[Op] = &[
          doc: "The open trade, or null." },
     Op { name: "magic.spell", lua: Some("magic.spell"), params: &[p("spell", Ty::Int)], result: Some(Ty::Value),
          doc: "A spell of the spell table, or null." },
+    Op { name: "magic.find", lua: Some("magic.find"), params: &[p("name", Ty::Str)], result: Some(Ty::Value),
+         doc: "Every spell of the spell table with this name, case aside, as `magic.spell` gives each: the ones the character knows first, then the rest, each in id order. One name can be several spells." },
     Op { name: "magic.known", lua: Some("magic.known"), params: &[p("from", OPT_INT), p("count", OPT_INT)], result: Some(Ty::Value),
          doc: "The character's spell book, in id order: every spell it knows that the spell table has, or `count` of them from the `from`th (from 1)." },
     Op { name: "files.package", lua: Some("files.package"), params: &[p("path", Ty::Str)], result: Some(OPT_STR),

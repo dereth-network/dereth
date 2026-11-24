@@ -789,6 +789,17 @@ impl GameView for GameSnapshot {
     fn spell(&self, spell_id: u32) -> Option<SpellEntry> {
         self.spells.get(&spell_id)?.entry.clone()
     }
+    fn spells_named(&self, name: &str) -> Vec<u32> {
+        self.spells
+            .iter()
+            .filter(|(_, s)| {
+                s.entry
+                    .as_ref()
+                    .is_some_and(|e| crate::spellbook::same_spell_name(&e.name, name))
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
     fn is_spell_known(&self, spell_id: u32) -> bool {
         self.spells.get(&spell_id).is_some_and(|s| s.known)
     }
@@ -1118,5 +1129,35 @@ mod tests {
             crate::spellbook::readiness(&snapshot, 99, None),
             crate::spellbook::SpellReadiness::ReadyOnTarget
         );
+    }
+
+    /// A snapshot finds the spells it holds by name, case aside, as the view it was taken from
+    /// would; a name none of them has finds none.
+    /// Behaviour: plugins.game.a-spell-is-found-by-its-name-known-ones-first
+    #[test]
+    fn a_snapshot_finds_the_spells_it_holds_by_name_case_aside() {
+        #[derive(Debug)]
+        struct Wand;
+        impl GameView for Wand {
+            fn endowment(&self) -> Option<(ObjectId, u32)> {
+                Some((ObjectId(2), 99))
+            }
+            fn spell(&self, id: u32) -> Option<crate::SpellEntry> {
+                (id == 99).then(|| crate::SpellEntry {
+                    id,
+                    name: "Endowed Spell".into(),
+                    icon: None,
+                    school: 3,
+                    level: 8,
+                    icon_power: 10,
+                    display_order: 0,
+                    bitfield: 0,
+                })
+            }
+        }
+        let snapshot = GameSnapshot::from_view(&Wand);
+        assert_eq!(snapshot.spells_named("endowed SPELL"), [99]);
+        assert!(snapshot.spells_named("Endowed").is_empty());
+        assert!(crate::spellbook::same_spell_name("Lügian", "LÜGIAN"));
     }
 }

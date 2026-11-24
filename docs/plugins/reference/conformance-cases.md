@@ -6,7 +6,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 
 | profile | cases |
 |---|---|
-| [Core](#core) | 25 |
+| [Core](#core) | 26 |
 | [UI](#ui) | 19 |
 | [Overlay](#overlay) | 9 |
 | [Nav](#nav) | 20 |
@@ -37,6 +37,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`refused`](../conformance/core/refused/) | A plugin that needs a capability the host does not have is not loaded, and the player is told why. | the host's frames alone |
 | [`sandbox`](../conformance/core/sandbox/) | A plugin has no file, process or source-loading functions, cannot change the libraries or the API, and can require only modules in its own package. | the host's frames alone |
 | [`spell-book`](../conformance/core/spell-book/) | The spell book comes in id order, whole or a page at a time (counting from 1); a page past the end is empty; each spell carries its category and how long it lasts. | a scripted world |
+| [`spell-find`](../conformance/core/spell-find/) | A spell is found by its name, case aside: every spell of that name, the ones the character knows first, then the rest, each in id order, each as the spell table gives it, its icon among it; a name no spell has finds none. | a scripted world |
 | [`store`](../conformance/core/store/) | The character store opens once a character is logged in, and holds numbers, strings, lists and tables but not functions. | the recorded session `long-solo-play` |
 | [`store-scopes`](../conformance/core/store-scopes/) | The global, world and character stores each keep plain values, and a write past the quota is refused without changing the store. | a scripted world |
 | [`timers`](../conformance/core/timers/) | A repeating timer fires on its period until cancelled, a one-shot fires once, and a task that sleeps wakes after its delay, all on the frame clock. | the host's frames alone |

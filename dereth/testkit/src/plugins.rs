@@ -763,7 +763,8 @@ pub fn scripted_spell_table() -> dereth_assets::tables::SpellTable {
                     } else {
                         4
                     },
-                    icon: 0,
+                    // Each spell its own icon, so that a plugin can tell which it was given.
+                    icon: 0x0600_0000 | *id,
                     // Each spell its own category (family), as no two scripted spells are of one.
                     category: if *id == 2087 { 1 } else { *id },
                     bitfield: if name.starts_with("Imperil") || name.starts_with("Flame") {
@@ -2007,6 +2008,7 @@ impl PluginRun {
                 b.name.clone_from(name);
                 b.description = String::new();
                 b.school = *school;
+                b.icon = 0x0600_0000 | *id;
                 b.category = *id;
                 b.bitfield = if name.contains(" Self") {
                     dereth_client_model::magic::spell_index::SELF_TARGETED

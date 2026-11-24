@@ -177,7 +177,13 @@ mod tests {
         let ops: Vec<&str> = Game::Auberean.ops().map(|o| o.name).collect();
         assert!(ops.contains(&"task.timer") && ops.contains(&"ui.window"));
         assert!(ops.contains(&"act.request") && ops.contains(&"store.get"));
-        for dereths_own in ["object.get", "magic.spell", "nav.journey", "retail_ui.set"] {
+        for dereths_own in [
+            "object.get",
+            "magic.spell",
+            "magic.find",
+            "nav.journey",
+            "retail_ui.set",
+        ] {
             assert!(!ops.contains(&dereths_own), "{dereths_own}");
         }
         for op in Game::Auberean.ops() {

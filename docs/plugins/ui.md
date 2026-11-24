@@ -130,6 +130,10 @@ while the toggle is on and dimmed while it is off. Its `color` is an accent: an 
 in it while on and faintly while off, a plain toggle's text is drawn in it while on, and a button is
 ringed in it. A host without the game's data draws the face without the icon.
 
+A spell's icon by its name is `magic.find(name)[1].icon` ([api.md](api.md)). The
+[mini-control example](examples/mini-control/) is a strip of icon toggles at the screen's left
+edge, each showing a spell's icon found that way.
+
 **The game's own panels** (`retail_ui`, a host that draws the game's interface): a plugin hides,
 shows or moves the game's panels by name: `retail_ui.hide("radar")`,
 `retail_ui.show(p)`, `retail_ui.move("chat", x, y)` (screen pixels, the panel's top left),
