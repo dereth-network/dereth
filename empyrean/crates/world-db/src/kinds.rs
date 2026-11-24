@@ -26,6 +26,7 @@ use crate::row::{rows_of, sub, Row};
 use crate::value::{hex, id_of, stamp_put, stamp_take, time_of, time_text, Field, R, V};
 
 impl Field for DotNetDateTime {
+    const TYPE: crate::value::Ty = crate::value::Ty::Time;
     fn spell(&self) -> V {
         time_text(*self)
     }
@@ -41,6 +42,30 @@ impl Field for DotNetDateTime {
 pub trait Fields: Sized {
     fn put(&self, row: &mut Row, stamp: DotNetDateTime);
     fn take(t: &Table, stamp: DotNetDateTime) -> R<Self>;
+    /// Each field a row of it writes: its name, what it is, and whether an integer is written in
+    /// hexadecimal ([`crate::schema`]).
+    fn spec() -> Vec<(&'static str, crate::value::Ty, bool)>;
+}
+
+/// The type of the field `f` reads, for [`Fields::spec`].
+fn ty_of<S, T: Field>(_: fn(&S) -> &T) -> crate::value::Ty {
+    T::TYPE
+}
+
+/// Whether a field written `how` is an integer in hexadecimal.
+macro_rules! is_hex {
+    () => {
+        false
+    };
+    (hex) => {
+        true
+    };
+    (hexo) => {
+        true
+    };
+    (stamp) => {
+        false
+    };
 }
 
 /// A field's name in a row: a raw identifier's without its `r#`.
@@ -93,6 +118,9 @@ macro_rules! fields {
             fn take(t: &Table, stamp: DotNetDateTime) -> R<Self> {
                 let _ = stamp;
                 Ok(Self { $( $f: take_one!(t, stamp, $f $(, $how)?), )* ..Default::default() })
+            }
+            fn spec() -> Vec<(&'static str, crate::value::Ty, bool)> {
+                vec![$( (name!($f), ty_of(|s: &$ty| &s.$f), is_hex!($($how)?)), )*]
             }
         }
     };

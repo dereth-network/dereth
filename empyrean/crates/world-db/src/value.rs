@@ -120,9 +120,22 @@ impl V {
 /// What a read stops on: the file, and what was wrong.
 pub type R<T> = Result<T, String>;
 
+/// What a field is written as ([`crate::schema`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ty {
+    Int,
+    Float,
+    Bool,
+    Text,
+    /// A moment, written as text (`2005-02-09 10:00:00`).
+    Time,
+}
+
 /// A model field: how it's written (nothing at its default), and read back (its default when
 /// absent).
 pub trait Field: Sized {
+    /// What the field is written as.
+    const TYPE: Ty;
     /// The value's spelling.
     fn spell(&self) -> V;
     /// Whether it's the type's default, which a row leaves out.
@@ -145,6 +158,7 @@ fn int_of(v: &Value) -> R<i64> {
 macro_rules! ints {
     ($($t:ty),*) => {$(
         impl Field for $t {
+            const TYPE: Ty = Ty::Int;
             fn spell(&self) -> V {
                 V::Int(i64::from(*self))
             }
@@ -163,6 +177,7 @@ macro_rules! ints {
 ints!(u8, u16, u32, i8, i16, i32, i64);
 
 impl Field for f32 {
+    const TYPE: Ty = Ty::Float;
     fn spell(&self) -> V {
         V::Float(float_text(format!("{self}")))
     }
@@ -176,6 +191,7 @@ impl Field for f32 {
 }
 
 impl Field for f64 {
+    const TYPE: Ty = Ty::Float;
     fn spell(&self) -> V {
         V::Float(float_text(format!("{self}")))
     }
@@ -194,6 +210,7 @@ impl Field for f64 {
 }
 
 impl Field for bool {
+    const TYPE: Ty = Ty::Bool;
     fn spell(&self) -> V {
         V::Bool(*self)
     }
@@ -210,6 +227,7 @@ impl Field for bool {
 }
 
 impl Field for String {
+    const TYPE: Ty = Ty::Text;
     fn spell(&self) -> V {
         V::Str(self.clone())
     }
@@ -227,6 +245,7 @@ impl Field for String {
 
 /// An optional field is written whenever it's set, at its default too: `Some(0)` isn't `None`.
 impl<T: Field> Field for Option<T> {
+    const TYPE: Ty = T::TYPE;
     fn spell(&self) -> V {
         self.as_ref().map_or(V::Int(0), Field::spell)
     }

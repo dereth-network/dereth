@@ -53,6 +53,7 @@ pub mod names;
 pub mod parity;
 pub mod refs;
 pub mod row;
+pub mod schema;
 pub mod value;
 pub mod world;
 

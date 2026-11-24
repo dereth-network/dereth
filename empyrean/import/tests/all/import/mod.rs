@@ -12,6 +12,7 @@ pub(crate) mod patch_applier;
 pub(crate) mod real_dump;
 #[cfg(feature = "real-content")]
 pub(crate) mod real_patch_reapply;
+mod row_schema;
 pub(crate) mod sql_dump_import;
 mod version_flag;
 mod world_base;
