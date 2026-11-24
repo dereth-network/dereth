@@ -16,6 +16,8 @@ const POISON: u32 = 1863;
 /// The plain strike and a bolt of magic, as basic attacks of a creature that also strikes.
 const STRIKE: u32 = 1845;
 const BOLT: u32 = 1840;
+/// A double throw.
+const TWICE: u32 = 1792;
 
 /// A camp of one shooter `distance` meters east of where a character starts, in the start's cell.
 fn shooter_at(h: &mut Harness, distance: f32, special: bool) {
@@ -551,6 +553,85 @@ fn bolt() -> yalain_world::skills::SkillDef {
         }),
         ..SkillDef::default()
     }
+}
+
+/// A creature's double throw, as the install defines one: a missile skill with two hooks that each
+/// throw, at the animation's first and second hooks.
+fn double_throw() -> yalain_world::skills::SkillDef {
+    use yalain_world::skills::{Hook, SkillDef, Usage};
+    let hook = |anim_hook| Hook {
+        damages: true,
+        flags: 0x2804,
+        missile: 0x4700_04F1,
+        missile_speed: 35.0,
+        mult: 1.0,
+        chance: 1.0,
+        anim_hook,
+        ..Hook::default()
+    };
+    SkillDef {
+        id: TWICE,
+        active: true,
+        kind: Some(yalain_world::rules::Kind::Missile),
+        usage: Some(Usage {
+            min_range: -1.0,
+            max_range: 40.0,
+            behavior_other: [0x4100_0079; 3],
+            hooks: vec![hook(1), hook(2)],
+            ..Usage::default()
+        }),
+        ..SkillDef::default()
+    }
+}
+
+/// A skill that throws from two hooks looses two missiles in one story, the second hook marked with
+/// its index (0x703), and its target tells two arrivals, each with its own result, the second about
+/// 0.37 s after the first.
+/// Behaviour: server.creatures.missiles-thrown-from-each-hook
+#[test]
+fn a_skill_throwing_from_two_hooks_looses_two_missiles_that_arrive_apart() {
+    let mut h = Harness::new();
+    h.server.skill_table.skills.insert(TWICE, double_throw());
+    creature_at(&mut h, 10.0, &[(TWICE, true)]);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    // The first throw and what arrives before the next.
+    let mut launches = Vec::new();
+    let mut arrivals: Vec<(f64, PhysicsStory)> = Vec::new();
+    for _ in 0..400 {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let now = h.clock().local.0;
+        for m in h.world_messages(b, from) {
+            if let ServerMessage::DoStory(e) = m {
+                if e.sender.id == id && e.action.skill == TWICE {
+                    launches.push(e.action.clone());
+                } else if e.sender.id == me && launches.len() == 1 {
+                    arrivals.push((now, e.action.clone()));
+                }
+            }
+        }
+        if launches.len() > 1 {
+            break;
+        }
+    }
+    let launch = launches.first().cloned();
+    let launch = launch.expect("it throws");
+    assert_eq!(launch.hooks.len(), 3, "the opening and two missiles");
+    assert_eq!(launch.hooks[1].bits, 0x303, "the first throw's hook");
+    assert_eq!(launch.hooks[1].numbers[1], 1);
+    assert_eq!(launch.hooks[2].bits, 0x703, "the second's, with its index");
+    assert_eq!(launch.hooks[2].numbers[1], 2);
+    assert!(launch.hooks[1..].iter().all(|k| k.target == me));
+    assert_eq!(arrivals.len(), 2, "two arrivals");
+    for (_, a) in &arrivals {
+        assert_eq!(a.attacker, id);
+        assert_eq!(a.hooks.len(), 1, "each with its own result");
+        assert_eq!(a.hooks[0].bits & 0xF, 1);
+    }
+    let apart = arrivals[1].0 - arrivals[0].0;
+    assert!((0.25..=0.5).contains(&apart), "{apart} s apart");
 }
 
 /// The basic attacks a creature in reach of the player used over a while: each one's skill, and

@@ -4156,6 +4156,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.missiles-thrown-from-each-hook",
+        says: "A creature's skill that throws from several hooks looses a missile from each: one \
+               story with a missile hook per throw, the later marked with its index, and an \
+               arrival per throw, each rolled on its own, the later about 0.37 s after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-THROWS-TWICE"),
+        station: "yalain-testkit::cpu::play::missiles::a_skill_throwing_from_two_hooks_looses_two_missiles_that_arrive_apart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.no-attack-from-an-unknown-attacker",
         says: "A creature whose player's client was never told of it attacks the player from \
                nowhere: no story names it until the client is told of it.",

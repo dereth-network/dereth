@@ -454,6 +454,11 @@ pub const SPECIAL_ARRIVAL: u32 = PhysicsStory::ATTACKER | PhysicsStory::SKILL;
 /// (2017: 20,569 missile stories of creatures holding one named it).
 pub const MISSILE_HOOK: u32 = 0x303;
 pub const WEAPON_NAMED: u32 = 0x20;
+/// How long after a skill's throw its next one goes, in seconds at a creature's usual time scale,
+/// as its windup is (2017: the two
+/// arrivals of 1792's double throws a median 1.02 and 1.39 s after it, 108 of them; 1848's 1.63
+/// and 2.00 s, 22).
+pub const THROW_APART: f32 = 0.37;
 /// The drain of a harming missile: its effect on the target, and its story's hook (kind 1 with the
 /// target, the result and the health change).
 pub const DRAIN_FX: u32 = 0x4100_003E;
@@ -561,7 +566,11 @@ pub fn shoot<S: Store>(
 }
 
 /// A creature looses a missile (a basic attack's or a special's) at its target: the story, and the
-/// missile's arrival after the windup and its flight.
+/// missile's arrival after the windup and its flight. A skill whose definition throws from several
+/// hooks looses one missile for each, each a hook of the story (a later one marked with its
+/// index) and an arrival of its own, [`THROW_APART`] after the one before (2017: 1,326 creature
+/// stories of 1792, 1848, 857 and 1015, each with two missile hooks, the second 0x703 or 0x723;
+/// two arrivals, each with one result, for 106 of 1792's at the session's player).
 pub fn launch<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -601,17 +610,45 @@ pub fn launch<S: Store>(
     };
     b.words[7] = 1;
     b.words[9] = 0;
-    let mut missile = StoryHook {
-        bits: MISSILE_HOOK,
-        target: pid,
-        ..StoryHook::default()
-    };
-    // A creature holding a weapon names it.
-    if let Some(w) = crate::arms::held(s, id) {
-        missile.bits |= WEAPON_NAMED;
-        missile.weapon = w;
+    // Each throw: its hook's index among the skill's and its animation hook.
+    let mut throws: Vec<(u32, u32)> = s
+        .skill_table
+        .skills
+        .get(&skill.skill)
+        .and_then(|d| d.usage.as_ref())
+        .map(|u| {
+            crate::skill_use::throws_of(u)
+                .into_iter()
+                .map(|(i, h)| (u32::try_from(i).unwrap_or(0), h.anim_hook.max(1)))
+                .collect()
+        })
+        .unwrap_or_default();
+    if throws.is_empty() {
+        throws.push((0, 1));
     }
-    missile.numbers[1] = 1;
+    let weapon = crate::arms::held(s, id);
+    let mut hooks = vec![StoryHook {
+        bits: combat::hook::OPENING,
+        ..StoryHook::default()
+    }];
+    for (k, &(index, anim_hook)) in throws.iter().enumerate() {
+        let mut missile = StoryHook {
+            bits: MISSILE_HOOK,
+            target: pid,
+            ..StoryHook::default()
+        };
+        // A creature holding a weapon names it.
+        if let Some(w) = weapon {
+            missile.bits |= WEAPON_NAMED;
+            missile.weapon = w;
+        }
+        missile.numbers[1] = anim_hook.cast_signed();
+        if k > 0 {
+            missile.bits |= crate::skill_use::story_hook::ATTACK_HOOK;
+            missile.numbers[2] = index.cast_signed();
+        }
+        hooks.push(missile);
+    }
     let launch = ServerMessage::DoStory(ObjectEvent {
         sender: crate::inventory::visual(s, id),
         action: PhysicsStory {
@@ -624,13 +661,7 @@ pub fn launch<S: Store>(
             attacker_behavior: b,
             attack_context: 0,
             skill: skill.skill,
-            hooks: vec![
-                StoryHook {
-                    bits: combat::hook::OPENING,
-                    ..StoryHook::default()
-                },
-                missile,
-            ],
+            hooks,
         },
     });
     to_all_seeing(s, net, id, &launch);
@@ -639,18 +670,22 @@ pub fn launch<S: Store>(
         .and_then(|at| presence::distance(&at, &from))
         .unwrap_or(0.0);
     let flight = rh.windup / ts + d / MISSILE_SPEED;
-    s.after(
-        clock,
-        f64::from(flight),
-        Timer::Missile(Flight {
-            creature: id,
-            target: pid,
-            skill,
-            special: special.is_some(),
-            from,
-            loosed_at,
-        }),
-    );
+    for k in 0..throws.len() {
+        #[allow(clippy::cast_precision_loss)]
+        let later = k as f32 * THROW_APART * CREATURE_TIME_SCALE / ts;
+        s.after(
+            clock,
+            f64::from(flight + later),
+            Timer::Missile(Flight {
+                creature: id,
+                target: pid,
+                skill,
+                special: special.is_some(),
+                from,
+                loosed_at,
+            }),
+        );
+    }
 }
 
 /// A missile arrives: its target tells how it came out, its health first when it is hurt. A
