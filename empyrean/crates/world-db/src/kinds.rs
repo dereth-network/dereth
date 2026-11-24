@@ -1512,6 +1512,11 @@ impl Names {
 
 /// The world's rules as their row: skills and heritages by name, every property in one table.
 pub fn rules_row(r: &WorldRules) -> R<Row> {
+    Ok(json_row(&rules_json(r)?))
+}
+
+/// The world's rules as their row's fields, in JSON ([`rules_row`]).
+pub fn rules_json(r: &WorldRules) -> R<serde_json::Map<String, serde_json::Value>> {
     let mut v = serde_json::to_value(r).map_err(|e| e.to_string())?;
     let m = v.as_object_mut().ok_or("the rules are not a table")?;
     for (key, names) in [
@@ -1542,7 +1547,7 @@ pub fn rules_row(r: &WorldRules) -> R<Row> {
             .collect();
         m.insert("properties".into(), serde_json::Value::Object(flat));
     }
-    Ok(json_row(m))
+    Ok(std::mem::take(m))
 }
 
 /// The world's rules read back from their row.

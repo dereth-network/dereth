@@ -392,7 +392,13 @@ fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
             .retain(|_, names| !names.as_object().is_some_and(serde_json::Map::is_empty));
     }
     let mut rows = serde_json::Map::new();
-    for kind in ["weenie", "quest", "treasure_death", "treasure_wielded"] {
+    for kind in [
+        "weenie",
+        "quest",
+        "treasure_death",
+        "treasure_wielded",
+        "rules",
+    ] {
         rows.insert(kind.into(), schema["rows"][kind].take());
     }
     schema["rows"] = J::Object(rows);

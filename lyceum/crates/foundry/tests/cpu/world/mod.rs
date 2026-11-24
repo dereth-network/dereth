@@ -13,4 +13,5 @@ mod repo;
 mod repo_world;
 mod revise;
 mod row_sql;
+mod rules;
 mod validate;

@@ -177,6 +177,48 @@ fn leak_str(s: &str) -> &'static str {
     Box::leak(s.to_owned().into_boxed_str())
 }
 
+/// The formula setting `name` as `f` has it, in the form a world's rules write it; `None` for a
+/// name that is no setting's.
+#[must_use]
+pub fn formula(f: &EraFormulas, name: &str) -> Option<Setting> {
+    let limit = |n: Option<i64>| n.map_or(Setting::Switch(false), Setting::Number);
+    Some(match name {
+        "vitae" => Setting::Name(
+            match f.vitae {
+                VitaeRecovery::EndOfRetail => "eor",
+                VitaeRecovery::BeforeThroneOfDestiny => "before-tod",
+            }
+            .into(),
+        ),
+        "monster_corpses" => Setting::Name(
+            match f.monster_corpses {
+                MonsterCorpses::LootDecaysWithCorpse => "eor",
+                MonsterCorpses::NinetySecondsLootLeftBehind => "ninety-seconds",
+            }
+            .into(),
+        ),
+        "multiplicative_weapon_speed" => Setting::Switch(f.multiplicative_weapon_speed),
+        "older_melee_damage" => Setting::Switch(f.older_melee_damage),
+        "daggers_use_coordination" => Setting::Switch(f.daggers_use_coordination),
+        "creature_projectiles_halved" => Setting::Switch(f.creature_projectiles_halved),
+        "physical_hits_skip_innate_resistance" => {
+            Setting::Switch(f.physical_hits_skip_innate_resistance)
+        }
+        "kill_xp_from_level" => Setting::Switch(f.kill_xp_from_level),
+        "shields_without_skill" => Setting::Switch(f.shields_without_skill),
+        "death_items_level_divisor" => Setting::Number(i64::from(f.death_items_level_divisor)),
+        "death_loss_exemptions" => Setting::Switch(f.death_loss_exemptions),
+        "player_corpse_limit" => limit(f.player_corpse_limit.map(i64::from)),
+        "empty_corpses_rot_early" => Setting::Switch(f.empty_corpses_rot_early),
+        "unassigned_xp_cap" => limit(f.unassigned_xp_cap),
+        "total_xp_cap" => limit(f.total_xp_cap),
+        "long_range_missile_penalty" => Setting::Switch(f.long_range_missile_penalty),
+        "thrown_reach_by_strength" => Setting::Switch(f.thrown_reach_by_strength),
+        "missile_flight_by_distance" => Setting::Switch(f.missile_flight_by_distance),
+        _ => return None,
+    })
+}
+
 /// `formulas` with the setting `name` set to `v`.
 fn set_formula(f: &mut EraFormulas, name: &str, v: &Setting) -> Result<(), String> {
     let bad = || format!("formula {name}: {v:?} is not a value it takes");
@@ -253,6 +295,68 @@ fn set_formula(f: &mut EraFormulas, name: &str, v: &Setting) -> Result<(), Strin
 }
 
 impl WorldRules {
+    /// The era's own rules written as a world's: every field a world's rules can say, as `era`
+    /// has it. A start a world can't say (a list of towns) is left out.
+    #[must_use]
+    pub fn of_era(era: &EraRules) -> Self {
+        let allowed =
+            |a: Option<&[u32]>| Some(a.map_or(Allowed::All, |v| Allowed::Only(v.to_vec())));
+        Self {
+            max_level: era.max_level,
+            start: match era.start_positions {
+                StartPositions::FromCharGen => Some(Start::CharGen),
+                StartPositions::FromWorld => Some(Start::World),
+                _ => None,
+            },
+            account_has_tod: Some(era.account_has_tod),
+            loot: Some(match era.loot {
+                LootTables::AsTables => Loot::Tables,
+                LootTables::PackOnly => Loot::PackOnly,
+            }),
+            loot_rules: Some(match era.loot_rules {
+                LootRules::EndOfRetail => LootSet::EndOfRetail,
+                LootRules::Infiltration => LootSet::Infiltration,
+                LootRules::Ac1999 => LootSet::Ac1999,
+            }),
+            starter_gear: Some(match era.starter_gear {
+                StarterGearSet::EndOfRetail => GearSet::EndOfRetail,
+                StarterGearSet::Infiltration => GearSet::Infiltration,
+                StarterGearSet::Launch => GearSet::Launch,
+            }),
+            placements_on_own_land: Some(era.placements_on_own_land),
+            welcome_letter: era.welcome_letter,
+            creation_skills: allowed(era.creation_skills),
+            training_skills: allowed(era.training_skills),
+            heritages: allowed(era.heritages),
+            features: era
+                .features
+                .iter()
+                .map(|(n, on)| (n.to_owned(), on))
+                .collect(),
+            formulas: FORMULAS
+                .iter()
+                .filter_map(|n| formula(&era.formulas, n).map(|v| ((*n).to_owned(), v)))
+                .collect(),
+            properties: Properties {
+                bool: era
+                    .property_defaults
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), *v))
+                    .collect(),
+                long: era
+                    .long_property_defaults
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), *v))
+                    .collect(),
+                string: era
+                    .string_property_defaults
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                    .collect(),
+            },
+        }
+    }
+
     /// Whether the rules say nothing.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -492,5 +596,43 @@ mod tests {
         r.formulas
             .insert("vitae".into(), Setting::Name("gentle".into()));
         assert!(r.check().unwrap_err().contains("vitae"));
+    }
+
+    /// An era's rules written as a world's say every field the era has, each as it has it, so laid
+    /// over any other era they make that era again, but for what a world's rules can't say: no
+    /// level cap, a start of towns and no welcome letter (each keeps the era's below), and an era's
+    /// property default taken away (the era's others stay). Every formula setting reads back as one the server takes.
+    #[test]
+    fn an_eras_rules_written_as_a_worlds_make_the_era_again() {
+        for era in EraId::ALL {
+            let rules = era.rules();
+            let written = WorldRules::of_era(rules);
+            written.check().unwrap();
+            assert_eq!(written.formulas.len(), FORMULAS.len());
+            assert_eq!(written.features.len(), EraFeatures::COUNT);
+            for over in EraId::ALL {
+                let mut made = WorldRules::of_era(written.apply(over.rules()).unwrap());
+                if written.max_level.is_none() {
+                    made.max_level = None;
+                }
+                if written.start.is_none() {
+                    made.start = None;
+                }
+                if written.welcome_letter.is_none() {
+                    made.welcome_letter = None;
+                }
+                let p = &written.properties;
+                made.properties.bool.retain(|k, _| p.bool.contains_key(k));
+                made.properties.long.retain(|k, _| p.long.contains_key(k));
+                made.properties
+                    .string
+                    .retain(|k, _| p.string.contains_key(k));
+                assert_eq!(made, written, "{era:?} over {over:?}");
+            }
+        }
+        let eor = WorldRules::of_era(&crate::era::EOR);
+        assert!(eor.features["consolidated_weapon_skills"]);
+        assert_eq!(eor.formulas["vitae"], Setting::Name("eor".into()));
+        assert_eq!(formula(&crate::era::EOR.formulas, "teleporting_cows"), None);
     }
 }

@@ -23,6 +23,8 @@ pub struct RowsView {
     pub path: String,
     pub repo: Option<Repo>,
     pub vocabulary: Option<RowSchema>,
+    /// What the rules row can say ([`super::rules_tab`]).
+    pub rules: Option<lyceum_foundry::rules::RulesVocabulary>,
     /// The layer the world is shown at.
     pub at: usize,
     pub world: Option<ShownWorld>,
@@ -57,6 +59,14 @@ impl RowsView {
                 None
             })
             .flatten();
+        self.rules = self.vocabulary.as_ref().and_then(|v| {
+            lyceum_foundry::rules::RulesVocabulary::of_schema(
+                schema.and_then(|s| s.rules.as_ref()),
+                v,
+            )
+            .ok()
+            .flatten()
+        });
         if self.vocabulary.is_none() && self.error.is_none() {
             self.error = Some(
                 "The server's tools gave no vocabulary of rows: an older empyrean-import, or none beside the editor.".into(),
@@ -271,6 +281,7 @@ impl EditorApp {
     /// The line naming the layer edits go into, with New Patch; or why the repository can't be
     /// edited.
     fn rows_editing_line(&mut self, ui: &mut egui::Ui, t: &crate::text::Table) {
+        let mut open_rules = false;
         if let Some(m) = self.session.mirror() {
             let line = t.fill(
                 "rows.edits_into",
@@ -281,9 +292,15 @@ impl EditorApp {
                 if self.rows.new_patch.is_none() && ui.button(t.get("rows.new_patch")).clicked() {
                     self.rows.new_patch = Some((String::new(), String::new()));
                 }
+                if self.rows.rules.is_some() && ui.button(t.get("rows.rules")).clicked() {
+                    open_rules = true;
+                }
             });
         } else if let Some(why) = &self.rows.edit_error {
             ui.colored_label(ui.visuals().warn_fg_color, why);
+        }
+        if open_rules {
+            self.open_rules();
         }
         let Some((month, title)) = self.rows.new_patch.as_mut() else {
             return;

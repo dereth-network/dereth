@@ -98,6 +98,7 @@ pub mod repo_world;
 pub mod revise;
 pub mod room;
 pub mod row_sql;
+pub mod rules;
 pub mod sample;
 pub mod scratch;
 pub mod script;

@@ -1311,6 +1311,10 @@ pub struct Schema {
     /// ([`crate::repo::RowSchema`]); `None` from a server too old to say.
     #[serde(default)]
     pub rows: Option<serde_json::Value>,
+    /// What a world repository's rules row can say, as the server describes it
+    /// ([`crate::rules::RulesVocabulary`]); `None` from a server too old to say.
+    #[serde(default)]
+    pub rules: Option<serde_json::Value>,
 }
 
 impl Schema {

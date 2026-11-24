@@ -763,6 +763,8 @@ pub struct EditorApp {
     pub characters: crate::characters::Characters,
     /// The Rows tab: a world repository's rows, read only.
     pub rows: rows_tab::RowsView,
+    /// The Rules tab: a world repository's rules at the layer edits go into.
+    pub rules: rules_tab::RulesView,
     /// Whether the world itself is a world repository, opened at its newest layer.
     pub repo_world: bool,
     /// Its check going on after a save, and what the last one found.
@@ -1237,6 +1239,7 @@ impl EditorApp {
             },
             characters,
             rows: rows_tab::RowsView::default(),
+            rules: rules_tab::RulesView::default(),
             repo_world: false,
             repo_checking: None,
             repo_found: None,
@@ -4620,6 +4623,7 @@ impl EditorApp {
                 "definition" | "weenie" => self.show_weenie(),
                 "characters" => self.open_characters(),
                 "rows" => self.open_rows(),
+                "rules" => self.open_rules(),
                 "quests" => self.show_tab(Tab::Quests),
                 "loot" => self.show_tab(Tab::Loot),
                 other => return Err(format!("{other:?} is not a tab to show")),
@@ -5229,6 +5233,9 @@ fn read_schema(
 
 #[path = "rows_tab.rs"]
 mod rows_tab;
+
+#[path = "rules_tab.rs"]
+mod rules_tab;
 
 #[path = "rows_edit.rs"]
 mod rows_edit;

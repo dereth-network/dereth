@@ -21,7 +21,7 @@
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
 //! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`,
-//! `characters`, `quests`, `loot` or `rows`); `rows_item` (the Rows tab's item found by its name
+//! `characters`, `quests`, `loot`, `rows` or `rules`); `rows_item` (the Rows tab's item found by its name
 //! and chosen); `edit_weenie` (the weenie editor opened on that class);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the

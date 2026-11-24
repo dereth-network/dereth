@@ -54,10 +54,12 @@ pub enum Tab {
     /// A world repository's rows, folded at a layer: optional, floating at first, closed with its
     /// ×.
     Rows,
+    /// A world repository's rules at the layer edits go into: optional, floating at first.
+    Rules,
 }
 
 /// The tabs a layout may hold or not.
-pub const OPTIONAL: [Tab; 3] = [Tab::Editor, Tab::Characters, Tab::Rows];
+pub const OPTIONAL: [Tab; 4] = [Tab::Editor, Tab::Characters, Tab::Rows, Tab::Rules];
 
 /// The layout's version: a kept layout of another is not taken, but for the one before, whose
 /// lists are moved beside the world view.

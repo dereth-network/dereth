@@ -163,6 +163,9 @@ macro_rules! era_features {
             pub const COUNT: usize = [$(stringify!($name)),*].len();
             /// Every system's name, in declaration order.
             pub const NAMES: [&'static str; Self::COUNT] = [$(stringify!($name)),*];
+            /// What each system is, in the order of [`Self::NAMES`]: its description's lines, each
+            /// with the space it is written with.
+            pub const DOCS: [&'static str; Self::COUNT] = [$(concat!($($doc, "\n",)* "")),*];
             /// Every system.
             pub const ALL: Self = Self { $($name: true,)* };
             /// None of them.

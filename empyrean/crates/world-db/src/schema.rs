@@ -379,6 +379,45 @@ fn recipe() -> Value {
     })
 }
 
+/// What a world's rules row can say beyond its fields' kinds: every era's own rules as the row
+/// writes them (`profiles`, by era name), the systems by name with what each is (`features`), the
+/// formula settings' names (`formulas`), and the names a field chooses among (`choices`, by the
+/// field: `start`, `formulas.vitae`).
+#[must_use]
+pub fn rules() -> Value {
+    use empyrean_common::era::{EraExt, EraFeatures, EraId};
+    use empyrean_common::world_rules::{GearSet, Loot, LootSet, Start, WorldRules, FORMULAS};
+    fn names<T: serde::Serialize>(all: &[T]) -> Value {
+        all.iter()
+            .filter_map(|v| serde_json::to_value(v).ok())
+            .collect()
+    }
+    let profiles: Map<String, Value> = EraId::ALL
+        .iter()
+        .filter_map(|e| {
+            let row = crate::kinds::rules_json(&WorldRules::of_era(e.rules())).ok()?;
+            Some((e.name().to_owned(), Value::Object(row)))
+        })
+        .collect();
+    let features: Vec<Value> = EraFeatures::NAMES
+        .iter()
+        .zip(EraFeatures::DOCS)
+        .map(|(name, doc)| {
+            let about = doc.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+            json!({ "name": name, "about": about })
+        })
+        .collect();
+    let choices = json!({
+        "start": names(&[Start::CharGen, Start::World]),
+        "loot": names(&[Loot::Tables, Loot::PackOnly]),
+        "loot_rules": names(&[LootSet::EndOfRetail, LootSet::Infiltration, LootSet::Ac1999]),
+        "starter_gear": names(&[GearSet::EndOfRetail, GearSet::Infiltration, GearSet::Launch]),
+        "formulas.vitae": ["eor", "before-tod"],
+        "formulas.monster_corpses": ["eor", "ninety-seconds"],
+    });
+    json!({ "profiles": profiles, "features": features, "formulas": FORMULAS, "choices": choices })
+}
+
 /// The kinds of row a world holds, by their table's name (`[[weenie]]`).
 #[must_use]
 pub fn rows() -> Value {

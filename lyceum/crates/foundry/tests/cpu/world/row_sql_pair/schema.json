@@ -97,6 +97,77 @@
         "table": "quest"
       }
     },
+    "rules": {
+      "fields": {
+        "account_has_tod": "bool",
+        "creation_skills": {
+          "either": [
+            "text",
+            {
+              "list": {
+                "name": "Skill"
+              }
+            }
+          ]
+        },
+        "heritages": {
+          "either": [
+            "text",
+            {
+              "list": {
+                "name": "HeritageGroup"
+              }
+            }
+          ]
+        },
+        "loot": "text",
+        "loot_rules": "text",
+        "max_level": "int",
+        "placements_on_own_land": "bool",
+        "start": "text",
+        "starter_gear": "text",
+        "training_skills": {
+          "either": [
+            "text",
+            {
+              "list": {
+                "name": "Skill"
+              }
+            }
+          ]
+        },
+        "welcome_letter": "int"
+      },
+      "file": "rules.toml",
+      "item": "rules",
+      "key": [],
+      "maps": {
+        "features": {
+          "key": "text",
+          "value": "bool"
+        },
+        "formulas": {
+          "key": "text",
+          "value": {
+            "either": [
+              "bool",
+              "int",
+              "text"
+            ]
+          }
+        },
+        "properties": {
+          "key": "text",
+          "value": {
+            "either": [
+              "bool",
+              "int",
+              "text"
+            ]
+          }
+        }
+      }
+    },
     "treasure_death": {
       "fields": {
         "item_chance": "int",
@@ -874,6 +945,826 @@
           "max_num_chars_per_page": "int",
           "max_num_pages": "int"
         }
+      }
+    }
+  },
+  "rules": {
+    "choices": {
+      "formulas.monster_corpses": [
+        "eor",
+        "ninety-seconds"
+      ],
+      "formulas.vitae": [
+        "eor",
+        "before-tod"
+      ],
+      "loot": [
+        "tables",
+        "pack-only"
+      ],
+      "loot_rules": [
+        "eor",
+        "infiltration",
+        "ac1999"
+      ],
+      "start": [
+        "chargen",
+        "world"
+      ],
+      "starter_gear": [
+        "eor",
+        "infiltration",
+        "launch"
+      ]
+    },
+    "features": [
+      {
+        "about": "Damage-resistance, critical, healing, life, damage-over-time and nether ratings. Without them every such rating is 0 and its modifier 1.",
+        "name": "ratings"
+      },
+      {
+        "about": "The 2012 consolidation of the weapon skills: a player's old weapon skill (Axe, Sword, Bow, ...) is read as Heavy, Light, Finesse or Missile Weapons. Without it the old skill is used.",
+        "name": "consolidated_weapon_skills"
+      },
+      {
+        "about": "The weapon item spells that became auras on the wielder. Without it they are item spells.",
+        "name": "item_spell_auras"
+      },
+      {
+        "about": "Assessing a player or an unattackable creature shows its armour levels and ratings.",
+        "name": "assessed_armor_and_ratings"
+      },
+      {
+        "about": "A character may swear allegiance to a patron of lower level.",
+        "name": "swear_to_lower_level"
+      },
+      {
+        "about": "The pre-order gifts handed out at login, and rare items dropped by creatures.",
+        "name": "pre_order_items_and_rares"
+      },
+      {
+        "about": "Wielding a second weapon in the off hand.",
+        "name": "dual_wield"
+      },
+      {
+        "about": "The heritage weapon masteries: a bonus with the heritage's weapon types.",
+        "name": "weapon_masteries"
+      },
+      {
+        "about": "The augmentation each heritage is born with (Jack of All Trades for the three original heritages, ...).",
+        "name": "innate_augmentations"
+      },
+      {
+        "about": "Aetheria and its sigil slots.",
+        "name": "aetheria"
+      },
+      {
+        "about": "Luminance and the luminance auras.",
+        "name": "luminance"
+      },
+      {
+        "about": "The contract tracker: the quests a character has taken on, with their timers.",
+        "name": "contracts"
+      },
+      {
+        "about": "Character titles: the titles a character earns and the one it displays.",
+        "name": "titles"
+      },
+      {
+        "about": "Cloaks, and the cloak slot they are worn in.",
+        "name": "cloaks"
+      },
+      {
+        "about": "The trinket slot.",
+        "name": "trinkets"
+      },
+      {
+        "about": "The journal: the quest page, its notebook and the toolbar button that opens it.",
+        "name": "journal"
+      },
+      {
+        "about": "Secure trade between players: the trade window and its button.",
+        "name": "trade"
+      },
+      {
+        "about": "Houses: cottages, villas and mansions, bought and rented from their deeds.",
+        "name": "housing"
+      },
+      {
+        "about": "Apartments, and with them the house recalls and allegiance storage. An era with apartments has housing ([`EraFeatures::implied`]).",
+        "name": "apartments"
+      },
+      {
+        "about": "Tinkering: the tinkering skills (in place of the appraisal skills), salvaging into salvage bags, and the tinkering recipes that apply salvage to items.",
+        "name": "tinkering"
+      },
+      {
+        "about": "Cantrips on generated loot.",
+        "name": "cantrips"
+      },
+      {
+        "about": "Learning a spell by researching its formula, as the early clients' research page did: a formula of carried components tested on a target in magic mode, which casts the spell it makes and teaches it if it is new. It left the game in June 2002, so only Launch enables it by default. A character's own spell formulas (the components each spell takes for its account) are not this system: every era keeps them.",
+        "name": "spell_research"
+      },
+      {
+        "about": "Chess on the game boards.",
+        "name": "chess"
+      },
+      {
+        "about": "An oath of allegiance costs unassigned experience once a character has broken from a patron: five percent of its next level's experience, held between 100 and 5,000, a quarter more for each break. Throne of Destiny removed it, so the end of retail does not have it.",
+        "name": "swear_xp_cost"
+      },
+      {
+        "about": "A minute of invulnerability after resurrecting at a lifestone, given up by teleporting, casting or attacking (May 2000).",
+        "name": "lifestone_protection"
+      },
+      {
+        "about": "Skill credits left unspent at character creation are kept. Without it they are lost when the character enters the world (November 2002).",
+        "name": "creation_credit_carry_over"
+      },
+      {
+        "about": "Changing skills after creation: untraining, unspecializing and specializing them with the items that do it (November 2002).",
+        "name": "skill_alteration"
+      },
+      {
+        "about": "Buying augmentations with experience. The augmentation a heritage is born with is [`EraFeatures::innate_augmentations`].",
+        "name": "augmentations"
+      },
+      {
+        "about": "PK Lite, the optional lighter player-killer status (September 2003).",
+        "name": "pk_lite"
+      },
+      {
+        "about": "The `@marketplace` recall (January 2003).",
+        "name": "marketplace_recall"
+      },
+      {
+        "about": "Strength and Endurance raising a player's natural resistances, health regeneration and stamina savings, and the character sheet's account of them (April 2002).",
+        "name": "endurance_benefits"
+      },
+      {
+        "about": "`@lifestone` recalls to the lifestone for half the character's mana, and `@die` kills the character. Without it `@lifestone` asks whether to kill the character and does, and there is no `@die` (April 2002).",
+        "name": "lifestone_recall"
+      },
+      {
+        "about": "`@pkarena` and `@pklarena`, the recalls to the player-killer arenas. `@pklarena` also needs [`EraFeatures::pk_lite`].",
+        "name": "pk_arena_recalls"
+      },
+      {
+        "about": "A player corpse holding items lasts at least an hour, whatever the character's level (December 2000). Without it the corpse lasts five minutes a level.",
+        "name": "player_corpse_hour_minimum"
+      },
+      {
+        "about": "Casting skill above a spell's power lowers the chance of burning its components.",
+        "name": "component_burn_skill_discount"
+      },
+      {
+        "about": "War and Life Magic projectiles can strike critically (August 2002).",
+        "name": "war_and_life_projectile_criticals"
+      },
+      {
+        "about": "A player's War Magic projectiles do more damage the further their skill exceeds the spell's power (August 2002).",
+        "name": "war_magic_skill_damage_bonus"
+      },
+      {
+        "about": "A transfer spell whose target cannot take its whole benefit costs its source less (July 2002). Without it the overflow is lost and the source pays in full.",
+        "name": "transfer_overflow_reduces_source"
+      },
+      {
+        "about": "An item enchantment cast on a creature lands on the items it wears (September 2003), at a higher mana cost for armor (June 2004). Without it item enchantments take an item as their target.",
+        "name": "item_enchantment_redirection"
+      },
+      {
+        "about": "The spellcasting panel's tabs, which sort a character's spells (May 2000). Without them the panel holds one list.",
+        "name": "spell_tabs"
+      },
+      {
+        "about": "A fellowship's founder chooses whether it shares experience (December 2000). Without it every fellowship shares.",
+        "name": "fellowship_options"
+      },
+      {
+        "about": "`@permit` and `@consent`: letting other players loot your corpse (April 2001).",
+        "name": "corpse_permissions"
+      },
+      {
+        "about": "The corpse's coordinates, told the player after an outdoor death (May 2001).",
+        "name": "corpse_location_notices"
+      },
+      {
+        "about": "`@log`, copying the chat window to a file (May 2001).",
+        "name": "chat_log"
+      },
+      {
+        "about": "`@corpse`, which shows where the last outdoor death was (August 2001).",
+        "name": "corpse_command"
+      },
+      {
+        "about": "The allegiance's message of the day and its broadcasts (June 2001).",
+        "name": "allegiance_messages"
+      },
+      {
+        "about": "A patron is asked to accept an oath of allegiance (March 2002). Without it an oath is accepted at once.",
+        "name": "allegiance_oath_confirmation"
+      },
+      {
+        "about": "A patron or monarch booting a member out of the allegiance (April 2002).",
+        "name": "allegiance_boot"
+      },
+      {
+        "about": "Appraising an item needs no appraisal skill (May 2002). Without it the skill for the item's kind is rolled against the item's difficulty.",
+        "name": "appraisal_without_skills"
+      },
+      {
+        "about": "A trade note cashes at its face value at any vendor and sells at 15% over it (May 2003). Without it a note sells at 10% over its value and cashes at face value only at the vendor that issued it, at 80% elsewhere.",
+        "name": "trade_notes_cash_anywhere"
+      },
+      {
+        "about": "Allegiance officers and account bans (May 2004).",
+        "name": "allegiance_officers_and_bans"
+      },
+      {
+        "about": "Naming the allegiance (May 2006).",
+        "name": "allegiance_name"
+      },
+      {
+        "about": "A fellowship shares its creatures' loot where its founder chooses to (by September 2001). Without it nobody may loot a fellow's kill as a fellow.",
+        "name": "fellowship_share_loot"
+      },
+      {
+        "about": "Accepting every fellowship invitation at once, as a character's option (September 2003). Without it every invitation asks.",
+        "name": "fellowship_auto_accept"
+      },
+      {
+        "about": "A leader opening a fellowship, so that any member may recruit (October 2003).",
+        "name": "fellowship_open"
+      },
+      {
+        "about": "The allegiance chat room, `@a` and its options (January 2004). The tells to a patron, a monarch and vassals, and the allegiance's broadcasts, are older and do not need it.",
+        "name": "allegiance_chat"
+      },
+      {
+        "about": "The bonus for a skill trained or specialized at character creation is free experience, worth exactly its 5 or 10 ranks, so the next rank costs what that rank costs on the curve. When it went away is not known. Without it a specialized skill starts with 10 ranks that no experience paid for.",
+        "name": "creation_skill_bonus_as_experience"
+      },
+      {
+        "about": "The game's own chat rooms: General, Trade, LFG, Roleplay, Society and Olthoi, with the menu entries, options, filters and commands that go with them (September 21, 2005). The allegiance room is older and a Dereth Network room is the network's: neither needs it.",
+        "name": "global_chat_rooms"
+      },
+      {
+        "about": "A charge on each spell a character knows, spent by casting it and regained over time, that scales what the spell does (removed June 13, 2002).",
+        "name": "spell_charge"
+      },
+      {
+        "about": "A world-wide value on each spell, spent by everyone casting it and regained over hours, that scales what the spell does and how long it lasts, with a line saying how strong the magic feels and a duration range on the spell panels (removed June 13, 2002).",
+        "name": "spell_economy"
+      },
+      {
+        "about": "Officer titles, the allegiance lock with its approved vassal, and gagging a member of the allegiance room (May 2006). Also needs [`EraFeatures::allegiance_officers_and_bans`].",
+        "name": "allegiance_titles_and_lock"
+      },
+      {
+        "about": "`@allegiance house`: opening and closing the monarch's villa or mansion to the allegiance, as guests and for storage (after June 2005). Its storage also needs [`EraFeatures::apartments`].",
+        "name": "allegiance_house_commands"
+      }
+    ],
+    "formulas": [
+      "vitae",
+      "multiplicative_weapon_speed",
+      "older_melee_damage",
+      "daggers_use_coordination",
+      "creature_projectiles_halved",
+      "physical_hits_skip_innate_resistance",
+      "kill_xp_from_level",
+      "shields_without_skill",
+      "death_items_level_divisor",
+      "death_loss_exemptions",
+      "player_corpse_limit",
+      "monster_corpses",
+      "empty_corpses_rot_early",
+      "unassigned_xp_cap",
+      "total_xp_cap",
+      "long_range_missile_penalty",
+      "thrown_reach_by_strength",
+      "missile_flight_by_distance"
+    ],
+    "profiles": {
+      "eor": {
+        "account_has_tod": true,
+        "creation_skills": "all",
+        "features": {
+          "aetheria": true,
+          "allegiance_boot": true,
+          "allegiance_chat": true,
+          "allegiance_house_commands": true,
+          "allegiance_messages": true,
+          "allegiance_name": true,
+          "allegiance_oath_confirmation": true,
+          "allegiance_officers_and_bans": true,
+          "allegiance_titles_and_lock": true,
+          "apartments": true,
+          "appraisal_without_skills": true,
+          "assessed_armor_and_ratings": true,
+          "augmentations": true,
+          "cantrips": true,
+          "chat_log": true,
+          "chess": true,
+          "cloaks": true,
+          "component_burn_skill_discount": true,
+          "consolidated_weapon_skills": true,
+          "contracts": true,
+          "corpse_command": true,
+          "corpse_location_notices": true,
+          "corpse_permissions": true,
+          "creation_credit_carry_over": true,
+          "creation_skill_bonus_as_experience": false,
+          "dual_wield": true,
+          "endurance_benefits": true,
+          "fellowship_auto_accept": true,
+          "fellowship_open": true,
+          "fellowship_options": true,
+          "fellowship_share_loot": true,
+          "global_chat_rooms": true,
+          "housing": true,
+          "innate_augmentations": true,
+          "item_enchantment_redirection": true,
+          "item_spell_auras": true,
+          "journal": true,
+          "lifestone_protection": true,
+          "lifestone_recall": true,
+          "luminance": true,
+          "marketplace_recall": true,
+          "pk_arena_recalls": true,
+          "pk_lite": true,
+          "player_corpse_hour_minimum": true,
+          "pre_order_items_and_rares": true,
+          "ratings": true,
+          "skill_alteration": true,
+          "spell_charge": false,
+          "spell_economy": false,
+          "spell_research": false,
+          "spell_tabs": true,
+          "swear_to_lower_level": true,
+          "swear_xp_cost": false,
+          "tinkering": true,
+          "titles": true,
+          "trade": true,
+          "trade_notes_cash_anywhere": true,
+          "transfer_overflow_reduces_source": true,
+          "trinkets": true,
+          "war_and_life_projectile_criticals": true,
+          "war_magic_skill_damage_bonus": true,
+          "weapon_masteries": true
+        },
+        "formulas": {
+          "creature_projectiles_halved": false,
+          "daggers_use_coordination": true,
+          "death_items_level_divisor": 20,
+          "death_loss_exemptions": true,
+          "empty_corpses_rot_early": true,
+          "kill_xp_from_level": false,
+          "long_range_missile_penalty": false,
+          "missile_flight_by_distance": false,
+          "monster_corpses": "eor",
+          "multiplicative_weapon_speed": false,
+          "older_melee_damage": false,
+          "physical_hits_skip_innate_resistance": false,
+          "player_corpse_limit": false,
+          "shields_without_skill": false,
+          "thrown_reach_by_strength": false,
+          "total_xp_cap": false,
+          "unassigned_xp_cap": false,
+          "vitae": "eor"
+        },
+        "heritages": "all",
+        "loot": "tables",
+        "loot_rules": "eor",
+        "placements_on_own_land": false,
+        "start": "chargen",
+        "starter_gear": "eor",
+        "training_skills": "all"
+      },
+      "infiltration": {
+        "account_has_tod": false,
+        "creation_skills": [
+          "Axe",
+          "Bow",
+          "Crossbow",
+          "Dagger",
+          "Mace",
+          "MeleeDefense",
+          "MissileDefense",
+          "Spear",
+          "Staff",
+          "Sword",
+          "ThrownWeapon",
+          "UnarmedCombat",
+          "ArcaneLore",
+          "MagicDefense",
+          "ManaConversion",
+          "ItemTinkering",
+          "AssessPerson",
+          "Deception",
+          "Healing",
+          "Jump",
+          "Lockpick",
+          "Run",
+          "AssessCreature",
+          "WeaponTinkering",
+          "ArmorTinkering",
+          "MagicItemTinkering",
+          "CreatureEnchantment",
+          "ItemEnchantment",
+          "LifeMagic",
+          "WarMagic",
+          "Leadership",
+          "Loyalty",
+          "Fletching",
+          "Alchemy",
+          "Cooking",
+          "Salvaging"
+        ],
+        "features": {
+          "aetheria": false,
+          "allegiance_boot": true,
+          "allegiance_chat": true,
+          "allegiance_house_commands": false,
+          "allegiance_messages": true,
+          "allegiance_name": false,
+          "allegiance_oath_confirmation": true,
+          "allegiance_officers_and_bans": true,
+          "allegiance_titles_and_lock": false,
+          "apartments": true,
+          "appraisal_without_skills": true,
+          "assessed_armor_and_ratings": false,
+          "augmentations": false,
+          "cantrips": true,
+          "chat_log": true,
+          "chess": true,
+          "cloaks": false,
+          "component_burn_skill_discount": true,
+          "consolidated_weapon_skills": false,
+          "contracts": false,
+          "corpse_command": true,
+          "corpse_location_notices": true,
+          "corpse_permissions": true,
+          "creation_credit_carry_over": true,
+          "creation_skill_bonus_as_experience": false,
+          "dual_wield": false,
+          "endurance_benefits": true,
+          "fellowship_auto_accept": true,
+          "fellowship_open": true,
+          "fellowship_options": true,
+          "fellowship_share_loot": true,
+          "global_chat_rooms": false,
+          "housing": true,
+          "innate_augmentations": false,
+          "item_enchantment_redirection": true,
+          "item_spell_auras": false,
+          "journal": false,
+          "lifestone_protection": true,
+          "lifestone_recall": true,
+          "luminance": false,
+          "marketplace_recall": true,
+          "pk_arena_recalls": false,
+          "pk_lite": true,
+          "player_corpse_hour_minimum": true,
+          "pre_order_items_and_rares": false,
+          "ratings": false,
+          "skill_alteration": true,
+          "spell_charge": false,
+          "spell_economy": false,
+          "spell_research": false,
+          "spell_tabs": true,
+          "swear_to_lower_level": false,
+          "swear_xp_cost": true,
+          "tinkering": true,
+          "titles": false,
+          "trade": true,
+          "trade_notes_cash_anywhere": true,
+          "transfer_overflow_reduces_source": true,
+          "trinkets": false,
+          "war_and_life_projectile_criticals": true,
+          "war_magic_skill_damage_bonus": true,
+          "weapon_masteries": false
+        },
+        "formulas": {
+          "creature_projectiles_halved": true,
+          "daggers_use_coordination": true,
+          "death_items_level_divisor": 10,
+          "death_loss_exemptions": true,
+          "empty_corpses_rot_early": true,
+          "kill_xp_from_level": false,
+          "long_range_missile_penalty": false,
+          "missile_flight_by_distance": false,
+          "monster_corpses": "eor",
+          "multiplicative_weapon_speed": true,
+          "older_melee_damage": true,
+          "physical_hits_skip_innate_resistance": false,
+          "player_corpse_limit": false,
+          "shields_without_skill": true,
+          "thrown_reach_by_strength": false,
+          "total_xp_cap": 4294967295,
+          "unassigned_xp_cap": 4294967295,
+          "vitae": "before-tod"
+        },
+        "heritages": [
+          "Aluvian",
+          "Gharundim",
+          "Sho"
+        ],
+        "loot": "pack-only",
+        "loot_rules": "infiltration",
+        "max_level": 126,
+        "placements_on_own_land": false,
+        "properties": {
+          "allow_fast_chug": false,
+          "corpse_destroy_pyreals": false,
+          "item_dispel": true,
+          "vendor_shop_uses_generator": true
+        },
+        "starter_gear": "infiltration",
+        "training_skills": "all",
+        "welcome_letter": 1077
+      },
+      "launch": {
+        "account_has_tod": false,
+        "creation_skills": [
+          "Axe",
+          "Bow",
+          "Crossbow",
+          "Dagger",
+          "Mace",
+          "MeleeDefense",
+          "MissileDefense",
+          "Spear",
+          "Staff",
+          "Sword",
+          "ThrownWeapon",
+          "UnarmedCombat",
+          "ArcaneLore",
+          "MagicDefense",
+          "ManaConversion",
+          "ItemTinkering",
+          "AssessPerson",
+          "Deception",
+          "Healing",
+          "Jump",
+          "Lockpick",
+          "Run",
+          "AssessCreature",
+          "WeaponTinkering",
+          "ArmorTinkering",
+          "MagicItemTinkering",
+          "CreatureEnchantment",
+          "ItemEnchantment",
+          "LifeMagic",
+          "WarMagic",
+          "Leadership",
+          "Loyalty",
+          "Fletching",
+          "Alchemy",
+          "Cooking"
+        ],
+        "features": {
+          "aetheria": false,
+          "allegiance_boot": false,
+          "allegiance_chat": false,
+          "allegiance_house_commands": false,
+          "allegiance_messages": false,
+          "allegiance_name": false,
+          "allegiance_oath_confirmation": false,
+          "allegiance_officers_and_bans": false,
+          "allegiance_titles_and_lock": false,
+          "apartments": false,
+          "appraisal_without_skills": false,
+          "assessed_armor_and_ratings": false,
+          "augmentations": false,
+          "cantrips": false,
+          "chat_log": false,
+          "chess": false,
+          "cloaks": false,
+          "component_burn_skill_discount": false,
+          "consolidated_weapon_skills": false,
+          "contracts": false,
+          "corpse_command": false,
+          "corpse_location_notices": false,
+          "corpse_permissions": false,
+          "creation_credit_carry_over": false,
+          "creation_skill_bonus_as_experience": true,
+          "dual_wield": false,
+          "endurance_benefits": false,
+          "fellowship_auto_accept": false,
+          "fellowship_open": false,
+          "fellowship_options": false,
+          "fellowship_share_loot": false,
+          "global_chat_rooms": false,
+          "housing": false,
+          "innate_augmentations": false,
+          "item_enchantment_redirection": false,
+          "item_spell_auras": false,
+          "journal": false,
+          "lifestone_protection": false,
+          "lifestone_recall": false,
+          "luminance": false,
+          "marketplace_recall": false,
+          "pk_arena_recalls": false,
+          "pk_lite": false,
+          "player_corpse_hour_minimum": false,
+          "pre_order_items_and_rares": false,
+          "ratings": false,
+          "skill_alteration": false,
+          "spell_charge": true,
+          "spell_economy": true,
+          "spell_research": true,
+          "spell_tabs": false,
+          "swear_to_lower_level": false,
+          "swear_xp_cost": true,
+          "tinkering": false,
+          "titles": false,
+          "trade": false,
+          "trade_notes_cash_anywhere": false,
+          "transfer_overflow_reduces_source": false,
+          "trinkets": false,
+          "war_and_life_projectile_criticals": false,
+          "war_magic_skill_damage_bonus": false,
+          "weapon_masteries": false
+        },
+        "formulas": {
+          "creature_projectiles_halved": false,
+          "daggers_use_coordination": false,
+          "death_items_level_divisor": 10,
+          "death_loss_exemptions": false,
+          "empty_corpses_rot_early": false,
+          "kill_xp_from_level": true,
+          "long_range_missile_penalty": true,
+          "missile_flight_by_distance": true,
+          "monster_corpses": "ninety-seconds",
+          "multiplicative_weapon_speed": false,
+          "older_melee_damage": true,
+          "physical_hits_skip_innate_resistance": true,
+          "player_corpse_limit": 2,
+          "shields_without_skill": true,
+          "thrown_reach_by_strength": true,
+          "total_xp_cap": 4294967295,
+          "unassigned_xp_cap": 4294967295,
+          "vitae": "before-tod"
+        },
+        "heritages": [
+          "Aluvian",
+          "Gharundim",
+          "Sho"
+        ],
+        "loot": "tables",
+        "loot_rules": "ac1999",
+        "max_level": 126,
+        "placements_on_own_land": false,
+        "properties": {
+          "max_chars_per_account": 5,
+          "popup_welcome": "",
+          "use_wield_requirements": false
+        },
+        "starter_gear": "launch",
+        "training_skills": [
+          "Axe",
+          "Bow",
+          "Crossbow",
+          "Dagger",
+          "Mace",
+          "MeleeDefense",
+          "MissileDefense",
+          "Spear",
+          "Staff",
+          "Sword",
+          "ThrownWeapon",
+          "UnarmedCombat",
+          "ArcaneLore",
+          "MagicDefense",
+          "ManaConversion",
+          "ItemTinkering",
+          "AssessPerson",
+          "Deception",
+          "Healing",
+          "Jump",
+          "Lockpick",
+          "Run",
+          "AssessCreature",
+          "WeaponTinkering",
+          "ArmorTinkering",
+          "MagicItemTinkering",
+          "CreatureEnchantment",
+          "ItemEnchantment",
+          "LifeMagic",
+          "WarMagic",
+          "Leadership",
+          "Loyalty",
+          "Fletching",
+          "Alchemy",
+          "Cooking"
+        ]
+      },
+      "newdereth": {
+        "account_has_tod": true,
+        "creation_skills": "all",
+        "features": {
+          "aetheria": true,
+          "allegiance_boot": true,
+          "allegiance_chat": true,
+          "allegiance_house_commands": true,
+          "allegiance_messages": true,
+          "allegiance_name": true,
+          "allegiance_oath_confirmation": true,
+          "allegiance_officers_and_bans": true,
+          "allegiance_titles_and_lock": true,
+          "apartments": true,
+          "appraisal_without_skills": true,
+          "assessed_armor_and_ratings": true,
+          "augmentations": true,
+          "cantrips": true,
+          "chat_log": true,
+          "chess": true,
+          "cloaks": true,
+          "component_burn_skill_discount": true,
+          "consolidated_weapon_skills": false,
+          "contracts": true,
+          "corpse_command": true,
+          "corpse_location_notices": true,
+          "corpse_permissions": true,
+          "creation_credit_carry_over": true,
+          "creation_skill_bonus_as_experience": false,
+          "dual_wield": true,
+          "endurance_benefits": true,
+          "fellowship_auto_accept": true,
+          "fellowship_open": true,
+          "fellowship_options": true,
+          "fellowship_share_loot": true,
+          "global_chat_rooms": true,
+          "housing": true,
+          "innate_augmentations": true,
+          "item_enchantment_redirection": true,
+          "item_spell_auras": true,
+          "journal": true,
+          "lifestone_protection": true,
+          "lifestone_recall": true,
+          "luminance": true,
+          "marketplace_recall": true,
+          "pk_arena_recalls": true,
+          "pk_lite": true,
+          "player_corpse_hour_minimum": true,
+          "pre_order_items_and_rares": true,
+          "ratings": true,
+          "skill_alteration": true,
+          "spell_charge": false,
+          "spell_economy": false,
+          "spell_research": false,
+          "spell_tabs": true,
+          "swear_to_lower_level": true,
+          "swear_xp_cost": false,
+          "tinkering": true,
+          "titles": true,
+          "trade": true,
+          "trade_notes_cash_anywhere": true,
+          "transfer_overflow_reduces_source": true,
+          "trinkets": true,
+          "war_and_life_projectile_criticals": true,
+          "war_magic_skill_damage_bonus": true,
+          "weapon_masteries": true
+        },
+        "formulas": {
+          "creature_projectiles_halved": false,
+          "daggers_use_coordination": true,
+          "death_items_level_divisor": 20,
+          "death_loss_exemptions": true,
+          "empty_corpses_rot_early": true,
+          "kill_xp_from_level": false,
+          "long_range_missile_penalty": false,
+          "missile_flight_by_distance": false,
+          "monster_corpses": "eor",
+          "multiplicative_weapon_speed": false,
+          "older_melee_damage": false,
+          "physical_hits_skip_innate_resistance": false,
+          "player_corpse_limit": false,
+          "shields_without_skill": false,
+          "thrown_reach_by_strength": false,
+          "total_xp_cap": false,
+          "unassigned_xp_cap": false,
+          "vitae": "eor"
+        },
+        "heritages": [
+          "Aluvian",
+          "Gharundim",
+          "Sho",
+          "Viamontian",
+          "Empyrean"
+        ],
+        "loot": "pack-only",
+        "loot_rules": "eor",
+        "placements_on_own_land": true,
+        "properties": {
+          "popup_welcome": ""
+        },
+        "start": "world",
+        "starter_gear": "eor",
+        "training_skills": "all"
       }
     }
   }

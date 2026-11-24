@@ -17,6 +17,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Packs can change skills, the experience curve, spells and character creation.
 - Open a server world repository as a world, edit it and play it; the new Rows tab reads any layer.
 - New `lyceum publish`: build a world repository for its server in one command.
+- New Rules tab: a world repository's rules, each beside its era's.
 
 ## 0.2.8 (2026-11-23)
 

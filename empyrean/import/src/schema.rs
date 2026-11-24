@@ -129,6 +129,7 @@ pub fn schema() -> serde_json::Value {
         "properties": properties,
         "enums": enums,
         "rows": empyrean_world_db::schema::rows(),
+        "rules": empyrean_world_db::schema::rules(),
     })
 }
 
@@ -175,6 +176,22 @@ mod tests {
             }
         }
         assert_eq!(s["rows"]["weenie"]["file"], "weenie/{class:05}.toml");
+        // The rules row: each era's own, the systems with what each is, the formula settings.
+        assert_eq!(
+            s["rules"]["profiles"]["eor"]["features"]["consolidated_weapon_skills"],
+            true
+        );
+        assert_eq!(s["rules"]["profiles"]["eor"]["creation_skills"], "all");
+        assert!(s["rules"]["profiles"]["infiltration"]["creation_skills"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|n| n == "Axe")));
+        assert!(s["rules"]["features"][1]["about"]
+            .as_str()
+            .is_some_and(|a| a.contains("weapon skills")));
+        assert_eq!(s["rules"]["choices"]["start"][1], "world");
+        assert!(s["rules"]["formulas"]
+            .as_array()
+            .is_some_and(|f| f.iter().any(|n| n == "vitae")));
         assert_eq!(s["rows"]["weenie"]["maps"]["int"]["key"]["property"], "int");
     }
 }
