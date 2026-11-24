@@ -153,6 +153,8 @@ pub const ACTIONS_LOCKED: u32 = 1029;
 pub const ITEM_ACTIONS_LOCKED: u32 = 1039;
 /// The control flags of a use refused while the item's own actions wait.
 pub const USE_FLAGS_ITEM_ACTIONS_LOCKED: u32 = 804;
+/// The control flags of a use of a player's corpse refused while the player's actions wait.
+pub const USE_FLAGS_PLAYERS_CORPSE_LOCKED: u32 = 800;
 pub const USE_FLAGS_TELEPORTED: u32 = 948;
 pub const USE_FLAGS_BOUND: u32 = 820;
 /// The answer's control flags for an item used on an object that took the player somewhere.
@@ -893,8 +895,15 @@ pub fn use_object<S: Store>(
         return;
     };
     if actions_locked(s, world) {
-        let me = p_id(s, world);
-        let refused = use_answer(&u, me, None, false, 0.0, ACTIONS_LOCKED);
+        // Refused with no effective target and no distance, the request's flags kept, or a player's
+        // corpse's own (2017: 759 of 759 such answers; 15 of 15 on a player's corpse flagged 800).
+        let players_corpse = s
+            .things
+            .get(u.item)
+            .and_then(|t| t.corpse.as_ref())
+            .is_some_and(|c| c.creature == 0);
+        let flags = players_corpse.then_some(USE_FLAGS_PLAYERS_CORPSE_LOCKED);
+        let refused = use_refused(&u, 0, flags, -1.0, ACTIONS_LOCKED);
         send(net, world, BlobKind::PRIVATE, &refused);
         return;
     }

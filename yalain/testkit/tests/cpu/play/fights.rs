@@ -1989,6 +1989,30 @@ fn use_answered(got: &[(u32, Vec<Value>)], status: u32, flags: Option<u32>) -> b
     })
 }
 
+/// The use answers of a status among calls: each one's control flags, distance and effective
+/// target.
+fn refused_fields(got: &[(u32, Vec<Value>)], status: u32) -> Vec<(u32, f32, u64)> {
+    use yalain_world::places::usage;
+    got.iter()
+        .filter(|(f, _)| *f == USE_DONE)
+        .filter_map(|(_, v)| match v.first() {
+            Some(Value::Graph(g)) => g.iter().find_map(|(_, n)| match n {
+                calls::Node::Script { slots, .. } if slots[usage::STATUS].1 == status => {
+                    let target = u64::from(slots[usage::EFFECTIVE_TARGET + 1].1) << 32
+                        | u64::from(slots[usage::EFFECTIVE_TARGET].1);
+                    Some((
+                        slots[usage::FLAGS].1,
+                        f32::from_bits(slots[usage::DISTANCE].1),
+                        target,
+                    ))
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The corpse a fight leaves, once it is made.
 fn fights_corpse(h: &mut Harness, b: usize) -> u64 {
     assert!(h.run_until(200, |h| corpse_made(h, b, 0).is_some()));
@@ -2053,8 +2077,9 @@ fn a_corpse_answers_its_opener_once_its_opening_has_played() {
 }
 
 /// A corpse being opened is its opener's alone: another player's use of it is refused as an item
-/// whose actions wait (status 1039, flags 804), the opener's own second use as actions locked (1029),
-/// and the opener is answered once, the other not at all.
+/// whose actions wait (status 1039, flags 804), the opener's own second use as actions locked (1029,
+/// its request's flags kept, no distance, no effective target), and the opener is answered once, the
+/// other not at all.
 /// Behaviour: server.loot.corpse-opening-is-the-openers-alone
 #[test]
 fn a_corpse_being_opened_refuses_another_use_until_it_opens() {
@@ -2092,9 +2117,10 @@ fn a_corpse_being_opened_refuses_another_use_until_it_opens() {
         "nothing opens for the other"
     );
     let mine = calls_of(&h, b, from);
-    assert!(
-        use_answered(&mine, 1029, None),
-        "the second use refused: {mine:?}"
+    assert_eq!(
+        refused_fields(&mine, 1029),
+        vec![(316, -1.0, 0)],
+        "the second use refused, the request's flags kept, no distance or target: {mine:?}"
     );
     assert_eq!(
         mine.iter().filter(|(f, _)| *f == OPEN_DONE).count(),

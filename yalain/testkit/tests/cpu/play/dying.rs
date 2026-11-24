@@ -1711,6 +1711,85 @@ fn a_death_ends_a_walk_and_leaves_no_use_refused_after_it() {
     );
 }
 
+/// The use answers refused as actions locked (1029) a client was sent since `from`: each one's
+/// control flags, distance and effective target.
+fn locked_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, f32, u64)> {
+    use yalain_world::places::usage;
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::places::function::USE_DONE)
+        .filter_map(|(_, v)| {
+            let Some(Value::Graph(g)) = v.first() else {
+                return None;
+            };
+            g.iter().find_map(|(_, n)| match n {
+                calls::Node::Script { slots, .. }
+                    if slots[usage::STATUS].1 == yalain_world::places::ACTIONS_LOCKED =>
+                {
+                    let target = u64::from(slots[usage::EFFECTIVE_TARGET + 1].1) << 32
+                        | u64::from(slots[usage::EFFECTIVE_TARGET].1);
+                    Some((
+                        slots[usage::FLAGS].1,
+                        f32::from_bits(slots[usage::DISTANCE].1),
+                        target,
+                    ))
+                }
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A use asked while an earlier one is under way (a walk to its object) is refused as actions
+/// locked with no effective target and no distance, the request's control flags kept.
+/// Behaviour: server.places.actions-locked-answer
+#[test]
+fn a_use_while_another_is_under_way_is_refused_with_no_target_or_distance() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    let corpse = walking_to_a_corpse(&mut h, b, me, world);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(corpse, me)]),
+    );
+    h.run(4);
+    assert_eq!(locked_answers(&h, b, from), vec![(316, -1.0, 0)]);
+}
+
+/// A dead player's use of its own corpse is refused as actions locked with a player's corpse's
+/// control flags (800), no effective target and no distance.
+/// Behaviour: server.places.actions-locked-answer
+#[test]
+fn a_dead_players_use_of_its_own_corpse_is_refused_with_a_player_corpses_flags() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    let own = |h: &Harness| {
+        h.server.things.corpses().find(|id| {
+            h.server
+                .things
+                .get(*id)
+                .and_then(|t| t.corpse.as_ref())
+                .is_some_and(|c| c.originator == me)
+        })
+    };
+    assert!(h.run_until(400, |h| own(h).is_some()), "its corpse is made");
+    let corpse = own(&h).expect("its corpse");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(corpse, me)]),
+    );
+    h.run(4);
+    assert_eq!(locked_answers(&h, b, from), vec![(800, -1.0, 0)]);
+}
+
 /// A dead player swings at nothing: a run asked for is refused as its other uses are, the creature
 /// beside it isn't hurt, and it pays nothing.
 /// Behaviour: server.death.dead-player-starts-no-attack

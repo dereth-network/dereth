@@ -14348,6 +14348,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.actions-locked-answer",
+        says: "A use refused while the player's actions wait is answered with no effective \
+               target and no distance, the request's control flags kept, or a player's \
+               corpse's own; a chest's refusal while it moves, and a waiting use refused when \
+               a reload takes a chest or door, are this server's own forms, with none recorded.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USES-LOCKED-ANSWER"),
+        station: "yalain-testkit::cpu::play::dying::a_use_while_another_is_under_way_is_refused_with_no_target_or_distance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.allegiance-hall-binding",
         says: "A monarch who uses an allegiance hall's binding stone, the stone's own quest under way (the \
                permission reading the hall's sign gives), pays the hall's cost and binds its whole allegiance to \
