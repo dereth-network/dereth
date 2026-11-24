@@ -979,6 +979,62 @@ fn arriving_through_a_portal_tells_the_status_once_the_world_is_drawn() {
     );
 }
 
+/// Once the client has drawn the place a portal took it to, the player's arrival effect ends, it is
+/// told the status of where it is and its ethereality, and only then is its movement freed.
+/// Behaviour: server.places.movement-freed-last
+#[test]
+fn a_drawn_arrival_frees_the_players_movement_last() {
+    use yalain_world::session::function::MOVEMENT_FROZEN;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    h.server.content = ContentPack {
+        objects: vec![object(PORTAL, 0x4700_1154, 0x1A00, Some(to))],
+        ..ContentPack::default()
+    };
+    h.server
+        .content
+        .conflict
+        .insert(0x7000, Conflict::KingdomVsKingdom);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    set_kingdom(&mut h, ida, kingdom::ORDER);
+    h.run(10);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(PORTAL, ida)]),
+    );
+    h.run(60);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(Empty),
+    );
+    h.run(10);
+    let sent = h.sent_messages(a, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| sent.iter().position(pick);
+    let stopped = at(&|m| {
+        matches!(m, ServerMessage::StopFx(e)
+            if e.sender.id == ida && e.action.0 == yalain_world::world::ARRIVAL_FX)
+    });
+    let status =
+        at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == kingdoms::STATUS));
+    let ethereal = at(&|m| {
+        matches!(m, ServerMessage::UpdateIntVisual(v)
+            if v.object.id == ida && v.quality == quality::ETHEREALITY)
+    });
+    let freed =
+        at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == MOVEMENT_FROZEN));
+    assert!(
+        stopped.is_some() && stopped < status && status < ethereal && ethereal < freed,
+        "{stopped:?} {status:?} {ethereal:?} {freed:?}"
+    );
+}
+
 /// A player's movement ethereality names the kingdoms of the players it may not fight where it
 /// stands, by the client's own rule (a player in none counts as neutral): in peace every kingdom;
 /// in a controlled area its own and the neutral one (every kingdom for a neutral player); kingdom

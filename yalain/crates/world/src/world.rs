@@ -1254,12 +1254,6 @@ pub fn message<S: Store>(
         ClientMessage::SceneRenderingComplete(_) => {
             if !p.scene_drawn {
                 p.scene_drawn = true;
-                send(
-                    net,
-                    world,
-                    BlobKind::PRIVATE,
-                    &session::movement_frozen(false),
-                );
                 p.visual = p.visual.wrapping_add(1);
                 let stop = ServerMessage::StopFx(auberean_protocol::physics::ObjectEvent {
                     sender: ObjectStamp {
@@ -1277,7 +1271,16 @@ pub fn message<S: Store>(
                 // The things of the other cells of an interior, held back until now.
                 presence::refresh(s, net, world);
                 // Arrived: the status of where it now is.
-                return crate::kingdoms::check(s, net, world);
+                crate::kingdoms::check(s, net, world);
+                // Its movement freed last, after the arrival effect's end and the status (2017: the
+                // effect's end before it in 1,855 of 1,857 ticks that freed it, the status before
+                // it in 63 of 63).
+                return send(
+                    net,
+                    world,
+                    BlobKind::PRIVATE,
+                    &session::movement_frozen(false),
+                );
             }
         }
         ClientMessage::Position(c) => {

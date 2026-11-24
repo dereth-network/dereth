@@ -228,8 +228,8 @@ fn entering_sends_the_player_its_object_description_and_session_start_in_the_rec
     );
 }
 
-/// When the client says it has drawn the world, the server frees the player's movement and ends
-/// the arrival effect.
+/// When the client says it has drawn the world, the server ends the arrival effect and then frees
+/// the player's movement.
 /// Behaviour: server.world.scene-drawn-frees-movement
 #[test]
 fn the_drawn_scene_frees_the_player_and_ends_the_arrival_effect() {
@@ -245,18 +245,18 @@ fn the_drawn_scene_frees_the_player_and_ends_the_arrival_effect() {
     );
     assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() >= from + 2));
     let v = sent_order(&h, b, from, true);
-    let Some(ServerMessage::PlayerCall(free)) = v[0].message() else {
+    let Some(ServerMessage::StopFx(stop)) = v[0].message() else {
         panic!("{:?}", v[0].message())
+    };
+    assert_eq!((stop.action.0, stop.sender.other_stamp), (ARRIVAL_FX, 12));
+    let Some(ServerMessage::PlayerCall(free)) = v[1].message() else {
+        panic!("{:?}", v[1].message())
     };
     assert_eq!(free.function, FunctionId(function::MOVEMENT_FROZEN));
     assert_eq!(
         free.args,
         Some(ScriptArgs::from_values(&[Arg::Int(0)]).expect("packs"))
     );
-    let Some(ServerMessage::StopFx(stop)) = v[1].message() else {
-        panic!()
-    };
-    assert_eq!((stop.action.0, stop.sender.other_stamp), (ARRIVAL_FX, 12));
     assert_eq!(private_stamps(&v), [11]);
 }
 

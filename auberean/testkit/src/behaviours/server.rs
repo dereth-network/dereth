@@ -15052,6 +15052,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.movement-freed-last",
+        says: "Once the client has drawn the place it arrived at, the player's arrival effect ends, \
+               it is told the status of where it is, and its movement is freed last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVEMENT-FREED-LAST"),
+        station: "yalain-testkit::cpu::play::kingdoms::a_drawn_arrival_frees_the_players_movement_last",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.new-place-before-the-exit",
         says: "A player coming out of portal space, from a portal, a recall or a return from a death, \
                is told of the objects of its new place before it leaves portal space; then the \
@@ -22032,8 +22041,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.world.scene-drawn-frees-movement",
-        says: "When the client says it has drawn the world, the server frees the player's \
-               movement and ends the arrival effect.",
+        says: "When the client says it has drawn the world, the server ends the arrival effect \
+               and then frees the player's movement.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SCENE"),
         station: "yalain-testkit::cpu::entry::world::the_drawn_scene_frees_the_player_and_ends_the_arrival_effect",
