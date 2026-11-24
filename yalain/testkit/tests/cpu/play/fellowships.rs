@@ -270,6 +270,75 @@ fn an_unanswered_asking_runs_out_after_twenty_seconds() {
     );
 }
 
+/// The calls a client was sent since `from`, in the order sent: each a text's string id or the
+/// call's function.
+fn sent_calls(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => {
+                let v = c
+                    .args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())
+                    .unwrap_or_default();
+                let text = v.iter().find_map(|x| match x.root() {
+                    Some(Node::TextInfo(t)) => Some(t.string_id),
+                    _ => None,
+                });
+                Some(text.unwrap_or(c.function.0))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// An asking that runs out tells the recruit that it declines to join, naming itself, then that the
+/// asking ran out, in that order.
+/// Behaviour: server.fellowship.asking-runs-out-declined
+#[test]
+fn an_asking_that_runs_out_tells_the_recruit_it_declines_then_that_it_ran_out() {
+    let (mut h, [(a, _), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 10);
+    let fb = h.bots[b].inbox.len();
+    let t = h.now.0;
+    h.run_to(yalain_net::LocalTime(t + 21.0));
+    h.run(5);
+    assert_eq!(h.texts(b, fb), vec![(8, text::DECLINES.0)]);
+    let told: Vec<u32> = sent_calls(&h, b, fb)
+        .into_iter()
+        .filter(|f| *f == text::DECLINES.0 || *f == function::EXPIRE_RECRUITMENT)
+        .collect();
+    assert_eq!(told, vec![text::DECLINES.0, function::EXPIRE_RECRUITMENT]);
+    use auberean_script::native_object::VariableValue;
+    let name = h
+        .calls(b, fb)
+        .iter()
+        .filter(|(f, _)| *f == yalain_world::session::function::SHOW_TEXT)
+        .find_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) if t.string_id == text::DECLINES.0 => {
+                    t.variables.iter().find_map(|var| match &var.value {
+                        VariableValue::Nested(n) => n.literal.clone(),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+        })
+        .map(|units| String::from_utf16_lossy(&units))
+        .expect("the text names someone");
+    let me = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == bid)
+        .map(|p| p.name.clone())
+        .expect("in the world");
+    assert!(name.starts_with(&me), "names the recruit: {name}");
+}
+
 /// A fellow leaving is cleared of the fellowship and told; the others are told it left; a leader
 /// leaving leaves the oldest fellow leading; disbanding clears every fellow and tells each.
 /// Behaviour: server.fellowship.left-and-disbanded

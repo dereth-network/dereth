@@ -6880,6 +6880,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.asking-runs-out-declined",
+        says: "An asking that runs out tells the recruit that it declines to join the fellowship, \
+               naming itself, then that the asking ran out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-EXPIRY-DECLINES"),
+        station: "yalain-testkit::cpu::play::fellowships::an_asking_that_runs_out_tells_the_recruit_it_declines_then_that_it_ran_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.dismissed",
         says: "A fellow the leader dismisses is told it was dismissed, the leader that it dismissed \
                it, the others that it was dismissed; dismissing itself, or one not of the \

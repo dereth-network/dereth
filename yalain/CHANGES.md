@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- An expired fellowship invitation now says it was declined.
 - Heals at full health now show the amount healed.
 - Creatures with a double throw now throw both missiles, as in retail.
 - Missiles and arrows now miss moving targets more often, as in retail.

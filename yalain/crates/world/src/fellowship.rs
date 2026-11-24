@@ -10,7 +10,8 @@
 //! already asking ("Someone else is already trying to recruit %s."), or one too far to walk to;
 //! otherwise the leader is walked to the recruit, told it waits, and the recruit is
 //! asked; the leader moving by its own hand on the way cancels it ("Your movement has cancelled
-//! the recruitment."). Unanswered, the asking runs out after twenty seconds. Accepting: the recruit is told it
+//! the recruitment."). Unanswered, the asking runs out after twenty seconds, the recruit told it
+//! declines to join, then that the asking ran out. Accepting: the recruit is told it
 //! joined, sent the whole fellowship and enters the channel; every fellow already in it is sent the
 //! new fellow and told it joined. Declining tells the leader.
 //!
@@ -710,7 +711,8 @@ pub fn ask_recruit<S: Store>(
     );
 }
 
-/// An asking's time is up: the recruit is told it ran out, if it is still unanswered.
+/// An asking's time is up: the recruit is told, if it is still unanswered, that it declines to join
+/// (naming itself), then that the asking ran out (2017: 3 of 3 askings run out, in one moment).
 pub fn asking_ends<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -724,6 +726,14 @@ pub fn asking_ends<S: Store>(
         return;
     };
     s.fellowships.asking.remove(at);
+    let name = fellow_name(s, recruit);
+    show_to(
+        s,
+        net,
+        recruit,
+        NOTICE,
+        progress::text_with(text::DECLINES, vec![name_var(text::NAME, &name)]),
+    );
     send_to(
         s,
         net,
