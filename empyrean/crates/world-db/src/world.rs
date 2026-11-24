@@ -2,10 +2,11 @@
 //! shared pack format's lineage reads them (`dereth_pack::lineage`), folded into one world.
 //!
 //! ```text
-//! world.toml                                packs = ["base"], lineage = [...], [ids] classes
+//! world.toml                                packs = ["base"], lineage = [...], [ids] classes,
+//!                                           [land] <file>_iteration (the base's data files)
 //! base/                                     the base: a whole known world, its rows
 //! base/pack.toml, base/world-db.toml        its header and source; its rows' era and stamp
-//! patches/<yyyy-mm>-<name>/patch.toml       a patch, a delta on the layer before
+//! patches/<yyyy-mm>-<name>/patch.toml       a patch, a delta on the layer before; <file>_iteration
 //! patches/<yyyy-mm>-<name>/packs/<pack>/    its packs of rows
 //! patches/<yyyy-mm>-<name>/checkpoint.toml  a checkpoint's pin ([`crate::checkpoint`])
 //! patches/<yyyy-mm>-<name>/keys.toml        its placements' keys, generated
@@ -213,6 +214,7 @@ fn read_layers(
             Some(span)
         }
     };
+    let base_iterations = iterations_of(file.get("land"))?;
     let [base, patches @ ..] = lineage.layers.as_slice() else {
         return Err("world.toml: no base layer".into());
     };
@@ -237,6 +239,7 @@ fn read_layers(
         patches: Vec::new(),
         authored_classes,
         keying: Keying::default(),
+        base_iterations,
     };
     let mut read = Vec::new();
     let mut spawns: Vec<u32> = Vec::new();
@@ -290,10 +293,34 @@ fn read_layers(
             checkpoint,
             pending,
             drift: p.drift.clone(),
+            iterations: p
+                .patch
+                .as_ref()
+                .map(|x| x.iterations.clone())
+                .unwrap_or_default(),
         });
     }
     layers.keying = keying;
     Ok((layers, m, read))
+}
+
+/// The data files' iterations a world file's `[land]` names for its base: each
+/// `<file>_iteration`, as a patch names its own.
+fn iterations_of(land: Option<&toml::Value>) -> R<BTreeMap<String, u32>> {
+    let mut out = BTreeMap::new();
+    for (key, v) in land.and_then(toml::Value::as_table).into_iter().flatten() {
+        let Some(file) = key.strip_suffix("_iteration").filter(|f| !f.is_empty()) else {
+            continue;
+        };
+        let n = v
+            .as_integer()
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or_else(|| {
+                format!("world.toml: [land] {key}: an iteration, a whole number from 0")
+            })?;
+        out.insert(file.to_owned(), n);
+    }
+    Ok(out)
 }
 
 /// The guids of the placements `packs` set.

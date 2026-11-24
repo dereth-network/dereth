@@ -3172,6 +3172,7 @@ name = "empyrean-world-db"
 version = "0.3.18"
 dependencies = [
  "blake3",
+ "dereth-dat",
  "dereth-pack",
  "empyrean-common",
  "empyrean-content",

@@ -1,12 +1,13 @@
 //! What a world names that it doesn't have: a placement's class, a create list's, a generator's,
 //! an emote's, a recipe's result, a cook book's recipe, a spell a weenie knows or an emote casts,
-//! a placement's linked child.
+//! a placement's linked child, a creature's death treasure type.
 //!
 //! Each is one line, `<what names it>: <what it names> is in no <table>`, in the world's order.
 
 use std::collections::BTreeSet;
 
 use empyrean_content::WorldContent;
+use empyrean_entity::enums::PropertyDataId;
 
 /// Every reference in `c` to something `c` doesn't have.
 #[must_use]
@@ -96,6 +97,26 @@ pub fn dangling(c: &WorldContent) -> Vec<String> {
                         ));
                     }
                 }
+            }
+        }
+    }
+    // A death treasure type is either table's: ACE's death treasure or the source's grouped.
+    let treasure: BTreeSet<u32> = c
+        .treasure_death
+        .iter()
+        .map(|t| t.treasure_type)
+        .chain(c.grouped_treasure.iter().map(|t| t.treasure_type))
+        .collect();
+    for w in &c.weenies {
+        for d in &w.weenie_properties_did {
+            if d.r#type == PropertyDataId::DeathTreasureType.0
+                && d.value != 0
+                && !treasure.contains(&d.value)
+            {
+                out.push(format!(
+                    "weenie {} did.DeathTreasureType: treasure type {} is in no death-treasure or grouped-treasure",
+                    w.class_id, d.value
+                ));
             }
         }
     }

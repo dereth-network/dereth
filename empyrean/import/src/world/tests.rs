@@ -1,8 +1,11 @@
 //! Behaviour: none (tooling: a world of layers checked layer by layer, and built at a layer into its pack and ACE's world SQL)
 //! A world folded at each layer is checked for what its fold finds and what it names but doesn't
 //! have; built at a layer, it is the pack its rows make, and its world SQL builds that pack back.
-//! Fixture: small worlds written to a temporary folder; with `launch-content`, the operator's
-//! Launch pack named by `EMPYREAN_TEST_LAUNCH_FIXTURE`.
+//! Its loot is held to the swap from the source's to ACE's being whole, and its records to the data
+//! files of its layer, where they are given.
+//! Fixture: small worlds and data files written to a temporary folder, the content crate's
+//! synthetic source loot policy; with `launch-content`, the operator's Launch pack named by
+//! `EMPYREAN_TEST_LAUNCH_FIXTURE`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -288,8 +291,8 @@ fn every_layer_is_checked_and_a_layer_that_changes_nothing_has_the_world_below_i
     );
     // The world up to the second patch builds; the third, which breaks a reference, doesn't, and
     // nor does any above it.
-    content(&path, Some("2000-01-dark-thaw"), None).expect("builds");
-    let e = content(&path, None, None).expect_err("refused");
+    content(&path, Some("2000-01-dark-thaw"), None, &[]).expect("builds");
+    let e = content(&path, None, None, &[]).expect_err("refused");
     assert!(
         e.contains("nothing below or in this layer sets quest nothing"),
         "{e}"
@@ -318,9 +321,9 @@ rotation = [1.0, 0.0, 0.0, 0.0]
             ("2000-01-dark-thaw", None),
         ],
     );
-    content(&path, Some("base"), None).expect("the base builds");
+    content(&path, Some("base"), None, &[]).expect("the base builds");
     for layer in [Some("1999-12-sudden-season"), None] {
-        let e = content(&path, layer, None).expect_err("refused");
+        let e = content(&path, layer, None, &[]).expect_err("refused");
         assert_eq!(
             e,
             "1999-12-sudden-season: spawn 0x7A9B4002: class 4000 is in no weenie"
@@ -339,14 +342,14 @@ fn a_world_built_at_a_layer_is_its_rows_pack_and_its_world_sql_builds_the_same_p
             Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
         )],
     );
-    let base = content(&path, Some("base"), None).expect("the base");
+    let base = content(&path, Some("base"), None, &[]).expect("the base");
     let mut want = sample();
     empyrean_world_db::number(&mut want);
     let built = Pack::from_bytes(pack_of(&base).expect("a pack")).expect("reads");
     let original = Pack::from_bytes(pack_of(&want).expect("a pack")).expect("reads");
     assert_eq!(built.header().content_hash, original.header().content_hash);
     // The last layer's SQL builds its pack back, every record equal, ids aside.
-    let last = content(&path, None, None).expect("the last layer");
+    let last = content(&path, None, None, &[]).expect("the last layer");
     assert!(last.weenies[1]
         .weenie_properties_int
         .iter()
@@ -513,6 +516,374 @@ fn a_checkpoints_own_references_to_nothing_are_its_sources_and_a_patchs_are_erro
     );
 }
 
+/// `text` added to the end of the file at `path`.
+fn append(path: &Path, text: &str) {
+    let mut s = std::fs::read_to_string(path).expect("read");
+    s.push_str(text);
+    std::fs::write(path, s).expect("written");
+}
+
+/// The synthetic source loot policy the content crate's tests use.
+fn source_policy() -> empyrean_content::loot::SourceLootPolicy {
+    empyrean_content::loot::SourceLootPolicy::from_json(include_bytes!(
+        "../../../fixtures/source-loot/synthetic.json"
+    ))
+    .expect("the policy")
+}
+
+/// `sample()` under the source's loot: its policy, grouped treasure of type 99, and a drudge
+/// whose death treasure is that type.
+fn source_loot() -> WorldContent {
+    use empyrean_content::loot::{GroupedTreasureDeath, SlotGroup};
+    use empyrean_content::models::world::WeeniePropertiesDID;
+    use empyrean_entity::enums::PropertyDataId;
+    let mut c = sample();
+    c.loot_policies = vec![source_policy()];
+    c.grouped_treasure = vec![GroupedTreasureDeath {
+        id: 1,
+        treasure_type: 99,
+        tier: 1,
+        quality: 0.5,
+        groups: [SlotGroup {
+            chance: 50,
+            min: 1,
+            max: 2,
+        }; 6],
+    }];
+    let mut drudge = weenie(13, "drudge");
+    drudge.weenie_properties_did = vec![WeeniePropertiesDID {
+        r#type: PropertyDataId::DeathTreasureType.0,
+        value: 99,
+        ..Default::default()
+    }];
+    c.weenies.push(drudge);
+    empyrean_world_db::number(&mut c);
+    c
+}
+
+/// ACE's death treasure of type `ty`, as a file of rows.
+fn death_row(ty: u32) -> String {
+    use empyrean_content::models::world::TreasureDeath;
+    let c = WorldContent {
+        treasure_death: vec![TreasureDeath {
+            treasure_type: ty,
+            tier: 1,
+            item_chance: 100,
+            item_min_amount: 1,
+            item_max_amount: 2,
+            last_modified: default_stamp(),
+            ..Default::default()
+        }],
+        ..WorldContent::default()
+    };
+    let files = empyrean_world_db::write(&c, default_stamp()).expect("written");
+    files[&format!("treasure_death/{ty}.toml")].clone()
+}
+
+/// The checks of a world under the source's loot with one patch of `rows` on it.
+fn swapped(name: &str, rows: &str) -> Vec<empyrean_world_db::layers::LayerCheck> {
+    let dir = Scratch::new(name);
+    let path = world(
+        &dir.0,
+        &source_loot(),
+        &[("1999-12-sudden-season", Some(rows))],
+    );
+    empyrean_world_db::world::open(&path, None)
+        .expect("opened")
+        .check()
+}
+
+#[test]
+fn a_layer_that_swaps_loot_to_aces_does_all_three_parts_at_once_and_each_part_alone_is_an_error() {
+    let policy = "[[remove]]\nitems = [\"loot-policy\"]\n";
+    let grouped = "[[remove]]\nitems = [\"grouped-treasure 99\"]\n";
+    let both = "[[remove]]\nitems = [\"loot-policy\", \"grouped-treasure 99\"]\n";
+    let death = death_row(99);
+    // All three at once: the swap, reported, and no error.
+    let checks = swapped("swap", &format!("{both}\n{death}"));
+    assert!(checks[0].errors().is_empty(), "{:?}", checks[0].errors());
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    assert_eq!(
+        checks[1].reports,
+        ["the loot becomes ACE's: the source's loot-policy goes, 1 grouped-treasure go and 1 death-treasure come"]
+    );
+    let errors = |rows: &str, name: &str| swapped(name, rows)[1].errors();
+    // The policy alone leaves grouped treasure with none.
+    let e = errors(policy, "policy");
+    assert!(
+        e.iter().any(|x| x.starts_with(
+            "loot-policy: the world has none, so its loot is ACE's, and still has 1 grouped-treasure"
+        )),
+        "{e:?}"
+    );
+    // The removals alone, under the source's loot: and the drudge's treasure is now nothing.
+    let e = errors(grouped, "grouped");
+    assert!(
+        e.iter()
+            .any(|x| x.starts_with("grouped-treasure 99: removed while the loot is the source's")),
+        "{e:?}"
+    );
+    assert!(
+        e.contains(&"weenie 13 did.DeathTreasureType: treasure type 99 is in no death-treasure or grouped-treasure".to_owned()),
+        "{e:?}"
+    );
+    // The new rows alone: a type both ACE's death treasure and the source's grouped treasure.
+    let e = errors(&death, "death");
+    assert_eq!(
+        e,
+        ["death-treasure 99 and grouped-treasure 99: a treasure type is ACE's death treasure or the source's grouped treasure, not both"]
+    );
+    // The removals and the new rows, the policy kept.
+    let e = errors(&format!("{grouped}\n{death}"), "kept");
+    assert!(
+        e.iter()
+            .any(|x| x.starts_with("grouped-treasure 99: removed while the loot is the source's")),
+        "{e:?}"
+    );
+    // The policy and the removals, no new rows.
+    let e = errors(both, "norows");
+    assert!(
+        e.iter()
+            .any(|x| x.starts_with("loot-policy: the swap to ACE's loot adds no death-treasure")),
+        "{e:?}"
+    );
+    // A build of a half-made swap is refused; of the whole swap, it is ACE's loot.
+    let dir = Scratch::new("swap-build");
+    let path = world(
+        &dir.0,
+        &source_loot(),
+        &[("1999-12-sudden-season", Some(policy))],
+    );
+    let e = content(&path, None, None, &[]).expect_err("refused");
+    assert!(e.contains("loot-policy: the world has none"), "{e}");
+    let dir = Scratch::new("swap-built");
+    let path = world(
+        &dir.0,
+        &source_loot(),
+        &[("1999-12-sudden-season", Some(&format!("{both}\n{death}")))],
+    );
+    let c = content(&path, None, None, &[]).expect("the swap builds");
+    assert!(c.loot_policies.is_empty() && c.grouped_treasure.is_empty());
+    assert_eq!(c.treasure_death.len(), 1);
+    pack_of(&c).expect("a pack");
+}
+
+#[test]
+fn a_checkpoint_whose_source_loot_is_aces_is_the_swap_and_is_reported_not_an_error() {
+    use empyrean_world_db::layers::{snapshot_of, CheckpointLayer, Folding, Layers, PatchLayer};
+    let rows = |c: &WorldContent| {
+        let mut files = empyrean_world_db::write(c, default_stamp()).expect("written");
+        set_source(&mut files, "test-world", "r1").expect("a source");
+        files
+    };
+    let base = source_loot();
+    // The checkpoint's source: ACE's loot, its drudge's treasure ACE's type 5.
+    let mut later = source_loot();
+    later.loot_policies.clear();
+    later.grouped_treasure.clear();
+    later.treasure_death = vec![empyrean_content::models::world::TreasureDeath {
+        treasure_type: 5,
+        tier: 1,
+        last_modified: default_stamp(),
+        ..Default::default()
+    }];
+    later.weenies[3].weenie_properties_did[0].value = 5;
+    let (snapshot, kinds) = snapshot_of(&rows(&later)).expect("a snapshot");
+    let layers = Layers {
+        base: rows(&base),
+        patches: vec![PatchLayer {
+            id: "2005-02-infiltration".into(),
+            checkpoint: Some(Box::new(CheckpointLayer {
+                snapshot,
+                kinds,
+                drift: Vec::new(),
+            })),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let checks = Folding::new(layers, base.era, default_stamp())
+        .expect("read")
+        .check();
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    assert!(checks[1].inherited.is_empty(), "{:?}", checks[1].inherited);
+    assert_eq!(
+        checks[1].reports,
+        ["the loot becomes ACE's: the source's loot-policy goes, 1 grouped-treasure go and 1 death-treasure come"]
+    );
+}
+
+/// A data file of `data_set` in `dir`, named `name`, at `iteration`, holding the records `ids`.
+fn dat(dir: &Path, name: &str, data_set: u32, iteration: u32, ids: &[u32]) {
+    use dereth_dat::{DatWriter, ITERATION_LIST};
+    use dereth_primitives::DataId;
+    std::fs::create_dir_all(dir).expect("a folder");
+    let mut w = DatWriter::create(&dir.join(name), 0x400, data_set, 0, 0x400 + 0x400 * 64)
+        .expect("created");
+    for &id in ids {
+        w.save(DataId(id), b"a record", 1, iteration, 1)
+            .expect("saved");
+    }
+    let list: Vec<u32> = (1..=iteration).collect();
+    w.save(
+        ITERATION_LIST,
+        &dereth_dat::iteration::encode(&list),
+        1,
+        0,
+        1,
+    )
+    .expect("its iterations");
+}
+
+/// `sample()` with its chest drawn by a setup and an icon.
+fn drawn() -> WorldContent {
+    use empyrean_content::models::world::WeeniePropertiesDID;
+    use empyrean_entity::enums::PropertyDataId;
+    let mut c = sample();
+    c.weenies[0].weenie_properties_did = [
+        (PropertyDataId::Setup, 0x0200_0001),
+        (PropertyDataId::Icon, 0x0600_0001),
+    ]
+    .map(|(t, value)| WeeniePropertiesDID {
+        r#type: t.0,
+        value,
+        ..Default::default()
+    })
+    .to_vec();
+    empyrean_world_db::number(&mut c);
+    c
+}
+
+#[test]
+fn a_layer_naming_a_record_its_data_files_lack_fails_and_a_layer_whose_files_are_unknown_says_so() {
+    use dereth_dat::container::{CELL_DATFILE, PORTAL_DATFILE};
+    let dir = Scratch::new("closure");
+    let path = world(
+        &dir.0,
+        &drawn(),
+        &[
+            // Names an icon no file of its iteration has.
+            (
+                "1999-12-sudden-season",
+                Some("[[weenie]]\nclass = 12\ndid = { Icon = 0x06000009 }\n"),
+            ),
+            // Its portal is a later one, without the chest's icon.
+            ("2000-01-dark-thaw", None),
+            // Its portal isn't among the files given.
+            ("2000-02-shadows", None),
+            // Names no iteration.
+            (
+                "2000-03-darkness",
+                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
+            ),
+        ],
+    );
+    append(
+        &path,
+        "\n[land]\nportal_iteration = 1\ncell_iteration = 1\n",
+    );
+    let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
+    append(
+        &patch("1999-12-sudden-season"),
+        "portal_iteration = 1\ncell_iteration = 1\n",
+    );
+    append(&patch("2000-01-dark-thaw"), "portal_iteration = 2\n");
+    append(&patch("2000-02-shadows"), "portal_iteration = 3\n");
+    let dats = dir.0.join("dats");
+    dat(
+        &dats.join("first"),
+        "client_portal.dat",
+        PORTAL_DATFILE,
+        1,
+        &[0x0200_0001, 0x0600_0001],
+    );
+    dat(
+        &dats.join("first"),
+        "client_cell_1.dat",
+        CELL_DATFILE,
+        1,
+        &[0xA9B4_FFFF],
+    );
+    dat(
+        &dats.join("later"),
+        "client_portal.dat",
+        PORTAL_DATFILE,
+        2,
+        &[0x0200_0001, 0x0600_0009],
+    );
+    let given = [dats.clone()];
+    let checks = super::open(&path, None, &given).expect("opened").check();
+    assert!(
+        checks[0].errors().is_empty() && checks[0].inherited.is_empty(),
+        "{checks:?}"
+    );
+    assert_eq!(
+        checks[1].errors(),
+        ["portal 0x06000009: in no portal file of iteration 1 (named by weenie 12 did.Icon)"]
+    );
+    // What the files below held and the layer's lack is the layer's; what they lacked was said.
+    assert_eq!(
+        checks[2].errors(),
+        ["portal 0x06000001: in no portal file of iteration 2 (named by weenie 10 did.Icon)"]
+    );
+    assert_eq!(
+        checks[2].reports,
+        ["closure of cell records not checked: the layer names no cell iteration"]
+    );
+    assert!(checks[3].errors().is_empty(), "{:?}", checks[3].errors());
+    assert_eq!(
+        checks[3].reports,
+        [
+            "closure of portal records not checked: no portal file of iteration 3 among the data files given",
+            "closure of cell records not checked: the layer names no cell iteration",
+        ]
+    );
+    assert_eq!(
+        checks[4].reports,
+        ["closure not checked: the layer names none of its data files' iterations"]
+    );
+    let (lines, errors) = check_lines(super::open(&path, None, &given).expect("opened"));
+    assert_eq!(errors, 2, "{lines:?}");
+    // Without data files, closure isn't checked; a build with them is refused.
+    let (lines, errors) = check_lines(super::open(&path, None, &[]).expect("opened"));
+    assert_eq!(errors, 0, "{lines:?}");
+    content(&path, None, None, &[]).expect("builds");
+    let e = content(&path, None, None, &given).expect_err("refused");
+    assert!(e.contains("2000-01-dark-thaw: portal 0x06000001"), "{e}");
+}
+
+#[test]
+fn a_record_the_world_below_named_where_no_files_were_checked_is_a_warning_not_the_layers_error() {
+    use dereth_dat::container::PORTAL_DATFILE;
+    let dir = Scratch::new("closure-below");
+    let path = world(&dir.0, &drawn(), &[("1999-12-sudden-season", None)]);
+    append(
+        &dir.0
+            .join("patches")
+            .join("1999-12-sudden-season")
+            .join("patch.toml"),
+        "portal_iteration = 1\n",
+    );
+    let dats = dir.0.join("dats");
+    dat(
+        &dats,
+        "client_portal.dat",
+        PORTAL_DATFILE,
+        1,
+        &[0x0200_0001],
+    );
+    let checks = super::open(&path, None, &[dats]).expect("opened").check();
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    assert_eq!(
+        checks[1].warnings,
+        ["portal 0x06000001: in no portal file of iteration 1 (named by weenie 10 did.Icon); named below, where no files were checked for it"]
+    );
+    assert_eq!(
+        checks[0].reports,
+        ["closure not checked: the layer names none of its data files' iterations"]
+    );
+}
+
 #[cfg(feature = "launch-content")]
 mod launch {
     //! The operator's Launch pack as a world's base, under empty patches as Dereth's are.
@@ -551,7 +922,7 @@ mod launch {
         assert_eq!(errors, 0, "{lines:?}");
         let mut hashes = BTreeMap::new();
         for id in &ids {
-            let c = content(&path, Some(id), None).expect("builds");
+            let c = content(&path, Some(id), None, &[]).expect("builds");
             let p = Pack::from_bytes(pack_of(&c).expect("a pack")).expect("reads");
             hashes.insert(id.clone(), p.header().content_hash);
         }
@@ -563,7 +934,7 @@ mod launch {
             1,
             "empty layers change nothing"
         );
-        let c = content(&path, Some("base"), None).expect("the base");
+        let c = content(&path, Some("base"), None, &[]).expect("the base");
         let found = differences(&original, &pack_from_sql(&c)).expect("compared");
         assert!(
             found.is_empty(),
