@@ -1612,8 +1612,8 @@ fn beetle_east(h: &mut Harness, me: u64, beetle: u64, d: f32) {
 
 /// Moving after Deadeye's story cuts it short, and it counts as used: the skill's information
 /// first, the use over, why (interrupted, naming its target), not attacking, its behavior stopped
-/// on the player and the bow, the player stopped (it was turned), at peace. The missile already
-/// thrown still arrives.
+/// on the player (not on the bow), the player stopped (it was turned), at peace. The missile
+/// already thrown still arrives.
 /// Behaviour: server.specials.cut-short
 #[test]
 fn moving_after_a_specials_story_cuts_it_short_and_it_counts_as_used() {
@@ -1653,9 +1653,13 @@ fn moving_after_a_specials_story_cuts_it_short_and_it_counts_as_used() {
         ]
     )));
     let msgs = h.world_messages(b, cut);
-    for who in [me, bow] {
-        assert!(msgs.iter().any(|m| matches!(m, ServerMessage::StopBehavior(e) if e.sender.id == who && e.action.0 == 0x4100_007A)), "{who:x}");
-    }
+    assert!(msgs.iter().any(|m| matches!(m, ServerMessage::StopBehavior(e) if e.sender.id == me && e.action.0 == 0x4100_007A)));
+    assert!(
+        !msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::StopBehavior(e) if e.sender.id == bow)),
+        "nothing stopped on the bow"
+    );
     assert!(msgs.iter().any(|m| matches!(m, ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40)));
     assert!(msgs.iter().any(
         |m| matches!(m, ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001)
@@ -1667,6 +1671,101 @@ fn moving_after_a_specials_story_cuts_it_short_and_it_counts_as_used() {
             .any(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == beetle && e.action.bits == 0x12)),
         "the missile still arrives"
     );
+}
+
+/// A use of Deadeye cut short by moving after its story, in the order the server sent the cut.
+fn cut_in_send_order(turns: bool) -> Vec<&'static str> {
+    use yalain_world::skill_use::ui_flag;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    if !turns {
+        if let Some(u) = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+        {
+            u.ui_flags &= !ui_flag::TURNS_TO_TARGET;
+        }
+    }
+    let from = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(6);
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me)),
+        "the story told"
+    );
+    let cut = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(
+            0x0299_0109,
+            auberean_primitives::Vec3::new(58.0, 240.0, -44.6),
+            0,
+            yalain_world::world::motion(127, 255, 127),
+            0,
+        ),
+    );
+    h.run(4);
+    assert!(interrupted(&h, b, cut), "cut short");
+    h.sent_messages(b, cut)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::StopBehavior(e) => {
+                Some(if e.sender.id == me && e.action.0 == 0x4100_007A {
+                    "behavior stopped"
+                } else {
+                    "something else stopped"
+                })
+            }
+            ServerMessage::MoveTo(e) if e.sender.id == me && e.action.params.flags == 0x40 => {
+                Some("stopped")
+            }
+            ServerMessage::PlayerCall(c) => match c.function.0 {
+                SKILL_INFO => Some("information"),
+                function::ENDED => Some("over"),
+                function::REFUSED => Some("why"),
+                ATTACK_STATE => Some("not attacking"),
+                _ => None,
+            },
+            ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001 => {
+                Some("peace")
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A special from rest cut short after its story stops on its player before anything else: its
+/// behavior stopped twice, with the player stopped between the two when the use turned it; then
+/// the skill's information, the behavior stopped again, the use over, why, not attacking, peace,
+/// and the behavior stopped a last time. Every stop comes from the player, none from the bow.
+/// Behaviour: server.specials.cut-stops-first
+#[test]
+fn a_special_cut_after_its_story_stops_on_its_player_before_its_information() {
+    let after = [
+        "information",
+        "behavior stopped",
+        "over",
+        "why",
+        "not attacking",
+        "peace",
+        "behavior stopped",
+    ];
+    let turned: Vec<&str> = ["behavior stopped", "stopped", "behavior stopped"]
+        .into_iter()
+        .chain(after)
+        .collect();
+    assert_eq!(cut_in_send_order(true), turned, "turned");
+    let unturned: Vec<&str> = ["behavior stopped", "behavior stopped"]
+        .into_iter()
+        .chain(after)
+        .collect();
+    assert_eq!(cut_in_send_order(false), unturned, "not turned");
 }
 
 /// Whether a use of Deadeye was cut short (interrupted) in the messages since `from`.

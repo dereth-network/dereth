@@ -3507,6 +3507,20 @@ fn stop_at_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     }
 }
 
+/// A behavior stopped on the player, for everyone who sees it.
+fn stop_behavior<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    me: u64,
+    behavior: u32,
+) {
+    if let Some(p) = s.players.get_mut(&world) {
+        let stop = ServerMessage::StopBehavior(player_event(p, Word(behavior)));
+        to_all_seeing(s, net, me, &stop);
+    }
+}
+
 /// A use is over or cut short: a run waiting for it goes on.
 fn run_waits_no_more<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
     if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
@@ -3561,10 +3575,15 @@ fn skill_unused<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, x: 
 }
 
 /// A use is cut short (the player moved, stopped attacking, died): over, why, the player not
-/// attacking and at peace. Before its story nothing is spent and its power-up stops; after it, it
-/// counts as used (the skill's information first), its behavior stops on the player and what it
-/// wields, and a player turned to its target is stopped. A follow the use left on ends with it: its
-/// stop sent before all of it, the player told after the peace. A missile already thrown still lands.
+/// attacking and at peace. Before its story nothing is spent and its power-up stops. After it, it
+/// counts as used, and one from rest stops on its player before anything else of the cut: its
+/// behavior stopped twice, a player turned to its target stopped between the two; then the skill's
+/// information, the behavior stopped again, the use over, why, not attacking, peace, and the
+/// behavior stopped a last time, every stop from the player (2017: of 353 cuts past the story that
+/// had not turned their user, 235 in just that order; of 376 that had, 164, and 135 more with no
+/// stop between the turn's stop and the information; 737 of 740 sent no stop from what the player
+/// wields). A follow the use left on ends with it: its stop sent before all of it, the player told
+/// after the peace. A missile already thrown still lands.
 pub fn interrupt<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3589,9 +3608,29 @@ pub fn interrupt<S: Store>(
         progress::private(net, world, &ended(old.id));
     }
     let me = p.character;
+    // A use from rest cut after its story: its behavior, stopped on the player.
+    let stops = (x.told && x.alone).then(|| {
+        if x.aim == Aim::Me {
+            x.usage.behavior_self[0]
+        } else {
+            x.usage.behavior_other[0]
+        }
+    });
+    if let Some(b) = stops {
+        stop_behavior(s, net, world, me, b);
+        if x.turned && !followed {
+            stop_at_end(s, net, world, me);
+        }
+        stop_behavior(s, net, world, me, b);
+    }
     if x.told {
-        p.last_used.insert(x.req.skill, now);
+        if let Some(p) = s.players.get_mut(&world) {
+            p.last_used.insert(x.req.skill, now);
+        }
         skill_info(s, net, world, &x, now, 0);
+    }
+    if let Some(b) = stops {
+        stop_behavior(s, net, world, me, b);
     }
     progress::private(net, world, &ended(x.req.id));
     let named = if x.told {
@@ -3605,39 +3644,14 @@ pub fn interrupt<S: Store>(
         return;
     }
     progress::private(net, world, &combat::attack_state(false));
-    let stopping = if x.told {
-        Some(if x.aim == Aim::Me {
-            x.usage.behavior_self[0]
-        } else {
-            x.usage.behavior_other[0]
-        })
-    } else if x.usage.powerup > 0.0 {
-        Some(x.usage.powerup_behavior)
-    } else {
-        None
-    };
-    if let Some(b) = stopping {
-        if let Some(p) = s.players.get_mut(&world) {
-            let stop = ServerMessage::StopBehavior(player_event(p, Word(b)));
-            to_all_seeing(s, net, me, &stop);
-        }
-        if x.told {
-            for (item, _) in wielded(s, me) {
-                let stop = ServerMessage::StopBehavior(ObjectEvent {
-                    sender: crate::inventory::visual(s, item),
-                    action: Word(b),
-                });
-                to_all_seeing(s, net, me, &stop);
-            }
-        }
-    }
-    if x.told && x.turned && !followed {
-        if let Some(p) = s.players.get_mut(&world) {
-            let stop = stop_moving(p);
-            to_all_seeing(s, net, me, &stop);
-        }
+    // Before its story, its power-up stopped.
+    if !x.told && x.usage.powerup > 0.0 {
+        stop_behavior(s, net, world, me, x.usage.powerup_behavior);
     }
     combat::set_player_mode(s, net, world, combat::mode::PEACE);
+    if let Some(b) = stops {
+        stop_behavior(s, net, world, me, b);
+    }
     if followed {
         crate::follow::told_stopped(net, world);
     }

@@ -20029,11 +20029,23 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.specials.cut-short",
         says: "A use not made on the move is cut short by moving, by stopping all attacks, or by \
                stopping attacks on its target; after its story it counts as used (the skill's \
-               information first), its behavior stops on the player and what it wields, a player \
-               turned is stopped; a missile already thrown still arrives.",
+               information first), its behavior stops on the player, a player turned is stopped; \
+               a missile already thrown still arrives.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CUT-SHORT"),
         station: "yalain-testkit::cpu::play::specials::moving_after_a_specials_story_cuts_it_short_and_it_counts_as_used",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.cut-stops-first",
+        says: "A special from rest cut short after its story stops on its player first: its \
+               behavior stopped twice, the player stopped between the two when the use turned \
+               it, then the skill's information, the behavior stopped again, the use over, why, \
+               not attacking, peace, and the behavior stopped a last time, every stop from the \
+               player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CUT-STOPS-FIRST"),
+        station: "yalain-testkit::cpu::play::specials::a_special_cut_after_its_story_stops_on_its_player_before_its_information",
         tier: Tier::Cpu,
     },
     behaviour! {
