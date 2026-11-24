@@ -785,7 +785,23 @@ impl Folding {
     #[must_use]
     pub fn check(self) -> Vec<LayerCheck> {
         let last = self.len().saturating_sub(1);
-        self.walk(last).0
+        self.walk(last, None).0
+    }
+
+    /// Every layer checked as [`Folding::check`] checks it, in the same one fold, `each` handed the
+    /// world at each layer that changes it (its ids not yet numbered) as the fold comes to it, and
+    /// let go of before the next; a layer that changes nothing has the world below it. The layers
+    /// are spent.
+    pub fn check_each(self, each: &mut dyn FnMut(usize, WorldContent)) -> Vec<LayerCheck> {
+        let last = self.len().saturating_sub(1);
+        self.walk(last, Some(each)).0
+    }
+
+    /// Whether each layer's rows are written: the base's and a checkpoint's are, and a patch's
+    /// once its `patch.toml` says so.
+    #[must_use]
+    pub fn written(&self) -> &[bool] {
+        &self.written
     }
 
     /// The world at layer `n`, its ids not yet numbered, the layers up to it checked as
@@ -798,7 +814,7 @@ impl Folding {
         if n >= self.len() {
             return Err(format!("there is no layer {n}"));
         }
-        let (checks, content) = self.walk(n);
+        let (checks, content) = self.walk(n, None);
         let errors: Vec<String> = checks
             .iter()
             .flat_map(|l| {
@@ -813,9 +829,14 @@ impl Folding {
         content.unwrap_or_else(|| Err(format!("layer {n} has no world")))
     }
 
-    /// The layers up to `upto` folded in one pass and checked; and the world at `upto`.
+    /// The layers up to `upto` folded in one pass and checked; and the world at `upto`, unless
+    /// `each` takes every world the fold makes ([`Folding::check_each`]).
     #[allow(clippy::too_many_lines)] // one fold, each layer's world checked as the fold comes to it
-    fn walk(mut self, upto: usize) -> (Vec<LayerCheck>, Option<R<WorldContent>>) {
+    fn walk(
+        mut self,
+        upto: usize,
+        mut each: Option<&mut dyn FnMut(usize, WorldContent)>,
+    ) -> (Vec<LayerCheck>, Option<R<WorldContent>>) {
         let mut inputs = std::mem::take(&mut self.inputs);
         inputs.truncate(upto + 1);
         let inputs = last_checkpoint(inputs);
@@ -882,8 +903,10 @@ impl Folding {
                             if has_dats {
                                 named = Some(crate::closure::Named::of(&c));
                             }
-                            if n == last {
-                                kept = Some(Ok(c));
+                            match each.as_mut() {
+                                Some(each) => each(n, c),
+                                None if n == last => kept = Some(Ok(c)),
+                                None => {}
                             }
                         }
                         Err(e) => o.problems.push(e),

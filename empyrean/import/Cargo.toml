@@ -22,6 +22,7 @@ dereth-primitives.workspace = true
 dereth-assets.workspace = true
 empyrean-dat.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 # `fetch`: downloading ACE-World's release over HTTPS (rustls with its ring provider and the
 # bundled web roots, so no system TLS library), verifying it, and unzipping it. Only this binary
 # downloads anything, so these stay out of the workspace's shared dependencies.

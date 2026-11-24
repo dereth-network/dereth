@@ -4,6 +4,7 @@
 //! ```text
 //! empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...
+//! empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...
 //! ```
 //!
 //! `--dumps` names the folder a checkpoint's pinned dump is read from; without it, the folder
@@ -34,6 +35,9 @@
 //! into the folder ([`crate::world_sql`]). Loaded into an empty database, in that order, they are
 //! the world; `empyrean-import --sql <an empty file> --patches world.sql --patches empyrean.sql`
 //! builds the same pack from them.
+//!
+//! `release` makes a release of the world: the packs of its written layers and a manifest of every
+//! layer ([`release`]).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -228,13 +232,14 @@ fn run_build(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
-const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...";
+const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...";
 
 /// `empyrean-import world ...`.
 pub fn run(args: &[String]) -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("check") => run_check(&args[1..]),
         Some("build") => run_build(&args[1..]),
+        Some("release") => release::run(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -246,6 +251,8 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     }
 }
+
+pub mod release;
 
 #[cfg(test)]
 mod tests;

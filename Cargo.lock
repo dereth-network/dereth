@@ -3007,6 +3007,7 @@ dependencies = [
  "empyrean-world-db",
  "serde_json",
  "sha2",
+ "toml",
  "ureq",
  "zip",
 ]

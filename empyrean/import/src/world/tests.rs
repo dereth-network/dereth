@@ -1,4 +1,4 @@
-//! Behaviour: none (tooling: a world of layers checked layer by layer, and built at a layer into its pack and ACE's world SQL)
+//! Behaviour: none (tooling: a world of layers checked layer by layer, built at a layer into its pack and ACE's world SQL, and released with a manifest of every layer)
 //! A world folded at each layer is checked for what its fold finds and what it names but doesn't
 //! have; built at a layer, it is the pack its rows make, and its world SQL builds that pack back.
 //! Its loot is held to the swap from the source's to ACE's being whole, its records to the data
@@ -1304,4 +1304,214 @@ mod launch {
             found.first()
         );
     }
+}
+
+/// A world's key set, as the world repositories' files set it.
+fn keyed(path: &Path) {
+    let text = std::fs::read_to_string(path).expect("world.toml");
+    std::fs::write(
+        path,
+        text.replacen(
+            "format_version = 1\n",
+            "format_version = 1\nkey = \"test-world\"\n",
+            1,
+        ),
+    )
+    .expect("written");
+}
+
+/// A release of the world at `path` as `release`, after `previous`, into `out`.
+fn released(
+    path: &Path,
+    release: &str,
+    previous: Option<&super::release::Manifest>,
+    out: &Path,
+) -> Result<super::release::Manifest, String> {
+    let open = || super::open(path, None, &[]);
+    super::release::release(&open, "test-world", release, previous, out)
+}
+
+fn file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("the folder")
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A release packs each written layer whose world isn't packed already, and its manifest names
+/// every layer with its world's dataset id and the pack holding that world: a layer that changes
+/// nothing names the pack of the world below it, a world no written layer has names none, and the
+/// next release names the earlier release's packs and packs only what is new. Each pack is the
+/// one `world build` makes at its layer.
+#[test]
+fn a_release_packs_the_written_layers_once_and_its_manifest_names_every_layers_world() {
+    use super::release::Manifest;
+    let dir = Scratch::new("release");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[
+            (
+                "1999-12-sudden-season",
+                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
+            ),
+            ("2000-01-dark-thaw", None),
+            (
+                "2000-02-shadows",
+                Some("[[weenie]]\nclass = 12\nint = { Value = 9 }\n"),
+            ),
+            ("2000-03-darkness", None),
+        ],
+    );
+    keyed(&path);
+    let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
+    append(&patch("2000-02-shadows"), "status = \"written\"\n");
+    let first = dir.0.join("v0.1.0");
+    let m = released(&path, "v0.1.0", None, &first).expect("released");
+    assert_eq!(m.world, "test-world");
+    assert_eq!(
+        m.layers.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(),
+        [
+            "base",
+            "1999-12-sudden-season",
+            "2000-01-dark-thaw",
+            "2000-02-shadows",
+            "2000-03-darkness"
+        ]
+    );
+    let asset = |n: usize| {
+        m.layers[n]
+            .pack
+            .as_ref()
+            .map(|p| (p.release.as_str(), p.asset.as_str()))
+    };
+    assert_eq!(asset(0), Some(("v0.1.0", "base.pack")));
+    assert_eq!(asset(1), None, "a world no written layer has");
+    assert_eq!(asset(2), None);
+    assert_eq!(
+        m.layers[2].dataset_id, m.layers[1].dataset_id,
+        "nothing changed"
+    );
+    assert_eq!(asset(3), Some(("v0.1.0", "2000-02-shadows.pack")));
+    assert_eq!(
+        asset(4),
+        asset(3),
+        "a layer that changes nothing has the world below it"
+    );
+    assert_ne!(m.layers[1].dataset_id, m.layers[0].dataset_id);
+    assert_eq!(
+        file_names(&first),
+        [
+            "2000-02-shadows.empyrean.sql",
+            "2000-02-shadows.pack",
+            "2000-02-shadows.world.sql",
+            "SHA256SUMS",
+            "base.empyrean.sql",
+            "base.pack",
+            "base.world.sql",
+            "manifest.json",
+        ]
+    );
+    let text = std::fs::read_to_string(first.join("manifest.json")).expect("the manifest");
+    assert_eq!(Manifest::parse(&text).expect("reads"), m);
+    // Each pack is what `world build` makes at its layer: its bytes, its hash and its dataset id.
+    for (n, layer) in [(0, "base"), (3, "2000-02-shadows")] {
+        let bytes = std::fs::read(first.join(format!("{layer}.pack"))).expect("the pack");
+        let built =
+            pack_of(&content(&path, Some(layer), None, &[]).expect("builds")).expect("packs");
+        assert!(
+            bytes == built,
+            "{layer}: the pack is what world build makes"
+        );
+        let p = m.layers[n].pack.as_ref().expect("a pack");
+        assert_eq!(
+            p.sha256,
+            super::release::hex(&<sha2::Sha256 as sha2::Digest>::digest(&bytes))
+        );
+        let header = Pack::from_bytes(bytes).expect("a pack").header().dataset_id;
+        assert_eq!(super::release::hex(&header), m.layers[n].dataset_id);
+    }
+    let sums = std::fs::read_to_string(first.join("SHA256SUMS")).expect("sums");
+    assert_eq!(sums.lines().count(), 7, "{sums}");
+    // The next release: the last patch is written with rows of its own. Only its world is new.
+    std::fs::write(
+        patch("2000-03-darkness"),
+        std::fs::read_to_string(patch("2000-03-darkness"))
+            .expect("patch.toml")
+            .replace("packs = []", "packs = [\"fixes\"]")
+            + "status = \"written\"\n",
+    )
+    .expect("written");
+    let fixes = dir
+        .0
+        .join("patches")
+        .join("2000-03-darkness")
+        .join("packs")
+        .join("fixes");
+    std::fs::create_dir_all(&fixes).expect("pack folder");
+    std::fs::write(
+        fixes.join("pack.toml"),
+        "name = \"fixes\"\nversion = \"1\"\n",
+    )
+    .expect("pack.toml");
+    std::fs::write(
+        fixes.join("rows.toml"),
+        "[[weenie]]\nclass = 12\nint = { Value = 10 }\n",
+    )
+    .expect("rows");
+    let second = dir.0.join("v0.2.0");
+    let m2 = released(&path, "v0.2.0", Some(&m), &second).expect("released");
+    assert_eq!(
+        m2.layers[..4],
+        m.layers[..4],
+        "the earlier layers name the earlier packs"
+    );
+    let last = m2.layers[4].pack.as_ref().expect("a pack");
+    assert_eq!(
+        (last.release.as_str(), last.asset.as_str()),
+        ("v0.2.0", "2000-03-darkness.pack")
+    );
+    assert_eq!(
+        file_names(&second),
+        [
+            "2000-03-darkness.empyrean.sql",
+            "2000-03-darkness.pack",
+            "2000-03-darkness.world.sql",
+            "SHA256SUMS",
+            "manifest.json",
+        ]
+    );
+    // A previous manifest of another world, or of this release itself, is refused.
+    let mut other = m.clone();
+    other.world = "another".into();
+    let e = released(&path, "v0.2.1", Some(&other), &dir.0.join("x")).expect_err("refused");
+    assert!(e.contains("is of another"), "{e}");
+    let e = released(&path, "v0.1.0", Some(&m), &dir.0.join("y")).expect_err("refused");
+    assert!(e.contains("v0.1.0 itself"), "{e}");
+}
+
+/// A world with an error is not released, and nothing is packed.
+#[test]
+fn a_world_with_an_error_is_not_released() {
+    let dir = Scratch::new("release-refused");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[(
+            "1999-12-sudden-season",
+            Some("[[remove]]\nitem = \"quest nothing\"\n"),
+        )],
+    );
+    keyed(&path);
+    let out = dir.0.join("out");
+    let e = released(&path, "v0.1.0", None, &out).expect_err("refused");
+    assert!(e.contains("nothing released"), "{e}");
+    assert!(!out.join("manifest.json").exists());
+    assert!(
+        !out.join("base.pack").exists(),
+        "packs are made after the check"
+    );
 }
