@@ -298,6 +298,7 @@ fn read_layers(
                 .as_ref()
                 .map(|x| x.iterations.clone())
                 .unwrap_or_default(),
+            written: p.patch.as_ref().is_some_and(|x| x.written),
         });
     }
     layers.keying = keying;

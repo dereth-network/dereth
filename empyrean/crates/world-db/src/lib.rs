@@ -5,7 +5,8 @@
 //!
 //! **Depends on** the content crate (`empyrean-content`) for the world's models and the pack, the
 //! shared pack format (`dereth-pack`) for reading rows and folding layers, the data-file container
-//! (`dereth-dat`) for the records a layer's data files hold, the
+//! (`dereth-dat`) for the records a layer's data files hold, the asset decoders (`dereth-assets`)
+//! and shared shapes (`dereth-primitives`) for the rooms and environments in them, the
 //! entity crate (`empyrean-entity`) for ACE's names of property types, attributes, skills, body
 //! parts, positions and emotes, `empyrean-common` for times and eras, `toml` to read the files and
 //! `serde`/`serde_json` for the source loot tables, which are serde models. **Used by** the
@@ -35,7 +36,8 @@
 //! world of patch layers folds field by field over its base, at any layer ([`layers::Folding`]),
 //! each layer checked for what its fold finds, the references to nothing it makes ([`refs`]), its
 //! loot ([`loot`]: the swap from the source's to ACE's is all three of its parts at once) and,
-//! where its data files are given, the records it names that they lack ([`closure`]).
+//! where its data files are given, the records it names that they lack and the rooms it names
+//! that change under it ([`closure`]).
 
 pub mod canon;
 pub mod checkpoint;

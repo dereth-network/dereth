@@ -1,10 +1,12 @@
 //! Behaviour: none (tooling: a world of layers checked layer by layer, and built at a layer into its pack and ACE's world SQL)
 //! A world folded at each layer is checked for what its fold finds and what it names but doesn't
 //! have; built at a layer, it is the pack its rows make, and its world SQL builds that pack back.
-//! Its loot is held to the swap from the source's to ACE's being whole, and its records to the data
-//! files of its layer, where they are given.
-//! Fixture: small worlds and data files written to a temporary folder, the content crate's
-//! synthetic source loot policy; with `launch-content`, the operator's Launch pack named by
+//! Its loot is held to the swap from the source's to ACE's being whole, its records to the data
+//! files of its layer, where they are given, and the points it names in rooms to the rooms' walls
+//! where the files change them.
+//! Fixture: small worlds and data files written to a temporary folder (whole cell files with the
+//! land of every landblock, partial ones without), the content crate's synthetic source loot
+//! policy; with `launch-content`, the operator's Launch pack named by
 //! `EMPYREAN_TEST_LAUNCH_FIXTURE`.
 
 use std::collections::BTreeMap;
@@ -715,14 +717,30 @@ fn a_checkpoint_whose_source_loot_is_aces_is_the_swap_and_is_reported_not_an_err
 
 /// A data file of `data_set` in `dir`, named `name`, at `iteration`, holding the records `ids`.
 fn dat(dir: &Path, name: &str, data_set: u32, iteration: u32, ids: &[u32]) {
-    use dereth_dat::{DatWriter, ITERATION_LIST};
+    let records: Vec<(u32, Vec<u8>)> = ids.iter().map(|&id| (id, b"a record".to_vec())).collect();
+    dat_of(dir, name, data_set, iteration, &records);
+}
+
+/// A data file of `data_set` in `dir`, named `name`, at `iteration`, holding `records`.
+fn dat_of(dir: &Path, name: &str, data_set: u32, iteration: u32, records: &[(u32, Vec<u8>)]) {
+    use dereth_dat::{DatWriter, MemoryFile, ITERATION_LIST};
     use dereth_primitives::DataId;
     std::fs::create_dir_all(dir).expect("a folder");
-    let mut w = DatWriter::create(&dir.join(name), 0x400, data_set, 0, 0x400 + 0x400 * 64)
-        .expect("created");
-    for &id in ids {
-        w.save(DataId(id), b"a record", 1, iteration, 1)
-            .expect("saved");
+    // Built in memory and written once, in small blocks: a whole cell file holds the land of
+    // every landblock.
+    let path = dir.join(name);
+    let bytes = MemoryFile::default();
+    let mut w = DatWriter::create_in(
+        path.clone(),
+        Box::new(bytes.clone()),
+        0x40,
+        data_set,
+        0,
+        0x400 + 0x40 * 1024,
+    )
+    .expect("created");
+    for (id, record) in records {
+        w.save(DataId(*id), record, 1, iteration, 1).expect("saved");
     }
     let list: Vec<u32> = (1..=iteration).collect();
     w.save(
@@ -733,6 +751,8 @@ fn dat(dir: &Path, name: &str, data_set: u32, iteration: u32, ids: &[u32]) {
         1,
     )
     .expect("its iterations");
+    drop(w);
+    std::fs::write(&path, bytes.bytes()).expect("written");
 }
 
 /// `sample()` with its chest drawn by a setup and an icon.
@@ -785,9 +805,12 @@ fn a_layer_naming_a_record_its_data_files_lack_fails_and_a_layer_whose_files_are
     let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
     append(
         &patch("1999-12-sudden-season"),
-        "portal_iteration = 1\ncell_iteration = 1\n",
+        "status = \"written\"\nportal_iteration = 1\ncell_iteration = 1\n",
     );
-    append(&patch("2000-01-dark-thaw"), "portal_iteration = 2\n");
+    append(
+        &patch("2000-01-dark-thaw"),
+        "status = \"written\"\nportal_iteration = 2\n",
+    );
     append(&patch("2000-02-shadows"), "portal_iteration = 3\n");
     let dats = dir.0.join("dats");
     dat(
@@ -882,6 +905,344 @@ fn a_record_the_world_below_named_where_no_files_were_checked_is_a_warning_not_t
         checks[0].reports,
         ["closure not checked: the layer names none of its data files' iterations"]
     );
+}
+
+/// A cell file in `dir` at `iteration` holding `records`; whole, with the land of every landblock
+/// besides, or partial.
+fn cell_file(dir: &Path, iteration: u32, whole: bool, mut records: Vec<(u32, Vec<u8>)>) {
+    use dereth_dat::container::CELL_DATFILE;
+    if whole {
+        for x in 0..255u32 {
+            for y in 0..255u32 {
+                let land = (x << 24) | (y << 16) | 0xFFFF;
+                if !records.iter().any(|(id, _)| *id == land) {
+                    records.push((land, b"land".to_vec()));
+                }
+            }
+        }
+    }
+    dat_of(dir, "client_cell_1.dat", CELL_DATFILE, iteration, &records);
+}
+
+/// The landblock info `0xLLLLFFFE` claiming `rooms` rooms.
+fn info(landblock: u32, rooms: u32) -> (u32, Vec<u8>) {
+    use dereth_assets::LandblockInfo;
+    use dereth_primitives::DataId;
+    let id = (landblock << 16) | 0xFFFE;
+    let i = LandblockInfo {
+        id: DataId(id),
+        num_cells: rooms,
+        objects: Vec::new(),
+        pack_mask: 0,
+        buildings: Vec::new(),
+        restrictions: None,
+    };
+    (id, i.encode())
+}
+
+/// The room `id`, cell 0 of the environment `0x0D000001`, standing at `origin`.
+fn room(id: u32, origin: [f32; 3]) -> (u32, Vec<u8>) {
+    use dereth_assets::EnvCell;
+    use dereth_primitives::{DataId, Frame, Quat, Vec3};
+    let c = EnvCell {
+        id: DataId(id),
+        flags: 0,
+        cell_id_repeat: id,
+        surfaces: Vec::new(),
+        environment: DataId(0x0D00_0001),
+        cell_struct: 0,
+        frame: Frame::new(Vec3::new(origin[0], origin[1], origin[2]), Quat::IDENTITY),
+        portals: Vec::new(),
+        visible_cells: Vec::new(),
+        static_objects: Vec::new(),
+        restriction_obj: None,
+    };
+    (id, c.encode())
+}
+
+/// The environment `0x0D000001`: one cell, a box from the origin to `size` on each axis, its walls
+/// facing in.
+fn environment(size: [f32; 3]) -> (u32, Vec<u8>) {
+    use dereth_assets::geometry::CellStruct;
+    use dereth_assets::{BspNode, BspTree, Environment, Plane, VertexArray};
+    use dereth_primitives::{DataId, Vec3};
+    let walls = [
+        (Vec3::new(1.0, 0.0, 0.0), 0.0),
+        (Vec3::new(-1.0, 0.0, 0.0), size[0]),
+        (Vec3::new(0.0, 1.0, 0.0), 0.0),
+        (Vec3::new(0.0, -1.0, 0.0), size[1]),
+        (Vec3::new(0.0, 0.0, 1.0), 0.0),
+        (Vec3::new(0.0, 0.0, -1.0), size[2]),
+    ];
+    let last = walls.len() - 1;
+    let nodes = walls
+        .iter()
+        .enumerate()
+        .map(|(i, (normal, d))| BspNode {
+            // A chain of front-only nodes, the last childless.
+            tag: if i == last { 0x4250_464C } else { 0x4250_6E6E },
+            plane: Some(Plane {
+                normal: *normal,
+                d: *d,
+            }),
+            pos_child: (i != last).then(|| u32::try_from(i + 1).expect("small")),
+            ..BspNode::default()
+        })
+        .collect();
+    let e = Environment {
+        id: DataId(0x0D00_0001),
+        cells: vec![CellStruct {
+            cellstruct_id: 0,
+            vertex_array: VertexArray {
+                vertex_type: 1,
+                vertices: Vec::new(),
+            },
+            polygons: Vec::new(),
+            portals: Vec::new(),
+            cell_bsp: BspTree { nodes },
+            physics_polygons: Vec::new(),
+            physics_bsp: BspTree {
+                nodes: vec![BspNode {
+                    tag: 0x4C45_4146,
+                    leaf_index: Some(0),
+                    solid: Some(0),
+                    sphere: Some(dereth_assets::Sphere::default()),
+                    ..BspNode::default()
+                }],
+            },
+            drawing_bsp: None,
+        }],
+    };
+    (0x0D00_0001, e.encode())
+}
+
+/// A placement of `class` in `cell` at `at`.
+fn placed(guid: u32, class: u32, cell: u32, at: [f32; 3]) -> LandblockInstance {
+    LandblockInstance {
+        guid,
+        weenie_class_id: class,
+        obj_cell_id: cell,
+        origin_x: at[0],
+        origin_y: at[1],
+        origin_z: at[2],
+        angles_w: 1.0,
+        last_modified: default_stamp(),
+        ..Default::default()
+    }
+}
+
+/// A portal of `class` sending its user to `cell` at `at`.
+fn portal_to(class: u32, cell: u32, at: [f32; 3]) -> Weenie {
+    use empyrean_content::models::world::WeeniePropertiesPosition;
+    let mut w = weenie(class, &format!("portal-{class}"));
+    w.r#type = 7;
+    w.weenie_properties_position = vec![WeeniePropertiesPosition {
+        position_type: 2,
+        obj_cell_id: cell,
+        origin_x: at[0],
+        origin_y: at[1],
+        origin_z: at[2],
+        angles_w: 1.0,
+        ..Default::default()
+    }];
+    w
+}
+
+#[test]
+fn a_room_is_there_by_its_landblocks_claimed_count_and_a_partial_files_whole_records_date_a_change()
+{
+    let dir = Scratch::new("rooms-claimed");
+    let mut c = sample();
+    c.landblock_instances
+        .push(placed(0x7A9B_4002, 11, 0xA9B4_0101, [5.0, 5.0, 1.0]));
+    empyrean_world_db::number(&mut c);
+    let path = world(
+        &dir.0,
+        &c,
+        &[
+            ("1999-12-sudden-season", None),
+            ("2000-01-dark-thaw", None),
+            ("2000-02-shadows", None),
+        ],
+    );
+    append(&path, "\n[land]\ncell_iteration = 1\n");
+    let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
+    for (id, n) in [
+        ("1999-12-sudden-season", 2),
+        ("2000-01-dark-thaw", 3),
+        ("2000-02-shadows", 4),
+    ] {
+        append(
+            &patch(id),
+            &format!("status = \"written\"\ncell_iteration = {n}\n"),
+        );
+    }
+    let dats = dir.0.join("dats");
+    // Whole: the landblock claims two rooms, and holds the record of neither.
+    cell_file(&dats.join("1"), 1, true, vec![info(0xA9B4, 2)]);
+    // Partial, and nothing of the landblock in it: it can't say.
+    cell_file(
+        &dats.join("2"),
+        2,
+        false,
+        vec![(0x0101_FFFF, b"land".to_vec())],
+    );
+    // Partial, but its landblock info is whole: one room now.
+    cell_file(
+        &dats.join("3"),
+        3,
+        false,
+        vec![info(0xA9B4, 1), (0xA9B4_FFFF, b"land".to_vec())],
+    );
+    // Whole, and the room still gone; a partial file of the same iteration, found first, holds
+    // fewer records and doesn't serve.
+    cell_file(
+        &dats.join("0"),
+        4,
+        false,
+        vec![(0xA9B4_FFFF, b"land".to_vec())],
+    );
+    cell_file(&dats.join("4"), 4, true, vec![info(0xA9B4, 1)]);
+    let checks = super::open(&path, None, std::slice::from_ref(&dats))
+        .expect("opened")
+        .check();
+    assert!(
+        checks[0].errors().is_empty() && checks[0].inherited.is_empty(),
+        "{:?}",
+        checks[0]
+    );
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    assert_eq!(
+        checks[1].reports,
+        ["2 cell records the partial cell file of iteration 2 can't say of: what the files below said of them stands"]
+    );
+    assert_eq!(
+        checks[2].errors(),
+        ["cell 0xA9B40101: not among the 1 rooms landblock A9B4's info claims in the cell file of iteration 3 (named by spawn 0x7A9B4002)"]
+    );
+    // Said where it happened, not again.
+    assert!(checks[3].errors().is_empty(), "{:?}", checks[3].errors());
+    assert!(checks[3].reports.is_empty(), "{:?}", checks[3].reports);
+
+    // Until the layer is written, what its files find is a warning.
+    let p = patch("2000-01-dark-thaw");
+    let text = std::fs::read_to_string(&p).expect("read");
+    std::fs::write(&p, text.replace("status = \"written\"\n", "")).expect("written");
+    let checks = super::open(&path, None, std::slice::from_ref(&dats))
+        .expect("opened")
+        .check();
+    assert!(checks[2].errors().is_empty(), "{:?}", checks[2].errors());
+    assert_eq!(
+        checks[2].warnings,
+        ["cell 0xA9B40101: not among the 1 rooms landblock A9B4's info claims in the cell file of iteration 3 (named by spawn 0x7A9B4002); not an error until the layer is written"]
+    );
+    content(&path, None, None, &[dats]).expect("builds");
+}
+
+#[test]
+fn a_placed_portals_destination_outside_its_room_after_the_room_changes_is_the_layers_error() {
+    use dereth_dat::container::PORTAL_DATFILE;
+    let dir = Scratch::new("rooms-changed");
+    let mut c = sample();
+    // A portal placed outdoors, one nothing places, and an apple, all at one point in room 0100;
+    // and two portals nothing places sending their users to room 0101.
+    c.weenies.push(portal_to(20, 0xA9B4_0100, [5.0, 5.0, 1.0]));
+    c.weenies.push(portal_to(21, 0xA9B4_0100, [5.0, 5.0, 1.0]));
+    c.weenies.push(portal_to(22, 0xA9B4_0101, [5.0, 5.0, 1.0]));
+    c.weenies.push(portal_to(23, 0xA9B4_0101, [5.0, 5.0, 1.0]));
+    c.landblock_instances
+        .push(placed(0x7A9B_4002, 20, 0xA9B4_0021, [20.0, 20.0, 94.0]));
+    c.landblock_instances
+        .push(placed(0x7A9B_4003, 11, 0xA9B4_0100, [5.0, 5.0, 1.0]));
+    empyrean_world_db::number(&mut c);
+    let path = world(
+        &dir.0,
+        &c,
+        &[("1999-12-sudden-season", None), ("2000-01-dark-thaw", None)],
+    );
+    append(
+        &path,
+        "\n[land]\nportal_iteration = 1\ncell_iteration = 1\n",
+    );
+    let patch = |id: &str| dir.0.join("patches").join(id).join("patch.toml");
+    append(
+        &patch("1999-12-sudden-season"),
+        "status = \"written\"\ncell_iteration = 2\n",
+    );
+    append(
+        &patch("2000-01-dark-thaw"),
+        "status = \"written\"\nportal_iteration = 2\n",
+    );
+    let dats = dir.0.join("dats");
+    let portal = |n: u32, size: [f32; 3]| {
+        let mut records = vec![environment(size)];
+        records.extend([0x0200_0001, 0x0600_0001].map(|id| (id, b"a record".to_vec())));
+        dat_of(
+            &dats.join(format!("p{n}")),
+            "client_portal.dat",
+            PORTAL_DATFILE,
+            n,
+            &records,
+        );
+    };
+    portal(1, [10.0, 10.0, 10.0]);
+    // The environment grows a hundred meters along x.
+    portal(2, [200.0, 10.0, 10.0]);
+    cell_file(
+        &dats.join("c1"),
+        1,
+        true,
+        vec![
+            info(0xA9B4, 2),
+            room(0xA9B4_0100, [0.0, 0.0, 0.0]),
+            room(0xA9B4_0101, [0.0, 0.0, 0.0]),
+        ],
+    );
+    // The room moves a hundred meters along x, and the second room is gone.
+    cell_file(
+        &dats.join("c2"),
+        2,
+        true,
+        vec![info(0xA9B4, 1), room(0xA9B4_0100, [-100.0, 0.0, 0.0])],
+    );
+    let checks = super::open(&path, None, std::slice::from_ref(&dats))
+        .expect("opened")
+        .check();
+    assert!(
+        checks[0].errors().is_empty() && checks[0].inherited.is_empty(),
+        "{:?}",
+        checks[0]
+    );
+    let between = "between cell 1 with portal 1 and cell 2 with portal 1";
+    assert_eq!(
+        checks[1].errors(),
+        [format!("room 0xA9B40100 changed {between} (it moved 100.00 m): weenie 20 position.Destination, a placed portal's destination, is outside it now; it was in it before")]
+    );
+    assert_eq!(
+        checks[1].warnings,
+        [
+            "cell 0xA9B40101: not among the 1 rooms landblock A9B4's info claims in the cell file of iteration 2 (named by weenie 22 position.Destination and 1 more); named only by the destination of a portal nothing places".to_owned(),
+            format!("room 0xA9B40100 changed {between} (it moved 100.00 m): weenie 21 position.Destination, the destination of a portal nothing places, is outside it now; it was in it before"),
+        ]
+    );
+    assert!(
+        checks[1].reports.contains(&format!(
+            "landblock A9B4: 1 of the rooms the world names changed {between} (1 moved); 3 points in them, 3 of them outside their room now"
+        )),
+        "{:?}",
+        checks[1].reports
+    );
+    // The room's environment grows to hold the points again: it changed, and they're in it.
+    assert!(checks[2].errors().is_empty(), "{:?}", checks[2].errors());
+    assert_eq!(
+        checks[2].reports,
+        [
+            "closure of cell records not checked: the layer names no cell iteration",
+            "landblock A9B4: 1 of the rooms the world names changed between cell 2 with portal 1 and cell 2 with portal 2 (1 changed shape); 3 points in them, 0 of them outside their room now",
+        ]
+    );
+    let e = content(&path, None, None, &[dats]).expect_err("refused");
+    assert!(e.contains("1999-12-sudden-season: room 0xA9B40100"), "{e}");
 }
 
 #[cfg(feature = "launch-content")]

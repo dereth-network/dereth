@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! world.toml                              packs (the base's), [[override]], lineage = ["1999-12-dark-thaw", ...]
-//! patches/<yyyy-mm>-<name>/patch.toml     id, title, date, after, packs, [[override]], <dat>_iteration
+//! patches/<yyyy-mm>-<name>/patch.toml     id, title, date, after, packs, status, [[override]], <dat>_iteration
 //! patches/<yyyy-mm>-<name>/packs/<pack>/  the patch's packs, in the order patch.toml lists them
 //! patches/<yyyy-mm>-<name>/checkpoint.toml  for a checkpoint: the snapshot it pins
 //! patches/<yyyy-mm>-<name>/drift.toml       for a checkpoint: every disagreement, kept or given to the snapshot
@@ -21,12 +21,18 @@
 //! date = "1999-12-20"            # the day it took effect, in that month
 //! after = "1999-11-launch"       # the layer before it: the previous patch, or "" for the first
 //! packs = ["lifestones"]         # its packs, in load order, under packs/
+//! status = "written"             # its rows are written; left out, "unwritten"
 //! portal_iteration = 112         # each of the data files' iterations it serves, when known
 //!
 //! [[override]]                   # within the layer, which of two packs wins ([`crate::conflict`])
 //! pack = "lifestones"
 //! over = "town-fixes"
 //! ```
+//!
+//! A patch is **unwritten** until its `status` says it is `"written"`: its rows are not yet all of
+//! what the month changed. A game's checker may hold an unwritten patch to less than a written
+//! one, since what it lacks is what is still to be written; the base and a checkpoint are whole
+//! known worlds, and so always written.
 //!
 //! A **checkpoint** is a patch with a `checkpoint.toml`: a known world pinned to its source, whose
 //! rows the game's builder converts when a build needs them, never stored. What it changes is
@@ -119,6 +125,9 @@ pub struct Patch {
     pub after: String,
     /// The data files' iterations it serves, by file (`portal` for `portal_iteration`).
     pub iterations: BTreeMap<String, u32>,
+    /// Whether its rows are written (`status = "written"`); a checkpoint is written whatever it
+    /// says.
+    pub written: bool,
 }
 
 /// What a checkpoint pins: the snapshot its rows are converted from.
@@ -183,11 +192,15 @@ struct PatchFile {
     after: String,
     #[serde(default)]
     packs: Vec<String>,
+    status: Option<String>,
     #[serde(default, rename = "override")]
     overrides: Vec<Spanned<OverrideRow>>,
     #[serde(flatten)]
     rest: BTreeMap<String, toml::Value>,
 }
+
+/// What a patch's `status` may say, and whether it says the patch is written.
+const STATUSES: [(&str, bool); 2] = [("written", true), ("unwritten", false)];
 
 #[derive(Deserialize)]
 struct PinFile {
@@ -309,8 +322,9 @@ impl Lineage {
     ///
     /// # Errors
     /// A patch listed twice or not named `<yyyy-mm>-<name>`; a `patch.toml` that does not read,
-    /// names another id, comes `after` a layer other than the one before it, or is dated outside
-    /// its month or before the patch before it; an iteration that is not one; a pack folder that
+    /// names another id, comes `after` a layer other than the one before it, is dated outside
+    /// its month or before the patch before it, or has a status other than `"written"` or
+    /// `"unwritten"`; an iteration that is not one; a pack folder that
     /// is not a name; a `checkpoint.toml` or `drift.toml` that does not read; a drift that names
     /// no item; a `drift.toml` beside no `checkpoint.toml`.
     pub fn read<D: Dialect>(
@@ -409,7 +423,7 @@ impl Lineage {
                 let Some(dat) = key.strip_suffix("_iteration").filter(|d| !d.is_empty()) else {
                     return Err(Error::source(
                         &at,
-                        format!("unknown field `{key}`, expected `id`, `title`, `date`, `after`, `packs`, `override` or a data file's `<name>_iteration`"),
+                        format!("unknown field `{key}`, expected `id`, `title`, `date`, `after`, `packs`, `status`, `override` or a data file's `<name>_iteration`"),
                     ));
                 };
                 let n = value
@@ -420,6 +434,19 @@ impl Lineage {
                     })?;
                 iterations.insert(dat.to_owned(), n);
             }
+            let written = match file.status.as_deref() {
+                None => false,
+                Some(s) => STATUSES
+                    .iter()
+                    .find(|(name, _)| *name == s)
+                    .map(|(_, w)| *w)
+                    .ok_or_else(|| {
+                        Error::source(
+                            &whole,
+                            format!("status: {s:?}, but a patch is \"written\" or \"unwritten\""),
+                        )
+                    })?,
+            };
             let mut packs = Vec::new();
             for p in &file.packs {
                 if !symbol::is_name(p) {
@@ -453,6 +480,7 @@ impl Lineage {
                     date: file.date,
                     after: file.after,
                     iterations,
+                    written: written || checkpoint.is_some(),
                 }),
                 packs,
                 overrides,

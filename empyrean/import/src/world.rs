@@ -12,15 +12,21 @@
 //! `--dats` names a folder of data files (`*.dat`, in it or the folders below it), and may be
 //! given more than once. Each file is known by its header and its iteration, and serves every
 //! layer that names that iteration (`portal_iteration` in a `patch.toml`, or in the world file's
-//! `[land]` for the base). Without it, closure isn't checked.
+//! `[land]` for the base); of two of one iteration, the one holding more records. A player's
+//! partial cell file serves too: what it lacks says nothing, and what it holds is whole. Without
+//! `--dats`, closure and rooms aren't checked.
 //!
 //! `check` folds every layer and lists, layer by layer, what the fold found (conflicts, stale
 //! removals, changes that change nothing, edits a later layer hides), the references to nothing
 //! the layer makes, its loot (the swap from the source's loot to ACE's is all three of its parts
 //! at once, and is reported where it happens) and, with `--dats`, the records it names that its
-//! data files lack; it fails on any error. What a snapshot brings, the base's or a checkpoint's,
-//! is its source's: warnings, said once. A layer that changes nothing has the world below it. A
-//! layer whose data files aren't among those given isn't checked for closure, and says so.
+//! data files lack (a room is there when its landblock's info claims it) and the rooms it names
+//! that its files give another shape or place than the files below did: a placed portal's
+//! destination outside its room now is an error, and every such room is reported by landblock. It
+//! fails on any error. What a snapshot brings, the base's or a checkpoint's, is its source's:
+//! warnings, said once. A layer that changes nothing has the world below it. A layer whose data
+//! files aren't among those given isn't checked for closure, and says so. What a patch's data files
+//! find is a warning until its `patch.toml` says `status = "written"`, and its error after.
 //!
 //! `build` folds the world up to `--layer` (the last, when left out), checks the layers up to it as
 //! `check` does and refuses on any error, numbers it by rule and writes its pack, the same bytes

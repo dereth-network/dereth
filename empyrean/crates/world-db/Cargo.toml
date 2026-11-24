@@ -16,9 +16,11 @@ launch-content = []
 
 [dependencies]
 blake3.workspace = true
-# `closure`: the data files a layer's records are looked up in.
+# `closure`: the data files a layer's records are looked up in, and the rooms they hold.
+dereth-assets.workspace = true
 dereth-dat.workspace = true
 dereth-pack.workspace = true
+dereth-primitives.workspace = true
 empyrean-common.workspace = true
 empyrean-content.workspace = true
 empyrean-entity.workspace = true

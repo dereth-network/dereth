@@ -619,7 +619,10 @@ fn a_world_lists_its_patches_in_order_each_saying_what_it_is_and_a_checkpoint_it
     );
     assert_eq!(thaw.overrides.len(), 1);
     assert!(!thaw.is_checkpoint());
+    // A patch whose status says nothing isn't written; a checkpoint always is.
+    assert!(!p.written);
     let later = &l.layers[2];
+    assert!(later.patch.as_ref().unwrap().written);
     let pin = later.checkpoint.as_ref().unwrap();
     assert_eq!(
         (pin.source.as_str(), pin.revision.as_str()),
@@ -651,6 +654,43 @@ fn a_world_lists_its_patches_in_order_each_saying_what_it_is_and_a_checkpoint_it
         .unwrap_err()
         .to_string();
     assert!(e.contains("a Flatbox world lists no patch layers"), "{e}");
+}
+
+#[test]
+fn a_patch_is_written_when_its_status_says_so_and_unwritten_otherwise() {
+    let status = |line: &str| {
+        let s = store();
+        s.write(
+            &w("patches/1999-12-thaw/patch.toml"),
+            format!(
+                "id = \"1999-12-thaw\"
+title = \"T\"
+date = \"1999-12-20\"
+{line}"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        read(&s).map(|l| l.layers[1].patch.as_ref().unwrap().written)
+    };
+    assert!(!status("").unwrap());
+    assert!(!status(
+        "status = \"unwritten\"
+"
+    )
+    .unwrap());
+    assert!(status(
+        "status = \"written\"
+"
+    )
+    .unwrap());
+    let e = status(
+        "status = \"done\"
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("a patch is \"written\" or \"unwritten\""), "{e}");
 }
 
 #[test]

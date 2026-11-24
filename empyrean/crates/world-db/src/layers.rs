@@ -485,6 +485,9 @@ pub struct PatchLayer {
     pub drift: Vec<Ack>,
     /// The iterations of the data files it serves, by file (`portal`, `cell`, ...).
     pub iterations: BTreeMap<String, u32>,
+    /// Whether its rows are written: until they are, what its data files find is no error of its
+    /// own ([`LayerCheck::warnings`]). A checkpoint is written.
+    pub written: bool,
 }
 
 /// A checkpoint's world as rows, and its acknowledged drift.
@@ -557,6 +560,8 @@ pub struct Folding {
     keying: crate::world::Keying,
     /// The iterations of the data files each layer serves.
     iterations: Vec<BTreeMap<String, u32>>,
+    /// Whether each layer's rows are written: the base's and a checkpoint's are.
+    written: Vec<bool>,
     /// The data files a check looks a layer's records up in; none, and closure isn't checked.
     dats: Option<crate::closure::Dats>,
 }
@@ -577,11 +582,13 @@ pub struct LayerCheck {
     /// half-made swap and the records its data files lack: its source's own, said once, where it
     /// brings them.
     pub inherited: Vec<String>,
-    /// What the layer finds but the world below brought: the records it names that the layer's
-    /// data files lack, named below where no data files were checked for them.
+    /// What the layer finds but is no fault of its rows: the records it names that the layer's
+    /// data files lack, named below where no data files were checked for them, or named only by
+    /// the destinations of portals nothing places; such a destination outside its room now; and,
+    /// while the layer isn't written, what its data files find that would be its errors.
     pub warnings: Vec<String>,
-    /// What is worth saying but no fault: the swap to ACE's loot, and the data files it couldn't
-    /// look its records up in.
+    /// What is worth saying but no fault: the swap to ACE's loot, the data files it couldn't
+    /// look its records up in, and the rooms the world names that changed under it.
     pub reports: Vec<String>,
 }
 
@@ -630,10 +637,12 @@ impl Folding {
             pending: vec![None],
             keying: layers.keying,
             iterations: vec![layers.base_iterations],
+            written: vec![true],
             dats: None,
         };
         for p in layers.patches {
             let iterations = p.iterations;
+            let written = p.written || p.checkpoint.is_some() || p.pending.is_some();
             let (merge, k) =
                 delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
             if let Some(todo) = p.pending {
@@ -645,6 +654,7 @@ impl Folding {
                 );
                 *f.pending.last_mut().expect("a layer was pushed") = Some(todo);
                 *f.iterations.last_mut().expect("a layer was pushed") = iterations;
+                *f.written.last_mut().expect("a layer was pushed") = written;
                 continue;
             }
             match p.checkpoint {
@@ -662,6 +672,7 @@ impl Folding {
                 None => f.push(Input::delta(&p.id, merge), k, BTreeSet::new()),
             }
             *f.iterations.last_mut().expect("a layer was pushed") = iterations;
+            *f.written.last_mut().expect("a layer was pushed") = written;
         }
         Ok(f)
     }
@@ -683,6 +694,7 @@ impl Folding {
         self.snapshot_classes.push(snapshot_classes);
         self.pending.push(None);
         self.iterations.push(BTreeMap::new());
+        self.written.push(true);
     }
 
     /// How many layers there are, the base among them.
@@ -764,10 +776,12 @@ impl Folding {
 
     /// Every layer checked, in one fold that spends the layers: what folding found in it, what
     /// the world at it names but doesn't have that the world below it had, its loot, and (given
-    /// data files, [`Folding::with_dats`]) the records it names that its files lack. What a
-    /// snapshot brings, at the base or a checkpoint, is its source's ([`LayerCheck::inherited`]);
-    /// a layer that changes nothing has the world below it, and is looked up in its own data
-    /// files when it names them.
+    /// data files, [`Folding::with_dats`]) the records it names that its files lack and the rooms
+    /// it names that changed under it ([`crate::closure`]). What a snapshot brings, at the base or
+    /// a checkpoint, is its source's ([`LayerCheck::inherited`]); a layer that changes nothing has
+    /// the world below it, and is looked up in its own data files when it names them. What a
+    /// layer's data files find is its error only once its rows are written; until then, a
+    /// warning.
     #[must_use]
     pub fn check(self) -> Vec<LayerCheck> {
         let last = self.len().saturating_sub(1);
@@ -820,77 +834,83 @@ impl Folding {
         let last = (0..changes.len()).rev().find(|&n| changes[n]).unwrap_or(0);
         let dats = self.dats.take();
         let iterations = std::mem::take(&mut self.iterations);
+        let written = std::mem::take(&mut self.written);
+        let has_dats = dats.is_some();
         // A layer is looked at when it changes the world, or names data files of its own to look
         // the world below it up in.
-        let looked_at = |n: usize| {
-            changes[n] || (dats.is_some() && iterations.get(n).is_some_and(|i| !i.is_empty()))
-        };
+        let looked_at =
+            |n: usize| changes[n] || (has_dats && iterations.get(n).is_some_and(|i| !i.is_empty()));
         // The world at each layer looked at: what it breaks, what a snapshot brings, and reports.
         let mut own: Vec<Own> = vec![Own::default(); inputs.len()];
         let mut below: BTreeSet<String> = BTreeSet::new();
         let mut loot_below: Option<crate::loot::Loot> = None;
-        // The records the world names, for its data files; and those they lacked last.
+        // The records the world names, for its data files; and what the files below said.
         let mut named: Option<crate::closure::Named> = None;
-        let mut closure_below = crate::closure::Below::default();
-        let mut held = crate::closure::Held::default();
+        let mut files = dats.map(crate::closure::Checker::new);
         let mut kept: Option<R<WorldContent>> = None;
         let read = self.read();
-        let reports = fold_each(read.layers(inputs), |n, world| {
-            if !looked_at(n) {
-                return;
-            }
-            let mut o = Own::default();
-            if changes[n] {
-                let (content, problems) = self.content_of_layer(&read, n, world);
-                o.problems = problems;
-                named = None;
-                match content {
-                    Err(e) if n == last => {
-                        o.problems.push(e.clone());
-                        kept = Some(Err(e));
-                    }
-                    Ok(c) => {
-                        let dangling = crate::refs::dangling(&c);
-                        let new = dangling.iter().filter(|d| !below.contains(*d)).cloned();
-                        if snapshots[n] {
-                            o.inherited.extend(new);
-                        } else {
-                            o.problems.extend(new);
-                        }
-                        below = dangling.into_iter().collect();
-                        let loot = crate::loot::Loot::of(&c);
-                        let l = crate::loot::check(loot_below.as_ref(), &loot, snapshots[n]);
-                        o.problems.extend(l.errors);
-                        o.inherited.extend(l.inherited);
-                        o.reports.extend(l.reports);
-                        loot_below = Some(loot);
-                        if dats.is_some() {
-                            named = Some(crate::closure::Named::of(&c));
-                        }
-                        if n == last {
-                            kept = Some(Ok(c));
-                        }
-                    }
-                    Err(e) => o.problems.push(e),
+        let reports =
+            fold_each(read.layers(inputs), |n, world| {
+                if !looked_at(n) {
+                    return;
                 }
-            }
-            if let (Some(d), Some(names)) = (&dats, &named) {
-                let empty = BTreeMap::new();
-                let its = iterations.get(n).unwrap_or(&empty);
-                match crate::closure::check(names, its, d, &mut held) {
-                    Ok(c) => {
-                        let said = closure_below.say(names, c, snapshots[n]);
-                        o.problems.extend(said.errors);
-                        o.warnings.extend(said.below);
-                        o.inherited.extend(said.inherited);
-                        o.reports.extend(said.reports);
+                let mut o = Own::default();
+                if changes[n] {
+                    let (content, problems) = self.content_of_layer(&read, n, world);
+                    o.problems = problems;
+                    named = None;
+                    match content {
+                        Err(e) if n == last => {
+                            o.problems.push(e.clone());
+                            kept = Some(Err(e));
+                        }
+                        Ok(c) => {
+                            let dangling = crate::refs::dangling(&c);
+                            let new = dangling.iter().filter(|d| !below.contains(*d)).cloned();
+                            if snapshots[n] {
+                                o.inherited.extend(new);
+                            } else {
+                                o.problems.extend(new);
+                            }
+                            below = dangling.into_iter().collect();
+                            let loot = crate::loot::Loot::of(&c);
+                            let l = crate::loot::check(loot_below.as_ref(), &loot, snapshots[n]);
+                            o.problems.extend(l.errors);
+                            o.inherited.extend(l.inherited);
+                            o.reports.extend(l.reports);
+                            loot_below = Some(loot);
+                            if has_dats {
+                                named = Some(crate::closure::Named::of(&c));
+                            }
+                            if n == last {
+                                kept = Some(Ok(c));
+                            }
+                        }
+                        Err(e) => o.problems.push(e),
                     }
-                    Err(e) => o.problems.push(e),
                 }
-            }
-            own[n] = o;
-        })
-        .layers;
+                if let (Some(files), Some(names)) = (&mut files, &named) {
+                    let empty = BTreeMap::new();
+                    let its = iterations.get(n).unwrap_or(&empty);
+                    match files.layer(names, its, snapshots[n]) {
+                        Ok(said) => {
+                            if written.get(n).copied().unwrap_or(true) {
+                                o.problems.extend(said.errors);
+                            } else {
+                                o.warnings.extend(said.errors.into_iter().map(|e| {
+                                    format!("{e}; not an error until the layer is written")
+                                }));
+                            }
+                            o.warnings.extend(said.warnings);
+                            o.inherited.extend(said.inherited);
+                            o.reports.extend(said.reports);
+                        }
+                        Err(e) => o.problems.push(e),
+                    }
+                }
+                own[n] = o;
+            })
+            .layers;
         let failed = read.failed.take();
         let kinds = read.kinds.into_inner();
         // A row's key, set again by every row of its item, is no change and hides none.
