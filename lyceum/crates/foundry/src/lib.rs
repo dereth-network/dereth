@@ -109,6 +109,7 @@ pub mod stab;
 pub mod starter_areas;
 pub mod symbol;
 pub mod table_edit;
+pub mod table_views;
 pub mod tables;
 pub mod validate;
 pub mod walk;

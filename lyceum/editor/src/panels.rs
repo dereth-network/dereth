@@ -94,6 +94,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Rows => t.get("tabs.rows").into(),
             Tab::Rules => t.get("tabs.rules").into(),
             Tab::Areas => t.get("tabs.areas").into(),
+            Tab::Tables => t.get("tabs.tables").into(),
             Tab::Quests => t.get("quests.tab").into(),
             Tab::Loot => t.get("loot.tab").into(),
             Tab::Log => {
@@ -137,6 +138,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Rows => self.app.rows_tab(ui, out),
             Tab::Rules => self.app.rules_tab(ui),
             Tab::Areas => self.app.areas_tab(ui),
+            Tab::Tables => self.app.tables_tab(ui),
         }
     }
 

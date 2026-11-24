@@ -58,15 +58,18 @@ pub enum Tab {
     Rules,
     /// The character-creation table's starting areas: optional, floating at first.
     Areas,
+    /// The game's tables (skills, heritages, the experience curve): optional, floating at first.
+    Tables,
 }
 
 /// The tabs a layout may hold or not.
-pub const OPTIONAL: [Tab; 5] = [
+pub const OPTIONAL: [Tab; 6] = [
     Tab::Editor,
     Tab::Characters,
     Tab::Rows,
     Tab::Rules,
     Tab::Areas,
+    Tab::Tables,
 ];
 
 /// The layout's version: a kept layout of another is not taken, but for the one before, whose

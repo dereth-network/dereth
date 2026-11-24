@@ -670,3 +670,141 @@ fn a_table_edits_check_finds_what_a_fresh_sessions_check_finds() {
     assert_eq!(found(&s, scratch.dir()), fresh(&mut s, "fresh-2"));
     assert_eq!(found(&s, scratch.dir()), clean);
 }
+
+/// The rows the Tables tab writes compile as a full build compiles them: a skill's cost and
+/// formula, a heritage's credits and a skill it now offers (both its costs), and a higher level
+/// cap whose added levels continue the curve's last step and never fall.
+#[test]
+fn the_table_tabs_rows_compile_as_a_build_does() {
+    use dereth_assets::tables::{CharGen, SkillTable, XpTable};
+    use dereth_assets::Decode;
+    use lyceum_foundry::edit::Op;
+    use lyceum_foundry::table_edit::set_fields;
+    use lyceum_foundry::table_views::{self as v, EXPERIENCE_FILE, HERITAGES_FILE, SKILLS_FILE};
+    use lyceum_foundry::tables::{CHARGEN, EXPERIENCE, SKILLS};
+    use toml::Value as T;
+
+    let (_dir, mut s) = session("table-tab-rows");
+    let read = |s: &Session, id: u32| {
+        s.compiled()
+            .records
+            .get(&ModernDat::Portal)
+            .and_then(|r| r.get(&id))
+            .map(|r| r.bytes.to_vec())
+            .unwrap_or_else(|| s.base().read_portal(DataId(id)).unwrap())
+    };
+    let skills = SkillTable::decode_payload(DataId(SKILLS), &read(&s, SKILLS)).unwrap();
+    assert_eq!(skills.skills[&6].name, "Melee Defense");
+    let xp = XpTable::decode_payload(DataId(EXPERIENCE), &read(&s, EXPERIENCE)).unwrap();
+    let levels: Vec<u64> = v::curve(&xp).iter().map(|(x, _)| *x).collect();
+    let top = levels.len() - 1;
+    let dir = s.packs()[s.target()].dir.join("records");
+    let s_name = || T::String("Melee Defense".into());
+
+    let skills_text = set_fields(
+        None,
+        "skill",
+        &v::skill_key(None, 6, "Melee Defense"),
+        &[
+            ("trained_cost", Some(T::Integer(5))),
+            (
+                "formula",
+                Some(v::formula_row(
+                    &["Coordination", "Quickness"],
+                    &[1, 1],
+                    0,
+                    3,
+                )),
+            ),
+        ],
+    )
+    .unwrap();
+    let mut cg = set_fields(
+        None,
+        "heritage",
+        &[("heritage", T::String("Aluvian".into()))],
+        &[("skill_credits", Some(T::Integer(52)))],
+    )
+    .unwrap();
+    cg = set_fields(
+        cg.as_deref(),
+        "heritage-skill",
+        &[
+            ("heritage", T::String("Aluvian".into())),
+            ("skill", s_name()),
+        ],
+        &[
+            ("trained_cost", Some(T::Integer(7))),
+            ("specialized_cost", Some(T::Integer(12))),
+        ],
+    )
+    .unwrap();
+    let mut xp_text = set_fields(
+        None,
+        "experience",
+        &[],
+        &[(
+            "max_level",
+            Some(T::Integer(i64::try_from(top + 2).unwrap())),
+        )],
+    )
+    .unwrap();
+    let added = v::raised(&levels, top + 2);
+    assert_eq!(added.len(), 2);
+    for (n, x) in &added {
+        xp_text = set_fields(
+            xp_text.as_deref(),
+            "level",
+            &[("level", T::Integer(i64::try_from(*n).unwrap()))],
+            &[("xp", Some(T::Integer(i64::try_from(*x).unwrap())))],
+        )
+        .unwrap();
+    }
+    s.apply(&Op::Batch(vec![
+        Op::WriteTables {
+            file: dir.join(SKILLS_FILE),
+            text: skills_text,
+        },
+        Op::WriteTables {
+            file: dir.join(HERITAGES_FILE),
+            text: cg,
+        },
+        Op::WriteTables {
+            file: dir.join(EXPERIENCE_FILE),
+            text: xp_text,
+        },
+    ]))
+    .unwrap();
+    assert_eq!(s.compiled().records, full(&s).records);
+
+    let skills = SkillTable::decode_payload(DataId(SKILLS), &read(&s, SKILLS)).unwrap();
+    let md = &skills.skills[&6];
+    assert_eq!(md.trained_cost, 5);
+    assert_eq!(
+        v::formula_words(&md.formula),
+        "(Coordination + Quickness) / 3"
+    );
+    let cg = CharGen::decode_payload(DataId(CHARGEN), &read(&s, CHARGEN)).unwrap();
+    let aluvian = v::heritages(&cg, &skills)
+        .into_iter()
+        .find(|h| h.name == "Aluvian")
+        .unwrap();
+    assert_eq!(aluvian.skill_credits, 52);
+    assert!(
+        aluvian.skills.contains(&("Melee Defense".into(), 7, 12)),
+        "{:?}",
+        aluvian.skills
+    );
+    let xp = XpTable::decode_payload(DataId(EXPERIENCE), &read(&s, EXPERIENCE)).unwrap();
+    let now: Vec<u64> = v::curve(&xp).iter().map(|(x, _)| *x).collect();
+    assert_eq!(now.len(), top + 3);
+    assert!(
+        now.windows(2).skip(1).all(|w| w[1] >= w[0]),
+        "the curve never falls"
+    );
+    assert_eq!(
+        now[top + 1] - now[top],
+        now[top] - now[top - 1],
+        "the last step continued"
+    );
+}

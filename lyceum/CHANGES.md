@@ -19,6 +19,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - New `lyceum publish`: build a world repository for its server in one command.
 - New Rules tab: a world repository's rules, each beside its era's.
 - New Starting Areas tab: set where new characters start from the camera.
+- New Tables tab: change skills, heritages and the experience curve.
 
 ## 0.2.8 (2026-11-23)
 

@@ -810,6 +810,8 @@ pub struct EditorApp {
     pub rules: rules_tab::RulesView,
     /// The Starting Areas tab: the character-creation table's starting areas.
     pub areas: areas_tab::AreasView,
+    /// The Tables tab: the game's tables.
+    pub tables: tables_tab::TablesView,
     /// Whether the world itself is a world repository, opened at its newest layer.
     pub repo_world: bool,
     /// Its check going on after a save, and what the last one found.
@@ -1285,6 +1287,7 @@ impl EditorApp {
             rows: rows_tab::RowsView::default(),
             rules: rules_tab::RulesView::default(),
             areas: areas_tab::AreasView::default(),
+            tables: tables_tab::TablesView::default(),
             repo_world: false,
             repo_checking: None,
             repo_found: None,
@@ -4672,6 +4675,7 @@ impl EditorApp {
                 "rows" => self.open_rows(),
                 "rules" => self.open_rules(),
                 "areas" => self.open_areas(),
+                "tables" => self.open_tables(),
                 "quests" => self.show_tab(Tab::Quests),
                 "loot" => self.show_tab(Tab::Loot),
                 other => return Err(format!("{other:?} is not a tab to show")),
@@ -4683,6 +4687,17 @@ impl EditorApp {
         }
         if let Some(name) = &s.add_area {
             self.add_area_here(name)?;
+        }
+        if let Some(page) = &s.tables_page {
+            self.tables.page = match page.as_str() {
+                "skills" => tables_tab::Page::Skills,
+                "heritages" => tables_tab::Page::Heritages,
+                "experience" => tables_tab::Page::Experience,
+                other => return Err(format!("{other:?} is not a page of the Tables tab")),
+            };
+        }
+        if let Some(find) = &s.tables_find {
+            find.clone_into(&mut self.tables.filter);
         }
         if let Some(c) = s.edit_weenie {
             self.edit_weenie(&Weenie::Class(c), None);
@@ -5290,6 +5305,9 @@ mod rules_tab;
 
 #[path = "areas_tab.rs"]
 mod areas_tab;
+
+#[path = "tables_tab.rs"]
+mod tables_tab;
 
 #[path = "rows_edit.rs"]
 mod rows_edit;

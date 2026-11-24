@@ -281,7 +281,7 @@ impl EditorApp {
     /// The line naming the layer edits go into, with New Patch; or why the repository can't be
     /// edited.
     fn rows_editing_line(&mut self, ui: &mut egui::Ui, t: &crate::text::Table) {
-        let (mut open_rules, mut open_areas) = (false, false);
+        let (mut open_rules, mut open_areas, mut open_tables) = (false, false, false);
         if let Some(m) = self.session.mirror() {
             let line = t.fill(
                 "rows.edits_into",
@@ -298,6 +298,9 @@ impl EditorApp {
                 if ui.button(t.get("rows.areas")).clicked() {
                     open_areas = true;
                 }
+                if ui.button(t.get("rows.tables")).clicked() {
+                    open_tables = true;
+                }
             });
         } else if let Some(why) = &self.rows.edit_error {
             ui.colored_label(ui.visuals().warn_fg_color, why);
@@ -307,6 +310,9 @@ impl EditorApp {
         }
         if open_areas {
             self.open_areas();
+        }
+        if open_tables {
+            self.open_tables();
         }
         let Some((month, title)) = self.rows.new_patch.as_mut() else {
             return;

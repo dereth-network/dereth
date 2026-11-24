@@ -21,9 +21,10 @@
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
 //! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`,
-//! `characters`, `quests`, `loot`, `rows`, `rules` or `areas`); `rows_item` (the Rows tab's item found by its name
+//! `characters`, `quests`, `loot`, `rows`, `rules`, `areas` or `tables`); `rows_item` (the Rows tab's item found by its name
 //! and chosen); `add_area` (a starting area of that name given a place where the camera is);
-//! `edit_weenie` (the weenie editor opened on that class);
+//! `tables_page` (the Tables tab's page: `skills`, `heritages` or `experience`); `tables_find` (what
+//! its list is narrowed to); `edit_weenie` (the weenie editor opened on that class);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
 //! world's dungeon whose look it takes, `0163`); `add_ac2_kits` (true: AC2's dungeon kits asked
@@ -121,6 +122,10 @@ pub struct Step {
     pub rows_item: Option<String>,
     /// A starting area added where the camera is, by its name (a new one, or a place more).
     pub add_area: Option<String>,
+    /// The Tables tab's page: `skills`, `heritages` or `experience`.
+    pub tables_page: Option<String>,
+    /// What the Tables tab's list is narrowed to, by name.
+    pub tables_find: Option<String>,
     /// The weenie editor opened on this class.
     pub edit_weenie: Option<u32>,
     pub weenie: Option<WeenieChoice>,
@@ -281,6 +286,14 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
         .map(str::to_owned);
     s.add_area = t
         .get("add_area")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
+    s.tables_page = t
+        .get("tables_page")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
+    s.tables_find = t
+        .get("tables_find")
         .and_then(toml::Value::as_str)
         .map(str::to_owned);
     s.edit_weenie = t
