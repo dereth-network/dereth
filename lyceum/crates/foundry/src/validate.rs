@@ -463,40 +463,95 @@ impl Checker<'_> {
 /// them or not).
 #[must_use]
 pub fn validate(set: &DatSet, scope: &Scope) -> Report {
+    let mut report = Report::default();
+    for (_, r) in validate_each(set, &scope_ids(set, scope)) {
+        report.checked += r.checked;
+        report.problems.extend(r.problems);
+        report.warnings.extend(r.warnings);
+    }
+    report
+}
+
+/// The records a check of `scope` reads, each by its file and id, in the order it reads them.
+#[must_use]
+pub fn scope_ids(set: &DatSet, scope: &Scope) -> Vec<(ModernDat, u32)> {
+    match scope {
+        Scope::All => {
+            let portal = [Some(&set.portal), set.highres.as_ref()]
+                .into_iter()
+                .flatten()
+                .flat_map(|f| f.iter_ids().map(DataId::raw).collect::<Vec<_>>())
+                .filter(|id| divine_type(DataId(*id)).is_some_and(|k| PORTAL_KINDS.contains(&k)))
+                .map(|id| (ModernDat::Portal, id));
+            let cell = set
+                .cell
+                .iter_ids()
+                .filter(|id| matches!(classify_cell_id(*id), Some(DbType::LandBlock | DbType::Lbi)))
+                .map(|id| (ModernDat::Cell, id.raw()));
+            portal.chain(cell).collect()
+        }
+        Scope::Only(ids) => ids
+            .iter()
+            .flat_map(|(t, ids)| ids.iter().map(move |id| (*t, *id)))
+            .collect(),
+    }
+}
+
+/// The records of [`scope_ids`] that are cell records of the landblocks `landblocks` or portal
+/// records of the ids `portal`, found without listing the rest. A record the files don't hold may
+/// be named: its check finds nothing ([`validate_each`]).
+#[must_use]
+pub fn scope_ids_in(
+    scope: &Scope,
+    landblocks: &BTreeSet<u16>,
+    portal: &BTreeSet<u32>,
+) -> Vec<(ModernDat, u32)> {
+    let range = |lb: u16| (u32::from(lb) << 16)..=((u32::from(lb) << 16) | 0xFFFF);
+    match scope {
+        Scope::All => landblocks
+            .iter()
+            .flat_map(|lb| {
+                [0xFFFE, 0xFFFF].map(|low| (ModernDat::Cell, (u32::from(*lb) << 16) | low))
+            })
+            .chain(
+                portal
+                    .iter()
+                    .filter(|id| {
+                        divine_type(DataId(**id)).is_some_and(|k| PORTAL_KINDS.contains(&k))
+                    })
+                    .map(|id| (ModernDat::Portal, *id)),
+            )
+            .collect(),
+        Scope::Only(ids) => ids
+            .iter()
+            .flat_map(|(t, ids)| {
+                let mine: Vec<u32> = match t {
+                    ModernDat::Cell => landblocks
+                        .iter()
+                        .flat_map(|lb| ids.range(range(*lb)).copied())
+                        .collect(),
+                    _ => ids.intersection(portal).copied().collect(),
+                };
+                mine.into_iter().map(move |id| (*t, id))
+            })
+            .collect(),
+    }
+}
+
+/// Each of the records `ids` checked, in order: what the checks found of each. What one record's
+/// checks find depends on it and on the records it names, never on another record's checks.
+#[must_use]
+pub fn validate_each(set: &DatSet, ids: &[(ModernDat, u32)]) -> Vec<((ModernDat, u32), Report)> {
     let mut c = Checker {
         set,
         report: Report::default(),
         environments: Environments::default(),
         lit: BTreeMap::new(),
     };
-    match scope {
-        Scope::All => {
-            let portal: Vec<u32> = [Some(&set.portal), set.highres.as_ref()]
-                .into_iter()
-                .flatten()
-                .flat_map(|f| f.iter_ids().map(DataId::raw).collect::<Vec<_>>())
-                .filter(|id| divine_type(DataId(*id)).is_some_and(|k| PORTAL_KINDS.contains(&k)))
-                .collect();
-            for id in portal {
-                c.check(ModernDat::Portal, id);
-            }
-            let cell: Vec<u32> = set
-                .cell
-                .iter_ids()
-                .filter(|id| matches!(classify_cell_id(*id), Some(DbType::LandBlock | DbType::Lbi)))
-                .map(DataId::raw)
-                .collect();
-            for id in cell {
-                c.check(ModernDat::Cell, id);
-            }
-        }
-        Scope::Only(ids) => {
-            for (t, ids) in ids {
-                for id in ids {
-                    c.check(*t, *id);
-                }
-            }
-        }
-    }
-    c.report
+    ids.iter()
+        .map(|&(t, id)| {
+            c.check(t, id);
+            ((t, id), std::mem::take(&mut c.report))
+        })
+        .collect()
 }

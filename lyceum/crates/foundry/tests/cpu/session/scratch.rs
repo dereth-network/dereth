@@ -120,7 +120,10 @@ fn the_overlay_kept_edit_by_edit_holds_what_a_whole_write_holds_record_for_recor
         |s: &Session, scratch: &mut Scratch, touched: &std::collections::BTreeSet<u16>| {
             let before = scratch.dir().to_path_buf();
             let w = scratch.update(s, touched).unwrap();
-            assert!(!w.whole || n == 0, "only a folder's first write is whole");
+            assert!(
+                !w.whole,
+                "no update is written whole: the second folder starts as the first's copy"
+            );
             assert_ne!(
                 w.dir, before,
                 "the folder the store reads is not the one written"

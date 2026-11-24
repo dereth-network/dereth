@@ -1659,7 +1659,7 @@ DELETE FROM `landblock_instance` WHERE `guid` = 0x{g:08X};
     fn a_changed_cell_record_names_its_landblock_and_any_other_file_names_none() {
         use lyceum_foundry::compile::Staged;
         let staged = |b: u8| Staged {
-            bytes: vec![b],
+            bytes: vec![b].into(),
             version: 1,
         };
         let records = |cell: &[(u32, u8)], portal: &[(u32, u8)]| -> Records {

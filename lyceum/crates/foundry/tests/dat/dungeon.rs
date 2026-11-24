@@ -2176,7 +2176,7 @@ fn an_ac2_kits_lights_stand_in_a_room_and_a_room_seeing_more_than_forty_is_warne
                 .records
                 .get(&ModernDat::Portal)
                 .and_then(|r| r.get(&l.setup.raw()))
-                .map(|st| st.bytes.clone())
+                .map(|st| st.bytes.to_vec())
         });
         let setup = s
             .base()

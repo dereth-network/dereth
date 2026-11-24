@@ -71,7 +71,7 @@ impl EditorApp {
             .records
             .get(&ModernDat::Portal)
             .and_then(|r| r.get(&CHARGEN))
-            .map(|s| s.bytes.clone())
+            .map(|s| s.bytes.to_vec())
             .or_else(|| self.session.base().read_portal(DataId(CHARGEN)))?;
         CharGen::decode_payload(DataId(CHARGEN), &bytes).ok()
     }

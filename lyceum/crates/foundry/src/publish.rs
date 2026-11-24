@@ -88,7 +88,7 @@ pub fn served_digest(
         items.push((u32::MAX, t.file_name().as_bytes().to_vec()));
         for (id, s) in recs.into_iter().flatten() {
             let mut b = s.version.to_le_bytes().to_vec();
-            b.extend(&s.bytes);
+            b.extend(s.bytes.iter());
             items.push((*id, b));
         }
         let gone: Vec<u8> = gone

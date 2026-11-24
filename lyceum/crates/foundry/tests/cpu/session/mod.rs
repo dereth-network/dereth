@@ -1,4 +1,5 @@
 mod bsp;
+mod check;
 mod delete_weenie;
 mod edit;
 mod fit;

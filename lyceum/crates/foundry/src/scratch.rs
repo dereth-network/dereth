@@ -10,7 +10,10 @@
 //!
 //! A folder written this way holds what a whole write of the scratch overlay holds, record for
 //! record. A folder is written whole the first time, and again whenever the overlay's deletions
-//! change, which no edit of the session makes.
+//! change, which no edit of the session makes. A folder to be written whole while the other holds
+//! a whole write of the same deletions is made a copy of it instead, and then written as any
+//! other: the landblocks edited since are put in. A whole write of a large world (a converted
+//! land's) takes seconds; a copy does not.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -73,6 +76,10 @@ impl Scratch {
         };
         let writing = me.begin(session, &BTreeSet::new())?;
         let written = me.finish(writing.run())?;
+        // The other folder made a copy now, so that the first edit doesn't write it whole.
+        let other = 1 - me.current;
+        copy_folder(&me.folders[me.current].dir, &me.folders[other].dir)?;
+        me.folders[other].written = true;
         Ok((me, written))
     }
 
@@ -113,6 +120,15 @@ impl Scratch {
         }
         let which = 1 - self.current;
         let tombstones = &session.compiled().tombstones;
+        if !self.folders[which].written
+            && self.folders[self.current].written
+            && *tombstones == self.tombstones
+        {
+            // The folder the store reads holds a whole write: the other starts as its copy, and
+            // takes the landblocks edited since it was written (all of them: it never was).
+            copy_folder(&self.folders[self.current].dir, &self.folders[which].dir)?;
+            self.folders[which].written = true;
+        }
         let whole = !self.folders[which].written || *tombstones != self.tombstones;
         let dir = self.folders[which].dir.clone();
         let pending = std::mem::take(&mut self.folders[which].pending);
@@ -177,6 +193,33 @@ impl Scratch {
         self.current = which;
         Ok(written)
     }
+}
+
+/// Folder `to` made a copy of folder `from`'s files: each copied over, and those `from` lacks
+/// taken away.
+fn copy_folder(from: &Path, to: &Path) -> Result<(), Error> {
+    let files = |dir: &Path| -> Result<Vec<PathBuf>, Error> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).map_err(|e| Error::io(dir, e))? {
+            let path = e.map_err(|e| Error::io(dir, e))?.path();
+            if path.is_file() {
+                out.push(path);
+            }
+        }
+        Ok(out)
+    };
+    std::fs::create_dir_all(to).map_err(|e| Error::io(to, e))?;
+    let copied = files(from)?;
+    for stale in files(to)? {
+        if !copied.iter().any(|c| c.file_name() == stale.file_name()) {
+            std::fs::remove_file(&stale).map_err(|e| Error::io(&stale, e))?;
+        }
+    }
+    for path in copied {
+        let dest = to.join(path.file_name().unwrap_or_default());
+        std::fs::copy(&path, &dest).map_err(|e| Error::io(&dest, e))?;
+    }
+    Ok(())
 }
 
 /// A write of a scratch folder [`Scratch::begin`] began.

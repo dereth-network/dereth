@@ -88,6 +88,9 @@ use crate::conflict::{self, Claim, Item, Override, Settled};
 use crate::error::{Error, Loc};
 use crate::source::{Located, Pack};
 
+/// The tables the rows change, by id.
+pub const ALL: [u32; 4] = [CHARGEN, SKILLS, SPELLS, EXPERIENCE];
+
 /// The character-creation table.
 pub const CHARGEN: u32 = 0x0E00_0002;
 /// The skill table.

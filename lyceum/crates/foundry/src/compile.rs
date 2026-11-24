@@ -57,7 +57,7 @@ pub const REGION: DataId = DataId(0x1300_0000);
 /// One record of the overlay: its bytes and its version.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Staged {
-    pub bytes: Vec<u8>,
+    pub bytes: std::sync::Arc<[u8]>,
     pub version: u16,
 }
 
@@ -219,7 +219,7 @@ impl View<'_> {
     /// The record `id` of the file `t` under the packs, with its version.
     fn get(&self, t: ModernDat, id: u32) -> Option<(Vec<u8>, u16)> {
         if let Some(s) = self.c.imported.get(&t).and_then(|r| r.get(&id)) {
-            return Some((s.bytes.clone(), s.version));
+            return Some((s.bytes.to_vec(), s.version));
         }
         if self.deleted(t, id) {
             return None;
@@ -242,7 +242,7 @@ impl crate::tables::Below for View<'_> {
     fn portal(&self, id: u32) -> Option<(Vec<u8>, u16)> {
         for t in [ModernDat::Portal, ModernDat::HighRes] {
             if let Some(s) = self.c.records.get(&t).and_then(|r| r.get(&id)) {
-                return Some((s.bytes.clone(), s.version));
+                return Some((s.bytes.to_vec(), s.version));
             }
         }
         self.get_portal(id)
@@ -260,7 +260,7 @@ impl crate::tables::Below for View<'_> {
             .get(&ModernDat::Cell)
             .and_then(|r| r.get(&id))
         {
-            Some(s) => s.bytes.clone(),
+            Some(s) => s.bytes.to_vec(),
             None => self.get(ModernDat::Cell, id)?.0,
         };
         let land: CellLandblock = self.base.decode(DataId(id), &bytes).ok()?;
@@ -299,7 +299,13 @@ fn read_imports(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Er
             for (id, e) in layer.records() {
                 let bytes = layer.read(id)?;
                 let version = u16::try_from(e.bits >> 16).unwrap_or(1).max(1);
-                records.insert(id.raw(), Staged { bytes, version });
+                records.insert(
+                    id.raw(),
+                    Staged {
+                        bytes: bytes.into(),
+                        version,
+                    },
+                );
             }
             c.imported.insert(t, records.clone());
         }
@@ -405,7 +411,7 @@ pub(crate) fn ac2_kits(
         records.insert(
             id.raw(),
             Staged {
-                bytes,
+                bytes: bytes.into(),
                 version: NEW_RECORD_VERSION,
             },
         );
@@ -462,7 +468,7 @@ fn land_layer(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Erro
         })
         .ok_or_else(|| Error::Dat("the region record cannot say a finer land".to_owned()))?;
     let region_staged = Staged {
-        bytes: region_bytes,
+        bytes: region_bytes.into(),
         version,
     };
     for layer in [&mut c.records, &mut c.imported] {
@@ -498,7 +504,13 @@ fn land_layer(world: &World, base: &DatSet, c: &mut Compiled) -> Result<(), Erro
         #[allow(clippy::cast_possible_truncation)] // a cell id's top half is its landblock
         let land = crate::land::refine(&lb, &table, (id >> 16) as u16, steps);
         let bytes = written(id, base, land.encode_for(base.era))?;
-        refined.insert(id, Staged { bytes, version });
+        refined.insert(
+            id,
+            Staged {
+                bytes: bytes.into(),
+                version,
+            },
+        );
     }
     for layer in [&mut c.records, &mut c.imported] {
         layer
@@ -1039,10 +1051,13 @@ fn build_records(
                     .encode_for(era, id),
                 )?,
             };
-            c.records
-                .entry(ModernDat::Portal)
-                .or_default()
-                .insert(id.raw(), Staged { bytes, version });
+            c.records.entry(ModernDat::Portal).or_default().insert(
+                id.raw(),
+                Staged {
+                    bytes: bytes.into(),
+                    version,
+                },
+            );
         }
     }
     for (id, at, first, version) in holding {
@@ -1062,10 +1077,13 @@ fn build_records(
         };
         let bytes = crate::pictures::texture_holding(era, id, &picture)
             .map_err(|e| Error::source(&at, format!("{:#010X}: {e}", id.raw())))?;
-        c.records
-            .entry(ModernDat::Portal)
-            .or_default()
-            .insert(id.raw(), Staged { bytes, version });
+        c.records.entry(ModernDat::Portal).or_default().insert(
+            id.raw(),
+            Staged {
+                bytes: bytes.into(),
+                version,
+            },
+        );
     }
     Ok(())
 }
@@ -1447,7 +1465,7 @@ fn cell_statics(
             .records
             .get(&ModernDat::Cell)
             .and_then(|r| r.get(&id))
-            .map(|s| (s.bytes.clone(), s.version))
+            .map(|s| (s.bytes.to_vec(), s.version))
             .or_else(|| View { base, c }.get(ModernDat::Cell, id));
         let Some((bytes, version)) = held else {
             return Err(Error::source(
@@ -1520,7 +1538,7 @@ fn cell_statics(
         c.records.entry(ModernDat::Cell).or_default().insert(
             id,
             Staged {
-                bytes: written(id, base, cell.encode_for(base.era))?,
+                bytes: written(id, base, cell.encode_for(base.era))?.into(),
                 version,
             },
         );
@@ -2087,7 +2105,7 @@ fn edit_landblocks(
                 c.records.entry(ModernDat::Cell).or_default().insert(
                     id,
                     Staged {
-                        bytes: written(id, base, cell.encode_for(base.era))?,
+                        bytes: written(id, base, cell.encode_for(base.era))?.into(),
                         version,
                     },
                 );
@@ -2108,10 +2126,13 @@ fn edit_landblocks(
             }
         ));
         let bytes = written(lbi_id, base, info.encode_for(base.era))?;
-        c.records
-            .entry(ModernDat::Cell)
-            .or_default()
-            .insert(lbi_id, Staged { bytes, version });
+        c.records.entry(ModernDat::Cell).or_default().insert(
+            lbi_id,
+            Staged {
+                bytes: bytes.into(),
+                version,
+            },
+        );
     }
     // The statics standing in indoor cells, moved and removed.
     for (lb, edits) in &blocks {
@@ -2132,7 +2153,7 @@ fn edit_landblocks(
         c.records.entry(ModernDat::Cell).or_default().insert(
             id,
             Staged {
-                bytes: written(id, base, t.encode_for(base.era))?,
+                bytes: written(id, base, t.encode_for(base.era))?.into(),
                 version,
             },
         );
@@ -2290,7 +2311,7 @@ fn leave_to_base(c: &mut Compiled, base: &DatSet, only: Option<&BTreeSet<u16>>) 
                 return true;
             }
             f.base_entry(DataId(*id)).is_none()
-                || f.read(DataId(*id)).ok().as_ref() != Some(&s.bytes)
+                || f.read(DataId(*id)).ok().as_deref() != Some(&*s.bytes)
         });
     }
     c.records.retain(|_, r| !r.is_empty());
@@ -2321,7 +2342,7 @@ fn flag_statics(
             .records
             .get(&ModernDat::Cell)
             .and_then(|r| r.get(&id))
-            .map(|s| (s.bytes.clone(), s.version))
+            .map(|s| (s.bytes.to_vec(), s.version))
             .or_else(|| View { base, c }.get(ModernDat::Cell, id));
         let Some((bytes, version)) = held else {
             continue;
@@ -2334,10 +2355,13 @@ fn flag_statics(
         }
         t.lbi_exists = 1;
         let bytes = written(id, base, t.encode_for(base.era))?;
-        c.records
-            .entry(ModernDat::Cell)
-            .or_default()
-            .insert(id, Staged { bytes, version });
+        c.records.entry(ModernDat::Cell).or_default().insert(
+            id,
+            Staged {
+                bytes: bytes.into(),
+                version,
+            },
+        );
     }
     Ok(())
 }
@@ -2424,7 +2448,7 @@ fn game_tables(packs: &[Pack], base: &DatSet, c: &mut Compiled) -> Result<(), Er
         let was = c.records.entry(ModernDat::Portal).or_default().insert(
             w.id,
             Staged {
-                bytes: w.bytes,
+                bytes: w.bytes.into(),
                 version: w.version,
             },
         );
@@ -2465,7 +2489,7 @@ pub fn recompile_tables(packs: &[Pack], base: &DatSet, c: &mut Compiled) -> Resu
         for id in ids {
             if portal.get(&id).is_some_and(|s| {
                 f.base_entry(DataId(id)).is_some()
-                    && f.read(DataId(id)).ok().as_ref() == Some(&s.bytes)
+                    && f.read(DataId(id)).ok().as_deref() == Some(&*s.bytes)
             }) {
                 portal.remove(&id);
             }
@@ -2877,7 +2901,7 @@ pub fn read_under(c: &Compiled, base: &DatSet, t: ModernDat, id: u32) -> Option<
 #[must_use]
 pub fn read_compiled(c: &Compiled, base: &DatSet, t: ModernDat, id: u32) -> Option<Vec<u8>> {
     if let Some(s) = c.records.get(&t).and_then(|r| r.get(&id)) {
-        return Some(s.bytes.clone());
+        return Some(s.bytes.to_vec());
     }
     let view = View { base, c };
     if view.deleted(t, id) {

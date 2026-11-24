@@ -445,7 +445,7 @@ fn a_starter_areas_row_written_in_the_session_compiles_as_a_build_does_and_undoe
             .records
             .get(&ModernDat::Portal)
             .and_then(|r| r.get(&CHARGEN))
-            .map(|r| r.bytes.clone())
+            .map(|r| r.bytes.to_vec())
             .unwrap_or_else(|| s.base().read_portal(DataId(CHARGEN)).unwrap());
         starter_areas::areas(&CharGen::decode_payload(DataId(CHARGEN), &bytes).unwrap())
     };
@@ -514,4 +514,53 @@ fn a_starter_areas_row_written_in_the_session_compiles_as_a_build_does_and_undoe
     assert_eq!(areas(&s), before);
     let (_, fresh) = session("edit-starter-area-fresh");
     assert_eq!(s.compiled().records, fresh.compiled().records);
+}
+
+/// After a table's rows change, the checks run again over what the change wrote find what a
+/// session opened afresh on the saved world finds, and again once the change is undone.
+#[test]
+fn a_table_edits_check_finds_what_a_fresh_sessions_check_finds() {
+    use lyceum_foundry::edit::Op;
+    use lyceum_foundry::scratch::Scratch;
+    use lyceum_foundry::starter_areas::{self, FILE, KIND};
+    use lyceum_foundry::table_edit;
+
+    let (dir, mut s) = session("check-table-edit");
+    let found = |s: &Session, d: &std::path::Path| {
+        let mut v: Vec<(String, bool)> = s
+            .check(d)
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.text, f.warning))
+            .collect();
+        v.sort();
+        v
+    };
+    let fresh = |s: &mut Session, n: &str| {
+        s.save().unwrap();
+        let mut again =
+            Session::open(&s.world().path, &dereth_dat::testing::dat_dir(), None).unwrap();
+        again.set_today("2026-10-18 00:00:00");
+        let (scratch, _) = Scratch::create(&dir.path().join(n), &again).unwrap();
+        found(&again, scratch.dir())
+    };
+    let (mut scratch, _) = Scratch::create(&dir.path().join("scratch"), &s).unwrap();
+    let clean = found(&s, scratch.dir());
+    let file = s.packs()[s.target()].dir.join("records").join(FILE);
+    let place = starter_areas::place_row(0xA9B4_0025, 100.0, 100.0, None, 90.0);
+    let text = table_edit::set_fields(
+        None,
+        KIND,
+        &[("name", toml::Value::String("Holtburg Gate".into()))],
+        &[("at", Some(toml::Value::Array(vec![place])))],
+    )
+    .unwrap();
+    let applied = s.apply(&Op::WriteTables { file, text }).unwrap();
+    assert!(applied.touched.tables);
+    scratch.update(&s, &applied.touched.landblocks).unwrap();
+    assert_eq!(found(&s, scratch.dir()), fresh(&mut s, "fresh-1"));
+    let touched = s.undo().unwrap();
+    scratch.update(&s, &touched.landblocks).unwrap();
+    assert_eq!(found(&s, scratch.dir()), fresh(&mut s, "fresh-2"));
+    assert_eq!(found(&s, scratch.dir()), clean);
 }

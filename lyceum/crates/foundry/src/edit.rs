@@ -411,6 +411,63 @@ struct RetailByClass {
     others: Vec<(u16, usize)>,
 }
 
+/// What the record checks found, by record.
+type FoundByRecord = BTreeMap<(ModernDat, u32), crate::validate::Report>;
+
+/// The record checks of a session's world ([`crate::validate`]), kept between checks: what they
+/// found of each record when last run over a scope of every record or of the overlay's, and what
+/// the session has changed since. A check runs again over only the records changed since: those
+/// of the landblocks an edit compiled again, and the portal records it wrote.
+#[derive(Debug, Default)]
+struct RecordChecks {
+    /// What was found of each record, and whether the scope was every record.
+    found: Option<(bool, FoundByRecord)>,
+    /// Everything may have changed: checked again whole.
+    all: bool,
+    landblocks: BTreeSet<u16>,
+    portal: BTreeSet<u32>,
+}
+
+impl RecordChecks {
+    /// What the records in `scope` of `set` hold now, checked: again over only what changed.
+    fn run(&mut self, set: &DatSet, scope: &crate::validate::Scope) -> crate::validate::Report {
+        use crate::validate::{scope_ids, scope_ids_in, validate_each, Scope};
+        let every = matches!(scope, Scope::All);
+        let again = matches!(&self.found, Some((was, _)) if *was == every) && !self.all;
+        let (lbs, portal) = (&self.landblocks, &self.portal);
+        let changed = |t: ModernDat, id: u32| match t {
+            ModernDat::Cell => u16::try_from(id >> 16).is_ok_and(|lb| lbs.contains(&lb)),
+            _ => portal.contains(&id),
+        };
+        let found = if again {
+            let mut found = self.found.take().map(|(_, f)| f).unwrap_or_default();
+            found.retain(|(t, id), _| !changed(*t, *id));
+            let ids = scope_ids_in(scope, &self.landblocks, &self.portal);
+            found.extend(
+                validate_each(set, &ids)
+                    .into_iter()
+                    .filter(|(_, r)| r.checked > 0),
+            );
+            found
+        } else {
+            validate_each(set, &scope_ids(set, scope))
+                .into_iter()
+                .collect()
+        };
+        let mut report = crate::validate::Report::default();
+        for r in found.values() {
+            report.checked += r.checked;
+            report.problems.extend(r.problems.iter().cloned());
+            report.warnings.extend(r.warnings.iter().cloned());
+        }
+        self.found = Some((every, found));
+        self.all = false;
+        self.landblocks.clear();
+        self.portal.clear();
+        report
+    }
+}
+
 /// A world open for editing.
 #[derive(Debug)]
 pub struct Session {
@@ -420,6 +477,9 @@ pub struct Session {
     target: usize,
     opened_lock: Lock,
     compiled: Compiled,
+    /// What the record checks found of each record when the world was last checked, and what the
+    /// session has changed since ([`Self::check`]).
+    record_checks: std::cell::RefCell<RecordChecks>,
     region: Option<Region>,
     /// Every source file the session has read or changed: its text now, and on disk as last
     /// read or saved.
@@ -1312,6 +1372,7 @@ impl Session {
             ac2_voxels: std::cell::RefCell::default(),
             pack_class_facts: std::cell::OnceCell::new(),
             pack_weenie_facts: std::cell::OnceCell::new(),
+            record_checks: std::cell::RefCell::default(),
             ac2,
         })
     }
@@ -1372,6 +1433,7 @@ impl Session {
                 item: *k,
             }));
         self.compiled.records.retain(|_, r| !r.is_empty());
+        self.record_checks.borrow_mut().all = true;
         if let Err(e) = compile::ac2_kits(
             &self.packs,
             &self.base,
@@ -3486,6 +3548,15 @@ impl Session {
             }
             if touched.tables {
                 compile::recompile_tables(&self.packs, &self.base, &mut self.compiled)?;
+            }
+            // The record checks run again over what this compiled again: the landblocks' records,
+            // and the tables' when their rows changed.
+            {
+                let mut checks = self.record_checks.borrow_mut();
+                checks.landblocks.extend(touched.landblocks.iter().copied());
+                if touched.tables {
+                    checks.portal.extend(crate::tables::ALL);
+                }
             }
             // A change that sets something another source sets otherwise, with no word from the
             // world on which wins, is refused; those the world had already stand.
@@ -5833,10 +5904,13 @@ impl Session {
             let Ok(bytes) = cell.encode_for(self.base.era) else {
                 continue;
             };
-            records
-                .entry(ModernDat::Cell)
-                .or_default()
-                .insert(id, Staged { bytes, version });
+            records.entry(ModernDat::Cell).or_default().insert(
+                id,
+                Staged {
+                    bytes: bytes.into(),
+                    version,
+                },
+            );
         }
         for (lb, extra) in by_block {
             let lbi = (u32::from(lb) << 16) | 0xFFFE;
@@ -5876,7 +5950,13 @@ impl Session {
                 continue;
             };
             let cells = records.entry(ModernDat::Cell).or_default();
-            cells.insert(lbi, Staged { bytes, version });
+            cells.insert(
+                lbi,
+                Staged {
+                    bytes: bytes.into(),
+                    version,
+                },
+            );
             if made {
                 if let Some(mut t) = self.terrain(lb) {
                     t.lbi_exists = 1;
@@ -5891,7 +5971,13 @@ impl Session {
                         |s| s.version,
                     );
                     if let Ok(bytes) = t.encode_for(self.base.era) {
-                        cells.insert(id, Staged { bytes, version });
+                        cells.insert(
+                            id,
+                            Staged {
+                                bytes: bytes.into(),
+                                version,
+                            },
+                        );
                     }
                 }
             }
@@ -5921,8 +6007,10 @@ impl Session {
     /// An overlay that will not open.
     pub fn check(&self, dir: &Path) -> Result<Vec<Fault>, Error> {
         let layered = self.base.with_overlay(dir, Some(&self.world.key))?;
-        let mut report =
-            crate::validate::validate(&layered, &crate::validate::Scope::of(&self.compiled));
+        let mut report = self
+            .record_checks
+            .borrow_mut()
+            .run(&layered, &crate::validate::Scope::of(&self.compiled));
         report
             .warnings
             .extend(self.compiled.warnings.values().flatten().cloned());

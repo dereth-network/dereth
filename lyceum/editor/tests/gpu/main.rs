@@ -831,9 +831,10 @@ fn a_spawn_is_moved_and_turned_by_its_handles_and_its_sql_is_rewritten() {
         sql.contains(&format!(", {}, 60.0, ", lyceum_foundry::edit::meters(m.x))),
         "{sql}"
     );
-    // Each edit wrote only the records it reached, after the scratch overlay's first two
-    // folders were written whole.
-    assert_eq!(ed.stats.whole_writes, 1, "{:?}", ed.stats);
+    // Each edit wrote only the records it reached: the scratch overlay was written whole once,
+    // as the editor opened, and its second folder began as a copy of the first, so no edit
+    // writes one whole.
+    assert_eq!(ed.stats.whole_writes, 0, "{:?}", ed.stats);
     assert!(
         ed.stats.records_written <= 2 * 2 * ed.stats.reloads,
         "{:?}",
