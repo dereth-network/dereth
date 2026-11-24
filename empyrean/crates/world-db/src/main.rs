@@ -7,6 +7,7 @@
 //! empyrean-world-db check <world.toml | folder of rows> <world.pack>
 //! empyrean-world-db compare <a.pack> <b.pack>
 //! empyrean-world-db checkpoints <world.toml> [--keys]
+//! empyrean-world-db parity <world.toml> <layer> [--pack <the layer's pack>] [--against <pack>]
 //! ```
 //!
 //! `--dumps <folder>`, anywhere, names where a checkpoint's pinned dumps are; without it, the folder
@@ -16,7 +17,10 @@
 //! `--revision` say where they came from. `pack` folds a world's layers (or reads one folder of
 //! rows) and builds its pack, numbered by rule. `check` builds that pack and lists every record of
 //! the given pack it doesn't hold field for field, ids aside; it fails on any.
-//! `compare` lists the same of two packs. `checkpoints` reports each checkpoint layer.
+//! `compare` lists the same of two packs. `checkpoints` reports each checkpoint layer. `parity`
+//! holds a layer (built, or its pack given with `--pack`) against what it stands for: a checkpoint
+//! against its pinned dump, read in the layer's era and keyed by its `keys.toml`; any layer
+//! against the pack `--against` names (`empyrean_world_db::parity`). It fails on any difference.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -50,8 +54,74 @@ fn pack_of(c: &WorldContent) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// `parity <world.toml> <layer> [--pack <the layer's pack>] [--against <pack>]`: the layer against
+/// what it stands for, a checkpoint's pinned dump or the pack `--against` names.
+fn parity(at: &Path, layer: &str, rest: &[String], dumps: Option<&Path>) -> Result<bool, String> {
+    let mut pack = None;
+    let mut against = None;
+    let mut it = rest.iter();
+    while let Some(a) = it.next() {
+        let value = it.next().ok_or_else(|| format!("{a} needs a value"))?;
+        match a.as_str() {
+            "--pack" => pack = Some(value.clone()),
+            "--against" => against = Some(value.clone()),
+            _ => return Err(format!("parity takes --pack and --against, not {a}")),
+        }
+    }
+    let folding = empyrean_world_db::world::open(at, dumps)?;
+    let n = folding
+        .ids
+        .iter()
+        .position(|l| l == layer)
+        .ok_or_else(|| format!("{}: no layer {layer}", at.display()))?;
+    let era = folding.eras()[n];
+    let world = match &pack {
+        Some(p) => Pack::open(Path::new(p)).map_err(|e| format!("{p}: {e}"))?,
+        None => {
+            let mut c = folding.checked_content_at(n)?;
+            number(&mut c);
+            empyrean_world_db::parity::pack_of(&c)?
+        }
+    };
+    let (what, found) = match (
+        &against,
+        empyrean_world_db::world::checkpoint_of(at, layer, dumps)?,
+    ) {
+        (Some(other), _) => {
+            let other = Pack::open(Path::new(other)).map_err(|e| format!("{other}: {e}"))?;
+            (
+                format!("against {}", against.as_deref().unwrap_or_default()),
+                differences(&other, &world).map_err(|e| e.to_string())?,
+            )
+        }
+        (None, Some((pin, dump, keys))) => {
+            let found = empyrean_world_db::parity::against_dump(&world, &dump, era, keys.as_ref())?;
+            let keyed = keys.as_ref().map_or(0, |k| k.map.len());
+            (
+                format!(
+                    "against {} {} in {}, {keyed} placements keyed by its keys.toml",
+                    pin.source,
+                    pin.tag,
+                    era.name()
+                ),
+                found,
+            )
+        }
+        (None, None) => {
+            return Err(format!(
+                "{layer} is no checkpoint: name the pack it stands for with --against"
+            ))
+        }
+    };
+    for line in &found {
+        println!("{line}");
+    }
+    println!("{layer} {what}: {} difference(s), ids aside", found.len());
+    Ok(found.is_empty())
+}
+
 fn run(args: &[String]) -> Result<bool, String> {
-    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] | pack <world> <out.pack> | check <world> <world.pack> | compare <a.pack> <b.pack> | checkpoints <world.toml> [--keys]; any of them with --dumps <folder>";
+    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] | pack <world> <out.pack> | check <world> <world.pack> | compare <a.pack> <b.pack> | checkpoints <world.toml> [--keys] | parity <world.toml> <layer> [--pack <the layer's pack>] [--against <pack>]; any of them with --dumps <folder>";
     let mut args = args.to_vec();
     let dumps = match args.iter().position(|a| a == "--dumps") {
         Some(i) if i + 1 < args.len() => {
@@ -87,6 +157,7 @@ fn run(args: &[String]) -> Result<bool, String> {
             println!("{out}: content hash {}", hex(&p.header().content_hash));
             Ok(true)
         }
+        [cmd, at, layer, rest @ ..] if cmd == "parity" => parity(Path::new(at), layer, rest, dumps),
         [cmd, a, b] if cmd == "compare" => {
             let a = Pack::open(Path::new(a)).map_err(|e| e.to_string())?;
             let b = Pack::open(Path::new(b)).map_err(|e| e.to_string())?;

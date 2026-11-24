@@ -883,3 +883,37 @@ fn a_checkpoints_era_is_read_by_name_and_one_that_is_no_era_is_refused() {
     let e = pin(Some(3.into())).expect_err("refused");
     assert!(e.contains("era is an era's name"), "{e}");
 }
+
+/// A layer is at parity with the world it stands for once the lineage's keys are given its
+/// placements: none differs; without the keys its re-keyed placements do, and anything else that
+/// differs is found.
+#[test]
+fn a_layer_is_at_parity_with_its_source_keyed_and_anything_else_is_found() {
+    use crate::checkpoint::{Keys, Matched};
+    use crate::parity::{against_source, keyed, pack_of};
+    let source = sample();
+    let guid = source.landblock_instances[0].guid;
+    let keys = Keys {
+        map: BTreeMap::from([(guid, guid | 0x0FFF)]),
+        matched: Matched::default(),
+    };
+    let world = pack_of(&keyed(source.clone(), Some(&keys))).expect("packs");
+    assert_eq!(
+        against_source(&world, source.clone(), Some(&keys)).expect("compares"),
+        Vec::<String>::new()
+    );
+    let unkeyed = against_source(&world, source.clone(), None).expect("compares");
+    assert!(
+        !unkeyed.is_empty() && unkeyed.iter().all(|d| d.starts_with("landblock_inst")),
+        "{unkeyed:?}"
+    );
+    // A placement of another class in the world: a finding, keys or none.
+    let mut changed = keyed(source.clone(), Some(&keys));
+    changed.landblock_instances[0].weenie_class_id += 1;
+    let world = pack_of(&changed).expect("packs");
+    let found = against_source(&world, source, Some(&keys)).expect("compares");
+    assert!(
+        found.iter().any(|d| d.contains("weenie_class_id")),
+        "{found:?}"
+    );
+}

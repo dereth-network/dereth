@@ -361,6 +361,40 @@ pub fn fold_world(world_toml: &Path, dumps: Option<&Path>) -> R<WorldContent> {
     fold_layers(layers, m.era, m.stamp)
 }
 
+/// Layer `layer`'s checkpoint, when it is one: its pin, the dump the pin names (from `dumps` as
+/// [`layers_of`] says), and the keys its `keys.toml` gives, if it has one.
+///
+/// # Errors
+/// A world file that doesn't read, a layer it doesn't have, a pin that doesn't read, a dump that
+/// isn't there, and a `keys.toml` that doesn't read.
+pub fn checkpoint_of(
+    world_toml: &Path,
+    layer: &str,
+    dumps: Option<&Path>,
+) -> R<Option<(Pin, std::path::PathBuf, Option<Keys>)>> {
+    let lineage =
+        Lineage::read_world_file::<Ac1World>(&DiskStore, world_toml).map_err(|e| e.to_string())?;
+    let l = lineage
+        .layers
+        .iter()
+        .find(|l| l.id == layer)
+        .ok_or_else(|| format!("{}: no layer {layer}", world_toml.display()))?;
+    let Some(pin) = &l.checkpoint else {
+        return Ok(None);
+    };
+    let pin = checkpoint::pin_of(pin).map_err(|e| format!("{layer}: {e}"))?;
+    let dump = pin.dump(dumps).map_err(|e| format!("{layer}: {e}"))?;
+    let keys_path = l.dir.join("keys.toml");
+    let keys = if keys_path.is_file() {
+        let text = std::fs::read_to_string(&keys_path)
+            .map_err(|e| format!("{}: {e}", keys_path.display()))?;
+        Some(keys_of(&text).map_err(|e| format!("{}: {e}", keys_path.display()))?)
+    } else {
+        None
+    };
+    Ok(Some((pin, dump, keys)))
+}
+
 /// The layers `world.toml` names, read and merged, to fold at any of them; a checkpoint's dump
 /// from `dumps` as [`layers_of`] says.
 ///

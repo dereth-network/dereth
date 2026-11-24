@@ -1873,3 +1873,51 @@ fn a_checkpoint_that_names_an_era_changes_the_worlds_from_there_on() {
         "{e}"
     );
 }
+
+/// A checkpoint layer gives its pin, the pinned dump in the folder named, and its `keys.toml`'s
+/// keys; a layer that is no checkpoint gives none, and a layer the world hasn't is an error.
+#[test]
+fn a_checkpoint_layer_gives_its_dump_and_keys_for_a_parity_check() {
+    use empyrean_common::world_release::SIXTEEN_PY;
+    let dir = Scratch::new("checkpoint-of");
+    let path = world(&dir.0, &sample(), &[("2005-02-infiltration", None)]);
+    let dumps = dir.0.join("dumps");
+    std::fs::create_dir_all(&dumps).expect("folder");
+    std::fs::write(dumps.join("ACE-World-16PY-db-v0.8.7.sql"), "").expect("written");
+    let layer = dir.0.join("patches").join("2005-02-infiltration");
+    std::fs::write(
+        layer.join("checkpoint.toml"),
+        format!(
+            "world = \"16py\"\nsource = \"ACE-World-16PY\"\nrevision = \"v0.8.7\"\nurl = \"{}\"\nsha256 = \"{}\"\ndataset_id = \"{}\"\n",
+            SIXTEEN_PY.download_url("v0.8.7"),
+            "0".repeat(64),
+            "0".repeat(32),
+        ),
+    )
+    .expect("written");
+    let of = |l: &str| empyrean_world_db::world::checkpoint_of(&path, l, Some(&dumps));
+    let (pin, dump, keys) = of("2005-02-infiltration")
+        .expect("reads")
+        .expect("a checkpoint");
+    assert_eq!(
+        (pin.tag.as_str(), dump),
+        ("v0.8.7", dumps.join("ACE-World-16PY-db-v0.8.7.sql"))
+    );
+    assert!(keys.is_none());
+    std::fs::write(
+        layer.join("keys.toml"),
+        "format = 1\nmatched = { same = 0, near = 0, new_kept = 0, new_renumbered = 1 }\nkeys = [\n  [0x70001000, 0x70001FFF],\n]\n",
+    )
+    .expect("written");
+    let (_, _, keys) = of("2005-02-infiltration")
+        .expect("reads")
+        .expect("a checkpoint");
+    assert_eq!(
+        keys.expect("keys").map.into_iter().collect::<Vec<_>>(),
+        [(0x7000_1000, 0x7000_1FFF)]
+    );
+    assert!(of("base").expect("reads").is_none());
+    assert!(of("2006-01-nowhere")
+        .expect_err("no layer")
+        .contains("no layer"));
+}

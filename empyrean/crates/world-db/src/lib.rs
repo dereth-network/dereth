@@ -48,6 +48,7 @@ pub mod kinds;
 pub mod layers;
 pub mod loot;
 pub mod names;
+pub mod parity;
 pub mod refs;
 pub mod row;
 pub mod value;
