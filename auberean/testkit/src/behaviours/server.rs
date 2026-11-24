@@ -10826,9 +10826,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.mounts.dismount",
-        says: "A rider asking to dismount is told it is not mounted and shown its own look and \
-               speed again, the mount's glow stopped and its parting one played; a follow under way \
-               stops first; a player not mounted is not answered.",
+        says: "A rider asking to dismount is shown its own look, told it is not mounted and shown \
+               its speed again, the mount's glow stopped and its parting one played; a follow under \
+               way stops first; a player not mounted is not answered.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-DISMOUNT"),
         station: "yalain-testkit::cpu::play::mounts::a_rider_dismounting_is_shown_its_own_look_and_speed_again",
@@ -10841,6 +10841,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-EGG"),
         station: "yalain-testkit::cpu::play::mounts::an_egg_mounts_its_user_until_dismounted_and_is_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.mounts.in-send-order",
+        says: "A mount sends, in order: the mount's appearance (a saddle's), the mounted flag, the \
+               mounted look, the record, an egg's focus cost, the item spent, the answer; a ride's \
+               end the rider's own look, the flag cleared, the record taken off, the appearance \
+               stopped, the ending appearance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-ORDER"),
+        station: "yalain-testkit::cpu::play::mounts::a_mount_plays_its_appearance_then_flags_the_rider_then_shows_its_look_before_its_record",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10923,7 +10934,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.mounts.saddle-mounts-its-user",
         says: "An Ataur saddle used from the pack mounts its user for its time: the mount's glow, \
-               its speed and its look for all who see, the saddle spent.",
+               its look and its speed for all who see, the saddle spent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-SADDLE"),
         station: "yalain-testkit::cpu::play::mounts::a_saddle_used_from_the_pack_mounts_its_user_and_is_spent",

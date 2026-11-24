@@ -351,10 +351,10 @@ fn record(h: &Harness, world: yalain_net::ConnId) -> Option<(u32, u32, f32, u64)
         .map(|e| (e.state, e.flags, e.timeout, e.item))
 }
 
-/// An Ataur saddle used from the pack: the player told it is mounted, the mount's appearance,
-/// its record (fifteen minutes, from the saddle), the speed times the mount's, the saddle spent,
-/// the use answered (flags 828 and the spent bit), the mounted look; another player sees the
-/// appearance, the speed and the look in that order.
+/// An Ataur saddle used from the pack: the mount's appearance, the player told it is mounted, the
+/// mounted look, its record (fifteen minutes, from the saddle), the speed times the mount's, the
+/// saddle spent, the use answered (flags 828 and the spent bit); another player sees the
+/// appearance, the look and the speed in that order.
 /// Behaviour: server.mounts.saddle-mounts-its-user
 #[test]
 fn a_saddle_used_from_the_pack_mounts_its_user_and_is_spent() {
@@ -368,7 +368,7 @@ fn a_saddle_used_from_the_pack_mounts_its_user_and_is_spent() {
     assert_eq!(flags(&h, b, from), [1]);
     assert_eq!(
         told(&h, b, from, me),
-        ["fx 41000536", "speed 1.40", "look mounted"]
+        ["fx 41000536", "look mounted", "speed 1.40"]
     );
     assert_eq!(
         use_answers(&h, b, from),
@@ -388,7 +388,7 @@ fn a_saddle_used_from_the_pack_mounts_its_user_and_is_spent() {
     );
     assert_eq!(
         told(&h, c, seen, me),
-        ["fx 41000536", "speed 1.40", "look mounted"]
+        ["fx 41000536", "look mounted", "speed 1.40"]
     );
     let look = h.world_messages(c, seen).into_iter().find_map(|m| match m {
         ServerMessage::UpdateVisualDesc(e) if e.sender.id == me => Some(e.action),
@@ -413,7 +413,7 @@ fn an_egg_mounts_its_user_until_dismounted_and_is_kept() {
     let egg = give(&mut h, world, EGG);
     let from = send_use(&mut h, b, me, egg);
     assert_eq!(flags(&h, b, from), [1]);
-    assert_eq!(told(&h, b, from, me), ["speed 1.90", "look mounted"]);
+    assert_eq!(told(&h, b, from, me), ["look mounted", "speed 1.90"]);
     let focus: Vec<i32> = h
         .world_messages(b, from)
         .iter()
@@ -433,6 +433,89 @@ fn an_egg_mounts_its_user_until_dismounted_and_is_kept() {
         .items
         .iter()
         .any(|i| i.id == egg));
+}
+
+/// What a ride's start or end sent its rider, in the order sent: the mount's appearance ("fx") and
+/// its ending one ("endfx"), the mounted flag ("bool"), the rider's look ("look"), the record added
+/// ("add") or taken off ("remove"), the appearance stopped ("stop"), the focus told ("cost"), the
+/// item gone ("gone"), the use answered ("done"). The speed is left out.
+fn sent_order(h: &Harness, b: usize, from: usize, me: u64, item: u64) -> Vec<&'static str> {
+    use yalain_world::effects::function as effect;
+    let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| r.world)
+        .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+        .collect();
+    sent.sort_by_key(|(n, _)| *n);
+    sent.iter()
+        .filter_map(|(_, m)| match m {
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == MOUNT_FX => Some("fx"),
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == ENDING_FX => {
+                Some("endfx")
+            }
+            ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == MOUNT_FX => Some("stop"),
+            ServerMessage::UpdateBool(q) if q.quality == mounts::MOUNTED => Some("bool"),
+            ServerMessage::UpdateVisualDesc(e) if e.sender.id == me => Some("look"),
+            ServerMessage::UpdateInt(q) if q.quality == FOCUS => Some("cost"),
+            ServerMessage::ForgetObject(o) if o.0.id == item => Some("gone"),
+            ServerMessage::PlayerCall(c) => match c.function.0 {
+                effect::ADD => Some("add"),
+                effect::REMOVE => Some("remove"),
+                USE_DONE => Some("done"),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// A mount, in the order sent: a saddle's appearance, the mounted flag, the mounted look, the
+/// record, the saddle gone, the answer; an egg's the flag, the look, the record, its focus cost,
+/// the answer (2017: the appearance before the flag 178 of 178 saddle mounts; the look before the
+/// record 286 of 287 and before the answer 287 of 287).
+/// Behaviour: server.mounts.in-send-order
+#[test]
+fn a_mount_plays_its_appearance_then_flags_the_rider_then_shows_its_look_before_its_record() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "one", "Elara");
+    let saddle = give(&mut h, world, SADDLE);
+    let from = send_use(&mut h, b, me, saddle);
+    assert_eq!(
+        sent_order(&h, b, from, me, saddle),
+        ["fx", "bool", "look", "add", "gone", "done"]
+    );
+    send_dismount(&mut h, b);
+    let egg = give(&mut h, world, EGG);
+    let from = send_use(&mut h, b, me, egg);
+    assert_eq!(
+        sent_order(&h, b, from, me, egg),
+        ["bool", "look", "add", "cost", "done"]
+    );
+}
+
+/// A ride's end, in the order sent: the rider's own look, the flag cleared, the record taken off,
+/// the mount's appearance stopped, its ending one played (2017: the look before the flag 288 of
+/// 288 ends).
+/// Behaviour: server.mounts.in-send-order
+#[test]
+fn a_rides_end_shows_the_riders_own_look_before_it_clears_the_flag() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "one", "Elara");
+    let saddle = give(&mut h, world, SADDLE);
+    send_use(&mut h, b, me, saddle);
+    let from = send_dismount(&mut h, b);
+    assert_eq!(
+        sent_order(&h, b, from, me, saddle),
+        ["look", "bool", "remove", "stop", "endfx"]
+    );
+    let egg = give(&mut h, world, EGG);
+    send_use(&mut h, b, me, egg);
+    let from = send_dismount(&mut h, b);
+    assert_eq!(
+        sent_order(&h, b, from, me, egg),
+        ["look", "bool", "remove"],
+        "an egg's mount has no appearance"
+    );
 }
 
 /// A mount item is refused, answered alone with flags 828: with something in hand (10045),
@@ -481,9 +564,9 @@ fn a_mount_item_is_refused_in_hand_indoors_moving_or_mounted() {
     );
 }
 
-/// A rider asking to dismount: a follow under way stops, the player is told it is not mounted,
-/// its own look is shown, its record taken off with the speed back, the mount's appearance
-/// stopped and its ending one played; a player not mounted asking is not answered.
+/// A rider asking to dismount: a follow under way stops, its own look is shown, the player is told
+/// it is not mounted, its record taken off with the speed back, the mount's appearance stopped and
+/// its ending one played; a player not mounted asking is not answered.
 /// Behaviour: server.mounts.dismount
 #[test]
 fn a_rider_dismounting_is_shown_its_own_look_and_speed_again() {

@@ -7,11 +7,11 @@
 //! resolve them, [`crate::item_use`]): the effect's record is the ride. A saddle's lasts its duration (an
 //! ephemeral one fifteen minutes) and is spent; an egg's lasts until taken off and is kept.
 //!
-//! **Mounting**, in one instant: the player is told it is mounted (quality 2002); the mount's
-//! appearance plays for all who see it; the record is added (cast by the player from the item,
-//! its speed the player's times the mount's); the item's other effects go on (an egg's focus
-//! cost); the item is spent if it is spent on use; the use is
-//! answered (control flags 828, and the spent bit); the mounted look is shown to all who see it.
+//! **Mounting**, in one instant: the mount's appearance plays for all who see it (a saddle's; an
+//! egg's mount has none); the player is told it is mounted (quality 2002); the mounted look is
+//! shown to all who see it; the record is added (cast by the player from the item, its speed the
+//! player's times the mount's); the item's other effects go on (an egg's focus cost); the item is
+//! spent if it is spent on use; the use is answered (control flags 828, and the spent bit).
 //!
 //! **The mounted look** is the mount table's description for the mount's type and the rider's
 //! race and sex, without its own id, carrying the rider's own appearance: each of the rider's
@@ -23,9 +23,9 @@
 //! **Riding.** Portal trips keep the ride. A pet attack order is refused with its own text while
 //! mounted; other orders go on.
 //!
-//! **The ride's end**, in one instant: the player is told it is no longer mounted, its own look is
-//! shown, the record taken off (its speed back), the mount's appearance stopped and its ending
-//! appearance played. Asked for (a dismount, which first ends a follow), the record's time up, a
+//! **The ride's end**, in one instant: the player's own look is shown, it is told it is no longer
+//! mounted, the record is taken off (its speed back), the mount's appearance stopped and its
+//! ending appearance played. Asked for (a dismount, which first ends a follow), the record's time up, a
 //! resurrection, or the rider indoors: a few seconds after it walks in, or after it arrives inside
 //! by portal. A player not mounted asking to dismount is not answered.
 
@@ -335,9 +335,16 @@ fn mount<S: Store>(
         ));
         return;
     };
-    progress::private(net, world, &flag(true));
+    // The appearance, the flag and the look come before the record (2017: the appearance before
+    // the flag 178 of 178 saddle mounts; the look before the record 286 of 287, before the answer
+    // 287 of 287).
     if def.fx != 0 {
         effects::show_fxs(s, net, world, &[def.fx]);
+    }
+    progress::private(net, world, &flag(true));
+    if let Some(p) = s.players.get_mut(&world) {
+        let shown = ServerMessage::UpdateVisualDesc(crate::combat::player_event(p, look.clone()));
+        crate::combat::to_all_seeing(s, net, me, &shown);
     }
     let lasts = !def.duration.is_empty();
     let shape = Shape {
@@ -390,12 +397,10 @@ fn mount<S: Store>(
     p.riding = Some(Riding {
         eid,
         state,
-        look: look.clone(),
+        look,
         speed,
         checking: false,
     });
-    let shown = ServerMessage::UpdateVisualDesc(crate::combat::player_event(p, look));
-    crate::combat::to_all_seeing(s, net, me, &shown);
     crate::world::keep_player(s, world);
 }
 
@@ -408,8 +413,9 @@ pub fn dismount<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId)
     end(s, net, world);
 }
 
-/// The ride ends: the player told it is not mounted, its own look shown, the record taken off (its
-/// speed back), the mount's appearance stopped and its ending appearance played.
+/// The ride ends: the player's own look shown, it told it is not mounted, the record taken off (its
+/// speed back), the mount's appearance stopped and its ending appearance played (2017: the look
+/// before the flag 288 of 288 ends).
 pub fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -418,9 +424,9 @@ pub fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         return;
     };
     let me = p.character;
-    progress::private(net, world, &flag(false));
     let shown = ServerMessage::UpdateVisualDesc(crate::combat::player_event(p, p.look.clone()));
     crate::combat::to_all_seeing(s, net, me, &shown);
+    progress::private(net, world, &flag(false));
     if let Some(Some(fx)) = effects::take_off(s, net, On::Player(world), ride.eid) {
         effects::stop_fx(s, net, world, &[fx]);
     }
