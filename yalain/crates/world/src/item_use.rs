@@ -940,7 +940,8 @@ pub fn cut_short<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     progress::private(net, world, &no);
 }
 
-/// Carry an item's use out, in one instant: its effects on its user, the item spent, the answer.
+/// Carry an item's use out, in one instant: its effects on its user, the item spent or worn, the
+/// answer (an item's last wear, which takes it away, after the answer).
 fn carry_out<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1061,12 +1062,19 @@ fn carry_out<S: Store>(
             .unwrap_or_default();
         u.message = Some(progress::text_with(id, vars));
     }
+    // An item a row says wears (a forager's food) wears with each use, before the answer, and goes
+    // at its last, after it (2017: 47 of 47 wears told before the answer, 12 of 12 last wears'
+    // removals after it).
+    let wears = s.item_rows.wears(template);
+    let last = wears.is_some_and(|uses| crate::butchery::last_wear(s, u.item, uses));
+    if let Some(uses) = wears.filter(|_| !last) {
+        crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, uses);
+    }
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
     crate::death_spawn::used(s, net, world, &t.props, clock);
     crate::placing::used(s, net, world, &t.props, clock);
-    // An item a row says wears (a forager's food) wears with each use, and goes at its last.
-    if let Some(uses) = s.item_rows.wears(template) {
+    if let Some(uses) = wears.filter(|_| last) {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, uses);
     }
     crate::world::keep_player(s, world);

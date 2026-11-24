@@ -9123,6 +9123,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.a-wear-before-the-answer",
+        says: "An item that wears with each use tells its wear before the use's answer; the use that \
+               wears it out is answered first, then the item is destroyed through overuse.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WEAR-BEFORE-ANSWER"),
+        station: "yalain-testkit::cpu::play::items::a_foods_wear_comes_before_its_answer_and_its_last_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.an-effect-on-an-item-is-kept",
         says: "An effect a skill put on an item is kept with the item across a logout, on its own time.",
         since: TOOLING,

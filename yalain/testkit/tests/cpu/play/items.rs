@@ -1365,6 +1365,58 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
     assert!(held(&h, world, FOOD).is_none(), "destroyed through overuse");
 }
 
+/// A forager's food tells each wear before its use's answer, and its last use, which wears it out,
+/// answers first: then "destroyed through overuse" and the food taken away (2017: 47 of 47 wears
+/// told before the answer, 12 of 12 last wears' removals after it).
+/// Behaviour: server.items.a-wear-before-the-answer
+#[test]
+fn a_foods_wear_comes_before_its_answer_and_its_last_after() {
+    use yalain_testkit::FOOD;
+    use yalain_world::butchery::wear;
+    let mut h = world();
+    template(&mut h, FOOD, Props::default());
+    let (b, me, world) = in_world(&mut h);
+    let food = give(&mut h, world, FOOD, 1);
+    let mut orders = Vec::new();
+    for _ in 0..5 {
+        let from = send_use(&mut h, b, me, food, 5.0);
+        let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| r.world)
+            .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+            .collect();
+        sent.sort_by_key(|(n, _)| *n);
+        let order: Vec<&str> = sent
+            .iter()
+            .filter_map(|(_, m)| match m {
+                ServerMessage::UpdateIntVisual(q)
+                    if q.object.id == food && q.quality == wear::DURABILITY =>
+                {
+                    Some("wear")
+                }
+                ServerMessage::PlayerCall(c) if c.function.0 == USE_DONE => Some("answer"),
+                ServerMessage::PlayerCall(c)
+                    if c.function.0 == yalain_world::inventory::function::DISCRETE_DESTROY =>
+                {
+                    Some("gone")
+                }
+                ServerMessage::PlayerCall(c)
+                    if c.function.0 == yalain_world::session::function::SHOW_TEXT =>
+                {
+                    Some("text")
+                }
+                _ => None,
+            })
+            .collect();
+        orders.push(order);
+    }
+    for (i, order) in orders.iter().take(4).enumerate() {
+        assert_eq!(order, &["wear", "answer"], "use {}", i + 1);
+    }
+    assert_eq!(orders[4], ["answer", "text", "gone"], "its last use");
+    assert!(held(&h, world, FOOD).is_none(), "worn out");
+}
+
 /// A training hall's potion, whose template names no effect, is drunk as a potion is: the drink
 /// played, then at its end its one effect at the spellcraft of 1, the potion spent and "You drink
 /// {the} %1.".

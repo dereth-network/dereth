@@ -425,21 +425,11 @@ pub fn wear_tool<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     wear_tool_by(s, net, world, item, wear::CHANCE, 0);
 }
 
-/// An item the player holds is worn by a use at a chance: its durability falls by one (told the
-/// client), and at nothing it is destroyed through overuse. Its durability is its template's
-/// greatest, else `default` (none: it does not wear).
-pub fn wear_tool_by<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    item: u64,
-    chance: f32,
-    default: u32,
-) {
-    let Some(t) = s.things.get(item) else {
-        return;
-    };
-    let Some(most) = t
+/// What is left of an item's durability: its own, else its greatest (its made one, its template's,
+/// else `default`); none for an item that does not wear.
+fn durability_of<S: Store>(s: &Server<S>, item: u64, default: u32) -> Option<u32> {
+    let t = s.things.get(item)?;
+    let most = t
         .own
         .made
         .and_then(|m| m.durability)
@@ -451,11 +441,34 @@ pub fn wear_tool_by<S: Store>(
         })
         .and_then(|m| u32::try_from(m).ok())
         .or(Some(default))
-        .filter(|m| *m > 0)
-    else {
+        .filter(|m| *m > 0)?;
+    Some(t.durability.unwrap_or(most))
+}
+
+/// Would a wear take the last of an item's durability (see [`wear_tool_by`])?
+#[must_use]
+pub fn last_wear<S: Store>(s: &Server<S>, item: u64, default: u32) -> bool {
+    durability_of(s, item, default).is_some_and(|now| now <= 1)
+}
+
+/// An item the player holds is worn by a use at a chance: its durability falls by one (told the
+/// client), and at nothing it is destroyed through overuse. Its durability is its template's
+/// greatest, else `default` (none: it does not wear).
+pub fn wear_tool_by<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    chance: f32,
+    default: u32,
+) {
+    let Some(now) = durability_of(s, item, default) else {
         return;
     };
-    let (template, now, name) = (t.template, t.durability.unwrap_or(most), t.facts.name);
+    let Some(t) = s.things.get(item) else {
+        return;
+    };
+    let (template, name) = (t.template, t.facts.name);
     if chance < 1.0 && !s.rng.chance(chance) {
         return;
     }
