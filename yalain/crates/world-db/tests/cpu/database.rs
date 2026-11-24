@@ -8046,6 +8046,79 @@ fn packs_setting_different_fields_of_one_ai_class_merge_and_one_field_set_differ
     );
 }
 
+/// A behavior table's row may name the attack skills its creatures never use, alone or with
+/// whether they heal their kin; one pack's healers and another's skips for one table merge into one
+/// table holding both, the skips with the provenance of their own row; a row giving neither, or
+/// skips that are not a list of skills, is refused.
+#[test]
+fn a_behavior_tables_skips_read_and_merge_with_anothers_healing() {
+    let mut files = fixture();
+    let world = files["world.toml"].clone();
+    files.insert(
+        "world.toml".into(),
+        format!("{world}items = [\"camp beetles@77B7\"]\n"),
+    );
+    files.insert(
+        "town/server/creatures.toml".into(),
+        "[[npc_table]]\nname = \"NPCTable_BurunLeader\"\nheals_kin = true\nprov = { from = \"authored\", by = \"the healers\" }\n".into(),
+    );
+    files.insert(
+        "town-fixes/server/creatures.toml".into(),
+        "[[npc_table]]\nname = \"NPCTable_BurunLeader\"\nskips = [1845]\nprov = { from = \"authored\", by = \"the skips\" }\n\n\
+         [[npc_table]]\nname = \"NPCTable_Vermin\"\nskips = [1840, 1845]\nprov = { from = \"authored\", by = \"the skips\" }\n".into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let burun: Vec<&yalain_world_db::rows::NpcTable> = merged
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::NpcTable(r) if r.name == "NPCTable_BurunLeader" => Some(r),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(burun.len(), 1, "one table");
+    assert_eq!(
+        (burun[0].heals_kin, burun[0].skips.clone()),
+        (Some(true), Some(vec![1845]))
+    );
+    assert_eq!(burun[0].prov.by.as_deref(), Some("the healers"));
+    assert_eq!(
+        burun[0]
+            .prov
+            .fields
+            .get("skips")
+            .and_then(|p| p.by.as_deref()),
+        Some("the skips")
+    );
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let c = &t.creatures;
+    assert!(c.heals_kin(Some("NPCTable_BurunLeader")));
+    assert_eq!(c.skips(Some("NPCTable_BurunLeader")), [1845]);
+    assert_eq!(c.skips(Some("NPCTable_Vermin")), [1840, 1845]);
+    assert!(!c.heals_kin(Some("NPCTable_Vermin")));
+    assert!(c.skips(Some("NPCTable_Crone")).is_empty() && c.skips(None).is_empty());
+    for bad in [
+        "skips = []\nheals_kin = 1",
+        "skips = 1845",
+        "skips = [\"1845\"]",
+        "skips = [-1]",
+    ] {
+        let mut files = fixture();
+        files.insert(
+            "town/server/creatures.toml".into(),
+            format!("[[npc_table]]\nname = \"NPCTable_Vermin\"\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&files).is_err(), "{bad}");
+    }
+    let mut files = fixture();
+    files.insert(
+        "town/server/creatures.toml".into(),
+        "[[npc_table]]\nname = \"NPCTable_Vermin\"\nprov = { from = \"authored\" }\n".into(),
+    );
+    assert!(read(&files).is_err(), "neither");
+}
+
 /// A creature's row may say its creatures never play their victory: the template is kept; false, or
 /// anything not true or false, is refused, and a row giving only that is a row.
 #[test]

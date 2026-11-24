@@ -2312,7 +2312,11 @@ pub fn creature_strikes<S: Store>(
     if now < c.next_attack {
         return;
     }
-    let (basic, specials) = crate::missiles::attacks_of(&s.skill_table, &c.stats);
+    let (basic, specials) = crate::missiles::attacks_of(
+        &s.skill_table,
+        s.creature_rows.skips(c.stats.npc_table.as_deref()),
+        &c.stats,
+    );
     // In reach it draws among its melee and magic basic attacks: a bolt of magic is cast from
     // where it stands, a missile only from afar.
     let near: Vec<crate::missiles::AttackSkill> = basic
@@ -2672,7 +2676,11 @@ pub fn thing_strikes_thing<S: Store>(
         if now < c.next_attack {
             return;
         }
-        let (basic, _) = crate::missiles::attacks_of(&s.skill_table, &stats);
+        let (basic, _) = crate::missiles::attacks_of(
+            &s.skill_table,
+            s.creature_rows.skips(stats.npc_table.as_deref()),
+            &stats,
+        );
         let melee: Vec<crate::missiles::AttackSkill> =
             basic.into_iter().filter(|a| !a.missile).collect();
         crate::missiles::pick_basic(s, &stats, &melee)

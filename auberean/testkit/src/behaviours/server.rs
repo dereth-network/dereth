@@ -4289,6 +4289,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.npc-table-skips",
+        says: "A creature never uses the attack skills its behavior table skips (the world's rows): \
+               one whose table skips its basic missile never shoots, even from afar, and one whose \
+               table skips a basic strike uses only its others.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NPC-TABLE-SKIPS"),
+        station: "yalain-testkit::cpu::play::missiles::a_creature_whose_table_skips_its_missile_never_shoots_even_from_afar",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.only-the-hated",
         says: "A creature whose row says it takes on only the players it hates takes on a player a \
                concealing effect makes it hate, and no other: not one that strikes it, not one a \

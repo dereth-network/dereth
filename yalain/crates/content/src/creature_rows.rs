@@ -127,6 +127,8 @@ pub struct CreatureRows {
     pub concealing: BTreeMap<(u32, Option<u32>), Regard>,
     /// Whether creatures of a behavior table heal their kin, by the table's name.
     pub heals_kin: BTreeMap<String, bool>,
+    /// The attack skills creatures of a behavior table never use, by the table's name.
+    pub skips: BTreeMap<String, Vec<u32>>,
     /// Whether creatures of a friend table may attack a player first, by the table.
     pub attacks_first: BTreeMap<u32, bool>,
     /// The shooting rhythms of creatures' templates.
@@ -232,6 +234,14 @@ impl CreatureRows {
     #[must_use]
     pub fn heals_kin(&self, table: Option<&str>) -> bool {
         table.is_some_and(|t| self.heals_kin.get(t) == Some(&true))
+    }
+
+    /// The attack skills creatures of a behavior table never use.
+    #[must_use]
+    pub fn skips(&self, table: Option<&str>) -> &[u32] {
+        table
+            .and_then(|t| self.skips.get(t))
+            .map_or(&[], Vec::as_slice)
     }
 
     /// Whether creatures of a friend table may attack a player first.

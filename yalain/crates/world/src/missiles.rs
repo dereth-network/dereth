@@ -6,9 +6,11 @@
 //! it plays on another, whether it throws a missile (a hook naming one: a missile or a bolt of
 //! magic, which arrives and is told by its target) or strikes where it stands, its kind by its
 //! name's family, the damage its hook adds at the creature's rating in it, its greatest range, and
-//! whether a use bars it for a while. Those marked as the template's basic attacks it uses at will;
-//! its other attack skills are its specials; skills it uses on itself or its friends (heals, buffs)
-//! are not attacks. A creature with a basic missile attack chooses how it fights as it engages:
+//! whether a use bars it for a while. It has none of those its behavior table never uses (the
+//! world's rows: 2017's darkenfowl never shot, 0 of 308 attacks; the common vermin never cast their
+//! bolt nor struck their plain strike, 0 of 319). Those marked as the template's basic attacks it
+//! uses at will; its other attack skills are its specials; skills it uses on itself or its friends
+//! (heals, buffs) are not attacks. A creature with a basic missile attack chooses how it fights as it engages:
 //! from 15 m or more it shoots; nearer, it picks one of its basic attacks at random, and a missile
 //! means it shoots this fight, a melee attack that it closes in (2017: 3 of 141 fights mixed the
 //! two).
@@ -337,15 +339,17 @@ pub fn effects_add<S: Store>(s: &Server<S>, id: u64) -> f32 {
     crate::effects::creature_modifier(s, id, crate::effects::DAMAGE_ADD).0
 }
 
-/// A creature's attack skills: its basic attacks and its specials.
+/// A creature's attack skills: its basic attacks and its specials, less those its behavior table
+/// never uses (`skips`, the world's rows).
 #[must_use]
 pub fn attacks_of(
     table: &crate::skills::SkillTable,
+    skips: &[u32],
     stats: &CreatureStats,
 ) -> (Vec<AttackSkill>, Vec<AttackSkill>) {
     let mut basic = Vec::new();
     let mut special = Vec::new();
-    for (skill, rating) in &stats.skills {
+    for (skill, rating) in stats.skills.iter().filter(|(k, _)| !skips.contains(k)) {
         if let Some(a) = attack_skill(table, *skill, *rating) {
             if stats.basic.contains(skill) {
                 basic.push(a);
@@ -503,7 +507,11 @@ pub struct Flight {
 
 /// A creature engages a player at a distance: does it shoot this fight?
 pub fn chooses_to_shoot<S: Store>(s: &mut Server<S>, stats: &CreatureStats, distance: f32) -> bool {
-    let (basic, _) = attacks_of(&s.skill_table, stats);
+    let (basic, _) = attacks_of(
+        &s.skill_table,
+        s.creature_rows.skips(stats.npc_table.as_deref()),
+        stats,
+    );
     if !basic.iter().any(|a| a.missile) {
         return false;
     }
@@ -529,7 +537,11 @@ pub fn shoot<S: Store>(
     }
     let template = t.template;
     let at = t.at;
-    let (basic, specials) = attacks_of(&s.skill_table, &c.stats);
+    let (basic, specials) = attacks_of(
+        &s.skill_table,
+        s.creature_rows.skips(c.stats.npc_table.as_deref()),
+        &c.stats,
+    );
     let missiles: Vec<AttackSkill> = basic.into_iter().filter(|a| a.missile).collect();
     let distance = s
         .players

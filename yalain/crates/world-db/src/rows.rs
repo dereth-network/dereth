@@ -831,11 +831,12 @@ pub struct Concealing {
 }
 
 /// `[[npc_table]]`: what the world says of the creatures of a behavior table, by its name: whether
-/// they heal their kin.
+/// they heal their kin, and the attack skills they never use. A row gives at least one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NpcTable {
     pub name: String,
-    pub heals_kin: bool,
+    pub heals_kin: Option<bool>,
+    pub skips: Option<Vec<u32>>,
     pub prov: Prov,
 }
 
@@ -2490,7 +2491,7 @@ pub const FIELDS: &[(&str, &[&str])] = &[
         &["key", "recipe", "items", "product", "count", "prov"],
     ),
     ("concealing", &["effect", "class", "regard", "prov"]),
-    ("npc_table", &["name", "heals_kin", "prov"]),
+    ("npc_table", &["name", "heals_kin", "skips", "prov"]),
     (
         "friend_table",
         &["table", "attacks_first", "fights", "prov"],
@@ -4680,12 +4681,26 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "npc_table" => {
             let name = f.req_ident("name")?;
             let heals_kin = match f.t.get("heals_kin") {
-                Some(_) => f.bool("heals_kin")?,
-                None => return f.missing("heals_kin"),
+                Some(_) => Some(f.bool("heals_kin")?),
+                None => None,
             };
+            let skips = match f.t.get("skips") {
+                Some(_) => Some(f.typed("skips", "a list of skills (whole numbers)", |v| {
+                    v.as_array()?.iter().map(as_u32).collect::<Option<Vec<_>>>()
+                })?),
+                None => None,
+            };
+            if heals_kin.is_none() && skips.is_none() {
+                f.bad(
+                    "heals_kin, skips",
+                    "a behavior table's row gives heals_kin or the skills it skips",
+                );
+                return None;
+            }
             Row::NpcTable(NpcTable {
                 name,
                 heals_kin,
+                skips,
                 prov: f.req_prov()?,
             })
         }

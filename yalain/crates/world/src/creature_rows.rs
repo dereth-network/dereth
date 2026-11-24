@@ -17,7 +17,10 @@ pub const OTHER_SHOOTERS: Rhythm = Rhythm {
 pub fn kinds_missing(rows: &CreatureRows) -> Vec<&'static str> {
     [
         ("concealing", rows.concealing.is_empty()),
-        ("npc_table", rows.heals_kin.is_empty()),
+        (
+            "npc_table",
+            rows.heals_kin.is_empty() && rows.skips.is_empty(),
+        ),
         (
             "friend_table",
             rows.attacks_first.is_empty() && rows.fights.is_empty(),
@@ -38,13 +41,19 @@ fn no_creature_rows(rows: &CreatureRows) -> bool {
         && rows.no_victory.is_empty()
 }
 
-/// The fields of `[[friend_table]]` and `[[creature]]` no row of a world that has some of that
-/// kind names.
+/// The fields of `[[npc_table]]`, `[[friend_table]]` and `[[creature]]` no row of a world that has
+/// some of that kind names.
 #[must_use]
 pub fn fields_missing(rows: &CreatureRows) -> Vec<&'static str> {
     let tables = !rows.attacks_first.is_empty() || !rows.fights.is_empty();
+    let npc_tables = !rows.heals_kin.is_empty() || !rows.skips.is_empty();
     let creatures = !no_creature_rows(rows);
     [
+        (
+            "[[npc_table]] heals_kin",
+            npc_tables && rows.heals_kin.is_empty(),
+        ),
+        ("[[npc_table]] skips", npc_tables && rows.skips.is_empty()),
         ("[[friend_table]] fights", tables && rows.fights.is_empty()),
         (
             "[[creature]] shot_gap",

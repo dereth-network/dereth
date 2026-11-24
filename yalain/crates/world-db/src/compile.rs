@@ -1727,7 +1727,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 t.creatures.concealing.insert((r.effect, r.class), r.regard);
             }
             Row::NpcTable(r) => {
-                t.creatures.heals_kin.insert(r.name.clone(), r.heals_kin);
+                if let Some(heals) = r.heals_kin {
+                    t.creatures.heals_kin.insert(r.name.clone(), heals);
+                }
+                if let Some(skips) = &r.skips {
+                    t.creatures.skips.insert(r.name.clone(), skips.clone());
+                }
             }
             Row::FriendTable(r) => {
                 if let Some(first) = r.attacks_first {

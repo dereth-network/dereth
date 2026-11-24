@@ -2313,6 +2313,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         .into_iter()
         .map(|n| (n.to_string(), true))
         .collect(),
+        skips: std::collections::BTreeMap::new(),
         attacks_first: [0x18, 0x0E, 0x23, 0x38, 0x35]
             .into_iter()
             .map(|t| (t, false))

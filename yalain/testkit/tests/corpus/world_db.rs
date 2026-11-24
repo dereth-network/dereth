@@ -6416,7 +6416,8 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
 /// legion's strike's own rows (the friend tables that fight others, the pillar players may not
 /// harm) are its walk's to hold, and the safe passages, the effects creatures hold from their
 /// first moment and the shrine guardians' kingdom for a while their walks'; the rabbits' victory
-/// and the classes' idle gaps and idles on noticing are their own rows' to check.
+/// and the classes' idle gaps and idles on noticing are their own rows' to check, and the behavior
+/// tables' skipped attacks their pack's.
 /// Behaviour: server.creatures.behavior-rows-as-2017
 #[test]
 fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
@@ -6433,6 +6434,9 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     rows.notice_idle.clear();
     rows.special_weights.clear();
     rows.special_terms.clear();
+    // The behavior tables' skipped attacks are not checked here until the world release that carries
+    // them is the one this test reads.
+    rows.skips.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =

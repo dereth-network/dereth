@@ -19,6 +19,7 @@ what they see, not how it was done.
 - Corpses now play their opening before showing what they hold, as in retail.
 - Skills being untrained can no longer be used.
 - People who send you somewhere no longer show a portal's flash.
+- Darkenfowl and common vermin no longer shoot.
 
 ## 0.8.1 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.

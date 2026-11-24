@@ -16,6 +16,8 @@ const POISON: u32 = 1863;
 /// The plain strike and a bolt of magic, as basic attacks of a creature that also strikes.
 const STRIKE: u32 = 1845;
 const BOLT: u32 = 1840;
+/// The `Strong` strike.
+const STRONG: u32 = 1846;
 /// A double throw.
 const TWICE: u32 = 1792;
 
@@ -647,9 +649,25 @@ fn attacks_in_reach(skills: &[(u32, bool)]) -> Vec<(u32, bool)> {
 /// The basic attacks a creature `distance` meters from a player who stands used over a while:
 /// each one's skill, and whether it threw a missile at the player.
 fn attacks_from(distance: f32, skills: &[(u32, bool)]) -> Vec<(u32, bool)> {
+    attacks_skipping(distance, skills, &[])
+}
+
+/// As [`attacks_from`], the creature of a behavior table whose creatures never use `skips` (none:
+/// of no table).
+fn attacks_skipping(distance: f32, skills: &[(u32, bool)], skips: &[u32]) -> Vec<(u32, bool)> {
     let mut h = Harness::new();
     h.server.skill_table.skills.insert(BOLT, bolt());
     creature_at(&mut h, distance, skills);
+    if !skips.is_empty() {
+        if let Some(t) = h.server.catalog.templates.get_mut(&SHOOTER) {
+            t.props
+                .set("AI_NPCTable", Prop::Text("NPCTable_Skipping".into()));
+        }
+        h.server
+            .creature_rows
+            .skips
+            .insert("NPCTable_Skipping".into(), skips.to_vec());
+    }
     let (b, me) = h.player_in_world("one", "Elara");
     let world = *h
         .server
@@ -737,6 +755,44 @@ fn a_shooter_shoots_a_player_beyond_its_melee_reach() {
     assert!(
         used.iter().all(|k| *k == (MISSILE, true)),
         "it only shoots: {used:?}"
+    );
+}
+
+/// A creature whose behavior table never uses its basic missile never shoots, even at a player 20 m
+/// off: it closes in and strikes; the same creature of no such table shoots from there.
+/// Behaviour: server.creatures.npc-table-skips
+#[test]
+fn a_creature_whose_table_skips_its_missile_never_shoots_even_from_afar() {
+    let skills = [(STRIKE, true), (MISSILE, true)];
+    let used = attacks_skipping(20.0, &skills, &[MISSILE]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.iter().all(|k| *k == (STRIKE, false)),
+        "it only strikes: {used:?}"
+    );
+    let used = attacks_from(20.0, &skills);
+    assert!(
+        used.contains(&(MISSILE, true)),
+        "of no such table it shoots: {used:?}"
+    );
+}
+
+/// A creature whose behavior table never uses one of its basic strikes uses only its others; the
+/// same creature of no such table uses both.
+/// Behaviour: server.creatures.npc-table-skips
+#[test]
+fn a_creature_whose_table_skips_a_basic_strike_never_uses_it() {
+    let skills = [(STRIKE, true), (STRONG, true)];
+    let used = attacks_skipping(0.5, &skills, &[STRIKE]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.iter().all(|k| *k == (STRONG, false)),
+        "only the strike it keeps: {used:?}"
+    );
+    let used = attacks_in_reach(&skills);
+    assert!(
+        used.contains(&(STRIKE, false)) && used.contains(&(STRONG, false)),
+        "of no such table both: {used:?}"
     );
 }
 

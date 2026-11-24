@@ -1062,12 +1062,15 @@ What creatures make of the holder of a concealing effect. One row per effect and
 
 #### `[[npc_table]]`
 
-What the world says of the creatures of a behavior table.
+What the world says of the creatures of a behavior table. A row gives at least one of `heals_kin`
+and `skips`. Rows of one table in several packs merge field by field, each field keeping the
+provenance of the row it came from.
 
 | field | | meaning |
 |---|---|---|
 | `name` | required | the install's table, their `AI_NPCTable` |
-| `heals_kin` | required | true: a healer of the table heals its badly hurt kin as well as itself |
+| `heals_kin` | | true: a healer of the table heals its badly hurt kin as well as itself |
+| `skips` | | the attack skills (numbers) its creatures never use, though their templates hold them: a skipped basic missile never makes one shoot |
 | `prov` | required | where it came from |
 
 #### `[[friend_table]]`

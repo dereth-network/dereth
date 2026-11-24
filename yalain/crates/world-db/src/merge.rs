@@ -25,7 +25,7 @@ use dereth_pack::fold::{
 };
 use dereth_pack::Loc;
 
-use crate::rows::{AiClass, Database, Located, Prov, Row};
+use crate::rows::{AiClass, Database, Located, NpcTable, Prov, Row};
 use crate::Problem;
 
 /// The item a row sets, as the build's report, an override and a removal name it.
@@ -320,29 +320,38 @@ fn value(row: &Row) -> String {
     format!("{r:?}")
 }
 
-/// An AI class's rows, in load order, merged field by field: each field the packs settle among
-/// those that set it, with the provenance of the row it came from (the first row's own, another's
-/// as one of the row's fields). `None` where two packs set one field differently and the world
-/// doesn't say which wins (the conflict recorded, naming the field).
-fn ai_class_by_field(
+/// A field of a row merged field by field: its name, its value as the packs compare it, and how it
+/// is taken.
+type Field<T> = (&'static str, fn(&T) -> Option<String>, fn(&mut T, &T));
+
+/// What a kind of row merged field by field is: the row's own part, the row made of it, its
+/// provenance read and written.
+struct ByField<T> {
+    of: fn(&Row) -> Option<&T>,
+    row: fn(T) -> Row,
+    prov: fn(&T) -> &Prov,
+    prov_mut: fn(&mut T) -> &mut Prov,
+}
+
+/// An item's rows, in load order, merged field by field: each field the packs settle among those
+/// that set it, with the provenance of the row it came from (the first row's own, another's as one
+/// of the row's fields). `None` where two packs set one field differently and the world doesn't
+/// say which wins (the conflict recorded, naming the field).
+fn by_field<T: Clone>(
     overrides: &[conflict::Override],
     it: &conflict::Item,
     rows: &[&Located],
     settled: &mut Settled,
+    kind: &ByField<T>,
+    fields: &[Field<T>],
 ) -> Option<Located> {
-    let classes: Vec<&AiClass> = rows
-        .iter()
-        .filter_map(|l| match &l.row {
-            Row::AiClass(r) => Some(r),
-            _ => None,
-        })
-        .collect();
-    let mut out = classes[0].clone();
+    let parts: Vec<&T> = rows.iter().filter_map(|l| (kind.of)(&l.row)).collect();
+    let mut out = parts[0].clone();
     let before = settled.conflicts.len();
     // The row whose field stands, among those setting it.
-    let mut winner = |name: &str, value: &fn(&AiClass) -> Option<String>| -> Option<usize> {
-        let setters: Vec<usize> = (0..classes.len())
-            .filter(|i| value(classes[*i]).is_some())
+    let mut winner = |name: &str, value: &fn(&T) -> Option<String>| -> Option<usize> {
+        let setters: Vec<usize> = (0..parts.len())
+            .filter(|i| value(parts[*i]).is_some())
             .collect();
         let claims: Vec<Claim> = setters
             .iter()
@@ -351,7 +360,7 @@ fn ai_class_by_field(
                     &rows[i].pack,
                     &Loc::new(Path::new(&rows[i].file), rows[i].line),
                     format!("sets its {name}"),
-                    value(classes[i]).unwrap_or_default(),
+                    value(parts[i]).unwrap_or_default(),
                 )
             })
             .collect();
@@ -365,13 +374,50 @@ fn ai_class_by_field(
         }
         Some(setters[w])
     };
-    // Each field: its name, its value as the packs compare it, and how it is taken.
-    type Field = (
-        &'static str,
-        fn(&AiClass) -> Option<String>,
-        fn(&mut AiClass, &AiClass),
-    );
-    let fields: [Field; 3] = [
+    let won: Vec<Option<usize>> = fields
+        .iter()
+        .map(|(name, value, _)| winner(name, value))
+        .collect();
+    if settled.conflicts.len() > before {
+        return None;
+    }
+    for ((name, _, take), w) in fields.iter().zip(won) {
+        let Some(i) = w else { continue };
+        take(&mut out, parts[i]);
+        if i > 0 {
+            let theirs = (kind.prov)(parts[i]);
+            let p = theirs.fields.get(*name).cloned().unwrap_or_else(|| Prov {
+                fields: BTreeMap::new(),
+                ..theirs.clone()
+            });
+            (kind.prov_mut)(&mut out)
+                .fields
+                .insert((*name).to_string(), p);
+        }
+    }
+    Some(Located {
+        row: (kind.row)(out),
+        ..rows[0].clone()
+    })
+}
+
+/// An AI class's rows, merged field by field ([`by_field`]).
+fn ai_class_by_field(
+    overrides: &[conflict::Override],
+    it: &conflict::Item,
+    rows: &[&Located],
+    settled: &mut Settled,
+) -> Option<Located> {
+    let kind = ByField {
+        of: |r| match r {
+            Row::AiClass(c) => Some(c),
+            _ => None,
+        },
+        row: Row::AiClass,
+        prov: |c: &AiClass| &c.prov,
+        prov_mut: |c: &mut AiClass| &mut c.prov,
+    };
+    let fields: [Field<AiClass>; 3] = [
         (
             "idle_every",
             |r| r.idle_every.map(|v| format!("{v:?}")),
@@ -388,33 +434,38 @@ fn ai_class_by_field(
             |o, r| o.special_term = r.special_term,
         ),
     ];
-    let won: Vec<Option<usize>> = fields
-        .iter()
-        .map(|(name, value, _)| winner(name, value))
-        .collect();
-    if settled.conflicts.len() > before {
-        return None;
-    }
-    for ((name, _, take), w) in fields.iter().zip(won) {
-        let Some(i) = w else { continue };
-        take(&mut out, classes[i]);
-        if i > 0 {
-            let p = classes[i]
-                .prov
-                .fields
-                .get(*name)
-                .cloned()
-                .unwrap_or_else(|| Prov {
-                    fields: BTreeMap::new(),
-                    ..classes[i].prov.clone()
-                });
-            out.prov.fields.insert((*name).to_string(), p);
-        }
-    }
-    Some(Located {
-        row: Row::AiClass(out),
-        ..rows[0].clone()
-    })
+    by_field(overrides, it, rows, settled, &kind, &fields)
+}
+
+/// A behavior table's rows, merged field by field ([`by_field`]).
+fn npc_table_by_field(
+    overrides: &[conflict::Override],
+    it: &conflict::Item,
+    rows: &[&Located],
+    settled: &mut Settled,
+) -> Option<Located> {
+    let kind = ByField {
+        of: |r| match r {
+            Row::NpcTable(t) => Some(t),
+            _ => None,
+        },
+        row: Row::NpcTable,
+        prov: |t: &NpcTable| &t.prov,
+        prov_mut: |t: &mut NpcTable| &mut t.prov,
+    };
+    let fields: [Field<NpcTable>; 2] = [
+        (
+            "heals_kin",
+            |r| r.heals_kin.map(|v| format!("{v:?}")),
+            |o, r| o.heals_kin = r.heals_kin,
+        ),
+        (
+            "skips",
+            |r| r.skips.as_ref().map(|v| format!("{v:?}")),
+            |o, r| o.skips.clone_from(&r.skips),
+        ),
+    ];
+    by_field(overrides, it, rows, settled, &kind, &fields)
 }
 
 /// The id a database's own layer goes by in a fold.
@@ -541,6 +592,12 @@ pub fn merge(db: &Database) -> Result<Merged, Vec<Problem>> {
         let (it, rows) = &by_item[key];
         if matches!(rows[0].row, Row::AiClass(_)) {
             if let Some(l) = ai_class_by_field(&db.world.overrides, it, rows, &mut settled) {
+                chosen.insert(key.clone(), l);
+            }
+            continue;
+        }
+        if matches!(rows[0].row, Row::NpcTable(_)) {
+            if let Some(l) = npc_table_by_field(&db.world.overrides, it, rows, &mut settled) {
                 chosen.insert(key.clone(), l);
             }
             continue;

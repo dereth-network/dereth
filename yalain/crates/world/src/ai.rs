@@ -1527,7 +1527,11 @@ fn shoots_in_place<S: Store>(
     if clock.local.0 < c.next_attack {
         return;
     }
-    let (basic, special) = crate::missiles::attacks_of(&s.skill_table, &c.stats);
+    let (basic, special) = crate::missiles::attacks_of(
+        &s.skill_table,
+        s.creature_rows.skips(c.stats.npc_table.as_deref()),
+        &c.stats,
+    );
     let is_basic = |a: &crate::missiles::AttackSkill| basic.iter().any(|b| b.skill == a.skill);
     let Some(a) = basic.iter().chain(&special).find(|a| a.missile).copied() else {
         return;
@@ -1561,7 +1565,11 @@ fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, cloc
                 && c.mode == Mode::Idle
                 && d <= TURRETS_ROUSED_WITHIN)
                 .then(|| {
-                    let (basic, special) = crate::missiles::attacks_of(&s.skill_table, &c.stats);
+                    let (basic, special) = crate::missiles::attacks_of(
+                        &s.skill_table,
+                        s.creature_rows.skips(c.stats.npc_table.as_deref()),
+                        &c.stats,
+                    );
                     let reach = basic
                         .iter()
                         .chain(&special)
