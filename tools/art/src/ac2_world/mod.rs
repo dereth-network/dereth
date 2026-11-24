@@ -21,7 +21,9 @@
 //!   unless `--sky ac1`, AC2's sky as the region's sky, its models among the new records, with
 //!   the world's sky tints beside the region (`0x13000001`), which color it by the hour
 //!   ([`sky`]); and AC1's character-creation table (`0x0E000002`) with the world's one starting
-//!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]);
+//!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]), or
+//!   near the point a world's own `start.toml` gives (`--start FILE`, a world repository's
+//!   `land/start.toml`);
 //! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's land lies
 //!   over AC1's dungeons; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
@@ -173,6 +175,9 @@ pub struct Args {
     pub vaults: Option<PathBuf>,
     /// The world's own placements (`--placements`), written beside the rules.
     pub placements: Option<PathBuf>,
+    /// Where new characters start (`--start`, a `start.toml`): a world's own, else the tool's
+    /// ([`start::START_TOML`]).
+    pub start: Option<PathBuf>,
     /// Whether AC2's frills (its grass and small plants, drawn only near the viewer in AC2) are
     /// grown with its cover ([`grown`]); on unless asked.
     pub frills: bool,
@@ -190,7 +195,7 @@ pub struct Args {
 }
 
 /// The usage line of `dereth-art ac2-world`.
-pub const USAGE: &str = "dereth-art ac2-world --ac1 DIR --ac2 DIR --out DIR [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--ledger FILE] [--any-install]";
+pub const USAGE: &str = "dereth-art ac2-world --ac1 DIR --ac2 DIR --out DIR [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--start FILE] [--ledger FILE] [--any-install]";
 
 impl Args {
     /// The arguments after `ac2-world`.
@@ -203,6 +208,7 @@ impl Args {
         let mut names = true;
         let mut vaults = None;
         let mut placements = None;
+        let mut start = None;
         let mut frills = true;
         let (mut sky, mut sky_day) = (true, None);
         let mut ledger = None;
@@ -235,6 +241,7 @@ impl Args {
                 }
                 "--vaults" => vaults = Some(PathBuf::from(v)),
                 "--placements" => placements = Some(PathBuf::from(v)),
+                "--start" => start = Some(PathBuf::from(v)),
                 "--ledger" => ledger = Some(PathBuf::from(v)),
                 "--levels" => {
                     levels = v
@@ -257,6 +264,7 @@ impl Args {
             names,
             vaults,
             placements,
+            start,
             frills,
             sky,
             sky_day,
@@ -1301,7 +1309,13 @@ pub fn build(args: &Args) -> Result<(), String> {
         .map(|(id, b)| (id.raw(), b.as_slice()))
         .collect();
     let mut blocks = std::collections::HashMap::new();
-    let start_at = start::nearest_dry(start::start_point(), |cell, local| {
+    let start_point = match &args.start {
+        Some(p) => start::parse_start(
+            &std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?,
+        )?,
+        None => start::start_point(),
+    };
+    let start_at = start::nearest_dry(start_point, |cell, local| {
         let id = cell.0 | 0xFFFF;
         let block = blocks.entry(id).or_insert_with(|| {
             let lb = CellLandblock::decode_payload(DataId(id), block_records.get(&id)?).ok()?;
@@ -1327,8 +1341,8 @@ pub fn build(args: &Args) -> Result<(), String> {
         start_at.frame.origin.x,
         start_at.frame.origin.y,
         start_at.frame.origin.z,
-        start::start_point().0,
-        start::start_point().1,
+        start_point.0,
+        start_point.1,
         start::ABOVE_GROUND,
     );
     eprintln!("{start_line}");
@@ -2240,7 +2254,8 @@ mod tests {
     //! Behaviour: none (tooling: the AC2 world's build)
 
     /// The installs' files are held to the expected ones unless `--any-install` says otherwise;
-    /// the ledger goes beside the overlay folder unless named.
+    /// the ledger goes beside the overlay folder unless named; the start point is the tool's unless
+    /// a world names its own.
     #[test]
     fn any_install_is_asked_for_and_the_ledger_is_beside_the_overlay() {
         let args = |extra: &[&str]| {
@@ -2260,6 +2275,12 @@ mod tests {
             PathBuf::from("l.tsv")
         );
         assert!(args(&["--bogus", "x"]).is_err());
+        // The start point is the tool's own unless a world gives its own file.
+        assert_eq!(plain.start, None);
+        assert_eq!(
+            args(&["--start", "land/start.toml"]).expect("reads").start,
+            Some(PathBuf::from("land/start.toml"))
+        );
     }
     use crate::ac2_world::*;
 
