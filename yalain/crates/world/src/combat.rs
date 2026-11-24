@@ -196,8 +196,11 @@ pub const CREATURE_TIME_SCALE: f32 = 1.296;
 /// most 3.2).
 pub const PLAYER_REACH: f32 = 3.2;
 
-/// When a player's first swing comes after it asks to attack, in seconds.
-pub const FIRST_SWING: f64 = 0.23;
+/// When a player's first swing comes after it is answered that it is attacking, in seconds; the same
+/// for every weapon and attack speed (2017: a mean 0.127 s over 2,039 runs that needed no walk, the
+/// swing in one of the next few ticks). A swing owed from before that came due no longer ago than
+/// this is still owed.
+pub const FIRST_SWING: f64 = 0.13;
 
 /// What a player may ask to attack ahead of its next swing's time, and still swing as soon as it
 /// asks: so many at once, then so many a second. Asking does not lose a swing or put it off. 2017's

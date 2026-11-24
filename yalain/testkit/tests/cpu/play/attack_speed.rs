@@ -17,6 +17,7 @@ use yalain_world::timings::{lands as lands_at, unknown};
 const START_ATTACK: u32 = 0x8204_0008;
 /// The human starting sword.
 const STARTER_SWORD: u32 = 0x4700_051C;
+const BOW: u32 = 0x4700_051B;
 /// The class of the effects that quicken attacks, and one of no competition with it.
 const QUICKENING: u32 = 27;
 const OTHER_CLASS: u32 = 4129;
@@ -603,6 +604,78 @@ fn asking_to_attack_again_and_again_neither_quickens_swings_nor_loses_them() {
     }
 }
 
+/// Did the client hear since `from` that its player is attacking?
+fn told_attacking(h: &Harness, b: usize, from: usize) -> bool {
+    h.world_messages(b, from).iter().any(|m| match m {
+        ServerMessage::PlayerCall(c) if c.function.0 == combat::function::ATTACK_STATE => c
+            .args
+            .as_ref()
+            .and_then(|a| yalain_world::calls::values(&a.0).ok())
+            .is_some_and(|v| v.first() == Some(&yalain_world::calls::Value::Int(1))),
+        _ => false,
+    })
+}
+
+/// A fresh run at `target`: how long after its answer that the player is attacking its first swing
+/// is told, the world stepped a hundredth of a second at a time.
+fn first_swing_after_the_answer(h: &mut Harness, b: usize, me: u64, target: u64) -> f64 {
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(target)]),
+    );
+    let mut answered = None;
+    for _ in 0..300 {
+        h.step_by(0.01);
+        if answered.is_none() && told_attacking(h, b, from) {
+            answered = Some(h.now.0);
+        }
+        if let Some(at) = answered {
+            if !stories(h, b, from, me).is_empty() {
+                return h.now.0 - at;
+            }
+        }
+    }
+    panic!("no first swing (answered: {answered:?})");
+}
+
+/// A run's first swing, a strike in reach or a bow's shot from afar, comes about an eighth of a
+/// second after the run is answered (2017: a mean 0.137 s for 354 strikes and 0.125 s for 1,685
+/// shots, whatever the weapon's skill or time scale).
+/// Behaviour: server.combat.first-swing-after-the-answer
+#[test]
+fn a_runs_first_swing_comes_an_eighth_of_a_second_after_its_answer() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let strike = first_swing_after_the_answer(&mut h, b, me, beetle);
+    assert!(
+        (0.10..=0.16).contains(&strike),
+        "a strike {strike:.3} s after"
+    );
+    let (mut h, b, me, beetle) = with_a_sword();
+    h.arm(b, me, BOW);
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        let mut place = at;
+        place.origin[0] += 10.0;
+        t.at = Some(place);
+    }
+    let from = h.bots[b].inbox.len();
+    let shot = first_swing_after_the_answer(&mut h, b, me, beetle);
+    assert!((0.10..=0.16).contains(&shot), "a shot {shot:.3} s after");
+    let thrown = stories(&h, b, from, me)
+        .first()
+        .is_some_and(|s| s.hooks.iter().any(|k| k.bits & 0xF == 3));
+    assert!(thrown, "the bow shoots from afar");
+}
+
 /// A change of target soon after a swing swings a moment after it is asked (2017: 0.05 to 0.42 s, 36
 /// of 36 asks within 0.9 s of a swing), and asked with the next swing nearer than that, keeps its time.
 /// Behaviour: server.combat.a-change-of-target-swings-as-it-is-asked
@@ -640,7 +713,7 @@ fn asking_soon_after_a_swing_swings_a_moment_later_and_a_nearer_swing_keeps_its_
         h.step();
     }
     let natural = ready(&h);
-    while natural - h.now.0 > combat::FIRST_SWING - 0.05 {
+    while natural - h.now.0 > combat::FIRST_SWING - 0.01 {
         h.step();
     }
     h.bots[b].send(

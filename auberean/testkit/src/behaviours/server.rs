@@ -1707,6 +1707,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.first-swing-after-the-answer",
+        says: "A run's first swing comes about an eighth of a second after the run is answered \
+               that the player is attacking, whatever the weapon or its speed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FIRST-SWING"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_runs_first_swing_comes_an_eighth_of_a_second_after_its_answer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.landing-chance",
         says: "Whether an attack lands goes by its user's accuracy against its target's evasion: \
                the chance's log-odds are 0.0043 a point of accuracy over evasion, so half at equal \

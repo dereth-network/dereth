@@ -127,8 +127,9 @@ fn a_bow_shoots_from_afar_and_its_target_tells_each_arrival() {
         .count();
     let swings = stories(&h, b, from, me);
     assert!(swings.len() >= 2, "{} swings", swings.len());
+    // The start's turn is the first swing's; a turn for a swing still to come may be told already.
     assert!(
-        turns > swings.len(),
+        turns >= swings.len(),
         "turned at the start and before each swing"
     );
     for s in &swings {
@@ -324,7 +325,11 @@ fn a_sword_run_out_of_reach_is_ordered_once_and_told_nothing_until_it_arrives() 
             at.origin[0] -= 23.0;
         }
     }
-    h.run(3);
+    // A walking run looks whether it has arrived each world step.
+    assert!(
+        h.run_until(10, |h| !stories(h, b, from, me).is_empty()),
+        "it swings once it has arrived"
+    );
     assert_eq!(
         orders(&h, from),
         1,
