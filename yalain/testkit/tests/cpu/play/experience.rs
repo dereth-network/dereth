@@ -320,6 +320,7 @@ fn a_pets_skill_and_a_basic_attack_count_at_a_draw_by_their_points() {
             index: 0,
             thrown: false,
             anim_hook: 1,
+            aimed: None,
         },
         clock,
     );

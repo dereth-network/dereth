@@ -395,6 +395,7 @@ fn a_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
         index: 0,
         thrown: false,
         anim_hook: 1,
+        aimed: None,
     };
     let health = health_of(&h, idb);
     let clock = h.clock();

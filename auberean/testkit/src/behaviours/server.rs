@@ -1810,6 +1810,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.thrown-misses-by-moved",
+        says: "A player's arrow or bolt that would land on a target that has moved more than a \
+               meter since the throw is often missed, an arrow more often than a bolt; on a \
+               target where it was aimed it misses only by its share for a target that stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-THROWN-MISSES-MOVED"),
+        station: "yalain-testkit::cpu::play::thrown_misses::an_arrow_that_would_land_on_a_moved_creature_is_often_missed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.weapon-hit-effects-on-what-they-hit",
         says: "What a weapon's template names for what it hits goes on what its wielder's blows \
                land on, at the template's spellcraft, by the effect's own chance at it: a \
@@ -4136,21 +4146,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.missile-misses-by-moved",
+        says: "A creature's missile misses outright at one share when its target stood and a \
+               larger one when the target has moved more than a meter since it was loosed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MISSILE-MISSES-MOVED"),
+        station: "yalain-testkit::cpu::play::rules::a_creatures_missile_misses_by_whether_its_target_moved_at_2017s_shares",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.missiles-arrive-after-flight",
         says: "A creature's missile arrives after the creature's windup and its flight at 35 \
                m/s.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MISSILE-FLIGHT"),
         station: "yalain-testkit::cpu::play::missiles::a_missile_arrives_after_the_windup_and_its_flight",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.creatures.missiles-health-before-the-story",
-        says: "A missile's hit sends the player's lowered health just before the story of its \
-               arrival.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-MISSILE-HEALTH"),
-        station: "yalain-testkit::cpu::play::missiles::a_missiles_hit_sends_the_players_health_before_the_story",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4162,6 +4172,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MISSILES"),
         station: "yalain-testkit::cpu::play::missiles::a_creature_with_missiles_stands_and_shoots_and_its_target_tells_each_arrival",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.missiles-story-then-the-health",
+        says: "A missile's hit is told by the player's story of its arrival, then the player's \
+               lowered health, in the order sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MISSILE-STORY-THEN-HEALTH"),
+        station: "yalain-testkit::cpu::play::missiles::a_missiles_hit_sends_its_story_then_the_players_health",
         tier: Tier::Cpu,
     },
     behaviour! {

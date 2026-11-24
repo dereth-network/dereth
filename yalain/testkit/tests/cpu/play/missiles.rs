@@ -402,30 +402,34 @@ fn a_missile_arrives_after_the_windup_and_its_flight() {
     assert!((0.8..=1.5).contains(&flight), "flight {flight} s");
 }
 
-/// A hit lowers the player's health, sent before the story of the arrival.
-/// Behaviour: server.creatures.missiles-health-before-the-story
+/// A hit is told by the player's story of the arrival, then its lowered health, in the order sent
+/// (2017: 9,851 of 9,944 creatures' missile hits).
+/// Behaviour: server.creatures.missiles-story-then-the-health
 #[test]
-fn a_missiles_hit_sends_the_players_health_before_the_story() {
+fn a_missiles_hit_sends_its_story_then_the_players_health() {
     let mut h = Harness::new();
     shooter_at(&mut h, 22.0, false);
     let (b, me) = h.player_in_world("one", "Elara");
     scene_drawn(&mut h, b);
     let from = h.bots[b].inbox.len();
-    h.run(400);
-    let msgs = h.world_messages(b, from);
-    let hit = msgs.iter().position(|m| {
+    let hit = |m: &ServerMessage| {
         matches!(m, ServerMessage::DoStory(e) if e.sender.id == me
             && e.action.hooks.first().is_some_and(|k| k.bits == 0xB81))
-    });
-    let hit = hit.expect("a missile hits within the run");
-    let health_before = msgs[..hit]
-        .iter()
-        .rev()
-        .take(3)
-        .any(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == 258));
+    };
     assert!(
-        health_before,
-        "the health comes just before the hit's story"
+        h.run_until(400, |h| h.world_messages(b, from).iter().any(hit)),
+        "a missile hits within the run"
+    );
+    h.run(4);
+    let sent = h.sent_messages(b, from);
+    let story = sent.iter().position(hit).expect("the hit's story");
+    let health = sent
+        .iter()
+        .position(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == 258))
+        .expect("the health");
+    assert!(
+        story < health && health - story <= 3,
+        "the story at {story}, the health at {health}"
     );
 }
 

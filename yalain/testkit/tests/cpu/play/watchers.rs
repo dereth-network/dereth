@@ -673,6 +673,7 @@ fn a_thrown_attack_is_answered_as_it_arrives() {
         index: 0,
         thrown: true,
         anim_hook: 1,
+        aimed: None,
     };
     yalain_world::combat::lands(&mut h.server, &mut h.net, thrown, clock);
     h.run(2);

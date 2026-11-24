@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Heals at full health now show the amount healed.
 - Creatures with a double throw now throw both missiles, as in retail.
+- Missiles and arrows now miss moving targets more often, as in retail.
 - Logging off now closes an open trade at once.
 - Your fellows now see your new level as soon as you reach it.
 - Recipes now remember the spinner you last made them at.

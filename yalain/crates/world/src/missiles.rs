@@ -21,9 +21,10 @@
 //! shot is a story from the creature (its behavior and time scale, the skill, the missile's hook
 //! naming the target); no missile object is made. The missile arrives after the creature's windup
 //! and its flight at 35 m/s, and the target tells the outcome: a story from the target with the
-//! hit, the evade or the miss, its health first when it is hurt. A target that has moved since the
-//! shot is often missed, and one that has gone out of sight of where the missile was loosed from
-//! (behind a wall, a rock or a closed door) always is: the missile meets what stands between them.
+//! hit, the evade or the miss, then its health when it is hurt (2017: 9,851 of 9,944 hits, in the
+//! order sent). A target that has moved since the shot is more often missed, and one that has gone
+//! out of sight of where the missile was loosed from (behind a wall, a rock or a closed door) always
+//! is: the missile meets what stands between them.
 //!
 //! **Specials.** At each attack, each special within its range, not barred and paid for has its
 //! own chance ([`special_weight`]): the special's weight, its chance at a generic monster's attack,
@@ -688,7 +689,7 @@ pub fn launch<S: Store>(
     }
 }
 
-/// A missile arrives: its target tells how it came out, its health first when it is hurt. A
+/// A missile arrives: its target tells how it came out, then each player it hurt its health. A
 /// special with an area reaches every other player and pet in it too, all told in the target's one
 /// story (2017: one arrival naming each target, each with its health change).
 pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, clock: Clock) {
@@ -712,7 +713,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
         return;
     }
     let moved = presence::distance(&f.from, &p.position).is_none_or(|d| d > MOVED);
-    let mut players = vec![lands_on_player(s, net, &f, &stats, world, moved)];
+    let mut players = vec![lands_on_player(s, &f, &stats, world, moved)];
     let (others, pets) = if f.special && f.skill.radius > 0.0 {
         area_victims(s, world, f.skill.radius)
     } else {
@@ -721,7 +722,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     players.extend(
         others
             .into_iter()
-            .map(|c| lands_on_player(s, net, &f, &stats, c, false)),
+            .map(|c| lands_on_player(s, &f, &stats, c, false)),
     );
     let pets: Vec<(u64, Outcome, crate::effects::Harm)> = pets
         .into_iter()
@@ -760,7 +761,8 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     ));
     to_all_seeing(s, net, f.target, &told);
     for l in players.into_iter().flatten() {
-        if let Some((share, was)) = l.hurt {
+        if l.outcome.landed() {
+            let (share, was) = combat::lose_health(s, net, l.world, l.harm.left);
             combat::wounded(s, net, l.character, share, was);
         }
         if l.outcome.landed() && f.skill.drains {
@@ -782,22 +784,19 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     }
 }
 
-/// How a creature's missile came out on one player it reached, its health taken already.
+/// How a creature's missile came out on one player it reached, its health still to be taken.
 struct Landing {
     world: ConnId,
     character: u64,
     outcome: Outcome,
     harm: crate::effects::Harm,
-    /// The player's share of health after and before, when it was hurt.
-    hurt: Option<(f32, f32)>,
 }
 
 /// A creature's missile reaches a player: rolled (`moved` when the player has left where it was
-/// aimed at), the damage through its armor and its effects, its health taken; none for a player
-/// not in the world, dead or in portal space.
+/// aimed at), the damage through its armor and its effects; none for a player not in the world,
+/// dead or in portal space.
 fn lands_on_player<S: Store>(
     s: &mut Server<S>,
-    net: &mut ServerNet,
     f: &Flight,
     stats: &CreatureStats,
     world: ConnId,
@@ -854,15 +853,11 @@ fn lands_on_player<S: Store>(
     } else {
         crate::effects::Harm::default()
     };
-    let hurt = outcome
-        .landed()
-        .then(|| combat::lose_health(s, net, world, harm.left));
     Some(Landing {
         world,
         character,
         outcome,
         harm,
-        hurt,
     })
 }
 

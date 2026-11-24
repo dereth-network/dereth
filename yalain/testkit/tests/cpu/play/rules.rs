@@ -255,6 +255,83 @@ fn a_creatures_critical_chance_is_what_its_skills_threshold_falls_short_of_two()
     assert_eq!(crits, landed, "a skill that sets all of it");
 }
 
+/// A creature's missile misses outright by whether its target moved more than a meter since it was
+/// loosed, at 2017's shares: 794 of 10,349 on a player that stood, 2,157 of 8,358 on one that moved.
+/// Behaviour: server.creatures.missile-misses-by-moved
+#[test]
+fn a_creatures_missile_misses_by_whether_its_target_moved_at_2017s_shares() {
+    let mut rng = yalain_world::rng::Rng::new(21);
+    for (moved, expected) in [(false, 794.0 / 10_349.0), (true, 2_157.0 / 8_358.0)] {
+        let n = 40_000;
+        let missed = (0..n)
+            .filter(|_| {
+                rules::roll_missile(&mut rng, Ratings::default(), moved, 0.0)
+                    == rules::Outcome::Miss
+            })
+            .count();
+        #[allow(clippy::cast_precision_loss)]
+        let share = missed as f64 / f64::from(n);
+        assert!(
+            (share - expected).abs() < 0.01,
+            "moved {moved}: {share:.3} against {expected:.3}"
+        );
+    }
+}
+
+/// A player's arrows and bolts, rolled as they are thrown and missed as they arrive by whether
+/// their target moved, come out as 2017's did over its mix of still and moving targets: arrows
+/// landed 9,542, evaded 1,984 and missed 807 of 12,333 (2,332 on targets that moved); bolts 2,826,
+/// 942 and 100 of 3,868 (817 moved).
+/// Behaviour: server.combat.thrown-misses-by-moved
+#[test]
+fn a_players_arrows_and_bolts_come_out_as_2017s_over_its_still_and_moving_targets() {
+    let mut rng = yalain_world::rng::Rng::new(5);
+    for (bolt, landed_still, moved_share, table) in [
+        (
+            false,
+            8_208.0 / 10_001.0,
+            2_332.0 / 12_333.0,
+            [9_542.0, 1_984.0, 807.0],
+        ),
+        (
+            true,
+            2_302.0 / 3_051.0,
+            817.0 / 3_868.0,
+            [2_826.0, 942.0, 100.0],
+        ),
+    ] {
+        let p: f64 = landed_still;
+        let ratings = Ratings {
+            accuracy: dereth_primitives::num::math::log(p / (1.0 - p)) / rules::LANDING.slope,
+            evasion: 0.0,
+        };
+        let n = 100_000;
+        let mut got = [0.0f64; 3];
+        for _ in 0..n {
+            let moved = f64::from(rng.unit()) < moved_share;
+            let mut o = rules::roll_thrown(&mut rng, ratings, 0.0, bolt);
+            if o.landed() && moved && rules::misses_the_moved(&mut rng, bolt) {
+                o = rules::Outcome::Miss;
+            }
+            let i = match o {
+                rules::Outcome::Hit | rules::Outcome::Critical => 0,
+                rules::Outcome::Evade => 1,
+                rules::Outcome::Miss => 2,
+            };
+            got[i] += 1.0;
+        }
+        let total: f64 = table.iter().sum();
+        for (i, margin) in [(0, 0.02), (1, 0.02), (2, 0.006)] {
+            let share = got[i] / f64::from(n);
+            let want = table[i] / total;
+            assert!(
+                (share - want).abs() < margin,
+                "bolt {bolt}, outcome {i}: {share:.4} against {want:.4}"
+            );
+        }
+    }
+}
+
 /// A special's roll is critical at the chance it is given, its skill's with what its weapon adds:
 /// never at none, and at that share of those that land otherwise.
 /// Behaviour: server.specials.critical-by-skill-and-weapon

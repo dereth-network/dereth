@@ -254,6 +254,8 @@ pub struct Landing {
     pub index: u32,
     pub thrown: bool,
     pub anim_hook: u32,
+    /// A thrown one's target's place as it was thrown, and whether it is a bolt (else an arrow).
+    pub aimed: Option<(yalain_store::StoredPosition, bool)>,
 }
 
 /// A thrown basic attack's arrival, told by its target: the attacker, the skill, a basic attack.
@@ -1064,6 +1066,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                     index: u32::try_from(blow.hook).unwrap_or(0),
                     thrown: false,
                     anim_hook: 1,
+                    aimed: None,
                 }),
             );
         }
@@ -1173,7 +1176,13 @@ fn stand_and_swing<S: Store>(
     let kind = kind_of(s, skill, thrown.is_some());
     let critical = player_critical(s, world, Some(weapon));
     let ratings = ratings_on(s, world, skill, run.target);
-    let outcome = rules::roll_basic(&mut s.rng, kind, ratings, critical);
+    let bolt = crate::skill_use::thrown_as_bolt(&u);
+    let outcome = if thrown.is_some() {
+        let chance = rules::fit(rules::Direction::PlayerOnCreature, kind).critical + critical;
+        rules::roll_thrown(&mut s.rng, ratings, chance, bolt)
+    } else {
+        rules::roll_basic(&mut s.rng, kind, ratings, critical)
+    };
     let damage = if outcome.landed() {
         let mut pool = damage_pool(s, world, skill);
         let me = rules::Hitter {
@@ -1248,6 +1257,7 @@ fn stand_and_swing<S: Store>(
         index: u32::try_from(index).unwrap_or(0),
         thrown: thrown.is_some(),
         anim_hook: 1,
+        aimed: thrown.is_some().then_some((at, bolt)),
     };
     let after = match &thrown {
         Some(h) => {
@@ -1304,7 +1314,9 @@ fn throw_twice<S: Store>(
         // Each throw is critical with what its own hand's weapon adds, as a swing is.
         let bonus = player_critical(s, world, weapon);
         let ratings = ratings_on(s, world, skill, run.target);
-        let outcome = rules::roll_basic(&mut s.rng, kind, ratings, bonus);
+        let chance = rules::fit(rules::Direction::PlayerOnCreature, kind).critical + bonus;
+        let bolt = crate::skill_use::thrown_as_bolt(u);
+        let outcome = rules::roll_thrown(&mut s.rng, ratings, chance, bolt);
         let Some(p) = s.players.get(&world) else {
             return;
         };
@@ -1338,6 +1350,7 @@ fn throw_twice<S: Store>(
                 index: u32::try_from(i).unwrap_or(0),
                 thrown: true,
                 anim_hook: h.anim_hook,
+                aimed: Some((at, bolt)),
             },
             f64::from(played.hook(h.anim_hook)) / f64::from(ts) + f64::from(centre / speed),
         ));
@@ -1399,8 +1412,13 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     let Some(alive) = alive else {
         return;
     };
-    // A thrown attack whose target has gone out of its thrower's sight meets what stands between.
-    if l.thrown && alive && crate::skill_use::thrown_out_of_sight(s, l.world, l.target) {
+    // A thrown attack whose target has gone out of its thrower's sight meets what stands between;
+    // one that would land on a target that has moved since is often missed.
+    if l.thrown
+        && alive
+        && (crate::skill_use::thrown_out_of_sight(s, l.world, l.target)
+            || (l.outcome.landed() && crate::skill_use::misses_the_moved(s, l.target, l.aimed)))
+    {
         l.outcome = Outcome::Miss;
         l.damage = 0;
     }

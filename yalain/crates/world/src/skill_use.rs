@@ -507,6 +507,8 @@ pub struct Flying {
     pub outcome: Option<(Outcome, i32)>,
     /// The skill's rating as it was used (its target effects' spellcraft).
     pub spellcraft: f32,
+    /// Its target's place as it was thrown, and whether it is a bolt (else an arrow).
+    pub aimed: Option<(StoredPosition, bool)>,
 }
 
 /// A creature's opening: until when (world seconds).
@@ -1227,6 +1229,33 @@ pub(crate) fn thrown_out_of_sight<S: Store>(s: &mut Server<S>, world: ConnId, ta
         .map(|p| p.position)
         .or_else(|| s.things.get(target).and_then(|t| t.at));
     at.is_some_and(|at| !crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &mine, &at))
+}
+
+/// Does a skill throw a bolt, its missile after a hook that only plays (else an arrow)?
+pub(crate) fn thrown_as_bolt(u: &Usage) -> bool {
+    u.hooks.iter().any(plays_only)
+}
+
+/// Does a thrown attack that would land miss its target for having moved more than a meter from
+/// where it was aimed at ([`crate::rules::thrown_misses`])?
+pub(crate) fn misses_the_moved<S: Store>(
+    s: &mut Server<S>,
+    target: u64,
+    aimed: Option<(StoredPosition, bool)>,
+) -> bool {
+    let Some((from, bolt)) = aimed else {
+        return false;
+    };
+    let now = s
+        .players
+        .values()
+        .find(|p| p.character == target)
+        .map(|p| p.position)
+        .or_else(|| s.things.get(target).and_then(|t| t.at));
+    let moved = now
+        .and_then(|at| crate::presence::distance(&from, &at))
+        .is_some_and(|d| d > crate::missiles::MOVED);
+    moved && rules::misses_the_moved(&mut s.rng, bolt)
 }
 
 /// A missile hook of a skill, if it throws one.
@@ -2208,7 +2237,12 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_special(&mut s.rng, kind, ratings, critical.chance + me.critical);
+    let chance = critical.chance + me.critical;
+    let o = if kind == Kind::Missile {
+        rules::roll_thrown(&mut s.rng, ratings, chance, thrown_as_bolt(u))
+    } else {
+        rules::roll_special(&mut s.rng, kind, ratings, chance)
+    };
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -2534,6 +2568,7 @@ fn story<S: Store>(
         }
     }
     if let Some(h) = missile_hook(&u) {
+        let aimed = position_of(s, aim, target).map(|at| (at, thrown_as_bolt(&u)));
         if let Some(p) = s.players.get_mut(&world) {
             let spellcraft = p.using.as_ref().map_or(1.0, |x| x.spellcraft);
             p.flying.push(Flying {
@@ -2542,6 +2577,7 @@ fn story<S: Store>(
                 usage: u.clone(),
                 outcome,
                 spellcraft,
+                aimed,
             });
         }
         let d = position_of(s, aim, target)
@@ -2990,7 +3026,7 @@ pub(crate) fn put_target_effects<S: Store>(
     }
 }
 
-/// A missile arrives: the target tells how it came out (its health first when it is hurt).
+/// A missile arrives: the target tells how it came out, then a player hurt by it its health.
 fn arrives<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3015,10 +3051,14 @@ fn arrives<S: Store>(
         return;
     }
     // A target gone out of its user's sight is not reached: the missile meets what stands between.
-    let (o, dmg) = if thrown_out_of_sight(s, world, r.target) {
+    // One that would land on a target that has moved since is often missed.
+    let (o, dmg) = outcome.unwrap_or((Outcome::Evade, 0));
+    let (o, dmg) = if thrown_out_of_sight(s, world, r.target)
+        || (o.landed() && misses_the_moved(s, r.target, f.aimed))
+    {
         (Outcome::Miss, 0)
     } else {
-        outcome.unwrap_or((Outcome::Evade, 0))
+        (o, dmg)
     };
     let harm = if o.landed() {
         let on = player.map_or(

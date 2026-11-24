@@ -133,6 +133,7 @@ mod summoned_portals;
 mod swimming;
 mod talk;
 mod tallies;
+mod thrown_misses;
 mod trade;
 mod trading;
 mod treasure_pools;

@@ -208,9 +208,65 @@ pub fn roll_with_critical(
 }
 
 /// How often a creature's missile misses outright: one that finds its target where it stood when
-/// it was loosed (6 of 420 in 2017), and one whose target has moved away since (52 of 108).
-pub const MISSILE_MISSES_STILL: f64 = 6.0 / 420.0;
-pub const MISSILE_MISSES_MOVED: f64 = 52.0 / 108.0;
+/// it was loosed (2017: 794 of 10,349 at players), and one whose target has moved more
+/// than a meter since (2,157 of 8,358).
+pub const MISSILE_MISSES_STILL: f64 = 794.0 / 10_349.0;
+pub const MISSILE_MISSES_MOVED: f64 = 2_157.0 / 8_358.0;
+
+/// How a player's thrown attack misses: `still`, the share of those that do not land on a target
+/// that stood that miss rather than being evaded; `moved`, the share of those that would land that
+/// miss instead, the target having moved more than a meter since the throw.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThrownMisses {
+    pub still: f64,
+    pub moved: f64,
+}
+
+/// An arrow, a missile thrown alone (2017, players' throws at creatures: on a creature that stood,
+/// 8,208 of 10,001 landed and 151 of the 1,793 others missed; on one that moved, 656 of 2,332
+/// missed). A moved target's misses over a still one's come from those that would have landed.
+pub const ARROW_MISSES: ThrownMisses = ThrownMisses {
+    still: 151.0 / 1_793.0,
+    moved: (656.0 / 2_332.0 - 151.0 / 10_001.0) / (8_208.0 / 10_001.0),
+};
+
+/// A bolt, a missile thrown after a hook that only plays (2017: on a creature that stood, 2,302 of
+/// 3,051 landed and 44 of the 749 others missed; on one that moved, 56 of 817 missed).
+pub const BOLT_MISSES: ThrownMisses = ThrownMisses {
+    still: 44.0 / 749.0,
+    moved: (56.0 / 817.0 - 44.0 / 3_051.0) / (2_302.0 / 3_051.0),
+};
+
+/// How a player's arrow or bolt misses.
+#[must_use]
+pub const fn thrown_misses(bolt: bool) -> ThrownMisses {
+    if bolt {
+        BOLT_MISSES
+    } else {
+        ARROW_MISSES
+    }
+}
+
+/// Roll a player's thrown attack as it is loosed: landed by its ratings (critical at the chance
+/// given), else missed by the share for a target that stands, else evaded.
+pub fn roll_thrown(rng: &mut Rng, ratings: Ratings, critical: f64, bolt: bool) -> Outcome {
+    if f64::from(rng.unit()) < landing_chance(ratings) {
+        if f64::from(rng.unit()) < critical {
+            Outcome::Critical
+        } else {
+            Outcome::Hit
+        }
+    } else if f64::from(rng.unit()) < thrown_misses(bolt).still {
+        Outcome::Miss
+    } else {
+        Outcome::Evade
+    }
+}
+
+/// Does a player's thrown attack that would land miss instead, its target having moved since?
+pub fn misses_the_moved(rng: &mut Rng, bolt: bool) -> bool {
+    f64::from(rng.unit()) < thrown_misses(bolt).moved
+}
 
 /// Roll a creature's missile (or bolt of magic) as it arrives: missed outright by the share for a
 /// target that stood or moved, else landed by its ratings (critical at the chance given), else
