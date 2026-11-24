@@ -216,8 +216,8 @@ pub mod text {
 
 /// From the beginning to a special's story, with no power-up (2017: a median 0.134 s).
 pub const STORY_AFTER: f64 = 0.134;
-/// A power-up's length over its definition's time (2017's humans: a recall's 10 s power-up 12.68 s
-/// to its story, Inner Calm's 1 s 1.257 s).
+/// A power-up's length over its definition's time, where the install does not time its user's body
+/// (2017's humans: a recall's 10 s power-up 12.68 s to its story, Inner Calm's 1 s 1.257 s).
 pub const POWERUP_SCALE: f64 = 1.268;
 /// From a recall's story into portal space, in portal space, and out of it to the use's end
 /// (2017's humans: 2.48, 1.52, 0.18 s); a recall that fails says so 0.70 s after its story and ends
@@ -228,8 +228,16 @@ pub const RECALL_TO_PORTAL: f64 = 2.48;
 /// 0.05 s and 0.06 to 0.07 s, for humans, Lugians and Tumerok alike).
 pub const PORTAL_AFTER_HOOK: f64 = 0.05;
 pub const PORTAL_AFTER_CYCLE: f64 = 0.07;
-/// How much sooner than its cycles a held power-up's story comes (2017: 0.21 to 0.27 s by race).
+/// How much sooner than its cycles a recall's or a portal summoning's power-up's story comes (2017:
+/// 0.21 to 0.27 s by race).
 pub const POWERUP_LEAD: f64 = 0.23;
+/// How much sooner than its cycles any other power-up's story comes (2017, 3,943 power-ups of
+/// specials to their stop, sent in the story's tick or just before: a median of 0.044 s short,
+/// weighted by power-ups. Short by group: a human's 0.044 in a bow's mode, 0.039 for its missile
+/// power-up there, 0.016 long with a stave; a Lugian's 0.015 to 0.024 long on one cycle, 0.011 to
+/// 0.023 short on two, 0.116 on a turret casing's two; a Tumerok's 0.057 to 0.072, 0.019 in a bow's
+/// mode, 0.032 over five cycles).
+pub const SPECIAL_POWERUP_LEAD: f64 = 0.04;
 pub const RECALL_IN_PORTAL: f64 = 1.52;
 pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
@@ -770,20 +778,26 @@ pub fn recall_of<S: Store>(s: &Server<S>, skill: u32) -> Option<(Recall, u32)> {
         })
 }
 
-/// How long a skill's power-up runs before its story. A recall's, held for as many cycles as its
-/// definition's seconds, runs that many of the cycles its user's body plays it in, less
-/// [`POWERUP_LEAD`] (2017, 714 recalls of 10: humans' 1.292 s cycles, Lugians' 1.333, Tumerok's
-/// 1.208, each race's story 0.21 to 0.27 s short of ten). Any other, or one the install doesn't
-/// time, its definition's time over [`POWERUP_SCALE`].
+/// How long a skill's power-up runs before its story: as many of the cycles its user's body plays
+/// its power-up behavior in, in its mode now, as its definition's seconds, less [`POWERUP_LEAD`]
+/// for a recall or a portal's summoning (2017, 714 recalls of 10: humans' 1.292 s cycles, Lugians'
+/// 1.333, Tumerok's 1.208, each race's story 0.21 to 0.27 s short of ten; a summoning's as long as a
+/// recall's by the same player, medians of 11.886 and 11.867 s over 8 sessions) and
+/// [`SPECIAL_POWERUP_LEAD`] for any other (a
+/// power-up of 0x410000BF one cycle of 1.292, 1.333 or 1.208 s by race in every mode; a Lugian's
+/// turret casing two of 2.667 s in a bow's mode). A Tumerok's cycle is its body's alone: its whole
+/// look plays 1.417 s, 2017's Tumerok 1.136 to 1.189. Where the install doesn't time its user's
+/// body, its definition's time over [`POWERUP_SCALE`].
 #[must_use]
 pub fn powerup_length<S: Store>(s: &Server<S>, world: ConnId, skill: u32, u: &Usage) -> f64 {
-    let held = u.powerup > 1.0;
     let cycles = f64::from(dereth_primitives::num::to_i32(u.powerup).max(0));
-    let played = (held && is_recall(s, skill))
-        .then(|| crate::timings::of_players_body(s, world, u.powerup_behavior))
-        .flatten();
-    match played {
-        Some(t) => (cycles * f64::from(t.period) - POWERUP_LEAD).max(0.0),
+    let lead = if is_recall(s, skill) || crate::usable::portals::summons(skill).is_some() {
+        POWERUP_LEAD
+    } else {
+        SPECIAL_POWERUP_LEAD
+    };
+    match crate::timings::of_players_body(s, world, u.powerup_behavior) {
+        Some(t) => (cycles * f64::from(t.period) - lead).max(0.0),
         None => f64::from(u.powerup) * POWERUP_SCALE,
     }
 }

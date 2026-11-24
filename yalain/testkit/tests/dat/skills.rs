@@ -2540,6 +2540,124 @@ mod timings {
         );
     }
 
+    /// Inner Calm used at rest, by a player of the look given and with its power-up's cycles as
+    /// given: the time from its power-up to its story on the server's clock, stepped finely.
+    fn inner_calm_powers_up_for(look: u32, cycles: f32) -> f64 {
+        use auberean_protocol::types::VisualDesc;
+        use auberean_protocol::{queue, ServerMessage};
+        use auberean_script::args::Arg;
+        use yalain_testkit::INNER_CALM;
+        let p = Portal::open();
+        let mut h = yalain_testkit::Harness::new();
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        h.server.skill_table = p.skills();
+        if let Some(u) = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&INNER_CALM)
+            .and_then(|d| d.usage.as_mut())
+        {
+            u.powerup = cycles;
+        }
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        h.arm(b, me, 0x4700_051C);
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        {
+            let pl = h.server.players.get_mut(&world).expect("in");
+            pl.look = VisualDesc {
+                bits: VisualDesc::PARENT,
+                parent: look,
+                ..VisualDesc::default()
+            };
+            yalain_world::quals::set_int(&mut pl.qualities, 259, 400);
+            yalain_world::quals::set_int(
+                &mut pl.qualities,
+                yalain_world::player::quality::VIGOR_MAX,
+                400,
+            );
+        }
+        h.all_hold(INNER_CALM);
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                yalain_world::skill_use::function::USE,
+                &[Arg::Int(1), Arg::Int(INNER_CALM), Arg::LongInt(me)],
+            ),
+        );
+        // From the power-up's start to the story, as the client gets them (both a step after the
+        // server sent them).
+        let seen = |h: &yalain_testkit::Harness, story: bool| {
+            h.world_messages(b, 0).iter().any(|m| match m {
+                ServerMessage::DoStory(e) => {
+                    story && e.sender.id == me && e.action.skill == INNER_CALM
+                }
+                ServerMessage::PlayBehavior(e) => !story && e.sender.id == me,
+                _ => false,
+            })
+        };
+        let mut began = None;
+        for _ in 0..2000 {
+            if began.is_none() && seen(&h, false) {
+                began = Some(h.now.0);
+            }
+            if let Some(t) = began.filter(|_| seen(&h, true)) {
+                return h.now.0 - t;
+            }
+            h.step_by(0.005);
+        }
+        panic!("no story");
+    }
+
+    /// A special's power-up runs as many of its body's cycles of the power-up behavior as its
+    /// definition says, less a little: Inner Calm's one cycle 1.292 s for a human, 1.333 for a
+    /// Lugian, less 0.04 (2017: medians of 1.248 to 1.308 and 1.348 to 1.357 s by mode); two cycles
+    /// of a Lugian's 2.627 (2017: 2.644 to 2.656 s). A portal's summoning powers up as a recall does
+    /// (2017: 11.886 and 11.867 s by the same players).
+    /// Behaviour: server.timings.a-power-up-follows-its-users-body
+    #[test]
+    fn a_specials_power_up_runs_its_users_body_cycles_less_a_little() {
+        use auberean_protocol::types::VisualDesc;
+        use yalain_world::skill_use::{powerup_length, LIFESTONE_RECALL, SPECIAL_POWERUP_LEAD};
+        const SUMMON_PORTAL: u32 = 872;
+        let p = Portal::open();
+        let mut h = yalain_testkit::Harness::new();
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        h.server.skill_table = p.skills();
+        let (_, me) = h.player_in_world("one", "Elara");
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        h.server.players.get_mut(&world).expect("in").look = VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: TUMEROK_MALE,
+            ..VisualDesc::default()
+        };
+        let length = |h: &yalain_testkit::Harness, skill: u32| {
+            let u = h.server.skill_table.skills[&skill]
+                .usage
+                .clone()
+                .expect("used");
+            powerup_length(&h.server, world, skill, &u)
+        };
+        assert!(
+            (length(&h, SUMMON_PORTAL) - length(&h, LIFESTONE_RECALL)).abs() < 1e-9,
+            "a summoning powers up as a recall"
+        );
+        for (look, cycles, period) in [
+            (HUMAN_MALE, 1.0, 1.291_667),
+            (LUGIAN_MALE, 1.0, 1.333_333),
+            (LUGIAN_MALE, 2.0, 1.333_333),
+        ] {
+            let up = inner_calm_powers_up_for(look, cycles);
+            let want = f64::from(cycles) * period - SPECIAL_POWERUP_LEAD;
+            assert!(
+                (up - want).abs() < 0.02,
+                "{look:08X} x{cycles}: {up}, not {want}"
+            );
+        }
+    }
+
     /// A Tumerok's Lifestone Recall asked inside a run of attacks waits for the run's next swing,
     /// then powers up for ten of its body's power-up cycles, less a little, as one asked at rest.
     /// Behaviour: server.timings.a-recall-follows-its-users-race

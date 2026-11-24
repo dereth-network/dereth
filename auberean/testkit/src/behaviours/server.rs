@@ -20601,6 +20601,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.timings.a-power-up-follows-its-users-body",
+        says: "A special's power-up runs as many of the cycles its user's body plays the power-up \
+               behavior in, in its mode, as its definition's seconds, less 0.04 s (a portal's \
+               summoning less a recall's lead); where the install doesn't time the body, its \
+               definition's time over 1.268.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-POWERUP-BODY"),
+        station: "yalain-testkit::dat::skills::timings::a_specials_power_up_runs_its_users_body_cycles_less_a_little",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.timings.a-recall-follows-its-users-race",
         says: "A recall's power-up lasts its held cycles of its user's body's power-up clip, a \
                little short, and it enters portal space at its story's hook (a recall to a place its \
