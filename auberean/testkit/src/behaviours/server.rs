@@ -4117,6 +4117,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.made-and-placed",
+        says: "A creature a camp makes in a player's view has its place told once on its stream \
+               right after it is made, where it was made; one coming into a player's view has \
+               none after it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRESH-CREATURE-PLACED"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_just_made_has_its_place_told_once_and_one_coming_into_view_has_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.made-in-the-cell-that-holds-them",
         says: "A camp's creature made at a spot inside goes into the cell holding the spot's point, \
                the one the spot names or one that cell sees, as anything put somewhere does; 2017's \

@@ -39,9 +39,9 @@
 //! is as it would be if every camp were looked at every step.
 //!
 //! **Appearing.** A new creature is made for every client whose view holds its place, with its
-//! entry effect. It holds the effects the world's rows give its template from that moment, at its
-//! level's spellcraft, for as long as it stands ([`holds_its_effects`]); so does a creature a death
-//! or an effect makes.
+//! entry effect, and its place is told once more on its stream, where it stands. It holds the
+//! effects the world's rows give its template from that moment, at its level's spellcraft, for as
+//! long as it stands ([`holds_its_effects`]); so does a creature a death or an effect makes.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, BinaryHeap, HashMap};
@@ -392,6 +392,12 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
             aligns(s, id, clock);
             presence::thing_appears(s, net, id);
             holds_its_effects(s, net, id, clock);
+            // A creature just made has its place told once on its stream, where it was made (2017:
+            // 2,831 of 3,335 creatures just made, within 0.1 s of their making; 8,366 of 9,239
+            // coming into view had none).
+            if s.things.get(id).is_some_and(|t| t.kind == Kind::Creature) {
+                crate::ai::stands(s, net, id, clock);
+            }
             made = true;
         }
     }

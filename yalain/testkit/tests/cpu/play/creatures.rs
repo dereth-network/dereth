@@ -36,6 +36,93 @@ fn a_camps_creatures_are_there_from_the_start_and_made_for_a_player_in_view() {
     }
 }
 
+/// A thing's making as a client was told of it: where it was made, and each place of it the client
+/// was told after, with the time from its making.
+struct Made {
+    at: [f32; 3],
+    placed: Vec<(f64, [f32; 3])>,
+}
+
+/// Step `steps` steps, watching a client for the first making `id_of` names and the places of that
+/// thing told from then.
+fn made_then_placed(
+    h: &mut Harness,
+    b: usize,
+    id_of: &dyn Fn(&ServerMessage) -> Option<u64>,
+    steps: usize,
+) -> Option<Made> {
+    let mut made: Option<(u64, [f32; 3], f64)> = None;
+    let mut placed = Vec::new();
+    for _ in 0..steps {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let now = h.clock().local.0;
+        for m in h.world_messages(b, from) {
+            if made.is_none() {
+                if let (Some(id), ServerMessage::CreateObject(o)) = (id_of(&m), &m) {
+                    let p = o.physics.position.frame.origin;
+                    made = Some((id, [p.x, p.y, p.z], now));
+                }
+            }
+            if let (Some((id, _, _)), ServerMessage::Position(p) | ServerMessage::PositionCell(p)) =
+                (made, &m)
+            {
+                if p.sender.id == id {
+                    placed.push((now, [p.origin.x, p.origin.y, p.origin.z]));
+                }
+            }
+        }
+    }
+    made.map(|(_, at, t0)| Made {
+        at,
+        placed: placed.into_iter().map(|(t, p)| (t - t0, p)).collect(),
+    })
+}
+
+/// A creature a camp makes in a player's view has its place told once on its stream right after
+/// it is made, where it was made; one already there that comes into a player's view is told of
+/// with no place after it.
+/// Behaviour: server.creatures.made-and-placed
+#[test]
+fn a_creature_just_made_has_its_place_told_once_and_one_coming_into_view_has_none() {
+    let mut h = Harness::new();
+    let (b, _) = h.player_in_world("one", "Elara");
+    h.add_creatures(1);
+    let creature = |m: &ServerMessage| match m {
+        ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+        _ => None,
+    };
+    let Made { at, placed } = made_then_placed(&mut h, b, &creature, 4).expect("the camp makes it");
+    let first = placed.first().expect("its place told");
+    assert!(first.0 <= 0.1, "within 0.1 s: {placed:?}");
+    let off = (0..3)
+        .map(|k| (first.1[k] - at[k]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(off < 0.01, "where it was made: {at:?} {placed:?}");
+    assert_eq!(placed.iter().filter(|(t, _)| *t <= 0.1).count(), 1, "once");
+    // One made before any player was near, told of as a player comes into view of it: no place
+    // after it.
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.step();
+    let (c, _) = h.player_in_world("two", "Babyfare");
+    h.step();
+    h.step();
+    let msgs = h.world_messages(c, 0);
+    let told = msgs
+        .iter()
+        .position(|m| creature(m).is_some())
+        .expect("told of it as it comes into view");
+    let Some(id) = creature(&msgs[told]) else {
+        unreachable!()
+    };
+    let placed_after = msgs[told..].iter().any(|m| match m {
+        ServerMessage::Position(p) | ServerMessage::PositionCell(p) => p.sender.id == id,
+        _ => false,
+    });
+    assert!(!placed_after, "no place for one coming into view");
+}
+
 /// A summoned creature's template of the test world: a lasher, with a pet's AI.
 const TEST_SUMMON: u32 = 0x4700_0846;
 
