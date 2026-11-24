@@ -2559,6 +2559,23 @@ pub fn write_records(
     key: &str,
     dir: &Path,
 ) -> Result<(), Error> {
+    write_records_at(records, tombstones, base, key, dir, 1)
+}
+
+/// [`write_records`] at generation `generation` of the overlay's content
+/// ([`dereth_dat::generations`]): its iterations run on from the files' own, `generation` of them,
+/// its records in the last. Generation 1 is [`write_records`]'s one revision.
+///
+/// # Errors
+/// The writer's errors.
+pub fn write_records_at(
+    records: &Records,
+    tombstones: &BTreeMap<ModernDat, BTreeSet<(u32, u32)>>,
+    base: &DatSet,
+    key: &str,
+    dir: &Path,
+    generation: u32,
+) -> Result<(), Error> {
     if dir.exists() {
         std::fs::remove_dir_all(dir).map_err(|e| Error::io(dir, e))?;
     }
@@ -2575,7 +2592,9 @@ pub fn write_records(
                 base.base_name(t)
             )));
         };
-        let revision = decompose::revision_over(file);
+        let iterations =
+            dereth_dat::generations::iterations(decompose::revision_over(file), generation);
+        let revision = *iterations.last().expect("one iteration at least");
         let path = dir.join(container_name(t));
         let mut w = OverlayWriter::open_or_create(&path, file, base.base_name(t), key, 0)?;
         for (id, mask) in gone.into_iter().flatten() {
@@ -2584,7 +2603,9 @@ pub fn write_records(
         for (id, s) in records.into_iter().flatten() {
             w.put(DataId(*id), &s.bytes, s.version, revision, 0)?;
         }
-        w.add_iteration(revision, 0)?;
+        for i in iterations {
+            w.add_iteration(i, 0)?;
+        }
         w.flush(0)?;
     }
     Ok(())

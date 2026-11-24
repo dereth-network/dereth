@@ -39,6 +39,11 @@
 //!                                               the world's lockfile regenerated after a
 //!                                               merge: every id kept, what two branches
 //!                                               numbered alike numbered again, its rows too
+//! lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>]
+//!               [--number] [--empyrean <dir>]   a world repository built for its server: the
+//!                                               land checked, the overlay numbered from the
+//!                                               ledger, the world pack, what the server reads;
+//!                                               --number, the author's, numbers new content
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
 //! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
@@ -71,6 +76,7 @@ lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterat
 lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
 lyceum lock <world.toml> --dats <dir> [--on <overlay>]
+lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>] [--number] [--empyrean <dir>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -715,6 +721,54 @@ fn import_program(dir: Option<&Path>) -> Option<PathBuf> {
     Some(dir.join(file)).filter(|p| p.is_file())
 }
 
+/// `publish`: a world repository built for its operator's server.
+fn run_publish(args: &Args) -> ExitCode {
+    use lyceum_foundry::publish::{publish, Publish};
+    if args
+        .known(&["dats", "out", "on", "layer", "number", "empyrean"])
+        .is_err()
+        || args.words.len() != 1
+    {
+        return usage("publish takes a world file, --dats and --out");
+    }
+    let (Some(dats), Some(out)) = (args.path("dats"), args.path("out")) else {
+        return usage("publish takes --dats (the client's files) and --out (the folder to serve)");
+    };
+    let named = args.path("empyrean");
+    let Some(program) = import_program(named.as_deref()) else {
+        return usage("no empyrean-import: name the server's folder with --empyrean");
+    };
+    let importer = lyceum_foundry::export::ImportProgram(program);
+    let land = args.path("on");
+    let p = Publish {
+        layer: args.value("layer"),
+        land: land.as_deref(),
+        number: args.switch("number"),
+        importer: &importer,
+    };
+    match publish(Path::new(&args.words[0]), &dats, &out, &p) {
+        Ok(done) => {
+            println!(
+                "{}: {} at {}, its overlay generation {}{}",
+                done.out.display(),
+                args.words[0],
+                done.layer,
+                done.generation,
+                if done.numbered {
+                    " (new: commit the ledger's line)"
+                } else {
+                    ""
+                }
+            );
+            for (f, h) in &done.files {
+                println!("  {h}  {}", f.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(&e),
+    }
+}
+
 fn run_export(args: &Args) -> ExitCode {
     if let Err(why) = args.known(&[
         "dats",
@@ -993,6 +1047,7 @@ fn main() -> ExitCode {
         "bare",
         "plain",
         "as-sql",
+        "number",
     ];
     let parsed = |a: &[String]| parse(a, &switches);
     match first.as_str() {
@@ -1110,6 +1165,10 @@ fn main() -> ExitCode {
         },
         "rows" => match parsed(rest) {
             Ok(a) => rows(&a),
+            Err(why) => usage(&why),
+        },
+        "publish" => match parsed(rest) {
+            Ok(a) => run_publish(&a),
             Err(why) => usage(&why),
         },
         "lock" => match parsed(rest) {

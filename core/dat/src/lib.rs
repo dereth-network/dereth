@@ -52,6 +52,7 @@ pub mod divine;
 pub mod error;
 pub mod fileset;
 pub mod folder;
+pub mod generations;
 pub mod inflate;
 pub mod install_copy;
 pub mod iteration;

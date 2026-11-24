@@ -10,7 +10,7 @@
 //! dungeon under its entrance, the dungeon kit's to take).
 //!
 //! **A room** is AC2's cell mesh as one AC1 cell shape: its most detailed level's triangles, each
-//! material drawn as the statics draw theirs ([`statics::surface_of`]); its doorways, each the
+//! material drawn as the statics draw theirs ([`super::steep::surface_of`]); its doorways, each the
 //! physics polygon AC2's portal names, a portal polygon as retail's are; the rest of its physics
 //! polygons to collide with; and its trees ([`dereth_builder::bsp::cell_struct`]).
 //! It stands where AC2 has it, moved with its shell into the converted world.

@@ -61,7 +61,11 @@ fn sha256_of(path: &Path) -> Option<String> {
 /// A land pinned and none given, one given and none pinned, or one that isn't the pinned land.
 pub fn check_land(repo: &Repo, overlay: Option<&Path>) -> Result<(), String> {
     let world = world_table(repo)?;
-    let land = world.get("land").and_then(toml::Value::as_table);
+    // A land is pinned by its files' hashes: a `[land]` that pins none (a ledger alone) takes none.
+    let land = world
+        .get("land")
+        .and_then(toml::Value::as_table)
+        .filter(|l| LAND_FILES.iter().any(|(_, key)| l.contains_key(*key)));
     let (land, overlay) = match (land, overlay) {
         (None, None) => return Ok(()),
         (None, Some(o)) => {

@@ -16,6 +16,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Build dungeons from AC2's dungeon kits, in AC2's looks, from your own AC2 install.
 - Packs can change skills, the experience curve, spells and character creation.
 - Open a server world repository as a world, edit it and play it; the new Rows tab reads any layer.
+- New `lyceum publish`: build a world repository for its server in one command.
 
 ## 0.2.8 (2026-11-23)
 

@@ -91,6 +91,7 @@ pub mod moves;
 pub mod pick;
 pub mod pictures;
 pub mod pieces;
+pub mod publish;
 pub mod quests;
 pub mod repo;
 pub mod repo_world;
