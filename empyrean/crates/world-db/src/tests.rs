@@ -358,10 +358,11 @@ items = ["spawn 0x7a9b400a", "wielded-treasure 364"]
                 BTreeMap::from([("fixes.toml".into(), patch.into())]),
             )],
             overrides: Vec::new(),
+            checkpoint: None,
         }],
         ..Default::default()
     };
-    let mut got = fold_layers(&layers, c.era, default_stamp()).expect("folded");
+    let mut got = fold_layers(layers, c.era, default_stamp()).expect("folded");
     number(&mut got);
     let mut want = c.clone();
     let w = &mut want.weenies[0];
@@ -395,19 +396,20 @@ fn a_patch_that_removes_what_no_layer_has_or_names_no_item_is_refused() {
                 BTreeMap::from([("fixes.toml".into(), text.to_owned())]),
             )],
             overrides: Vec::new(),
+            checkpoint: None,
         }],
         authored_classes: Some((1_000_000, 1_999_999)),
         ..Default::default()
     };
     let e = fold_layers(
-        &layers("[[remove]]\nitem = \"spawn banana\"\n"),
+        layers("[[remove]]\nitem = \"spawn banana\"\n"),
         Default::default(),
         default_stamp(),
     )
     .expect_err("no item");
     assert!(e.contains("names no item"), "{e}");
     let e = fold_layers(
-        &layers("[[spell]]\nname = \"no id\"\n"),
+        layers("[[spell]]\nname = \"no id\"\n"),
         Default::default(),
         default_stamp(),
     )
@@ -417,20 +419,16 @@ fn a_patch_that_removes_what_no_layer_has_or_names_no_item_is_refused() {
     let new = |class: u32| {
         format!("[[weenie]]\nclass = {class}\nclass_name = \"a new thing\"\ntype = \"Generic\"\n")
     };
-    let e = fold_layers(&layers(&new(4000)), Default::default(), default_stamp())
-        .expect_err("not ours");
+    let e =
+        fold_layers(layers(&new(4000)), Default::default(), default_stamp()).expect_err("not ours");
     assert!(
         e.contains(
             "weenie 4000: a class the base doesn't have is the world's own, 1000000 to 1999999"
         ),
         "{e}"
     );
-    let ok = fold_layers(
-        &layers(&new(1_000_000)),
-        Default::default(),
-        default_stamp(),
-    )
-    .expect("ours");
+    let ok =
+        fold_layers(layers(&new(1_000_000)), Default::default(), default_stamp()).expect("ours");
     assert!(ok.weenies.iter().any(|w| w.class_id == 1_000_000));
 }
 
@@ -470,7 +468,7 @@ fn a_world_file_folds_its_base_pack_and_each_patch_in_its_lineage() {
         "format_version = 1\ngame = \"ac1\"\npacks = [\"base\"]\nlineage = [\"1999-12-dark-thaw\"]\n[ids]\nclasses = [1000000, 1999999]\n",
     )
     .expect("world.toml");
-    let got = crate::world::fold_world(&world_toml);
+    let got = crate::world::fold_world(&world_toml, None);
     let _ = std::fs::remove_dir_all(&dir);
     let mut got = got.expect("folded");
     number(&mut got);
@@ -539,6 +537,189 @@ fn a_file_of_rows_no_kind_lives_in_is_refused() {
     files.insert("weenies/1.toml".into(), String::new());
     let e = world(&files).expect_err("unknown folder");
     assert!(e.contains("weenies/1.toml"), "{e}");
+}
+
+/// A placement of class `class` with guid `guid` at `x`, `y` of cell 0xA9B40001.
+fn spot(guid: u32, class: u32, x: f32, y: f32) -> LandblockInstance {
+    LandblockInstance {
+        guid,
+        weenie_class_id: class,
+        obj_cell_id: 0xA9B4_0001,
+        origin_x: x,
+        origin_y: y,
+        angles_w: 1.0,
+        last_modified: default_stamp(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_checkpoints_placements_keep_the_lineages_keys_by_guid_then_by_spot_else_are_new() {
+    use crate::checkpoint::{match_keys, Known, Matched};
+    let before = WorldContent {
+        landblock_instances: vec![
+            spot(0x7A9B_4001, 1, 10.0, 10.0),
+            spot(0x7A9B_4002, 2, 20.0, 20.0),
+            spot(0x7A9B_4003, 3, 30.0, 30.0),
+        ],
+        ..WorldContent::default()
+    };
+    let known = Known::of(&before);
+    let used = known.iter().map(|k| k.key).collect();
+    let source = [
+        // The same guid, class and cell, 0.2 m away: the same placement.
+        spot(0x7A9B_4001, 1, 10.2, 10.0),
+        // The same class 1 m from 0x...4002, and another 0.5 m from it, which is nearer.
+        spot(0x7A9B_4050, 2, 21.0, 20.0),
+        spot(0x7A9B_4070, 2, 20.5, 20.0),
+        // A guid the lineage gave another placement: renumbered, from the top of its landblock.
+        spot(0x7A9B_4003, 9, 30.0, 30.0),
+        // A guid the lineage never used: kept.
+        spot(0x7A9B_4060, 5, 40.0, 40.0),
+    ];
+    let keys = match_keys(&known, &used, &source);
+    assert_eq!(
+        keys.matched,
+        Matched {
+            same: 1,
+            near: 1,
+            new_kept: 2,
+            new_renumbered: 1
+        }
+    );
+    assert_eq!(
+        keys.map,
+        BTreeMap::from([(0x7A9B_4070, 0x7A9B_4002), (0x7A9B_4003, 0x7A9B_4FFF)])
+    );
+    // 3 m away is no longer the same spot.
+    let far = match_keys(&known, &used, &[spot(0x7A9B_4080, 1, 13.0, 10.0)]);
+    assert_eq!(far.matched.new_kept, 1);
+}
+
+#[test]
+fn a_checkpoints_dump_is_read_from_the_folder_it_is_given() {
+    use crate::checkpoint::Pin;
+    let pin = Pin {
+        world: &empyrean_common::world_release::SIXTEEN_PY,
+        source: "ACE-World-16PY".into(),
+        tag: "v0.8.8".into(),
+        dataset_id: String::new(),
+    };
+    let dir = std::env::temp_dir().join(format!("empyrean-world-db-dumps-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let e = pin.dump(Some(&dir)).expect_err("not there yet");
+    assert!(e.contains("ACE-World-16PY-db-v0.8.8.sql is not in"), "{e}");
+    let path = dir.join("ACE-World-16PY-db-v0.8.8.sql");
+    std::fs::write(&path, b"").expect("a dump");
+    assert_eq!(pin.dump(Some(&dir)), Ok(path));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_checkpoints_keys_are_written_read_back_and_carry_its_links() {
+    use crate::checkpoint::{apply_keys, keys_of, keys_text, Keys, Pin};
+    let keys = Keys {
+        map: BTreeMap::from([(0x7A9B_400A, 0x7A9B_4FFF), (0x7A9B_400B, 0x7A9B_4FFE)]),
+        matched: crate::checkpoint::Matched {
+            same: 3,
+            near: 2,
+            new_kept: 1,
+            new_renumbered: 2,
+        },
+    };
+    let pin = Pin {
+        world: &empyrean_common::world_release::SIXTEEN_PY,
+        source: "ACE-World-16PY".into(),
+        tag: "v0.8.8".into(),
+        dataset_id: String::new(),
+    };
+    let text = keys_text(&keys, &pin);
+    assert_eq!(keys_of(&text), Ok(keys.clone()));
+    assert!(keys_of("format = 1\nkeys = [[1, 2], [3, 2]]\n")
+        .expect_err("one key for two")
+        .contains("listed twice"));
+    let mut c = sample();
+    apply_keys(&mut c, &keys.map);
+    let p = &c.landblock_instances[0];
+    assert_eq!(p.guid, 0x7A9B_4FFF);
+    let l = &p.landblock_instance_link[0];
+    assert_eq!((l.parent_guid, l.child_guid), (0x7A9B_4FFF, 0x7A9B_4FFE));
+}
+
+#[test]
+fn a_checkpoint_takes_what_its_source_changed_and_keeps_a_fix_where_the_snapshots_agree() {
+    use crate::checkpoint::change_by_kind;
+    use crate::files::set_source;
+    use crate::layers::{
+        fold_inputs, fold_layers, snapshot_of, CheckpointLayer, Layers, PatchLayer,
+    };
+    use dereth_pack::lineage::{Ack, Take};
+    let mut c = sample();
+    number(&mut c);
+    let mut base = write(&c, default_stamp()).expect("written");
+    base.remove(crate::files::META);
+    // The later world: one quest changed, one weenie more.
+    let mut later = c.clone();
+    later.quests[0].max_solves = 7;
+    let mut added = later.weenies[0].clone();
+    added.class_id = 510;
+    later.weenies.push(added);
+    number(&mut later);
+    let mut rows = write(&later, default_stamp()).expect("written");
+    set_source(&mut rows, "a-world", "v1").expect("a source");
+    let (snapshot, kinds) = snapshot_of(&rows).expect("a snapshot");
+    let (before, _) = snapshot_of(&base).expect("the base");
+    let change = change_by_kind(&before, &snapshot);
+    assert_eq!((change["quest"].changed, change["weenie"].added), (1, 1));
+    // A fix of the base's own to a field both worlds agree on, and one to a field the later changed.
+    let fix = r#"
+[[quest]]
+name = "Pickup/Drop: Skull"
+max_solves = 3
+message = "A fixed flag"
+"#;
+    let layers = |drift: Vec<Ack>| Layers {
+        base: base.clone(),
+        base_packs: vec![(
+            "fixes".into(),
+            BTreeMap::from([("fixes.toml".into(), fix.into())]),
+        )],
+        patches: vec![PatchLayer {
+            id: "2005-02-later".into(),
+            checkpoint: Some(Box::new(CheckpointLayer {
+                snapshot: snapshot.clone(),
+                kinds: kinds.clone(),
+                drift,
+            })),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    // Unacknowledged, the fix the later world lacks is drift.
+    let (folded, _, _) = fold_inputs(layers(Vec::new())).expect("folded");
+    let drift: Vec<String> = folded.errors().map(|(_, f)| f.to_string()).collect();
+    assert_eq!(drift.len(), 1, "{drift:?}");
+    assert!(
+        drift[0].contains("quest pickup/drop: skull message"),
+        "{drift:?}"
+    );
+    let keep = Ack {
+        item: "quest pickup/drop: skull".into(),
+        field: Some("message".into()),
+        take: Take::Keep,
+        note: None,
+        at: dereth_pack::Loc::new(std::path::Path::new("drift.toml"), 1),
+    };
+    let got = fold_layers(layers(vec![keep]), c.era, default_stamp()).expect("folded");
+    let q = &got
+        .quests
+        .iter()
+        .find(|q| q.name == "Pickup/Drop: Skull")
+        .expect("the quest");
+    // The source changed max_solves, so its value wins; it never changed the message, so the fix stands.
+    assert_eq!(q.max_solves, 7);
+    assert_eq!(q.message.as_deref(), Some("A fixed flag"));
+    assert!(got.weenies.iter().any(|w| w.class_id == 510));
 }
 
 #[cfg(feature = "launch-content")]

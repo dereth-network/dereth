@@ -151,7 +151,8 @@ pub fn number(c: &mut WorldContent) {
     // A wielded type's rows are a list: its order is what a set means.
     c.treasure_wielded.sort_by_key(|t| t.treasure_type);
     renumber(&mut c.treasure_wielded, |t| &mut t.id);
-    c.treasure_gem_count.sort_by_key(|t| (t.gem_code, t.tier));
+    c.treasure_gem_count
+        .sort_by_key(|t| (t.gem_code, t.tier, t.count));
     renumber(&mut c.treasure_gem_count, |t| &mut t.id);
     c.treasure_material_base
         .sort_by_key(|t| (t.material_code, t.tier, t.material_id));

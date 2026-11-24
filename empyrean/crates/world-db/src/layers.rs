@@ -8,12 +8,12 @@
 //! | `[[weenie]]` | `weenie <class>` |
 //! | `[[placement]]` | `spawn <guid>` (`spawn 0x7A9B400A`), at its spot of its landblock |
 //! | `[[encounter]]` | `encounter <landblock> <x>,<y>` (`encounter A9A0 2,0`) |
-//! | `[[cook_book]]` | `cook-book <source> <target>` |
+//! | `[[cook_book]]` | `cook-book <recipe> <source> <target>`: one source on one target may make two recipes |
 //! | `[[recipe]]`, `[[recipe_vital]]`, `[[spell]]` | `recipe <id>`, `recipe-vital <id>`, `spell <id>` |
 //! | `[[quest]]`, `[[event]]`, `[[poi]]` | `quest <name>` ..., the name in lower case |
 //! | `[[house_portal]]` | `house-portal <house> <cell>` |
 //! | `[[treasure_death]]`, `[[grouped_treasure]]`, `[[treasure_wielded]]` | `death-treasure <type>`, `grouped-treasure <type>`, `wielded-treasure <type>` |
-//! | the gem and material tables | `gem-count <gem> <tier>`, `material-base <code> <tier> <material>`, `material-color <material> <color> <palette>`, `material-group <group> <tier> <material>` |
+//! | the gem and material tables | `gem-count <gem> <tier> <count>`, `material-base <code> <tier> <material>`, `material-color <material> <color> <palette>`, `material-group <group> <tier>` (its materials in their order, one list) |
 //! | `[[loot_policy]]`, `[[version]]` | `loot-policy`, `version` |
 //!
 //! A weenie's property tables (`int`, `did`, `skill`, ..., `spell_book`, `book`) merge by key, so a
@@ -27,8 +27,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use dereth_pack::conflict::{Item, Override};
-use dereth_pack::fold::{fold, Input, Merge, Resolved, Snapshot};
-use dereth_pack::lineage::BASE;
+use dereth_pack::fold::{fold, Folded, Input, Merge, Resolved, Snapshot};
+use dereth_pack::lineage::{Ack, BASE};
 use dereth_pack::pack::PackHeader;
 use dereth_pack::provenance::Provenance;
 use dereth_pack::records::{self, Kinds, RowKinds};
@@ -108,8 +108,8 @@ pub fn item_form(text: &str) -> Option<String> {
     match head {
         "weenie" | "recipe" | "recipe-vital" | "spell" | "death-treasure" | "grouped-treasure"
         | "wielded-treasure" => nums(1).map(|v| format!("{head} {}", v[0])),
-        "cook-book" | "gem-count" => nums(2).map(|v| format!("{head} {}", joined(v))),
-        "material-base" | "material-color" | "material-group" => {
+        "material-group" => nums(2).map(|v| format!("{head} {}", joined(v))),
+        "cook-book" | "gem-count" | "material-base" | "material-color" => {
             nums(3).map(|v| format!("{head} {}", joined(v)))
         }
         "spawn" => nums(1).map(|v| format!("spawn {:#010X}", v[0])),
@@ -134,6 +134,10 @@ pub fn item_form(text: &str) -> Option<String> {
 impl RowKinds for Ac1Rows {
     fn item(&self, kind: &str, t: &Table) -> Result<Item, String> {
         let n = |f: &str| num(t, f);
+        // A key the row leaves out is at its default, 0.
+        let z = |f: &str| -> Result<u32, String> {
+            t.get(f).map(id_of).transpose().map(|v| v.unwrap_or(0))
+        };
         Ok(match kind {
             "weenie" => Item::new(format!("weenie {}", n("class")?)),
             "placement" => {
@@ -168,7 +172,12 @@ impl RowKinds for Ac1Rows {
                 Item::new(format!("encounter {:04X} {},{}", lb & 0xFFFF, c(0)?, c(1)?))
                     .in_landblock(lb as u16)
             }
-            "cook_book" => Item::new(format!("cook-book {} {}", n("source")?, n("target")?)),
+            "cook_book" => Item::new(format!(
+                "cook-book {} {} {}",
+                n("recipe")?,
+                n("source")?,
+                n("target")?
+            )),
             "recipe" => Item::new(format!("recipe {}", n("id")?)),
             "recipe_vital" => Item::new(format!("recipe-vital {}", n("recipe")?)),
             "spell" => Item::new(format!("spell {}", n("id")?)),
@@ -181,26 +190,28 @@ impl RowKinds for Ac1Rows {
             "treasure_death" => Item::new(format!("death-treasure {}", n("type")?)),
             "grouped_treasure" => Item::new(format!("grouped-treasure {}", n("treasure_type")?)),
             "treasure_wielded" => Item::new(format!("wielded-treasure {}", n("type")?)),
-            "treasure_gem_count" => {
-                Item::new(format!("gem-count {} {}", n("gem_code")?, n("tier")?))
-            }
+            "treasure_gem_count" => Item::new(format!(
+                "gem-count {} {} {}",
+                z("gem_code")?,
+                z("tier")?,
+                z("count")?
+            )),
             "treasure_material_base" => Item::new(format!(
                 "material-base {} {} {}",
-                n("material_code")?,
-                n("tier")?,
-                n("material_id")?
+                z("material_code")?,
+                z("tier")?,
+                z("material_id")?
             )),
             "treasure_material_color" => Item::new(format!(
                 "material-color {} {} {}",
-                n("material_id")?,
-                n("color_code")?,
-                n("palette_template")?
+                z("material_id")?,
+                z("color_code")?,
+                z("palette_template")?
             )),
             "treasure_material_groups" => Item::new(format!(
-                "material-group {} {} {}",
-                n("material_group")?,
-                n("tier")?,
-                n("material_id")?
+                "material-group {} {}",
+                z("material_group")?,
+                z("tier")?
             )),
             "loot_policy" => Item::new("loot-policy"),
             "version" => Item::new("version"),
@@ -381,7 +392,7 @@ pub fn content_of(
                 .push(kinds::Fields::take(table, stamp).map_err(err)?),
             "treasure_material_groups" => c
                 .treasure_material_groups
-                .push(kinds::Fields::take(table, stamp).map_err(err)?),
+                .extend(kinds::material_groups_of(table, stamp).map_err(err)?),
             "loot_policy" => c
                 .loot_policies
                 .push(kinds::loot_policy_of(table).map_err(err)?),
@@ -407,44 +418,79 @@ pub struct Layers {
     pub authored_classes: Option<(u32, u32)>,
 }
 
-/// One patch: its id, its packs (each its name and its files) in load order, and which wins.
+/// One patch: its id, its packs (each its name and its files) in load order, and which wins; and
+/// for a checkpoint, the whole known world it pins.
 #[derive(Debug, Default, Clone)]
 pub struct PatchLayer {
     pub id: String,
     pub packs: Vec<(String, BTreeMap<String, String>)>,
     pub overrides: Vec<Override>,
+    pub checkpoint: Option<Box<CheckpointLayer>>,
+}
+
+/// A checkpoint's world as rows, and its acknowledged drift.
+#[derive(Debug, Default, Clone)]
+pub struct CheckpointLayer {
+    pub snapshot: Snapshot<Value>,
+    pub kinds: Kinds,
+    pub drift: Vec<Ack>,
+}
+
+/// The classes of the weenies a snapshot has.
+fn classes_of(snapshot: &Snapshot<Value>) -> impl Iterator<Item = u32> + '_ {
+    snapshot
+        .iter()
+        .filter_map(|e| e.item.name.strip_prefix("weenie ")?.parse().ok())
+}
+
+/// `layers` folded: the world at the last and what each layer's fold found; every item's kind;
+/// and the classes some snapshot has, which a world's own weenies needn't take from its range.
+///
+/// # Errors
+/// What reading the base or a patch finds.
+pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, std::collections::BTreeSet<u32>)> {
+    let (snapshot, mut kinds) = snapshot_of(&layers.base)?;
+    let mut known: std::collections::BTreeSet<u32> = classes_of(&snapshot).collect();
+    let (merge, k) =
+        delta_of(&layers.base_packs, &layers.base_overrides).map_err(|e| format!("{BASE}: {e}"))?;
+    kinds.extend(k);
+    let mut inputs = vec![Input::checkpoint(BASE, snapshot, Vec::new(), merge)];
+    for p in layers.patches {
+        let (merge, k) = delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
+        match p.checkpoint {
+            Some(c) => {
+                let c = *c;
+                known.extend(classes_of(&c.snapshot));
+                kinds.extend(c.kinds);
+                kinds.extend(k);
+                inputs.push(Input::checkpoint(&p.id, c.snapshot, c.drift, merge));
+            }
+            None => {
+                // A later layer's word for an item's kind wins.
+                kinds.extend(k);
+                inputs.push(Input::delta(&p.id, merge));
+            }
+        }
+    }
+    Ok((fold(inputs), kinds, known))
 }
 
 /// The world at the last of `layers`, folded field by field; its ids not yet numbered.
 ///
 /// # Errors
-/// What reading the base or a patch finds, every error the fold finds, and a weenie the base
-/// doesn't have outside the world's own classes.
-pub fn fold_layers(layers: &Layers, era: EraId, stamp: DotNetDateTime) -> R<WorldContent> {
-    let (snapshot, mut kinds) = snapshot_of(&layers.base)?;
-    let base_classes: std::collections::BTreeSet<u32> = snapshot
-        .iter()
-        .filter_map(|e| e.item.name.strip_prefix("weenie ")?.parse().ok())
-        .collect();
-    let (merge, k) =
-        delta_of(&layers.base_packs, &layers.base_overrides).map_err(|e| format!("{BASE}: {e}"))?;
-    kinds.extend(k);
-    let mut inputs = vec![Input::checkpoint(BASE, snapshot, Vec::new(), merge)];
-    for p in &layers.patches {
-        let (merge, k) = delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
-        // A later layer's word for an item's kind wins.
-        kinds.extend(k);
-        inputs.push(Input::delta(&p.id, merge));
-    }
-    let folded = fold(inputs);
+/// What reading the base or a patch finds, every error the fold finds, and a weenie no snapshot
+/// has outside the world's own classes.
+pub fn fold_layers(layers: Layers, era: EraId, stamp: DotNetDateTime) -> R<WorldContent> {
+    let authored_classes = layers.authored_classes;
+    let (folded, kinds, known) = fold_inputs(layers)?;
     let mut errors: Vec<String> = folded
         .errors()
         .map(|(layer, f)| format!("{layer}: {f}"))
         .collect();
     let content = content_of(&folded.world, &kinds, era, stamp);
-    if let (Ok(c), Some((first, last))) = (&content, layers.authored_classes) {
+    if let (Ok(c), Some((first, last))) = (&content, authored_classes) {
         for w in &c.weenies {
-            if !base_classes.contains(&w.class_id) && !(first..=last).contains(&w.class_id) {
+            if !known.contains(&w.class_id) && !(first..=last).contains(&w.class_id) {
                 errors.push(format!(
                     "weenie {}: a class the base doesn't have is the world's own, {first} to {last}",
                     w.class_id

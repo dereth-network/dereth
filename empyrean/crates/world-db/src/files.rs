@@ -8,7 +8,7 @@ use std::path::Path;
 
 use empyrean_common::dotnet::DotNetDateTime;
 use empyrean_common::era::EraId;
-use empyrean_content::models::world::TreasureWielded;
+use empyrean_content::models::world::{TreasureMaterialGroups, TreasureWielded};
 use empyrean_content::WorldContent;
 use toml::Table;
 
@@ -192,11 +192,19 @@ pub fn write(content: &WorldContent, stamp: DotNetDateTime) -> R<BTreeMap<String
             kinds::plain_row(t, stamp),
         );
     }
+    // A group's materials at a tier are one list: a world may list one material twice.
+    let mut groups: BTreeMap<(u32, u32), Vec<TreasureMaterialGroups>> = BTreeMap::new();
     for t in &content.treasure_material_groups {
+        groups
+            .entry((t.material_group, t.tier))
+            .or_default()
+            .push(t.clone());
+    }
+    for ((group, tier), rows) in groups {
         o.add(
             "treasure_material_groups.toml".into(),
             "treasure_material_groups",
-            kinds::plain_row(t, stamp),
+            kinds::material_group_row(group, tier, &rows, stamp),
         );
     }
     for p in &content.loot_policies {
@@ -336,7 +344,7 @@ pub fn read(files: &BTreeMap<String, String>) -> R<WorldContent> {
         }
     }
     crate::layers::fold_layers(
-        &crate::layers::Layers {
+        crate::layers::Layers {
             base: files.clone(),
             ..Default::default()
         },

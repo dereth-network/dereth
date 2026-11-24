@@ -34,6 +34,7 @@
 //! world of patch layers folds field by field over its base.
 
 pub mod canon;
+pub mod checkpoint;
 pub mod compare;
 pub mod files;
 pub mod kinds;

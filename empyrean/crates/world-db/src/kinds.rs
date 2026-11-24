@@ -1273,6 +1273,33 @@ pub fn wielded_of(t: &Table, stamp: DotNetDateTime) -> R<Vec<TreasureWielded>> {
     Ok(rows)
 }
 
+/// A treasure material group's materials at one tier, in their order.
+#[must_use]
+pub fn material_group_row(
+    group: u32,
+    tier: u32,
+    rows: &[TreasureMaterialGroups],
+    stamp: DotNetDateTime,
+) -> Row {
+    let mut r = Row::default();
+    r.set("material_group", Some(V::Int(i64::from(group))));
+    r.set("tier", Some(V::Int(i64::from(tier))));
+    r.list("entry", list_of(rows, stamp));
+    r
+}
+
+/// A treasure material group's materials at one tier read back, in their order.
+pub fn material_groups_of(t: &Table, stamp: DotNetDateTime) -> R<Vec<TreasureMaterialGroups>> {
+    let n = |f: &str| t.get(f).map(id_of).transpose()?.ok_or(format!("no {f}"));
+    let (group, tier) = (n("material_group")?, n("tier")?);
+    let mut rows: Vec<TreasureMaterialGroups> = take_list(t, "entry", stamp)?;
+    for r in &mut rows {
+        r.material_group = group;
+        r.tier = tier;
+    }
+    Ok(rows)
+}
+
 /// A record with no key of its own beyond its fields.
 #[must_use]
 pub fn plain_row<T: Fields>(item: &T, stamp: DotNetDateTime) -> Row {

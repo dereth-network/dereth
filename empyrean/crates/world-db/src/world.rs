@@ -7,13 +7,16 @@
 //! base/pack.toml, base/world-db.toml        its header and source; its rows' era and stamp
 //! patches/<yyyy-mm>-<name>/patch.toml       a patch, a delta on the layer before
 //! patches/<yyyy-mm>-<name>/packs/<pack>/    its packs of rows
+//! patches/<yyyy-mm>-<name>/checkpoint.toml  a checkpoint's pin ([`crate::checkpoint`])
+//! patches/<yyyy-mm>-<name>/keys.toml        its placements' keys, generated
+//! patches/<yyyy-mm>-<name>/drift.toml       its acknowledged drift
 //! ```
 //!
 //! The base's first pack is the snapshot every later layer folds over; its other packs, and every
 //! patch's, are rows that set, unset and remove field by field ([`crate::layers`]). A weenie the
 //! base doesn't have takes a class of the world's own, `[ids] classes = [first, last]`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -24,8 +27,9 @@ use dereth_pack::Dialect;
 use empyrean_common::era::EraId;
 use empyrean_content::WorldContent;
 
-use crate::files::{meta, read_dir};
-use crate::layers::{fold_layers, item_form, Layers, PatchLayer};
+use crate::checkpoint::{self, apply_keys, keys_of, match_keys, Keys, Known, Pin};
+use crate::files::{self, meta, read_dir, set_source, Meta};
+use crate::layers::{fold_layers, item_form, snapshot_of, CheckpointLayer, Layers, PatchLayer};
 use crate::value::R;
 
 /// The first game's words for the pack format, as Empyrean's worlds of rows speak them.
@@ -68,11 +72,11 @@ impl Dialect for Ac1World {
     const PRODUCT: &'static str = "Empyrean";
     const BUILD_COMMAND: &'static str = "empyrean-world-db pack";
     const ITEM_FORMS: &'static str = "weenie <class>, spawn <guid>, encounter <XXYY> <x>,<y>, \
-         cook-book <source> <target>, recipe <id>, recipe-vital <id>, spell <id>, quest <name>, \
+         cook-book <recipe> <source> <target>, recipe <id>, recipe-vital <id>, spell <id>, quest <name>, \
          event <name>, poi <name>, house-portal <house> <cell>, death-treasure <type>, \
-         grouped-treasure <type>, wielded-treasure <type>, gem-count <gem> <tier>, \
+         grouped-treasure <type>, wielded-treasure <type>, gem-count <gem> <tier> <count>, \
          material-base <code> <tier> <material>, material-color <material> <color> <palette>, \
-         material-group <group> <tier> <material>, loot-policy, version, or landblock <XXYY>";
+         material-group <group> <tier>, loot-policy, version, or landblock <XXYY>";
     const NAMES_LINEAGE: bool = true;
     type Kind = Kind;
     type Era = EraId;
@@ -101,12 +105,35 @@ fn packs_of(layer: &LayerDef) -> R<Vec<(String, BTreeMap<String, String>)>> {
     layer.packs.iter().map(|p| pack_of(p)).collect()
 }
 
-/// The world `world.toml` names at its last layer, folded; its ids not yet numbered.
+/// Where a checkpoint's placement keys come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeysFrom {
+    /// Its `keys.toml`, or matched afresh where it has none.
+    Files,
+    /// Matched afresh, whatever its `keys.toml` says.
+    Fresh,
+}
+
+/// One checkpoint as read: its id, its pin, and its placements' keys.
+#[derive(Debug, Clone)]
+pub struct Checkpoint {
+    pub id: String,
+    pub pin: Pin,
+    pub keys: Keys,
+}
+
+/// The world `world.toml` names, read as layers (a checkpoint's pinned dump, from `dumps` or where
+/// [`Pin::dump`] looks, converted to rows, its placements keyed as `keys` says), with what its base
+/// says of itself and each checkpoint read.
 ///
 /// # Errors
-/// A world file or lineage that doesn't read, a base without a pack of rows, a checkpoint layer
-/// (its snapshot is not converted here yet), and whatever folding the layers finds.
-pub fn fold_world(world_toml: &Path) -> R<WorldContent> {
+/// A world file or lineage that doesn't read, a base without a pack of rows, a checkpoint whose
+/// pin or dump doesn't read, and a `keys.toml` that doesn't.
+pub fn layers_of(
+    world_toml: &Path,
+    keys: KeysFrom,
+    dumps: Option<&Path>,
+) -> R<(Layers, Meta, Vec<Checkpoint>)> {
     let lineage =
         Lineage::read_world_file::<Ac1World>(&DiskStore, world_toml).map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(world_toml).map_err(|e| e.to_string())?;
@@ -132,6 +159,10 @@ pub fn fold_world(world_toml: &Path) -> R<WorldContent> {
         .ok_or("world.toml: the base has no pack of rows (packs = [\"base\"])")?;
     let base_files = read_dir(first)?;
     let m = meta(&base_files).map_err(|e| format!("{}: {e}", first.display()))?;
+    // The placements of the world before each checkpoint, by their source's guids and their keys,
+    // and every key the lineage has given.
+    let mut known = Known::of(&files::read(&base_files)?);
+    let mut used: BTreeSet<u32> = known.iter().map(|k| k.key).collect();
     let mut layers = Layers {
         base: base_files,
         base_packs: base.packs[1..]
@@ -142,18 +173,87 @@ pub fn fold_world(world_toml: &Path) -> R<WorldContent> {
         patches: Vec::new(),
         authored_classes,
     };
+    let mut read = Vec::new();
     for p in patches {
-        if p.is_checkpoint() {
-            return Err(format!(
-                "{}: a checkpoint's snapshot isn't converted here yet",
-                p.id
-            ));
-        }
+        let packs = packs_of(p)?;
+        used.extend(spawns_in(&packs));
+        let checkpoint = match &p.checkpoint {
+            None => None,
+            Some(pin) => {
+                let pin = checkpoint::pin_of(pin).map_err(|e| format!("{}: {e}", p.id))?;
+                let dump = pin.dump(dumps).map_err(|e| format!("{}: {e}", p.id))?;
+                let mut c =
+                    checkpoint::ingest(&pin, &dump, m.era).map_err(|e| format!("{}: {e}", p.id))?;
+                let keys_path = p.dir.join("keys.toml");
+                let keys = match (keys, keys_path.is_file()) {
+                    (KeysFrom::Files, true) => {
+                        let text = std::fs::read_to_string(&keys_path)
+                            .map_err(|e| format!("{}: {e}", keys_path.display()))?;
+                        keys_of(&text).map_err(|e| format!("{}: {e}", p.id))?
+                    }
+                    _ => match_keys(&known, &used, &c.landblock_instances),
+                };
+                let key = |g: u32| keys.map.get(&g).copied().unwrap_or(g);
+                known = c
+                    .landblock_instances
+                    .iter()
+                    .map(|i| Known::keyed(i, key(i.guid)))
+                    .collect();
+                used.extend(known.iter().map(|k| k.key));
+                apply_keys(&mut c, &keys.map);
+                let mut rows = files::write(&c, m.stamp)?;
+                set_source(&mut rows, &pin.source, &pin.tag)?;
+                let (snapshot, kinds) = snapshot_of(&rows).map_err(|e| format!("{}: {e}", p.id))?;
+                read.push(Checkpoint {
+                    id: p.id.clone(),
+                    pin,
+                    keys,
+                });
+                Some(Box::new(CheckpointLayer {
+                    snapshot,
+                    kinds,
+                    drift: p.drift.clone(),
+                }))
+            }
+        };
         layers.patches.push(PatchLayer {
             id: p.id.clone(),
-            packs: packs_of(p)?,
+            packs,
             overrides: p.overrides.clone(),
+            checkpoint,
         });
     }
-    fold_layers(&layers, m.era, m.stamp)
+    Ok((layers, m, read))
+}
+
+/// The guids of the placements `packs` set.
+fn spawns_in(packs: &[(String, BTreeMap<String, String>)]) -> Vec<u32> {
+    let mut out = Vec::new();
+    for (_, files) in packs {
+        for text in files.values() {
+            let Ok(t) = toml::from_str::<toml::Table>(text) else {
+                continue;
+            };
+            for row in t
+                .get("placement")
+                .and_then(toml::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(g) = row.get("guid").and_then(|g| crate::value::id_of(g).ok()) {
+                    out.push(g);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The world `world.toml` names at its last layer, folded; its ids not yet numbered.
+///
+/// # Errors
+/// What [`layers_of`] finds, and whatever folding the layers finds.
+pub fn fold_world(world_toml: &Path, dumps: Option<&Path>) -> R<WorldContent> {
+    let (layers, m, _) = layers_of(world_toml, KeysFrom::Files, dumps)?;
+    fold_layers(layers, m.era, m.stamp)
 }
