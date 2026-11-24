@@ -168,6 +168,54 @@ fn held(h: &Harness, me: u64, item: u64) -> (u32, u32) {
     (x.location, x.slot)
 }
 
+/// What a client was sent since `from` of an item going on or coming off, in the order sent, a
+/// letter each, repeats in a row kept once: H a holder of the item, L the player's look, S the
+/// player's weapon slider, D the player letting go of a thing, C the item contained, A the answer.
+fn parts(h: &Harness, b: usize, from: usize, me: u64, item: u64) -> String {
+    let mut out = String::new();
+    for m in h.sent_messages(b, from) {
+        let c = match &m {
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && (q.quality == 258 || q.quality == 261) =>
+            {
+                'H'
+            }
+            ServerMessage::UpdateVisualDesc(e) if e.sender.id == me => 'L',
+            ServerMessage::MoveSlider(e) if e.sender.id == me => 'S',
+            ServerMessage::DeParent(e) if e.sender.id == me => 'D',
+            ServerMessage::Contain(o) if o.0.id == item => 'C',
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == equip::function::EQUIP_DONE
+                    || c.function.0 == equip::function::UNEQUIP_DONE =>
+            {
+                'A'
+            }
+            _ => continue,
+        };
+        if !out.ends_with(c) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// In the order sent: a garment worn is told its holders, then the wearer's look with it, then
+/// answered; taken off, its wearer cleared, then the look without it, then answered; jewelry, which
+/// gives no look, its holders and the answer.
+/// Behaviour: server.equip.wearing-parts-in-order
+#[test]
+fn wearing_and_taking_off_tell_their_parts_in_retails_order() {
+    let (mut h, a, me, _) = two_players();
+    for (t, on, off) in [(CHEST, "HLA", "HLA"), (RING, "HA", "HA")] {
+        let from = h.bots[a].inbox.len();
+        let item = h.arm(a, me, t);
+        assert_eq!(parts(&h, a, from, me, item), on, "{t:x} worn");
+        let from = h.bots[a].inbox.len();
+        use_it(&mut h, a, me, item);
+        assert_eq!(parts(&h, a, from, me, item), off, "{t:x} taken off");
+    }
+}
+
 /// A chest piece used from the pack is worn on the chest: the answer names the place, the places
 /// it takes and rules out, its own places and preference, the slot it came from, worn by use; the
 /// wearer's look gains the appearance it gives the wearer's body (the garment shown), first in its

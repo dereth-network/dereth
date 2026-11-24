@@ -1,10 +1,10 @@
 //! Wielding: a player uses a weapon in its pack to wield it (and uses it again to put it away).
 //!
-//! **Wielding** sends, to every client that sees the player: its weapon drawn (a slider), the item
-//! leaving the pack, the player as its wielder and container, the item attached to the player's
-//! hand; then the player's answer: where the item went, the hand slots it takes and those it rules
-//! out. **Putting it away**: the item is contained in the pack again, the answer, the item
-//! detached, the weapon sheathed, the wielder cleared.
+//! **Wielding** sends, to every client that sees the player: the item leaving the pack, the player
+//! as its wielder and container, then its weapon drawn (a slider), the item attached to the
+//! player's hand; then the player's answer: where the item went, the hand slots it takes and those
+//! it rules out. **Putting it away**: the wielder cleared, the item detached, the item contained in
+//! the pack again, the weapon sheathed (an off-hand has no slider), then the answer.
 //!
 //! A thing's hands and slots are its template's: the places it may go and prefers, those it rules
 //! out, where it hangs (2017: 808 of 808 answers for a thing in a hand said what its template
@@ -13,10 +13,10 @@
 //! **Wearing** armor, clothing or jewelry (an item whose template names places on the body):
 //! the item goes to the place it prefers, or another of its places that is free, taking off
 //! the one item there first (that item goes where the worn one was in the pack). The player is
-//! answered (the places, those ruled out, the item it replaced), its look gains the item's
-//! appearance for its race and sex (seen by all who see it; jewelry gives none), and it is told the
-//! item's container and wearer. **Taking it off**: the answer, the look without it, the wearer
-//! cleared; the item goes to the pack's front.
+//! told the item's container and wearer, its look gains the item's appearance for its race and sex
+//! (seen by all who see it; jewelry gives none), and then it is answered (the places, those ruled
+//! out, the item it replaced). **Taking it off**: the wearer cleared, the look without it, then the
+//! answer; the item goes to the pack's front.
 //!
 //! **What an item does to its wearer.** Worn or wielded, an item puts its effects on the player
 //! just before the answer: its template's (`Item_EquipperEffectN`, at `Item_EquipperEffectNStat`)
@@ -817,13 +817,31 @@ fn wear<S: Store>(
         .get(item)
         .and_then(|t| s.catalog.get(t.template).map(|p| (p, t.own)))
         .and_then(|(t, own)| worn_look(&t.props, race, sex, &own));
-    // Its effects come on just before the answer.
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    // The item's holders (the wearer's to know), then the look with it (jewelry gives none), then
+    // its effects, and the answer last (2017, by the order sent: the answer last in 391 of 391
+    // wearings, after the holders, the look and the effects wherever each was told).
+    for (quality, value) in [
+        (q::CONTAINER, 0),
+        (q::EQUIPPER, player),
+        (q::CONTAINER, player),
+    ] {
+        let m = iid_update(s, item, quality, value);
+        crate::inventory::to_holder(s, net, world, item, &m);
+    }
+    if let Some((table, values)) = look {
+        if let Some(p) = s.players.get_mut(&world) {
+            put_on(&mut p.look, table, values);
+        }
+        show_look(s, net, world);
+    }
     effects_on(s, net, world, item, clock);
     let binds_on_use = binds_on_use(s, item);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let player = p.character;
     let slot = p
         .play
         .items
@@ -860,20 +878,6 @@ fn wear<S: Store>(
         h.location = location;
     }
     crate::inventory::close_up(&mut p.play.items);
-    // Jewelry gives no look: the look is not sent.
-    if let Some((table, values)) = look {
-        put_on(&mut p.look, table, values);
-        show_look(s, net, world);
-    }
-    // The item's holders are the wearer's to know.
-    for (quality, value) in [
-        (q::CONTAINER, 0),
-        (q::EQUIPPER, player),
-        (q::CONTAINER, player),
-    ] {
-        let m = iid_update(s, item, quality, value);
-        crate::inventory::to_holder(s, net, world, item, &m);
-    }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
     }
@@ -991,13 +995,13 @@ fn take_off_to<S: Store>(
             take_from(&mut p.look, *table);
         }
     }
+    // The item's holder, then the look without it (2017, by the order sent: 241 of 241 takings off
+    // telling both), its effects just before the answer.
+    let m = iid_update(s, item, q::EQUIPPER, 0);
+    crate::inventory::to_holder(s, net, world, item, &m);
     if look.is_some() {
         show_look(s, net, world);
     }
-    let m = iid_update(s, item, q::EQUIPPER, 0);
-    crate::inventory::to_holder(s, net, world, item, &m);
-    // Its effects go just before the answer, and the answer after the look and the item's holder
-    // (2017, by the order sent: its holder before the answer 1,052 of 1,052).
     effects::take_off_worn(s, net, world, item);
     progress::private(net, world, &done);
     if let Some(t) = s.things.get_mut(item) {
@@ -1132,21 +1136,6 @@ fn wield<S: Store>(
         })],
     )
     .expect("packs");
-    // The weapon drawn: only for the primary hand, and only it takes a stamp: the client waits for
-    // each stamp in turn before it plays what comes after.
-    if location == PRIMARY_HAND {
-        if let Some((_, stamp)) = player_stamp(s, world) {
-            let drawn = ServerMessage::MoveSlider(ObjectEvent {
-                sender: stamp,
-                action: Slide {
-                    slider: WEAPON_DRAWN,
-                    value: 0.0,
-                    time: 0.1,
-                },
-            });
-            to_all_seeing(s, net, player, &drawn);
-        }
-    }
     // The wielder, and those who see it and know the item, are told the item's holders and see it
     // attached; those who do not know it have it made in the hand (below).
     let watching = crate::presence::watching(s, world, player, item);
@@ -1159,6 +1148,22 @@ fn wield<S: Store>(
         net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
         for (c, _) in watching.iter().filter(|(_, knows)| *knows) {
             net.send(*c, queue::EVENT, BlobKind::VISUAL, m.clone());
+        }
+    }
+    // The weapon drawn, after its holders (2017, by the order sent: 637 of 647 wieldings): only for
+    // the primary hand, and only it takes a stamp: the client waits for each stamp in turn before it
+    // plays what comes after.
+    if location == PRIMARY_HAND {
+        if let Some((_, stamp)) = player_stamp(s, world) {
+            let drawn = ServerMessage::MoveSlider(ObjectEvent {
+                sender: stamp,
+                action: Slide {
+                    slider: WEAPON_DRAWN,
+                    value: 0.0,
+                    time: 0.1,
+                },
+            });
+            to_all_seeing(s, net, player, &drawn);
         }
     }
     // It hangs from its primary place in its preferred hand, else from its secondary (2017: 504 of
@@ -1282,14 +1287,6 @@ fn put_away<S: Store>(
             other_stamp: t.position_stamp,
         }
     });
-    if let Some(c) = contain {
-        net.send(
-            world,
-            queue::EVENT,
-            BlobKind::UNORDERED,
-            ServerMessage::Contain(auberean_protocol::physics::ObjectOnly(c)).encode(),
-        );
-    }
     let done = session::call(
         function::UNEQUIP_DONE,
         &[desc(&Answer {
@@ -1309,6 +1306,46 @@ fn put_away<S: Store>(
         })],
     )
     .expect("packs");
+    let m = iid_update(s, item, q::EQUIPPER, 0).encode();
+    net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
+    // Those who see it see the item let go of: the holder lets go of the item, and those who know
+    // the item are told it has no holder (2017: 543 of 659 of the next visual messages about an item
+    // after its holder let go of it took the next stamp, those read holding no wearer).
+    let holder_stamp = s.players.get(&world).map(crate::world::Player::stamp);
+    let item_stamp = s.things.get(item).map(|t| ObjectStamp {
+        id: item,
+        instance_stamp: t.instance,
+        other_stamp: t.position_stamp,
+    });
+    if let (Some(sender), Some(child)) = (holder_stamp, item_stamp) {
+        let gone = ServerMessage::DeParent(ObjectEvent {
+            sender: ObjectStamp {
+                other_stamp: 0,
+                ..sender
+            },
+            action: child,
+        })
+        .encode();
+        // The wielder is told so too (2017: 623 of 636 puttings away of a weapon).
+        net.send(world, queue::EVENT, BlobKind::UNORDERED, gone.clone());
+        for (c, knows) in crate::presence::watching(s, world, player, item) {
+            net.send(c, queue::EVENT, BlobKind::UNORDERED, gone.clone());
+            if knows {
+                net.send(c, queue::EVENT, BlobKind::VISUAL, m.clone());
+            }
+        }
+    }
+    // Then it is in the pack again, and then the weapon sheathed (2017, by the order sent: the
+    // holder, the letting go, the item contained, the slider, 623 of 636 puttings away; an off-hand,
+    // which has no slider, the same, 88 times).
+    if let Some(c) = contain {
+        net.send(
+            world,
+            queue::EVENT,
+            BlobKind::UNORDERED,
+            ServerMessage::Contain(auberean_protocol::physics::ObjectOnly(c)).encode(),
+        );
+    }
     // The weapon slider: only for the primary hand.
     if location == PRIMARY_HAND {
         if let Some((_, stamp)) = player_stamp(s, world) {
@@ -1321,33 +1358,6 @@ fn put_away<S: Store>(
                 },
             });
             to_all_seeing(s, net, player, &sheathed);
-        }
-    }
-    let m = iid_update(s, item, q::EQUIPPER, 0).encode();
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
-    // Those who see it see the item let go of: the holder lets go of the item, and those who know
-    // the item are told it has no holder (2017: 543 of 659 of the next visual messages about an item
-    // after its holder let go of it took the next stamp, those read holding no wearer).
-    let player_stamp = s.players.get(&world).map(crate::world::Player::stamp);
-    let item_stamp = s.things.get(item).map(|t| ObjectStamp {
-        id: item,
-        instance_stamp: t.instance,
-        other_stamp: t.position_stamp,
-    });
-    if let (Some(sender), Some(child)) = (player_stamp, item_stamp) {
-        let gone = ServerMessage::DeParent(ObjectEvent {
-            sender: ObjectStamp {
-                other_stamp: 0,
-                ..sender
-            },
-            action: child,
-        })
-        .encode();
-        for (c, knows) in crate::presence::watching(s, world, player, item) {
-            net.send(c, queue::EVENT, BlobKind::UNORDERED, gone.clone());
-            if knows {
-                net.send(c, queue::EVENT, BlobKind::VISUAL, m.clone());
-            }
         }
     }
     // Its effects go just before the answer, and the answer after the item's holder and its

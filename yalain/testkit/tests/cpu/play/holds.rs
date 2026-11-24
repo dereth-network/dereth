@@ -490,6 +490,55 @@ fn a_weapon_put_away_past_every_segment_goes_to_the_packs_front() {
     assert_eq!(slots.len(), items.len(), "every slot its own item's");
 }
 
+/// What a client was sent since `from` of an item going on or coming off, in the order sent, a
+/// letter each, repeats in a row kept once: H a holder of the item, L the player's look, S the
+/// player's weapon slider, D the player letting go of a thing, C the item contained, A the answer.
+fn parts(h: &Harness, b: usize, from: usize, me: u64, item: u64) -> String {
+    let mut out = String::new();
+    for m in h.sent_messages(b, from) {
+        let c = match &m {
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && (q.quality == 258 || q.quality == 261) =>
+            {
+                'H'
+            }
+            ServerMessage::UpdateVisualDesc(e) if e.sender.id == me => 'L',
+            ServerMessage::MoveSlider(e) if e.sender.id == me => 'S',
+            ServerMessage::DeParent(e) if e.sender.id == me => 'D',
+            ServerMessage::Contain(o) if o.0.id == item => 'C',
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == equip::function::EQUIP_DONE
+                    || c.function.0 == equip::function::UNEQUIP_DONE =>
+            {
+                'A'
+            }
+            _ => continue,
+        };
+        if !out.ends_with(c) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// In the order sent: a weapon wielded is told its holders, then the weapon drawn, then answered; a
+/// weapon put away is told its wielder cleared, let go of, contained, the weapon sheathed, then
+/// answered; a shield in the off hand the same with no slider.
+/// Behaviour: server.equip.wielding-parts-in-order
+#[test]
+fn wielding_and_putting_away_tell_their_parts_in_retails_order() {
+    let (mut h, b, me, world) = player();
+    for (t, on, off) in [(SWORD, "HSA", "HDCSA"), (SHIELD, "HA", "HDCA")] {
+        let item = id_of(&h, world, t);
+        let from = h.bots[b].inbox.len();
+        use_it(&mut h, b, me, item);
+        assert_eq!(parts(&h, b, from, me, item), on, "{t:x} wielded");
+        let from = h.bots[b].inbox.len();
+        use_it(&mut h, b, me, item);
+        assert_eq!(parts(&h, b, from, me, item), off, "{t:x} put away");
+    }
+}
+
 /// In the order the server sends them, a weapon wielded is told held by its wielder before the
 /// equipping is answered, and a weapon put away is told held by no wielder before the putting away
 /// is answered.

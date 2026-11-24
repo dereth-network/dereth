@@ -6235,12 +6235,31 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.equip.wearing-parts-in-order",
+        says: "A garment worn is told its holders, then the wearer's look with it, then answered; \
+               taken off, its wearer cleared, then the look without it, then answered.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WEAR-PARTS-ORDER"),
+        station: "yalain-testkit::cpu::play::wearing::wearing_and_taking_off_tell_their_parts_in_retails_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.equip.wielded-effects-come-on-and-off",
         says: "A weapon whose template names effects when wielded puts them on as it is wielded and \
                takes them off as it is put away, by its use or to make room for another.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WIELDED-EFFECTS"),
         station: "yalain-testkit::cpu::play::worn_effects::a_wielded_weapon_puts_its_effect_on_and_putting_it_away_takes_it_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.equip.wielding-parts-in-order",
+        says: "A weapon wielded is told its holders, then the weapon drawn, then answered; put \
+               away, its wielder cleared, let go of, contained, the weapon sheathed, then \
+               answered; an off-hand the same with no slider.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WIELD-PARTS-ORDER"),
+        station: "yalain-testkit::cpu::play::holds::wielding_and_putting_away_tell_their_parts_in_retails_order",
         tier: Tier::Cpu,
     },
     behaviour! {
