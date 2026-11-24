@@ -158,6 +158,15 @@ impl PortalDatDatabase {
                 base.insert_cache(file_id::SKILL_TABLE, Arc::clone(&t));
                 Some(t)
             }
+            // DIVERGE: V575 a world's own skill table (its data overlay's) may carry the weapon
+            // skills itself, with its own costs and formulas: those are kept, and only the
+            // ones it lacks are added. ACE's `Dictionary.Add` would throw on the first.
+            Some(mut t) if t.carries_retired_skills() => {
+                t.add_retired_skills_it_lacks();
+                let t = Arc::new(t);
+                base.insert_cache(file_id::SKILL_TABLE, Arc::clone(&t));
+                Some(t)
+            }
             Some(mut t) => {
                 // DatManager.Initialize: PortalDat.SkillTable.AddRetiredSkills();
                 t.add_retired_skills()

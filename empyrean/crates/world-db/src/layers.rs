@@ -15,6 +15,7 @@
 //! | `[[treasure_death]]`, `[[grouped_treasure]]`, `[[treasure_wielded]]` | `death-treasure <type>`, `grouped-treasure <type>`, `wielded-treasure <type>` |
 //! | the gem and material tables | `gem-count <gem> <tier> <count>`, `material-base <code> <tier> <material>`, `material-color <material> <color> <palette>`, `material-group <group> <tier>` (its materials in their order, one list) |
 //! | `[[loot_policy]]`, `[[version]]` | `loot-policy`, `version` |
+//! | `[[rules]]`, the world's own rules (`empyrean_common::world_rules`) | `rules` |
 //!
 //! A weenie's property tables (`int`, `did`, `skill`, ..., `spell_book`, `book`) merge by key, so a
 //! patch sets one property (`int.ItemType`); every list (a create list, the emotes, a recipe's
@@ -127,10 +128,14 @@ pub fn item_form(text: &str) -> Option<String> {
         "quest" | "event" | "poi" if !rest.is_empty() => {
             Some(format!("{head} {}", rest.to_lowercase()))
         }
-        "loot-policy" | "version" if rest.is_empty() => Some(head.to_owned()),
+        "loot-policy" | "version" | "rules" if rest.is_empty() => Some(head.to_owned()),
         _ => None,
     }
 }
+
+/// The rules row's tables a layer sets one key of: each system, each formula setting and each
+/// property is a field of its own.
+const RULES_MAPS: &[&str] = &["features", "formulas", "properties"];
 
 impl RowKinds for Ac1Rows {
     fn item(&self, kind: &str, t: &Table) -> Result<Item, String> {
@@ -215,13 +220,15 @@ impl RowKinds for Ac1Rows {
                 z("tier")?
             )),
             "loot_policy" => Item::new("loot-policy"),
+            "rules" => Item::new("rules"),
             "version" => Item::new("version"),
             other => return Err(format!("no kind of row is called {other}")),
         })
     }
 
     fn is_map(&self, kind: &str, field: &str) -> bool {
-        kind == "weenie" && WEENIE_MAPS.contains(&field)
+        (kind == "weenie" && WEENIE_MAPS.contains(&field))
+            || (kind == "rules" && RULES_MAPS.contains(&field))
     }
 
     fn removal(&self, text: &str) -> Result<String, String> {
@@ -434,6 +441,7 @@ pub fn content_of(
             "loot_policy" => c
                 .loot_policies
                 .push(kinds::loot_policy_of(table).map_err(err)?),
+            "rules" => c.rules = Some(kinds::rules_of(table).map_err(err)?),
             "version" => c
                 .versions
                 .push(kinds::Fields::take(table, stamp).map_err(err)?),

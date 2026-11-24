@@ -516,6 +516,10 @@ impl WorldDatabaseWithEntityCache {
     pub fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath> {
         self.base.get_grouped_treasure(data_id)
     }
+    /// Not ACE: the world's own rules, when its pack carries them.
+    pub fn get_world_rules(&self) -> Option<Arc<empyrean_common::world_rules::WorldRules>> {
+        self.base.get_world_rules().map(Arc::new)
+    }
     pub fn get_source_loot_policy(&self) -> Option<Arc<SourceLootPolicy>> {
         let over = self
             .base

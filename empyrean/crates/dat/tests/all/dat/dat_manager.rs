@@ -1,6 +1,6 @@
 //! ACE: Source/ACE.DatLoader/DatManager.cs::DatManager
-//! DatManager over FakeDats: up-front tables, AddRetiredSkills with ACE formulas (and ACE's throw
-//! on a duplicate), decode-once cache, missing/mismatched files are None, iteration loop, file
+//! DatManager over FakeDats: up-front tables, AddRetiredSkills with ACE formulas (and a table's
+//! own weapon skills kept, where ACE throws on a duplicate), decode-once cache, missing/mismatched files are None, iteration loop, file
 //! list and cache count.
 //! Fixture: synthetic dat records and locally constructed geometry.
 
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use empyrean_dat::fake::sample;
 use empyrean_dat::file_types::{Iteration, SkillTable, XpTable};
-use empyrean_dat::{file_id, DatDatabaseType, DatManagerError, FakeDats};
+use empyrean_dat::{file_id, DatDatabaseType, FakeDats};
 
 #[test]
 fn the_up_front_tables_come_from_the_fake() {
@@ -96,22 +96,29 @@ fn initialize_adds_the_retired_skills_with_aces_formulas() {
     assert_eq!(cached.skills.len(), 11);
 }
 
+/// Divergence: V575
+/// A world's own skill table that carries a retired weapon skill keeps it, its costs and formula
+/// its own, and gets the others added, where ACE's `Dictionary.Add` throws; a table that carries
+/// none still gets all ten (above).
 #[test]
-fn a_retired_skill_already_in_the_table_fails_initialize_as_ace_throws() {
+fn a_skill_table_carrying_a_retired_skill_keeps_its_own_and_gets_the_rest() {
     let mut t = sample::skill_table();
-    let axe = t.skills[&6].clone();
-    t.skills.insert(1, axe);
-    let err = FakeDats::new()
+    let mut axe = t.skills[&6].clone();
+    axe.name = "Axe".into();
+    axe.trained_cost = 6;
+    t.skills.insert(1, axe.clone());
+    let dats = FakeDats::new()
         .with_skill_table(t)
         .build()
-        .expect_err("Dictionary.Add throws");
-    assert!(
-        matches!(
-            err,
-            DatManagerError::RetiredSkills(empyrean_dat::AceThrow::DuplicateKey(1))
-        ),
-        "{err:?}"
+        .expect("the table's own Axe is kept");
+    let skills = &dats.portal_dat().skill_table().skills;
+    assert_eq!(skills[&1], axe, "its own");
+    assert_eq!(
+        skills.len(),
+        11,
+        "Melee Defense, its Axe and the nine others"
     );
+    assert_eq!(skills[&2].formula.z, 2, "Bow, as ACE adds it");
 }
 
 #[test]

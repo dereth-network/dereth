@@ -222,6 +222,17 @@ impl Pack {
             index_span,
             blob_span,
         };
+        // Not ACE: a world's own rules are one record, key 1, that reads.
+        if result.count(TableId::RULES) > 0
+            && (result.count(TableId::RULES) != 1
+                || result
+                    .get::<empyrean_common::world_rules::WorldRules>(TableId::RULES, 1)?
+                    .is_none())
+        {
+            return Err(PackError::InvalidRules(
+                "the rules are one record, key 1".into(),
+            ));
+        }
         if policy {
             if result.count(TableId::LOOT_POLICY) != 1
                 || result

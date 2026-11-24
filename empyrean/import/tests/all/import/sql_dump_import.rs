@@ -24,6 +24,7 @@ fn every_world_table_is_declared_and_has_rows() {
         "recipe_requirements_vital",
         "empyrean_grouped_treasure",
         "empyrean_loot_policy",
+        "empyrean_rules",
     ];
     assert_eq!(
         WORLD_TABLES

@@ -10,6 +10,9 @@ use crate::pack::TableId;
 pub enum PackError {
     #[error("invalid source loot: {0}")]
     InvalidLoot(String),
+    /// Not ACE: the world's own rules don't read.
+    #[error("invalid world rules: {0}")]
+    InvalidRules(String),
     #[error("magic {0:#018x}, expected {expected:#018x}", expected = crate::pack::format::MAGIC)]
     BadMagic(u64),
 

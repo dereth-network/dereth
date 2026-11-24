@@ -916,6 +916,14 @@ The server reads the world's own rules from the folder's `world.toml` and its pl
 port for that stream ([3.5](#35-firewall)). The overlay holds the game's files' content, so never
 share or publish it.
 
+## A world's own rules
+
+A world built from a world repository (`empyrean-import world build`) may carry rules of its own
+in its `world.pack`: the level cap, where new characters start, the heritages and skills they may
+take, loot and starter gear, any of the era's systems and formula settings, and defaults for the
+server's properties. The server starts from the era's rules (`[era] profile`), lays the world's
+over them, then your `[era]` keys over those: yours win. The log says when a pack carries rules.
+
 ## Launcher-managed updates
 
 A launcher-managed host disables the independent updater and stages verified downloads with

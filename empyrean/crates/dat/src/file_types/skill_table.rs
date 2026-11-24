@@ -69,6 +69,14 @@ pub trait SkillTableExt {
     ///
     /// [`AceThrow::DuplicateKey`] for the first retired skill already present.
     fn add_retired_skills(&mut self) -> Result<(), AceThrow>;
+
+    /// Not ACE (V575): the retired weapon skills the table lacks, added as
+    /// [`SkillTableExt::add_retired_skills`] adds them; one the table carries (a world's own
+    /// skill, with its costs and formula) is kept. Answers how many were added.
+    fn add_retired_skills_it_lacks(&mut self) -> usize;
+
+    /// Not ACE (V575): whether the table carries any of the retired weapon skills.
+    fn carries_retired_skills(&self) -> bool;
 }
 
 impl SkillTableExt for SkillTable {
@@ -163,5 +171,32 @@ impl SkillTableExt for SkillTable {
             self.skills.insert(skill, skill_base(formula));
         }
         Ok(())
+    }
+
+    fn add_retired_skills_it_lacks(&mut self) -> usize {
+        let mut lacking = SkillTable {
+            skills: std::collections::BTreeMap::new(),
+            ..self.clone()
+        };
+        lacking
+            .add_retired_skills()
+            .expect("an empty table has none of them");
+        let mut added = 0;
+        for (skill, base) in lacking.skills {
+            if let std::collections::btree_map::Entry::Vacant(e) = self.skills.entry(skill) {
+                e.insert(base);
+                added += 1;
+            }
+        }
+        added
+    }
+
+    fn carries_retired_skills(&self) -> bool {
+        let mut probe = SkillTable {
+            skills: std::collections::BTreeMap::new(),
+            ..self.clone()
+        };
+        let _ = probe.add_retired_skills();
+        probe.skills.keys().any(|k| self.skills.contains_key(k))
     }
 }

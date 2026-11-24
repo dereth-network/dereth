@@ -27,6 +27,7 @@
 //! | `cook_book/` | source and target | `[[cook_book]]`: recipe, source, target |
 //! | `treasure_death/`, `grouped_treasure/`, `treasure_wielded/` | treasure type | a wielded type's entries in their order (`[[treasure_wielded.entry]]`) |
 //! | `treasure_*.toml`, `loot_policy.toml`, `version.toml` | the table | |
+//! | `rules.toml` | the world's own rules (`empyrean_common::world_rules`), skills and heritages by name | |
 //!
 //! A field at its default is left out, and so is `last_modified` when it's the world's stamp
 //! ([`files::META`]). Ids a dump numbers freely aren't written: [`canon::number`] puts a world in

@@ -91,4 +91,7 @@ tables! {
     GROUPED_TREASURE = 20, "grouped_treasure";
     /// Versioned source loot inputs, singleton key 1.
     LOOT_POLICY = 21, "loot_policy";
+    /// The world's own rules (`empyrean_common::world_rules`), singleton key 1; declared only by
+    /// a world that has them.
+    RULES = 22, "rules";
 }

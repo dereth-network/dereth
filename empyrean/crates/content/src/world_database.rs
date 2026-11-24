@@ -495,6 +495,10 @@ impl WorldDatabaseBase {
     pub fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath> {
         self.get(TableId::GROUPED_TREASURE, u64::from(data_id))
     }
+    /// Not ACE: the world's own rules, when its pack carries them.
+    pub fn get_world_rules(&self) -> Option<empyrean_common::world_rules::WorldRules> {
+        self.get(TableId::RULES, 1)
+    }
     /// Versioned source policy, read through the overlay.
     pub fn get_source_loot_policy(&self) -> Option<SourceLootPolicy> {
         self.get(TableId::LOOT_POLICY, 1)

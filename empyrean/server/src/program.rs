@@ -284,9 +284,24 @@ pub fn main(options: &Options) -> ExitCode {
         &world_pack_path,
         world_pack::configured_overlay(&config, &paths),
     );
+    // DIVERGE: V574 the world's rules: its era's table, the rules its pack carries over it, then
+    // the operator's `[era]` keys, which win.
+    let era = match world_pack::world_era(&config.era, &*content) {
+        Ok(era) => era,
+        Err(e) => {
+            log::error!("The world's rules in its pack: {e}. Empyrean will now abort startup.");
+            return ExitCode::FAILURE;
+        }
+    };
+    if content.get_world_rules().is_some() {
+        log::info!(
+            "The world's pack carries rules of its own over the {} era's",
+            era.id.name()
+        );
+    }
     // Not ACE (V565): a world that places its own things serves none of the world database's,
     // unless its era's world database is made for such a land (V569).
-    if rules.hides_world_placements(config.era.rules()) {
+    if rules.hides_world_placements(era) {
         content.hide_placements();
         log::info!("The world places its own things: none of the world database's placements");
     } else if rules.own_placements {
@@ -382,7 +397,7 @@ pub fn main(options: &Options) -> ExitCode {
         match std::thread::Builder::new()
             .name("World Manager".to_owned())
             .spawn(move || {
-                let mut world = new_world(&*clock, dats, content, &config);
+                let mut world = new_world(&*clock, dats, content, &config, era);
                 world.dungeons_by_cells = rules.dungeons_by_cells;
                 let shutdown_initiated = world_thread_main(world, &*clock, &startup_rx);
                 loop_ended.store(true, Ordering::SeqCst);
@@ -991,21 +1006,24 @@ fn open_dats(config: &MasterConfiguration, paths: &PathBase) -> Result<Arc<DatMa
     DatManager::initialize(Arc::new(source)).map_err(|e| e.to_string())
 }
 
-/// The world, its `Timers` started now, its world database `content`, and its transport
-/// configured from `Config.Server.Network`.
+/// The world, its `Timers` started now, its world database `content`, its rules `era` (its
+/// era's, the pack's over them and the operator's keys over those), and its transport configured
+/// from `Config.Server.Network`.
 fn new_world(
     clock: &dyn Clock,
     dats: Arc<DatManager>,
     content: Arc<dyn WorldDatabase>,
     config: &MasterConfiguration,
+    era: &'static empyrean_common::era::EraRules,
 ) -> World {
     // DIVERGE: V568 each era's calendar, checked at start (`EraConfiguration::launch`).
-    let calendar = config.era.rules().calendar;
+    let calendar = era.calendar;
     let launched_at = config.era.launch().ok().flatten();
     let timers = TimersState::for_era(clock, calendar, launched_at)
         .unwrap_or_else(|_| TimersState::new(clock));
     let now = ClockSnapshot::take(clock, timers.portal_year_ticks);
     let mut world = World::new(now, dats);
+    world.era = era;
     world.timers = timers;
     world.content = content;
 

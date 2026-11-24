@@ -769,3 +769,36 @@ json_record!(
     MAX_POLICY_BYTES,
     id
 );
+
+/// Not ACE: the world's own rules are a JSON record, as the source loot inputs are.
+impl Codec for empyrean_common::world_rules::WorldRules {
+    fn put(&self, w: &mut Vec<u8>) {
+        serde_json::to_string(self).expect("rules serialize").put(w);
+    }
+    fn get(c: &mut Cursor<'_>) -> Result<Self, PackError> {
+        let n = c.u32()? as usize;
+        let v: Self = serde_json::from_slice(c.bytes(n)?)
+            .map_err(|e| PackError::InvalidRules(e.to_string()))?;
+        v.check().map_err(PackError::InvalidRules)?;
+        Ok(v)
+    }
+}
+
+/// Not ACE: the world's rules as `empyrean.sql` writes them, the JSON in `profile` of row 1 of
+/// `empyrean_rules`.
+impl FromRow for empyrean_common::world_rules::WorldRules {
+    const TABLE: &'static str = "empyrean_rules";
+    const COLUMNS: &'static [&'static str] = &["id", "profile"];
+    fn from_row(row: &Row<'_>) -> Result<Self, ImportError> {
+        if row.get::<u32>("id")? != 1 {
+            return Err(ImportError::Refused(vec![
+                "the world's rules are row 1".into()
+            ]));
+        }
+        let text: String = row.get("profile")?;
+        let v: Self =
+            serde_json::from_str(&text).map_err(|e| ImportError::Refused(vec![e.to_string()]))?;
+        v.check().map_err(|e| ImportError::Refused(vec![e]))?;
+        Ok(v)
+    }
+}

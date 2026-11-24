@@ -332,6 +332,14 @@ pub fn write(c: &WorldContent) -> Result<WorldSql, String> {
             ));
         }
     }
+    if let Some(r) = &c.rules {
+        let json = serde_json::to_string(r).map_err(|e| e.to_string())?;
+        e.push_str("-- The world's own rules over its era's. Requires Empyrean.\nCREATE TABLE `empyrean_rules` (`id` int unsigned NOT NULL, `profile` mediumtext NOT NULL, PRIMARY KEY (`id`)) ENGINE=InnoDB;\n");
+        e.push_str(&format!(
+            "INSERT INTO `empyrean_rules` (`id`,`profile`) VALUES (1,{});\n",
+            text(&json)
+        ));
+    }
     Ok(WorldSql {
         world: w,
         empyrean: e,

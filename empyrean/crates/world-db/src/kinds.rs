@@ -2,6 +2,7 @@
 //! freely (a child row's own id and its parent's) are not written; [`crate::canon`] numbers them.
 
 use empyrean_common::dotnet::DotNetDateTime;
+use empyrean_common::world_rules::WorldRules;
 use empyrean_content::loot::{GroupedTreasureDeath, SourceLootPolicy};
 use empyrean_content::models::world::{
     CookBook, Encounter, Event, HousePortal, LandblockInstance, LandblockInstanceLink,
@@ -1409,4 +1410,134 @@ pub fn loot_policy_row(p: &SourceLootPolicy) -> R<Row> {
 
 pub fn loot_policy_of(t: &Table) -> R<SourceLootPolicy> {
     serde_of(t)
+}
+
+/// A name as the rules row compares names: its letters and digits, lower case.
+fn plain_name(s: &str) -> String {
+    s.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// The skills or heritages a rules row names: their names, or their numbers back from names.
+struct Names {
+    what: &'static str,
+    names: Vec<(u32, &'static str)>,
+}
+
+impl Names {
+    fn skills() -> Self {
+        use empyrean_entity::enums::Skill;
+        Self {
+            what: "skill",
+            names: Skill::ALL
+                .iter()
+                .zip(Skill::NAMES)
+                .map(|(s, n)| (u32::try_from(s.0).unwrap_or(0), *n))
+                .collect(),
+        }
+    }
+    fn heritages() -> Self {
+        use empyrean_entity::enums::HeritageGroup;
+        Self {
+            what: "heritage",
+            names: HeritageGroup::ALL
+                .iter()
+                .zip(HeritageGroup::NAMES)
+                .map(|(h, n)| (u32::try_from(h.0).unwrap_or(0), *n))
+                .collect(),
+        }
+    }
+    fn name(&self, id: u64) -> serde_json::Value {
+        self.names
+            .iter()
+            .find(|(i, _)| u64::from(*i) == id)
+            .map_or_else(
+                || serde_json::Value::from(id),
+                |(_, n)| serde_json::Value::from(*n),
+            )
+    }
+    fn id(&self, v: &serde_json::Value) -> R<u32> {
+        let name = v
+            .as_str()
+            .ok_or_else(|| format!("a {} is named: {v}", self.what))?;
+        self.names
+            .iter()
+            .find(|(_, n)| plain_name(n) == plain_name(name))
+            .map(|(i, _)| *i)
+            .ok_or_else(|| format!("{name:?} is not a {}", self.what))
+    }
+}
+
+/// The world's rules as their row: skills and heritages by name, every property in one table.
+pub fn rules_row(r: &WorldRules) -> R<Row> {
+    let mut v = serde_json::to_value(r).map_err(|e| e.to_string())?;
+    let m = v.as_object_mut().ok_or("the rules are not a table")?;
+    for (key, names) in [
+        ("creation_skills", Names::skills()),
+        ("training_skills", Names::skills()),
+        ("heritages", Names::heritages()),
+    ] {
+        if let Some(only) = m
+            .get(key)
+            .and_then(|a| a.get("only"))
+            .and_then(|o| o.as_array())
+        {
+            let list = only
+                .iter()
+                .map(|i| names.name(i.as_u64().unwrap_or(0)))
+                .collect();
+            m.insert(key.into(), serde_json::Value::Array(list));
+        }
+    }
+    if let Some(serde_json::Value::Object(p)) = m.remove("properties") {
+        let flat: serde_json::Map<String, serde_json::Value> = p
+            .into_iter()
+            .filter_map(|(_, kind)| match kind {
+                serde_json::Value::Object(o) => Some(o),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        m.insert("properties".into(), serde_json::Value::Object(flat));
+    }
+    Ok(json_row(m))
+}
+
+/// The world's rules read back from their row.
+pub fn rules_of(t: &Table) -> R<WorldRules> {
+    let mut v = toml_json(&Value::Table(t.clone()));
+    let m = v.as_object_mut().ok_or("the rules are not a table")?;
+    m.remove("prov");
+    for (key, names) in [
+        ("creation_skills", Names::skills()),
+        ("training_skills", Names::skills()),
+        ("heritages", Names::heritages()),
+    ] {
+        if let Some(serde_json::Value::Array(list)) = m.get(key) {
+            let ids = list.iter().map(|n| names.id(n)).collect::<R<Vec<u32>>>()?;
+            m.insert(key.into(), serde_json::json!({ "only": ids }));
+        }
+    }
+    if let Some(serde_json::Value::Object(flat)) = m.remove("properties") {
+        let mut p = serde_json::json!({ "bool": {}, "long": {}, "string": {} });
+        for (k, x) in flat {
+            let kind = match &x {
+                serde_json::Value::Bool(_) => "bool",
+                serde_json::Value::Number(n) if n.is_i64() => "long",
+                serde_json::Value::String(_) => "string",
+                _ => {
+                    return Err(format!(
+                        "property {k} is a switch, a whole number or text, not {x}"
+                    ))
+                }
+            };
+            p[kind][k] = x;
+        }
+        m.insert("properties".into(), p);
+    }
+    let r: WorldRules = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    r.check()?;
+    Ok(r)
 }

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - New era: New Dereth, on AC2's land from Leafcull 1, 498 P.Y.
+- A world can carry its own rules in its pack; your [era] settings still win.
 
 ## 0.3.18 (2026-11-23)
 - Launch: drudge casters move their arms when they cast, with ac1999's data patches.

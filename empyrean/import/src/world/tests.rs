@@ -1996,3 +1996,43 @@ fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_key
     let (checkpoint, _, found) = check("base");
     assert_eq!((checkpoint, found.len()), (None, 0));
 }
+
+/// A world with rules of its own builds a pack that carries them, and its `world.sql` and
+/// `empyrean.sql` build the same pack, rules and all; a pack that changes a rule differs from it
+/// there. A world without rules builds a pack with no rules table at all.
+#[test]
+fn a_worlds_rules_are_carried_in_its_pack_and_through_its_sql() {
+    use empyrean_common::world_rules::{Allowed, Start, WorldRules};
+    use empyrean_content::pack::TableId;
+    let mut c = sample();
+    empyrean_world_db::number(&mut c);
+    let plain = Pack::from_bytes(pack_of(&c).expect("a pack")).expect("reads");
+    assert_eq!(plain.count(TableId::RULES), 0);
+    assert!(!crate::world_sql::write(&c)
+        .expect("the SQL")
+        .empyrean
+        .contains("empyrean_rules"));
+    c.rules = Some(WorldRules {
+        max_level: Some(50),
+        start: Some(Start::CharGen),
+        heritages: Some(Allowed::Only(vec![1, 2])),
+        ..WorldRules::default()
+    });
+    let original = Pack::from_bytes(pack_of(&c).expect("a pack")).expect("reads");
+    assert_eq!(
+        original
+            .get::<WorldRules>(TableId::RULES, 1)
+            .expect("reads"),
+        c.rules
+    );
+    let found = differences(&original, &pack_from_sql(&c)).expect("compared");
+    assert!(found.is_empty(), "{found:?}");
+    let mut other = c.clone();
+    other.rules.as_mut().unwrap().max_level = Some(60);
+    let changed = Pack::from_bytes(pack_of(&other).expect("a pack")).expect("reads");
+    let found = differences(&original, &changed).expect("compared");
+    assert!(
+        found.len() == 1 && found[0].contains("max_level"),
+        "{found:?}"
+    );
+}

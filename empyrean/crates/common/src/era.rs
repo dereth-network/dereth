@@ -712,6 +712,23 @@ impl EraConfiguration {
         let rules = self.profile.rules();
         with_features(rules, self.features.apply(rules.features))
     }
+
+    /// Not ACE: the world's rules when its `world.pack` carries rules of its own
+    /// ([`crate::world_rules`]): the profile's table, the world's rules over it, then the
+    /// configured systems, which win.
+    ///
+    /// # Errors
+    /// A name in the world's rules the server doesn't know.
+    pub fn rules_over(
+        &self,
+        world: Option<&crate::world_rules::WorldRules>,
+    ) -> Result<&'static EraRules, String> {
+        let rules = match world {
+            Some(w) => w.apply(self.profile.rules())?,
+            None => self.profile.rules(),
+        };
+        Ok(with_features(rules, self.features.apply(rules.features)))
+    }
 }
 
 /// `serde` for the `[era]` system keys: each a bool under its name in `PascalCase`, `null` (or left

@@ -411,6 +411,7 @@ fn single_table(table: &str) -> Option<TableId> {
         "recipe_requirements_vital" => TableId::RECIPE_VITAL,
         "empyrean_grouped_treasure" => TableId::GROUPED_TREASURE,
         "empyrean_loot_policy" => TableId::LOOT_POLICY,
+        "empyrean_rules" => TableId::RULES,
         "event" => TableId::EVENT,
         "house_portal" => TableId::HOUSE_PORTAL,
         "points_of_interest" => TableId::POINTS_OF_INTEREST,
@@ -487,6 +488,7 @@ fn record_of(
         "recipe_requirements_vital" => with(store, TableId::RECIPE_VITAL, "id")?,
         "empyrean_grouped_treasure" => with(store, TableId::GROUPED_TREASURE, "id")?,
         "empyrean_loot_policy" => with(store, TableId::LOOT_POLICY, "id")?,
+        "empyrean_rules" => with(store, TableId::RULES, "id")?,
         "recipe_mod" => with(store, TableId::RECIPE, "recipe_Id")?,
         t if t.starts_with("recipe_requirements_") => with(store, TableId::RECIPE, "recipe_Id")?,
         t if t.starts_with("recipe_mods_") => {
@@ -574,6 +576,7 @@ const TABLE_OF: &[(TableId, &str)] = &[
     (TableId::RECIPE_VITAL, "recipe_requirements_vital"),
     (TableId::GROUPED_TREASURE, "empyrean_grouped_treasure"),
     (TableId::LOOT_POLICY, "empyrean_loot_policy"),
+    (TableId::RULES, "empyrean_rules"),
     (TableId::EVENT, "event"),
     (TableId::HOUSE_PORTAL, "house_portal"),
     (TableId::POINTS_OF_INTEREST, "points_of_interest"),

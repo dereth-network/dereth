@@ -917,3 +917,80 @@ fn a_layer_is_at_parity_with_its_source_keyed_and_anything_else_is_found() {
         "{found:?}"
     );
 }
+
+/// The world's rules are a row of their own, written with skills and heritages by name and every
+/// property in one table, and read back as they were; a patch layer sets one system and one
+/// property over the base's rules and leaves the rest as the base says. A skill or heritage the
+/// server doesn't know is refused.
+#[test]
+fn the_worlds_rules_row_names_its_skills_and_a_patch_sets_one_field_over_the_bases() {
+    use crate::layers::{fold_layers, Layers, PatchLayer};
+    use empyrean_common::world_rules::{Allowed, Properties, Setting, Start, WorldRules};
+    let rules = WorldRules {
+        max_level: Some(50),
+        start: Some(Start::CharGen),
+        heritages: Some(Allowed::Only(vec![1, 2, 9])),
+        creation_skills: Some(Allowed::Only(vec![1, 6])),
+        features: BTreeMap::from([("housing".to_owned(), false)]),
+        formulas: BTreeMap::from([("older_melee_damage".to_owned(), Setting::Switch(true))]),
+        properties: Properties {
+            string: BTreeMap::from([("popup_welcome".to_owned(), String::new())]),
+            ..Properties::default()
+        },
+        ..WorldRules::default()
+    };
+    let mut c = sample();
+    c.rules = Some(rules.clone());
+    number(&mut c);
+    let mut base = write(&c, default_stamp()).expect("written");
+    let text = &base["rules.toml"];
+    for name in [
+        "\"Aluvian\"",
+        "\"Gharundim\"",
+        "\"Empyrean\"",
+        "\"Axe\"",
+        "\"MeleeDefense\"",
+    ] {
+        assert!(text.contains(name), "{name} in {text}");
+    }
+    assert!(text.contains("popup_welcome = \"\""), "{text}");
+    base.remove(crate::files::META);
+    let patch = r#"
+[[rules]]
+features = { aetheria = false }
+properties = { pk_server = true }
+heritages = ["aluvian", "Gharu'ndim"]
+"#;
+    let layers = |patch: &str| Layers {
+        base: base.clone(),
+        patches: vec![PatchLayer {
+            id: "2027-01-first".into(),
+            packs: vec![(
+                "rules".into(),
+                BTreeMap::from([("rules.toml".into(), patch.into())]),
+            )],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let got = fold_layers(layers(patch), c.era, default_stamp()).expect("folded");
+    let mut want = rules;
+    want.features.insert("aetheria".into(), false);
+    want.properties.bool.insert("pk_server".into(), true);
+    want.heritages = Some(Allowed::Only(vec![1, 2]));
+    assert_eq!(got.rules, Some(want));
+    let e = fold_layers(
+        layers("[[rules]]\nheritages = [\"Drudge\"]\n"),
+        c.era,
+        default_stamp(),
+    )
+    .expect_err("no such heritage");
+    assert!(e.contains("\"Drudge\" is not a heritage"), "{e}");
+    let e = fold_layers(
+        layers("[[rules]]\nfeatures = { cow_tipping = true }\n"),
+        c.era,
+        default_stamp(),
+    )
+    .expect_err("no such system");
+    assert!(e.contains("cow_tipping"), "{e}");
+}

@@ -253,5 +253,6 @@ pub fn from_pack(p: &Pack) -> Result<WorldContent, PackError> {
         treasure_wielded: rows(p, TableId::TREASURE_WIELDED)?,
         versions: rows(p, TableId::VERSION)?,
         era: p.era(),
+        rules: p.get(TableId::RULES, 1)?,
     })
 }

@@ -121,11 +121,12 @@ enum Part {
     MaterialColor,
     MaterialGroups,
     LootPolicy,
+    Rules,
     Version,
 }
 
 /// Every kind of row, in the order their files' paths sort.
-const PARTS: [Part; 20] = [
+const PARTS: [Part; 21] = [
     Part::CookBook,
     Part::Encounter,
     Part::Event,
@@ -137,6 +138,7 @@ const PARTS: [Part; 20] = [
     Part::Quest,
     Part::Recipe,
     Part::RecipeVital,
+    Part::Rules,
     Part::Spell,
     Part::TreasureDeath,
     Part::GemCount,
@@ -323,6 +325,11 @@ fn add_part(content: &WorldContent, part: Part, stamp: DotNetDateTime, o: &mut O
                 );
             }
         }
+        Part::Rules => {
+            if let Some(r) = &content.rules {
+                o.add("rules.toml".into(), "rules", kinds::rules_row(r)?);
+            }
+        }
         Part::Version => {
             for v in &content.versions {
                 o.add("version.toml".into(), "version", kinds::plain_row(v, stamp));
@@ -354,6 +361,7 @@ fn release(content: &mut WorldContent, part: Part) {
         Part::MaterialColor => content.treasure_material_color = Vec::new(),
         Part::MaterialGroups => content.treasure_material_groups = Vec::new(),
         Part::LootPolicy => content.loot_policies = Vec::new(),
+        Part::Rules => content.rules = None,
         Part::Version => content.versions = Vec::new(),
     }
 }
@@ -481,6 +489,7 @@ pub fn read(files: &BTreeMap<String, String>) -> R<WorldContent> {
         "treasure_material_color",
         "treasure_material_groups",
         "loot_policy",
+        "rules",
         "version",
     ];
     for path in files.keys() {

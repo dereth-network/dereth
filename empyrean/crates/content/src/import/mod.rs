@@ -53,6 +53,8 @@ pub struct WorldContent {
     pub treasure_material_groups: Vec<TreasureMaterialGroups>,
     pub treasure_wielded: Vec<TreasureWielded>,
     pub versions: Vec<Version>,
+    /// The world's own rules, over its era's ([`empyrean_common::world_rules`]).
+    pub rules: Option<empyrean_common::world_rules::WorldRules>,
     /// The era the content is for, recorded in the pack's header (not a world table).
     pub era: EraId,
 }
@@ -119,6 +121,9 @@ impl WorldContent {
             {
                 continue;
             }
+            if t == TableId::RULES && self.rules.is_none() {
+                continue;
+            }
             if t != TableId::RECIPE_VITAL || !self.recipe_vital_requirements.is_empty() {
                 w.declare(t);
             }
@@ -182,6 +187,10 @@ impl WorldContent {
         );
         by_id!(self.treasure_wielded, TableId::TREASURE_WIELDED);
         by_id!(self.versions, TableId::VERSION);
+        if let Some(r) = &self.rules {
+            r.check().map_err(|e| ImportError::Refused(vec![e]))?;
+            w.add(TableId::RULES, 1, r)?;
+        }
         w.finish()
     }
 }
@@ -278,7 +287,10 @@ pub fn import_for<R: Read>(dump: R, era: EraId) -> Result<(Vec<u8>, Imported), I
         .filter(|t| {
             !matches!(
                 *t,
-                "recipe_requirements_vital" | "empyrean_grouped_treasure" | "empyrean_loot_policy"
+                "recipe_requirements_vital"
+                    | "empyrean_grouped_treasure"
+                    | "empyrean_loot_policy"
+                    | "empyrean_rules"
             ) && !rows.declared.iter().any(|d| d == t)
         })
         .collect();
@@ -370,7 +382,10 @@ pub fn build_from_for<R: Read>(
         .filter(|t| {
             !matches!(
                 *t,
-                "recipe_requirements_vital" | "empyrean_grouped_treasure" | "empyrean_loot_policy"
+                "recipe_requirements_vital"
+                    | "empyrean_grouped_treasure"
+                    | "empyrean_loot_policy"
+                    | "empyrean_rules"
             ) && !rows.declared.iter().any(|d| d == t)
         })
         .collect();

@@ -358,3 +358,15 @@ fn open_verified(path: &Path) -> Result<PackContent, PackError> {
     content.base().pack().verify_hash()?;
     Ok(content)
 }
+
+/// Not ACE (V574): the world's rules: its era's table (`[era] profile`), the rules its pack carries over
+/// it ([`empyrean_common::world_rules`]), then the operator's `[era]` keys, which win.
+///
+/// # Errors
+/// A name in the pack's rules the server doesn't know.
+pub fn world_era(
+    era: &empyrean_common::era::EraConfiguration,
+    content: &dyn WorldDatabase,
+) -> Result<&'static empyrean_common::era::EraRules, String> {
+    era.rules_over(content.get_world_rules().as_deref())
+}

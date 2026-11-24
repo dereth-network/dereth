@@ -134,6 +134,7 @@ fn fields_of(t: TableId, key: u64, p: &Pack) -> Result<Fields, PackError> {
         TableId::RECIPE => one::<Recipe>(p, t, key),
         TableId::GROUPED_TREASURE => one::<GroupedTreasureDeath>(p, t, key),
         TableId::LOOT_POLICY => one::<SourceLootPolicy>(p, t, key),
+        TableId::RULES => one::<empyrean_common::world_rules::WorldRules>(p, t, key),
         TableId::RECIPE_VITAL => one::<RecipeVitalRequirement>(p, t, key),
         TableId::EVENT => one::<Event>(p, t, key),
         TableId::HOUSE_PORTAL => one::<HousePortal>(p, t, key),
