@@ -325,6 +325,51 @@ fn a_spirits_aura_reaches_its_owner_and_fellows_in_range_and_no_stranger() {
     assert!((121.0..=131.0).contains(&first), "{pulses:?}");
 }
 
+/// A player joining a fellowship holds a fellow's spirit's aura's pulse at once, and leaving the
+/// fellowship loses it at once, with no pulse of the spirit's own between.
+/// Behaviour: server.auras.reach-a-fellowship-at-once
+#[test]
+fn a_joiner_holds_a_fellows_spirits_pulse_at_once_and_loses_it_on_leaving() {
+    use auberean_script::native_object::{native_type, NativeObject};
+    use yalain_world::fellowship::function as fellow_fn;
+    let name = |s: &str| {
+        let mut g = yalain_world::graph::Builder::new();
+        #[allow(clippy::cast_possible_truncation)]
+        g.native(
+            native_type::WP_STRING as u16,
+            NativeObject::Text(s.encode_utf16().collect()),
+        );
+        Arg::Object(g.graph())
+    };
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(aura_skill()));
+    with_aura(&mut h, false);
+    let (b, me) = summoner(&mut h);
+    let (n, near) = in_world(&mut h, "two", "Near");
+    let pet = summon(&mut h, b);
+    // Past its second pulse: the next is a couple of minutes on.
+    for _ in 0..20 {
+        h.step_by(1.0);
+    }
+    assert!(pulsed_on(&mut h, near).is_empty(), "no fellow yet");
+    h.ask(
+        b,
+        fellow_fn::CREATE,
+        &[Arg::Int(1), Arg::Int(0), name("The Band")],
+        10,
+    );
+    h.ask(b, fellow_fn::RECRUIT, &[Arg::LongInt(near)], 10);
+    h.ask(n, fellow_fn::ACCEPT, &[Arg::LongInt(me)], 10);
+    assert!(
+        pulsed_on(&mut h, near)
+            .iter()
+            .any(|r| r.0 == pet && r.2 == 0x452),
+        "the spirit's pulse on the joiner"
+    );
+    h.ask(n, fellow_fn::LEAVE, &[], 10);
+    assert!(pulsed_on(&mut h, near).is_empty(), "off as it leaves");
+}
+
 /// When its pet is gone the records of its aura's pulses come off whoever holds them, at once, and no
 /// more come.
 /// Behaviour: server.pets.aura-ends-with-the-pet

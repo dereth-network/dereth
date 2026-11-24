@@ -829,7 +829,7 @@ fn summon_kind<S: Store>(
 }
 
 /// The auras a pet holds from as it appears: those its template's skills put on their user.
-fn held_auras<S: Store>(s: &Server<S>, t: &Thing) -> Vec<u32> {
+pub(crate) fn held_auras<S: Store>(s: &Server<S>, t: &Thing) -> Vec<u32> {
     let Some(stats) = t.creature.as_ref().map(|c| &c.stats) else {
         return Vec::new();
     };

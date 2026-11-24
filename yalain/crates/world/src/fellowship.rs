@@ -22,6 +22,10 @@
 //! other fellow that it was dismissed. A leader leaving leaves the fellowship to its oldest fellow
 //! (each client works this out itself).
 //! **Disbanding**: every fellow is cleared of it and told.
+//! **Auras between fellows**: a joiner holds its fellows' auras' pulses (and their pets') at once,
+//! before it is sent the fellowship, and each fellow the joiner's once told of it; a fellow going,
+//! or each at a disbanding, loses the others' pulses once told, and each other fellow its pulses
+//! before it is told.
 //! **A fellow dying**: every fellow is told ("Your fellow, %s, has died."), the dead one too, as a
 //! notice of its own.
 //!
@@ -805,6 +809,10 @@ pub fn accept<S: Store>(
     s.fellowships.list[i].fellows.push(fellow.clone());
     let fname = s.fellowships.list[i].name.clone();
     show(net, world, NOTICE, progress::text(text::YOU_JOIN));
+    // Its fellows' auras reach it at once, before it is sent the fellowship.
+    for &o in &others {
+        crate::effects::fellows_auras_reach(s, net, o, world, clock);
+    }
     let m = fellowship_message(s, i);
     progress::private(net, world, &m);
     show(
@@ -825,6 +833,10 @@ pub fn accept<S: Store>(
             NOTICE,
             progress::text_with(text::HAS_JOINED, vec![name_var(text::NAME, &my_name)]),
         );
+        // The joiner's auras reach each fellow once it is told.
+        if let Some(to) = world_of(s, id) {
+            crate::effects::fellows_auras_reach(s, net, me, to, clock);
+        }
     }
 }
 
@@ -872,6 +884,19 @@ fn goes<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, dismissed_by:
     };
     show_to(s, net, id, NOTICE, progress::text(gone));
     show_to(s, net, id, NOTICE, channel(text::CHANNEL_EXITED));
+    // The fellows' pulses come off the one going once it is told, and its pulses off each fellow
+    // before that one is told.
+    let fellows: Vec<u64> = s.fellowships.list[i]
+        .fellows
+        .iter()
+        .map(|x| x.id)
+        .filter(|x| *x != id)
+        .collect();
+    if let Some(at) = world_of(s, id) {
+        for &o in &fellows {
+            crate::effects::fellows_pulses_end(s, net, o, at);
+        }
+    }
     let f = &mut s.fellowships.list[i];
     f.fellows.retain(|x| x.id != id);
     if f.fellows.is_empty() {
@@ -891,6 +916,9 @@ fn goes<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, dismissed_by:
     let others: Vec<u64> = f.fellows.iter().map(|x| x.id).collect();
     let cleared = call(function::CLEAR_FELLOW, &[Arg::LongInt(id)]);
     for o in others {
+        if let Some(at) = world_of(s, o) {
+            crate::effects::fellows_pulses_end(s, net, id, at);
+        }
         send_to(s, net, o, &cleared);
         let t = match dismissed_by {
             Some(leader) if leader == o => text::YOU_DISMISS,
@@ -952,6 +980,12 @@ pub fn disband<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         send_to(s, net, x.id, &cleared);
         show_to(s, net, x.id, NOTICE, progress::text(text::DISBANDED));
         show_to(s, net, x.id, NOTICE, channel(text::CHANNEL_EXITED));
+        // The other fellows' pulses come off each once it is told.
+        if let Some(at) = world_of(s, x.id) {
+            for o in f.fellows.iter().filter(|o| o.id != x.id) {
+                crate::effects::fellows_pulses_end(s, net, o.id, at);
+            }
+        }
     }
 }
 

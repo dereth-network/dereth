@@ -3935,6 +3935,103 @@ pub fn pet_pulses_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: u64
     }
 }
 
+/// A fellow's auras, and those of its pets, reach another player of its fellowship at once, as
+/// their pulses would: each aura that reaches players and holds it within its range puts its pulsed
+/// effects on it (2017: as a player joined, its fellows' pulses on it in the same moment, 48 of 64
+/// joins; a joiner's on the fellows already in it, 57 of 121).
+pub fn fellows_auras_reach<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    from: u64,
+    to: ConnId,
+    clock: Clock,
+) {
+    let Some(target) = s.players.get(&to) else {
+        return;
+    };
+    let (at, drawn, away, dead) = (
+        target.position,
+        target.scene_drawn,
+        target.trip.is_some(),
+        target.dying.is_some() || crate::combat::is_dead(target),
+    );
+    let Some(p) = s.players.values().find(|p| p.character == from) else {
+        return;
+    };
+    let held: Vec<(u64, Aura, f32)> = p
+        .play
+        .effects
+        .iter()
+        .filter(|e| e.flags == AURA_FLAGS)
+        .filter_map(|e| Some((e.caster, aura_def(s, e.state)?, e.spellcraft)))
+        .filter(|(_, a, _)| {
+            a.targets & (aura_target::PLAYER | aura_target::OTHER_PLAYER) != 0
+                && drawn
+                && !away
+                && crate::presence::distance(&p.position, &at).is_some_and(|d| d <= a.range)
+        })
+        .collect();
+    for (caster, a, spellcraft) in held {
+        pulse_records(s, net, to, (caster, PULSE_FLAGS), &a, spellcraft, clock);
+    }
+    let pets: Vec<(u64, StoredPosition, f32, Vec<u32>)> = s
+        .pets
+        .by_id
+        .iter()
+        .filter(|(_, pet)| pet.owner == from)
+        .filter_map(|(id, _)| {
+            let t = s.things.get(*id).filter(|t| t.alive())?;
+            #[allow(clippy::cast_precision_loss)]
+            let level = t.creature.as_ref().map_or(1.0, |c| c.stats.level as f32);
+            Some((*id, t.at?, level, crate::pets::held_auras(s, t)))
+        })
+        .collect();
+    for (pet, pet_at, level, auras) in pets {
+        for state in auras {
+            let Some(a) = kindly(s, state) else {
+                continue;
+            };
+            let reaches = a.targets
+                & (aura_target::PLAYER | aura_target::OTHER_PLAYER | aura_target::MASTER)
+                != 0
+                && !away
+                && !dead
+                && crate::presence::distance(&pet_at, &at).is_some_and(|d| d <= a.range);
+            if reaches {
+                pulse_records(s, net, to, (pet, PET_PULSE_FLAGS), &a, level, clock);
+            }
+        }
+    }
+}
+
+/// A player is no longer of another's fellowship: the records of that one's auras' pulses, and of
+/// its pets', come off it at once (2017: as a fellow left, its pulses off the others in the same
+/// moment, 78 of 128; as a player left or its fellowship ended, the fellows' pulses off it, 49 of
+/// 68).
+pub fn fellows_pulses_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, from: u64, on: ConnId) {
+    let pets: Vec<u64> = s
+        .pets
+        .by_id
+        .iter()
+        .filter(|(_, pet)| pet.owner == from)
+        .map(|(id, _)| *id)
+        .collect();
+    let eids: Vec<u32> = s.players.get(&on).map_or_else(Vec::new, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| {
+                (e.flags == PULSE_FLAGS && e.caster == from)
+                    || (e.flags == PET_PULSE_FLAGS && pets.contains(&e.caster))
+            })
+            .map(|e| e.eid)
+            .collect()
+    });
+    for eid in eids {
+        remove_on(s, net, On::Player(on), eid);
+    }
+}
+
 /// How long until an aura a pet holds next pulses, in seconds: its second pulse comes soon after its
 /// first as it appears (2017: 5.6 to 11.4 s, 27 of 33), the rest a couple of minutes apart (121 to
 /// 130 s: 62 of 76, the others one missed).

@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - An expired fellowship invitation now says it was declined.
 - Fellowship names now follow the server's banned words.
+- Joining a fellowship now brings your fellows' auras at once.
 - Heals at full health now show the amount healed.
 - Creatures with a double throw now throw both missiles, as in retail.
 - Missiles and arrows now miss moving targets more often, as in retail.

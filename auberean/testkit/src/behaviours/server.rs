@@ -959,6 +959,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.auras.leave-a-fellowship-at-once",
+        says: "A fellow leaving loses the others' auras' pulses once it is told it left, and each \
+               other fellow loses its pulses before it is told; at a disbanding each fellow loses \
+               the others' once told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-AURAS-LEAVE"),
+        station: "yalain-testkit::cpu::play::auras::a_fellow_leaving_or_a_disbanding_takes_the_fellows_pulses_off_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.auras.off-in-portal-space",
         says: "Going into portal space turns every aura its player holds off: the toggle off, \
                its pulses' records and its own taken off, the appearance stopped.",
@@ -996,6 +1006,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON-HELD"),
         station: "yalain-testkit::cpu::play::auras::a_weapons_examination_shows_what_an_aura_holds_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.auras.reach-a-fellowship-at-once",
+        says: "A joiner holds its fellows' auras' pulses, and their pets', at once, after it is told \
+               it joins and before it is sent the fellowship; a fellow already in it holds the \
+               joiner's once it is told of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-AURAS-JOIN"),
+        station: "yalain-testkit::cpu::play::auras::a_joiner_holds_its_fellows_auras_pulses_at_once_and_they_its",
         tier: Tier::Cpu,
     },
     behaviour! {

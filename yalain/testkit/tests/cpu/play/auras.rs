@@ -1200,3 +1200,159 @@ fn a_toggled_skill_draining_focus_turns_off_when_the_focus_is_gone() {
     );
     assert!(lumbering_records(&mut h, me).is_empty());
 }
+
+/// A fellowship's name, as its client sends it.
+fn name_arg(s: &str) -> Arg {
+    use auberean_script::native_object::{native_type, NativeObject};
+    let mut b = yalain_world::graph::Builder::new();
+    #[allow(clippy::cast_possible_truncation)]
+    b.native(
+        native_type::WP_STRING as u16,
+        NativeObject::Text(s.encode_utf16().collect()),
+    );
+    Arg::Object(b.graph())
+}
+
+/// What a client was sent since `from` that bears on a fellowship and its fellows' pulses, in the
+/// order sent: a fellowship call, a text by its string id, a pulse's record added or one taken off.
+fn fellowship_order(h: &Harness, b: usize, from: usize) -> Vec<String> {
+    use yalain_world::fellowship::function as fellow_fn;
+    calls_of(h, b, from)
+        .into_iter()
+        .filter_map(|(f, v)| match f {
+            effect_fn::ADD => record(&v)
+                .filter(|r| r.2 == PULSE_FLAGS)
+                .map(|_| "pulse added".to_string()),
+            effect_fn::REMOVE => Some("record off".to_string()),
+            SHOW_TEXT => v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some(format!("text {:08X}", t.string_id)),
+                _ => None,
+            }),
+            fellow_fn::UPDATE_FELLOWSHIP => Some("fellowship".into()),
+            fellow_fn::UPDATE_FELLOW => Some("fellow".into()),
+            fellow_fn::CLEAR_FELLOWSHIP => Some("fellowship cleared".into()),
+            fellow_fn::CLEAR_FELLOW => Some("fellow cleared".into()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where in `order` an entry first comes.
+fn at(order: &[String], what: &str) -> usize {
+    order
+        .iter()
+        .position(|o| o == what)
+        .unwrap_or_else(|| panic!("no {what} in {order:?}"))
+}
+
+/// Two armed players beside each other, the first leading a fellowship, with the auras each turns
+/// on first: `(first, second)`.
+fn two_with_auras(first: bool, second: bool) -> (Harness, (usize, u64), (usize, u64)) {
+    use yalain_world::fellowship::function as fellow_fn;
+    let mut h = Harness::new();
+    let a = armed(&mut h, "one", "Elara");
+    let b = armed(&mut h, "two", "Babyfare");
+    let here = player(&mut h, a.1).position;
+    player(&mut h, b.1).position = here;
+    if first {
+        turned_on(&mut h, a.0);
+    }
+    if second {
+        turned_on(&mut h, b.0);
+    }
+    h.ask(
+        a.0,
+        fellow_fn::CREATE,
+        &[Arg::Int(1), Arg::Int(0), name_arg("The Band")],
+        10,
+    );
+    (h, a, b)
+}
+
+/// The second player joins the first's fellowship.
+fn joins(h: &mut Harness, a: (usize, u64), b: (usize, u64)) -> (usize, usize) {
+    use yalain_world::fellowship::function as fellow_fn;
+    h.ask(a.0, fellow_fn::RECRUIT, &[Arg::LongInt(b.1)], 10);
+    let froms = (h.bots[a.0].inbox.len(), h.bots[b.0].inbox.len());
+    h.ask(b.0, fellow_fn::ACCEPT, &[Arg::LongInt(a.1)], 10);
+    froms
+}
+
+/// A joiner holds its fellows' auras' pulses at once, after it is told it joins and before it is
+/// sent the fellowship; a fellow already in it holds the joiner's once it is told of it. Each record
+/// is cast by the aura's user.
+/// Behaviour: server.auras.reach-a-fellowship-at-once
+#[test]
+fn a_joiner_holds_its_fellows_auras_pulses_at_once_and_they_its() {
+    use yalain_world::fellowship::text;
+    let (mut h, a, b) = two_with_auras(true, false);
+    let (_, from_b) = joins(&mut h, a, b);
+    let order = fellowship_order(&h, b.0, from_b);
+    let you_join = at(&order, &format!("text {:08X}", text::YOU_JOIN.0));
+    let pulse = at(&order, "pulse added");
+    assert!(
+        you_join < pulse && pulse < at(&order, "fellowship"),
+        "{order:?}"
+    );
+    let got = held(&mut h, b.1);
+    assert!(
+        got.iter()
+            .any(|e| e.state == ESPIRIT_PULSE && e.caster == a.1 && e.flags == PULSE_FLAGS),
+        "the leader's pulse on the joiner"
+    );
+
+    let (mut h, a, b) = two_with_auras(false, true);
+    let (from_a, _) = joins(&mut h, a, b);
+    let order = fellowship_order(&h, a.0, from_a);
+    let told = at(&order, &format!("text {:08X}", text::HAS_JOINED.0));
+    assert!(
+        at(&order, "fellow") < told && told < at(&order, "pulse added"),
+        "{order:?}"
+    );
+    assert!(held(&mut h, a.1)
+        .iter()
+        .any(|e| e.state == ESPIRIT_PULSE && e.caster == b.1));
+}
+
+/// A fellow leaving loses the others' pulses once it is told it left, and each other fellow loses
+/// its pulses before it is told; at a disbanding each fellow loses the others' once told.
+/// Behaviour: server.auras.leave-a-fellowship-at-once
+#[test]
+fn a_fellow_leaving_or_a_disbanding_takes_the_fellows_pulses_off_at_once() {
+    use yalain_world::fellowship::{function as fellow_fn, text};
+    let (mut h, a, b) = two_with_auras(true, true);
+    joins(&mut h, a, b);
+    let pulses_from = |h: &mut Harness, on: u64, from: u64| {
+        held(h, on)
+            .iter()
+            .filter(|e| e.flags == PULSE_FLAGS && e.caster == from)
+            .count()
+    };
+    assert!(pulses_from(&mut h, a.1, b.1) > 0 && pulses_from(&mut h, b.1, a.1) > 0);
+    let (from_a, from_b) = (h.bots[a.0].inbox.len(), h.bots[b.0].inbox.len());
+    h.ask(b.0, fellow_fn::LEAVE, &[], 10);
+    let leaver = fellowship_order(&h, b.0, from_b);
+    let exited = at(&leaver, &format!("text {:08X}", text::CHANNEL_EXITED.0));
+    assert!(
+        at(&leaver, "fellowship cleared") < exited && exited < at(&leaver, "record off"),
+        "{leaver:?}"
+    );
+    let stayer = fellowship_order(&h, a.0, from_a);
+    let off = at(&stayer, "record off");
+    assert!(off < at(&stayer, "fellow cleared"), "{stayer:?}");
+    assert_eq!(pulses_from(&mut h, a.1, b.1), 0);
+    assert_eq!(pulses_from(&mut h, b.1, a.1), 0);
+
+    let (mut h, a, b) = two_with_auras(true, false);
+    joins(&mut h, a, b);
+    let from_b = h.bots[b.0].inbox.len();
+    h.ask(a.0, fellow_fn::DISBAND, &[], 10);
+    let order = fellowship_order(&h, b.0, from_b);
+    let exited = at(&order, &format!("text {:08X}", text::CHANNEL_EXITED.0));
+    let disbanded = at(&order, &format!("text {:08X}", text::DISBANDED.0));
+    assert!(
+        disbanded < exited && exited < at(&order, "record off"),
+        "{order:?}"
+    );
+    assert_eq!(pulses_from(&mut h, b.1, a.1), 0);
+}
