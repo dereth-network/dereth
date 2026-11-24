@@ -11046,6 +11046,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.mounts.dismount-tells-the-follows-end-last",
+        says: "A rider dismounting while it follows has its follow's order stopped first and is told \
+               \"Stopped following.\" last, after the ride's end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-FOLLOW-TEXT-LAST"),
+        station: "yalain-testkit::cpu::play::mounts::a_rider_dismounting_while_following_is_told_the_follow_ended_last",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.mounts.egg-mounts-until-dismounted",
         says: "A Crystalline Tyrant Egg mounts its user with no glow until it dismounts, costs five \
                focus, and is kept.",

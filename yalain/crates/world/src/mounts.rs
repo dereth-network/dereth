@@ -25,9 +25,10 @@
 //!
 //! **The ride's end**, in one instant: the player's own look is shown, it is told it is no longer
 //! mounted, the record is taken off (its speed back), the mount's appearance stopped and its
-//! ending appearance played. Asked for (a dismount, which first ends a follow), the record's time up, a
-//! resurrection, or the rider indoors: a few seconds after it walks in, or after it arrives inside
-//! by portal. A player not mounted asking to dismount is not answered.
+//! ending appearance played. Asked for (a dismount, which stops a follow's order first and says
+//! the follow ended last), the record's time up, a resurrection, or the rider indoors: a few
+//! seconds after it walks in, or after it arrives inside by portal. A player not mounted asking to
+//! dismount is not answered.
 
 use std::collections::HashMap;
 
@@ -404,13 +405,17 @@ fn mount<S: Store>(
     crate::world::keep_player(s, world);
 }
 
-/// A player asks to dismount: a follow ends, then the ride. Not mounted, it is not answered.
+/// A player asks to dismount: a follow's order stops, the ride ends, and the player is told it
+/// stopped following last (2017: 11 of 11). Not mounted, it is not answered.
 pub fn dismount<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if !s.players.get(&world).is_some_and(mounted) {
         return;
     }
-    crate::follow::stop(s, net, world);
+    let followed = crate::follow::order_stopped(s, net, world);
     end(s, net, world);
+    if followed {
+        crate::follow::told_stopped(net, world);
+    }
 }
 
 /// The ride ends: the player's own look shown, it told it is not mounted, the record taken off (its

@@ -612,6 +612,58 @@ fn a_rider_dismounting_is_shown_its_own_look_and_speed_again() {
     assert!(h.server.players[&world].following.is_some());
 }
 
+/// A rider dismounting while it follows: in the order sent, the follow's order stopped, its own
+/// look, the flag, the record off, the appearance stopped and the ending one played, then the
+/// follow's end told last.
+/// Behaviour: server.mounts.dismount-tells-the-follows-end-last
+#[test]
+fn a_rider_dismounting_while_following_is_told_the_follow_ended_last() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "one", "Elara");
+    let (_, other, _) = in_world(&mut h, "two", "Torvald");
+    h.run(5);
+    let saddle = give(&mut h, world, SADDLE);
+    send_use(&mut h, b, me, saddle);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::follow::FOLLOW, &[Arg::LongInt(other)]),
+    );
+    h.run(4);
+    let from = send_dismount(&mut h, b);
+    let mut order = Vec::new();
+    for m in h.sent_messages(b, from) {
+        let part = match &m {
+            ServerMessage::MoveTo(e) if e.sender.id == me => "stop order",
+            ServerMessage::UpdateVisualDesc(e) if e.sender.id == me => "look",
+            ServerMessage::UpdateBool(q) if q.quality == mounts::MOUNTED => "flag",
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::effects::function::REMOVE =>
+            {
+                "record off"
+            }
+            ServerMessage::StopFx(e) if e.sender.id == me => "appearance stopped",
+            ServerMessage::DoFx(e) if e.sender.id == me => "ending appearance",
+            ServerMessage::PlayerCall(c) if c.function.0 == SHOW_TEXT => "told",
+            _ => continue,
+        };
+        order.push(part);
+    }
+    assert_eq!(
+        order,
+        [
+            "stop order",
+            "look",
+            "flag",
+            "record off",
+            "appearance stopped",
+            "ending appearance",
+            "told"
+        ]
+    );
+    assert_eq!(shown(&h, b, from), [yalain_world::follow::STOPPED.0]);
+}
+
 /// A saddle's ride ends when its record runs out, as a dismount ends it.
 /// Behaviour: server.mounts.ride-runs-out
 #[test]
