@@ -20902,6 +20902,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.weapons.a-throw-turns-before-its-story",
+        says: "A bow's or a stave's run turns its player to its target a moment before each shot: a \
+               later shot's stop and turn about a tenth of a second before its story, with no \
+               movement order in the story's tick; the run's first shot turned to as the run begins, \
+               with no stop.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-THROW-TURNS-FIRST"),
+        station: "yalain-testkit::cpu::play::weapons::a_bow_run_turns_its_player_a_moment_before_each_shot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.attack-speed-effects",
         says: "A player's attack speed effects, its class's top one and what adds on top, set the time \
                scale of its swings, shots and specials, and so when they land and when the next \

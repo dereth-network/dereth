@@ -10,7 +10,8 @@
 //! scale, the skill, and the result on the target (a hit or a critical with the damage, or an
 //! evade), the damage done as the strike lands. A skill with two blows has a result hook for each,
 //! each blow's outcome drawn apart, its damage its hand's weapon's, landing at its own time. With
-//! a bow or a stave the player stands: each swing stops it and turns it to the target;
+//! a bow or a stave the player stands: a moment before each swing it is stopped and turned to the
+//! target (the run's first, turned to as it begins);
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
 //! it came out as it arrives (after the throw's windup and its flight), a miss when it has gone out
@@ -230,6 +231,12 @@ pub const MOVING: u32 = 30_027;
 
 /// When a run told it is too far, or moving, tries again (2017: 1.01 and 1.02 s).
 pub const STANDING_RETRY: f64 = 1.01;
+
+/// How long before a standing run's swing its player is stopped and turned to its target, so the
+/// swing's story comes with no movement order of its own (2017: a run's later throws, the turn a
+/// median 0.099 s before the story, the stop beside it, 2,520 of 2,546; the story's own tick held no
+/// movement order in 2,132 of 3,000 throws).
+pub const TURNS_BEFORE: f64 = 0.1;
 
 /// Seconds from a story of a player's to its next one: what it plays, over its time scale, and the
 /// pause after.
@@ -722,6 +729,10 @@ pub fn begin<S: Store>(
             let followed = crate::follow::order_stopped(s, net, world);
             if let Some(p) = s.players.get_mut(&world) {
                 let turn = crate::skill_use::turn_to(p, target, context);
+                // Its first swing is turned for: it comes with no movement of its own (2017: a
+                // run's first throw, the attack state, the mode, the turn, then its story; a stop in
+                // 206 of 454, the player's own).
+                p.turned_for = next_swing;
                 to_all_seeing(s, net, me, &turn);
             }
             if followed {
@@ -814,6 +825,22 @@ pub fn stop<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
 
 /// The swings due now, for every player attacking.
 pub fn swing_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    let now = clock.local.0;
+    let turning: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(_, p)| {
+            p.attacking.is_some_and(|r| {
+                r.next_swing > now
+                    && r.next_swing - TURNS_BEFORE <= now
+                    && p.turned_for != r.next_swing
+            })
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    for world in turning {
+        turn_before(s, net, world);
+    }
     let due: Vec<ConnId> = s
         .players
         .iter()
@@ -823,6 +850,29 @@ pub fn swing_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock)
     for world in due {
         swing(s, net, world, clock);
     }
+}
+
+/// A standing run's player a moment before its swing: stopped and turned to its target, unless it
+/// follows (its follow's own order turns it), is in portal space or logs off. A run that walks is
+/// left as it is.
+fn turn_before<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let walking = walks(&auto_attacks(s, world));
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let Some(run) = p.attacking else {
+        return;
+    };
+    p.turned_for = run.next_swing;
+    let following = p.following.is_some() && p.in_run.is_none();
+    if walking || following || p.trip.is_some() || p.logging_off {
+        return;
+    }
+    let id = p.character;
+    let stop = crate::skill_use::stop_moving(p);
+    let turn = crate::skill_use::turn_to(p, run.target, run.context);
+    to_all_seeing(s, net, id, &stop);
+    to_all_seeing(s, net, id, &turn);
 }
 
 /// A movement order taking a player into reach of its target.
@@ -1096,11 +1146,18 @@ fn stand_and_swing<S: Store>(
     let id = p.character;
     let following = p.following.is_some() && p.in_run.is_none();
     if !following {
-        let stop = crate::skill_use::stop_moving(p);
-        let turn = crate::skill_use::turn_to(p, run.target, run.context);
+        // Stopped and turned a moment before ([`TURNS_BEFORE`]), or as the run began; else now.
+        let moves = (p.turned_for != run.next_swing).then(|| {
+            (
+                crate::skill_use::stop_moving(p),
+                crate::skill_use::turn_to(p, run.target, run.context),
+            )
+        });
         let special = p.in_run.take();
-        to_all_seeing(s, net, id, &stop);
-        to_all_seeing(s, net, id, &turn);
+        if let Some((stop, turn)) = moves {
+            to_all_seeing(s, net, id, &stop);
+            to_all_seeing(s, net, id, &turn);
+        }
         if let Some(r) = special {
             if crate::skill_use::slot(s, net, world, r, clock) {
                 return;

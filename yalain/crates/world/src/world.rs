@@ -189,6 +189,8 @@ pub struct Player {
     pub protected: Option<crate::effects::Protected>,
     /// When its next swing's time is, and what it has of swinging ahead of that by asking again.
     pub swing_ready: f64,
+    /// The swing time its stop and turn were sent for (a standing run's, a moment before it).
+    pub turned_for: f64,
     pub early_swings: Option<crate::call_limit::Bucket>,
     /// The skill it is using, while the use runs, and the server's number for its last use.
     pub using: Option<crate::skill_use::Using>,
@@ -570,6 +572,7 @@ pub fn enter<S: Store>(
         protected: None,
         passwd_at: None,
         swing_ready: 0.0,
+        turned_for: f64::NEG_INFINITY,
         early_swings: None,
         using: None,
         uses: 0,

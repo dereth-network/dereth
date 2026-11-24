@@ -150,6 +150,98 @@ fn a_bow_shoots_from_afar_and_its_target_tells_each_arrival() {
         .all(|a| a.bits == 0x32 && a.attacker == me && [0xB81, 0x381].contains(&a.hooks[0].bits)));
 }
 
+/// What a client was sent of a player each step since `from`, with the clock's time of the step:
+/// "stop" (its stop order), "turn" (its turn to a target), "story" (its swing's story).
+fn moves_and_stories(
+    h: &mut Harness,
+    b: usize,
+    from: usize,
+    me: u64,
+    seconds: f64,
+) -> Vec<(f64, &'static str)> {
+    let mut seen = Vec::new();
+    let mut at = from;
+    let end = h.now.0 + seconds;
+    while h.now.0 < end {
+        h.step();
+        let now = h.now.0;
+        let mut step: Vec<(u64, &'static str)> = h.bots[b].inbox[at..]
+            .iter()
+            .filter(|r| r.world)
+            .filter_map(|r| {
+                let c = match r.message()? {
+                    ServerMessage::MoveTo(e)
+                        if e.sender.id == me && e.action.params.flags == 0x40 =>
+                    {
+                        "stop"
+                    }
+                    ServerMessage::MoveTo(e)
+                        if e.sender.id == me && e.action.params.flags == 0x46A =>
+                    {
+                        "turn"
+                    }
+                    ServerMessage::DoStory(e) if e.sender.id == me => "story",
+                    _ => return None,
+                };
+                Some((r.blob_id & 0xFFFF_FFFF, c))
+            })
+            .collect();
+        step.sort_by_key(|(n, _)| *n);
+        seen.extend(step.into_iter().map(|(_, c)| (now, c)));
+        at = h.bots[b].inbox.len();
+    }
+    seen
+}
+
+/// A bow run turns its player to its target a moment before each shot: a later shot's stop and
+/// turn a tenth of a second before its story, and nothing of them in the story's tick; the run's
+/// first shot turned to as the run begins, with no stop (2017: the turn a median 0.099 s before a
+/// later throw's story, 2,546 throws; a first throw's stop in 206 of 454, the player's own).
+/// Behaviour: server.weapons.a-throw-turns-before-its-story
+#[test]
+fn a_bow_run_turns_its_player_a_moment_before_each_shot() {
+    let (mut h, b, me, beetle) = beetle_at(6.0);
+    h.arm(b, me, BOW);
+    let from = attack(&mut h, b, beetle);
+    let seen = moves_and_stories(&mut h, b, from, me, 10.0);
+    let stories: Vec<f64> = seen
+        .iter()
+        .filter(|(_, c)| *c == "story")
+        .map(|(t, _)| *t)
+        .collect();
+    assert!(stories.len() >= 2, "a first shot and a later one: {seen:?}");
+    for (i, t) in stories.iter().enumerate() {
+        assert!(
+            !seen.iter().any(|(at, c)| at == t && *c != "story"),
+            "no movement in story {i}'s tick: {seen:?}"
+        );
+        let since = if i == 0 {
+            f64::NEG_INFINITY
+        } else {
+            stories[i - 1]
+        };
+        let before: Vec<&(f64, &str)> = seen
+            .iter()
+            .filter(|(at, c)| *at > since && at < t && *c != "story")
+            .collect();
+        if i == 0 {
+            assert!(
+                before.iter().all(|(_, c)| *c == "turn"),
+                "a first shot is turned to, not stopped: {before:?}"
+            );
+            assert!(!before.is_empty(), "a first shot is turned to");
+        } else {
+            let moves: Vec<&str> = before.iter().map(|(_, c)| *c).collect();
+            assert_eq!(moves, ["stop", "turn"], "shot {i}");
+            let gap = t - before[1].0;
+            assert!(
+                (0.04..=0.16).contains(&gap),
+                "shot {i}: turned {gap:.3} s before its story"
+            );
+        }
+    }
+}
+
 /// A bow's shots go at its player's pace, and the next comes that much sooner.
 /// Behaviour: server.weapons.attack-speed-effects
 #[test]
