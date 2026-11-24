@@ -7,7 +7,8 @@
 //! static with no such point on dry squares takes the median over all its points under the
 //! ground; one with none at all is placed by its origin, as before. Taking it at the origin alone
 //! raised a bridge by its river's depth, since the converted ground over water is the water's
-//! surface, not AC2's bed.
+//! surface, not AC2's bed. Statics that stand against each other take this over all their points
+//! together ([`crate::ac2_world::joined`]).
 //!
 //! **Covering what still shows:** the converted ground on 8 m squares sags where AC2's 10 m
 //! squares had a crest or a bank, so a point AC2 buries can still stand above it. Each corner of a
@@ -41,7 +42,9 @@ pub struct Point {
 }
 
 impl Point {
-    fn buried(&self) -> bool {
+    /// Whether AC2 sets it into its ground.
+    #[must_use]
+    pub fn buried(&self) -> bool {
         self.ac2 - self.z > BURIED
     }
 }

@@ -47,7 +47,9 @@
 //! `road-maps.tsv` (each road alpha map's AC2 mask), `cover-kinds.tsv` and `cover-setups.tsv`
 //! (AC2's cover kinds and the setups their scenes place), `statics-showing.tsv` (the placed
 //! statics left showing above the converted ground where AC2 sets them into its own: past the cap
-//! on raising the land, or on a square with a water corner), `statics-surfaces.tsv` (each placed
+//! on raising the land, or on a square with a water corner), `statics-joined.tsv` (each group of
+//! placed statics standing against each other, moved up or down as one, and how far apart its
+//! pieces would have stood moved alone), `statics-surfaces.tsv` (each placed
 //! model's material not drawn with its own picture: drawn in a plain color, from a smaller level,
 //! or not at all), `statics-made.tsv` (each placed model with weights or a behavior table, and how
 //! it was made: still, at rest, or moving), `statics-left.tsv` (each object whose placements are
@@ -75,6 +77,7 @@ mod effects;
 mod ground;
 mod grown;
 mod iteration;
+mod joined;
 mod kinds;
 mod ledges;
 mod map;
@@ -714,6 +717,15 @@ pub fn build(args: &Args) -> Result<(), String> {
         crate::ac2_world::buried::CAP,
     );
     eprintln!("{buried_line}");
+    let joined_line = format!(
+        "statics standing against each other, moved as one: {} groups of {} placements (statics-joined.tsv); {} placements of {} objects wider than {} m join none",
+        statics.groups,
+        statics.grouped,
+        statics.too_wide.values().sum::<usize>(),
+        statics.too_wide.len(),
+        crate::ac2_world::joined::WIDEST,
+    );
+    eprintln!("{joined_line}");
     // AC2's ledges AC1's bodies do not climb: the land raised where they drop to the terrain, a
     // collision-only ramp where they drop to another static.
     eprintln!("making AC2's ledges climbable");
@@ -1918,6 +1930,7 @@ pub fn build(args: &Args) -> Result<(), String> {
         statics.effects, statics.mesh_effects
     );
     let _ = writeln!(stats, "{buried_line}");
+    let _ = writeln!(stats, "{joined_line}");
     let _ = writeln!(stats, "{}", climb.line);
     let _ = writeln!(
         stats,
@@ -2059,6 +2072,7 @@ pub fn build(args: &Args) -> Result<(), String> {
         ("statics.tsv", &statics.tsv),
         ("statics-blocks.tsv", &statics_blocks),
         ("statics-showing.tsv", &statics.showing_tsv),
+        ("statics-joined.tsv", &statics.joined_tsv),
         ("statics-surfaces.tsv", &statics.surfaces_tsv),
         ("statics-made.tsv", &statics.made_tsv),
         ("statics-left.tsv", &statics.left_tsv),

@@ -35,7 +35,9 @@
 //! position in whichever AC1 block holds it, turned as AC2 turns it, and raised or lowered by as
 //! much as the converted ground differs from AC2's where AC2 sets it into the ground
 //! ([`crate::ac2_world::buried`]), or at its origin when it is set into none, so it stands on the ground
-//! it stood on.
+//! it stood on. Statics that stand against each other (a bridge's spans, its pillar and the walls
+//! they reach) move by one amount, taken over all of them ([`crate::ac2_world::joined`]), so they
+//! stay together as AC2 has them.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -61,6 +63,7 @@ use dereth_primitives::{DataId, EraId, Frame, Quat, Vec3};
 
 use crate::ac2_world::buried::{self, Cover, Point};
 use crate::ac2_world::effects;
+use crate::ac2_world::joined::{self, Member};
 
 use crate::ac2_world::art::{Ids, Pictures, Records};
 use dereth_ac2_convert::surface::{surface_of, Shown};
@@ -98,6 +101,14 @@ pub struct Statics {
     /// how many stand more than half a meter from where their origin alone put them.
     pub set_in: usize,
     pub moved: usize,
+    /// The groups of placements that stand against each other and move as one
+    /// ([`crate::ac2_world::joined`]): how many, and how many placements are in them; and a line
+    /// per group, the ones whose pieces would have moved apart most first.
+    pub groups: usize,
+    pub grouped: usize,
+    /// The placements too wide to join any ([`joined::WIDEST`]), by AC2 object.
+    pub too_wide: BTreeMap<u32, usize>,
+    pub joined_tsv: String,
     /// How the placed models' materials are drawn: per way, the models with a material drawn
     /// that way and their placements.
     pub surfaces: BTreeMap<&'static str, (usize, usize)>,
@@ -183,6 +194,50 @@ pub struct Shell {
     pub scale: [i32; 3],
     pub parts: Vec<DataId>,
     pub collision: Option<Collision>,
+}
+
+/// Where a placement went, to be raised or lowered with its group once every placement is known.
+enum Slot {
+    /// The `n`th static of AC1 block `block`.
+    Static((usize, usize), usize),
+    /// The `n`th building's shell.
+    Shell(usize),
+}
+
+/// A placement whose height waits on its group ([`joined`]).
+struct Pending {
+    slot: Slot,
+    /// Its collision, by its place among the solids.
+    solid: Option<usize>,
+    /// Its AC2 height, its object, its place in AC2's world (x, y), and its AC1 block.
+    oz: f64,
+    object: u32,
+    at: (f64, f64),
+    block: (usize, usize),
+    /// Its points under AC2's ground, with the converted squares they lie on.
+    buried: Vec<(Point, (usize, usize))>,
+    /// The converted ground less AC2's at its origin, and whether that square has a water corner.
+    at_origin: Option<(f64, bool)>,
+    /// Its box in AC2's world, and its scale and turn there (none for an effect alone).
+    piece: joined::Piece,
+    shape: Option<(auberean_primitives::Vec3, auberean_primitives::Quat)>,
+}
+
+impl Pending {
+    fn member(&self) -> Member {
+        Member {
+            points: self.buried.iter().map(|p| p.0).collect(),
+            origin_dry: self.at_origin.filter(|o| !o.1).map(|o| o.0),
+        }
+    }
+
+    /// The height its own ground alone would give it.
+    fn own(&self) -> f64 {
+        let pts: Vec<Point> = self.buried.iter().map(|p| p.0).collect();
+        buried::shift(&pts)
+            .or(self.at_origin.map(|o| o.0))
+            .map_or_else(|| crate::ac2_world::table::lower(self.oz), |s| self.oz + s)
+    }
 }
 
 /// A static's models, made once at its own size: their ids, their box ([`box_of`]), and their
@@ -295,6 +350,10 @@ pub fn place_statics(
         showing_tsv: String::from("ac2_object\tx\ty\tac1_block\tshows_past_cap\tshows_on_water\n"),
         set_in: 0,
         moved: 0,
+        groups: 0,
+        grouped: 0,
+        too_wide: BTreeMap::new(),
+        joined_tsv: String::new(),
         surfaces: BTreeMap::new(),
         surfaces_tsv: String::from("ac2_object\tac2_material\tpicture_list\tdrawn\n"),
         made: BTreeMap::new(),
@@ -313,6 +372,7 @@ pub fn place_statics(
     };
     let mut left_of: BTreeMap<(u32, &'static str), usize> = BTreeMap::new();
     let mut models: BTreeMap<u32, Result<Model, &'static str>> = BTreeMap::new();
+    let mut pending: Vec<Pending> = Vec::new();
     let mut setups: BTreeMap<ModelKey, (DataId, usize)> = BTreeMap::new();
     // The objects that draw nothing but an effect, by object and scale, and their placements.
     let mut effect_setups: BTreeMap<ModelKey, Result<effects::Made, &'static str>> =
@@ -385,17 +445,31 @@ pub fn place_statics(
                             skip(&mut st, "outside AC1's world");
                             continue;
                         };
-                        // Where its origin stands above AC2's ground, above the converted ground.
-                        let z = under(wx, wy).map_or_else(
-                            || crate::ac2_world::table::lower(f64::from(o.z)),
-                            |u| f64::from(o.z) + u.1 - u.0,
-                        );
+                        // Its height waits on what it stands with.
                         let r = offset.frame.rotation;
+                        let oz = f64::from(o.z);
+                        let list = st.by_block.entry(block).or_default();
+                        pending.push(Pending {
+                            slot: Slot::Static(block, list.len()),
+                            solid: None,
+                            oz,
+                            object,
+                            at: (wx, wy),
+                            block,
+                            buried: Vec::new(),
+                            at_origin: under(wx, wy).map(|u| (u.1 - u.0, u.2)),
+                            piece: joined::Piece {
+                                lo: [wx, wy, oz],
+                                hi: [wx, wy, oz],
+                                joins: true,
+                            },
+                            shape: None,
+                        });
                         #[allow(clippy::cast_possible_truncation)]
-                        st.by_block.entry(block).or_default().push(ObjectEntry {
+                        list.push(ObjectEntry {
                             id: made.setup,
                             frame: Frame::new(
-                                Vec3::new(lx as f32, ly as f32, z as f32),
+                                Vec3::new(lx as f32, ly as f32, 0.0),
                                 Quat {
                                     w: r.w,
                                     x: r.x,
@@ -451,7 +525,10 @@ pub fn place_statics(
                     r,
                     auberean_primitives::Vec3::new(1.0, 1.0, 1.0),
                 );
-                let points: Vec<(Point, (usize, usize))> = model
+                let oz = f64::from(o.z);
+                let mut lo = [wx, wy, oz];
+                let mut hi = lo;
+                let buried_points: Vec<(Point, (usize, usize))> = model
                     .verts
                     .iter()
                     .filter_map(|v| {
@@ -461,49 +538,28 @@ pub fn place_statics(
                             v.z * scale.z,
                         ));
                         let (x, y) = (wx + f64::from(p.x), wy + f64::from(p.y));
+                        let z = oz + f64::from(p.z);
+                        for (k, c) in [x, y, z].into_iter().enumerate() {
+                            lo[k] = lo[k].min(c);
+                            hi[k] = hi[k].max(c);
+                        }
                         let (ac2_ground, converted, wet, square) = under(x, y)?;
-                        let z = f64::from(o.z) + f64::from(p.z);
-                        Some((
-                            Point {
-                                z,
-                                ac2: ac2_ground,
-                                converted,
-                                wet,
-                            },
-                            square,
-                        ))
+                        let p = Point {
+                            z,
+                            ac2: ac2_ground,
+                            converted,
+                            wet,
+                        };
+                        p.buried().then_some((p, square))
                     })
                     .collect();
-                let at_origin = under(wx, wy).map(|u| u.1 - u.0);
-                let plain: Vec<Point> = points.iter().map(|p| p.0).collect();
-                let shift = match (buried::shift(&plain), at_origin) {
-                    (Some(s), origin) => {
-                        st.set_in += 1;
-                        st.moved += usize::from(origin.is_some_and(|o| (o - s).abs() > 0.5));
-                        Some(s)
-                    }
-                    (None, origin) => origin,
-                };
-                let z = shift.map_or_else(
-                    || crate::ac2_world::table::lower(f64::from(o.z)),
-                    |s| f64::from(o.z) + s,
-                );
-                if let Some(s) = shift {
-                    let c = buried::cover(&points, s);
-                    if c.past_cap > 0.0 || c.wet > 0.0 {
-                        let _ = writeln!(
-                            st.showing_tsv,
-                            "{object:08X}\t{wx:.1}\t{wy:.1}\t{:02X}{:02X}\t{:.2}\t{:.2}",
-                            block.0, block.1, c.past_cap, c.wet
-                        );
-                    }
-                    st.covers.push(c);
-                }
+                let at_origin = under(wx, wy).map(|u| (u.1 - u.0, u.2));
+                // Its height waits on what it stands with.
                 #[allow(clippy::cast_possible_truncation)]
                 let entry = ObjectEntry {
                     id: m.0,
                     frame: Frame::new(
-                        Vec3::new(lx as f32, ly as f32, z as f32),
+                        Vec3::new(lx as f32, ly as f32, 0.0),
                         Quat {
                             w: r.w,
                             x: r.x,
@@ -512,6 +568,7 @@ pub fn place_statics(
                         },
                     ),
                 };
+                let solid = model.collision.as_ref().map(|_| st.solids.len());
                 if let Some(c) = &model.collision {
                     st.collisions.entry(object).or_insert_with(|| c.clone());
                     #[allow(clippy::cast_precision_loss)]
@@ -529,6 +586,28 @@ pub fn place_statics(
                         ac2: (bx, by, index),
                     });
                 }
+                let slot = if shells.contains(&(bx, by, index)) {
+                    Slot::Shell(st.shells.len())
+                } else {
+                    Slot::Static(block, st.by_block.get(&block).map_or(0, Vec::len))
+                };
+                pending.push(Pending {
+                    slot,
+                    solid,
+                    oz,
+                    object,
+                    at: (wx, wy),
+                    block,
+                    buried: buried_points,
+                    at_origin,
+                    piece: joined::Piece {
+                        lo,
+                        hi,
+                        joins: model.made != MADE_AT_REST
+                            && (hi[0] - lo[0]).max(hi[1] - lo[1]) <= joined::WIDEST,
+                    },
+                    shape: Some((scale, r)),
+                });
                 if shells.contains(&(bx, by, index)) {
                     st.shells.push(Shell {
                         ac2: (bx, by, index),
@@ -553,6 +632,7 @@ pub fn place_statics(
             }
         }
     }
+    stand_together(&mut st, &pending, &models);
     let _ = writeln!(
         st.tsv,
         "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tplacements"
@@ -651,6 +731,205 @@ pub fn place_statics(
         );
     }
     Ok(st)
+}
+
+/// A placement's vertices in AC2's world: a static's every vertex as it is placed, an effect's
+/// origin alone.
+fn world_points(p: &Pending, models: &BTreeMap<u32, Result<Model, &'static str>>) -> Vec<[f64; 3]> {
+    let o = [p.at.0, p.at.1, p.oz];
+    let (Some((scale, r)), Some(Ok(m))) = (p.shape, models.get(&p.object)) else {
+        return vec![o];
+    };
+    let turn = Mat4::from_parts(
+        auberean_primitives::Vec3::new(0.0, 0.0, 0.0),
+        r,
+        auberean_primitives::Vec3::new(1.0, 1.0, 1.0),
+    );
+    m.verts
+        .iter()
+        .map(|v| {
+            let q = turn.point(auberean_primitives::Vec3::new(
+                v.x * scale.x,
+                v.y * scale.y,
+                v.z * scale.z,
+            ));
+            [
+                o[0] + f64::from(q.x),
+                o[1] + f64::from(q.y),
+                o[2] + f64::from(q.z),
+            ]
+        })
+        .collect()
+}
+
+/// Whether any of `points` (AC2's world) lies within placement `p`'s own box as it is placed,
+/// give or take [`joined::MARGIN`]; never for an effect alone, which has no box.
+fn within(
+    p: &Pending,
+    models: &BTreeMap<u32, Result<Model, &'static str>>,
+    points: &[[f64; 3]],
+) -> bool {
+    let (Some((scale, r)), Some(Ok(m))) = (p.shape, models.get(&p.object)) else {
+        return false;
+    };
+    let turn = Mat4::from_parts(
+        auberean_primitives::Vec3::new(0.0, 0.0, 0.0),
+        r,
+        auberean_primitives::Vec3::new(1.0, 1.0, 1.0),
+    );
+    let (lo, hi) = (m.lo, m.hi);
+    let k = [f64::from(scale.x), f64::from(scale.y), f64::from(scale.z)];
+    let b = [
+        [f64::from(lo.x) * k[0], f64::from(hi.x) * k[0]],
+        [f64::from(lo.y) * k[1], f64::from(hi.y) * k[1]],
+        [f64::from(lo.z) * k[2], f64::from(hi.z) * k[2]],
+    ];
+    points.iter().any(|q| {
+        #[allow(clippy::cast_possible_truncation)]
+        let l = turn.rigid_preimage(auberean_primitives::Vec3::new(
+            (q[0] - p.at.0) as f32,
+            (q[1] - p.at.1) as f32,
+            (q[2] - p.oz) as f32,
+        ));
+        [l.x, l.y, l.z].into_iter().zip(b).all(|(c, [a, z])| {
+            let c = f64::from(c);
+            c >= a.min(z) - joined::MARGIN && c <= a.max(z) + joined::MARGIN
+        })
+    })
+}
+
+/// Raise or lower every placement with the ones it stands against ([`joined`]), cover what of
+/// them shows ([`buried::cover`]), and list the groups.
+fn stand_together(
+    st: &mut Statics,
+    pending: &[Pending],
+    models: &BTreeMap<u32, Result<Model, &'static str>>,
+) {
+    let pieces: Vec<joined::Piece> = pending.iter().map(|p| p.piece).collect();
+    for p in pending {
+        if (p.piece.hi[0] - p.piece.lo[0]).max(p.piece.hi[1] - p.piece.lo[1]) > joined::WIDEST {
+            *st.too_wide.entry(p.object).or_default() += 1;
+        }
+    }
+    let group = joined::groups(&pieces, &mut |a, b| {
+        let (pa, pb) = (&pending[a], &pending[b]);
+        if pa.shape.is_none() && pb.shape.is_none() {
+            return false;
+        }
+        within(pa, models, &world_points(pb, models))
+            || within(pb, models, &world_points(pa, models))
+    });
+    let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (i, g) in group.iter().enumerate() {
+        members.entry(*g).or_default().push(i);
+    }
+    let mut z = vec![0.0f64; pending.len()];
+    let mut lines: Vec<(f64, usize, String)> = Vec::new();
+    for (&first, list) in &members {
+        let of: Vec<Member> = list.iter().map(|&i| pending[i].member()).collect();
+        let refs: Vec<&Member> = of.iter().collect();
+        let shift = joined::shift(&refs);
+        let set_in = list.iter().any(|&i| !pending[i].buried.is_empty());
+        for &i in list {
+            let p = &pending[i];
+            z[i] = shift.map_or_else(|| crate::ac2_world::table::lower(p.oz), |s| p.oz + s);
+        }
+        if list.len() > 1 {
+            st.groups += 1;
+            st.grouped += list.len();
+            // How far each piece moves from where its own ground alone stood it: the spread is
+            // how far apart they would have stood.
+            let moved: Vec<f64> = list.iter().map(|&i| z[i] - pending[i].own()).collect();
+            let lo = moved.iter().copied().fold(f64::MAX, f64::min);
+            let hi = moved.iter().copied().fold(f64::MIN, f64::max);
+            let most = moved.iter().copied().fold(0.0f64, |a, m| a.max(m.abs()));
+            let (mut w, mut e) = ([f64::MAX; 3], [f64::MIN; 3]);
+            for &i in list {
+                for k in 0..3 {
+                    w[k] = w[k].min(pending[i].piece.lo[k]);
+                    e[k] = e[k].max(pending[i].piece.hi[k]);
+                }
+            }
+            let mut objects: Vec<u32> = list.iter().map(|&i| pending[i].object).collect();
+            objects.sort_unstable();
+            objects.dedup();
+            let named: Vec<String> = objects.iter().take(8).map(|o| format!("{o:08X}")).collect();
+            let more = objects.len().saturating_sub(8);
+            let p = &pending[first];
+            lines.push((
+                hi - lo,
+                first,
+                format!(
+                    "{:02X}{:02X}\t{:.1}\t{:.1}\t{}\t{}{}\t{:.1}\t{:.1}\t{:.2}\t{:.2}\t{}\n",
+                    p.block.0,
+                    p.block.1,
+                    p.at.0,
+                    p.at.1,
+                    list.len(),
+                    named.join(","),
+                    if more > 0 {
+                        format!(",+{more}")
+                    } else {
+                        String::new()
+                    },
+                    (e[0] - w[0]).max(e[1] - w[1]),
+                    e[2] - w[2],
+                    hi - lo,
+                    most,
+                    shift.map_or_else(|| "lowered".to_owned(), |s| format!("{s:.2}")),
+                ),
+            ));
+        }
+        for &i in list {
+            let p = &pending[i];
+            if p.shape.is_none() {
+                continue;
+            }
+            if set_in {
+                st.set_in += 1;
+                st.moved += usize::from(
+                    p.at_origin
+                        .zip(shift)
+                        .is_some_and(|(o, s)| (o.0 - s).abs() > 0.5),
+                );
+            }
+            let Some(s) = shift else {
+                continue;
+            };
+            let c = buried::cover(&p.buried, s);
+            if c.past_cap > 0.0 || c.wet > 0.0 {
+                let _ = writeln!(
+                    st.showing_tsv,
+                    "{:08X}\t{:.1}\t{:.1}\t{:02X}{:02X}\t{:.2}\t{:.2}",
+                    p.object, p.at.0, p.at.1, p.block.0, p.block.1, c.past_cap, c.wet
+                );
+            }
+            st.covers.push(c);
+        }
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    for (i, p) in pending.iter().enumerate() {
+        let h = z[i] as f32;
+        match p.slot {
+            Slot::Static(block, n) => {
+                if let Some(e) = st.by_block.get_mut(&block).and_then(|l| l.get_mut(n)) {
+                    e.frame.origin.z = h;
+                }
+            }
+            Slot::Shell(n) => st.shells[n].frame.origin.z = h,
+        }
+        if let Some(k) = p.solid {
+            st.solids[k].frame.origin.z = h;
+            st.solids[k].world.2 = f64::from(h);
+        }
+    }
+    lines.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    st.joined_tsv = String::from(
+        "ac1_block\tx\ty\tpieces\tac2_objects\twidth_m\theight_m\tspread_m\tmoved_most_m\tshift_m\n",
+    );
+    for (_, _, l) in lines {
+        st.joined_tsv.push_str(&l);
+    }
 }
 
 /// A model's box on the ground about its origin, at `scale` and turned by `rotation`: west, south,
