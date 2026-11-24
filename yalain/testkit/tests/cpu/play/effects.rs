@@ -196,6 +196,57 @@ fn a_heal_aimed_at_nothing_heals_its_user_at_the_skills_hook() {
         .any(|m| matches!(m, ServerMessage::DoMode(e) if e.action.0 == 0x4000_0001)));
 }
 
+/// A heal's story is told whatever the health was, and the health is sent only when it changed:
+/// below its greatest, the healed one's story, then the health; at its greatest, the story alone
+/// (2017: 1,328 of 1,355 heals at full health sent no health).
+/// Behaviour: server.effects.a-heal-at-full-sends-no-health
+#[test]
+fn a_heal_at_full_health_tells_its_story_and_sends_no_health() {
+    for full in [false, true] {
+        let (mut h, b, me) = armed();
+        let greatest = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map(|p| yalain_world::effects::max_vital(&h.server, p, quality::HEALTH_MAX))
+            .expect("in the world");
+        set_vital(
+            &mut h,
+            me,
+            quality::HEALTH,
+            if full { greatest } else { 50 },
+        );
+        let from = use_skill(&mut h, b, 3, EASE_SUFFERING, 0);
+        h.run(60);
+        let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| r.world)
+            .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+            .collect();
+        sent.sort_by_key(|(n, _)| *n);
+        let told: Vec<String> = sent
+            .iter()
+            .filter_map(|(_, m)| match m {
+                ServerMessage::DoStory(e)
+                    if e.sender.id == me && e.action.hooks.iter().any(|k| k.bits == 0x981) =>
+                {
+                    Some(format!("heal {}", e.action.hooks[0].numbers[3]))
+                }
+                ServerMessage::UpdateInt(q) if q.quality == quality::HEALTH => {
+                    Some(format!("health {}", q.value))
+                }
+                _ => None,
+            })
+            .collect();
+        if full {
+            assert_eq!(told, ["heal 25"], "at its greatest");
+        } else {
+            assert_eq!(told, ["heal 25", "health 75"], "below its greatest");
+        }
+    }
+}
+
 /// Inner Calm heals vigor alone: after its power-up its story, then the player's vigor (not past
 /// its greatest), and no story of a heal.
 /// Behaviour: server.effects.heal-at-the-hook

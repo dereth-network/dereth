@@ -1821,7 +1821,8 @@ fn stamp_on<S: Store>(
 }
 
 /// An instant change to a player's vitals: its appearance, then for health the healed one's story
-/// of it and its health (and how wounded it shows); for vigor or focus, that vital alone.
+/// of it and its health when it changed (and how wounded it shows); for vigor or focus, that vital
+/// alone, when it changed.
 fn heal<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2068,7 +2069,7 @@ pub fn heal_scaled<S: Store>(s: &Server<S>, on: On, which: u32, amount: i32) -> 
 }
 
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the
-/// story of a health change tells the whole amount. Harm to health is what its watchers of effects'
+/// story of a health change tells the whole amount, and the vital is sent only when it changed. Harm to health is what its watchers of effects'
 /// harm leave of it ([`effect_harm_left`]); none left, nothing is told. Harm another player did is
 /// told as PK damage too. Harm that takes its last health kills it, the caster its killer, or none
 /// for its own: 2017, 4 of 4 players a creature's effect took to no health had their death told; no
@@ -2107,6 +2108,9 @@ fn change_vital<S: Store>(
     // Harm and vigor taken by another player come to a third; a heal restores what other players
     // took at a third ([`crate::pvp`]).
     let from_player = harm_by_player(p.character, amount, (caster, pk));
+    // A heal's story tells the whole heal, what it restores or not (2017: 11,496 of 11,496 heals
+    // told by the healed carried their amount, 7,026 of them at full health).
+    let whole = amount;
     let amount = if from_player && (cur == quality::HEALTH || cur == quality::VIGOR) {
         crate::pvp::third(amount)
     } else if amount > 0 {
@@ -2129,7 +2133,7 @@ fn change_vital<S: Store>(
         };
         let me = p.character;
         let sender = crate::combat::player_event(p, ()).sender;
-        let mut told = health_story(sender, caster, amount);
+        let mut told = health_story(sender, caster, if whole > 0 { whole } else { amount });
         if by_player {
             crate::combat::pk_harm(s, &mut told, me, clock.local.0);
         }
@@ -2142,7 +2146,11 @@ fn change_vital<S: Store>(
     if from_player {
         crate::pvp::harmed(p, cur, was - now);
     }
-    progress::send_int(net, world, cur, now);
+    // Only a change is sent: a heal at the greatest tells its story and nothing more (2017: 1,328
+    // of 1,355 heals at full health sent no health).
+    if now != was {
+        progress::send_int(net, world, cur, now);
+    }
     if cur == quality::HEALTH {
         let me = p.character;
         #[allow(clippy::cast_precision_loss)]

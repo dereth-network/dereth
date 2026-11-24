@@ -5271,6 +5271,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-heal-at-full-sends-no-health",
+        says: "A heal reaching a player at its greatest health still tells the healed one's story \
+               of it, the whole amount, and sends no health; below its greatest the health follows \
+               the story.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HEAL-AT-FULL"),
+        station: "yalain-testkit::cpu::play::effects::a_heal_at_full_health_tells_its_story_and_sends_no_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-quiet-rows-effects-tell-no-line",
         says: "A step or a give whose row keeps its effects quiet grants what they grant (a recipe, \
                a skill) and tells none of their own lines; its own text is still told. A row that \
