@@ -1882,6 +1882,74 @@ fn the_gauntlets_lead_from_arena_to_arena_and_a_use_before_the_end_fails() {
     }
 }
 
+/// **A Gauntlet's Portal sends its band in quietly**: a player of the band given the Gauntlet by the
+/// Master uses the Portal, is answered as a person's use is, and goes into portal space with nothing
+/// flashing and no word of it, to come out in one of the first arena's row of rooms.
+/// Behaviour: server.places.a-sending-goes-in-silently
+#[test]
+fn a_gauntlets_portal_sends_its_band_into_the_first_arena_with_no_flash() {
+    use yalain_content::quests::Trigger;
+    use yalain_world::places::{fx, text};
+    const MASTER: u32 = 0x4700_2FD2;
+    const PORTAL: u32 = 0x4700_2FD4;
+    let t = &compiled().tables;
+    let q = quest_ids()["QuestGauntlet45plus"];
+    let enter = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == q && s.trigger == Trigger::Use(PORTAL))
+        .and_then(|s| s.to)
+        .expect("the Portal leads on");
+    let row = t
+        .quests
+        .rooms
+        .iter()
+        .find(|r| r.iter().any(|room| room.place == enter))
+        .expect("the first arena's row");
+    let (mut h, b, me) = served(t);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 50);
+    }
+    let at = |template: u32| {
+        t.content
+            .objects
+            .iter()
+            .position(|o| o.template == template)
+            .expect("placed")
+    };
+    use_person(&mut h, b, me, t, at(MASTER));
+    assert!(holds(&h, q), "given by the Master");
+    let from = h.bots[b].inbox.len();
+    use_person(&mut h, b, me, t, at(PORTAL));
+    let until = h.now.0 + 12.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let p = h.server.players.values().next().expect("a player");
+    assert!(
+        row.iter()
+            .any(|room| room.place.cell >> 16 == p.position.cell >> 16),
+        "in the first arena: {:08X}",
+        p.position.cell
+    );
+    let sent = h.world_messages(b, from);
+    assert!(
+        !sent.iter().any(|m| matches!(m, ServerMessage::DoFx(e)
+            if e.action.fx == fx::PORTAL_USED || e.action.fx == fx::TELEPORT)),
+        "no flash, no teleport"
+    );
+    let teleporting = sent.iter().any(|m| match m {
+        ServerMessage::PlayerCall(c) => c
+            .args
+            .as_ref()
+            .and_then(|a| yalain_world::calls::values(&a.0).ok())
+            .unwrap_or_default()
+            .iter()
+            .any(|v| matches!(v.root(), Some(yalain_world::calls::Node::TextInfo(x)) if x.string_id == text::TELEPORTING.0)),
+        _ => false,
+    });
+    assert!(!teleporting, "no word of it");
+}
+
 /// A practice gem goes by the nearest ten to the player's level, one in a week whatever the player
 /// does with it, by a hidden quest done as it is handed over; its use gives the gem's own quest.
 /// Behaviour: server.quests.practice-gems

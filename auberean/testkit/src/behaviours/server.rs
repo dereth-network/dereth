@@ -14417,6 +14417,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-persons-sending-goes-in-silently",
+        says: "A person who sends whoever uses it answers the use as a person's at once, says its \
+               line, and takes the player into portal space with no flash, no word of it and no \
+               teleport; nothing is answered as the player comes out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-SENDS-SILENT"),
+        station: "yalain-testkit::cpu::play::talk::a_person_who_sends_whoever_uses_it_answers_at_once_and_sends_with_no_flash_and_no_word",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-given-starts-the-reckoning-again",
         says: "Where a trip ends, the player's next report there is taken, and its reach is reckoned from \
                that place and the moment the trip ended, not from before the trip; a place told back \
@@ -14474,6 +14484,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REPORT-ROOMS"),
         station: "yalain-testkit::cpu::play::reported_places::a_room_is_entered_only_through_a_doorway_or_a_room_seen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-sending-goes-in-silently",
+        says: "A quest's step that leads somewhere (a kill's, a use's) takes its player into portal \
+               space with no flash, no word of it and no teleport: its animation and movement \
+               frozen, then portal space.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SENDING-SILENT"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_sends_its_killer_with_no_flash_and_no_word",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -250,9 +250,9 @@ pub enum Step {
     OutOfScene { scene: u32 },
     /// A story shard's wait is over: its scene, then into portal space.
     Shard { scene: u32 },
-    /// A use of this person or object has moved a quest that leads on: it flashes, into portal
-    /// space.
-    Sent { by: u64 },
+    /// A use of a person or an object, or a kill, has moved a quest that leads on: into portal
+    /// space, with no flash and no word of it.
+    Sent,
 }
 
 /// A use of an object the server is carrying out: the request's description (its slots and its
@@ -1962,18 +1962,34 @@ fn carried_out<S: Store>(
         origin: to.origin,
         rotation: to.rotation,
     };
+    let shard = s.story.shards.get(&u.item).copied();
+    let door = s.story.doors.get(&(o.cell, o.template)).copied();
+    // A person who sends whoever uses it answers the use as a person's at once, says its line, and
+    // takes the player into portal space as a quest's sending does: no flash, no word of it, and
+    // nothing answered as the player comes out (2017: 51 of 51 trips after a use answered as a
+    // person's, none with a flash, "Teleporting ..." or the teleport's effect).
+    let person = o.kind == yalain_content::Kind::Npc && shard.is_none() && door.is_none();
+    if person {
+        let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
+        let done = use_done(&u, p_id(s, world), USE_FLAGS_PERSON, false, distance);
+        send(net, world, BlobKind::PRIVATE, &done);
+    }
     // A person who sends whoever uses it says its line first (2017: 14 of 16 trips from the one
     // person recorded so came with its line).
     if let Some(line) = crate::talk::at_use(s, world, o.template, Some(i)) {
         let speaker = crate::talk::content_speaker(s, i);
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }
-    if let Some(&scene) = s.story.shards.get(&u.item) {
+    if let Some(scene) = shard {
         crate::scenes::shard_used(s, net, world, u, to, scene, clock);
         return;
     }
-    if let Some(&scene) = s.story.doors.get(&(o.cell, o.template)) {
+    if let Some(scene) = door {
         through_door(s, net, world, u, to, scene, clock);
+        return;
+    }
+    if person {
+        sent_away(s, net, world, to, clock);
         return;
     }
     through_portal(s, net, world, u, to, clock);
@@ -2059,13 +2075,14 @@ fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
     enter_portal_space(s, net, world, true);
 }
 
-/// A step leads somewhere: the player is taken at once. A use of a person or an object has already
+/// A step leads somewhere: the player is taken at once, with no flash and no word of it, whoever
+/// sent it (`_by`, the person, object or creature). A use of a person or an object has already
 /// told its update (2017: the one such trip recorded, the touch's text and portal space together,
 /// 0.18 s after the use, 1 of 1); a kill's step, given here, is run on landing, if it still may.
 pub(crate) fn sends_on<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
-    by: u64,
+    _by: u64,
     place: yalain_content::quests::Place,
     step: Option<yalain_content::quests::Step>,
     clock: Clock,
@@ -2094,7 +2111,7 @@ pub(crate) fn sends_on<S: Store>(
         0.0,
         Timer::Trip {
             world,
-            step: Step::Sent { by },
+            step: Step::Sent,
         },
     );
 }
@@ -2678,11 +2695,13 @@ pub fn step<S: Store>(
                 crate::quests::fellows_go(s, world, target, place, clock);
             }
         }
-        Step::Sent { by } => {
+        Step::Sent => {
             if s.players.get(&world).is_none_or(|p| p.trip.is_none()) {
                 return;
             }
-            flash_and_go(s, net, world, by);
+            // As an effect's sending goes: nothing flashes, nothing is said, and no teleport plays
+            // (2017: 29 of 29 trips a kill or a quest's move sent, 51 of 51 a person's use sent).
+            enter_portal_space(s, net, world, false);
             crate::quests::teleported(s, net, world, clock);
             s.after(
                 clock,

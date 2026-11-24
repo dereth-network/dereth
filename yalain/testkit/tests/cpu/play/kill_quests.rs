@@ -1144,6 +1144,49 @@ fn a_kills_update_comes_as_the_killer_lands() {
     assert!(p.trip.is_none());
 }
 
+/// A kill's step that leads somewhere takes the killer into portal space with nothing flashing,
+/// nothing said and no teleport played: its animation and movement frozen, then portal space.
+/// Behaviour: server.places.a-sending-goes-in-silently
+#[test]
+fn a_kills_step_sends_its_killer_with_no_flash_and_no_word() {
+    use auberean_protocol::ServerMessage;
+    use yalain_world::places::{function as trip, fx, text};
+    use yalain_world::session::function::MOVEMENT_FROZEN;
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[]);
+    h.run(2);
+    let sent = h.sent_messages(b, from);
+    let call_at = |f: u32| {
+        sent.iter()
+            .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == f))
+    };
+    let (frozen, moving, inside) = (
+        call_at(trip::ANIMATION_FROZEN),
+        call_at(MOVEMENT_FROZEN),
+        call_at(trip::ENTER_PORTAL_SPACE),
+    );
+    assert!(
+        frozen.is_some() && frozen < moving && moving < inside,
+        "{frozen:?} {moving:?} {inside:?}"
+    );
+    assert!(
+        !texts(&h, b, from).contains(&text::TELEPORTING.0),
+        "no word"
+    );
+    assert!(
+        !sent.iter().any(|m| matches!(m, ServerMessage::DoFx(e)
+            if e.action.fx == fx::PORTAL_USED || e.action.fx == fx::TELEPORT)),
+        "no flash, no teleport"
+    );
+}
+
 /// A kill's step that takes the fellowship along sends the killer's fellows at the kill, a fellow
 /// half a kilometer off too; the killer's quest moves as it lands, and the fellow's, which it doesn't
 /// hold, not at all.

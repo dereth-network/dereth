@@ -687,3 +687,86 @@ fn a_person_who_sends_whoever_uses_it_says_its_line_first() {
     let p = h.server.players.values().next().expect("a player");
     assert_eq!(p.position.cell, 0x0499_0126, "sent");
 }
+
+/// A person who sends whoever uses it answers the use as a person's at once, says its line, and
+/// takes the player into portal space with nothing flashing, nothing said of it and no teleport
+/// played; nothing more is answered as the player comes out.
+/// Behaviour: server.places.a-persons-sending-goes-in-silently
+#[test]
+fn a_person_who_sends_whoever_uses_it_answers_at_once_and_sends_with_no_flash_and_no_word() {
+    use yalain_world::places::{function as trip, fx, text};
+    use yalain_world::session::function::MOVEMENT_FROZEN;
+    let mut h = Harness::new();
+    let mut o = person([61.0, 241.0, -44.6]);
+    o.destination = Some(yalain_content::Place {
+        cell: 0x0499_0126,
+        origin: [10.0, 20.0, 5.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    });
+    h.server.content = ContentPack {
+        objects: vec![o],
+        ..ContentPack::default()
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(words(0x0000_0B01), Role::Use, When::Use, true)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_person(&mut h, b, me);
+    let until = h.now.0 + 8.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let sent = h.sent_messages(b, from);
+    let call_at = |f: u32| {
+        sent.iter()
+            .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == f))
+    };
+    let (answered, said, frozen, moving, inside) = (
+        call_at(trip::USE_DONE),
+        call_at(HEAR_TELL),
+        call_at(trip::ANIMATION_FROZEN),
+        call_at(MOVEMENT_FROZEN),
+        call_at(trip::ENTER_PORTAL_SPACE),
+    );
+    assert!(
+        answered.is_some()
+            && answered < said
+            && said < frozen
+            && frozen < moving
+            && moving < inside,
+        "{answered:?} {said:?} {frozen:?} {moving:?} {inside:?}"
+    );
+    assert_eq!(answers(&h, b, from), [(0, 956)], "a person's answer, once");
+    assert!(
+        !texts(&h, b, from).iter().any(|(f, t)| *f == SHOW_TEXT
+            && t.as_ref().is_some_and(|(id, _)| *id == text::TELEPORTING.0)),
+        "no word of it"
+    );
+    assert!(
+        !sent.iter().any(|m| matches!(m, ServerMessage::DoFx(e)
+            if e.action.fx == fx::PORTAL_USED || e.action.fx == fx::TELEPORT)),
+        "no flash, no teleport"
+    );
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(p.position.cell, 0x0499_0126, "sent");
+}
+
+/// The answers to uses since `from`: (status, control flags).
+fn answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::places::function::USE_DONE =>
+            {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok())?;
+                let Some(Value::Graph(g)) = v.first() else {
+                    return None;
+                };
+                g.iter().find_map(|(_, n)| match n {
+                    Node::Script { slots, .. } => Some((slots[11].1, slots[17].1)),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
