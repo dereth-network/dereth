@@ -5,9 +5,9 @@
 //! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), the
 //! spell table's records (`dereth-assets`) and the Launch spell fixes (`empyrean-dat`), for
 //! `spawns` on the entity enums (`empyrean-entity`), for `world` on a world's rows
-//! (`empyrean-world-db`), and for `fetch` on an HTTP client (`ureq`, over rustls), `zip` and
-//! `sha2`. **Used by**
-//! nothing: it is the `empyrean-import` binary.
+//! (`empyrean-world-db`) and, for `world cutover`, a shard database's (`empyrean-store`), and for
+//! `fetch` on an HTTP client (`ureq`, over rustls), `zip` and `sha2`. **Used by** nothing: it is
+//! the `empyrean-import` binary.
 //!
 //! **Must never** read the wall clock or overwrite the pack an overlay sits on: `--now` (default
 //! 2000-01-01 00:00:00) stands in for every timestamp MySQL or ACE would stamp, and is the only way
@@ -33,6 +33,7 @@
 //! empyrean-import ac1999 dat-overlay --revision <sha> --base <dir> --out <dir> --world-key <name> [--source <repository>] [--with-events --reference <file>...]
 //! empyrean-import world check --world <world.toml> [--dumps <folder>]
 //! empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>]
+//! empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>
 //! empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]

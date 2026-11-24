@@ -3,7 +3,8 @@
 //!
 //! **Depends on** `empyrean-common` and `empyrean-entity`. **Used by** the world content database
 //! (`empyrean-content`), the gameplay crate (`empyrean-world`), the commands (`empyrean-command`),
-//! the server (`empyrean-server`) and the test kit (`empyrean-testkit`).
+//! the server (`empyrean-server`), the test kit (`empyrean-testkit`) and the importer
+//! (`empyrean-import`, whose `world cutover` reads a shard).
 //!
 //! **Must never** need a database server: SQLite is compiled into the binary (`rusqlite`'s
 //! `bundled` feature), and nothing here depends on a server crate above `empyrean-entity`.
@@ -25,6 +26,8 @@
 //! * the MariaDB collation of ACE's name and key columns → [`collation`] (not ACE);
 //! * a character file, which carries a character from one world to another → [`character_file`]
 //!   (not ACE).
+//! * the rows of a shard that name a world's placements, read before a cutover →
+//!   [`saved_placements`] (not ACE).
 //!
 //! Schemas: `src/schema/shard_v001.sql` and `src/schema/auth_v001.sql` (ACE's `ShardBase.sql` and
 //! `AuthenticationBase.sql` for SQLite), each version 1 of its schema, as Empyrean 0.1.0 shipped
@@ -44,6 +47,7 @@ pub mod error;
 pub mod mem_auth;
 pub mod mem_shard;
 pub mod models;
+pub mod saved_placements;
 pub mod serialized_shard_database;
 pub mod shard_config_database;
 pub mod shard_database;

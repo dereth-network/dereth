@@ -1921,3 +1921,78 @@ fn a_checkpoint_layer_gives_its_dump_and_keys_for_a_parity_check() {
         .expect_err("no layer")
         .contains("no layer"));
 }
+
+/// A shard moves onto a world's layer unless a saved static or a house permission is under a guid
+/// the newest checkpoint up to the layer re-keys: one its keys move (a house) or give to another
+/// placement (a hook's), each listed; one they keep (a slumlord's) is fine. A layer with no
+/// checkpoint below it keeps its source's guids.
+#[test]
+fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_keys() {
+    use empyrean_common::world_release::SIXTEEN_PY;
+    let dir = Scratch::new("cutover");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[
+            ("2005-02-infiltration", None),
+            (
+                "2005-03-later",
+                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
+            ),
+        ],
+    );
+    let layer = dir.0.join("patches").join("2005-02-infiltration");
+    std::fs::write(
+        layer.join("checkpoint.toml"),
+        format!(
+            "world = \"16py\"\nsource = \"ACE-World-16PY\"\nrevision = \"v0.8.7\"\nurl = \"{}\"\nsha256 = \"{}\"\ndataset_id = \"{}\"\n",
+            SIXTEEN_PY.download_url("v0.8.7"),
+            "0".repeat(64),
+            "0".repeat(32),
+        ),
+    )
+    .expect("written");
+    std::fs::write(
+        layer.join("keys.toml"),
+        "format = 1\nmatched = { same = 0, near = 1, new_kept = 0, new_renumbered = 0 }\nkeys = [\n  [0x70009001, 0x70009005],\n]\n",
+    )
+    .expect("written");
+    let shard = dir.0.join("shard.sqlite");
+    let rows = |sql: &str| {
+        empyrean_store::SqliteShard::open(&shard)
+            .expect("opens")
+            .connection()
+            .execute_batch(sql)
+            .expect("rows");
+    };
+    rows("INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009002, 9625, 55);");
+    let check = |l: &str| super::cutover::check(&path, l, &shard).expect("checks");
+    let (checkpoint, _, found) = check("2005-03-later");
+    assert_eq!(
+        (checkpoint.as_deref(), found.len()),
+        (Some("2005-02-infiltration"), 0)
+    );
+    rows(
+        "INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009001, 9621, 53), (0x70009005, 9686, 56);
+         INSERT INTO house_permission (house_Id, player_Guid, storage) VALUES (0x70009001, 0x50000001, 1);",
+    );
+    let (_, saved, found) = check("2005-03-later");
+    assert_eq!((saved.statics.len(), saved.house_permissions.len()), (3, 1));
+    assert_eq!(found.len(), 3, "{found:?}");
+    assert!(
+        found[0].starts_with("saved static 0x70009001 (weenie 9621, House)")
+            && found[0].contains("moves its placement to 0x70009005"),
+        "{found:?}"
+    );
+    assert!(
+        found[1].starts_with("saved static 0x70009005 (weenie 9686, Hook)")
+            && found[1].contains("gives its guid to the placement that was 0x70009001"),
+        "{found:?}"
+    );
+    assert!(
+        found[2].starts_with("house permission of house 0x70009001"),
+        "{found:?}"
+    );
+    let (checkpoint, _, found) = check("base");
+    assert_eq!((checkpoint, found.len()), (None, 0));
+}

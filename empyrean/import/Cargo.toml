@@ -31,6 +31,7 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 sha2.workspace = true
 # `world`: a world of layers, folded from its rows.
 empyrean-world-db.workspace = true
+empyrean-store.workspace = true
 
 [build-dependencies]
 sha2.workspace = true

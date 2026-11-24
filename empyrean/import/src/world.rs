@@ -5,6 +5,7 @@
 //! empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...
 //! empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...
+//! empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>
 //! ```
 //!
 //! `--dumps` names the folder a checkpoint's pinned dump is read from; without it, the folder
@@ -38,6 +39,10 @@
 //!
 //! `release` makes a release of the world: the packs of its written layers and a manifest of every
 //! layer ([`release`]).
+//!
+//! `cutover` checks a server's shard database before the server is pointed at the world's layer:
+//! it refuses when a saved house, or a house permission, is under a guid the world's newest
+//! checkpoint up to the layer re-keys ([`cutover`]). The file is only read.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -232,7 +237,7 @@ fn run_build(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
-const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...";
+const USAGE: &str = "usage: empyrean-import world check --world <world.toml> [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world build --world <world.toml> [--layer <id>] --out <world.pack> [--sql <folder>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world release --world <world.toml> --version <x.y.z> --out <folder> [--previous <manifest.json>] [--dumps <folder>] [--dats <folder>]...\n       empyrean-import world cutover --world <world.toml> --layer <id> --shard <shard database>";
 
 /// `empyrean-import world ...`.
 pub fn run(args: &[String]) -> ExitCode {
@@ -240,6 +245,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Some("check") => run_check(&args[1..]),
         Some("build") => run_build(&args[1..]),
         Some("release") => release::run(&args[1..]),
+        Some("cutover") => cutover::run(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -252,6 +258,7 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
+pub mod cutover;
 pub mod release;
 
 #[cfg(test)]

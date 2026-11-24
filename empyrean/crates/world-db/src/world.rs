@@ -384,15 +384,44 @@ pub fn checkpoint_of(
     };
     let pin = checkpoint::pin_of(pin).map_err(|e| format!("{layer}: {e}"))?;
     let dump = pin.dump(dumps).map_err(|e| format!("{layer}: {e}"))?;
-    let keys_path = l.dir.join("keys.toml");
-    let keys = if keys_path.is_file() {
-        let text = std::fs::read_to_string(&keys_path)
-            .map_err(|e| format!("{}: {e}", keys_path.display()))?;
-        Some(keys_of(&text).map_err(|e| format!("{}: {e}", keys_path.display()))?)
-    } else {
-        None
-    };
-    Ok(Some((pin, dump, keys)))
+    Ok(Some((pin, dump, keys_in(&l.dir)?)))
+}
+
+/// The keys a checkpoint's folder gives (its `keys.toml`), if it has one.
+fn keys_in(dir: &Path) -> R<Option<Keys>> {
+    let path = dir.join("keys.toml");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(
+        keys_of(&text).map_err(|e| format!("{}: {e}", path.display()))?,
+    ))
+}
+
+/// The newest checkpoint at or below layer `layer`, by id, and the keys its `keys.toml` gives
+/// (none when it has no `keys.toml`): what the world at `layer` changes of the guids of the
+/// release that checkpoint pins. The layers above a checkpoint keep its keys. `None` when no
+/// layer up to `layer` is a checkpoint. No dump is read.
+///
+/// # Errors
+/// A world file that doesn't read, a layer it doesn't have, and a `keys.toml` that doesn't read.
+pub fn checkpoint_keys_at(world_toml: &Path, layer: &str) -> R<Option<(String, Option<Keys>)>> {
+    let lineage =
+        Lineage::read_world_file::<Ac1World>(&DiskStore, world_toml).map_err(|e| e.to_string())?;
+    let n = lineage
+        .layers
+        .iter()
+        .position(|l| l.id == layer)
+        .ok_or_else(|| format!("{}: no layer {layer}", world_toml.display()))?;
+    match lineage.layers[..=n]
+        .iter()
+        .rev()
+        .find(|l| l.is_checkpoint())
+    {
+        None => Ok(None),
+        Some(l) => Ok(Some((l.id.clone(), keys_in(&l.dir)?))),
+    }
 }
 
 /// The layers `world.toml` names, read and merged, to fold at any of them; a checkpoint's dump

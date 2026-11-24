@@ -28,6 +28,9 @@ pub enum StoreError {
         /// The newest backup of the file, when there is one.
         backup: Option<PathBuf>,
     },
+    /// Not ACE: a file read as a shard database records no shard schema version.
+    #[error("{} is not a shard database: it records no shard schema version", .0.display())]
+    NotAShard(PathBuf),
     /// Not ACE: the backup made before an upgrade failed, so the upgrade did not run.
     #[error(
         "the {database} database {} could not be backed up to {} before upgrading its schema from version {from} to {to}: {reason}. Nothing was migrated; the database is unchanged at version {from}. Free some space or fix the folder's permissions, then start the server again.",
