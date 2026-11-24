@@ -80,142 +80,8 @@ impl Out {
 /// `content` as files, by path (`weenie/00509.toml`), each row with `stamp` as its default time.
 pub fn write(content: &WorldContent, stamp: DotNetDateTime) -> R<BTreeMap<String, String>> {
     let mut o = Out::default();
-    for w in &content.weenies {
-        o.add(
-            format!("weenie/{:05}.toml", w.class_id),
-            "weenie",
-            kinds::weenie_row(w, stamp),
-        );
-    }
-    for i in &content.landblock_instances {
-        o.add(
-            format!("landblock/{:04X}.toml", i.obj_cell_id >> 16),
-            "placement",
-            kinds::placement_row(i, stamp),
-        );
-    }
-    for e in &content.encounters {
-        #[allow(clippy::cast_sign_loss)]
-        let block = e.landblock as u32;
-        o.add(
-            format!("encounter/{:02X}xx.toml", block >> 8),
-            "encounter",
-            kinds::encounter_row(e, stamp),
-        );
-    }
-    for c in &content.cook_books {
-        o.add(
-            format!("cook_book/{:05}-{:05}.toml", c.source_wcid, c.target_wcid),
-            "cook_book",
-            kinds::cook_book_row(c, stamp),
-        );
-    }
-    for r in &content.recipes {
-        o.add(
-            format!("recipe/{}.toml", r.id),
-            "recipe",
-            kinds::recipe_row(r, stamp),
-        );
-    }
-    for v in &content.recipe_vital_requirements {
-        o.add(
-            format!("recipe_vital/{}.toml", v.id),
-            "recipe_vital",
-            kinds::keyed_row("recipe", v.id, v, stamp),
-        );
-    }
-    for s in &content.spells {
-        o.add(
-            format!("spell/{}.toml", s.id),
-            "spell",
-            kinds::keyed_row("id", s.id, s, stamp),
-        );
-    }
-    for q in &content.quests {
-        let path = o.named("quest", &q.name);
-        o.add(path, "quest", kinds::plain_row(q, stamp));
-    }
-    for e in &content.events {
-        let path = o.named("event", &e.name);
-        o.add(path, "event", kinds::plain_row(e, stamp));
-    }
-    for p in &content.points_of_interest {
-        let path = o.named("poi", &p.name);
-        o.add(path, "poi", kinds::plain_row(p, stamp));
-    }
-    for h in &content.house_portals {
-        o.add(
-            format!("house_portal/{}.toml", h.house_id),
-            "house_portal",
-            kinds::plain_row(h, stamp),
-        );
-    }
-    for t in &content.treasure_death {
-        o.add(
-            format!("treasure_death/{}.toml", t.treasure_type),
-            "treasure_death",
-            kinds::keyed_row("type", t.treasure_type, t, stamp),
-        );
-    }
-    for g in &content.grouped_treasure {
-        o.add(
-            format!("grouped_treasure/{}.toml", g.treasure_type),
-            "grouped_treasure",
-            kinds::grouped_treasure_row(g)?,
-        );
-    }
-    for (ty, rows) in by_type(&content.treasure_wielded) {
-        o.add(
-            format!("treasure_wielded/{ty:05}.toml"),
-            "treasure_wielded",
-            kinds::wielded_row(ty, &rows, stamp),
-        );
-    }
-    for t in &content.treasure_gem_count {
-        o.add(
-            "treasure_gem_count.toml".into(),
-            "treasure_gem_count",
-            kinds::plain_row(t, stamp),
-        );
-    }
-    for t in &content.treasure_material_base {
-        o.add(
-            "treasure_material_base.toml".into(),
-            "treasure_material_base",
-            kinds::plain_row(t, stamp),
-        );
-    }
-    for t in &content.treasure_material_color {
-        o.add(
-            "treasure_material_color.toml".into(),
-            "treasure_material_color",
-            kinds::plain_row(t, stamp),
-        );
-    }
-    // A group's materials at a tier are one list: a world may list one material twice.
-    let mut groups: BTreeMap<(u32, u32), Vec<TreasureMaterialGroups>> = BTreeMap::new();
-    for t in &content.treasure_material_groups {
-        groups
-            .entry((t.material_group, t.tier))
-            .or_default()
-            .push(t.clone());
-    }
-    for ((group, tier), rows) in groups {
-        o.add(
-            "treasure_material_groups.toml".into(),
-            "treasure_material_groups",
-            kinds::material_group_row(group, tier, &rows, stamp),
-        );
-    }
-    for p in &content.loot_policies {
-        o.add(
-            "loot_policy.toml".into(),
-            "loot_policy",
-            kinds::loot_policy_row(p)?,
-        );
-    }
-    for v in &content.versions {
-        o.add("version.toml".into(), "version", kinds::plain_row(v, stamp));
+    for part in PARTS {
+        add_part(content, part, stamp, &mut o)?;
     }
     let mut out: BTreeMap<String, String> = o
         .files
@@ -231,6 +97,290 @@ pub fn write(content: &WorldContent, stamp: DotNetDateTime) -> R<BTreeMap<String
         ),
     );
     Ok(out)
+}
+
+/// One kind of row a world is written as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Part {
+    Weenie,
+    Placement,
+    Encounter,
+    CookBook,
+    Recipe,
+    RecipeVital,
+    Spell,
+    Quest,
+    Event,
+    Poi,
+    HousePortal,
+    TreasureDeath,
+    GroupedTreasure,
+    Wielded,
+    GemCount,
+    MaterialBase,
+    MaterialColor,
+    MaterialGroups,
+    LootPolicy,
+    Version,
+}
+
+/// Every kind of row, in the order their files' paths sort.
+const PARTS: [Part; 20] = [
+    Part::CookBook,
+    Part::Encounter,
+    Part::Event,
+    Part::GroupedTreasure,
+    Part::HousePortal,
+    Part::Placement,
+    Part::LootPolicy,
+    Part::Poi,
+    Part::Quest,
+    Part::Recipe,
+    Part::RecipeVital,
+    Part::Spell,
+    Part::TreasureDeath,
+    Part::GemCount,
+    Part::MaterialBase,
+    Part::MaterialColor,
+    Part::MaterialGroups,
+    Part::Wielded,
+    Part::Version,
+    Part::Weenie,
+];
+
+/// The rows of `content`'s `part`, added to `o`.
+fn add_part(content: &WorldContent, part: Part, stamp: DotNetDateTime, o: &mut Out) -> R<()> {
+    match part {
+        Part::Weenie => {
+            for w in &content.weenies {
+                o.add(
+                    format!("weenie/{:05}.toml", w.class_id),
+                    "weenie",
+                    kinds::weenie_row(w, stamp),
+                );
+            }
+        }
+        Part::Placement => {
+            for i in &content.landblock_instances {
+                o.add(
+                    format!("landblock/{:04X}.toml", i.obj_cell_id >> 16),
+                    "placement",
+                    kinds::placement_row(i, stamp),
+                );
+            }
+        }
+        Part::Encounter => {
+            for e in &content.encounters {
+                #[allow(clippy::cast_sign_loss)]
+                let block = e.landblock as u32;
+                o.add(
+                    format!("encounter/{:02X}xx.toml", block >> 8),
+                    "encounter",
+                    kinds::encounter_row(e, stamp),
+                );
+            }
+        }
+        Part::CookBook => {
+            for c in &content.cook_books {
+                o.add(
+                    format!("cook_book/{:05}-{:05}.toml", c.source_wcid, c.target_wcid),
+                    "cook_book",
+                    kinds::cook_book_row(c, stamp),
+                );
+            }
+        }
+        Part::Recipe => {
+            for r in &content.recipes {
+                o.add(
+                    format!("recipe/{}.toml", r.id),
+                    "recipe",
+                    kinds::recipe_row(r, stamp),
+                );
+            }
+        }
+        Part::RecipeVital => {
+            for v in &content.recipe_vital_requirements {
+                o.add(
+                    format!("recipe_vital/{}.toml", v.id),
+                    "recipe_vital",
+                    kinds::keyed_row("recipe", v.id, v, stamp),
+                );
+            }
+        }
+        Part::Spell => {
+            for s in &content.spells {
+                o.add(
+                    format!("spell/{}.toml", s.id),
+                    "spell",
+                    kinds::keyed_row("id", s.id, s, stamp),
+                );
+            }
+        }
+        Part::Quest => {
+            for q in &content.quests {
+                let path = o.named("quest", &q.name);
+                o.add(path, "quest", kinds::plain_row(q, stamp));
+            }
+        }
+        Part::Event => {
+            for e in &content.events {
+                let path = o.named("event", &e.name);
+                o.add(path, "event", kinds::plain_row(e, stamp));
+            }
+        }
+        Part::Poi => {
+            for p in &content.points_of_interest {
+                let path = o.named("poi", &p.name);
+                o.add(path, "poi", kinds::plain_row(p, stamp));
+            }
+        }
+        Part::HousePortal => {
+            for h in &content.house_portals {
+                o.add(
+                    format!("house_portal/{}.toml", h.house_id),
+                    "house_portal",
+                    kinds::plain_row(h, stamp),
+                );
+            }
+        }
+        Part::TreasureDeath => {
+            for t in &content.treasure_death {
+                o.add(
+                    format!("treasure_death/{}.toml", t.treasure_type),
+                    "treasure_death",
+                    kinds::keyed_row("type", t.treasure_type, t, stamp),
+                );
+            }
+        }
+        Part::GroupedTreasure => {
+            for g in &content.grouped_treasure {
+                o.add(
+                    format!("grouped_treasure/{}.toml", g.treasure_type),
+                    "grouped_treasure",
+                    kinds::grouped_treasure_row(g)?,
+                );
+            }
+        }
+        Part::Wielded => {
+            for (ty, rows) in by_type(&content.treasure_wielded) {
+                o.add(
+                    format!("treasure_wielded/{ty:05}.toml"),
+                    "treasure_wielded",
+                    kinds::wielded_row(ty, &rows, stamp),
+                );
+            }
+        }
+        Part::GemCount => {
+            for t in &content.treasure_gem_count {
+                o.add(
+                    "treasure_gem_count.toml".into(),
+                    "treasure_gem_count",
+                    kinds::plain_row(t, stamp),
+                );
+            }
+        }
+        Part::MaterialBase => {
+            for t in &content.treasure_material_base {
+                o.add(
+                    "treasure_material_base.toml".into(),
+                    "treasure_material_base",
+                    kinds::plain_row(t, stamp),
+                );
+            }
+        }
+        Part::MaterialColor => {
+            for t in &content.treasure_material_color {
+                o.add(
+                    "treasure_material_color.toml".into(),
+                    "treasure_material_color",
+                    kinds::plain_row(t, stamp),
+                );
+            }
+        }
+        Part::MaterialGroups => {
+            // A group's materials at a tier are one list: a world may list one material twice.
+            let mut groups: BTreeMap<(u32, u32), Vec<TreasureMaterialGroups>> = BTreeMap::new();
+            for t in &content.treasure_material_groups {
+                groups
+                    .entry((t.material_group, t.tier))
+                    .or_default()
+                    .push(t.clone());
+            }
+            for ((group, tier), rows) in groups {
+                o.add(
+                    "treasure_material_groups.toml".into(),
+                    "treasure_material_groups",
+                    kinds::material_group_row(group, tier, &rows, stamp),
+                );
+            }
+        }
+        Part::LootPolicy => {
+            for p in &content.loot_policies {
+                o.add(
+                    "loot_policy.toml".into(),
+                    "loot_policy",
+                    kinds::loot_policy_row(p)?,
+                );
+            }
+        }
+        Part::Version => {
+            for v in &content.versions {
+                o.add("version.toml".into(), "version", kinds::plain_row(v, stamp));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `content` without the tables of `part`.
+fn release(content: &mut WorldContent, part: Part) {
+    match part {
+        Part::Weenie => content.weenies = Vec::new(),
+        Part::Placement => content.landblock_instances = Vec::new(),
+        Part::Encounter => content.encounters = Vec::new(),
+        Part::CookBook => content.cook_books = Vec::new(),
+        Part::Recipe => content.recipes = Vec::new(),
+        Part::RecipeVital => content.recipe_vital_requirements = Vec::new(),
+        Part::Spell => content.spells = Vec::new(),
+        Part::Quest => content.quests = Vec::new(),
+        Part::Event => content.events = Vec::new(),
+        Part::Poi => content.points_of_interest = Vec::new(),
+        Part::HousePortal => content.house_portals = Vec::new(),
+        Part::TreasureDeath => content.treasure_death = Vec::new(),
+        Part::GroupedTreasure => content.grouped_treasure = Vec::new(),
+        Part::Wielded => content.treasure_wielded = Vec::new(),
+        Part::GemCount => content.treasure_gem_count = Vec::new(),
+        Part::MaterialBase => content.treasure_material_base = Vec::new(),
+        Part::MaterialColor => content.treasure_material_color = Vec::new(),
+        Part::MaterialGroups => content.treasure_material_groups = Vec::new(),
+        Part::LootPolicy => content.loot_policies = Vec::new(),
+        Part::Version => content.versions = Vec::new(),
+    }
+}
+
+/// Each of `content`'s rows, with its kind and the path of the file [`write()`] puts it in, in the
+/// order of their paths and, within a file, the order [`write()`] writes them; each table of
+/// `content` dropped once its rows are made, so a world and all its rows are never held at once.
+///
+/// # Errors
+/// What `each` returns, and a row that can't be written.
+pub fn each_row(
+    mut content: WorldContent,
+    stamp: DotNetDateTime,
+    mut each: impl FnMut(&str, &'static str, &Row) -> R<()>,
+) -> R<()> {
+    for part in PARTS {
+        let mut o = Out::default();
+        add_part(&content, part, stamp, &mut o)?;
+        release(&mut content, part);
+        // Each row let go once given.
+        for (path, (kind, rows)) in o.files {
+            for r in rows {
+                each(&path, kind, &r)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A wielded type's rows, in their order, by type.

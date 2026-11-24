@@ -190,6 +190,96 @@ fn a_lineage_folds_each_layer_on_the_one_before_and_a_checkpoint_takes_only_what
     assert_eq!(shadowed, [&shadow(1, "radius", 9), &shadow(2, "name", 1)]);
 }
 
+/// The values of a folded world, item by item and field by field.
+fn values(f: &Folded<String>) -> Vec<(String, Vec<(String, String)>)> {
+    f.world
+        .iter()
+        .map(|e| {
+            let fields = e
+                .fields
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.value.clone()))
+                .collect();
+            (e.item.name.clone(), fields)
+        })
+        .collect()
+}
+
+#[test]
+fn a_checkpoint_over_a_world_nothing_has_changed_folds_as_one_over_a_changed_world_does() {
+    let launch = || {
+        snapshot(
+            "r1",
+            &[
+                (1, &[("name", "stone"), ("use", "old")]),
+                (2, &[("name", "cow")]),
+                (3, &[("name", "bowl")]),
+            ],
+        )
+    };
+    let later = || {
+        snapshot(
+            "r2",
+            &[
+                (1, &[("name", "stone"), ("radius", "3")]),
+                (4, &[("name", "arrow")]),
+                (2, &[("name", "cow")]),
+            ],
+        )
+    };
+    let stale = vec![ack(4, None, Take::Keep)];
+    // Nothing changes the world between the two snapshots.
+    let quiet = fold([
+        Input::checkpoint("base", launch(), Vec::new(), merged(&[], &[])),
+        Input::delta("2000-01-quiet", merged(&[], &[])),
+        Input::checkpoint("2005-02-later", later(), stale.clone(), merged(&[], &[])),
+    ]);
+    // A patch sets a field to what it already is: the world is the same, but it has been changed.
+    let touched = fold([
+        Input::checkpoint("base", launch(), Vec::new(), merged(&[], &[])),
+        Input::delta(
+            "2000-01-quiet",
+            merged(&[row(2, "same", 1, &[("name", "cow")])], &[]),
+        ),
+        Input::checkpoint("2005-02-later", later(), stale, merged(&[], &[])),
+    ]);
+    assert_eq!(values(&quiet), values(&touched));
+    assert_eq!(
+        values(&quiet),
+        [
+            (
+                "class 1".to_owned(),
+                vec![
+                    ("name".into(), "stone".into()),
+                    ("radius".into(), "3".into())
+                ]
+            ),
+            ("class 2".to_owned(), vec![("name".into(), "cow".into())]),
+            ("class 4".to_owned(), vec![("name".into(), "arrow".into())]),
+        ]
+    );
+    // An unchanged field keeps the layer that set it; a changed one is the checkpoint's.
+    for f in [&quiet, &touched] {
+        let one = f.world.get("class 1").unwrap();
+        assert_eq!(one.fields["name"].layer, 0);
+        assert_eq!(one.fields["radius"].layer, 2);
+        assert_eq!(
+            f.layers[2].findings,
+            [Finding::StaleAck {
+                item: "class 4".into(),
+                field: None,
+                at: at("drift.toml", 1),
+            }]
+        );
+    }
+    // The last checkpoint's snapshot let go changes nothing folded.
+    let last = fold([
+        Input::checkpoint("base", launch(), Vec::new(), merged(&[], &[])),
+        Input::checkpoint("2005-02-later", later(), Vec::new(), merged(&[], &[])).last_checkpoint(),
+    ]);
+    assert_eq!(values(&last), values(&quiet));
+}
+
 #[test]
 fn every_disagreement_with_a_checkpoint_s_snapshot_is_drift_until_acknowledged() {
     let f = fold(lineage(vec![ack(5, None, Take::Keep)]));

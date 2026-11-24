@@ -74,6 +74,34 @@ impl Row {
     }
 }
 
+impl Row {
+    /// The row as the table its text reads back as, made without the text.
+    #[must_use]
+    pub fn table(&self) -> Table {
+        let mut t = Table::new();
+        for (k, v) in &self.fields {
+            t.insert(k.clone(), v.value());
+        }
+        for (name, entries) in &self.maps {
+            let m: Table = entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.value()))
+                .collect();
+            t.insert(name.clone(), Value::Table(m));
+        }
+        for (name, row) in &self.tables {
+            t.insert(name.clone(), Value::Table(row.table()));
+        }
+        for (name, rows) in &self.lists {
+            t.insert(
+                name.clone(),
+                Value::Array(rows.iter().map(|r| Value::Table(r.table())).collect()),
+            );
+        }
+        t
+    }
+}
+
 /// A file of `rows` at `path`, each a `[[path]]` element.
 #[must_use]
 pub fn file(path: &str, rows: &[Row]) -> String {

@@ -359,6 +359,7 @@ items = ["spawn 0x7a9b400a", "wielded-treasure 364"]
             )],
             overrides: Vec::new(),
             checkpoint: None,
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -397,6 +398,7 @@ fn a_patch_that_removes_what_no_layer_has_or_names_no_item_is_refused() {
             )],
             overrides: Vec::new(),
             checkpoint: None,
+            ..Default::default()
         }],
         authored_classes: Some((1_000_000, 1_999_999)),
         ..Default::default()
@@ -594,6 +596,46 @@ fn a_checkpoints_placements_keep_the_lineages_keys_by_guid_then_by_spot_else_are
     // 3 m away is no longer the same spot.
     let far = match_keys(&known, &used, &[spot(0x7A9B_4080, 1, 13.0, 10.0)]);
     assert_eq!(far.matched.new_kept, 1);
+}
+
+#[test]
+fn a_world_made_a_snapshot_table_by_table_is_the_snapshot_its_written_rows_read_as() {
+    use crate::files::set_source;
+    use crate::layers::{snapshot_of, snapshot_of_content};
+    let mut c = sample();
+    number(&mut c);
+    let mut rows = write(&c, default_stamp()).expect("written");
+    // Every row's table, made without its text, is the table its text reads as.
+    for (path, text) in crate::files::rows_only(&rows) {
+        let read: toml::Table = toml::from_str(&text).expect("toml");
+        let (kind, v) = read.iter().next().expect("a kind");
+        let rows_read = v.as_array().expect("rows");
+        let mut made = Vec::new();
+        crate::files::each_row(c.clone(), default_stamp(), |p, k, r| {
+            if p == path {
+                assert_eq!(k, kind);
+                made.push(toml::Value::Table(r.table()));
+            }
+            Ok(())
+        })
+        .expect("rows");
+        assert_eq!(&made, rows_read, "{path}");
+    }
+    set_source(&mut rows, "a-world", "v1").expect("a source");
+    let (want, want_kinds) = snapshot_of(&rows).expect("read from text");
+    let (got, got_kinds) = snapshot_of_content(c, default_stamp(), "a-world", "v1").expect("made");
+    assert_eq!(got_kinds, want_kinds);
+    let names = |s: &dereth_pack::fold::Snapshot<toml::Value>| -> Vec<String> {
+        s.iter().map(|e| e.item.name.clone()).collect()
+    };
+    assert_eq!(
+        names(&got),
+        names(&want),
+        "the same items in the same order"
+    );
+    for e in want.iter() {
+        assert_eq!(got.get(&e.item.name), Some(e), "{}", e.item.name);
+    }
 }
 
 #[test]

@@ -21,6 +21,14 @@
 //! world's or take the snapshot's ([`crate::lineage::Ack`]), or an error. Last, the checkpoint's
 //! own packs apply, its corrections, as a delta's do.
 //!
+//! **What a fold holds.** While nothing has changed the world since the last checkpoint, the
+//! world is that checkpoint's snapshot, value for value, and stands in for it: the next
+//! checkpoint's fields are moved into the world rather than copied, and no snapshot is kept. A
+//! copy of the world is taken, as the previous snapshot, only when a later layer changes it and a
+//! later checkpoint may need it ([`Input::last_checkpoint`]). Folded so, the items a checkpoint
+//! takes away are reported in the world's order rather than the previous snapshot's: the same
+//! findings, always in the same order for the same layers.
+//!
 //! What a fold finds, layer by layer ([`Finding`]): conflicts, an item set twice in one pack, a
 //! removal of an item not there (a stale tombstone) and unacknowledged drift, which are errors; an
 //! acknowledgement of no drift and a change to the value already below, warnings; and an edit a
@@ -61,25 +69,35 @@ impl Value for String {}
 /// Where a field's value was set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Origin {
-    /// A row of one of a layer's packs.
-    Pack { pack: String, at: Loc },
+    /// A row of one of a layer's packs (boxed: most fields of a big world come from a snapshot,
+    /// and each field carries its origin).
+    Pack(Box<PackRow>),
     /// A checkpoint's snapshot: what it changed since the one before, or a drift given to it.
     Snapshot,
+}
+
+/// A row of one of a layer's packs: the pack, and where the row is written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackRow {
+    pub pack: String,
+    pub at: Loc,
 }
 
 impl Origin {
     /// A row of `pack` at `at`.
     #[must_use]
     pub fn pack(pack: &str, at: &Loc) -> Self {
-        Self::Pack {
+        Self::Pack(Box::new(PackRow {
             pack: pack.to_owned(),
             at: at.clone(),
-        }
+        }))
     }
 
-    fn at(&self) -> Option<&Loc> {
+    /// Where the row is written, for a pack's row.
+    #[must_use]
+    pub fn at(&self) -> Option<&Loc> {
         match self {
-            Self::Pack { at, .. } => Some(at),
+            Self::Pack(r) => Some(&r.at),
             Self::Snapshot => None,
         }
     }
@@ -103,11 +121,175 @@ pub struct Field<V> {
     pub layer: usize,
 }
 
+/// A field's name, shared by every item that has the field.
+pub type Name = Arc<str>;
+
 /// One item of a folded world, and its fields by name.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry<V> {
     pub item: Item,
-    pub fields: BTreeMap<String, Field<V>>,
+    pub fields: Fields<V>,
+}
+
+/// An item's fields by name, in the order of their names: a map as small as its fields, for a
+/// world holds millions of them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fields<V>(Vec<(Name, Field<V>)>);
+
+impl<V> Default for Fields<V> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<V> Fields<V> {
+    /// No fields.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn find<Q: Ord + ?Sized>(&self, name: &Q) -> Result<usize, usize>
+    where
+        Name: std::borrow::Borrow<Q>,
+    {
+        self.0
+            .binary_search_by(|(n, _)| std::borrow::Borrow::<Q>::borrow(n).cmp(name))
+    }
+
+    /// The field `name`.
+    #[must_use]
+    pub fn get<Q: Ord + ?Sized>(&self, name: &Q) -> Option<&Field<V>>
+    where
+        Name: std::borrow::Borrow<Q>,
+    {
+        self.find(name).ok().map(|i| &self.0[i].1)
+    }
+
+    /// The field `name`, to change.
+    pub fn get_mut<Q: Ord + ?Sized>(&mut self, name: &Q) -> Option<&mut Field<V>>
+    where
+        Name: std::borrow::Borrow<Q>,
+    {
+        self.find(name).ok().map(|i| &mut self.0[i].1)
+    }
+
+    /// Whether there is a field `name`.
+    #[must_use]
+    pub fn contains_key<Q: Ord + ?Sized>(&self, name: &Q) -> bool
+    where
+        Name: std::borrow::Borrow<Q>,
+    {
+        self.find(name).is_ok()
+    }
+
+    /// The field `name` set to `field`; what it was.
+    pub fn insert(&mut self, name: Name, field: Field<V>) -> Option<Field<V>> {
+        match self.find(&*name) {
+            Ok(i) => Some(std::mem::replace(&mut self.0[i].1, field)),
+            Err(i) => {
+                self.0.insert(i, (name, field));
+                None
+            }
+        }
+    }
+
+    /// The field `name` taken away.
+    pub fn remove<Q: Ord + ?Sized>(&mut self, name: &Q) -> Option<Field<V>>
+    where
+        Name: std::borrow::Borrow<Q>,
+    {
+        self.find(name).ok().map(|i| self.0.remove(i).1)
+    }
+
+    /// Every field, in the order of their names.
+    pub fn iter(&self) -> impl Iterator<Item = (&Name, &Field<V>)> + '_ {
+        self.0.iter().map(|(n, f)| (n, f))
+    }
+
+    /// Every field's name, in order.
+    pub fn keys(&self) -> impl Iterator<Item = &Name> + '_ {
+        self.0.iter().map(|(n, _)| n)
+    }
+
+    /// Every field, in the order of their names.
+    pub fn values(&self) -> impl Iterator<Item = &Field<V>> + '_ {
+        self.0.iter().map(|(_, f)| f)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<V> FromIterator<(Name, Field<V>)> for Fields<V> {
+    /// The fields, by name; of two with one name, the later.
+    fn from_iter<I: IntoIterator<Item = (Name, Field<V>)>>(iter: I) -> Self {
+        let mut v: Vec<(Name, Field<V>)> = iter.into_iter().collect();
+        v.reverse();
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v.dedup_by(|a, b| a.0 == b.0);
+        v.shrink_to_fit();
+        Self(v)
+    }
+}
+
+impl<V> IntoIterator for Fields<V> {
+    type Item = (Name, Field<V>);
+    type IntoIter = std::vec::IntoIter<(Name, Field<V>)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a, V> IntoIterator for &'a Fields<V> {
+    type Item = (&'a Name, &'a Field<V>);
+    type IntoIter = std::iter::Map<
+        std::slice::Iter<'a, (Name, Field<V>)>,
+        fn(&'a (Name, Field<V>)) -> (&'a Name, &'a Field<V>),
+    >;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter().map(|(n, f)| (n, f))
+    }
+}
+
+impl<V, Q: Ord + ?Sized> std::ops::Index<&Q> for Fields<V>
+where
+    Name: std::borrow::Borrow<Q>,
+{
+    type Output = Field<V>;
+    fn index(&self, name: &Q) -> &Field<V> {
+        self.get(name).expect("no such field")
+    }
+}
+
+/// Field names shared: one copy of each, however many items have the field.
+#[derive(Clone, Debug, Default)]
+struct Names(std::collections::HashSet<Name>);
+
+impl PartialEq for Names {
+    /// What is shared says nothing of what holds it.
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Names {
+    /// `name`, shared.
+    fn of(&mut self, name: &str) -> Name {
+        if let Some(n) = self.0.get(name) {
+            return Arc::clone(n);
+        }
+        let n: Name = Arc::from(name);
+        self.0.insert(Arc::clone(&n));
+        n
+    }
 }
 
 /// The provenance of a row's field `name`: the row's own `prov.fields` entry for it, else the row's
@@ -377,9 +559,10 @@ pub fn merge_layer<V: Value>(
 /// source the checkpoint pins.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot<V> {
-    entries: Vec<Entry<V>>,
+    entries: Vec<Option<Entry<V>>>,
     index: BTreeMap<String, usize>,
     shared: Shared,
+    names: Names,
 }
 
 impl<V> Default for Snapshot<V> {
@@ -388,6 +571,7 @@ impl<V> Default for Snapshot<V> {
             entries: Vec::new(),
             index: BTreeMap::new(),
             shared: Shared::default(),
+            names: Names::default(),
         }
     }
 }
@@ -416,12 +600,13 @@ impl<V: Value> Snapshot<V> {
         }
         let row = self.shared.row(prov);
         let shared = &mut self.shared;
+        let names = &mut self.names;
         let fields = fields
             .into_iter()
             .map(|(name, value)| {
                 let prov = shared.field(prov, &row, &name);
                 (
-                    name,
+                    names.of(&name),
                     Field {
                         value,
                         prov,
@@ -434,29 +619,34 @@ impl<V: Value> Snapshot<V> {
         let entry = Entry { item, fields };
         self.index
             .insert(entry.item.name.clone(), self.entries.len());
-        self.entries.push(entry);
+        self.entries.push(Some(entry));
         Ok(())
     }
 
     /// The item named `name`.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Entry<V>> {
-        self.index.get(name).map(|&i| &self.entries[i])
+        self.index.get(name).and_then(|&i| self.entries[i].as_ref())
+    }
+
+    /// The item named `name`, taken out.
+    fn take(&mut self, name: &str) -> Option<Entry<V>> {
+        self.index.remove(name).and_then(|i| self.entries[i].take())
     }
 
     /// Every item, in the order given.
     pub fn iter(&self) -> impl Iterator<Item = &Entry<V>> + '_ {
-        self.entries.iter()
+        self.entries.iter().flatten()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.index.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.index.is_empty()
     }
 }
 
@@ -465,6 +655,7 @@ impl<V: Value> Snapshot<V> {
 pub struct Resolved<V> {
     slots: Vec<Option<Entry<V>>>,
     index: BTreeMap<String, usize>,
+    names: Names,
 }
 
 impl<V> Default for Resolved<V> {
@@ -472,6 +663,7 @@ impl<V> Default for Resolved<V> {
         Self {
             slots: Vec::new(),
             index: BTreeMap::new(),
+            names: Names::default(),
         }
     }
 }
@@ -492,6 +684,11 @@ impl<V> Resolved<V> {
     /// Every item, in order.
     pub fn iter(&self) -> impl Iterator<Item = &Entry<V>> + '_ {
         self.slots.iter().flatten()
+    }
+
+    /// Every item, in the order of their names.
+    pub fn iter_by_name(&self) -> impl Iterator<Item = &Entry<V>> + '_ {
+        self.index.values().filter_map(|&i| self.slots[i].as_ref())
     }
 
     /// Every item, in order, taken.
@@ -521,7 +718,7 @@ impl<V> Resolved<V> {
                 self.index.insert(item.name.clone(), self.slots.len());
                 self.slots.push(Some(Entry {
                     item: item.clone(),
-                    fields: BTreeMap::new(),
+                    fields: Fields::new(),
                 }));
                 self.slots.len() - 1
             }
@@ -558,6 +755,9 @@ pub struct Input<V> {
     /// What merging its packs found, reported as the layer's.
     pub findings: Vec<Finding>,
     pub overridden: Vec<Overridden>,
+    /// For a checkpoint: whether its snapshot is kept, for a later checkpoint to compute its change
+    /// from. The last checkpoint of a fold needs not keep it ([`Input::last_checkpoint`]).
+    pub keep_snapshot: bool,
 }
 
 impl<V> Input<V> {
@@ -570,6 +770,7 @@ impl<V> Input<V> {
             change: merge.change,
             findings: merge.findings,
             overridden: merge.overridden,
+            keep_snapshot: true,
         }
     }
 
@@ -582,6 +783,7 @@ impl<V> Input<V> {
             change,
             findings: Vec::new(),
             overridden: Vec::new(),
+            keep_snapshot: true,
         }
     }
 
@@ -592,6 +794,14 @@ impl<V> Input<V> {
             kind: Kind::Checkpoint { snapshot, drift },
             ..Self::delta(id, merge)
         }
+    }
+
+    /// The layer, said to be the fold's last checkpoint: its snapshot is let go once its change
+    /// and drift are folded in, as no later checkpoint computes its change from it.
+    #[must_use]
+    pub fn last_checkpoint(mut self) -> Self {
+        self.keep_snapshot = false;
+        self
     }
 }
 
@@ -799,7 +1009,7 @@ impl<V: Value> Folding<V> {
         if old.layer >= n {
             return;
         }
-        let Origin::Pack { at, .. } = &old.origin else {
+        let Some(at) = old.origin.at() else {
             return;
         };
         let finding = Finding::Shadowed {
@@ -817,7 +1027,7 @@ impl<V: Value> Folding<V> {
         let old = self.world.entry(item).fields.remove(field);
         if let Some(old) = &old {
             if old.value == s.value {
-                if let Origin::Pack { at, .. } = &s.origin {
+                if let Some(at) = s.origin.at() {
                     self.reports[n].findings.push(Finding::NoOp {
                         item: item.name.clone(),
                         field: field.to_owned(),
@@ -828,8 +1038,9 @@ impl<V: Value> Folding<V> {
                 self.shadow(&item.name, Some(field), old, n, &s.origin);
             }
         }
+        let name = self.world.names.of(field);
         self.world.entry(item).fields.insert(
-            field.to_owned(),
+            name,
             Field {
                 value: s.value,
                 prov: s.prov,
@@ -847,7 +1058,7 @@ impl<V: Value> Folding<V> {
         match entry.fields.remove(field) {
             Some(old) => self.shadow(name, Some(field), &old, n, origin),
             None => {
-                if let Origin::Pack { at, .. } = origin {
+                if let Some(at) = origin.at() {
                     self.reports[n].findings.push(Finding::NoOp {
                         item: name.to_owned(),
                         field: field.to_owned(),
@@ -866,7 +1077,7 @@ impl<V: Value> Folding<V> {
         // One report for each layer below whose edits the removal takes away.
         let mut seen = BTreeSet::new();
         for f in old.fields.values() {
-            if f.layer < n && matches!(f.origin, Origin::Pack { .. }) && seen.insert(f.layer) {
+            if f.layer < n && matches!(f.origin, Origin::Pack(_)) && seen.insert(f.layer) {
                 self.shadow(name, None, f, n, by);
             }
         }
@@ -905,12 +1116,14 @@ impl<V: Value> Folding<V> {
 
     /// What `snapshot` changed since `prev` (an empty world before the first), applied at layer
     /// `n`. An item the world has lost keeps lost unless the snapshot makes it new.
-    fn apply_snapshot(&mut self, prev: Option<&Snapshot<V>>, snapshot: &Snapshot<V>, n: usize) {
-        let empty = Snapshot::default();
-        let prev = prev.unwrap_or(&empty);
+    ///
+    /// `prev` is spent as it is read, each of its items let go once compared, so the world before
+    /// and both snapshots are never all held whole.
+    fn apply_snapshot(&mut self, prev: Option<Snapshot<V>>, snapshot: &Snapshot<V>, n: usize) {
+        let mut prev = prev.unwrap_or_default();
         for e in snapshot.iter() {
             let name = &e.item.name;
-            match prev.get(name) {
+            match prev.take(name) {
                 None => {
                     self.world.entry(&e.item);
                     for (field, f) in &e.fields {
@@ -932,7 +1145,8 @@ impl<V: Value> Folding<V> {
                 }
             }
         }
-        for p in prev.iter().filter(|p| snapshot.get(&p.item.name).is_none()) {
+        // What is left of `prev` is what the snapshot no longer has.
+        for p in prev.iter() {
             self.remove(&p.item.name, n, &Origin::Snapshot);
         }
     }
@@ -940,7 +1154,8 @@ impl<V: Value> Folding<V> {
     /// The drift between the world and `snapshot` at layer `n`, settled by `acks`: each
     /// acknowledged drift kept or given to the snapshot, the rest findings, and each
     /// acknowledgement of no drift a finding.
-    fn settle_drift(&mut self, snapshot: &Snapshot<V>, acks: &[Ack], n: usize) {
+    /// Whether there was any drift, acknowledged or not.
+    fn settle_drift(&mut self, snapshot: &Snapshot<V>, acks: &[Ack], n: usize) -> bool {
         let mut drifts: Vec<Drift> = Vec::new();
         for e in self.world.iter() {
             let name = &e.item.name;
@@ -953,13 +1168,13 @@ impl<V: Value> Folding<V> {
                 });
                 continue;
             };
-            let fields: BTreeSet<&String> = e.fields.keys().chain(s.fields.keys()).collect();
+            let fields: BTreeSet<&Name> = e.fields.keys().chain(s.fields.keys()).collect();
             for field in fields {
                 let (a, b) = (e.fields.get(field), s.fields.get(field));
                 if a.map(|f| &f.value) != b.map(|f| &f.value) {
                     drifts.push(Drift {
                         item: name.clone(),
-                        field: Some(field.clone()),
+                        field: Some(field.to_string()),
                         folded: a.map(|f| f.value.text()),
                         snapshot: b.map(|f| f.value.text()),
                     });
@@ -977,6 +1192,7 @@ impl<V: Value> Folding<V> {
                 snapshot: Some("it".to_owned()),
             });
         }
+        let drifted = !drifts.is_empty();
         let mut used = vec![false; acks.len()];
         for d in drifts {
             let ack = acks
@@ -1004,7 +1220,7 @@ impl<V: Value> Folding<V> {
                         self.set(&s.item, field, snapshot_setting(f), n);
                     }
                 }
-                (Some(field), Some(s)) => match s.fields.get(field) {
+                (Some(field), Some(s)) => match s.fields.get(field.as_str()) {
                     Some(f) => self.set(&s.item, field, snapshot_setting(f), n),
                     None => self.unset(&d.item, field, &Origin::Snapshot, n),
                 },
@@ -1020,6 +1236,81 @@ impl<V: Value> Folding<V> {
                 });
             }
         }
+        drifted
+    }
+
+    /// `snapshot` taken in at layer `n` over a world that is still the previous snapshot, value
+    /// for value: what [`Folding::apply_snapshot`] and [`Folding::settle_drift`] do then, with the
+    /// world itself standing in for the previous snapshot, and the snapshot's fields moved into
+    /// it rather than copied. The world comes out the snapshot, so there is no drift, and every
+    /// acknowledgement is of none.
+    fn take_snapshot(&mut self, snapshot: Snapshot<V>, acks: &[Ack], n: usize) {
+        let Snapshot { entries, index, .. } = snapshot;
+        for e in entries.into_iter().flatten() {
+            let Entry { item, fields } = e;
+            if !self.world.contains(&item.name) {
+                self.world.entry(&item);
+                for (field, f) in fields {
+                    self.set(&item, &field, moved_setting(f), n);
+                }
+                continue;
+            }
+            let have: Vec<Name> = self
+                .world
+                .get(&item.name)
+                .map(|w| w.fields.keys().cloned().collect())
+                .unwrap_or_default();
+            let names: BTreeSet<Name> = fields.keys().cloned().collect();
+            for (field, f) in fields {
+                let same = self
+                    .world
+                    .get(&item.name)
+                    .and_then(|w| w.fields.get(&field))
+                    .is_some_and(|w| w.value == f.value);
+                if !same {
+                    self.set(&item, &field, moved_setting(f), n);
+                }
+            }
+            for field in have.iter().filter(|k| !names.contains(*k)) {
+                self.unset(&item.name, field, &Origin::Snapshot, n);
+            }
+        }
+        let gone: Vec<String> = self
+            .world
+            .iter()
+            .filter(|w| !index.contains_key(&w.item.name))
+            .map(|w| w.item.name.clone())
+            .collect();
+        for name in gone {
+            self.remove(&name, n, &Origin::Snapshot);
+        }
+        for a in acks {
+            self.reports[n].findings.push(Finding::StaleAck {
+                item: a.item.clone(),
+                field: a.field.clone(),
+                at: a.at.clone(),
+            });
+        }
+    }
+
+    /// The world as a snapshot: what the previous snapshot is, value for value, while nothing
+    /// has changed the world since it was taken in.
+    fn world_as_snapshot(&self) -> Snapshot<V> {
+        let mut s = Snapshot::default();
+        for e in self.world.iter() {
+            s.index.insert(e.item.name.clone(), s.entries.len());
+            s.entries.push(Some(e.clone()));
+        }
+        s
+    }
+}
+
+/// A snapshot's field, as a setting of its checkpoint, moved.
+fn moved_setting<V>(f: Field<V>) -> Setting<V> {
+    Setting {
+        value: f.value,
+        prov: f.prov,
+        origin: Origin::Snapshot,
     }
 }
 
@@ -1050,7 +1341,12 @@ pub fn fold_each<V: Value>(
         ids: Vec::new(),
         reports: Vec::new(),
     };
+    // The previous checkpoint's snapshot, kept only once the world has come to differ from it;
+    // while nothing has changed the world since, the world itself is that snapshot.
     let mut prev: Option<Snapshot<V>> = None;
+    let mut untouched = true;
+    // Whether a later checkpoint may still compute its change from the last one's snapshot.
+    let mut later = true;
     for (n, layer) in layers.into_iter().enumerate() {
         f.ids.push(layer.id.clone());
         f.reports.push(LayerReport {
@@ -1059,9 +1355,25 @@ pub fn fold_each<V: Value>(
             overridden: layer.overridden,
         });
         if let Kind::Checkpoint { snapshot, drift } = layer.kind {
-            f.apply_snapshot(prev.as_ref(), &snapshot, n);
-            f.settle_drift(&snapshot, &drift, n);
-            prev = Some(snapshot);
+            later = layer.keep_snapshot;
+            if untouched {
+                f.take_snapshot(snapshot, &drift, n);
+            } else {
+                f.apply_snapshot(prev.take(), &snapshot, n);
+                if f.settle_drift(&snapshot, &drift, n) {
+                    prev = layer.keep_snapshot.then_some(snapshot);
+                } else {
+                    // No drift: the world is the snapshot again.
+                    untouched = true;
+                }
+            }
+        }
+        let changes = !layer.change.edits.is_empty() || !layer.change.removals.is_empty();
+        if changes && untouched {
+            if later {
+                prev = Some(f.world_as_snapshot());
+            }
+            untouched = false;
         }
         f.apply(layer.change, n);
         each(n, &f.world);

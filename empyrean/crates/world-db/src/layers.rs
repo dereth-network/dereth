@@ -278,6 +278,43 @@ pub fn snapshot_of(files: &BTreeMap<String, String>) -> R<(Snapshot<Value>, Kind
     Ok((snapshot, kinds))
 }
 
+/// A converted world as a snapshot, its rows said to come from `source` at `revision`: the rows
+/// [`crate::files::write`] would write of it, read as [`snapshot_of`] reads them, made one table
+/// of the world at a time and without their text, each table of the world dropped once its rows
+/// are in.
+///
+/// # Errors
+/// A row that names no item, or two rows of one item.
+pub fn snapshot_of_content(
+    content: WorldContent,
+    stamp: DotNetDateTime,
+    source: &str,
+    revision: &str,
+) -> R<(Snapshot<Value>, Kinds)> {
+    let default = Provenance {
+        source: dereth_pack::provenance::Source::Snapshot,
+        origin: Some(source.to_owned()),
+        revision: Some(revision.to_owned()),
+        ..Provenance::AUTHORED
+    };
+    let mut snapshot = Snapshot::new();
+    let mut kinds = Kinds::new();
+    crate::files::each_row(content, stamp, |path, kind, row| {
+        let t = row.table();
+        records::snapshot_row(
+            &Ac1Rows,
+            kind,
+            &t,
+            &Loc::new(Path::new(path), 0),
+            &default,
+            &mut snapshot,
+            &mut kinds,
+        )
+        .map_err(|e| e.to_string())
+    })?;
+    Ok((snapshot, kinds))
+}
+
 /// A layer's packs, each its name and its files, read and merged in load order, two packs that
 /// set one field differently settled by `overrides`; a row that says nothing of where it came
 /// from, from where its pack's header says.
@@ -326,10 +363,10 @@ pub fn content_of(
         era,
         ..WorldContent::default()
     };
-    for (item, t) in records::tables(&Ac1Rows, world, kinds) {
-        let table = &t.table;
+    // One item at a time, its table dropped once it is read: never every table of the world at once.
+    let mut one = |item: &str, kind: &str, table: &Table| -> R<()> {
         let err = |e: String| format!("{item}: {e}");
-        match t.kind.as_str() {
+        match kind {
             "weenie" => c.weenies.push(kinds::weenie_of(table, stamp).map_err(err)?),
             "placement" => c
                 .landblock_instances
@@ -402,8 +439,20 @@ pub fn content_of(
                 .push(kinds::Fields::take(table, stamp).map_err(err)?),
             other => return Err(format!("{item}: no kind of row is called {other}")),
         }
+        Ok(())
+    };
+    let mut first: Option<String> = None;
+    records::each_table(&Ac1Rows, world, kinds, |e, kind, table| {
+        if first.is_none() {
+            if let Err(why) = one(&e.item.name, kind, &table) {
+                first = Some(why);
+            }
+        }
+    });
+    match first {
+        Some(why) => Err(why),
+        None => Ok(c),
     }
-    Ok(c)
 }
 
 /// A world of layers: its base, a whole known world, then each patch in order.
@@ -417,6 +466,8 @@ pub struct Layers {
     pub patches: Vec<PatchLayer>,
     /// The classes a weenie the base doesn't have may take, inclusive: the world's own.
     pub authored_classes: Option<(u32, u32)>,
+    /// What keying the next checkpoint read reads: the placements and keys so far.
+    pub keying: crate::world::Keying,
 }
 
 /// One patch: its id, its packs (each its name and its files) in load order, and which wins; and
@@ -427,6 +478,9 @@ pub struct PatchLayer {
     pub packs: Vec<(String, BTreeMap<String, String>)>,
     pub overrides: Vec<Override>,
     pub checkpoint: Option<Box<CheckpointLayer>>,
+    /// A checkpoint left to read when a fold comes to it, and its acknowledged drift.
+    pub pending: Option<Box<crate::world::PendingCheckpoint>>,
+    pub drift: Vec<Ack>,
 }
 
 /// A checkpoint's world as rows, and its acknowledged drift.
@@ -467,19 +521,36 @@ pub fn key_fields(kind: &str) -> &'static [&'static str] {
     }
 }
 
+/// `inputs`, the last checkpoint among them said to be the last, so its snapshot is let go once
+/// folded in.
+fn last_checkpoint(mut inputs: Vec<Input<Value>>) -> Vec<Input<Value>> {
+    if let Some(i) = inputs
+        .iter()
+        .rposition(|i| matches!(i.kind, dereth_pack::fold::Kind::Checkpoint { .. }))
+    {
+        let last = inputs.remove(i).last_checkpoint();
+        inputs.insert(i, last);
+    }
+    inputs
+}
+
 /// A world's layers, read and merged, to fold at any of them.
 #[derive(Debug, Clone)]
 pub struct Folding {
     /// Each layer's id, the base first.
     pub ids: Vec<String>,
     inputs: Vec<Input<Value>>,
-    /// The kind of each item, as of each layer.
-    kinds: Vec<Kinds>,
+    /// The kind of each item any layer sets. An item's name says its kind, so the latest word
+    /// for it is every layer's: one map serves them all.
+    kinds: Kinds,
     /// The classes each layer's snapshot has (none for a delta).
     snapshot_classes: Vec<BTreeSet<u32>>,
     authored_classes: Option<(u32, u32)>,
     era: EraId,
     stamp: DotNetDateTime,
+    /// Each layer's checkpoint still to read, and what keying it reads.
+    pending: Vec<Option<Box<crate::world::PendingCheckpoint>>>,
+    keying: crate::world::Keying,
 }
 
 /// What a check finds in one layer.
@@ -525,15 +596,27 @@ impl Folding {
         let mut f = Self {
             ids: vec![BASE.to_owned()],
             inputs: vec![Input::checkpoint(BASE, snapshot, Vec::new(), merge)],
-            kinds: vec![kinds],
+            kinds,
             snapshot_classes: vec![base_classes],
             authored_classes: layers.authored_classes,
             era,
             stamp,
+            pending: vec![None],
+            keying: layers.keying,
         };
         for p in layers.patches {
             let (merge, k) =
                 delta_of(&p.packs, &p.overrides).map_err(|e| format!("{}: {e}", p.id))?;
+            if let Some(todo) = p.pending {
+                // Its snapshot is read when a fold comes to it.
+                f.push(
+                    Input::checkpoint(&p.id, Snapshot::new(), p.drift, merge),
+                    k,
+                    BTreeSet::new(),
+                );
+                *f.pending.last_mut().expect("a layer was pushed") = Some(todo);
+                continue;
+            }
             match p.checkpoint {
                 Some(c) => {
                     let c = *c;
@@ -556,12 +639,11 @@ impl Folding {
     /// and the classes its snapshot has.
     pub fn push(&mut self, input: Input<Value>, kinds: Kinds, snapshot_classes: BTreeSet<u32>) {
         // A later layer's word for an item's kind wins.
-        let mut all = self.kinds.last().cloned().unwrap_or_default();
-        all.extend(kinds);
+        self.kinds.extend(kinds);
         self.ids.push(input.id.clone());
         self.inputs.push(input);
-        self.kinds.push(all);
         self.snapshot_classes.push(snapshot_classes);
+        self.pending.push(None);
     }
 
     /// How many layers there are, the base among them.
@@ -592,17 +674,15 @@ impl Folding {
     /// snapshot up to it has outside the world's own classes.
     fn content_of_layer(
         &self,
+        read: &Read,
         n: usize,
         world: &Resolved<Value>,
     ) -> (R<WorldContent>, Vec<String>) {
-        let content = content_of(world, &self.kinds[n], self.era, self.stamp);
+        let content = content_of(world, &read.kinds.borrow(), self.era, self.stamp);
         let mut problems = Vec::new();
         if let (Ok(c), Some((first, last))) = (&content, self.authored_classes) {
-            let known = |class: &u32| {
-                self.snapshot_classes[..=n]
-                    .iter()
-                    .any(|s| s.contains(class))
-            };
+            let classes = read.classes.borrow();
+            let known = |class: &u32| classes[..=n].iter().any(|s| s.contains(class));
             for w in &c.weenies {
                 if !known(&w.class_id) && !(first..=last).contains(&w.class_id) {
                     problems.push(format!(
@@ -624,13 +704,18 @@ impl Folding {
         if n >= self.len() {
             return Err(format!("there is no layer {n}"));
         }
-        let inputs = std::mem::take(&mut self.inputs);
-        let folded = resolve(inputs, n);
+        let mut inputs = std::mem::take(&mut self.inputs);
+        inputs.truncate(n + 1);
+        let read = self.read();
+        let folded = resolve(read.layers(last_checkpoint(inputs)), n);
+        if let Some((_, why)) = read.failed.take() {
+            return Err(why);
+        }
         let mut errors: Vec<String> = folded
             .errors()
             .map(|(layer, f)| format!("{layer}: {f}"))
             .collect();
-        let (content, problems) = self.content_of_layer(n, &folded.world);
+        let (content, problems) = self.content_of_layer(&read, n, &folded.world);
         errors.extend(problems);
         if !errors.is_empty() {
             return Err(errors.join("\n"));
@@ -677,6 +762,7 @@ impl Folding {
     fn walk(mut self, upto: usize) -> (Vec<LayerCheck>, Option<R<WorldContent>>) {
         let mut inputs = std::mem::take(&mut self.inputs);
         inputs.truncate(upto + 1);
+        let inputs = last_checkpoint(inputs);
         let snapshots: Vec<bool> = (0..inputs.len())
             .map(|n| n == 0 || !matches!(inputs[n].kind, dereth_pack::fold::Kind::Delta))
             .collect();
@@ -694,11 +780,12 @@ impl Folding {
         let mut own: Vec<(Vec<String>, Vec<String>)> = vec![(Vec::new(), Vec::new()); inputs.len()];
         let mut below: BTreeSet<String> = BTreeSet::new();
         let mut kept: Option<R<WorldContent>> = None;
-        let reports = fold_each(inputs, |n, world| {
+        let read = self.read();
+        let reports = fold_each(read.layers(inputs), |n, world| {
             if !changes[n] {
                 return;
             }
-            let (content, mut problems) = self.content_of_layer(n, world);
+            let (content, mut problems) = self.content_of_layer(&read, n, world);
             let mut inherited = Vec::new();
             match content {
                 Err(e) if n == last => {
@@ -723,7 +810,8 @@ impl Folding {
             own[n] = (problems, inherited);
         })
         .layers;
-        let kinds = self.kinds.last().cloned().unwrap_or_default();
+        let failed = read.failed.take();
+        let kinds = read.kinds.into_inner();
         // A row's key, set again by every row of its item, is no change and hides none.
         let keyed = |item: &str, field: Option<&String>| {
             field.is_some_and(|f| {
@@ -750,7 +838,73 @@ impl Folding {
                 inherited,
             });
         }
+        // A checkpoint that couldn't be read ends the fold there: its error is its layer's.
+        if let Some((n, why)) = failed {
+            out.push(LayerCheck {
+                id: self.ids[n].clone(),
+                findings: Vec::new(),
+                problems: vec![why.clone()],
+                inherited: Vec::new(),
+            });
+            if n <= upto {
+                kept = Some(Err(why));
+            }
+        }
         (out, kept)
+    }
+
+    /// The layers' checkpoints still to read, taken out to be read as a fold comes to them, with
+    /// the kinds and classes the layers have so far.
+    fn read(&mut self) -> Read {
+        Read {
+            pending: std::cell::RefCell::new(std::mem::take(&mut self.pending)),
+            keying: std::cell::RefCell::new(std::mem::take(&mut self.keying)),
+            kinds: std::cell::RefCell::new(std::mem::take(&mut self.kinds)),
+            classes: std::cell::RefCell::new(std::mem::take(&mut self.snapshot_classes)),
+            failed: std::cell::RefCell::new(None),
+        }
+    }
+}
+
+/// A fold's reading of the checkpoints still to read: each read when the fold comes to it, and
+/// let go as the fold takes it in; the kinds and classes of the layers read so far; and the first
+/// checkpoint that couldn't be read, with why.
+struct Read {
+    pending: std::cell::RefCell<Vec<Option<Box<crate::world::PendingCheckpoint>>>>,
+    keying: std::cell::RefCell<crate::world::Keying>,
+    kinds: std::cell::RefCell<Kinds>,
+    classes: std::cell::RefCell<Vec<BTreeSet<u32>>>,
+    failed: std::cell::RefCell<Option<(usize, String)>>,
+}
+
+impl Read {
+    /// `inputs` (layer 0 first), each checkpoint still to read put in its input as the fold asks
+    /// for it; the first that can't be read ends them.
+    fn layers(&self, inputs: Vec<Input<Value>>) -> impl Iterator<Item = Input<Value>> + '_ {
+        inputs
+            .into_iter()
+            .enumerate()
+            .map_while(move |(n, mut input)| {
+                let todo = self.pending.borrow_mut().get_mut(n).and_then(Option::take);
+                if let Some(todo) = todo {
+                    match crate::world::read_checkpoint(&todo, &mut self.keying.borrow_mut()) {
+                        Ok((snapshot, kinds, _)) => {
+                            self.classes.borrow_mut()[n] = classes_of(&snapshot).collect();
+                            self.kinds.borrow_mut().extend(kinds);
+                            if let dereth_pack::fold::Kind::Checkpoint { snapshot: s, .. } =
+                                &mut input.kind
+                            {
+                                *s = snapshot;
+                            }
+                        }
+                        Err(why) => {
+                            *self.failed.borrow_mut() = Some((n, format!("{}: {why}", todo.id)));
+                            return None;
+                        }
+                    }
+                }
+                Some(input)
+            })
     }
 }
 
@@ -761,9 +915,14 @@ impl Folding {
 /// What reading the base or a patch finds.
 pub fn fold_inputs(layers: Layers) -> R<(Folded<Value>, Kinds, BTreeSet<u32>)> {
     let mut f = Folding::new(layers, EraId::default(), DotNetDateTime::default())?;
-    let known = f.snapshot_classes.iter().flatten().copied().collect();
-    let kinds = f.kinds.last().cloned().unwrap_or_default();
-    Ok((fold(std::mem::take(&mut f.inputs)), kinds, known))
+    let inputs = last_checkpoint(std::mem::take(&mut f.inputs));
+    let read = f.read();
+    let folded = fold(read.layers(inputs));
+    if let Some((_, why)) = read.failed.take() {
+        return Err(why);
+    }
+    let known = read.classes.into_inner().into_iter().flatten().collect();
+    Ok((folded, read.kinds.into_inner(), known))
 }
 
 /// The world at the last of `layers`, folded field by field; its ids not yet numbered.

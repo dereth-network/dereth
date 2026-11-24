@@ -28,7 +28,7 @@ use std::path::Path;
 
 use crate::conflict::Item;
 use crate::error::{Error, Loc};
-use crate::fold::{Removal, Resolved, Row, Snapshot};
+use crate::fold::{Entry, Removal, Resolved, Row, Snapshot};
 use crate::provenance::Provenance;
 
 /// A game's words for its rows: the item each sets, and which of their sub-tables are maps.
@@ -266,14 +266,38 @@ pub fn tables(
     kinds: &Kinds,
 ) -> BTreeMap<String, Table> {
     let mut out = BTreeMap::new();
-    for e in world.iter() {
+    each_table(game, world, kinds, |e, kind, table| {
+        let prov = e
+            .fields
+            .iter()
+            .map(|(name, f)| (name.to_string(), f.prov.clone()))
+            .collect();
+        out.insert(
+            e.item.name.clone(),
+            Table {
+                kind: kind.to_owned(),
+                table,
+                prov,
+            },
+        );
+    });
+    out
+}
+
+/// Each item of the folded `world` as its table, in the order of the items' names, one at a
+/// time: what [`tables`] holds all at once. An item of no kind in `kinds` is left out.
+pub fn each_table(
+    game: &dyn RowKinds,
+    world: &Resolved<toml::Value>,
+    kinds: &Kinds,
+    mut each: impl FnMut(&Entry<toml::Value>, &str, toml::Table),
+) {
+    for e in world.iter_by_name() {
         let Some(kind) = kinds.get(&e.item.name) else {
             continue;
         };
         let mut table = toml::Table::new();
-        let mut prov = BTreeMap::new();
         for (name, f) in &e.fields {
-            prov.insert(name.clone(), f.prov.clone());
             match name
                 .split_once('.')
                 .filter(|(head, _)| game.is_map(kind, head))
@@ -287,18 +311,10 @@ pub fn tables(
                     }
                 }
                 None => {
-                    table.insert(name.clone(), f.value.clone());
+                    table.insert(name.to_string(), f.value.clone());
                 }
             }
         }
-        out.insert(
-            e.item.name.clone(),
-            Table {
-                kind: kind.clone(),
-                table,
-                prov,
-            },
-        );
+        each(e, kind, table);
     }
-    out
 }

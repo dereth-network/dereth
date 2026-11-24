@@ -71,6 +71,24 @@ pub fn float_text(text: String) -> String {
 }
 
 impl V {
+    /// The value its text reads back as, made without the text.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        match self {
+            Self::Int(i) => Value::Integer(*i),
+            #[allow(clippy::cast_possible_wrap)]
+            Self::Hex(h) => Value::Integer(*h as i64),
+            Self::Block(b) => Value::Integer(i64::from(*b)),
+            Self::Float(f) => Value::Float(f.parse().unwrap_or(f64::NAN)),
+            Self::Bool(b) => Value::Boolean(*b),
+            Self::Str(s) => Value::String(s.clone()),
+            Self::Array(items) => Value::Array(items.iter().map(Self::value).collect()),
+            Self::Inline(fields) => {
+                Value::Table(fields.iter().map(|(k, v)| (k.clone(), v.value())).collect())
+            }
+        }
+    }
+
     /// The value's text.
     #[must_use]
     pub fn text(&self) -> String {

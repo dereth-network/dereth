@@ -35,10 +35,10 @@ use std::path::{Path, PathBuf};
 use empyrean_common::era::EraId;
 use empyrean_common::world_release::WorldLine;
 use empyrean_content::models::world::LandblockInstance;
-use empyrean_content::pack::Pack;
+
 use empyrean_content::WorldContent;
 
-use crate::canon::{from_pack, number};
+use crate::canon::number;
 use crate::value::R;
 
 /// What a checkpoint pins, read from its `checkpoint.toml`.
@@ -127,10 +127,9 @@ fn hex(b: &[u8]) -> String {
 /// A dump that doesn't read or import, or another one than the pin's.
 pub fn ingest(pin: &Pin, path: &Path, era: EraId) -> R<WorldContent> {
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let (bytes, _) = empyrean_content::import::import_for(file, era)
+    let (mut c, dataset) = empyrean_content::import::content_for(file, era)
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    let pack = Pack::from_bytes(bytes).map_err(|e| e.to_string())?;
-    let id = hex(&pack.header().dataset_id);
+    let id = hex(&dataset);
     if id != pin.dataset_id {
         return Err(format!(
             "{}: its dataset id is {id}, and the pin names {}",
@@ -138,7 +137,6 @@ pub fn ingest(pin: &Pin, path: &Path, era: EraId) -> R<WorldContent> {
             pin.dataset_id
         ));
     }
-    let mut c = from_pack(&pack).map_err(|e| e.to_string())?;
     number(&mut c);
     Ok(c)
 }
@@ -403,8 +401,9 @@ pub fn change_by_kind(
             c.added += 1;
             continue;
         };
-        let names: BTreeSet<&String> = e.fields.keys().chain(p.fields.keys()).collect();
-        let differ: Vec<&&String> = names
+        let names: BTreeSet<&dereth_pack::fold::Name> =
+            e.fields.keys().chain(p.fields.keys()).collect();
+        let differ: Vec<&&dereth_pack::fold::Name> = names
             .iter()
             .filter(|f| e.fields.get(**f).map(|x| &x.value) != p.fields.get(**f).map(|x| &x.value))
             .collect();
@@ -415,7 +414,7 @@ pub fn change_by_kind(
         for f in differ.iter().filter(|f| !f.ends_with("last_modified")) {
             let name = match f.split_once('.') {
                 Some((table, _)) => format!("{table}.*"),
-                None => (**f).clone(),
+                None => f.to_string(),
             };
             *c.by_field.entry(name).or_default() += 1;
         }

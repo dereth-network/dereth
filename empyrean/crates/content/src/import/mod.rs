@@ -228,6 +228,30 @@ pub fn import<R: Read>(dump: R) -> Result<(Vec<u8>, Imported), ImportError> {
     import_for(dump, EraId::Eor)
 }
 
+/// The world a dump holds, for `era`, and its dataset id (the first 16 bytes of the dump's BLAKE3),
+/// without laying it out as a pack: what [`import_for`] lays out.
+pub fn content_for<R: Read>(dump: R, era: EraId) -> Result<(WorldContent, [u8; 16]), ImportError> {
+    let mut hashing = Hashing {
+        inner: dump,
+        hasher: blake3::Hasher::new(),
+        bytes: 0,
+    };
+    let mut rows = WorldRows::default();
+    {
+        let reader = std::io::BufReader::with_capacity(8 << 20, &mut hashing);
+        mysqldump::scan(reader, &mut rows)?;
+    }
+    std::io::copy(&mut hashing, &mut std::io::sink()).map_err(|e| ImportError::Sql {
+        line: 0,
+        what: e.to_string(),
+    })?;
+    let mut dataset_id = [0u8; 16];
+    dataset_id.copy_from_slice(&hashing.hasher.finalize().as_bytes()[..16]);
+    let (mut content, _) = rows.assemble();
+    content.era = era;
+    Ok((content, dataset_id))
+}
+
 /// Import a dump from any reader into pack bytes for `era`, which the pack's header records.
 pub fn import_for<R: Read>(dump: R, era: EraId) -> Result<(Vec<u8>, Imported), ImportError> {
     let mut hashing = Hashing {

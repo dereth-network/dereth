@@ -28,11 +28,13 @@ use empyrean_common::era::EraId;
 use empyrean_content::WorldContent;
 
 use crate::checkpoint::{self, apply_keys, keys_of, match_keys, Keys, Known, Pin};
-use crate::files::{self, meta, read_dir, set_source, Meta};
+use crate::files::{self, meta, read_dir, Meta};
 use crate::layers::{
-    fold_layers, item_form, snapshot_of, CheckpointLayer, Folding, Layers, PatchLayer,
+    fold_layers, item_form, snapshot_of_content, CheckpointLayer, Folding, Layers, PatchLayer,
 };
 use crate::value::R;
+use dereth_pack::fold::Snapshot;
+use dereth_pack::records::Kinds;
 
 /// The first game's words for the pack format, as Empyrean's worlds of rows speak them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -136,6 +138,65 @@ pub fn layers_of(
     keys: KeysFrom,
     dumps: Option<&Path>,
 ) -> R<(Layers, Meta, Vec<Checkpoint>)> {
+    read_layers(world_toml, keys, dumps, false)
+}
+
+/// A checkpoint whose world is read only when a fold comes to it ([`Folding`]): its pin, the dump
+/// to read, the keys its `keys.toml` gives (`None`: matched when read), and the guids the patches
+/// up to it place, which a new placement's key may not take.
+#[derive(Debug, Clone)]
+pub struct PendingCheckpoint {
+    pub id: String,
+    pub pin: Pin,
+    pub dump: std::path::PathBuf,
+    pub keys: Option<Keys>,
+    pub spawns: Vec<u32>,
+    pub era: EraId,
+    pub stamp: empyrean_common::dotnet::DotNetDateTime,
+}
+
+/// The placements of the world before a checkpoint, by their source's guids and their keys, and
+/// every key the lineage has given: what keying a checkpoint's placements reads.
+#[derive(Debug, Clone, Default)]
+pub struct Keying {
+    pub known: Vec<Known>,
+    pub used: BTreeSet<u32>,
+}
+
+/// A checkpoint's world read as a snapshot: its dump converted and its placements keyed (by
+/// `keys` when given, else matched against `keying`, which then holds the checkpoint's own).
+///
+/// # Errors
+/// A dump that doesn't read or isn't the pin's, and a row that names no item.
+pub fn read_checkpoint(
+    p: &PendingCheckpoint,
+    keying: &mut Keying,
+) -> R<(Snapshot<toml::Value>, Kinds, Keys)> {
+    let mut c = checkpoint::ingest(&p.pin, &p.dump, p.era)?;
+    keying.used.extend(p.spawns.iter().copied());
+    let keys = match &p.keys {
+        Some(k) => k.clone(),
+        None => match_keys(&keying.known, &keying.used, &c.landblock_instances),
+    };
+    let key = |g: u32| keys.map.get(&g).copied().unwrap_or(g);
+    keying.known = c
+        .landblock_instances
+        .iter()
+        .map(|i| Known::keyed(i, key(i.guid)))
+        .collect();
+    keying.used.extend(keying.known.iter().map(|k| k.key));
+    apply_keys(&mut c, &keys.map);
+    let (snapshot, kinds) = snapshot_of_content(c, p.stamp, &p.pin.source, &p.pin.tag)?;
+    Ok((snapshot, kinds, keys))
+}
+
+/// [`layers_of`], each checkpoint read now, or (`lazy`) left for the fold to read.
+fn read_layers(
+    world_toml: &Path,
+    keys: KeysFrom,
+    dumps: Option<&Path>,
+    lazy: bool,
+) -> R<(Layers, Meta, Vec<Checkpoint>)> {
     let lineage =
         Lineage::read_world_file::<Ac1World>(&DiskStore, world_toml).map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(world_toml).map_err(|e| e.to_string())?;
@@ -163,8 +224,9 @@ pub fn layers_of(
     let m = meta(&base_files).map_err(|e| format!("{}: {e}", first.display()))?;
     // The placements of the world before each checkpoint, by their source's guids and their keys,
     // and every key the lineage has given.
-    let mut known = Known::of(&files::read(&base_files)?);
-    let mut used: BTreeSet<u32> = known.iter().map(|k| k.key).collect();
+    let known = Known::of(&files::read(&base_files)?);
+    let used: BTreeSet<u32> = known.iter().map(|k| k.key).collect();
+    let mut keying = Keying { known, used };
     let mut layers = Layers {
         base: base_files,
         base_packs: base.packs[1..]
@@ -174,57 +236,63 @@ pub fn layers_of(
         base_overrides: base.overrides.clone(),
         patches: Vec::new(),
         authored_classes,
+        keying: Keying::default(),
     };
     let mut read = Vec::new();
+    let mut spawns: Vec<u32> = Vec::new();
     for p in patches {
         let packs = packs_of(p)?;
-        used.extend(spawns_in(&packs));
-        let checkpoint = match &p.checkpoint {
-            None => None,
-            Some(pin) => {
-                let pin = checkpoint::pin_of(pin).map_err(|e| format!("{}: {e}", p.id))?;
-                let dump = pin.dump(dumps).map_err(|e| format!("{}: {e}", p.id))?;
-                let mut c =
-                    checkpoint::ingest(&pin, &dump, m.era).map_err(|e| format!("{}: {e}", p.id))?;
-                let keys_path = p.dir.join("keys.toml");
-                let keys = match (keys, keys_path.is_file()) {
-                    (KeysFrom::Files, true) => {
-                        let text = std::fs::read_to_string(&keys_path)
-                            .map_err(|e| format!("{}: {e}", keys_path.display()))?;
-                        keys_of(&text).map_err(|e| format!("{}: {e}", p.id))?
-                    }
-                    _ => match_keys(&known, &used, &c.landblock_instances),
-                };
-                let key = |g: u32| keys.map.get(&g).copied().unwrap_or(g);
-                known = c
-                    .landblock_instances
-                    .iter()
-                    .map(|i| Known::keyed(i, key(i.guid)))
-                    .collect();
-                used.extend(known.iter().map(|k| k.key));
-                apply_keys(&mut c, &keys.map);
-                let mut rows = files::write(&c, m.stamp)?;
-                set_source(&mut rows, &pin.source, &pin.tag)?;
-                let (snapshot, kinds) = snapshot_of(&rows).map_err(|e| format!("{}: {e}", p.id))?;
+        spawns.extend(spawns_in(&packs));
+        let mut checkpoint = None;
+        let mut pending = None;
+        if let Some(pin) = &p.checkpoint {
+            let pin = checkpoint::pin_of(pin).map_err(|e| format!("{}: {e}", p.id))?;
+            let dump = pin.dump(dumps).map_err(|e| format!("{}: {e}", p.id))?;
+            let keys_path = p.dir.join("keys.toml");
+            let file_keys = match (keys, keys_path.is_file()) {
+                (KeysFrom::Files, true) => {
+                    let text = std::fs::read_to_string(&keys_path)
+                        .map_err(|e| format!("{}: {e}", keys_path.display()))?;
+                    Some(keys_of(&text).map_err(|e| format!("{}: {e}", p.id))?)
+                }
+                _ => None,
+            };
+            let todo = PendingCheckpoint {
+                id: p.id.clone(),
+                pin,
+                dump,
+                keys: file_keys,
+                spawns: std::mem::take(&mut spawns),
+                era: m.era,
+                stamp: m.stamp,
+            };
+            if lazy {
+                pending = Some(Box::new(todo));
+            } else {
+                let (snapshot, kinds, keys) =
+                    read_checkpoint(&todo, &mut keying).map_err(|e| format!("{}: {e}", p.id))?;
                 read.push(Checkpoint {
                     id: p.id.clone(),
-                    pin,
+                    pin: todo.pin,
                     keys,
                 });
-                Some(Box::new(CheckpointLayer {
+                checkpoint = Some(Box::new(CheckpointLayer {
                     snapshot,
                     kinds,
                     drift: p.drift.clone(),
-                }))
+                }));
             }
-        };
+        }
         layers.patches.push(PatchLayer {
             id: p.id.clone(),
             packs,
             overrides: p.overrides.clone(),
             checkpoint,
+            pending,
+            drift: p.drift.clone(),
         });
     }
+    layers.keying = keying;
     Ok((layers, m, read))
 }
 
@@ -266,6 +334,6 @@ pub fn fold_world(world_toml: &Path, dumps: Option<&Path>) -> R<WorldContent> {
 /// # Errors
 /// What [`layers_of`] finds.
 pub fn open(world_toml: &Path, dumps: Option<&Path>) -> R<Folding> {
-    let (layers, m, _) = layers_of(world_toml, KeysFrom::Files, dumps)?;
+    let (layers, m, _) = read_layers(world_toml, KeysFrom::Files, dumps, true)?;
     Folding::new(layers, m.era, m.stamp)
 }
