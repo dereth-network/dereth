@@ -96,6 +96,26 @@ impl NameRules {
         }
         Ok(String::from_utf16_lossy(&written))
     }
+
+    /// The banned pattern a name of anything else than a character (a fellowship's) holds as one of
+    /// its words, matched whole, letters only, small; or none. With no patterns, none.
+    #[must_use]
+    pub fn banned_word(&self, name: &str) -> Option<String> {
+        if self.banned.is_empty() {
+            return None;
+        }
+        let filter = WordFilter {
+            buckets: 0,
+            audiences: vec![(AUDIENCE, self.banned.clone())],
+        };
+        name.split_whitespace().find_map(|word| {
+            let units: Vec<u16> = word.encode_utf16().collect();
+            match check_censors(Some(&filter), &units, AUDIENCE, LETTERS_ONLY) {
+                (NAME_BAD, Some(p)) => Some(p),
+                _ => None,
+            }
+        })
+    }
 }
 
 fn is_ascii_letter(c: u16) -> bool {

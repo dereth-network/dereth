@@ -3,7 +3,8 @@
 //!
 //! **Making one** (a name of letters, spaces, apostrophes and hyphens): the maker enters the
 //! fellowship's chat channel, is sent the fellowship (itself its leader and only fellow) and told it
-//! made it. A name with anything else is refused.
+//! made it. A name with anything else is refused, and so is one with a word among the server's
+//! banned words ([`crate::names`]).
 //!
 //! **Recruiting**: a leader whose fellowship holds nine is refused ("Your Fellowship is full."); a
 //! player who is not one is refused, as is one already in a fellowship, one another leader is
@@ -133,6 +134,8 @@ pub mod text {
     pub const NOT_FROM_HERE: (u32, u32) = (0xC6CD_3C60, TABLE);
     pub const MOVEMENT_CANCELLED: (u32, u32) = (0xF01D_6279, TABLE);
     pub const BAD_NAME: (u32, u32) = (0x455E_192A, TABLE);
+    /// "Fellowship name '%s' contains inappropriate text.": a name.
+    pub const INAPPROPRIATE_NAME: (u32, u32) = (0xE17E_EBB1, TABLE);
     pub const DECLINES: (u32, u32) = (0x6F25_C372, TABLE);
     /// "Your Fellowship is full."
     pub const FULL: (u32, u32) = (0x4AB6_B80E, TABLE);
@@ -553,6 +556,17 @@ pub fn create<S: Store>(
             world,
             REFUSED,
             progress::text_with(text::BAD_NAME, vec![name_var(text::NAME, &name)]),
+        );
+        return;
+    }
+    // A word of it the server's banned words name (2017: one name refused so three times, a longer
+    // name holding it made).
+    if s.names.banned_word(&name).is_some() {
+        show(
+            net,
+            world,
+            REFUSED,
+            progress::text_with(text::INAPPROPRIATE_NAME, vec![name_var(text::NAME, &name)]),
         );
         return;
     }

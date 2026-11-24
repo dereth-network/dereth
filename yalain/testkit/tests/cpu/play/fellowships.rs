@@ -85,6 +85,37 @@ fn a_fellowship_made_is_sent_to_its_maker_and_a_bad_name_is_refused() {
     assert!(h.functions(a, from).contains(&function::UPDATE_FELLOWSHIP));
 }
 
+/// A fellowship's name with a word among the server's banned words, matched whole, is refused as
+/// holding inappropriate text, and nothing is made; a longer word holding it is not, and a name
+/// with characters a name may not hold is refused as before, first.
+/// Behaviour: server.fellowship.banned-word-names
+#[test]
+fn a_fellowship_name_with_a_banned_word_is_refused_and_a_longer_word_is_not() {
+    let (mut h, [(a, aid), _, _]) = three();
+    h.server.names = yalain_world::names::NameRules::from_text("kara\n");
+    for (name, refusal) in [
+        ("kara", Some(text::INAPPROPRIATE_NAME.0)),
+        ("The Kara Band", Some(text::INAPPROPRIATE_NAME.0)),
+        ("kara1", Some(text::BAD_NAME.0)),
+    ] {
+        let from = h.bots[a].inbox.len();
+        create(&mut h, a, name);
+        assert_eq!(
+            h.texts(a, from),
+            vec![(1, refusal.expect("refused"))],
+            "{name}"
+        );
+        assert!(
+            !h.functions(a, from).contains(&function::UPDATE_FELLOWSHIP),
+            "{name}: nothing made"
+        );
+    }
+    let from = h.bots[a].inbox.len();
+    create(&mut h, a, "karabunga");
+    assert!(h.functions(a, from).contains(&function::UPDATE_FELLOWSHIP));
+    assert!(h.server.fellowships.of(aid).is_some(), "made");
+}
+
 /// Recruiting a player beside the leader tells the leader it waits and asks the recruit; taking
 /// the place tells the recruit it joined (the whole fellowship sent, the channel entered) and
 /// every fellow already in it of the new fellow; a second fellowship's member is refused as in one

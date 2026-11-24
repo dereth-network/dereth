@@ -6889,6 +6889,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.banned-word-names",
+        says: "A fellowship's name holding a word among the server's banned words, matched whole, \
+               is refused as holding inappropriate text; a name with characters a name may not \
+               hold is refused as before, first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-BANNED-NAME"),
+        station: "yalain-testkit::cpu::play::fellowships::a_fellowship_name_with_a_banned_word_is_refused_and_a_longer_word_is_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.dismissed",
         says: "A fellow the leader dismisses is told it was dismissed, the leader that it dismissed \
                it, the others that it was dismissed; dismissing itself, or one not of the \
