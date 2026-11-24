@@ -1496,6 +1496,76 @@ fn a_worlds_own_starter_area_starts_and_instantiates_there_with_recalls_enabled(
     assert_eq!(recalls_disabled(&p), Some(true));
 }
 
+/// Divergence: V570
+#[test]
+fn a_new_dereth_character_starts_at_the_worlds_own_starting_area() {
+    use empyrean_content::models::world::PointsOfInterest;
+    let start = |name: &str, class: u32, cell: u32, x: f32| {
+        (
+            PointsOfInterest {
+                id: class,
+                name: name.into(),
+                weenie_class_id: class,
+                ..PointsOfInterest::default()
+            },
+            ContentWeenie::new(class, "start", WeenieType::Portal).with_position(
+                PositionType::Destination,
+                cell,
+                [x, 76.0, 126.5],
+                [0.6, 0.0, 0.0, 0.8],
+            ),
+        )
+    };
+    let with_starts = |starts: &[(&str, u32, u32, f32)]| {
+        let mut c = content();
+        for &(name, class, cell, x) in starts {
+            let (poi, weenie) = start(name, class, cell, x);
+            c = c.point_of_interest(poi).weenie(weenie);
+        }
+        c
+    };
+    let start_of = |content: MemContent| {
+        let mut w = world_with(dats_builder().build().expect("fake dats"));
+        w.content = Arc::new(content);
+        w.era = empyrean_common::era::EraId::NewDereth.rules();
+        let (result, p) = create(&mut w, &request("Aldric", 1, ABILITIES, standard_sacs()));
+        assert_eq!(result, CreateResult::Success);
+        let loc = p.player.get_position(PositionType::Location).unwrap();
+        for t in [PositionType::Instantiation, PositionType::Sanctuary] {
+            let other = p.player.get_position(t).unwrap();
+            assert_eq!(other.landblock_id(), loc.landblock_id(), "{t:?}");
+            assert_eq!((other.pos(), other.rotation()), (loc.pos(), loc.rotation()));
+        }
+        assert_eq!(recalls_disabled(&p), None, "recalls are enabled");
+        (loc.landblock_id().raw(), loc.position_x)
+    };
+
+    // The world's one starting area, whatever the table's area is called.
+    assert_eq!(
+        start_of(with_starts(&[(
+            "Start: Arwic",
+            2_300_001,
+            0x6498_002C,
+            122.0
+        )])),
+        (0x6498_002C, 122.0)
+    );
+    // Of several, the one named for the chosen area (the table's first is Holtburg), else the
+    // first by name; a point of interest that isn't a starting area is never one.
+    let several = [
+        ("Arwic", 2_300_009, 0x0101_0004, 1.0),
+        ("Start: Arwic", 2_300_001, 0x6498_002C, 122.0),
+        ("Start: Holtburg", 2_300_002, 0x5592_000C, 44.0),
+    ];
+    assert_eq!(start_of(with_starts(&several)), (0x5592_000C, 44.0));
+    assert_eq!(
+        start_of(with_starts(&[several[0], several[1]])),
+        (0x6498_002C, 122.0)
+    );
+    // A world with none starts at the table's own location.
+    assert_eq!(start_of(content()).0, 0xA9B4_0019);
+}
+
 // ---- an era's listed start positions ----------------------------------------------------------------
 
 fn recalls_disabled(p: &CreatedPlayer) -> Option<bool> {
@@ -2144,6 +2214,7 @@ mod real_content {
             assert!(cell_is_valid(&w, cell), "{}: {cell:08X}", area.name);
             match w.era.start_positions {
                 empyrean_common::era::StartPositions::AtCharGenLocation
+                | empyrean_common::era::StartPositions::FromWorld
                 | empyrean_common::era::StartPositions::FromCharGen => {
                     assert_eq!(cell, area.locations[0].cell.0, "{}", area.name);
                 }

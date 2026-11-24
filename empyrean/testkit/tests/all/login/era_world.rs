@@ -129,7 +129,7 @@ mod era_real {
                 o.get_property(empyrean_entity::enums::PropertyBool::RecallsDisabled)
             });
         match rules.start_positions {
-            StartPositions::AtCharGenLocation => {
+            StartPositions::AtCharGenLocation | StartPositions::FromWorld => {
                 let dats = l.ts.world.dats.portal_dat();
                 let first = &dats.char_gen().starter_areas[0].locations[0];
                 assert_eq!(at.cell(), first.cell.0, "the selected creation location");

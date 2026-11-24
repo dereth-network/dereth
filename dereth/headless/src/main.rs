@@ -82,11 +82,13 @@ Script: one command per line, `#` starts a comment.
                                   book-write <target> <page> <text>, book-delete <target> <page>,
                                   research <class>..., forget-spell <spell>, shortcut-add <target>,
                                   shortcut-remove <target>, abuse <name> <complaint>,
-                                  map-teleport <x> <y>; a <target> is an id, me, pack:<word> or near:<word>
+                                  map-teleport <x> <y>, buy <item> [<count>] (from the open
+                                  shop); a <target> is an id, me, pack:<word> or near:<word>
   delete <character>              the character screen's Delete (for --connect)
   formula <spell>                 a spell's components for this account, as request research takes them
   dump events | dump steps        the last frame's event log, or only its steps
   snapshot                        a summary of the game view
+  shop                            the open shop's stock: id, name, price and amount
   near [<n>]                      the n objects nearest the player (20 by default), nearest
                                   first: id, distance, kind (player, vendor, portal, lifestone,
                                   creature or object) and name

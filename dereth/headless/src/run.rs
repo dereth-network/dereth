@@ -477,6 +477,7 @@ impl<'a> Run<'a> {
                 Command::Dump(what) => self.dump(*what),
                 Command::Snapshot => self.snapshot(),
                 Command::Near(n) => self.near(*n),
+                Command::Shop => self.shop(),
                 Command::World(block) => self.world(*block),
                 Command::Position => self.position(),
                 Command::Settle(cap) => self.settle(*cap),
@@ -1031,6 +1032,10 @@ impl<'a> Run<'a> {
                 complaint: complaint.clone(),
             },
             R::MapTeleport { x, y } => UiRequest::MapTeleport { x: *x, y: *y },
+            R::Buy { item, count } => UiRequest::VendorBuySingle {
+                item: self.shop_item(item)?,
+                split: *count,
+            },
         };
         self.app.submit_requests(vec![ask]);
         self.frame()?;
@@ -1165,6 +1170,36 @@ impl<'a> Run<'a> {
         self.line(format!("near {} of {}", rows.len(), objects.len()))?;
         for row in rows {
             self.line(format!("near {row}"))?;
+        }
+        Ok(())
+    }
+
+    /// The open shop's item `item` names: its id, or its name (`_` for a space).
+    fn shop_item(&self, item: &str) -> Result<ObjectId, RunError> {
+        if let Some(id) = crate::script::parse_u32(item) {
+            return Ok(ObjectId(id));
+        }
+        let name = item.replace('_', " ");
+        dereth_client_sdk::runtime::vendor_view::shop(&self.app.objects().world)
+            .stock
+            .iter()
+            .find(|r| r.name.eq_ignore_ascii_case(&name))
+            .map(|r| r.item)
+            .ok_or_else(|| RunError::Net(format!("request: the open shop has no {name:?}")))
+    }
+
+    /// `shop`: the open shop's stock, a line an item, or that no shop is open.
+    fn shop(&mut self) -> Result<(), RunError> {
+        let view = dereth_client_sdk::runtime::vendor_view::shop(&self.app.objects().world);
+        if !view.open {
+            return self.line("shop none");
+        }
+        self.line(format!("shop {} items", view.stock.len()))?;
+        for row in &view.stock {
+            self.line(format!(
+                "shop 0x{:08X} {} price={} amount={}",
+                row.item.0, row.name, row.price, row.amount
+            ))?;
         }
         Ok(())
     }

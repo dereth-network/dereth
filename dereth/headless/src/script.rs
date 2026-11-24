@@ -82,14 +82,18 @@ pub enum Request {
     Abuse { name: String, complaint: String },
     /// `request map-teleport <x> <y>`: the privileged player's teleport.
     MapTeleport { x: u32, y: u32 },
+    /// `request buy <item> [<count>]`: the open shop's single-item buy, one by default; the
+    /// item is its id or its name in the shop (`Dagger`, `Short_Sword` with `_` for spaces).
+    Buy { item: String, count: i32 },
 }
 
 const REQUEST_FORMS: &str = "request takes select <target>, swear <target>, break <target>, \
                              train-skill <skill> <credits>, book-add <target>, \
                              book-write <target> <page> <text>, book-delete <target> <page>, \
                              research <class>..., forget-spell <spell>, shortcut-add <target>, \
-                             shortcut-remove <target>, abuse <name> <complaint>, or \
-                             map-teleport <x> <y>; a <target> is an id, me, pack:<word> or near:<word>";
+                             shortcut-remove <target>, abuse <name> <complaint>, \
+                             map-teleport <x> <y>, or buy <item> [<count>]; a <target> is an id, \
+                             me, pack:<word> or near:<word>";
 
 fn parse_request(args: &[&str]) -> Option<Request> {
     let target = Target::parse;
@@ -127,6 +131,14 @@ fn parse_request(args: &[&str]) -> Option<Request> {
         ["map-teleport", x, y] => Request::MapTeleport {
             x: parse_u32(x)?,
             y: parse_u32(y)?,
+        },
+        ["buy", item] => Request::Buy {
+            item: (*item).to_owned(),
+            count: 1,
+        },
+        ["buy", item, count] => Request::Buy {
+            item: (*item).to_owned(),
+            count: i32::try_from(parse_u32(count)?).ok()?,
         },
         _ => return None,
     })
@@ -174,6 +186,8 @@ pub enum Command {
     /// `near [<n>]` -- the `n` objects nearest the player (20 when not given), nearest first:
     /// each one's id, distance, kind and name.
     Near(usize),
+    /// `shop` -- the open shop's stock: each item's id, name, price and amount.
+    Shop,
     /// `world <landblock>` -- load a world offline, with a body, at the middle of the landblock
     /// (a 16-bit id, `0x` hex or decimal). Needs `--world`.
     World(u16),
@@ -391,7 +405,7 @@ fn uncomment(line: &str) -> &str {
 
 /// An unsigned integer, decimal or `0x`-prefixed hex -- the two spellings an object id is written
 /// in anywhere else in this tree.
-fn parse_u32(tok: &str) -> Option<u32> {
+pub(crate) fn parse_u32(tok: &str) -> Option<u32> {
     tok.strip_prefix("0x")
         .or_else(|| tok.strip_prefix("0X"))
         .map_or_else(
@@ -509,6 +523,8 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
         ("settle", _) => Err(err(n, "settle takes <cap seconds>")),
         ("position", _) => Err(err(n, "position takes no arguments")),
         ("snapshot", []) => Ok(Command::Snapshot),
+        ("shop", []) => Ok(Command::Shop),
+        ("shop", _) => Err(err(n, "shop takes no arguments")),
         ("near", []) => Ok(Command::Near(20)),
         ("near", [count]) => count
             .parse()
@@ -690,6 +706,22 @@ mod tests {
                 Command::Formula(27),
             ]
         );
+        assert_eq!(
+            parse("shop\nrequest buy Short_Sword\nrequest buy 0x800000AD 3\n").expect("parses"),
+            vec![
+                Command::Shop,
+                Command::Request(Request::Buy {
+                    item: "Short_Sword".into(),
+                    count: 1,
+                }),
+                Command::Request(Request::Buy {
+                    item: "0x800000AD".into(),
+                    count: 3,
+                }),
+            ]
+        );
+        assert!(parse("shop now").is_err());
+        assert!(parse("request buy").is_err());
         for wrong in [
             "request",
             "request swear",

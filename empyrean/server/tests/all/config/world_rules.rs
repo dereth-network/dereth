@@ -1,5 +1,6 @@
 //! Divergence: V563
 //! Divergence: V565
+//! Divergence: V569
 //! A world's own rules come from `world.toml` in its overlay folder; a world without an overlay,
 //! or without the file, has none of them.
 //! Fixture: a temporary overlay folder per test.
@@ -132,4 +133,22 @@ fn the_overlays_weenies_file_is_read_beside_its_placements_and_none_is_none() {
     assert_eq!(file, dir.join("overlay").join(WORLD_WEENIES_FILE));
     assert_eq!(text, table);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_land_that_places_its_own_things_keeps_only_the_placements_of_a_world_made_for_it() {
+    use empyrean_common::era::{EraExt, EraId};
+    let own = WorldRules {
+        own_placements: true,
+        ..WorldRules::default()
+    };
+    // A world database made for AC1's land is hidden on it...
+    assert!(own.hides_world_placements(EraId::Eor.rules()));
+    assert!(own.hides_world_placements(EraId::Launch.rules()));
+    // ...and New Dereth's, made for the converted land, is kept.
+    assert!(!own.hides_world_placements(EraId::NewDereth.rules()));
+    // A land that places nothing of its own hides nothing.
+    for era in EraId::ALL {
+        assert!(!WorldRules::default().hides_world_placements(era.rules()));
+    }
 }

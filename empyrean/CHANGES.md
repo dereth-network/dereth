@@ -13,7 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
-- New era: New Dereth, whose calendar starts at Leafcull 1, 498 P.Y. on launch day.
+- New era: New Dereth, on AC2's land from Leafcull 1, 498 P.Y.
 
 ## 0.3.18 (2026-11-23)
 - Launch: drudge casters move their arms when they cast, with ac1999's data patches.

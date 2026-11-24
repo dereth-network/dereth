@@ -81,7 +81,7 @@ fn name_of(t: &Table) -> Result<String, String> {
 }
 
 /// A number as an item writes it: decimal, or hexadecimal (`0x...`).
-fn word_num(w: &str) -> Option<u32> {
+pub(crate) fn word_num(w: &str) -> Option<u32> {
     match w.strip_prefix("0x").or_else(|| w.strip_prefix("0X")) {
         Some(h) => u32::from_str_radix(h, 16).ok(),
         None => w.parse().ok(),

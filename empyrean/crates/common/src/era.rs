@@ -122,7 +122,17 @@ pub enum StartPositions {
     /// any other area starts in the first town. Recalls are enabled, and the instantiation point
     /// is the start position.
     Towns(&'static [TownStart]),
+    /// The world's own starting areas, from its data: the points of interest named
+    /// [`WORLD_START_PREFIX`] and an area's name. The starter area the client chose starts at the
+    /// one of its name, any other at the first by name; a world with none starts at the
+    /// character-generation location. The start is a point's destination; recalls are enabled,
+    /// and the instantiation point is the start position.
+    FromWorld,
 }
+
+/// The name a point of interest starts with when it is one of the world's starting areas
+/// ([`StartPositions::FromWorld`]): `Start: Arwic`.
+pub const WORLD_START_PREFIX: &str = "Start: ";
 
 /// The rules one era changes. Each field is a rule with its end-of-retail value in [`EOR`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,6 +158,9 @@ pub struct EraRules {
     /// The systems, actions and rules the world has, each a gate at ACE's sites: the era's table
     /// ([`EraId::features`]) with the world's `[era]` settings over it ([`with_features`]).
     pub features: EraFeatures,
+    /// The era's world database is made for a land that places its own things (V565): on such a
+    /// land its placements are kept rather than hidden. Without it they are hidden.
+    pub placements_on_own_land: bool,
     /// Server properties whose default the era changes (ClassicACE's per-ruleset defaults); a
     /// value the operator has set still wins.
     pub property_defaults: &'static [(&'static str, bool)],
@@ -455,6 +468,7 @@ pub static EOR: EraRules = EraRules {
     creation_skills: None,
     heritages: None,
     features: EraFeatures::END_OF_RETAIL,
+    placements_on_own_land: false,
     property_defaults: &[],
     long_property_defaults: &[],
     string_property_defaults: &[],
@@ -540,6 +554,7 @@ pub static INFILTRATION: EraRules = EraRules {
     creation_skills: Some(&INFILTRATION_SKILLS),
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::INFILTRATION,
+    placements_on_own_land: false,
     property_defaults: &INFILTRATION_PROPERTY_DEFAULTS,
     long_property_defaults: &[],
     string_property_defaults: &[],
@@ -564,6 +579,7 @@ pub static LAUNCH: EraRules = EraRules {
     creation_skills: Some(&LAUNCH_SKILLS),
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::LAUNCH,
+    placements_on_own_land: false,
     // DIVERGE: V506 an item's only requirements in 1999 are the gates on its magic.
     property_defaults: &[("use_wield_requirements", false)],
     // DIVERGE: V496 five characters an account until later years gave more.
@@ -582,16 +598,24 @@ pub static LAUNCH: EraRules = EraRules {
 pub static NEW_DERETH: EraRules = EraRules {
     training_skills: None,
     id: EraId::NewDereth,
-    start_positions: StartPositions::FromCharGen,
+    // DIVERGE: V570 new characters start where the world's own data puts them.
+    start_positions: StartPositions::FromWorld,
     account_has_tod: true,
     max_level: None,
-    loot: LootTables::AsTables,
+    // DIVERGE: V572 the world holds only the classes it copies, so loot rolls what it has.
+    loot: LootTables::PackOnly,
     creation_skills: None,
-    heritages: None,
-    features: EraFeatures::END_OF_RETAIL,
+    // DIVERGE: V573 New Dereth's peoples: Aluvian, Gharu'ndim, Sho, Viamontian and Empyrean.
+    heritages: Some(&NEW_DERETH_HERITAGES),
+    // DIVERGE: V571 the old weapon skills, not their consolidation.
+    features: EraFeatures::NEW_DERETH,
+    // DIVERGE: V569 the world is made for its land: a land that places its own things keeps the
+    // world's placements.
+    placements_on_own_land: true,
     property_defaults: &[],
     long_property_defaults: &[],
-    string_property_defaults: &[],
+    // DIVERGE: V570 no Training Academy, so no greeter to send a new character to.
+    string_property_defaults: &[("popup_welcome", "")],
     formulas: EraFormulas::END_OF_RETAIL,
     starter_gear: StarterGearSet::EndOfRetail,
     welcome_letter: None,
@@ -601,6 +625,10 @@ pub static NEW_DERETH: EraRules = EraRules {
         at_launch: NEW_DERETH_FIRST_DAY,
     },
 };
+
+/// The heritages a New Dereth character may be: Aluvian, Gharu'ndim, Sho, Viamontian and
+/// Empyrean.
+pub static NEW_DERETH_HERITAGES: [u32; 5] = [1, 2, 3, 4, 9];
 
 /// New Dereth's first day: Leafcull 1, 498 P.Y., from its first moment.
 pub const NEW_DERETH_FIRST_DAY: f64 = calendar::day_begins(498, calendar::LEAFCULL);
@@ -856,9 +884,10 @@ mod tests {
         }
     }
 
-    /// Divergence: V568
+    /// Divergence: V568, V569, V570, V571, V572, V573
     /// New Dereth plays the end of retail's rules, with a pack code and a calendar of its own,
-    /// whose world names its launch.
+    /// whose world names its launch; its starts, loot, weapon skills, heritages and placements
+    /// are its own.
     #[test]
     fn new_dereth_starts_from_the_end_of_retails_rules_with_its_own_calendar() {
         assert_eq!(EraId::parse("NewDereth"), Some(EraId::NewDereth));
@@ -869,10 +898,23 @@ mod tests {
             EraRules {
                 id: EraId::Eor,
                 calendar: Calendar::SinceRetailClosed,
+                start_positions: StartPositions::FromCharGen,
+                loot: LootTables::AsTables,
+                features: EraFeatures::END_OF_RETAIL,
+                placements_on_own_land: false,
+                heritages: None,
+                string_property_defaults: &[],
                 ..*rules
             },
             EOR
         );
+        assert_eq!(rules.heritages, Some(&[1, 2, 3, 4, 9][..]));
+        assert_eq!(rules.string_property_defaults, &[("popup_welcome", "")]);
+        assert_eq!(rules.start_positions, StartPositions::FromWorld);
+        assert_eq!(rules.loot, LootTables::PackOnly);
+        assert!(rules.placements_on_own_land);
+        assert!(!rules.features.consolidated_weapon_skills);
+        assert_eq!(rules.features, EraId::NewDereth.features());
         assert_eq!(
             rules.calendar,
             Calendar::FromLaunch {

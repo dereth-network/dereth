@@ -50,7 +50,8 @@ impl EraId {
         match self {
             Self::Launch => EraFeatures::LAUNCH,
             Self::Infiltration => EraFeatures::INFILTRATION,
-            Self::Eor | Self::NewDereth => EraFeatures::END_OF_RETAIL,
+            Self::Eor => EraFeatures::END_OF_RETAIL,
+            Self::NewDereth => EraFeatures::NEW_DERETH,
         }
     }
 
@@ -389,6 +390,13 @@ impl EraFeatures {
         spell_charge: false,
         spell_economy: false,
         ..Self::ALL
+    };
+
+    /// New Dereth: the end of retail's systems, with the old weapon skills (Axe, Sword, Bow, ...)
+    /// rather than their 2012 consolidation.
+    pub const NEW_DERETH: Self = Self {
+        consolidated_weapon_skills: false,
+        ..Self::END_OF_RETAIL
     };
 
     /// February 2005: none of the systems from ratings to the journal, nor spell research; trade,

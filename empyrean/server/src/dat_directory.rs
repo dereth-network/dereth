@@ -95,6 +95,17 @@ pub struct WorldRules {
     pub own_placements: bool,
 }
 
+impl WorldRules {
+    /// Whether the world database's placements are hidden: on a world that places its own things
+    /// (V565), unless the era's world database is made for such a land (V569,
+    /// [`empyrean_common::era::EraRules::placements_on_own_land`]), whose placements are then the
+    /// world's own.
+    #[must_use]
+    pub fn hides_world_placements(&self, era: &empyrean_common::era::EraRules) -> bool {
+        self.own_placements && !era.placements_on_own_land
+    }
+}
+
 /// The rules of the world `config` serves from under `base` ([`WorldRules`]).
 ///
 /// # Errors

@@ -2,7 +2,7 @@
 //! the two compared.
 //!
 //! ```text
-//! empyrean-world-db rows <world.pack> <empty folder> [--source <project> --revision <commit>]
+//! empyrean-world-db rows <world.pack> <empty folder> [--source <project> --revision <commit>] [--only <list>] [--era <era>]
 //! empyrean-world-db pack <world.toml | folder of rows> <out.pack>
 //! empyrean-world-db check <world.toml | folder of rows> <world.pack>
 //! empyrean-world-db compare <a.pack> <b.pack>
@@ -14,7 +14,9 @@
 //! `EMPYREAN_WORLD_DUMPS` names, else the per-user cache `empyrean-import fetch` fills.
 //!
 //! `rows` writes every record of a pack as rows, the same bytes for the same pack; `--source` and
-//! `--revision` say where they came from. `pack` folds a world's layers (or reads one folder of
+//! `--revision` say where they came from. `--only` writes just the items a list names and
+//! everything they reach, a library of the pack's rows ([`empyrean_world_db::library`]); `--era`
+//! names the era the rows are for in place of the pack's. `pack` folds a world's layers (or reads one folder of
 //! rows) and builds its pack, numbered by rule. `check` builds that pack and lists every record of
 //! the given pack it doesn't hold field for field, ids aside; it fails on any.
 //! `compare` lists the same of two packs. `checkpoints` reports each checkpoint layer. `parity`
@@ -25,11 +27,12 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use empyrean_common::era::EraId;
 use empyrean_content::pack::Pack;
 use empyrean_content::WorldContent;
 use empyrean_world_db::compare::{dataset_of, differences};
 use empyrean_world_db::files::{default_stamp, set_source};
-use empyrean_world_db::{from_pack, number, read_dir, world, write, write_dir};
+use empyrean_world_db::{from_pack, library, number, read_dir, world, write, write_dir};
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -121,7 +124,7 @@ fn parity(at: &Path, layer: &str, rest: &[String], dumps: Option<&Path>) -> Resu
 }
 
 fn run(args: &[String]) -> Result<bool, String> {
-    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] | pack <world> <out.pack> | check <world> <world.pack> | compare <a.pack> <b.pack> | checkpoints <world.toml> [--keys] | parity <world.toml> <layer> [--pack <the layer's pack>] [--against <pack>]; any of them with --dumps <folder>";
+    let usage = "usage: empyrean-world-db rows <world.pack> <folder> [--source <project> --revision <commit>] [--only <list>] [--era <era>] | pack <world> <out.pack> | check <world> <world.pack> | compare <a.pack> <b.pack> | checkpoints <world.toml> [--keys] | parity <world.toml> <layer> [--pack <the layer's pack>] [--against <pack>]; any of them with --dumps <folder>";
     let mut args = args.to_vec();
     let dumps = match args.iter().position(|a| a == "--dumps") {
         Some(i) if i + 1 < args.len() => {
@@ -137,13 +140,45 @@ fn run(args: &[String]) -> Result<bool, String> {
         [cmd, pack, out, rest @ ..] if cmd == "rows" => {
             let p = Pack::open(Path::new(pack)).map_err(|e| e.to_string())?;
             let mut c = from_pack(&p).map_err(|e| e.to_string())?;
+            let (mut source, mut revision, mut only) = (None, None, None);
+            let mut flags = rest.iter();
+            while let Some(flag) = flags.next() {
+                let value = flags.next().ok_or_else(|| usage.to_owned())?;
+                match flag.as_str() {
+                    "--source" => source = Some(value),
+                    "--revision" => revision = Some(value),
+                    "--only" => only = Some(value),
+                    "--era" => {
+                        c.era = EraId::parse(value)
+                            .ok_or_else(|| format!("{value:?} is not an era"))?;
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            if let Some(list) = only {
+                let text = std::fs::read_to_string(list).map_err(|e| format!("{list}: {e}"))?;
+                let wanted = library::parse(&text).map_err(|e| format!("{list}: {e}"))?;
+                let (picked, taken) = library::select(&c, &wanted);
+                println!(
+                    "{list}: {} weenies ({} named), {} spells, {} death treasure types, {} wielded treasure types, {} quests, {} placements",
+                    taken.weenies,
+                    taken.named,
+                    taken.spells,
+                    taken.death_treasure,
+                    taken.wielded_treasure,
+                    taken.quests,
+                    taken.placements
+                );
+                for m in &taken.missing {
+                    println!("not in the pack: {m}");
+                }
+                c = picked;
+            }
             number(&mut c);
             let mut files = write(&c, default_stamp())?;
-            match rest {
-                [] => {}
-                [s, source, r, revision] if s == "--source" && r == "--revision" => {
-                    set_source(&mut files, source, revision)?;
-                }
+            match (source, revision) {
+                (None, None) => {}
+                (Some(s), Some(r)) => set_source(&mut files, s, r)?,
                 _ => return Err(usage.into()),
             }
             write_dir(Path::new(out), &files)?;

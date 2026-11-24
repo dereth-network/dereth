@@ -284,10 +284,13 @@ pub fn main(options: &Options) -> ExitCode {
         &world_pack_path,
         world_pack::configured_overlay(&config, &paths),
     );
-    // Not ACE (V565): a world that places its own things serves none of the world database's.
-    if rules.own_placements {
+    // Not ACE (V565): a world that places its own things serves none of the world database's,
+    // unless its era's world database is made for such a land (V569).
+    if rules.hides_world_placements(config.era.rules()) {
         content.hide_placements();
         log::info!("The world places its own things: none of the world database's placements");
+    } else if rules.own_placements {
+        log::info!("The world's land places its own things, and its world database is made for it: the world database's placements are kept");
     }
     // Not ACE (V565): the weenies of the things the world places itself, from its overlay folder.
     match dat_directory::world_weenies(&config, &paths).and_then(|f| {

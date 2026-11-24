@@ -46,6 +46,7 @@ pub mod compare;
 pub mod files;
 pub mod kinds;
 pub mod layers;
+pub mod library;
 pub mod loot;
 pub mod names;
 pub mod parity;

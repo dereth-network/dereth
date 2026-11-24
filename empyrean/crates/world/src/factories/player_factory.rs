@@ -25,7 +25,7 @@ use std::sync::Arc;
 use dereth_primitives::ContainerEra;
 
 use empyrean_common::dotnet::CsCast;
-use empyrean_common::era::{StartPositions, TownStart};
+use empyrean_common::era::{StartPositions, TownStart, WORLD_START_PREFIX};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_dat::file_types::palette_set::PaletteSetExt;
 use empyrean_dat::file_types::sex_cg::SexCgExt;
@@ -834,6 +834,12 @@ pub fn create(
             let location = town_start(towns, &starter_area.name);
             (location, location, false)
         }
+        // DIVERGE (V570): the world's own starting areas, from its points of interest.
+        StartPositions::FromWorld => {
+            let location = world_start(w, &starter_area.name)
+                .unwrap_or_else(|| char_gen_location(starter_area));
+            (location, location, false)
+        }
     };
     p.player
         .set_position(PositionType::Location, Some(location));
@@ -889,6 +895,30 @@ pub fn create(
 /// The starter areas ACE's start knows by name: the four towns' Training Academies and the
 /// Olthoi lair, retail's table's five.
 const ACE_START_AREAS: [&str; 5] = ["Holtburg", "Shoushi", "Yaraq", "Sanamar", "OlthoiLair"];
+
+/// Not ACE (V570): the world's starting area for the starter area named `starter_area_name`: the
+/// point of interest named [`WORLD_START_PREFIX`] and that name, else the world's first such point
+/// by name; its weenie's destination. `None` when the world has no starting area with one.
+fn world_start(w: &World, starter_area_name: &str) -> Option<Position> {
+    w.content.cache_all_points_of_interest();
+    let prefix = WORLD_START_PREFIX.to_lowercase();
+    let starts: Vec<_> = w
+        .content
+        .get_points_of_interest_cache()
+        .into_iter()
+        .filter_map(|(name, poi)| Some((name, poi?)))
+        .filter(|(name, _)| name.starts_with(&prefix))
+        .collect();
+    let wanted = format!("{prefix}{}", starter_area_name.to_lowercase());
+    let chosen = starts
+        .iter()
+        .find(|(name, _)| *name == wanted)
+        .or_else(|| starts.first())?;
+    let weenie = w.content.get_cached_weenie(chosen.1.weenie_class_id)?;
+    weenie
+        .get_position(PositionType::Destination)
+        .map(|p| Position::from_position(&p))
+}
 
 /// The first location of the selected character-generation area.
 fn char_gen_location(starter_area: &dereth_assets::tables::StarterArea) -> Position {
