@@ -594,7 +594,8 @@ fn an_open_chest_closes_when_its_opener_walks_away() {
                 stamp,
             ),
         );
-        run_for(h, 2.0);
+        // The world looks once a second, then the chest plays its closing.
+        run_for(h, 3.5);
     };
     let fa = h.bots[a].inbox.len();
     step(&mut h, 4.0);

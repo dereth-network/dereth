@@ -1964,8 +1964,8 @@ pub fn closed<S: Store>(
     }
 }
 
-/// A player has moved: the corpse it has open closes once it is farther than an open chest's
-/// opener may go from it.
+/// A player's place is looked at (once a second, [`crate::usable::chests::walked_away`]): the
+/// corpse it has open closes once it is farther than an open chest's opener may go from it.
 pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(corpse) = open_corpse_of(s, world) else {
         return;

@@ -35,7 +35,8 @@
 //! it now (the quest under way, or done and its wait not over), and again at the chest. What its kind names for its use comes on its opener as it begins
 //! to open, so a kind that completes its own quest opens once for each giving.
 //!
-//! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
+//! **Closing.** Asked to close, or its opener gone more than six meters from it (as the world looks,
+//! once a second for every opener at once), the chest plays its
 //! closing for everyone; when that has played the closer is told and everyone sees it shut.
 //!
 //! **Gone once closed.** A chest of a kind that goes once closed (the script library's chest that
@@ -95,6 +96,12 @@ pub const WRONG_QUEST_FLAGS: u32 = 828;
 /// closed chests and corpses on a tick a second apart; at this distance their closes were told
 /// from their earlier ticks 94 times in 100).
 pub const WALK_AWAY: f32 = 6.0;
+
+/// How often the world looks whether the players with a corpse or chest open have gone farther
+/// than [`WALK_AWAY`] from it, in seconds (2017: of 1,107 corpses closed as their openers walked
+/// off, 1,035 had a report beyond 6 m first, and closed a median 0.83 s after it, the middle half
+/// 0.56 to 1.12 s).
+pub const WALK_AWAY_EVERY: f64 = 1.0;
 
 /// The call that clears an item from a container the client knows.
 pub const DESTROY_CONTAINED: u32 = 0x820E_005C;
@@ -992,7 +999,23 @@ pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     }
 }
 
-/// A player has moved: a chest it has open closes once it is farther than [`WALK_AWAY`] from it.
+/// Once a second, for every player at once: a corpse or chest a player has open closes once the
+/// player is farther than [`WALK_AWAY`] from it. One look serves the world, not one per player.
+pub fn walked_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    let now = clock.local.0;
+    if now < s.walk_away_due {
+        return;
+    }
+    s.walk_away_due = now + WALK_AWAY_EVERY;
+    let worlds: Vec<ConnId> = s.players.keys().copied().collect();
+    for world in worlds {
+        moved(s, net, world, clock);
+        crate::inventory::moved(s, net, world, clock);
+    }
+}
+
+/// A player's place is looked at: a chest it has open closes once it is farther than
+/// [`WALK_AWAY`] from it.
 pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(here) = position(s, world) else {
         return;

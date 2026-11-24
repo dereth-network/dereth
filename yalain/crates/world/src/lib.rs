@@ -483,6 +483,9 @@ pub struct Server<S: Store> {
     pub vitae_costs: Vec<u64>,
     /// When the world last took a step (its creatures, camps and corpses).
     pub last_step: Option<LocalTime>,
+    /// When the world next looks whether the players with a corpse or chest open have walked off
+    /// from it (host clock).
+    pub walk_away_due: f64,
     /// How long the world works from one step to the next, on the host's clock.
     pub step_timer: step_timer::StepTimer,
     /// The game clock as the world last read it (set as the world ticks and as players enter).
@@ -1014,6 +1017,7 @@ impl<S: Store> Server<S> {
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,
+            walk_away_due: 0.0,
             step_timer: step_timer::StepTimer::default(),
             game_now: 0.0,
             item_effects: HashMap::new(),
@@ -1402,6 +1406,7 @@ impl<S: Store> Server<S> {
         self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
+            usable::chests::walked_away(self, net, clock);
             events::step(self, net, clock);
             offerings::step(self, net, clock);
             spawn::step(self, net, clock);

@@ -2870,7 +2870,7 @@ fn an_open_corpse_closes_when_its_opener_walks_away() {
         let report =
             yalain_testkit::play::report(at.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp);
         h.bots[b].send(true, queue::WEENIE, &report);
-        h.run(20);
+        h.run(40);
     };
     let from = h.bots[b].inbox.len();
     step(&mut h, 4.0);
@@ -2892,6 +2892,43 @@ fn an_open_corpse_closes_when_its_opener_walks_away() {
     assert_eq!(
         yalain_world::inventory::open_corpse_of(&h.server, world),
         None
+    );
+}
+
+/// The world looks whether openers have walked off once a second, for everyone at once: an open
+/// corpse whose opener has gone more than six meters from it closes at the next look, not as the
+/// player's report of its place comes in.
+/// Behaviour: server.loot.walk-away-looked-at-once-a-second
+#[test]
+fn an_open_corpse_walked_off_from_closes_at_the_worlds_next_look() {
+    use yalain_world::usable::chests::WALK_AWAY_EVERY;
+    let (mut h, b, me, _) = fight();
+    let corpse = open_corpse(&mut h, b, me);
+    let world = *h.server.players.keys().next().expect("in");
+    let at = h
+        .server
+        .things
+        .get(corpse)
+        .and_then(|t| t.at)
+        .expect("the corpse stands in the world");
+    let stamp = h.server.players[&world].teleport_stamp;
+    // The world's next look is set 0.6 s off, so the report comes between two looks.
+    h.server.walk_away_due = h.now.0 + 0.6;
+    let to = auberean_primitives::Vec3::new(at.origin[0] + 8.0, at.origin[1], at.origin[2]);
+    let report =
+        yalain_testkit::play::report(at.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp);
+    let sent = h.now.0;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &report);
+    let seen = arrivals(&mut h, b, from, 40);
+    let closed = seen
+        .iter()
+        .find(|(_, m)| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == CLOSE_DONE))
+        .map(|(t, _)| *t - sent)
+        .expect("it closes");
+    assert!(
+        (0.5..=0.6 + WALK_AWAY_EVERY).contains(&closed),
+        "closed {closed:.2} s after the report"
     );
 }
 

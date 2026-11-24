@@ -10715,6 +10715,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.walk-away-looked-at-once-a-second",
+        says: "The world looks whether the players with a corpse or chest open have gone more \
+               than six meters from it once a second, for everyone at once; one that has closes \
+               at that look, not as its report comes in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-AWAY-TICK"),
+        station: "yalain-testkit::cpu::play::fights::an_open_corpse_walked_off_from_closes_at_the_worlds_next_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.lying-client.a-call-too-big-is-dropped",
         says: "A client's call over 64 KB is dropped: the largest of the 299,860 calls \
                recorded in 2017 was 7,676 bytes.",
