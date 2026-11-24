@@ -460,6 +460,56 @@ fn everything_in_an_open_chest_is_taken_at_once() {
     assert!(held.iter().all(|i| pack.contains(i)), "all in the pack");
 }
 
+/// Each item taken all at once into a place of its own in the pack is told in this order: its
+/// container cleared, it contained, its container the player, the move answered.
+/// Behaviour: server.places.take-all-item-order
+#[test]
+fn an_item_taken_all_at_once_is_cleared_then_contained_then_held() {
+    let mut h = hall(SMALL, false, false);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    send_use(&mut h, a, me, CHEST, 0, 1.6);
+    let held = h.server.chests.by_id[&CHEST].contents.clone();
+    assert!(!held.is_empty());
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::pack::function::TAKE_ALL,
+            &[take_all_request(CHEST, me)],
+        ),
+    );
+    run_for(&mut h, 3.0);
+    let order: Vec<&str> = h
+        .sent_messages(a, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInstanceIdVisual(q) if held.contains(&q.object.id) => {
+                Some(if q.value == 0 {
+                    "cleared"
+                } else if q.value == me {
+                    "held"
+                } else {
+                    "other"
+                })
+            }
+            ServerMessage::Contain(c) if held.contains(&c.0.id) => Some("contained"),
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::inventory::function::MOVE_DONE =>
+            {
+                Some("answered")
+            }
+            _ => None,
+        })
+        .collect();
+    let one = ["cleared", "contained", "held", "answered"];
+    assert_eq!(order.len(), one.len() * held.len(), "{order:?}");
+    for (n, item) in order.chunks(one.len()).enumerate() {
+        assert_eq!(item, one, "item {n}");
+    }
+}
+
 /// A chest a quest keeps refuses at once a player whose quest is not at the phase it names: "wrong
 /// quest", its flags, nothing opened; a player at that phase opens it.
 /// Behaviour: server.places.chest-kept-by-a-quest

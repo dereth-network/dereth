@@ -118,13 +118,24 @@ fn contained_again<S: Store>(
     player: u64,
 ) {
     for value in [0, player] {
-        let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
-            object: inv::visual(s, item),
-            quality: q::CONTAINER,
-            value,
-        });
-        inv::to_holder(s, net, world, item, &m);
+        container_shown(s, net, world, item, value);
     }
+}
+
+/// An item's container as its holder (and whoever else knows it) sees it.
+fn container_shown<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    value: u64,
+) {
+    let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+        object: inv::visual(s, item),
+        quality: q::CONTAINER,
+        value,
+    });
+    inv::to_holder(s, net, world, item, &m);
 }
 
 fn quantity_shown<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
@@ -917,6 +928,9 @@ pub fn took_all<S: Store>(
             let Ok(slot) = holding::move_item(s, item, from, to) else {
                 continue;
             };
+            // Its container cleared, then it is contained, then the player holds it, then the
+            // move is answered (2017: 259 of 260 items taken so into a place of their own).
+            container_shown(s, net, world, item, 0);
             let contained = inv::contain_stamp(s, item);
             net.send(
                 world,
@@ -930,7 +944,7 @@ pub fn took_all<S: Store>(
                 merge_slot: item_slot(slot),
                 ..m
             };
-            contained_again(s, net, world, item, player);
+            container_shown(s, net, world, item, player);
             progress::private(net, world, &move_done(&m));
         }
         taken.push(item);

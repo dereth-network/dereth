@@ -15431,6 +15431,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.take-all-item-order",
+        says: "Each item a take-all brings into a place of its own in the pack is told in this \
+               order: its container cleared, it contained, its container the player, the move \
+               answered.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-ALL-ITEM-ORDER"),
+        station: "yalain-testkit::cpu::play::chests::an_item_taken_all_at_once_is_cleared_then_contained_then_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.teaching-stone-of-its-own-shown",
         says: "Any teaching stone, the training hall's or one of a class deriving from it, shows its page \
                when used: the client is told to examine it, then the use is answered.",
