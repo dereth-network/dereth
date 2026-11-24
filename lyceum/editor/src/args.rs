@@ -4,6 +4,7 @@
 //! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--ac2 <dir>] [--pack <name>]
 //!               [--landblock <XXYY>]
 //!               [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
+//!               [--repo <world.toml>]
 //!               [--radius <n>]
 //!               [--empyrean <dir>] [--live-dir <dir>] [--live]
 //!               [--renderer vulkan|d3d12|wgpu]
@@ -27,6 +28,7 @@
 //!   otherwise written by that tool when it stands beside the editor, else the forms show numbers.
 //! - `--thumbnails`: the folder the model browser's pictures are kept in; the user's cache folder
 //!   otherwise.
+//! - `--repo`: a world repository (Empyrean's world of layers) the Rows tab opens on, read only.
 //! - `--radius`: how many landblocks either side are drawn (2 by default).
 //! - `--empyrean`: the folder of the server's programs (`empyrean-server`, `empyrean-import`), for
 //!   the editor's own world and the forms' names; beside the editor otherwise.
@@ -60,6 +62,8 @@ pub struct Args {
     pub weenies: Option<PathBuf>,
     /// The server's names for the weenie forms (`empyrean-import schema`'s file).
     pub schema: Option<PathBuf>,
+    /// A world repository the Rows tab opens on.
+    pub repo: Option<PathBuf>,
     /// Whether to read the server database in the user's cache when `weenies` names none.
     pub server_database: bool,
     pub thumbnails: Option<PathBuf>,
@@ -148,6 +152,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         landblock: None,
         weenies: None,
         schema: None,
+        repo: None,
         server_database: true,
         thumbnails: None,
         radius: 2,
@@ -187,6 +192,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             "--weenies" => a.weenies = Some(PathBuf::from(value(arg)?)),
             "--no-weenies" => a.server_database = false,
             "--schema" => a.schema = Some(PathBuf::from(value(arg)?)),
+            "--repo" => a.repo = Some(PathBuf::from(value(arg)?)),
             "--thumbnails" => a.thumbnails = Some(PathBuf::from(value(arg)?)),
             "--radius" => {
                 let v = value(arg)?;

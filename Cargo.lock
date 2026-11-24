@@ -2999,6 +2999,7 @@ version = "0.3.18"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
+ "dereth-pack",
  "dereth-primitives",
  "empyrean-common",
  "empyrean-content",

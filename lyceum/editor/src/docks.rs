@@ -51,10 +51,13 @@ pub enum Tab {
     Quests,
     /// Every loot table of the world, where each is used, and its changes.
     Loot,
+    /// A world repository's rows, folded at a layer: optional, floating at first, closed with its
+    /// ×.
+    Rows,
 }
 
 /// The tabs a layout may hold or not.
-pub const OPTIONAL: [Tab; 2] = [Tab::Editor, Tab::Characters];
+pub const OPTIONAL: [Tab; 3] = [Tab::Editor, Tab::Characters, Tab::Rows];
 
 /// The layout's version: a kept layout of another is not taken, but for the one before, whose
 /// lists are moved beside the world view.

@@ -994,3 +994,25 @@ heritages = ["aluvian", "Gharu'ndim"]
     .expect_err("no such system");
     assert!(e.contains("cow_tipping"), "{e}");
 }
+
+/// A pack that also holds the world builder's own folders at its root (its records, its edits of
+/// the land, its pictures) reads as its rows alone; a folder of that name below the root is rows.
+#[test]
+fn a_packs_world_builder_folders_hold_no_rows_and_are_passed_over() {
+    let dir = std::env::temp_dir().join(format!("world-db-builder-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let file = |rel: &str, text: &str| {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    file("weenie/00509.toml", "[[weenie]]\nclass = 509\n");
+    file("records/rules.toml", "[[skill]]\nskill = \"Axe\"\n");
+    file("edits/landblocks/A9B4.toml", "[[place]]\nname = \"post\"\n");
+    file("art/README.toml", "x = 1\n");
+    file("quest/records/odd.toml", "[[quest]]\nname = \"odd\"\n");
+    let files = crate::files::read_dir(&dir).expect("reads");
+    let paths: Vec<&str> = files.keys().map(String::as_str).collect();
+    assert_eq!(paths, ["quest/records/odd.toml", "weenie/00509.toml"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

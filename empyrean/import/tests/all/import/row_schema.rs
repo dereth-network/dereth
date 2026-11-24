@@ -2,7 +2,8 @@
 //! The rows' vocabulary `empyrean-import schema` gives an editor is the one world-db writes: every
 //! file of a world's rows is where its kind's file rule puts it, and every field, map key, map
 //! value and list entry of every row is described, of the type it is written as; a name is one the
-//! schema's own tables give.
+//! schema's own tables give; and each row's item, made from its kind's pattern, is the one the
+//! world's rows name, and the same item written another way reads back to it as theirs does.
 //! Fixture: the synthetic dump's world written as rows, with a recipe's vital requirement and a
 //! rules row added.
 
@@ -172,6 +173,32 @@ fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
             if !(path == file || (folder.ends_with('/') && path.starts_with(folder))) {
                 why.push(format!("{path}: {kind} lives in {file}"));
             }
+            // Each row's item, from the schema's pattern, is the one the world's own rows name.
+            for r in rows.as_array().expect("a list of rows") {
+                let r = r.as_table().expect("a row");
+                let want = dereth_pack::records::RowKinds::item(
+                    &empyrean_world_db::layers::Ac1Rows,
+                    kind,
+                    r,
+                )
+                .expect("an item")
+                .name;
+                match dereth_pack::records::item_from(k["item"].as_str().unwrap(), r) {
+                    Ok(got) if got == want => {}
+                    got => why.push(format!("{path} {kind}: item {got:?}, not {want:?}")),
+                }
+                // Written another way, it reads back to the same item as the world's rows read it.
+                for other in [want.to_lowercase(), want.replace(' ', "  ")] {
+                    let ours =
+                        dereth_pack::records::item_in_form(k["item"].as_str().unwrap(), &other);
+                    let theirs = empyrean_world_db::layers::item_form(&other);
+                    if ours != theirs {
+                        why.push(format!(
+                            "{path} {kind}: {other:?} reads {ours:?}, not {theirs:?}"
+                        ));
+                    }
+                }
+            }
             if k.get("open").is_some() {
                 continue;
             }
@@ -183,6 +210,24 @@ fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
                     &format!("{path} {kind}[{i}]"),
                     &mut why,
                 );
+            }
+        }
+    }
+    // What folds key by key is what the schema calls a map or a table, and nothing else.
+    for (kind, k) in kinds {
+        for part in ["fields", "maps", "tables", "lists"] {
+            let names = k.get(part).and_then(J::as_object).into_iter().flatten();
+            for (name, _) in names {
+                let folds = dereth_pack::records::RowKinds::is_map(
+                    &empyrean_world_db::layers::Ac1Rows,
+                    kind,
+                    name,
+                );
+                if folds != matches!(part, "maps" | "tables") {
+                    why.push(format!(
+                        "{kind}.{name}: a {part} entry, folding key by key {folds}"
+                    ));
+                }
             }
         }
     }

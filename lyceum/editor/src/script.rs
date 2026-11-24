@@ -21,7 +21,8 @@
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
 //! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`,
-//! `characters`, `quests` or `loot`);
+//! `characters`, `quests`, `loot` or `rows`); `rows_item` (the Rows tab's item found by its name
+//! and chosen);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
 //! world's dungeon whose look it takes, `0163`); `add_ac2_kits` (true: AC2's dungeon kits asked
@@ -115,6 +116,8 @@ pub struct Step {
     pub shelf: Option<String>,
     /// A tab brought forward: `weenie`.
     pub show: Option<String>,
+    /// The Rows tab's item, found by its name and chosen.
+    pub rows_item: Option<String>,
     pub weenie: Option<WeenieChoice>,
     /// A new dungeon near the camera gone into (`new`), or left (`leave`); and its look, by the
     /// landblock of the world's dungeon whose look it takes.
@@ -265,6 +268,10 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
         .map(str::to_owned);
     s.show = t
         .get("show")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
+    s.rows_item = t
+        .get("rows_item")
         .and_then(toml::Value::as_str)
         .map(str::to_owned);
     s.weenie = match t.get("weenie") {

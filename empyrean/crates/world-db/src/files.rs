@@ -535,7 +535,12 @@ pub fn write_dir(dir: &Path, files: &BTreeMap<String, String>) -> R<()> {
     Ok(())
 }
 
-/// Every `.toml` file under `dir`, by its path with `/` between parts.
+/// The folders of a pack the world builder (Lyceum) keeps for itself, which hold no rows and are
+/// passed over: its records of the client's files, its edits of the land, and its pictures.
+pub const BUILDER_FOLDERS: [&str; 3] = ["records", "edits", "art"];
+
+/// Every `.toml` file under `dir`, by its path with `/` between parts, but those in the world
+/// builder's own folders at its root ([`BUILDER_FOLDERS`]).
 pub fn read_dir(dir: &Path) -> R<BTreeMap<String, String>> {
     let mut out = BTreeMap::new();
     let mut todo = vec![dir.to_path_buf()];
@@ -543,7 +548,15 @@ pub fn read_dir(dir: &Path) -> R<BTreeMap<String, String>> {
         for e in std::fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))? {
             let p = e.map_err(|e| e.to_string())?.path();
             if p.is_dir() {
-                todo.push(p);
+                // A pack's own folders for the world builder (its client records, its edits of
+                // the land, its pictures) hold no rows.
+                let lyceums = d == dir
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| BUILDER_FOLDERS.contains(&n));
+                if !lyceums {
+                    todo.push(p);
+                }
             } else if p.extension().is_some_and(|x| x == "toml") {
                 let rel = p
                     .strip_prefix(dir)

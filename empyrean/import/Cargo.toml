@@ -33,6 +33,10 @@ sha2.workspace = true
 empyrean-world-db.workspace = true
 empyrean-store.workspace = true
 
+[dev-dependencies]
+# The row schema's items, made as the shared pack format makes them.
+dereth-pack.workspace = true
+
 [build-dependencies]
 sha2.workspace = true
 

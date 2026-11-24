@@ -29,6 +29,12 @@
 //!               [--iterations revision|world] [--verify]
 //! lyceum facts <world.toml>                     what the world changes, counted, as one line
 //!                                               of JSON
+//! lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>]
+//!                                               a world repository's rows folded at a layer
+//!                                               (the last it can show), counted by kind, or
+//!                                               one item's fields with the layer and the place
+//!                                               that set each and where it came from; the
+//!                                               vocabulary is `empyrean-import schema`'s
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
 //! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
@@ -59,6 +65,7 @@ lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
 lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
+lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -125,6 +132,83 @@ impl Args {
 fn fail(e: &lyceum_foundry::Error) -> ExitCode {
     eprintln!("lyceum: {e}");
     ExitCode::from(2)
+}
+
+/// `rows`: a world repository folded at a layer.
+fn rows(args: &Args) -> ExitCode {
+    use lyceum_foundry::repo::{Repo, RowSchema};
+    if args.known(&["schema", "layer", "item"]).is_err() || args.words.len() != 1 {
+        return usage("rows takes a world file and --schema");
+    }
+    let Some(schema) = args.path("schema") else {
+        return usage("rows takes --schema (empyrean-import schema writes it)");
+    };
+    let run = || -> Result<(), String> {
+        let text =
+            std::fs::read_to_string(&schema).map_err(|e| format!("{}: {e}", schema.display()))?;
+        let vocabulary = RowSchema::read(&text)
+            .map_err(|e| format!("{}: {e}", schema.display()))?
+            .ok_or_else(|| {
+                format!(
+                    "{}: no rows; a newer empyrean-import writes them",
+                    schema.display()
+                )
+            })?;
+        let repo = Repo::open(Path::new(&args.words[0]))?;
+        let at = match args.value("layer") {
+            Some(id) => repo
+                .ids()
+                .iter()
+                .position(|l| *l == id)
+                .ok_or_else(|| format!("no layer {id}; the layers are {:?}", repo.ids()))?,
+            None => repo.shown_layers() - 1,
+        };
+        let world = repo.fold(&vocabulary, at)?;
+        match args.value("item") {
+            Some(text) => {
+                let name = lyceum_foundry::repo::item_name(&vocabulary, text)?;
+                let item = world
+                    .items
+                    .get(&name)
+                    .ok_or_else(|| format!("{name}: not in the world at {}", world.layer))?;
+                println!("{name} ({}), at {}:", item.kind, world.layer);
+                for f in &item.fields {
+                    let at = f.at.as_ref().map_or_else(String::new, |a| format!(", {a}"));
+                    println!(
+                        "  {} = {}    # {}{at}; {}",
+                        f.name, f.value, f.layer, f.prov
+                    );
+                }
+            }
+            None => {
+                let mut by_kind: std::collections::BTreeMap<&str, usize> =
+                    std::collections::BTreeMap::new();
+                for i in world.items.values() {
+                    *by_kind.entry(i.kind.as_str()).or_default() += 1;
+                }
+                let kinds: Vec<String> = by_kind.iter().map(|(k, n)| format!("{n} {k}")).collect();
+                println!(
+                    "{}: {} items at {} ({}); {} finding(s)",
+                    repo.title.as_deref().unwrap_or("the world"),
+                    world.items.len(),
+                    world.layer,
+                    kinds.join(", "),
+                    world.findings.len()
+                );
+                for f in &world.findings {
+                    println!("  {f}");
+                }
+            }
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("lyceum: {e}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn build(args: &Args) -> ExitCode {
@@ -933,6 +1017,10 @@ fn main() -> ExitCode {
         }
         "layer" => match parsed(rest) {
             Ok(a) => client_layer(&a),
+            Err(why) => usage(&why),
+        },
+        "rows" => match parsed(rest) {
+            Ok(a) => rows(&a),
             Err(why) => usage(&why),
         },
         other => usage(&format!("{other} is not a command")),

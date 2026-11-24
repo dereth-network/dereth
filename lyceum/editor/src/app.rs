@@ -761,6 +761,8 @@ pub struct EditorApp {
     /// world's quests into; empty for none.
     pub gdle_quests: String,
     pub characters: crate::characters::Characters,
+    /// The Rows tab: a world repository's rows, read only.
+    pub rows: rows_tab::RowsView,
     character_work: Option<characters_tab::Work>,
     /// Frames counted while the Characters tab shows, for when the creatures round the camera
     /// are gathered again.
@@ -1205,6 +1207,7 @@ impl EditorApp {
                 playtest: play::playtest_dir(&args.world),
             },
             characters,
+            rows: rows_tab::RowsView::default(),
             character_work: None,
             place_ticks: 0,
             play_options: play::read_play_options(&play::playtest_dir(&args.world).join("client")),
@@ -1247,6 +1250,12 @@ impl EditorApp {
             app.fit_map = crate::docks::is_new_outdoors(&out);
             app.dock = Some(out);
             app.dungeon_dock = Some(dungeon);
+        }
+        // A world repository the command line names, open in the Rows tab.
+        if let Some(repo) = &args.repo {
+            let schema = app.schema.clone();
+            app.rows.open(repo, schema.as_ref());
+            app.open_rows();
         }
         // The window where it was left, and the world where it was left (unless the command line
         // names where to start).
@@ -4568,10 +4577,15 @@ impl EditorApp {
             match tab.as_str() {
                 "definition" | "weenie" => self.show_weenie(),
                 "characters" => self.open_characters(),
+                "rows" => self.open_rows(),
                 "quests" => self.show_tab(Tab::Quests),
                 "loot" => self.show_tab(Tab::Loot),
                 other => return Err(format!("{other:?} is not a tab to show")),
             }
+        }
+        if let Some(item) = &s.rows_item {
+            item.clone_into(&mut self.rows.filter);
+            self.rows.selected = Some(item.clone());
         }
         if let Some(name) = &s.shelf {
             self.panels.kinds.clear();
@@ -5165,6 +5179,9 @@ fn read_schema(
         }
     }
 }
+
+#[path = "rows_tab.rs"]
+mod rows_tab;
 
 #[path = "characters_tab.rs"]
 mod characters_tab;

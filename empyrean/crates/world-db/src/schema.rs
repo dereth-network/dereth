@@ -20,14 +20,19 @@
 //! - `{ "fields": { ... } }`, a table of fields written inline;
 //! - `{ "either": [<type>, ...] }`, any of them.
 //!
+//! A kind's `item` is the item a row of it sets, as `dereth_pack::records::item_from` makes it
+//! from the row: `{field}` a number in decimal, `{field:04X}` and `{field:#010X}` in hexadecimal,
+//! `{field[0]}` a list's element, `{field:lower}` text trimmed and lower-cased.
+//!
 //! A kind's `tables` are tables of fields under one name (a weenie's `book`). A map's key is
 //! `{ "property": <type> }` (a property's name in the schema's `properties`),
 //! `{ "name": <enum> }`, `"int"` (a number) or `"text"`. A field left out is at its default. A
 //! kind marked `"open": true` is a serde model whose fields this doesn't list (the ac1999 world's
 //! source loot inputs).
 //!
-//! Each map of a weenie or of the rules row folds key by key across layers (`maps`); every list is
-//! one field, replaced whole ([`crate::layers`]).
+//! A kind's `maps` and `tables` fold key by key across layers, each key a field of its own
+//! (`int.ItemType`); every list, and every other field, is one field, replaced whole
+//! ([`crate::layers`]).
 
 use serde_json::{json, Map, Value};
 
@@ -212,7 +217,7 @@ pub fn rows() -> Value {
         "placement".into(),
         json!({
             "file": "landblock/{cell >> 16:04X}.toml",
-            "item": "spawn {guid}",
+            "item": "spawn {guid:#010X}",
             "key": ["guid"],
             "fields": {
                 "guid": "hex",
@@ -282,7 +287,7 @@ pub fn rows() -> Value {
             kind.into(),
             plain(
                 &format!("{kind}/{{name}}.toml"),
-                &format!("{item} {{name, lower case}}"),
+                &format!("{item} {{name:lower}}"),
                 &["name"],
                 f,
             ),
@@ -292,7 +297,7 @@ pub fn rows() -> Value {
         "house_portal".into(),
         plain(
             "house_portal/{house_id}.toml",
-            "house-portal {house_id} {obj_cell_id}",
+            "house-portal {house_id} {obj_cell_id:#010X}",
             &["house_id", "obj_cell_id"],
             fields::<HousePortal>(&[]),
         ),
@@ -320,8 +325,8 @@ pub fn rows() -> Value {
         (
             "treasure_gem_count",
             "treasure_gem_count.toml",
-            "gem-count {gemcode} {tier} {count}",
-            vec!["gemcode", "tier", "count"],
+            "gem-count {gem_code} {tier} {count}",
+            vec!["gem_code", "tier", "count"],
             fields::<TreasureGemCount>(&[]),
         ),
         (

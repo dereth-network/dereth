@@ -4,6 +4,7 @@
 
 [tabs]
 characters = "Characters"
+rows = "Rows"
 hierarchy = "Hierarchy"
 world = "World"
 inspector = "Inspector"
@@ -1578,3 +1579,11 @@ generator_entry = "{id} ({kind})"
 open_in_tab = "Open in Treasure"
 wielded_field = "Equipment table"
 wielded_choice = "{n}: {summary}"
+
+[rows]
+world = "World repository"
+open = "Open"
+find = "Find"
+count = "Items: {n} ({shown} shown). Findings: {findings}."
+choose = "Choose an item to see its fields."
+after_checkpoint = "After a checkpoint: its world comes from a pinned release, which Lyceum doesn't read."

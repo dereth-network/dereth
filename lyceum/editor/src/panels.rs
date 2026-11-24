@@ -91,6 +91,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Inspector => t.get("tabs.inspector").into(),
             Tab::Hierarchy => t.get("tabs.hierarchy").into(),
             Tab::Characters => t.get("tabs.characters").into(),
+            Tab::Rows => t.get("tabs.rows").into(),
             Tab::Quests => t.get("quests.tab").into(),
             Tab::Loot => t.get("loot.tab").into(),
             Tab::Log => {
@@ -131,6 +132,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Characters => self.app.characters_tab(ui, out),
             Tab::Quests => self.app.quests_tab(ui, out),
             Tab::Loot => self.app.loot_tab(ui, out),
+            Tab::Rows => self.app.rows_tab(ui, out),
         }
     }
 

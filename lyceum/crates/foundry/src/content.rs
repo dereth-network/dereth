@@ -1307,6 +1307,10 @@ pub struct Schema {
     /// By enum name (`WeenieType`, `EmoteCategory`, `EmoteType`, ...), each value's name.
     #[serde(default)]
     pub enums: BTreeMap<String, BTreeMap<u32, String>>,
+    /// The kinds of row a world repository holds, as the server describes them
+    /// ([`crate::repo::RowSchema`]); `None` from a server too old to say.
+    #[serde(default)]
+    pub rows: Option<serde_json::Value>,
 }
 
 impl Schema {

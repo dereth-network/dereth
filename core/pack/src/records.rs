@@ -318,3 +318,136 @@ pub fn each_table(
         each(e, kind, table);
     }
 }
+
+/// The item a row sets, from its kind's pattern: the pattern's text, with each `{field}` the row's
+/// value of that field. A placeholder may name a list's element (`{cell[0]}`) and say how a number
+/// is written: `{f}` in decimal, `{f:04X}` in hexadecimal with four digits at least, `{f:#010X}`
+/// with `0x` and eight; and `{f:lower}` is text trimmed and lower-cased. A number the row leaves
+/// out is 0, as a field left out is at its default.
+///
+/// # Errors
+/// A pattern that doesn't read, or a row whose field isn't what its placeholder writes.
+pub fn item_from(pattern: &str, row: &toml::Table) -> Result<String, String> {
+    let mut out = String::new();
+    let mut rest = pattern;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let close = rest[open..]
+            .find('}')
+            .map(|c| open + c)
+            .ok_or_else(|| format!("{pattern:?}: an open {{"))?;
+        let inner = &rest[open + 1..close];
+        let (path, spec) = inner.split_once(':').unwrap_or((inner, ""));
+        let (field, index) = match path.split_once('[') {
+            Some((f, i)) => (
+                f,
+                Some(
+                    i.trim_end_matches(']')
+                        .parse::<usize>()
+                        .map_err(|_| format!("{pattern:?}: {path} is no list element"))?,
+                ),
+            ),
+            None => (path, None),
+        };
+        let mut value = row.get(field);
+        if let (Some(i), Some(v)) = (index, value) {
+            value = v.as_array().and_then(|a| a.get(i));
+        }
+        if spec == "lower" {
+            let text = value
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| format!("no {path}"))?;
+            out.push_str(&text.trim().to_lowercase());
+        } else {
+            let n = match value {
+                None => 0,
+                Some(v) => v
+                    .as_integer()
+                    .ok_or_else(|| format!("{path} isn't a number"))?,
+            };
+            out.push_str(&match spec {
+                "" => n.to_string(),
+                "04X" => format!("{n:04X}"),
+                "#010X" => format!("{n:#010X}"),
+                other => return Err(format!("{pattern:?}: {other} is no way to write a number")),
+            });
+        }
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// The item `text` names, written in its one form by its kind's `pattern` ([`item_from`]); `None`
+/// when `text` isn't an item of the pattern. Words are separated by any whitespace; a number may be
+/// written in decimal or in hexadecimal with `0x`, and one the pattern writes as four hexadecimal
+/// digits (`{f:04X}`, a landblock) is hexadecimal with or without it; text the pattern
+/// lower-cases (`{f:lower}`) is the rest of `text`, whatever its case.
+#[must_use]
+pub fn item_in_form(pattern: &str, text: &str) -> Option<String> {
+    let mut row = toml::Table::new();
+    let mut rest = text.trim();
+    let mut pat = pattern;
+    // A number's text, read as the placeholder's spec reads it.
+    let number = |word: &str, spec: &str| -> Option<i64> {
+        let hex = word.strip_prefix("0x").or_else(|| word.strip_prefix("0X"));
+        match (hex, spec) {
+            (Some(h), _) => i64::from_str_radix(h, 16).ok(),
+            (None, "04X") => i64::from_str_radix(word, 16).ok(),
+            (None, _) => word.parse().ok(),
+        }
+    };
+    while let Some(open) = pat.find('{') {
+        // The literal text before the placeholder, words apart by any whitespace.
+        let lit = &pat[..open];
+        let words: Vec<&str> = lit.split_whitespace().collect();
+        for w in &words {
+            rest = rest.trim_start().strip_prefix(w)?;
+        }
+        if lit.ends_with(char::is_whitespace) {
+            rest = rest.strip_prefix(char::is_whitespace)?.trim_start();
+        }
+        let close = open + pat[open..].find('}')?;
+        let inner = &pat[open + 1..close];
+        pat = &pat[close + 1..];
+        let (path, spec) = inner.split_once(':').unwrap_or((inner, ""));
+        if spec == "lower" {
+            if !pat.trim().is_empty() {
+                return None;
+            }
+            row.insert(path.to_owned(), toml::Value::String(rest.trim().to_owned()));
+            rest = "";
+            continue;
+        }
+        // The number runs to the next literal character, or to a space.
+        let stop = pat.chars().next().filter(|c| !c.is_whitespace());
+        let end = rest
+            .find(|c: char| c.is_whitespace() || Some(c) == stop)
+            .unwrap_or(rest.len());
+        let n = number(&rest[..end], spec)?;
+        rest = &rest[end..];
+        match path.split_once('[') {
+            Some((f, i)) => {
+                let i: usize = i.trim_end_matches(']').parse().ok()?;
+                let list = row
+                    .entry(f.to_owned())
+                    .or_insert_with(|| toml::Value::Array(Vec::new()));
+                let a = list.as_array_mut()?;
+                if a.len() != i {
+                    return None;
+                }
+                a.push(toml::Value::Integer(n));
+            }
+            None => {
+                row.insert(path.to_owned(), toml::Value::Integer(n));
+            }
+        }
+    }
+    for w in pat.split_whitespace() {
+        rest = rest.trim_start().strip_prefix(w)?;
+    }
+    if !rest.trim().is_empty() {
+        return None;
+    }
+    item_from(pattern, &row).ok()
+}

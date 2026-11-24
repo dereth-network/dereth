@@ -569,3 +569,70 @@ fn the_lockfile_is_saved_only_when_its_ids_changed_and_never_made_empty() {
     assert!(!lock.save(&store, path).unwrap(), "the same text");
     assert_eq!(Lock::<Toy>::read_from(&store, path).unwrap(), lock);
 }
+
+/// A row's item comes from its kind's pattern: decimal and hexadecimal numbers, a list's element,
+/// text lower-cased, and a number the row leaves out as 0; a field of the wrong kind is refused.
+#[test]
+fn a_rows_item_is_its_kinds_pattern_with_the_rows_values() {
+    use dereth_pack::records::item_from;
+    let row: toml::Table = toml::from_str(
+        "guid = 0x7A9B400A\nlandblock = 0xA9B4\ncell = [2, 0]\nname = \" Drudge Kills \"\nclass = 509\n",
+    )
+    .unwrap();
+    assert_eq!(
+        item_from("spawn {guid:#010X}", &row).unwrap(),
+        "spawn 0x7A9B400A"
+    );
+    assert_eq!(
+        item_from("encounter {landblock:04X} {cell[0]},{cell[1]}", &row).unwrap(),
+        "encounter A9B4 2,0"
+    );
+    assert_eq!(
+        item_from("quest {name:lower}", &row).unwrap(),
+        "quest drudge kills"
+    );
+    assert_eq!(
+        item_from("gem-count {tier} {class}", &row).unwrap(),
+        "gem-count 0 509"
+    );
+    assert_eq!(item_from("rules", &row).unwrap(), "rules");
+    assert!(item_from("weenie {name}", &row)
+        .unwrap_err()
+        .contains("isn't a number"));
+    assert!(item_from("weenie {class:x}", &row).is_err());
+}
+
+/// An item written another way (lower-case hexadecimal, a decimal guid, a name in capitals, more
+/// spaces) is read by its kind's pattern and written in its one form; text of another pattern
+/// isn't an item of it.
+#[test]
+fn an_items_text_is_read_by_its_kinds_pattern_into_its_one_form() {
+    use dereth_pack::records::item_in_form;
+    let spawn = "spawn {guid:#010X}";
+    assert_eq!(
+        item_in_form(spawn, "spawn 0x7a9b400a").as_deref(),
+        Some("spawn 0x7A9B400A")
+    );
+    assert_eq!(
+        item_in_form(spawn, "spawn  2056994826").as_deref(),
+        Some("spawn 0x7A9B400A")
+    );
+    let encounter = "encounter {landblock:04X} {cell[0]},{cell[1]}";
+    assert_eq!(
+        item_in_form(encounter, "encounter a9a0 2,0").as_deref(),
+        Some("encounter A9A0 2,0")
+    );
+    assert_eq!(
+        item_in_form("quest {name:lower}", "quest  Drudge Kills").as_deref(),
+        Some("quest drudge kills")
+    );
+    assert_eq!(
+        item_in_form("gem-count {gem_code} {tier} {count}", "gem-count 2 3 4").as_deref(),
+        Some("gem-count 2 3 4")
+    );
+    assert_eq!(item_in_form("rules", " rules ").as_deref(), Some("rules"));
+    for bad in ["weenie 509", "spawn", "spawn 0x12 extra", "spawn zz"] {
+        assert_eq!(item_in_form(spawn, bad), None, "{bad}");
+    }
+    assert_eq!(item_in_form(encounter, "encounter A9A0 2"), None);
+}

@@ -7,5 +7,6 @@ mod format;
 mod import;
 mod model_import;
 mod piece;
+mod repo;
 mod revise;
 mod validate;

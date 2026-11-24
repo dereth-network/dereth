@@ -89,6 +89,7 @@ pub mod pick;
 pub mod pictures;
 pub mod pieces;
 pub mod quests;
+pub mod repo;
 pub mod revise;
 pub mod room;
 pub mod sample;
