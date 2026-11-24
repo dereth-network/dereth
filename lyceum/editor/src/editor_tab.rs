@@ -175,6 +175,13 @@ pub enum Owner {
     Pack { pack: String, mine: bool },
     /// A pack's weenie no file writes.
     Unwritten,
+    /// A weenie of the world repository being edited, in its layer `layer`: changed there
+    /// (`set`) or as the world below has it; `patch`, a layer that can take it away.
+    Layer {
+        layer: String,
+        set: bool,
+        patch: bool,
+    },
 }
 
 impl Owner {
@@ -182,7 +189,7 @@ impl Owner {
     #[must_use]
     pub fn editable(&self) -> bool {
         match self {
-            Self::Server => true,
+            Self::Server | Self::Layer { .. } => true,
             Self::ChangedIn { mine, .. } | Self::Pack { mine, .. } => *mine,
             Self::Unwritten => false,
         }
@@ -197,6 +204,10 @@ impl Owner {
             Self::Pack { pack, mine: true } => t.fill("definition.packs_own", &[("pack", pack)]),
             Self::Pack { pack, mine: false } => t.fill("definition.packs", &[("pack", pack)]),
             Self::Unwritten => t.get("weenie.no_sql").to_owned(),
+            Self::Layer {
+                layer, set: true, ..
+            } => t.fill("definition.changed_in_layer", &[("layer", layer)]),
+            Self::Layer { layer, .. } => t.fill("definition.below_layer", &[("layer", layer)]),
         }
     }
 }
@@ -224,6 +235,10 @@ impl EditorApp {
     /// The server's class `class`'s rows, read once: `None` while they are being read,
     /// `Some(None)` for a class the server's database lacks.
     pub(super) fn server_doc_of(&mut self, class: u32) -> Option<Option<Rc<SqlDoc>>> {
+        // The world repository being edited serves it, as its layer holds it.
+        if let Some(d) = self.rows_doc(class) {
+            return Some(Some(d));
+        }
         if self.editor.docs.server_from != self.server_sql {
             self.editor.docs.server.clear();
             self.editor.docs.server_from.clone_from(&self.server_sql);
@@ -244,6 +259,12 @@ impl EditorApp {
     /// Weenie `w`'s rows as they stand: the pack's file of it, else the server's class (`None`
     /// while that is being read, `Some(None)` for none).
     pub(super) fn weenie_doc(&mut self, w: &Weenie) -> Option<Option<Rc<SqlDoc>>> {
+        // A weenie of the world repository being edited, as its layer holds it.
+        if let Weenie::Class(c) = w {
+            if let Some(d) = self.rows_doc(*c) {
+                return Some(Some(d));
+            }
+        }
         match (self.session.weenie_file(w), w) {
             (Some((f, _)), _) => Some(self.file_doc(&f)),
             (None, Weenie::Class(c)) => self.server_doc_of(*c),
@@ -253,7 +274,12 @@ impl EditorApp {
 
     /// Whose weenie `w` is.
     #[must_use]
-    pub fn owner_of(&self, w: &Weenie) -> Owner {
+    pub fn owner_of(&mut self, w: &Weenie) -> Owner {
+        if let Weenie::Class(c) = w {
+            if let Some(o) = self.rows_owner(*c) {
+                return o;
+            }
+        }
         let Some((file, mine)) = self.session.weenie_file(w) else {
             return match w {
                 Weenie::Class(_) => Owner::Server,
@@ -353,6 +379,9 @@ impl EditorApp {
     /// # Errors
     /// The pack being edited does not change it.
     pub fn put_back_server(&mut self, class: u32) -> Result<(), String> {
+        if self.rows_weenie(class).is_some() {
+            return self.rows_put_back(class);
+        }
         let (file, mine) = self
             .session
             .weenie_file(&Weenie::Class(class))
@@ -562,6 +591,9 @@ impl EditorApp {
                     {
                         out.push(UiAction::PutBackServer(c));
                     }
+                }
+                if let (Some(c), Some(Owner::Layer { set, patch, .. })) = (class, owner) {
+                    self.layer_menu(ui, c, *set, *patch, out);
                 }
                 if matches!(owner, Some(Owner::Pack { mine: true, .. })) {
                     let r = ui.button(t.get("definition.delete"));

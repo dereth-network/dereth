@@ -107,8 +107,8 @@ fn folder(tag: &str) -> PathBuf {
 /// A repository's world is shown folded at each layer: the base's packs in order (a later pack's
 /// field over an earlier's, each field with its pack's provenance), then a patch's changes over it,
 /// each field naming the layer that set it and where; a patch's removal, written another way,
-/// takes its item away. The world builder's own folders hold no rows. The world after a checkpoint
-/// isn't shown.
+/// takes its item away. The world builder's own folders hold no rows; a row's key, which every row
+/// of its item names, is no finding. The world after a checkpoint isn't shown.
 #[test]
 fn a_repository_is_folded_at_each_layer_with_each_fields_layer_and_provenance() {
     let dir = folder("fold");
@@ -135,6 +135,8 @@ fn a_repository_is_folded_at_each_layer_with_each_fields_layer_and_provenance() 
     assert!(field("int.Value").prov.is_plain_authored());
     assert!(base.items.contains_key("quest drudgekills"));
     assert_eq!(base.items.len(), 2, "no rows from records/ or edits/");
+    // Emergence's row names the library's weenie by its class again: no change, and no finding.
+    assert_eq!(base.findings, Vec::<String>::new());
 
     let first = repo.fold(&schema, 1).expect("the patch");
     let w = &first.items["weenie 509"];

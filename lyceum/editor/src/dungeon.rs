@@ -1800,6 +1800,7 @@ impl EditorApp {
             lyceum_foundry::edit::Touched {
                 landblocks: std::iter::once(lb).collect(),
                 sql: false,
+                rows: false,
             }
         };
         self.layout.target = None;

@@ -690,6 +690,11 @@ impl EditorApp {
             } => return self.quest_edit(name, column, value),
             _ => {}
         }
+        if let Weenie::Class(c) = w {
+            if self.rows_weenie(*c).is_some() {
+                return self.rows_edits(*c, edits);
+            }
+        }
         let (file, text) = self.writable_sql(w)?;
         let mut doc = SqlDoc::parse(&text);
         if !apply_edit(&mut doc, edit, self.schema.as_ref()) {
@@ -714,6 +719,11 @@ impl EditorApp {
             edits.iter().find(|e| matches!(e, FormEdit::Refused(_)))
         {
             return Err(why.clone());
+        }
+        if let Weenie::Class(c) = w {
+            if self.rows_weenie(*c).is_some() {
+                return self.rows_edits(*c, edits);
+            }
         }
         let (file, text) = self.writable_sql(w)?;
         let mut doc = SqlDoc::parse(&text);
@@ -1082,6 +1092,13 @@ impl EditorApp {
     /// server's class the pack does not write yet is shown as the server has it, and its first
     /// change makes the pack's copy; another pack's is shown, not changed.
     pub(super) fn form_body(&mut self, ui: &mut egui::Ui, w: &Weenie, out: &mut Vec<UiAction>) {
+        // A weenie of the world repository being edited, as its layer holds it.
+        if let Weenie::Class(c) = w {
+            if let Some(doc) = self.rows_doc(*c) {
+                self.editor_form(ui, w, &doc, out);
+                return;
+            }
+        }
         let t = self.text.table();
         let (path, mine) = match (w, self.session.weenie_file(w)) {
             (_, Some(f)) => f,

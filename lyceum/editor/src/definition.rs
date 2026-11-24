@@ -307,6 +307,9 @@ impl EditorApp {
                     out.push(UiAction::PutBackServer(*c));
                 }
             }
+            if let (Weenie::Class(c), Owner::Layer { set, patch, .. }) = (w, owner) {
+                self.layer_menu(ui, *c, *set, *patch, out);
+            }
             if item(ui, t.get("creator.open")).clicked() {
                 out.push(UiAction::NewWeenie(None));
             }

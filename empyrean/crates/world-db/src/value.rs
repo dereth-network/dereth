@@ -136,6 +136,8 @@ pub enum Ty {
 pub trait Field: Sized {
     /// What the field is written as.
     const TYPE: Ty;
+    /// Whether it may be unset (ACE's `NULL`), apart from its default; a row leaves it out unset.
+    const OPTIONAL: bool = false;
     /// The value's spelling.
     fn spell(&self) -> V;
     /// Whether it's the type's default, which a row leaves out.
@@ -246,6 +248,7 @@ impl Field for String {
 /// An optional field is written whenever it's set, at its default too: `Some(0)` isn't `None`.
 impl<T: Field> Field for Option<T> {
     const TYPE: Ty = T::TYPE;
+    const OPTIONAL: bool = true;
     fn spell(&self) -> V {
         self.as_ref().map_or(V::Int(0), Field::spell)
     }

@@ -45,11 +45,18 @@ pub trait Fields: Sized {
     /// Each field a row of it writes: its name, what it is, and whether an integer is written in
     /// hexadecimal ([`crate::schema`]).
     fn spec() -> Vec<(&'static str, crate::value::Ty, bool)>;
+    /// The fields that may be unset rather than at their default ([`Field::OPTIONAL`]).
+    fn optional() -> Vec<&'static str>;
 }
 
 /// The type of the field `f` reads, for [`Fields::spec`].
 fn ty_of<S, T: Field>(_: fn(&S) -> &T) -> crate::value::Ty {
     T::TYPE
+}
+
+/// Whether the field `f` reads may be unset, for [`Fields::optional`].
+fn optional_of<S, T: Field>(_: fn(&S) -> &T) -> bool {
+    T::OPTIONAL
 }
 
 /// Whether a field written `how` is an integer in hexadecimal.
@@ -121,6 +128,11 @@ macro_rules! fields {
             }
             fn spec() -> Vec<(&'static str, crate::value::Ty, bool)> {
                 vec![$( (name!($f), ty_of(|s: &$ty| &s.$f), is_hex!($($how)?)), )*]
+            }
+            fn optional() -> Vec<&'static str> {
+                let mut v = Vec::new();
+                $( if optional_of(|s: &$ty| &s.$f) { v.push(name!($f)); } )*
+                v
             }
         }
     };

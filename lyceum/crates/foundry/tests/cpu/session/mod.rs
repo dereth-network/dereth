@@ -8,5 +8,6 @@ mod map;
 mod models;
 mod place_quests;
 mod quests;
+mod rows;
 mod scratch;
 mod server_spawns;

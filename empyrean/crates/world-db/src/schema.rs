@@ -22,7 +22,10 @@
 //!
 //! A kind's `item` is the item a row of it sets, as `dereth_pack::records::item_from` makes it
 //! from the row: `{field}` a number in decimal, `{field:04X}` and `{field:#010X}` in hexadecimal,
-//! `{field[0]}` a list's element, `{field:lower}` text trimmed and lower-cased.
+//! `{field[0]}` a list's element, `{field:lower}` text trimmed and lower-cased. A kind's `file` is
+//! made the same way, for a new row: `{field:05}` a number padded, `{cell >> 16:04X}` one shifted,
+//! `{name:file}` a name as a file name. A row already written stays in its file, which may differ
+//! (names that differ only in case share the first one's file).
 //!
 //! A kind's `tables` are tables of fields under one name (a weenie's `book`). A map's key is
 //! `{ "property": <type> }` (a property's name in the schema's `properties`),
@@ -33,6 +36,26 @@
 //! A kind's `maps` and `tables` fold key by key across layers, each key a field of its own
 //! (`int.ItemType`); every list, and every other field, is one field, replaced whole
 //! ([`crate::layers`]).
+//!
+//! A kind an editor shows as ACE's SQL (the weenie) also has `sql`, the tables and columns of the
+//! same rows, shaped as the description is:
+//!
+//! ```json
+//! "sql": { "table": "weenie", "columns": { "class": "class_Id", ... },
+//!   "maps": { "int": { "table": "weenie_properties_int", "parent": "object_Id",
+//!                      "key": "type", "value": "value" },
+//!             "attribute": { "table": ..., "parent": ..., "key": "type", "columns": { ... } } },
+//!   "tables": { "book": { "table": ..., "parent": ..., "columns": { ... } } },
+//!   "lists": { "emote": { "table": ..., "parent": ..., "columns": { ... },
+//!                         "lists": { "action": { ... } } } } }
+//! ```
+//!
+//! Each entry is written in `table`, linked to the row that holds it by its `parent` column. A map
+//! key is the `key` column (a property's number, an enum's value, a spell); its value is the
+//! `value` column, or its fields the `columns`. A field written in several columns names them in
+//! order (a position's `at` is `origin_X`, `origin_Y`, `origin_Z`). A field a row leaves out is
+//! `NULL` when it is among the entry's `nullable` fields, and its default (0, false, empty)
+//! otherwise; a kind's `time` left out is the world's stamp (`world-db.toml`).
 
 use serde_json::{json, Map, Value};
 
@@ -48,6 +71,13 @@ use empyrean_content::models::world::{
     WeeniePropertiesEventFilter, WeeniePropertiesGenerator, WeeniePropertiesPalette,
     WeeniePropertiesSkill, WeeniePropertiesTextureMap,
 };
+
+use empyrean_content::models::world::{
+    Weenie, WeeniePropertiesBool, WeeniePropertiesDID, WeeniePropertiesEmote,
+    WeeniePropertiesFloat, WeeniePropertiesIID, WeeniePropertiesInt, WeeniePropertiesInt64,
+    WeeniePropertiesPosition, WeeniePropertiesSpellBook, WeeniePropertiesString,
+};
+use empyrean_content::records::FromRow;
 
 use crate::kinds::Fields;
 use crate::value::Ty;
@@ -113,8 +143,122 @@ fn named(e: &str, value: Value) -> Value {
     json!({ "key": { "name": e }, "value": value })
 }
 
+/// `T`'s column for its field `field`.
+///
+/// # Panics
+/// For a field `T` doesn't read: the description and the dump disagree.
+fn col<T: FromRow>(field: &str) -> &'static str {
+    T::FIELDS
+        .iter()
+        .position(|f| f.trim_start_matches("r#") == field)
+        .map(|i| T::COLUMNS[i])
+        .unwrap_or_else(|| panic!("{} has no field {field}", T::TABLE))
+}
+
+/// `T`'s columns by its fields, but its own id, its link and those in `without`.
+fn columns<T: FromRow>(link: &str, without: &[&str]) -> Map<String, Value> {
+    T::FIELDS
+        .iter()
+        .zip(T::COLUMNS)
+        .map(|(f, c)| (f.trim_start_matches("r#"), *c))
+        .filter(|(f, _)| *f != "id" && *f != link && !without.contains(f))
+        .map(|(f, c)| (f.to_owned(), Value::from(c)))
+        .collect()
+}
+
+/// `T`'s table of a weenie's entries, linked by its `object_id`; keyed by `key`'s column, when
+/// it is a map's.
+fn child<T: FromRow + Fields>(key: Option<&str>) -> Value {
+    let mut v = json!({
+        "table": T::TABLE,
+        "parent": col::<T>("object_id"),
+        "columns": columns::<T>("object_id", key.as_slice()),
+        "nullable": T::optional(),
+    });
+    if let Some(k) = key {
+        v["key"] = col::<T>(k).into();
+    }
+    v
+}
+
+/// `T`'s table of a weenie's values, by key: a property's number, a spell.
+fn values<T: FromRow>(key: &str, value: &str) -> Value {
+    json!({
+        "table": T::TABLE,
+        "parent": col::<T>("object_id"),
+        "key": col::<T>(key),
+        "value": col::<T>(value),
+    })
+}
+
+/// The weenie's rows as ACE's SQL tables.
+fn weenie_sql() -> Value {
+    let p = col::<WeeniePropertiesPosition>;
+    // The emote's own row is written by hand (its category by name), the rest optional.
+    let emote = json!({
+        "table": WeeniePropertiesEmote::TABLE,
+        "parent": col::<WeeniePropertiesEmote>("object_id"),
+        "columns": columns::<WeeniePropertiesEmote>("object_id", &[]),
+        "nullable": ["weenie_class_id", "style", "substyle", "quest", "vendor_type", "min_health",
+                     "max_health"],
+        "lists": { "action": {
+            "table": WeeniePropertiesEmoteAction::TABLE,
+            "parent": col::<WeeniePropertiesEmoteAction>("emote_id"),
+            "columns": columns::<WeeniePropertiesEmoteAction>("emote_id", &[]),
+            "nullable": WeeniePropertiesEmoteAction::optional(),
+        } },
+    });
+    json!({
+        "table": Weenie::TABLE,
+        "columns": {
+            "class": col::<Weenie>("class_id"),
+            "class_name": col::<Weenie>("class_name"),
+            "type": col::<Weenie>("type"),
+            "last_modified": col::<Weenie>("last_modified"),
+        },
+        "maps": {
+            "int": values::<WeeniePropertiesInt>("type", "value"),
+            "int64": values::<WeeniePropertiesInt64>("type", "value"),
+            "bool": values::<WeeniePropertiesBool>("type", "value"),
+            "float": values::<WeeniePropertiesFloat>("type", "value"),
+            "string": values::<WeeniePropertiesString>("type", "value"),
+            "did": values::<WeeniePropertiesDID>("type", "value"),
+            "iid": values::<WeeniePropertiesIID>("type", "value"),
+            "position": {
+                "table": WeeniePropertiesPosition::TABLE,
+                "parent": p("object_id"),
+                "key": p("position_type"),
+                "columns": {
+                    "cell": p("obj_cell_id"),
+                    "at": [p("origin_x"), p("origin_y"), p("origin_z")],
+                    "rotation": [p("angles_w"), p("angles_x"), p("angles_y"), p("angles_z")],
+                },
+            },
+            "attribute": child::<WeeniePropertiesAttribute>(Some("type")),
+            "vital": child::<WeeniePropertiesAttribute2nd>(Some("type")),
+            "skill": child::<WeeniePropertiesSkill>(Some("type")),
+            "body_part": child::<WeeniePropertiesBodyPart>(Some("key")),
+            "spell_book": values::<WeeniePropertiesSpellBook>("spell", "probability"),
+        },
+        "tables": {
+            "book": child::<WeeniePropertiesBook>(None),
+        },
+        "lists": {
+            "anim_part": child::<WeeniePropertiesAnimPart>(None),
+            "book_page": child::<WeeniePropertiesBookPageData>(None),
+            "create_list": child::<WeeniePropertiesCreateList>(None),
+            "emote": emote,
+            "event_filter": child::<WeeniePropertiesEventFilter>(None),
+            "generator": child::<WeeniePropertiesGenerator>(None),
+            "palette": child::<WeeniePropertiesPalette>(None),
+            "texture_map": child::<WeeniePropertiesTextureMap>(None),
+        },
+    })
+}
+
 fn weenie() -> Value {
     json!({
+        "sql": weenie_sql(),
         "file": "weenie/{class:05}.toml",
         "item": "weenie {class}",
         "key": ["class"],
@@ -286,7 +430,7 @@ pub fn rows() -> Value {
         kinds.insert(
             kind.into(),
             plain(
-                &format!("{kind}/{{name}}.toml"),
+                &format!("{kind}/{{name:file}}.toml"),
                 &format!("{item} {{name:lower}}"),
                 &["name"],
                 f,

@@ -1,0 +1,21 @@
+[[weenie]]
+class = 500
+class_name = "itemtest"
+type = "Generic"
+last_modified = "2021-11-01 00:00:00"
+
+[weenie.int]
+Level = -7
+
+[weenie.string]
+Name = "Thing"
+
+[weenie.attribute]
+Strength = { init_level = 99 }
+
+[weenie.skill]
+MeleeDefense = { sac = 2, init_level = 10 }
+
+[weenie.book]
+max_num_pages = 1
+max_num_chars_per_page = 1

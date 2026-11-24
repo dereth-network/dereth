@@ -174,6 +174,9 @@ pub enum Op {
     /// Write the target pack's SQL file `file` (under its `server/sql`) as `text`, or take it
     /// away: a weenie, a quest or a spawn as a form leaves it.
     WriteSql { file: PathBuf, text: Option<String> },
+    /// Write the world repository's row file `file`, in the pack of the layer edits go into
+    /// ([`Session::set_rows`]), as `text`, or take it away: an item's row as a form leaves it.
+    WriteRows { file: PathBuf, text: Option<String> },
     /// Place piece `piece` of `environment` as a new cell of `landblock`, drawn with
     /// `surfaces`, at `at` (landblock meters) turned `rotation`. Each of the piece's portals, in
     /// its order, joins another new cell's (its symbol, in full, and that cell's portal, whose
@@ -311,12 +314,15 @@ pub struct Touched {
     pub landblocks: BTreeSet<u16>,
     /// Whether the server SQL changed.
     pub sql: bool,
+    /// Whether a world repository's rows changed.
+    pub rows: bool,
 }
 
 impl Touched {
     pub(crate) fn add(&mut self, o: Self) {
         self.landblocks.extend(o.landblocks);
         self.sql |= o.sql;
+        self.rows |= o.rows;
     }
 }
 
@@ -445,6 +451,9 @@ pub struct Session {
     retail_quest_uses: BTreeMap<String, sql_ids::QuestNamers>,
     /// The server's names, which the checks of the packs' SQL read when given.
     schema: Option<crate::content::Schema>,
+    /// The world repository whose rows are edited, its folder, and the pack of the layer edits go
+    /// into ([`Self::set_rows`]).
+    rows: Option<(PathBuf, PathBuf)>,
     /// How many times a landblock's cells were read, and how many of the server's own
     /// instances were read as spawns.
     cell_reads: std::cell::Cell<u64>,
@@ -1270,6 +1279,7 @@ impl Session {
             weenie_files: std::cell::OnceCell::new(),
             retail_uses: BTreeMap::new(),
             retail_body_parts: BTreeMap::new(),
+            rows: None,
             retail_quest_uses: BTreeMap::new(),
             schema: None,
             cell_reads: std::cell::Cell::new(0),
@@ -3074,6 +3084,36 @@ impl Session {
         self.sources.text(&DiskStore, path)
     }
 
+    /// Edit the rows of the world repository in folder `repo`, writing into its layer's pack
+    /// `pack` ([`Op::WriteRows`]); or none (`None`). Its files are kept, read and saved with the
+    /// world's, and take their part in the history.
+    pub fn set_rows(&mut self, rows: Option<(PathBuf, PathBuf)>) {
+        self.rows = rows;
+    }
+
+    /// The text of the world repository's file `path` as the session holds it: changed and
+    /// unsaved, or as on the disk.
+    pub fn rows_text(&mut self, path: &Path) -> Option<String> {
+        self.text(path)
+    }
+
+    /// Whether a file of the world repository whose rows are edited differs from the disk's.
+    #[must_use]
+    pub fn rows_unsaved(&self) -> bool {
+        self.sources
+            .iter()
+            .any(|(p, _)| self.is_rows(p) && self.sources.differs(p))
+    }
+
+    /// Whether `path` is a file of the world repository whose rows are edited (and none of the
+    /// world's own packs).
+    fn is_rows(&self, path: &Path) -> bool {
+        self.rows
+            .as_ref()
+            .is_some_and(|(repo, _)| path.starts_with(repo))
+            && !self.packs.iter().any(|p| path.starts_with(&p.dir))
+    }
+
     fn pack_dir(&self) -> &Path {
         &self.packs[self.target].dir
     }
@@ -3105,6 +3145,9 @@ impl Session {
         self.pack_weenie_facts = std::cell::OnceCell::new();
         for (path, text) in texts {
             self.sources.put(&DiskStore, path, text.clone());
+            if self.is_rows(path) {
+                continue;
+            }
             if let Ok(rel) = path.strip_prefix(&sql_dir) {
                 let rel = rel.to_path_buf();
                 let sql = &mut self.packs[self.target].sql;
@@ -3165,10 +3208,13 @@ impl Session {
             let mut touched = Touched {
                 landblocks: Self::vertex_change(&grid, &vertices_before, &vertices_after),
                 sql: false,
+                rows: false,
             };
             let sql_dir = self.pack_dir().join("server").join("sql");
             for path in texts.keys() {
-                if path.starts_with(&sql_dir) {
+                if self.is_rows(path) {
+                    touched.rows = true;
+                } else if path.starts_with(&sql_dir) {
                     touched.sql = true;
                 } else {
                     touched.landblocks.insert(source::landblock_of_file(path)?);
@@ -3738,6 +3784,25 @@ impl Session {
             }
             Op::Link { file, guid, target } => {
                 self.draft_link(file, guid, target.as_ref(), out)?;
+            }
+            Op::WriteRows { file, text } => {
+                let Some((_, pack)) = &self.rows else {
+                    return Err(Error::Refused(
+                        "no world repository's rows are being edited".into(),
+                    ));
+                };
+                if !file.starts_with(pack)
+                    || file.extension().and_then(|e| e.to_str()) != Some("toml")
+                {
+                    return Err(Error::Refused(format!(
+                        "{} is not a row file of the layer being edited",
+                        file.display()
+                    )));
+                }
+                if text.is_none() && self.text(file).is_none() {
+                    return Err(Error::Refused(format!("{} is not there", file.display())));
+                }
+                out.insert(file.clone(), text.clone());
             }
             Op::WriteSql { file, text } => {
                 let dir = self.pack_dir().join("server").join("sql");

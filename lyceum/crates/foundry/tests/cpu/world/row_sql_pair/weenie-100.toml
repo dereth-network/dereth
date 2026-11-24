@@ -1,0 +1,176 @@
+[[weenie]]
+class = 100
+class_name = "drudgetest"
+type = "Creature"
+last_modified = "2021-11-01 00:00:00"
+
+[weenie.int]
+Level = 5
+ItemType = 16
+
+[weenie.int64]
+TotalExperience = -9000000000
+
+[weenie.bool]
+Stuck = true
+Open = false
+
+[weenie.float]
+DefaultScale = 1.5
+HeartbeatInterval = 0.1
+
+[weenie.string]
+Name = "Drudge 'Tester' \"(x),(y)\""
+LongDesc = "line1\nline2\r\t\\ \u001A\u0000end"
+
+[weenie.did]
+Setup = 0x02000001
+
+[weenie.iid]
+Container = 0x80000001
+
+[weenie.position]
+Location = { cell = 0xA9B40019, at = [84.0, 7.1, 94.005], rotation = [0.996, 0.0, 0.0, -0.08] }
+
+[weenie.attribute]
+Endurance = { init_level = 20 }
+Strength = { init_level = 10 }
+
+[weenie.vital]
+MaxHealth = { init_level = 15, current_level = 15 }
+
+[weenie.skill]
+MeleeDefense = { sac = 2, init_level = 10 }
+
+[weenie.body_part]
+Head = { d_type = 4, d_val = 2, d_var = 0.75, base_armor = 5, armor_vs_slash = 6, armor_vs_pierce = 7, armor_vs_bludgeon = 8, armor_vs_cold = 9, armor_vs_fire = 10, armor_vs_acid = 11, armor_vs_electric = 12, armor_vs_nether = 13, bh = 1, hlf = 0.1, mlf = 0.2, llf = 0.3, hrf = 0.4, mrf = 0.5, lrf = 0.6, hlb = 0.7, mlb = 0.8, llb = 0.9, hrb = 1.0, mrb = 1.1, lrb = 1.2 }
+
+[weenie.spell_book]
+2000 = 2.5
+1000 = 2.25
+
+[[weenie.anim_part]]
+index = 3
+animation_id = 0x01000001
+
+[[weenie.create_list]]
+destination_type = 2
+weenie_class_id = 273
+stack_size = 25
+
+[[weenie.create_list]]
+destination_type = 8
+weenie_class_id = 628
+stack_size = 1
+palette = -3
+shade = 0.5
+try_to_bond = true
+
+[[weenie.emote]]
+category = "Refuse"
+probability = 1.0
+quest = "quest's"
+
+[[weenie.emote.action]]
+type = "Tell"
+order = 1
+extent = 1.0
+message = "second"
+
+[[weenie.emote.action]]
+type = "Act"
+delay = 0.5
+extent = 2.0
+motion = 0x13000083
+message = "first"
+test_string = "test"
+min = 1
+max = 2
+min_64 = -5000000000
+max_64 = 5000000000
+min_dbl = 0.5
+max_dbl = 1.5
+stat = 3
+display = true
+amount = 4
+amount_64 = 6000000000
+hero_xp_64 = 7000000000
+percent = 0.25
+spell_id = 1234
+wealth_rating = 5
+treasure_class = 6
+treasure_type = 7
+p_script = -1
+sound = -2
+destination_type = -3
+weenie_class_id = 300
+stack_size = 9
+palette = 10
+shade = 0.5
+try_to_bond = false
+obj_cell_id = 0xA9B40019
+origin_x = 1.0
+origin_y = 2.0
+origin_z = 3.0
+angles_w = 1.0
+angles_x = 0.0
+angles_y = 0.0
+angles_z = 0.0
+
+[[weenie.emote]]
+category = "QuestFailure"
+probability = 0.5
+weenie_class_id = 300
+style = 0x8000003D
+substyle = 0x41000003
+vendor_type = -2
+min_health = 0.25
+max_health = 0.75
+
+[[weenie.event_filter]]
+event = 94
+
+[[weenie.event_filter]]
+event = 414
+
+[[weenie.generator]]
+probability = 0.5
+weenie_class_id = 300
+init_create = 1
+max_create = 2
+when_create = 2
+where_create = 4
+
+[[weenie.generator]]
+probability = 1.0
+weenie_class_id = 200
+delay = 120.0
+init_create = 1
+max_create = 1
+when_create = 1
+where_create = 2
+stack_size = 5
+palette_id = 3
+shade = 0.25
+obj_cell_id = 0xA9B40019
+origin_x = 1.0
+origin_y = 2.0
+origin_z = 3.0
+angles_w = 1.0
+angles_x = 0.0
+angles_y = 0.0
+angles_z = 0.0
+
+[[weenie.palette]]
+sub_palette_id = 0x04000001
+length = 24
+
+[[weenie.texture_map]]
+index = 9
+old_id = 0x05000001
+new_id = 0x05000002
+
+[[weenie.texture_map]]
+index = 1
+old_id = 0x05000003
+new_id = 0x05000004

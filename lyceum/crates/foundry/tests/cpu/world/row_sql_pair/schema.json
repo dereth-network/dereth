@@ -1,0 +1,736 @@
+{
+  "enums": {
+    "Attribute": {
+      "1": "Strength",
+      "2": "Endurance"
+    },
+    "BodyPart": {
+      "0": "Head"
+    },
+    "EmoteCategory": {
+      "1": "Refuse",
+      "13": "QuestFailure"
+    },
+    "EmoteType": {
+      "1": "Act",
+      "10": "Tell"
+    },
+    "ItemType": {
+      "16": "Creature",
+      "512": "Container"
+    },
+    "Skill": {
+      "6": "MeleeDefense"
+    },
+    "VendorType": {
+      "1": "Open"
+    },
+    "Vital": {
+      "1": "MaxHealth"
+    },
+    "WeenieType": {
+      "1": "Generic",
+      "10": "Creature",
+      "21": "Container",
+      "34": "Scroll",
+      "55": "SlumLord",
+      "8": "Book"
+    }
+  },
+  "properties": {
+    "bool": {
+      "1": "Stuck",
+      "2": "Open"
+    },
+    "did": {
+      "1": "Setup",
+      "28": "Spell"
+    },
+    "float": {
+      "1": "HeartbeatInterval",
+      "39": "DefaultScale"
+    },
+    "iid": {
+      "2": "Container"
+    },
+    "int": {
+      "1": "ItemType",
+      "21": "TotalExperience",
+      "25": "Level"
+    },
+    "int64": {
+      "1": "TotalExperience"
+    },
+    "position": {
+      "1": "Location"
+    },
+    "string": {
+      "1": "Name",
+      "16": "LongDesc"
+    }
+  },
+  "rows": {
+    "weenie": {
+      "fields": {
+        "class": "int",
+        "class_name": "text",
+        "last_modified": "time",
+        "type": {
+          "name": "WeenieType"
+        }
+      },
+      "file": "weenie/{class:05}.toml",
+      "item": "weenie {class}",
+      "key": [
+        "class"
+      ],
+      "lists": {
+        "anim_part": {
+          "fields": {
+            "animation_id": "hex",
+            "index": "int"
+          }
+        },
+        "book_page": {
+          "fields": {
+            "author_account": "text",
+            "author_id": "hex",
+            "author_name": "text",
+            "ignore_author": "bool",
+            "page_id": "int",
+            "page_text": "text"
+          }
+        },
+        "create_list": {
+          "fields": {
+            "destination_type": "int",
+            "palette": "int",
+            "shade": "float",
+            "stack_size": "int",
+            "try_to_bond": "bool",
+            "weenie_class_id": "int"
+          }
+        },
+        "emote": {
+          "fields": {
+            "category": {
+              "name": "EmoteCategory"
+            },
+            "max_health": "float",
+            "min_health": "float",
+            "probability": "float",
+            "quest": "text",
+            "style": "hex",
+            "substyle": "hex",
+            "vendor_type": "int",
+            "weenie_class_id": "int"
+          },
+          "lists": {
+            "action": {
+              "fields": {
+                "amount": "int",
+                "amount_64": "int",
+                "angles_w": "float",
+                "angles_x": "float",
+                "angles_y": "float",
+                "angles_z": "float",
+                "delay": "float",
+                "destination_type": "int",
+                "display": "bool",
+                "extent": "float",
+                "hero_xp_64": "int",
+                "max": "int",
+                "max_64": "int",
+                "max_dbl": "float",
+                "message": "text",
+                "min": "int",
+                "min_64": "int",
+                "min_dbl": "float",
+                "motion": "hex",
+                "obj_cell_id": "hex",
+                "order": "int",
+                "origin_x": "float",
+                "origin_y": "float",
+                "origin_z": "float",
+                "p_script": "int",
+                "palette": "int",
+                "percent": "float",
+                "shade": "float",
+                "sound": "int",
+                "spell_id": "int",
+                "stack_size": "int",
+                "stat": "int",
+                "test_string": "text",
+                "treasure_class": "int",
+                "treasure_type": "int",
+                "try_to_bond": "bool",
+                "type": {
+                  "name": "EmoteType"
+                },
+                "wealth_rating": "int",
+                "weenie_class_id": "int"
+              }
+            }
+          }
+        },
+        "event_filter": {
+          "fields": {
+            "event": "int"
+          }
+        },
+        "generator": {
+          "fields": {
+            "angles_w": "float",
+            "angles_x": "float",
+            "angles_y": "float",
+            "angles_z": "float",
+            "delay": "float",
+            "init_create": "int",
+            "max_create": "int",
+            "obj_cell_id": "hex",
+            "origin_x": "float",
+            "origin_y": "float",
+            "origin_z": "float",
+            "palette_id": "int",
+            "probability": "float",
+            "shade": "float",
+            "stack_size": "int",
+            "weenie_class_id": "int",
+            "when_create": "int",
+            "where_create": "int"
+          }
+        },
+        "palette": {
+          "fields": {
+            "length": "int",
+            "offset": "int",
+            "sub_palette_id": "hex"
+          }
+        },
+        "texture_map": {
+          "fields": {
+            "index": "int",
+            "new_id": "hex",
+            "old_id": "hex"
+          }
+        }
+      },
+      "maps": {
+        "attribute": {
+          "key": {
+            "name": "Attribute"
+          },
+          "value": {
+            "fields": {
+              "cp_spent": "int",
+              "init_level": "int",
+              "level_from_cp": "int"
+            }
+          }
+        },
+        "body_part": {
+          "key": {
+            "name": "BodyPart"
+          },
+          "value": {
+            "fields": {
+              "armor_vs_acid": "int",
+              "armor_vs_bludgeon": "int",
+              "armor_vs_cold": "int",
+              "armor_vs_electric": "int",
+              "armor_vs_fire": "int",
+              "armor_vs_nether": "int",
+              "armor_vs_pierce": "int",
+              "armor_vs_slash": "int",
+              "base_armor": "int",
+              "bh": "int",
+              "d_type": "int",
+              "d_val": "int",
+              "d_var": "float",
+              "hlb": "float",
+              "hlf": "float",
+              "hrb": "float",
+              "hrf": "float",
+              "llb": "float",
+              "llf": "float",
+              "lrb": "float",
+              "lrf": "float",
+              "mlb": "float",
+              "mlf": "float",
+              "mrb": "float",
+              "mrf": "float"
+            }
+          }
+        },
+        "bool": {
+          "key": {
+            "property": "bool"
+          },
+          "value": "bool"
+        },
+        "did": {
+          "key": {
+            "property": "did"
+          },
+          "value": "hex"
+        },
+        "float": {
+          "key": {
+            "property": "float"
+          },
+          "value": "float"
+        },
+        "iid": {
+          "key": {
+            "property": "iid"
+          },
+          "value": "hex"
+        },
+        "int": {
+          "key": {
+            "property": "int"
+          },
+          "value": "int"
+        },
+        "int64": {
+          "key": {
+            "property": "int64"
+          },
+          "value": "int"
+        },
+        "position": {
+          "key": {
+            "property": "position"
+          },
+          "value": {
+            "fields": {
+              "at": {
+                "len": 3,
+                "list": "float"
+              },
+              "cell": "hex",
+              "rotation": {
+                "len": 4,
+                "list": "float"
+              }
+            }
+          }
+        },
+        "skill": {
+          "key": {
+            "name": "Skill"
+          },
+          "value": {
+            "fields": {
+              "init_level": "int",
+              "last_used_time": "float",
+              "level_from_pp": "int",
+              "pp": "int",
+              "resistance_at_last_check": "int",
+              "sac": "int"
+            }
+          }
+        },
+        "spell_book": {
+          "key": "int",
+          "value": "float"
+        },
+        "string": {
+          "key": {
+            "property": "string"
+          },
+          "value": "text"
+        },
+        "vital": {
+          "key": {
+            "name": "Vital"
+          },
+          "value": {
+            "fields": {
+              "cp_spent": "int",
+              "current_level": "int",
+              "init_level": "int",
+              "level_from_cp": "int"
+            }
+          }
+        }
+      },
+      "sql": {
+        "columns": {
+          "class": "class_Id",
+          "class_name": "class_Name",
+          "last_modified": "last_Modified",
+          "type": "type"
+        },
+        "lists": {
+          "anim_part": {
+            "columns": {
+              "animation_id": "animation_Id",
+              "index": "index"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_anim_part"
+          },
+          "book_page": {
+            "columns": {
+              "author_account": "author_Account",
+              "author_id": "author_Id",
+              "author_name": "author_Name",
+              "ignore_author": "ignore_Author",
+              "page_id": "page_Id",
+              "page_text": "page_Text"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_book_page_data"
+          },
+          "create_list": {
+            "columns": {
+              "destination_type": "destination_Type",
+              "palette": "palette",
+              "shade": "shade",
+              "stack_size": "stack_Size",
+              "try_to_bond": "try_To_Bond",
+              "weenie_class_id": "weenie_Class_Id"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_create_list"
+          },
+          "emote": {
+            "columns": {
+              "category": "category",
+              "max_health": "max_Health",
+              "min_health": "min_Health",
+              "probability": "probability",
+              "quest": "quest",
+              "style": "style",
+              "substyle": "substyle",
+              "vendor_type": "vendor_Type",
+              "weenie_class_id": "weenie_Class_Id"
+            },
+            "lists": {
+              "action": {
+                "columns": {
+                  "amount": "amount",
+                  "amount_64": "amount_64",
+                  "angles_w": "angles_W",
+                  "angles_x": "angles_X",
+                  "angles_y": "angles_Y",
+                  "angles_z": "angles_Z",
+                  "delay": "delay",
+                  "destination_type": "destination_Type",
+                  "display": "display",
+                  "extent": "extent",
+                  "hero_xp_64": "hero_X_P_64",
+                  "max": "max",
+                  "max_64": "max_64",
+                  "max_dbl": "max_Dbl",
+                  "message": "message",
+                  "min": "min",
+                  "min_64": "min_64",
+                  "min_dbl": "min_Dbl",
+                  "motion": "motion",
+                  "obj_cell_id": "obj_Cell_Id",
+                  "order": "order",
+                  "origin_x": "origin_X",
+                  "origin_y": "origin_Y",
+                  "origin_z": "origin_Z",
+                  "p_script": "p_Script",
+                  "palette": "palette",
+                  "percent": "percent",
+                  "shade": "shade",
+                  "sound": "sound",
+                  "spell_id": "spell_Id",
+                  "stack_size": "stack_Size",
+                  "stat": "stat",
+                  "test_string": "test_String",
+                  "treasure_class": "treasure_Class",
+                  "treasure_type": "treasure_Type",
+                  "try_to_bond": "try_To_Bond",
+                  "type": "type",
+                  "wealth_rating": "wealth_Rating",
+                  "weenie_class_id": "weenie_Class_Id"
+                },
+                "nullable": [
+                  "motion",
+                  "message",
+                  "test_string",
+                  "min",
+                  "max",
+                  "min_64",
+                  "max_64",
+                  "min_dbl",
+                  "max_dbl",
+                  "stat",
+                  "display",
+                  "amount",
+                  "amount_64",
+                  "hero_xp_64",
+                  "percent",
+                  "spell_id",
+                  "wealth_rating",
+                  "treasure_class",
+                  "treasure_type",
+                  "p_script",
+                  "sound",
+                  "destination_type",
+                  "weenie_class_id",
+                  "stack_size",
+                  "palette",
+                  "shade",
+                  "try_to_bond",
+                  "obj_cell_id",
+                  "origin_x",
+                  "origin_y",
+                  "origin_z",
+                  "angles_w",
+                  "angles_x",
+                  "angles_y",
+                  "angles_z"
+                ],
+                "parent": "emote_Id",
+                "table": "weenie_properties_emote_action"
+              }
+            },
+            "nullable": [
+              "weenie_class_id",
+              "style",
+              "substyle",
+              "quest",
+              "vendor_type",
+              "min_health",
+              "max_health"
+            ],
+            "parent": "object_Id",
+            "table": "weenie_properties_emote"
+          },
+          "event_filter": {
+            "columns": {
+              "event": "event"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_event_filter"
+          },
+          "generator": {
+            "columns": {
+              "angles_w": "angles_W",
+              "angles_x": "angles_X",
+              "angles_y": "angles_Y",
+              "angles_z": "angles_Z",
+              "delay": "delay",
+              "init_create": "init_Create",
+              "max_create": "max_Create",
+              "obj_cell_id": "obj_Cell_Id",
+              "origin_x": "origin_X",
+              "origin_y": "origin_Y",
+              "origin_z": "origin_Z",
+              "palette_id": "palette_Id",
+              "probability": "probability",
+              "shade": "shade",
+              "stack_size": "stack_Size",
+              "weenie_class_id": "weenie_Class_Id",
+              "when_create": "when_Create",
+              "where_create": "where_Create"
+            },
+            "nullable": [
+              "delay",
+              "stack_size",
+              "palette_id",
+              "shade",
+              "obj_cell_id",
+              "origin_x",
+              "origin_y",
+              "origin_z",
+              "angles_w",
+              "angles_x",
+              "angles_y",
+              "angles_z"
+            ],
+            "parent": "object_Id",
+            "table": "weenie_properties_generator"
+          },
+          "palette": {
+            "columns": {
+              "length": "length",
+              "offset": "offset",
+              "sub_palette_id": "sub_Palette_Id"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_palette"
+          },
+          "texture_map": {
+            "columns": {
+              "index": "index",
+              "new_id": "new_Id",
+              "old_id": "old_Id"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_texture_map"
+          }
+        },
+        "maps": {
+          "attribute": {
+            "columns": {
+              "cp_spent": "c_P_Spent",
+              "init_level": "init_Level",
+              "level_from_cp": "level_From_C_P"
+            },
+            "key": "type",
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_attribute"
+          },
+          "body_part": {
+            "columns": {
+              "armor_vs_acid": "armor_Vs_Acid",
+              "armor_vs_bludgeon": "armor_Vs_Bludgeon",
+              "armor_vs_cold": "armor_Vs_Cold",
+              "armor_vs_electric": "armor_Vs_Electric",
+              "armor_vs_fire": "armor_Vs_Fire",
+              "armor_vs_nether": "armor_Vs_Nether",
+              "armor_vs_pierce": "armor_Vs_Pierce",
+              "armor_vs_slash": "armor_Vs_Slash",
+              "base_armor": "base_Armor",
+              "bh": "b_h",
+              "d_type": "d_Type",
+              "d_val": "d_Val",
+              "d_var": "d_Var",
+              "hlb": "h_l_b",
+              "hlf": "h_l_f",
+              "hrb": "h_r_b",
+              "hrf": "h_r_f",
+              "llb": "l_l_b",
+              "llf": "l_l_f",
+              "lrb": "l_r_b",
+              "lrf": "l_r_f",
+              "mlb": "m_l_b",
+              "mlf": "m_l_f",
+              "mrb": "m_r_b",
+              "mrf": "m_r_f"
+            },
+            "key": "key",
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_body_part"
+          },
+          "bool": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_bool",
+            "value": "value"
+          },
+          "did": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_d_i_d",
+            "value": "value"
+          },
+          "float": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_float",
+            "value": "value"
+          },
+          "iid": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_i_i_d",
+            "value": "value"
+          },
+          "int": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_int",
+            "value": "value"
+          },
+          "int64": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_int64",
+            "value": "value"
+          },
+          "position": {
+            "columns": {
+              "at": [
+                "origin_X",
+                "origin_Y",
+                "origin_Z"
+              ],
+              "cell": "obj_Cell_Id",
+              "rotation": [
+                "angles_W",
+                "angles_X",
+                "angles_Y",
+                "angles_Z"
+              ]
+            },
+            "key": "position_Type",
+            "parent": "object_Id",
+            "table": "weenie_properties_position"
+          },
+          "skill": {
+            "columns": {
+              "init_level": "init_Level",
+              "last_used_time": "last_Used_Time",
+              "level_from_pp": "level_From_P_P",
+              "pp": "p_p",
+              "resistance_at_last_check": "resistance_At_Last_Check",
+              "sac": "s_a_c"
+            },
+            "key": "type",
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_skill"
+          },
+          "spell_book": {
+            "key": "spell",
+            "parent": "object_Id",
+            "table": "weenie_properties_spell_book",
+            "value": "probability"
+          },
+          "string": {
+            "key": "type",
+            "parent": "object_Id",
+            "table": "weenie_properties_string",
+            "value": "value"
+          },
+          "vital": {
+            "columns": {
+              "cp_spent": "c_P_Spent",
+              "current_level": "current_Level",
+              "init_level": "init_Level",
+              "level_from_cp": "level_From_C_P"
+            },
+            "key": "type",
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_attribute_2nd"
+          }
+        },
+        "table": "weenie",
+        "tables": {
+          "book": {
+            "columns": {
+              "max_num_chars_per_page": "max_Num_Chars_Per_Page",
+              "max_num_pages": "max_Num_Pages"
+            },
+            "nullable": [],
+            "parent": "object_Id",
+            "table": "weenie_properties_book"
+          }
+        }
+      },
+      "tables": {
+        "book": {
+          "max_num_chars_per_page": "int",
+          "max_num_pages": "int"
+        }
+      }
+    }
+  }
+}

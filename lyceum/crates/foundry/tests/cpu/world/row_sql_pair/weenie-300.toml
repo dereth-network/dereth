@@ -1,0 +1,12 @@
+[[weenie]]
+class = 300
+class_name = "scrolltest"
+type = "Scroll"
+last_modified = "2021-11-01 00:00:00"
+
+[weenie.string]
+Name = "Scroll of Test"
+
+[weenie.did]
+Spell = 0x000004D2
+Setup = 0x02000002

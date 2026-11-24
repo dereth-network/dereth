@@ -1016,3 +1016,53 @@ fn a_packs_world_builder_folders_hold_no_rows_and_are_passed_over() {
     assert_eq!(paths, ["quest/records/odd.toml", "weenie/00509.toml"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The weenie's SQL tables name a column for every field its rows describe, and nothing else: its
+/// own fields, each map's values, its book and each list's entries, an emote's actions among them.
+#[test]
+fn the_weenies_sql_tables_name_a_column_for_every_field_its_rows_hold() {
+    use serde_json::Value;
+    let rows = crate::schema::rows();
+    let w = &rows["weenie"];
+    let sql = &w["sql"];
+    let names = |v: &Value| -> Vec<String> {
+        v.as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut why = Vec::new();
+    let mut same = |at: &str, described: &Value, columns: &Value| {
+        if names(described) != names(columns) {
+            why.push(format!(
+                "{at}: {:?} described, {:?} in columns",
+                names(described),
+                names(columns)
+            ));
+        }
+    };
+    same("weenie", &w["fields"], &sql["columns"]);
+    for (m, d) in w["maps"].as_object().unwrap() {
+        let s = &sql["maps"][m];
+        assert!(s["table"].is_string() && s["key"].is_string(), "{m}: {s}");
+        match d["value"].get("fields") {
+            Some(f) => same(m, f, &s["columns"]),
+            None => assert!(s["value"].is_string(), "{m}: {s}"),
+        }
+    }
+    same(
+        "book",
+        &w["tables"]["book"],
+        &sql["tables"]["book"]["columns"],
+    );
+    for (l, d) in w["lists"].as_object().unwrap() {
+        same(l, &d["fields"], &sql["lists"][l]["columns"]);
+    }
+    same(
+        "emote.action",
+        &w["lists"]["emote"]["lists"]["action"]["fields"],
+        &sql["lists"]["emote"]["lists"]["action"]["columns"],
+    );
+    assert!(why.is_empty(), "{}", why.join("\n"));
+    assert_eq!(sql["maps"]["attribute"]["key"], "type");
+    assert_eq!(sql["maps"]["position"]["columns"]["at"][0], "origin_X");
+}

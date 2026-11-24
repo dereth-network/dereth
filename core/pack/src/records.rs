@@ -319,11 +319,12 @@ pub fn each_table(
     }
 }
 
-/// The item a row sets, from its kind's pattern: the pattern's text, with each `{field}` the row's
-/// value of that field. A placeholder may name a list's element (`{cell[0]}`) and say how a number
-/// is written: `{f}` in decimal, `{f:04X}` in hexadecimal with four digits at least, `{f:#010X}`
-/// with `0x` and eight; and `{f:lower}` is text trimmed and lower-cased. A number the row leaves
-/// out is 0, as a field left out is at its default.
+/// The item a row sets, or the file it lives in, from its kind's pattern: the pattern's text, with
+/// each `{field}` the row's value of that field. A placeholder may name a list's element
+/// (`{cell[0]}`), shift a number right (`{cell >> 16}`) and say how a number is written: `{f}` in
+/// decimal, `{f:05}` in decimal with five digits at least, `{f:04X}` in hexadecimal with four,
+/// `{f:#010X}` with `0x` and eight; `{f:lower}` is text trimmed and lower-cased, `{f:file}` text
+/// as a file name ([`file_safe`]), and `{f}` of text the text as it is. A number the row leaves out is 0, as a field left out is at its default.
 ///
 /// # Errors
 /// A pattern that doesn't read, or a row whose field isn't what its placeholder writes.
@@ -338,6 +339,15 @@ pub fn item_from(pattern: &str, row: &toml::Table) -> Result<String, String> {
             .ok_or_else(|| format!("{pattern:?}: an open {{"))?;
         let inner = &rest[open + 1..close];
         let (path, spec) = inner.split_once(':').unwrap_or((inner, ""));
+        let (path, shift) = match path.split_once(">>") {
+            Some((p, n)) => (
+                p.trim(),
+                n.trim()
+                    .parse::<u32>()
+                    .map_err(|_| format!("{pattern:?}: {inner} shifts by no number"))?,
+            ),
+            None => (path.trim(), 0),
+        };
         let (field, index) = match path.split_once('[') {
             Some((f, i)) => (
                 f,
@@ -353,29 +363,77 @@ pub fn item_from(pattern: &str, row: &toml::Table) -> Result<String, String> {
         if let (Some(i), Some(v)) = (index, value) {
             value = v.as_array().and_then(|a| a.get(i));
         }
-        if spec == "lower" {
+        if spec == "lower" || spec == "file" {
             let text = value
                 .and_then(toml::Value::as_str)
                 .ok_or_else(|| format!("no {path}"))?;
-            out.push_str(&text.trim().to_lowercase());
+            out.push_str(&if spec == "lower" {
+                text.trim().to_lowercase()
+            } else {
+                file_safe(text)
+            });
+        } else if let (Some(text), "", 0) = (value.and_then(toml::Value::as_str), spec, shift) {
+            out.push_str(text);
         } else {
             let n = match value {
                 None => 0,
                 Some(v) => v
                     .as_integer()
                     .ok_or_else(|| format!("{path} isn't a number"))?,
-            };
-            out.push_str(&match spec {
-                "" => n.to_string(),
-                "04X" => format!("{n:04X}"),
-                "#010X" => format!("{n:#010X}"),
-                other => return Err(format!("{pattern:?}: {other} is no way to write a number")),
-            });
+            } >> shift;
+            out.push_str(
+                &number(n, spec)
+                    .ok_or_else(|| format!("{pattern:?}: {spec} is no way to write a number"))?,
+            );
         }
         rest = &rest[close + 1..];
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// A name as a file name: letters, digits, `-`, `_` and `.` kept, anything else `_`; one empty or
+/// starting with `.` gets a `_` before it.
+#[must_use]
+pub fn file_safe(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if s.is_empty() || s.starts_with('.') {
+        format!("_{s}")
+    } else {
+        s
+    }
+}
+
+/// Number `n` written as `spec` says ([`item_from`]): `[#][0<width>][X]`.
+fn number(n: i64, spec: &str) -> Option<String> {
+    let (alt, rest) = match spec.strip_prefix('#') {
+        Some(r) => (true, r),
+        None => (false, spec),
+    };
+    let (digits, hex) = match rest.strip_suffix('X') {
+        Some(d) => (d, true),
+        None => (rest, false),
+    };
+    let width = match digits {
+        "" => 0,
+        d if d.starts_with('0') => d.parse::<usize>().ok()?,
+        _ => return None,
+    };
+    Some(match (alt, hex) {
+        (true, true) => format!("{n:#0width$X}"),
+        (false, true) => format!("{n:0width$X}"),
+        (false, false) => format!("{n:0width$}"),
+        (true, false) => return None,
+    })
 }
 
 /// The item `text` names, written in its one form by its kind's `pattern` ([`item_from`]); `None`

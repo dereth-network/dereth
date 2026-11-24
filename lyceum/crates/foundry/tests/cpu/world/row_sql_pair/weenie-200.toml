@@ -1,0 +1,21 @@
+[[weenie]]
+class = 200
+class_name = "booktest"
+type = "Book"
+last_modified = "2021-11-01 00:00:00"
+
+[weenie.book]
+max_num_pages = 2
+max_num_chars_per_page = 1000
+
+[[weenie.book_page]]
+page_id = 1
+author_id = 0xFFFFFFFF
+author_name = "Author"
+author_account = "prewritten"
+page_text = "page two"
+
+[[weenie.book_page]]
+author_account = "prewritten"
+ignore_author = true
+page_text = "page one"

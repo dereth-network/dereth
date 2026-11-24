@@ -1253,8 +1253,7 @@ impl EditorApp {
         }
         // A world repository the command line names, open in the Rows tab.
         if let Some(repo) = &args.repo {
-            let schema = app.schema.clone();
-            app.rows.open(repo, schema.as_ref());
+            app.rows_open(repo);
             app.open_rows();
         }
         // The window where it was left, and the world where it was left (unless the command line
@@ -2029,6 +2028,7 @@ impl EditorApp {
             if let Err(e) = self.reload_spawns(&Touched {
                 landblocks: shown,
                 sql: false,
+                rows: false,
             }) {
                 self.panels.message = e;
             }
@@ -2316,6 +2316,7 @@ impl EditorApp {
             UiAction::PutBackSaved(w) => self.put_back_saved(&w),
             UiAction::PutBackServer(c) => self.put_back_server(c),
             UiAction::DeleteWeenie(w) => self.delete_weenie(&w),
+            UiAction::RemoveInPatch(c, gone) => self.rows_remove(c, gone),
             UiAction::EditorBack => {
                 self.editor.back();
                 Ok(())
@@ -4209,6 +4210,7 @@ impl EditorApp {
                 self.reload_spawns(&Touched {
                     landblocks,
                     sql: false,
+                    rows: false,
                 })?;
             }
         }
@@ -4586,6 +4588,9 @@ impl EditorApp {
         if let Some(item) = &s.rows_item {
             item.clone_into(&mut self.rows.filter);
             self.rows.selected = Some(item.clone());
+        }
+        if let Some(c) = s.edit_weenie {
+            self.edit_weenie(&Weenie::Class(c), None);
         }
         if let Some(name) = &s.shelf {
             self.panels.kinds.clear();
@@ -5049,6 +5054,8 @@ enum UiAction {
     PutBackServer(u32),
     /// A pack's own weenie deleted, once nothing names it.
     DeleteWeenie(Weenie),
+    /// A world repository's weenie taken away in the patch being edited (`true`), or no longer.
+    RemoveInPatch(u32, bool),
     /// The editor back to the weenie it showed before, or forward again.
     EditorBack,
     EditorForward,
@@ -5182,6 +5189,9 @@ fn read_schema(
 
 #[path = "rows_tab.rs"]
 mod rows_tab;
+
+#[path = "rows_edit.rs"]
+mod rows_edit;
 
 #[path = "characters_tab.rs"]
 mod characters_tab;

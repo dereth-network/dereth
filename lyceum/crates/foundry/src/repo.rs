@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use dereth_pack::conflict::Item;
 use dereth_pack::fold::{self, Input, Snapshot};
 use dereth_pack::lineage::Lineage;
-use dereth_pack::provenance::Provenance;
+pub use dereth_pack::provenance::Provenance;
 use dereth_pack::records::{self, Kinds, RowKinds};
 use dereth_pack::store::DiskStore;
 use dereth_pack::symbol::{Numbering, SymbolKind};
@@ -44,6 +44,8 @@ pub struct RowKind {
     pub file: String,
     /// The tables that fold key by key: its maps and its tables.
     pub folds: BTreeSet<String>,
+    /// The fields that name its item, which every row of it sets.
+    pub keys: Vec<String>,
     /// The kind as the schema describes it: its fields, maps, tables and lists, with their types.
     pub described: serde_json::Value,
 }
@@ -97,6 +99,16 @@ impl RowSchema {
                     item: text("item")?,
                     file: text("file")?,
                     folds,
+                    keys: k
+                        .get("key")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     described: k.clone(),
                 },
             );
@@ -126,6 +138,13 @@ impl RowKinds for RowSchema {
             .find_map(|k| records::item_in_form(&k.item, text))
             .ok_or_else(|| format!("{text:?} names no item"))
     }
+}
+
+/// The item row `row` of `kind` sets, as `schema` names it; `None` for a kind it doesn't know or
+/// a row it can't name.
+#[must_use]
+pub fn item_of(schema: &RowSchema, kind: &str, row: &toml::Table) -> Option<String> {
+    schema.item(kind, row).ok().map(|i| i.name)
 }
 
 /// The item `text` names, in its one form: as a kind of `schema` reads it.
@@ -223,6 +242,8 @@ pub struct Repo {
     /// The era whose rules it plays (`era`), which may be one of the server's own (`newdereth`)
     /// while its data files are the end of retail's.
     pub era: EraId,
+    /// The time a row carries when it names none, as the base's `world-db.toml` gives it.
+    pub stamp: Option<String>,
     pub layers: Vec<RepoLayer>,
 }
 
@@ -242,6 +263,80 @@ pub struct ShownField {
 pub struct ShownItem {
     pub kind: String,
     pub fields: Vec<ShownField>,
+}
+
+impl ShownItem {
+    /// The item with a layer's row `row` over it (`self`, the item below; `None`, one the layer
+    /// makes): the fields the row sets, set by layer `layer` at `at` with provenance `prov`, and
+    /// those it unsets gone.
+    #[must_use]
+    pub fn over(
+        below: Option<&Self>,
+        schema: &RowSchema,
+        kind: &str,
+        row: &toml::Table,
+        layer: &str,
+        at: Option<Loc>,
+        prov: &Provenance,
+    ) -> Self {
+        let mut fields: BTreeMap<String, ShownField> = below
+            .map(|b| {
+                b.fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(toml::Value::Array(gone)) = row.get("remove_fields") {
+            for g in gone.iter().filter_map(toml::Value::as_str) {
+                fields.remove(g);
+            }
+        }
+        let prov = row
+            .get("prov")
+            .cloned()
+            .and_then(|p| p.try_into::<Provenance>().ok())
+            .unwrap_or_else(|| prov.clone());
+        for (name, value) in crate::layer_rows::fields(schema, kind, row) {
+            fields.insert(
+                name.clone(),
+                ShownField {
+                    name,
+                    value,
+                    layer: layer.to_owned(),
+                    at: at.clone(),
+                    prov: prov.clone(),
+                },
+            );
+        }
+        Self {
+            kind: kind.to_owned(),
+            fields: fields.into_values().collect(),
+        }
+    }
+
+    /// The item as one row of its kind: its fields, a map's or a table's keys gathered back under
+    /// it (`int.Level` is `Level` of `int`).
+    #[must_use]
+    pub fn row(&self, schema: &RowSchema) -> toml::Table {
+        let mut row = toml::Table::new();
+        for f in &self.fields {
+            match f.name.split_once('.') {
+                Some((map, key)) if schema.is_map(&self.kind, map) => {
+                    if let toml::Value::Table(t) = row
+                        .entry(map)
+                        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+                    {
+                        t.insert(key.to_owned(), f.value.clone());
+                    }
+                }
+                _ => {
+                    row.insert(f.name.clone(), f.value.clone());
+                }
+            }
+        }
+        row
+    }
 }
 
 /// A world folded at a layer: each item by its name, and what the fold found, by layer.
@@ -360,12 +455,103 @@ impl Repo {
                 world_toml.display()
             ));
         }
+        let stamp = layers[0]
+            .packs
+            .iter()
+            .map(|p| p.dir.join("world-db.toml"))
+            .find(|p| p.is_file())
+            .map(|p| {
+                let text =
+                    std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+                let t: toml::Table =
+                    toml::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+                Ok::<_, String>(
+                    t.get("stamp")
+                        .and_then(toml::Value::as_str)
+                        .map(str::to_owned),
+                )
+            })
+            .transpose()?
+            .flatten();
         Ok(Self {
             path: world_toml.to_path_buf(),
             title,
             era,
+            stamp,
             layers,
         })
+    }
+
+    /// The files New Patch writes for a patch `id` (`<yyyy-mm>-<name>`) titled `title` and dated
+    /// `date`, after the repository's last layer: its `patch.toml`, its `NOTES.md` and one empty
+    /// pack (`main`), and the world file with the patch at the end of its lineage (its comments
+    /// kept).
+    ///
+    /// # Errors
+    /// An id not of that form, or one the repository has.
+    pub fn new_patch(
+        &self,
+        id: &str,
+        title: &str,
+        date: &str,
+    ) -> Result<Vec<(PathBuf, String)>, String> {
+        let ok = id.len() > 8
+            && id.as_bytes()[..7].iter().enumerate().all(|(i, b)| {
+                if i == 4 {
+                    *b == b'-'
+                } else {
+                    b.is_ascii_digit()
+                }
+            })
+            && id.as_bytes()[7] == b'-'
+            && id[8..]
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !ok {
+            return Err(format!(
+                "{id:?}: a patch is <yyyy-mm>-<name>, its name lowercase letters, digits and hyphens"
+            ));
+        }
+        if self.layers.iter().any(|l| l.id == id) {
+            return Err(format!("{id}: the world has that patch"));
+        }
+        let root = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let dir = root.join("patches").join(id);
+        if dir.exists() {
+            return Err(format!("{}: already there", dir.display()));
+        }
+        let after = if self.layers.len() > 1 {
+            self.layers.last().map_or("", |l| l.id.as_str())
+        } else {
+            ""
+        };
+        let q = |s: &str| toml::Value::String(s.to_owned()).to_string();
+        let patch = format!(
+            "id = {}\ntitle = {}\ndate = {}\nafter = {}\npacks = [\"main\"]\n",
+            q(id),
+            q(title),
+            q(date),
+            q(after)
+        );
+        let text = std::fs::read_to_string(&self.path)
+            .map_err(|e| format!("{}: {e}", self.path.display()))?;
+        let mut world: toml_edit::DocumentMut = text
+            .parse()
+            .map_err(|e| format!("{}: {e}", self.path.display()))?;
+        let lineage = world
+            .get_mut("lineage")
+            .and_then(toml_edit::Item::as_array_mut)
+            .ok_or_else(|| format!("{}: no lineage", self.path.display()))?;
+        lineage.push(id);
+        Ok(vec![
+            (dir.join("patch.toml"), patch),
+            (dir.join("NOTES.md"), format!("# {title}\n")),
+            (
+                dir.join("packs/main/pack.toml"),
+                "name = \"main\"\nversion = \"1\"\n".to_owned(),
+            ),
+            (self.path.clone(), world.to_string()),
+        ])
     }
 
     /// The layers' ids, base first.
@@ -391,6 +577,29 @@ impl Repo {
     /// A layer past those that can be shown ([`Self::shown_layers`]), or a row that doesn't read:
     /// one of no kind the schema knows, or that names no item.
     pub fn fold(&self, schema: &RowSchema, at: usize) -> Result<ShownWorld, String> {
+        self.fold_with(schema, at, None)
+    }
+
+    /// The world folded at layer `at` without its pack `pack`: the world below that pack's rows,
+    /// which they change.
+    ///
+    /// # Errors
+    /// As [`Self::fold`].
+    pub fn fold_below(
+        &self,
+        schema: &RowSchema,
+        at: usize,
+        pack: usize,
+    ) -> Result<ShownWorld, String> {
+        self.fold_with(schema, at, Some(pack))
+    }
+
+    fn fold_with(
+        &self,
+        schema: &RowSchema,
+        at: usize,
+        without: Option<usize>,
+    ) -> Result<ShownWorld, String> {
         if at >= self.shown_layers() {
             let id = self.layers.get(at).map_or("?", |l| l.id.as_str());
             return Err(format!(
@@ -400,14 +609,21 @@ impl Repo {
         let mut kinds = Kinds::new();
         let mut inputs = Vec::new();
         for (n, layer) in self.layers.iter().take(at + 1).enumerate() {
+            let packs: Vec<&RowPack> = layer
+                .packs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !(n == at && without == Some(*i)))
+                .map(|(_, p)| p)
+                .collect();
             let (snapshot, rest) = if n == 0 {
-                let first = &layer.packs[0];
-                (
-                    Some(snapshot(schema, first, &mut kinds)?),
-                    &layer.packs[1..],
-                )
+                let s = match packs.first() {
+                    Some(first) => snapshot(schema, first, &mut kinds)?,
+                    None => Snapshot::new(),
+                };
+                (Some(s), packs.get(1..).unwrap_or_default())
             } else {
-                (None, &layer.packs[..])
+                (None, &packs[..])
             };
             let merge = merge_of(schema, rest, &layer.overrides, &mut kinds)
                 .map_err(|e| format!("{}: {e}", layer.id))?;
@@ -444,10 +660,28 @@ impl Repo {
                 },
             );
         }
+        // A row's key, set again by every row of its item, is no change and hides none.
+        let keyed = |item: &str, field: Option<&String>| {
+            field.is_some_and(|f| {
+                kinds
+                    .get(item)
+                    .and_then(|k| schema.kinds.get(k))
+                    .is_some_and(|k| k.keys.contains(f))
+            })
+        };
         let findings = folded
             .layers
             .iter()
-            .flat_map(|l| l.findings.iter().map(move |f| format!("{}: {f}", l.id)))
+            .flat_map(|l| {
+                l.findings
+                    .iter()
+                    .filter(|f| match f {
+                        fold::Finding::NoOp { item, field, .. } => !keyed(item, Some(field)),
+                        fold::Finding::Shadowed { item, field, .. } => !keyed(item, field.as_ref()),
+                        _ => true,
+                    })
+                    .map(move |f| format!("{}: {f}", l.id))
+            })
             .collect();
         Ok(ShownWorld {
             layer: ids[at].to_owned(),
@@ -486,7 +720,7 @@ fn snapshot(
 /// Packs' rows as one layer's changes.
 fn merge_of(
     schema: &RowSchema,
-    packs: &[RowPack],
+    packs: &[&RowPack],
     overrides: &[dereth_pack::conflict::Override],
     kinds: &mut Kinds,
 ) -> Result<fold::Merge<toml::Value>, String> {

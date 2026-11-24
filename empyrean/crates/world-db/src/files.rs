@@ -22,25 +22,8 @@ pub const FORMAT: u32 = 1;
 /// The file naming the world's era, its format and the time a row carries when it says none.
 pub const META: &str = "world-db.toml";
 
-/// A name as a file name: letters, digits, `-`, `_` and `.` kept, anything else `_`.
-#[must_use]
-pub fn file_safe(name: &str) -> String {
-    let s: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if s.is_empty() || s.starts_with('.') {
-        format!("_{s}")
-    } else {
-        s
-    }
-}
+/// A name as a file name, as the schema's file rules write it (`{name:file}`).
+pub use dereth_pack::records::file_safe;
 
 /// The world's stamp: ACE's, unless the world names another.
 #[must_use]

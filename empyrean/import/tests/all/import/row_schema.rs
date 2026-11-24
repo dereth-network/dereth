@@ -6,6 +6,11 @@
 //! world's rows name, and the same item written another way reads back to it as theirs does.
 //! Fixture: the synthetic dump's world written as rows, with a recipe's vital requirement and a
 //! rules row added.
+//!
+//! The same world's weenies, as rows and as ACE's SQL, with a schema of just the names they use,
+//! are the pair an editor's SQL view of a weenie's rows is checked against (Lyceum's
+//! `world::row_sql` test): kept in Lyceum's tests, and the same as this world writes them.
+//! `EMPYREAN_WRITE_ROW_SQL=1` writes them again.
 
 use std::collections::BTreeSet;
 
@@ -133,9 +138,8 @@ fn row(schema: &J, kind: &J, r: &toml::Table, at: &str, why: &mut Vec<String>) {
 /// Every file of the fixture's world, written as rows, is described by the schema: where it is,
 /// what each row holds, and the type of each value; every kind but the ac1999 world's source loot
 /// inputs is among them.
-#[test]
-fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
-    let schema = empyrean_import_schema();
+/// The fixture's world, with the one optional table its dump leaves out and a rules row.
+fn fixture_world() -> empyrean_content::WorldContent {
     let pack = Pack::from_bytes(fixture::imported().0.clone()).expect("the fixture's pack");
     let mut c = empyrean_world_db::from_pack(&pack).expect("its world");
     // The one optional table the dump leaves out: a recipe's vital requirement.
@@ -152,6 +156,13 @@ fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
         features: [("housing".to_owned(), false)].into(),
         ..WorldRules::default()
     });
+    c
+}
+
+#[test]
+fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
+    let schema = empyrean_import_schema();
+    let c = fixture_world();
     let files =
         empyrean_world_db::write(&c, empyrean_world_db::files::default_stamp()).expect("its rows");
     let kinds = schema["rows"].as_object().expect("rows");
@@ -186,6 +197,11 @@ fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
                 match dereth_pack::records::item_from(k["item"].as_str().unwrap(), r) {
                     Ok(got) if got == want => {}
                     got => why.push(format!("{path} {kind}: item {got:?}, not {want:?}")),
+                }
+                // And its file, from the kind's file rule, is the one it is written in.
+                match dereth_pack::records::item_from(file, r) {
+                    Ok(got) if got == *path => {}
+                    got => why.push(format!("{path} {kind}: file {got:?}")),
                 }
                 // Written another way, it reads back to the same item as the world's rows read it.
                 for other in [want.to_lowercase(), want.replace(' ', "  ")] {
@@ -251,7 +267,10 @@ fn every_row_a_world_writes_is_described_by_the_schema_an_editor_reads() {
 
 /// The schema as `empyrean-import schema` writes it.
 fn empyrean_import_schema() -> J {
-    let dir = std::env::temp_dir().join(format!("row-schema-{}", std::process::id()));
+    // A folder of each call's own: the tests here run at once.
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("row-schema-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a folder");
     let out = dir.join("schema.json");
     let status = std::process::Command::new(env!("CARGO_BIN_EXE_empyrean-import"))
@@ -264,4 +283,91 @@ fn empyrean_import_schema() -> J {
     let text = std::fs::read_to_string(&out).expect("written");
     let _ = std::fs::remove_dir_all(&dir);
     serde_json::from_str(&text).expect("JSON")
+}
+
+/// Every string a value of `v` holds, and every key of its tables, for the names a schema keeps.
+fn words(v: &T, out: &mut BTreeSet<String>) {
+    match v {
+        T::String(s) => {
+            out.insert(s.clone());
+        }
+        T::Array(a) => a.iter().for_each(|v| words(v, out)),
+        T::Table(t) => {
+            for (k, v) in t {
+                out.insert(k.clone());
+                words(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The fixture world's weenies as rows (`weenie-<class>.toml`) and as ACE's SQL
+/// (`weenie-<class>.sql`), and the schema with the names they use (`schema.json`), are the pair
+/// kept in Lyceum's tests for its SQL view of a weenie's rows.
+#[test]
+fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
+    let c = fixture_world();
+    let files =
+        empyrean_world_db::write(&c, empyrean_world_db::files::default_stamp()).expect("its rows");
+    let mut want: Vec<(String, String)> = Vec::new();
+    let mut used = BTreeSet::new();
+    for (path, text) in &files {
+        let Some(class) = path
+            .strip_prefix("weenie/")
+            .and_then(|f| f.strip_suffix(".toml"))
+        else {
+            continue;
+        };
+        let class: u32 = class.parse().expect("a class");
+        words(&toml::from_str(text).expect("rows"), &mut used);
+        want.push((format!("weenie-{class}.toml"), text.clone()));
+        let w = c
+            .weenies
+            .iter()
+            .find(|w| w.class_id == class)
+            .expect("its weenie");
+        let mut out = empyrean_content::export::sql::sql_writer::SqlOut::new("\n");
+        empyrean_content::export::sql::weenie_sql_writer::WeenieSQLWriter::default()
+            .create_sql_insert_statement(w, &mut out)
+            .expect("its SQL");
+        want.push((format!("weenie-{class}.sql"), out.text));
+    }
+    assert!(want.len() >= 2, "the fixture has weenies");
+    // The schema's names the rows use, and the weenie's rows' description.
+    let mut schema = empyrean_import_schema();
+    for part in ["properties", "enums"] {
+        for (_, names) in schema[part].as_object_mut().expect(part).iter_mut() {
+            names
+                .as_object_mut()
+                .expect("names")
+                .retain(|_, n| n.as_str().is_some_and(|n| used.contains(n)));
+        }
+        schema[part]
+            .as_object_mut()
+            .expect(part)
+            .retain(|_, names| !names.as_object().is_some_and(serde_json::Map::is_empty));
+    }
+    let weenie = schema["rows"]["weenie"].take();
+    schema["rows"] = serde_json::json!({ "weenie": weenie });
+    want.push((
+        "schema.json".into(),
+        serde_json::to_string_pretty(&schema).expect("JSON") + "\n",
+    ));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../lyceum/crates/foundry/tests/cpu/world/row_sql_pair");
+    if std::env::var_os("EMPYREAN_WRITE_ROW_SQL").is_some() {
+        std::fs::create_dir_all(&dir).expect("its folder");
+        for (name, text) in &want {
+            std::fs::write(dir.join(name), text).expect("written");
+        }
+    }
+    for (name, text) in &want {
+        let kept = std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+        assert!(
+            kept == *text,
+            "{name} in {} is not what the world writes; EMPYREAN_WRITE_ROW_SQL=1 writes it again",
+            dir.display()
+        );
+    }
 }

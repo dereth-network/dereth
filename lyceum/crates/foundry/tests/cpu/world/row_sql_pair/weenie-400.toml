@@ -1,0 +1,8 @@
+[[weenie]]
+class = 400
+class_name = "slumlord_Cottage_test"
+type = "SlumLord"
+last_modified = "2021-11-01 00:00:00"
+
+[weenie.string]
+Name = "Cottage"

@@ -28,7 +28,8 @@
 //!   otherwise written by that tool when it stands beside the editor, else the forms show numbers.
 //! - `--thumbnails`: the folder the model browser's pictures are kept in; the user's cache folder
 //!   otherwise.
-//! - `--repo`: a world repository (Empyrean's world of layers) the Rows tab opens on, read only.
+//! - `--repo`: a world repository (Empyrean's world of layers) the Rows tab opens on, its newest
+//!   layer's weenies edited.
 //! - `--radius`: how many landblocks either side are drawn (2 by default).
 //! - `--empyrean`: the folder of the server's programs (`empyrean-server`, `empyrean-import`), for
 //!   the editor's own world and the forms' names; beside the editor otherwise.
@@ -62,7 +63,7 @@ pub struct Args {
     pub weenies: Option<PathBuf>,
     /// The server's names for the weenie forms (`empyrean-import schema`'s file).
     pub schema: Option<PathBuf>,
-    /// A world repository the Rows tab opens on.
+    /// A world repository the Rows tab opens on, and whose weenies are edited.
     pub repo: Option<PathBuf>,
     /// Whether to read the server database in the user's cache when `weenies` names none.
     pub server_database: bool,

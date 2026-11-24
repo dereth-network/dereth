@@ -570,8 +570,9 @@ fn the_lockfile_is_saved_only_when_its_ids_changed_and_never_made_empty() {
     assert_eq!(Lock::<Toy>::read_from(&store, path).unwrap(), lock);
 }
 
-/// A row's item comes from its kind's pattern: decimal and hexadecimal numbers, a list's element,
-/// text lower-cased, and a number the row leaves out as 0; a field of the wrong kind is refused.
+/// A row's item, and its file, come from its kind's pattern: decimal and hexadecimal numbers,
+/// padded and shifted, a list's element, text lower-cased or as it is, and a number the row leaves
+/// out as 0; a field of the wrong kind is refused.
 #[test]
 fn a_rows_item_is_its_kinds_pattern_with_the_rows_values() {
     use dereth_pack::records::item_from;
@@ -596,10 +597,31 @@ fn a_rows_item_is_its_kinds_pattern_with_the_rows_values() {
         "gem-count 0 509"
     );
     assert_eq!(item_from("rules", &row).unwrap(), "rules");
-    assert!(item_from("weenie {name}", &row)
+    assert!(item_from("weenie {name:05}", &row)
         .unwrap_err()
         .contains("isn't a number"));
     assert!(item_from("weenie {class:x}", &row).is_err());
+    // A kind's file: padded, shifted, and text as it is.
+    assert_eq!(
+        item_from("weenie/{class:05}.toml", &row).unwrap(),
+        "weenie/00509.toml"
+    );
+    assert_eq!(
+        item_from("landblock/{guid >> 16:04X}.toml", &row).unwrap(),
+        "landblock/7A9B.toml"
+    );
+    assert_eq!(
+        item_from("encounter/{landblock >> 8:02X}xx.toml", &row).unwrap(),
+        "encounter/A9xx.toml"
+    );
+    assert_eq!(
+        item_from("quest/{name}.toml", &row).unwrap(),
+        "quest/ Drudge Kills .toml"
+    );
+    assert_eq!(
+        item_from("quest/{name:file}.toml", &row).unwrap(),
+        "quest/_Drudge_Kills_.toml"
+    );
 }
 
 /// An item written another way (lower-case hexadecimal, a decimal guid, a name in capitals, more

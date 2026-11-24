@@ -12,6 +12,9 @@ pub trait FromRow: Sized {
     const TABLE: &'static str;
     /// The columns the model reads, in model order.
     const COLUMNS: &'static [&'static str];
+    /// The model's field each column fills, in the same order (`r#type` for a keyword); none for a
+    /// model read whole from one column.
+    const FIELDS: &'static [&'static str] = &[];
     fn from_row(row: &Row<'_>) -> Result<Self, ImportError>;
 }
 
@@ -23,6 +26,7 @@ macro_rules! impl_from_row {
         impl $crate::records::FromRow for $ty {
             const TABLE: &'static str = $table;
             const COLUMNS: &'static [&'static str] = &[$($col),*];
+            const FIELDS: &'static [&'static str] = &[$(stringify!($field)),*];
             #[allow(clippy::needless_update)]
             fn from_row(row: &$crate::import::mysqldump::Row<'_>) -> Result<Self, $crate::error::ImportError> {
                 Ok(Self { $( $field: row.get($col)?, )* ..Default::default() })

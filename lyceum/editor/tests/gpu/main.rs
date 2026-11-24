@@ -2800,6 +2800,7 @@ fn a_selected_generator_shows_where_it_makes_things_and_its_ring_moves_with_it()
     ed.reload(&lyceum_foundry::edit::Touched {
         landblocks: [HOLTBURG].into_iter().collect(),
         sql: true,
+        rows: false,
     })
     .unwrap();
     let s = ed

@@ -29,7 +29,7 @@
 //!               [--iterations revision|world] [--verify]
 //! lyceum facts <world.toml>                     what the world changes, counted, as one line
 //!                                               of JSON
-//! lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>]
+//! lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
 //!                                               a world repository's rows folded at a layer
 //!                                               (the last it can show), counted by kind, or
 //!                                               one item's fields with the layer and the place
@@ -65,7 +65,7 @@ lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
 lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
-lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>]
+lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -137,7 +137,7 @@ fn fail(e: &lyceum_foundry::Error) -> ExitCode {
 /// `rows`: a world repository folded at a layer.
 fn rows(args: &Args) -> ExitCode {
     use lyceum_foundry::repo::{Repo, RowSchema};
-    if args.known(&["schema", "layer", "item"]).is_err() || args.words.len() != 1 {
+    if args.known(&["schema", "layer", "item", "as-sql"]).is_err() || args.words.len() != 1 {
         return usage("rows takes a world file and --schema");
     }
     let Some(schema) = args.path("schema") else {
@@ -154,7 +154,12 @@ fn rows(args: &Args) -> ExitCode {
                     schema.display()
                 )
             })?;
+        let names = lyceum_foundry::content::Schema::read(&text)
+            .map_err(|e| format!("{}: {e}", schema.display()))?;
         let repo = Repo::open(Path::new(&args.words[0]))?;
+        let sql = args.switch("as-sql");
+        let view =
+            |kind: &str| lyceum_foundry::row_sql::RowSql::new(&names, kind, repo.stamp.as_deref());
         let at = match args.value("layer") {
             Some(id) => repo
                 .ids()
@@ -171,6 +176,11 @@ fn rows(args: &Args) -> ExitCode {
                     .items
                     .get(&name)
                     .ok_or_else(|| format!("{name}: not in the world at {}", world.layer))?;
+                if sql {
+                    let doc = view(&item.kind)?.to_sql(&item.row(&vocabulary))?;
+                    print!("{}", doc.render());
+                    return Ok(());
+                }
                 println!("{name} ({}), at {}:", item.kind, world.layer);
                 for f in &item.fields {
                     let at = f.at.as_ref().map_or_else(String::new, |a| format!(", {a}"));
@@ -197,6 +207,28 @@ fn rows(args: &Args) -> ExitCode {
                 );
                 for f in &world.findings {
                     println!("  {f}");
+                }
+                if sql {
+                    // Each item of a kind written as SQL, viewed and read back.
+                    let (mut seen, mut changed) = (0, Vec::new());
+                    for (name, item) in &world.items {
+                        let Ok(v) = view(&item.kind) else { continue };
+                        let row = item.row(&vocabulary);
+                        let back = v.to_sql(&row).and_then(|d| v.to_row(&d));
+                        seen += 1;
+                        match back {
+                            Ok(b) if b == row => {}
+                            Ok(_) => changed.push(format!("{name}: read back changed")),
+                            Err(e) => changed.push(format!("{name}: {e}")),
+                        }
+                    }
+                    println!(
+                        "{seen} item(s) viewed as SQL, {} read back changed",
+                        changed.len()
+                    );
+                    for c in &changed {
+                        println!("  {c}");
+                    }
                 }
             }
         }
@@ -904,6 +936,7 @@ fn main() -> ExitCode {
         "empty",
         "bare",
         "plain",
+        "as-sql",
     ];
     let parsed = |a: &[String]| parse(a, &switches);
     match first.as_str() {
