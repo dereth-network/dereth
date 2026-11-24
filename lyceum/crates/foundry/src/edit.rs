@@ -177,6 +177,10 @@ pub enum Op {
     /// Write the world repository's row file `file`, in the pack of the layer edits go into
     /// ([`Session::set_rows`]), as `text`, or take it away: an item's row as a form leaves it.
     WriteRows { file: PathBuf, text: Option<String> },
+    /// Write the target pack's records file `file` (under its `records`), holding only rows of
+    /// the game's tables ([`crate::tables`]), as `text`, or take it away: the tables are compiled
+    /// again.
+    WriteTables { file: PathBuf, text: Option<String> },
     /// Place piece `piece` of `environment` as a new cell of `landblock`, drawn with
     /// `surfaces`, at `at` (landblock meters) turned `rotation`. Each of the piece's portals, in
     /// its order, joins another new cell's (its symbol, in full, and that cell's portal, whose
@@ -316,6 +320,8 @@ pub struct Touched {
     pub sql: bool,
     /// Whether a world repository's rows changed.
     pub rows: bool,
+    /// Whether the rows of the game's tables changed.
+    pub tables: bool,
 }
 
 impl Touched {
@@ -323,6 +329,7 @@ impl Touched {
         self.landblocks.extend(o.landblocks);
         self.sql |= o.sql;
         self.rows |= o.rows;
+        self.tables |= o.tables;
     }
 }
 
@@ -3315,6 +3322,12 @@ impl Session {
         &self.packs[self.target].dir
     }
 
+    /// Whether `path` is a records file of the pack being edited (`records/*.toml`).
+    fn is_table_file(&self, path: &Path) -> bool {
+        path.parent() == Some(self.pack_dir().join("records").as_path())
+            && path.extension().and_then(|e| e.to_str()) == Some("toml")
+    }
+
     /// The target pack's file for landblock `lb`'s operations: the one it has, else a new one.
     fn edits_file(&self, lb: u16) -> PathBuf {
         self.packs[self.target]
@@ -3343,6 +3356,16 @@ impl Session {
         for (path, text) in texts {
             self.sources.put(&DiskStore, path, text.clone());
             if self.is_rows(path) {
+                continue;
+            }
+            if self.is_table_file(path) {
+                let rows = match text {
+                    Some(t) => source::table_rows(path, t)?,
+                    None => Vec::new(),
+                };
+                let tables = &mut self.packs[self.target].tables;
+                tables.retain(|r| r.at.file != *path);
+                tables.extend(rows);
                 continue;
             }
             if let Ok(rel) = path.strip_prefix(&sql_dir) {
@@ -3406,11 +3429,14 @@ impl Session {
                 landblocks: Self::vertex_change(&grid, &vertices_before, &vertices_after),
                 sql: false,
                 rows: false,
+                tables: false,
             };
             let sql_dir = self.pack_dir().join("server").join("sql");
             for path in texts.keys() {
                 if self.is_rows(path) {
                     touched.rows = true;
+                } else if self.is_table_file(path) {
+                    touched.tables = true;
                 } else if path.starts_with(&sql_dir) {
                     touched.sql = true;
                 } else {
@@ -3457,6 +3483,9 @@ impl Session {
             if !stale.is_empty() {
                 compile::recompile_landblocks(&self.packs, &self.base, &mut self.compiled, &stale)?;
                 touched.landblocks.extend(stale);
+            }
+            if touched.tables {
+                compile::recompile_tables(&self.packs, &self.base, &mut self.compiled)?;
             }
             // A change that sets something another source sets otherwise, with no word from the
             // world on which wins, is refused; those the world had already stand.
@@ -4011,6 +4040,20 @@ impl Session {
                     )));
                 }
                 if text.is_none() && self.text(file).is_none() {
+                    return Err(Error::Refused(format!("{} is not there", file.display())));
+                }
+                out.insert(file.clone(), text.clone());
+            }
+            Op::WriteTables { file, text } => {
+                if !self.is_table_file(file) {
+                    return Err(Error::Refused(format!(
+                        "{} is not a records file of the pack being edited",
+                        file.display()
+                    )));
+                }
+                if let Some(t) = text {
+                    source::table_rows(file, t)?;
+                } else if self.text(file).is_none() {
                     return Err(Error::Refused(format!("{} is not there", file.display())));
                 }
                 out.insert(file.clone(), text.clone());

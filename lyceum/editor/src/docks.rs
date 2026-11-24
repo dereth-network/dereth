@@ -56,10 +56,18 @@ pub enum Tab {
     Rows,
     /// A world repository's rules at the layer edits go into: optional, floating at first.
     Rules,
+    /// The character-creation table's starting areas: optional, floating at first.
+    Areas,
 }
 
 /// The tabs a layout may hold or not.
-pub const OPTIONAL: [Tab; 4] = [Tab::Editor, Tab::Characters, Tab::Rows, Tab::Rules];
+pub const OPTIONAL: [Tab; 5] = [
+    Tab::Editor,
+    Tab::Characters,
+    Tab::Rows,
+    Tab::Rules,
+    Tab::Areas,
+];
 
 /// The layout's version: a kept layout of another is not taken, but for the one before, whose
 /// lists are moved beside the world view.

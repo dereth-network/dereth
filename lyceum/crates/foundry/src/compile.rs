@@ -128,6 +128,11 @@ pub struct Compiled {
     pub settled: BTreeMap<Part, Settled>,
     /// The world's land grid: its files', or the finer one the world sets ([`crate::land`]).
     pub grid: LandGrid,
+    /// Each portal record of the game's tables the packs' rows wrote, as it was before them
+    /// (`None`: none was compiled), and the lines they said: what the tables are compiled over
+    /// again when their rows change ([`recompile_tables`]).
+    pub tables_below: BTreeMap<u32, Option<Staged>>,
+    pub tables_said: Vec<String>,
     /// The pieces of the AC2 dungeon kits the packs ask for, made from the player's install.
     pub ac2_pieces: Vec<crate::ac2_kit::Ac2Piece>,
     /// Those kits' lights, made from the same install.
@@ -2416,16 +2421,57 @@ fn game_tables(packs: &[Pack], base: &DatSet, c: &mut Compiled) -> Result<(), Er
         crate::tables::compile(packs, &c.overrides, base.era, &view, &mut settled)?
     };
     for w in written {
-        c.records.entry(ModernDat::Portal).or_default().insert(
+        let was = c.records.entry(ModernDat::Portal).or_default().insert(
             w.id,
             Staged {
                 bytes: w.bytes,
                 version: w.version,
             },
         );
+        c.tables_below.entry(w.id).or_insert(was);
+        c.tables_said.push(w.summary.clone());
         c.summary.push(w.summary);
     }
     c.settled.insert(Part::Tables, settled);
+    Ok(())
+}
+
+/// Compile the game's tables again, after the packs' rows of them changed: each table record
+/// they wrote is put back as it was below them, then the tables are compiled over it as
+/// [`compile`] compiles them. A table that comes out as the base holds it is left to the base.
+///
+/// # Errors
+/// As [`compile`]: a row that doesn't apply, or a conflict.
+pub fn recompile_tables(packs: &[Pack], base: &DatSet, c: &mut Compiled) -> Result<(), Error> {
+    let portal = c.records.entry(ModernDat::Portal).or_default();
+    for (id, was) in std::mem::take(&mut c.tables_below) {
+        match was {
+            Some(s) => {
+                portal.insert(id, s);
+            }
+            None => {
+                portal.remove(&id);
+            }
+        }
+    }
+    let said = std::mem::take(&mut c.tables_said);
+    c.summary.retain(|l| !said.contains(l));
+    game_tables(packs, base, c)?;
+    if let (Some(f), Some(portal)) = (
+        base.file(ModernDat::Portal),
+        c.records.get_mut(&ModernDat::Portal),
+    ) {
+        let ids: Vec<u32> = c.tables_below.keys().copied().collect();
+        for id in ids {
+            if portal.get(&id).is_some_and(|s| {
+                f.base_entry(DataId(id)).is_some()
+                    && f.read(DataId(id)).ok().as_ref() == Some(&s.bytes)
+            }) {
+                portal.remove(&id);
+            }
+        }
+    }
+    c.records.retain(|_, r| !r.is_empty());
     Ok(())
 }
 

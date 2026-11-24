@@ -423,3 +423,95 @@ mod land {
         let _ = LandGrid::DEFAULT;
     }
 }
+
+/// A starter area written into the pack's records by the table tabs' edit is compiled into the
+/// character-creation table as a full build compiles it, a second change of it too, and undone
+/// the table is the sample's again; a records file holding anything but the tables' rows is
+/// refused.
+#[test]
+fn a_starter_areas_row_written_in_the_session_compiles_as_a_build_does_and_undoes() {
+    use dereth_assets::tables::CharGen;
+    use dereth_assets::Decode;
+    use lyceum_foundry::edit::Op;
+    use lyceum_foundry::starter_areas::{self, FILE, KIND};
+    use lyceum_foundry::table_edit;
+    use lyceum_foundry::tables::CHARGEN;
+
+    let (_dir, mut s) = session("edit-starter-area");
+    let file = s.packs()[s.target()].dir.join("records").join(FILE);
+    let areas = |s: &Session| {
+        let bytes = s
+            .compiled()
+            .records
+            .get(&ModernDat::Portal)
+            .and_then(|r| r.get(&CHARGEN))
+            .map(|r| r.bytes.clone())
+            .unwrap_or_else(|| s.base().read_portal(DataId(CHARGEN)).unwrap());
+        starter_areas::areas(&CharGen::decode_payload(DataId(CHARGEN), &bytes).unwrap())
+    };
+    let before = areas(&s);
+    let key = [("name", toml::Value::String("Holtburg Gate".into()))];
+    let place = starter_areas::place_row(0xA9B4_0025, 100.0, 100.0, None, 90.0);
+    let text = table_edit::set_fields(
+        None,
+        KIND,
+        &key,
+        &[("at", Some(toml::Value::Array(vec![place])))],
+    )
+    .unwrap();
+    let done = s
+        .apply(&Op::WriteTables {
+            file: file.clone(),
+            text: text.clone(),
+        })
+        .unwrap();
+    assert!(done.touched.tables);
+    assert_eq!(s.compiled().records, full(&s).records);
+    let gate = areas(&s).pop().unwrap();
+    assert_eq!(
+        (gate.name.as_str(), gate.places.len()),
+        ("Holtburg Gate", 1)
+    );
+    // Named no heritages, a new area is every heritage's.
+    let every = starter_areas::heritages(
+        &CharGen::decode_payload(
+            DataId(CHARGEN),
+            &s.base().read_portal(DataId(CHARGEN)).unwrap(),
+        )
+        .unwrap(),
+    );
+    assert_eq!(gate.heritages, every);
+
+    // Offered to one heritage only.
+    let text = table_edit::set_fields(
+        text.as_deref(),
+        KIND,
+        &key,
+        &[(
+            "heritages",
+            Some(toml::Value::Array(vec!["Aluvian".into()])),
+        )],
+    )
+    .unwrap();
+    s.apply(&Op::WriteTables {
+        file: file.clone(),
+        text,
+    })
+    .unwrap();
+    assert_eq!(s.compiled().records, full(&s).records);
+    assert_eq!(areas(&s).pop().unwrap().heritages, ["Aluvian"]);
+
+    // A records file of other rows is no table file.
+    assert!(s
+        .apply(&Op::WriteTables {
+            file: file.clone(),
+            text: Some("[[surface-texture]]\nname = \"stone\"\nlevels = [0x06000001]\n".into()),
+        })
+        .is_err());
+
+    s.undo().unwrap();
+    s.undo().unwrap();
+    assert_eq!(areas(&s), before);
+    let (_, fresh) = session("edit-starter-area-fresh");
+    assert_eq!(s.compiled().records, fresh.compiled().records);
+}

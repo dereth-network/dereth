@@ -1801,6 +1801,7 @@ impl EditorApp {
                 landblocks: std::iter::once(lb).collect(),
                 sql: false,
                 rows: false,
+                tables: false,
             }
         };
         self.layout.target = None;

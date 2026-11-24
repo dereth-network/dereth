@@ -2801,6 +2801,7 @@ fn a_selected_generator_shows_where_it_makes_things_and_its_ring_moves_with_it()
         landblocks: [HOLTBURG].into_iter().collect(),
         sql: true,
         rows: false,
+        tables: false,
     })
     .unwrap();
     let s = ed

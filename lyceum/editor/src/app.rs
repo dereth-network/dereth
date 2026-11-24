@@ -765,6 +765,8 @@ pub struct EditorApp {
     pub rows: rows_tab::RowsView,
     /// The Rules tab: a world repository's rules at the layer edits go into.
     pub rules: rules_tab::RulesView,
+    /// The Starting Areas tab: the character-creation table's starting areas.
+    pub areas: areas_tab::AreasView,
     /// Whether the world itself is a world repository, opened at its newest layer.
     pub repo_world: bool,
     /// Its check going on after a save, and what the last one found.
@@ -1240,6 +1242,7 @@ impl EditorApp {
             characters,
             rows: rows_tab::RowsView::default(),
             rules: rules_tab::RulesView::default(),
+            areas: areas_tab::AreasView::default(),
             repo_world: false,
             repo_checking: None,
             repo_found: None,
@@ -2068,6 +2071,7 @@ impl EditorApp {
                 landblocks: shown,
                 sql: false,
                 rows: false,
+                tables: false,
             }) {
                 self.panels.message = e;
             }
@@ -4254,6 +4258,7 @@ impl EditorApp {
                     landblocks,
                     sql: false,
                     rows: false,
+                    tables: false,
                 })?;
             }
         }
@@ -4624,6 +4629,7 @@ impl EditorApp {
                 "characters" => self.open_characters(),
                 "rows" => self.open_rows(),
                 "rules" => self.open_rules(),
+                "areas" => self.open_areas(),
                 "quests" => self.show_tab(Tab::Quests),
                 "loot" => self.show_tab(Tab::Loot),
                 other => return Err(format!("{other:?} is not a tab to show")),
@@ -4632,6 +4638,9 @@ impl EditorApp {
         if let Some(item) = &s.rows_item {
             item.clone_into(&mut self.rows.filter);
             self.rows.selected = Some(item.clone());
+        }
+        if let Some(name) = &s.add_area {
+            self.add_area_here(name)?;
         }
         if let Some(c) = s.edit_weenie {
             self.edit_weenie(&Weenie::Class(c), None);
@@ -5236,6 +5245,9 @@ mod rows_tab;
 
 #[path = "rules_tab.rs"]
 mod rules_tab;
+
+#[path = "areas_tab.rs"]
+mod areas_tab;
 
 #[path = "rows_edit.rs"]
 mod rows_edit;

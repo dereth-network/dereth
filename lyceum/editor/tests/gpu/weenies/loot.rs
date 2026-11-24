@@ -293,6 +293,7 @@ fn a_generators_treasure_entry_shows_as_the_loot_table_it_names_and_opens_it_in_
         landblocks: [HOLTBURG].into_iter().collect(),
         sql: true,
         rows: false,
+        tables: false,
     })
     .unwrap();
     let s = ed

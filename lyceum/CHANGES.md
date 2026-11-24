@@ -18,6 +18,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Open a server world repository as a world, edit it and play it; the new Rows tab reads any layer.
 - New `lyceum publish`: build a world repository for its server in one command.
 - New Rules tab: a world repository's rules, each beside its era's.
+- New Starting Areas tab: set where new characters start from the camera.
 
 ## 0.2.8 (2026-11-23)
 

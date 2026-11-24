@@ -995,19 +995,21 @@ fn target(at: &Loc, pack: &str, name: Option<&str>, replace: Option<i64>) -> Res
     }
 }
 
-fn read_records(
-    pack: &Pack,
-    path: &Path,
-    rows: &mut Rows,
-    kits: &mut Vec<Located<crate::ac2_kit::Kit>>,
-    tables: &mut Vec<Located<crate::tables::TableRow>>,
-) -> Result<Vec<Located<NewRecord>>, Error> {
+/// The kinds of row of the game's tables a records file may hold ([`crate::tables`]).
+pub const TABLE_KINDS: [&str; 8] = [
+    "skill",
+    "experience",
+    "level",
+    "spell",
+    "starter-area",
+    "heritage",
+    "heritage-skill",
+    "heritage-template",
+];
+
+/// The tables' rows of a records file, in the file's order, each with where it starts.
+fn table_rows_of(file: &RecordsFile) -> Vec<(usize, crate::tables::TableRow)> {
     use crate::tables::TableRow;
-    let text = read_text(path)?;
-    let file: RecordsFile = parse_toml(path, &text)?;
-    let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
-    let loc = |start: usize| Loc::at(path, &text, start);
-    // The tables' rows, in the file's order.
     let mut table_rows: Vec<(usize, TableRow)> = Vec::new();
     macro_rules! table {
         ($field:ident, $variant:ident) => {
@@ -1025,7 +1027,45 @@ fn read_records(
     table!(heritage_skill, HeritageSkill);
     table!(heritage_template, HeritageTemplate);
     table_rows.sort_by_key(|(start, _)| *start);
-    for (start, item) in table_rows {
+    table_rows
+}
+
+/// The rows of the game's tables in `text`, records file `path`, which holds nothing else: what
+/// the world builder's table tabs write.
+///
+/// # Errors
+/// Text that isn't a records file, or one holding anything but the tables' rows.
+pub fn table_rows(path: &Path, text: &str) -> Result<Vec<Located<crate::tables::TableRow>>, Error> {
+    let all: toml::Table =
+        toml::from_str(text).map_err(|e| Error::source(&Loc::new(path, 0), e.to_string()))?;
+    if let Some(k) = all.keys().find(|k| !TABLE_KINDS.contains(&k.as_str())) {
+        return Err(Error::source(
+            &Loc::new(path, 0),
+            format!("[[{k}]] is not a row of the game's tables: the table tabs write a file of their rows only"),
+        ));
+    }
+    let file: RecordsFile = parse_toml(path, text)?;
+    Ok(table_rows_of(&file)
+        .into_iter()
+        .map(|(start, item)| Located {
+            at: Loc::at(path, text, start),
+            item,
+        })
+        .collect())
+}
+
+fn read_records(
+    pack: &Pack,
+    path: &Path,
+    rows: &mut Rows,
+    kits: &mut Vec<Located<crate::ac2_kit::Kit>>,
+    tables: &mut Vec<Located<crate::tables::TableRow>>,
+) -> Result<Vec<Located<NewRecord>>, Error> {
+    let text = read_text(path)?;
+    let file: RecordsFile = parse_toml(path, &text)?;
+    let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
+    let loc = |start: usize| Loc::at(path, &text, start);
+    for (start, item) in table_rows_of(&file) {
         let at = loc(start);
         rows.note(&at, item.prov());
         tables.push(Located { at, item });
