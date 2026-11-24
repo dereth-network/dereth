@@ -315,6 +315,12 @@ impl EditorApp {
             std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         }
         let path = repo.path.clone();
+        if self.repo_world {
+            // The world's packs are those it was opened with: the patch's joins them, and its
+            // edits begin, once the world is opened again.
+            self.panels.message = self.say_with("messages.patch_made_reopen", &[("id", &id)]);
+            return Ok(());
+        }
         self.rows_open(&path);
         Ok(())
     }

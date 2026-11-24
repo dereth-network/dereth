@@ -1227,7 +1227,20 @@ impl Session {
         target: Option<&str>,
         ac2: Option<dereth_ac2_convert::source::Ac2>,
     ) -> Result<Self, Error> {
-        let world = World::read(world_path)?;
+        Self::open_world(World::read(world_path)?, dats, target, ac2)
+    }
+
+    /// [`Session::open_with`] a world already read or made: a world repository's
+    /// ([`crate::repo_world::world_of`]).
+    ///
+    /// # Errors
+    /// As [`Session::open_with`].
+    pub fn open_world(
+        world: World,
+        dats: &Path,
+        target: Option<&str>,
+        ac2: Option<dereth_ac2_convert::source::Ac2>,
+    ) -> Result<Self, Error> {
         let packs = world
             .packs
             .iter()

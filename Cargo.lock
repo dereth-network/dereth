@@ -4199,6 +4199,7 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
+ "sha2",
  "toml",
  "toml_edit",
 ]

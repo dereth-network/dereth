@@ -4,7 +4,7 @@
 //! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--ac2 <dir>] [--pack <name>]
 //!               [--landblock <XXYY>]
 //!               [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
-//!               [--repo <world.toml>]
+//!               [--repo <world.toml>] [--on <overlay>]
 //!               [--radius <n>]
 //!               [--empyrean <dir>] [--live-dir <dir>] [--live]
 //!               [--renderer vulkan|d3d12|wgpu]
@@ -30,6 +30,8 @@
 //!   otherwise.
 //! - `--repo`: a world repository (Empyrean's world of layers) the Rows tab opens on, its newest
 //!   layer's weenies edited.
+//! - `--on`: the land a world repository opened as the world is built over, the converter's
+//!   overlay its `[land]` pins; remembered for the repository once it is.
 //! - `--radius`: how many landblocks either side are drawn (2 by default).
 //! - `--empyrean`: the folder of the server's programs (`empyrean-server`, `empyrean-import`), for
 //!   the editor's own world and the forms' names; beside the editor otherwise.
@@ -65,6 +67,8 @@ pub struct Args {
     pub schema: Option<PathBuf>,
     /// A world repository the Rows tab opens on, and whose weenies are edited.
     pub repo: Option<PathBuf>,
+    /// The land a world repository opened as the world is built over: its converted overlay.
+    pub on: Option<PathBuf>,
     /// Whether to read the server database in the user's cache when `weenies` names none.
     pub server_database: bool,
     pub thumbnails: Option<PathBuf>,
@@ -154,6 +158,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         weenies: None,
         schema: None,
         repo: None,
+        on: None,
         server_database: true,
         thumbnails: None,
         radius: 2,
@@ -194,6 +199,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             "--no-weenies" => a.server_database = false,
             "--schema" => a.schema = Some(PathBuf::from(value(arg)?)),
             "--repo" => a.repo = Some(PathBuf::from(value(arg)?)),
+            "--on" => a.on = Some(PathBuf::from(value(arg)?)),
             "--thumbnails" => a.thumbnails = Some(PathBuf::from(value(arg)?)),
             "--radius" => {
                 let v = value(arg)?;

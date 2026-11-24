@@ -160,9 +160,9 @@ fn a_patch_takes_an_item_away_with_a_remove_row() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// New Patch writes a patch after the last layer, with one pack to write in, and adds it to the
-/// world file's lineage, the file's comments kept; an id not of the form, or one the world has, is
-/// refused.
+/// New Patch writes a patch after the last layer, with one pack to write in named for it, and adds
+/// it to the world file's lineage, the file's comments kept; an id not of the form, one the world
+/// has, or one whose pack name another pack has, is refused.
 #[test]
 fn new_patch_adds_a_patch_with_a_pack_after_the_last_layer() {
     let (dir, world) = repo("new-patch");
@@ -176,6 +176,12 @@ fn new_patch_adds_a_patch_with_a_pack_after_the_last_layer() {
     assert!(repo
         .new_patch("2027-01-first", "First", "2027-01-01")
         .is_err());
+    assert!(
+        repo.new_patch("2027-03-main", "Main", "2027-03-01")
+            .unwrap_err()
+            .contains("a pack of that name"),
+        "the first patch's pack is main"
+    );
     for (path, text) in repo
         .new_patch("2027-02-second", "Second", "2027-02-01")
         .unwrap()
@@ -186,7 +192,7 @@ fn new_patch_adds_a_patch_with_a_pack_after_the_last_layer() {
     assert_eq!(repo.ids(), ["base", "2027-01-first", "2027-02-second"]);
     let last = &repo.layers[2];
     assert_eq!(last.packs.len(), 1);
-    assert_eq!(last.packs[0].name, "main");
+    assert_eq!(last.packs[0].name, "second");
     assert!(std::fs::read_to_string(&world)
         .unwrap()
         .starts_with("# The test world.\n"));

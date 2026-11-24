@@ -899,7 +899,7 @@ impl Characters {
     /// The world `world`'s recipes, its old templates upgraded first, and the one selected last.
     /// `symbol_of` names the pack weenie a class number is, for the upgrade.
     pub fn open(world: &Path, symbol_of: impl Fn(u32) -> Option<String>) -> Self {
-        let root = world.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let root = crate::world_home::world_home(world);
         let mut out = Self {
             root,
             name: "Builder".into(),

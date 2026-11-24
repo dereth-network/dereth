@@ -66,6 +66,7 @@ pub mod script;
 pub mod shell;
 pub mod text;
 pub mod view;
+pub mod world_home;
 
 #[cfg(gpu)]
 pub mod app;

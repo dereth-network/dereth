@@ -20,16 +20,12 @@ pub struct LiveArgs {
     pub playtest: PathBuf,
 }
 
-/// The folder beside world file `world` that its playtests keep their files in: the world's
+/// The folder world file `world`'s playtests keep their files in ([`crate::world_home::world_home`]): the world's
 /// server and its data overlay (`world`), and the client's own settings and crash logs
 /// (`client`). Never the player's settings, and nothing under the user's local data.
 #[must_use]
 pub fn playtest_dir(world: &Path) -> PathBuf {
-    world
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."))
-        .join(".playtest")
+    crate::world_home::world_home(world).join(".playtest")
 }
 
 /// The interface the playtest client shows.

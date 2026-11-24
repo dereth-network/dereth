@@ -1,0 +1,205 @@
+//! A world repository opened as the world builder's world: the packs of its layers, up to the one
+//! being edited, in order (the base's, then each patch's), laid over its land.
+//!
+//! The land is the converter's data overlay, which the repository names only by what it was built
+//! from and by the SHA-256 of each of its four files (`[land]` in its `world.toml`); the overlay
+//! itself is the server owner's own, never in the repository. The folder given for it must be
+//! that land, file for file ([`check_land`]): one built otherwise is refused, with the command that
+//! builds it from the repository's pins.
+//!
+//! The world builder's own edits of the land (`records/`, `edits/`) are in those packs beside their
+//! rows, and its ids in `world.lock` at the repository's root, beside `world.toml`. What it builds
+//! goes elsewhere: never into the repository.
+
+use std::path::{Path, PathBuf};
+
+use sha2::{Digest, Sha256};
+
+use crate::repo::Repo;
+use crate::world::{EraId, World};
+
+/// The land overlay's files, each with the `[land]` key that pins it.
+pub const LAND_FILES: [(&str, &str); 4] = [
+    ("overlay_cell.dat", "cell_overlay_sha256"),
+    ("overlay_portal.dat", "portal_overlay_sha256"),
+    ("places.tsv", "places_sha256"),
+    ("world.toml", "rules_sha256"),
+];
+
+/// Whether `world_toml` is a world repository's world file: one that names its layers
+/// (`lineage`).
+#[must_use]
+pub fn is_repository(world_toml: &Path) -> bool {
+    std::fs::read_to_string(world_toml)
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Table>(&t).ok())
+        .is_some_and(|t| t.contains_key("lineage"))
+}
+
+/// The repository's world file, read as a table.
+fn world_table(repo: &Repo) -> Result<toml::Table, String> {
+    let text =
+        std::fs::read_to_string(&repo.path).map_err(|e| format!("{}: {e}", repo.path.display()))?;
+    toml::from_str(&text).map_err(|e| format!("{}: {e}", repo.path.display()))
+}
+
+fn sha256_of(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    Some(
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    )
+}
+
+/// Refused unless `overlay` is the land the repository pins (`[land]`): each of its four files
+/// as the pins say, the expected and found SHA-256 of each that isn't named, with the command that
+/// builds the land from the pins. A repository that pins no land takes none (`overlay` `None`).
+///
+/// # Errors
+/// A land pinned and none given, one given and none pinned, or one that isn't the pinned land.
+pub fn check_land(repo: &Repo, overlay: Option<&Path>) -> Result<(), String> {
+    let world = world_table(repo)?;
+    let land = world.get("land").and_then(toml::Value::as_table);
+    let (land, overlay) = match (land, overlay) {
+        (None, None) => return Ok(()),
+        (None, Some(o)) => {
+            return Err(format!(
+                "{} pins no land, so it takes no overlay ({})",
+                repo.path.display(),
+                o.display()
+            ))
+        }
+        (Some(_), None) => {
+            return Err(format!(
+                "{} is built on a converted land: give its overlay folder (--on <folder>)",
+                repo.path.display()
+            ))
+        }
+        (Some(l), Some(o)) => (l, o),
+    };
+    let mut wrong = Vec::new();
+    for (file, key) in LAND_FILES {
+        let expected = land.get(key).and_then(toml::Value::as_str).unwrap_or("");
+        let found = sha256_of(&overlay.join(file));
+        if found.as_deref() != Some(expected) {
+            wrong.push(format!(
+                "  {file}: expected {expected}, found {}",
+                found.as_deref().unwrap_or("no file")
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        return Ok(());
+    }
+    let s = |k: &str| land.get(k).and_then(toml::Value::as_str).unwrap_or("");
+    let args: Vec<&str> = land
+        .get("converter_args")
+        .and_then(toml::Value::as_array)
+        .map(|a| a.iter().filter_map(toml::Value::as_str).collect())
+        .unwrap_or_default();
+    let ledger = s("ledger");
+    Err(format!(
+        "{} isn't the land {} pins:\n{}\nBuild it from the pins, with the converter at dereth commit {}, in the repository's folder:\n  {} --ac1 <AC1 install> --ac2 <AC2 install> --out <folder>{}{}",
+        overlay.display(),
+        repo.path.display(),
+        wrong.join("\n"),
+        s("converter_commit"),
+        s("converter"),
+        if ledger.is_empty() {
+            String::new()
+        } else {
+            format!(" --ledger {ledger}")
+        },
+        args.iter().map(|a| format!(" {a}")).collect::<String>(),
+    ))
+}
+
+/// Refused when the repository's `world.lock` holds a merge's conflict markers: it is regenerated
+/// (`lyceum lock`, [`crate::lock_merge::rebuild`]), never put right by hand; `land` is the land
+/// the command is to name.
+///
+/// # Errors
+/// A lockfile in conflict, with the command that regenerates it.
+pub fn check_lock(repo: &Repo, land: Option<&Path>) -> Result<(), String> {
+    let lock = repo.path.with_file_name("world.lock");
+    if std::fs::read_to_string(&lock).is_ok_and(|t| t.lines().any(|l| l.starts_with("<<<<<<<"))) {
+        return Err(format!(
+            "{} holds a merge's conflict: regenerate it, never by hand: lyceum lock {} --dats <client folder>{}",
+            lock.display(),
+            repo.path.display(),
+            land.map_or_else(String::new, |l| format!(" --on {}", l.display()))
+        ));
+    }
+    Ok(())
+}
+
+/// The repository's key: its world file's, else its folder's name.
+///
+/// # Errors
+/// A world file that doesn't read.
+pub fn key_of(repo: &Repo) -> Result<String, String> {
+    let world = world_table(repo)?;
+    Ok(world
+        .get("key")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            repo.path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default())
+}
+
+/// The world builder's world of `repo` at layer `layer`: every layer's packs up to it, in order,
+/// over the land `land` (checked: [`check_land`]), its build going to `out`. Its files are the end
+/// of retail's, which the land is built over; the rules the repository plays are its own
+/// ([`Repo::era`]).
+///
+/// # Errors
+/// A layer that can't be shown, two packs of one name (the world builder names what it makes by
+/// pack), or a land that isn't the one pinned.
+pub fn world_of(
+    repo: &Repo,
+    layer: usize,
+    land: Option<&Path>,
+    out: &Path,
+) -> Result<World, String> {
+    if layer >= repo.shown_layers() {
+        return Err(format!(
+            "{}: the world after a checkpoint comes from its pinned release, which Lyceum doesn't edit",
+            repo.layers.get(layer).map_or("?", |l| l.id.as_str())
+        ));
+    }
+    check_land(repo, land)?;
+    let mut packs: Vec<PathBuf> = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    for l in repo.layers.iter().take(layer + 1) {
+        for p in &l.packs {
+            if names.contains(&p.name.as_str()) {
+                return Err(format!(
+                    "two packs are named {}: the world builder names what it makes by its pack, so a repository's pack names are its own (in {})",
+                    p.name, l.id
+                ));
+            }
+            names.push(&p.name);
+            packs.push(p.dir.clone());
+        }
+    }
+    Ok(World {
+        path: repo.path.clone(),
+        key: key_of(repo)?,
+        era: EraId::Eor,
+        packs,
+        imports: land.map(Path::to_path_buf).into_iter().collect(),
+        out: out.to_path_buf(),
+        ids: std::collections::BTreeMap::new(),
+        overrides: Vec::new(),
+        base: None,
+        lineage: Vec::new(),
+        land_steps: None,
+    })
+}

@@ -763,6 +763,8 @@ pub struct EditorApp {
     pub characters: crate::characters::Characters,
     /// The Rows tab: a world repository's rows, read only.
     pub rows: rows_tab::RowsView,
+    /// Whether the world itself is a world repository, opened at its newest layer.
+    pub repo_world: bool,
     character_work: Option<characters_tab::Work>,
     /// Frames counted while the Characters tab shows, for when the creatures round the camera
     /// are gathered again.
@@ -891,11 +893,7 @@ impl EditorApp {
                     crate::text::Text::open(&d.join(crate::text::FILE_NAME))
                 }),
         };
-        let browser_file = args
-            .world
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join(".lyceum-browser.toml");
+        let browser_file = crate::world_home::world_home(&args.world).join(".lyceum-browser.toml");
         let (browser_state, browser_path, browser_problem) =
             match crate::browser_state::BrowserState::read(&browser_file) {
                 Ok(state) => (state, Some(browser_file), String::new()),
@@ -906,12 +904,40 @@ impl EditorApp {
             .as_deref()
             .map(lyceum_foundry::ac2_kit::open)
             .transpose()?;
-        let mut session = Session::open_with(
-            &args.world,
-            &world_dats(&cfg, args.world_era()),
-            args.pack.as_deref(),
-            ac2,
-        )
+        // A world repository is the world of its layers' packs over its land, edited at its
+        // newest layer; any other world file is Lyceum's own.
+        let repo_world = lyceum_foundry::repo_world::is_repository(&args.world);
+        let mut session = if repo_world {
+            let repo = lyceum_foundry::repo::Repo::open(&args.world)?;
+            let land = args
+                .on
+                .clone()
+                .or_else(|| crate::world_home::remembered_land(&args.world));
+            let out = crate::world_home::world_home(&args.world).join("build");
+            lyceum_foundry::repo_world::check_lock(&repo, land.as_deref())?;
+            let world = lyceum_foundry::repo_world::world_of(
+                &repo,
+                repo.shown_layers() - 1,
+                land.as_deref(),
+                &out,
+            )?;
+            if let Some(l) = &land {
+                crate::world_home::remember_land(&args.world, l);
+            }
+            Session::open_world(
+                world,
+                &world_dats(&cfg, dereth_primitives::EraId::Eor),
+                args.pack.as_deref(),
+                ac2,
+            )
+        } else {
+            Session::open_with(
+                &args.world,
+                &world_dats(&cfg, args.world_era()),
+                args.pack.as_deref(),
+                ac2,
+            )
+        }
         .map_err(|e| e.to_string())?;
         let world_files = (session.base().dir.clone(), session.base().era);
         if let Some(w) = &args.weenies {
@@ -1208,6 +1234,7 @@ impl EditorApp {
             },
             characters,
             rows: rows_tab::RowsView::default(),
+            repo_world: false,
             character_work: None,
             place_ticks: 0,
             play_options: play::read_play_options(&play::playtest_dir(&args.world).join("client")),
@@ -1255,6 +1282,10 @@ impl EditorApp {
         if let Some(repo) = &args.repo {
             app.rows_open(repo);
             app.open_rows();
+        } else if repo_world {
+            // The world is a repository: its newest layer edited, its rows in the Rows tab.
+            app.repo_world = true;
+            app.rows_open(&args.world);
         }
         // The window where it was left, and the world where it was left (unless the command line
         // names where to start).

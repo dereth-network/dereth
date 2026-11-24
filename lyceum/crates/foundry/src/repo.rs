@@ -484,11 +484,11 @@ impl Repo {
 
     /// The files New Patch writes for a patch `id` (`<yyyy-mm>-<name>`) titled `title` and dated
     /// `date`, after the repository's last layer: its `patch.toml`, its `NOTES.md` and one empty
-    /// pack (`main`), and the world file with the patch at the end of its lineage (its comments
-    /// kept).
+    /// pack named for the patch (`<name>`), and the world file with the patch at the end of its
+    /// lineage (its comments kept).
     ///
     /// # Errors
-    /// An id not of that form, or one the repository has.
+    /// An id not of that form, or one the repository has, or a name one of its packs has.
     pub fn new_patch(
         &self,
         id: &str,
@@ -515,6 +515,18 @@ impl Repo {
         if self.layers.iter().any(|l| l.id == id) {
             return Err(format!("{id}: the world has that patch"));
         }
+        // Its pack is named for it: the world builder names what it makes by its pack, so no two
+        // of a world's packs share a name.
+        let pack = &id[8..];
+        if self
+            .layers
+            .iter()
+            .any(|l| l.packs.iter().any(|p| p.name == pack))
+        {
+            return Err(format!(
+                "{pack}: the world has a pack of that name; name the patch otherwise"
+            ));
+        }
         let root = self.path.parent().unwrap_or_else(|| Path::new("."));
         let dir = root.join("patches").join(id);
         if dir.exists() {
@@ -527,11 +539,12 @@ impl Repo {
         };
         let q = |s: &str| toml::Value::String(s.to_owned()).to_string();
         let patch = format!(
-            "id = {}\ntitle = {}\ndate = {}\nafter = {}\npacks = [\"main\"]\n",
+            "id = {}\ntitle = {}\ndate = {}\nafter = {}\npacks = [{}]\n",
             q(id),
             q(title),
             q(date),
-            q(after)
+            q(after),
+            q(pack)
         );
         let text = std::fs::read_to_string(&self.path)
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
@@ -547,8 +560,8 @@ impl Repo {
             (dir.join("patch.toml"), patch),
             (dir.join("NOTES.md"), format!("# {title}\n")),
             (
-                dir.join("packs/main/pack.toml"),
-                "name = \"main\"\nversion = \"1\"\n".to_owned(),
+                dir.join("packs").join(pack).join("pack.toml"),
+                format!("name = {}\nversion = \"1\"\n", q(pack)),
             ),
             (self.path.clone(), world.to_string()),
         ])

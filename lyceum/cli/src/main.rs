@@ -35,6 +35,10 @@
 //!                                               one item's fields with the layer and the place
 //!                                               that set each and where it came from; the
 //!                                               vocabulary is `empyrean-import schema`'s
+//! lyceum lock <world.toml> --dats <dir> [--on <overlay>]
+//!                                               the world's lockfile regenerated after a
+//!                                               merge: every id kept, what two branches
+//!                                               numbered alike numbered again, its rows too
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
 //! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
@@ -66,6 +70,7 @@ lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--e
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
+lyceum lock <world.toml> --dats <dir> [--on <overlay>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -132,6 +137,52 @@ impl Args {
 fn fail(e: &lyceum_foundry::Error) -> ExitCode {
     eprintln!("lyceum: {e}");
     ExitCode::from(2)
+}
+
+/// `lock`: a world's lockfile regenerated after a merge, its conflict markers and all: every id
+/// kept, and what two branches numbered alike numbered again, with the rows that named it.
+fn lock(args: &Args) -> ExitCode {
+    use lyceum_foundry::repo_world;
+    if args.known(&["dats", "on"]).is_err() || args.words.len() != 1 {
+        return usage("lock takes a world file and --dats");
+    }
+    let Some(dats) = args.path("dats") else {
+        return usage("lock takes --dats (the client's files the world is built over)");
+    };
+    let path = Path::new(&args.words[0]);
+    let run = || -> Result<Vec<lyceum_foundry::lock_merge::Renumbered>, String> {
+        let world = if repo_world::is_repository(path) {
+            let repo = lyceum_foundry::repo::Repo::open(path)?;
+            let out = std::env::temp_dir().join(format!("lyceum-lock-{}", std::process::id()));
+            let land = args.path("on");
+            repo_world::world_of(&repo, repo.shown_layers() - 1, land.as_deref(), &out)?
+        } else {
+            lyceum_foundry::world::World::read(path).map_err(|e| e.to_string())?
+        };
+        lyceum_foundry::lock_merge::rebuild(world, &dats).map_err(|e| e.to_string())
+    };
+    match run() {
+        Ok(done) => {
+            for r in &done {
+                println!(
+                    "{} {}: 0x{:08X} is now 0x{:08X}",
+                    r.kind, r.symbol, r.from, r.to
+                );
+                for f in &r.rows {
+                    println!("  {}", f.display());
+                }
+            }
+            println!(
+                "the lockfile is whole; {} symbol(s) numbered again",
+                done.len()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("lyceum: {e}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 /// `rows`: a world repository folded at a layer.
@@ -1059,6 +1110,10 @@ fn main() -> ExitCode {
         },
         "rows" => match parsed(rest) {
             Ok(a) => rows(&a),
+            Err(why) => usage(&why),
+        },
+        "lock" => match parsed(rest) {
+            Ok(a) => lock(&a),
             Err(why) => usage(&why),
         },
         other => usage(&format!("{other} is not a command")),
