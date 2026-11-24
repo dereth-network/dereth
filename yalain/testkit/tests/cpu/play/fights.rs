@@ -2129,6 +2129,144 @@ fn a_corpse_answers_its_opener_once_its_opening_has_played() {
     );
 }
 
+/// What a message says of a corpse's closing, if anything: its closing mode, the close's answer,
+/// its open quality cleared.
+fn closing_part(m: &ServerMessage, corpse: u64) -> Option<&'static str> {
+    use yalain_world::inventory::{function, look, q};
+    match m {
+        ServerMessage::DoMode(e) if e.sender.id == corpse && e.action.0 == look::CLOSED_MODE => {
+            Some("closing")
+        }
+        ServerMessage::PlayerCall(c) if c.function.0 == function::CLOSE_DONE => Some("answer"),
+        ServerMessage::UpdateBoolVisual(v)
+            if v.object.id == corpse && v.quality == q::OPEN && v.value == 0 =>
+        {
+            Some("shut")
+        }
+        _ => None,
+    }
+}
+
+/// A corpse its opener asks to close begins to close at once, its closing mode seen; its closer is
+/// answered and it is shown shut a quarter second later, together, none of it sooner.
+/// Behaviour: server.loot.corpse-closes-after-its-closing
+#[test]
+fn a_corpse_asked_to_close_answers_once_its_closing_has_played() {
+    use yalain_world::inventory::CLOSES_AFTER;
+    let (mut h, b, me, _) = fight();
+    let corpse = fights_corpse(&mut h, b);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(corpse, me)]),
+    );
+    h.run(20);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(CLOSE, &[Arg::LongInt(corpse)]),
+    );
+    let seen = arrivals(&mut h, b, from, 20);
+    let first = |part: &str| {
+        seen.iter()
+            .find(|(_, m)| closing_part(m, corpse) == Some(part))
+            .map(|(t, _)| *t)
+            .unwrap_or_else(|| panic!("no {part}"))
+    };
+    let began = first("closing");
+    let answered = first("answer");
+    assert!(
+        (CLOSES_AFTER..CLOSES_AFTER + 2.0 * yalain_testkit::STEP).contains(&(answered - began)),
+        "answered {:.2} s after the closing began",
+        answered - began
+    );
+    assert!(
+        (first("shut") - answered).abs() < 1e-9,
+        "shut with the answer"
+    );
+    let order: Vec<_> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| closing_part(m, corpse))
+        .collect();
+    assert_eq!(order, ["closing", "answer", "shut"]);
+}
+
+/// A player with one corpse open that opens another sees the new one flash, then the old one
+/// close (its closing, then a quarter second later its answer and its shutting), then the new one
+/// begin to open, and its answer a quarter second after that.
+/// Behaviour: server.loot.second-corpse-opens-after-the-first-closes
+#[test]
+fn opening_a_second_corpse_closes_the_first_before_the_second_opens() {
+    use yalain_world::inventory::{self, CLOSES_AFTER, OPENS_AFTER};
+    let (mut h, b, me, _) = fight();
+    let old = fights_corpse(&mut h, b);
+    h.bots[b].send(true, queue::WEENIE, &server_call(USE, &[use_of(old, me)]));
+    h.run(20);
+    let world = *h.server.players.keys().next().expect("in the world");
+    assert_eq!(inventory::open_corpse_of(&h.server, world), Some(old));
+    let new = h.server.things.new_id();
+    let mut t = h.server.things.get(old).expect("the corpse").clone();
+    t.id = new;
+    h.server.things.insert(t);
+    h.server.players.get_mut(&world).expect("in").known.insert(
+        new,
+        yalain_world::presence::Seen {
+            position_stream: 0,
+            head_stream: 0,
+        },
+    );
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    inventory::open(&mut h.server, &mut h.net, world, new, clock);
+    let seen = arrivals(&mut h, b, from, 30);
+    let part = |m: &ServerMessage| {
+        if let Some(p) = opening_part(m, new) {
+            return Some(match p {
+                "effect" => "new effect",
+                "mode" => "new mode",
+                "answer" => "new answer",
+                _ => return None,
+            });
+        }
+        closing_part(m, old).map(|p| match p {
+            "closing" => "old closing",
+            "answer" => "old answer",
+            _ => "old shut",
+        })
+    };
+    let order: Vec<_> = h.sent_messages(b, from).iter().filter_map(part).collect();
+    assert_eq!(
+        order,
+        [
+            "new effect",
+            "old closing",
+            "old answer",
+            "old shut",
+            "new mode",
+            "new answer"
+        ]
+    );
+    let at = |want: &str| {
+        seen.iter()
+            .find(|(_, m)| part(m) == Some(want))
+            .map(|(t, _)| *t)
+            .unwrap_or_else(|| panic!("no {want}"))
+    };
+    let closes = at("old answer") - at("old closing");
+    assert!(
+        (CLOSES_AFTER..CLOSES_AFTER + 2.0 * yalain_testkit::STEP).contains(&closes),
+        "closed {closes:.2} s after its closing"
+    );
+    let opens = at("new answer") - at("new mode");
+    assert!(
+        (OPENS_AFTER..OPENS_AFTER + 2.0 * yalain_testkit::STEP).contains(&opens),
+        "opened {opens:.2} s after its mode"
+    );
+    assert_eq!(inventory::open_corpse_of(&h.server, world), Some(new));
+}
+
 /// A corpse being opened is its opener's alone: another player's use of it is refused as an item
 /// whose actions wait (status 1039, flags 804), the opener's own second use as actions locked (1029,
 /// its request's flags kept, no distance, no effective target), and the opener is answered once, the

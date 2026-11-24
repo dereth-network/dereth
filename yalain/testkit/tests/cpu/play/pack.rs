@@ -779,7 +779,8 @@ fn taking_all_from_an_open_corpse_brings_every_item_into_the_pack_in_its_order()
 fn taking_all_from_a_container_not_open_is_refused() {
     let (mut h, b, me, world) = player();
     let (corpse, _) = opened_corpse(&mut h, world, me, 1);
-    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    inventory::close(&mut h.server, &mut h.net, world, corpse, clock);
     h.run(2);
     let from = h.bots[b].inbox.len();
     h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
@@ -1513,7 +1514,8 @@ fn taking_all_from_a_corpse_closed_before_it_comes_due_takes_nothing() {
     let (corpse, items) = opened_corpse(&mut h, world, me, 2);
     let from = h.bots[b].inbox.len();
     h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
-    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    inventory::close(&mut h.server, &mut h.net, world, corpse, clock);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     h.run((pack::PICK_UP_SECONDS / STEP).ceil() as usize + 2);
     let moves = answers(&h, b, from);
@@ -1553,7 +1555,8 @@ fn turning_into_money_a_corpse_not_open_turns_nothing() {
     for i in &items {
         h.server.things.get_mut(*i).expect("item").value = 5;
     }
-    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    inventory::close(&mut h.server, &mut h.net, world, corpse, clock);
     h.run(2);
     let mut g = Builder::new();
     g.object(
@@ -1808,7 +1811,8 @@ fn a_corpse_closed_before_its_transmute_comes_due_turns_nothing() {
     let from = h.bots[b].inbox.len();
     ask_transmute(&mut h, b, me, corpse);
     h.run(4);
-    inventory::close(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    inventory::close(&mut h.server, &mut h.net, world, corpse, clock);
     through(&mut h);
     assert_eq!(
         answers(&h, b, from)

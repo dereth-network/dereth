@@ -3,8 +3,10 @@
 //!
 //! **Opening a corpse** (by one with a right to it, [`crate::death::may_loot`]; in reach, 2 m; the
 //! player is walked there first): the corpse flashes and opens for every client that sees it; the
-//! opener gets the contents (in slot order) and then each item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
-//! gets the answer; it closes so too when the opener walks away from it, as from an open chest.
+//! opener gets the contents (in slot order) and then each item it does not know yet. No use answer is sent. **Closing** it: it begins to close for all, and
+//! a moment later the closer gets the answer and all see it shut; it closes so too when the opener
+//! walks away from it, as from an open chest. A player opening another corpse with one open sees
+//! the new one flash, the old one close, and then the new one open.
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
 //! taking behavior, the item leaves the corpse, and once the behavior is through (1.8 s) the item
@@ -1750,9 +1752,7 @@ pub fn open<S: Store>(
     corpse: u64,
     clock: Clock,
 ) {
-    if let Some(old) = open_corpse_of(s, world).filter(|o| *o != corpse) {
-        close(s, net, world, old);
-    }
+    let old = open_corpse_of(s, world).filter(|o| *o != corpse);
     let name = crate::social::name_of(s, world);
     if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
         c.first_looted_by.get_or_insert(name);
@@ -1765,6 +1765,24 @@ pub fn open<S: Store>(
         },
     });
     to_knowers(s, net, corpse, &fx);
+    // One open already closes first, its whole step, and the new one's opening waits for it
+    // (2017: of 642 corpses opened with another open, 559 told the new one's flash, the old one's
+    // closing, its answer and its shutting, then the new one's opening and its answer).
+    if let Some(old) = old {
+        begin_closing(s, net, world, old, Some(corpse), clock);
+        return;
+    }
+    begins_to_open(s, net, world, corpse, clock);
+}
+
+/// A corpse begins to open, seen by everyone who knows it; its opener is answered when it has.
+fn begins_to_open<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
     let mode = ServerMessage::DoMode(ObjectEvent {
         sender: visual(s, corpse),
         action: Word(look::OPEN_MODE),
@@ -1773,27 +1791,46 @@ pub fn open<S: Store>(
     s.after(clock, OPENS_AFTER, Timer::CorpseOpens { world, corpse });
 }
 
-/// Is another player than this one opening a corpse?
+/// Is another player than this one opening a corpse (or closing one to open it)?
 #[must_use]
 pub fn opening_by_another<S: Store>(s: &Server<S>, world: ConnId, corpse: u64) -> bool {
-    s.timers.iter().any(|(_, t)| {
-        matches!(t, Timer::CorpseOpens { world: w, corpse: c } if *w != world && *c == corpse)
+    s.timers.iter().any(|(_, t)| match t {
+        Timer::CorpseOpens {
+            world: w,
+            corpse: c,
+        } => *w != world && *c == corpse,
+        Timer::CorpseCloses {
+            world: w,
+            then: Some(c),
+            ..
+        } => *w != world && *c == corpse,
+        _ => false,
     })
 }
 
-/// The corpses players are opening.
+/// The corpses players are opening, or closing to open another.
 pub fn being_opened<S: Store>(s: &Server<S>) -> impl Iterator<Item = u64> + '_ {
-    s.timers.iter().filter_map(|(_, t)| match t {
-        Timer::CorpseOpens { corpse, .. } => Some(*corpse),
-        _ => None,
-    })
+    s.timers
+        .iter()
+        .flat_map(|(_, t)| match t {
+            Timer::CorpseOpens { corpse, .. } => [Some(*corpse), None],
+            Timer::CorpseCloses { corpse, then, .. } => [Some(*corpse), *then],
+            _ => [None, None],
+        })
+        .flatten()
 }
 
 /// A corpse a player began to open has opened: the player is answered with what it holds, everyone
 /// who knows it sees it open, and the player is shown what it holds. One gone meanwhile is refused
 /// as an open is; an opener gone from the world is answered nothing. Once open, it closes at once
 /// if its opener has gone too far from it, as on any move.
-pub fn opened<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
+pub fn opened<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
     if !s.players.contains_key(&world) {
         return;
     }
@@ -1849,32 +1886,87 @@ pub fn opened<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     if let Some(p) = s.players.get_mut(&world) {
         p.open_container = Some(corpse);
     }
-    moved(s, net, world);
+    moved(s, net, world, clock);
 }
 
-/// A player closes a corpse.
-pub fn close<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
+/// How long after a corpse begins to close its closer is answered and everyone sees it shut (2017:
+/// its closing mode a median 0.251 s before the answer at 2,246 closes asked, 0.312 s at 1,112 as
+/// its opener walked off, 0.284 s at 948 as it opened another; the mode came in an earlier tick in
+/// all but 7 of the 4,306. The asked closes', the most and with no walk's reports between, is
+/// taken).
+pub const CLOSES_AFTER: f64 = 0.25;
+
+/// A player closes a corpse: it begins to close for everyone who sees it, and the player is
+/// answered when it has.
+pub fn close<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
+    begin_closing(s, net, world, corpse, None, clock);
+}
+
+/// A corpse begins to close: its closing for everyone who sees it, the player's hold on it let go;
+/// `then`, a corpse the player opens once this one has closed.
+fn begin_closing<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    then: Option<u64>,
+    clock: Clock,
+) {
     let mode = ServerMessage::DoMode(ObjectEvent {
         sender: visual(s, corpse),
         action: Word(look::CLOSED_MODE),
     });
     to_knowers(s, net, corpse, &mode);
-    let done =
-        session::call(function::CLOSE_DONE, &[Arg::Int(0), Arg::LongInt(corpse)]).expect("packs");
-    progress::private(net, world, &done);
-    let closed = open_quality(s, corpse, false);
-    to_knowers(s, net, corpse, &closed);
     if let Some(p) = s.players.get_mut(&world) {
         if p.open_container == Some(corpse) {
             p.open_container = None;
         }
     }
-    crate::death::closed(s, corpse);
+    s.after(
+        clock,
+        CLOSES_AFTER,
+        Timer::CorpseCloses {
+            world,
+            corpse,
+            then,
+        },
+    );
+}
+
+/// A corpse a player began to close has closed: the player is answered, everyone sees it shut,
+/// and a corpse it opens instead begins to open.
+pub fn closed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    then: Option<u64>,
+    clock: Clock,
+) {
+    let done =
+        session::call(function::CLOSE_DONE, &[Arg::Int(0), Arg::LongInt(corpse)]).expect("packs");
+    progress::private(net, world, &done);
+    if s.things.get(corpse).is_some() {
+        let shut = open_quality(s, corpse, false);
+        to_knowers(s, net, corpse, &shut);
+        crate::death::closed(s, corpse);
+    }
+    if let Some(next) =
+        then.filter(|c| s.things.get(*c).is_some() && s.players.contains_key(&world))
+    {
+        begins_to_open(s, net, world, next, clock);
+    }
 }
 
 /// A player has moved: the corpse it has open closes once it is farther than an open chest's
 /// opener may go from it.
-pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(corpse) = open_corpse_of(s, world) else {
         return;
     };
@@ -1890,7 +1982,7 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         .and_then(|at| crate::places::reach(&here, at.cell, at.origin))
         .is_none_or(|d| d > crate::usable::chests::WALK_AWAY);
     if far {
-        close(s, net, world, corpse);
+        close(s, net, world, corpse, clock);
     }
 }
 
@@ -1901,13 +1993,14 @@ pub fn close_request<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     v: &[crate::calls::Value],
+    clock: Clock,
 ) {
     let id = v.iter().find_map(|x| match x {
         crate::calls::Value::Long(l) => Some(*l),
         _ => None,
     });
     match id {
-        Some(id) if open_corpse_of(s, world) == Some(id) => close(s, net, world, id),
+        Some(id) if open_corpse_of(s, world) == Some(id) => close(s, net, world, id, clock),
         // One it does not have open (most often one the server has just closed as the player
         // walked off, its own close crossing the server's) is answered as an action it may not
         // take, twice in one tick, and nothing else changes (2017: 8 of 8 such closes of corpses,

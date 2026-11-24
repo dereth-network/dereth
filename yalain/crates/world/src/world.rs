@@ -1503,7 +1503,7 @@ fn moved<S: Store>(
     crate::hazards::moved(s, net, world, clock);
     crate::falls::moved(s, net, world, &before, c.time, clock);
     crate::usable::chests::moved(s, net, world, clock);
-    crate::inventory::moved(s, net, world);
+    crate::inventory::moved(s, net, world, clock);
     // A use the move cuts short ends a follow with its own end, the line last; else the move ends it.
     crate::skill_use::moved(s, net, world, clock);
     crate::follow::moved(s, net, world, c.flags, c.move_to_stamp);

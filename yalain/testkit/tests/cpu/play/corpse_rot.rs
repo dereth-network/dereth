@@ -85,7 +85,8 @@ fn open(h: &mut Harness, corpse: u64) {
 fn close(h: &mut Harness, corpse: u64) {
     h.run(1);
     let world = *h.server.players.keys().next().expect("the player");
-    yalain_world::inventory::close(&mut h.server, &mut h.net, world, corpse);
+    let clock = h.clock();
+    yalain_world::inventory::close(&mut h.server, &mut h.net, world, corpse, clock);
 }
 
 fn empty(h: &mut Harness, corpse: u64) {

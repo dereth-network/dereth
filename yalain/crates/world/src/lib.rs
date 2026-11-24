@@ -650,6 +650,13 @@ pub enum Timer {
     TakeAll { world: ConnId, container: u64 },
     /// A corpse a player began to open has opened.
     CorpseOpens { world: ConnId, corpse: u64 },
+    /// A corpse a player began to close has closed; then the one it is opening instead, if any,
+    /// begins to open.
+    CorpseCloses {
+        world: ConnId,
+        corpse: u64,
+        then: Option<u64>,
+    },
     /// A player's turning of a corpse's items into money comes due.
     Transmute { world: ConnId, corpse: u64 },
     /// A dead creature's corpse appears.
@@ -1160,7 +1167,14 @@ impl<S: Store> Server<S> {
                 Timer::Take { world, item, from } => {
                     inventory::taken(self, net, world, item, from, clock);
                 }
-                Timer::CorpseOpens { world, corpse } => inventory::opened(self, net, world, corpse),
+                Timer::CorpseOpens { world, corpse } => {
+                    inventory::opened(self, net, world, corpse, clock);
+                }
+                Timer::CorpseCloses {
+                    world,
+                    corpse,
+                    then,
+                } => inventory::closed(self, net, world, corpse, then, clock),
                 Timer::TakeAll { world, container } => {
                     pack::took_all(self, net, world, container, clock);
                 }

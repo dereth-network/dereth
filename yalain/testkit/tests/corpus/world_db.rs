@@ -19204,7 +19204,8 @@ fn a_destroyed_beacon_leaves_each_fellow_a_key_that_opens_the_outpost_chest_of_s
             ),
         );
         h.run(60);
-        yalain_world::inventory::close(&mut h.server, &mut h.net, w, corpse);
+        let clock = h.clock();
+        yalain_world::inventory::close(&mut h.server, &mut h.net, w, corpse, clock);
         h.run(4);
     };
     // One player uses a key it holds on a placed chest: whether the chest is open for it, and what

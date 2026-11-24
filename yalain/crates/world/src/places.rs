@@ -854,6 +854,7 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
         || s.timers.iter().any(|(_, t)| {
             matches!(t, Timer::Take { world: w, .. }
                 | Timer::CorpseOpens { world: w, .. }
+                | Timer::CorpseCloses { world: w, then: Some(_), .. }
                 | Timer::TakeAll { world: w, .. }
                 | Timer::Transmute { world: w, .. }
                 | Timer::PickUp { world: w, .. }

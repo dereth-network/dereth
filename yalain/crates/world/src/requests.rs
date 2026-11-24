@@ -163,7 +163,7 @@ pub fn call<S: Store>(
         // The 2017 servers did not answer it (nor carry a run on to the next target).
         crate::combat::function::SET_NEXT_TARGET => {}
         crate::inventory::function::CLOSE => {
-            // A chest closes as it plays its closing; a corpse at once.
+            // A chest closes as it plays its closing; a corpse after its own short closing.
             match values.iter().find_map(|v| match v {
                 Value::Long(l) => Some(*l),
                 _ => None,
@@ -171,7 +171,7 @@ pub fn call<S: Store>(
                 Some(id) if crate::usable::chests::chest(s, id).is_some() => {
                     crate::usable::chests::close(s, net, world, id, clock);
                 }
-                _ => crate::inventory::close_request(s, net, world, &values),
+                _ => crate::inventory::close_request(s, net, world, &values, clock),
             }
         }
         crate::drops::function::MOVE_ITEM => {

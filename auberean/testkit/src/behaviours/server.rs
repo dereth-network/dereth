@@ -9958,6 +9958,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.corpse-closes-after-its-closing",
+        says: "A corpse its opener closes begins to close at once, its closing seen by \
+               everyone; a quarter second later the closer is answered and everyone sees it shut.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-CLOSE-STEP"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_asked_to_close_answers_once_its_closing_has_played",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.corpse-closes-when-its-opener-walks-away",
         says: "An open corpse whose opener goes more than six meters from it closes: its opener \
                is told, as when it asks to close it.",
@@ -10349,6 +10358,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-LOOT-REFUSED"),
         station: "yalain-testkit::cpu::play::corpse_rights::a_far_client_refused_a_corpse_is_not_walked_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.second-corpse-opens-after-the-first-closes",
+        says: "A player with a corpse open that opens another sees the new one flash, the old \
+               one close (its closing, then its answer and its shutting), then the new one begin \
+               to open and its answer a moment later.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-SWITCH"),
+        station: "yalain-testkit::cpu::play::fights::opening_a_second_corpse_closes_the_first_before_the_second_opens",
         tier: Tier::Cpu,
     },
     behaviour! {
