@@ -2983,7 +2983,5 @@ fn arrive<S: Store>(
     crate::pets::owner_arrives(s, net, world, time);
     // What came to be about it since (its pets among them).
     presence::refresh(s, net, world);
-    // A rider come out inside is soon off its mount.
-    crate::mounts::arrived(s, world, clock);
     crate::world::keep_player(s, world);
 }

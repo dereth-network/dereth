@@ -299,7 +299,6 @@ fn a_mounted_players_fall_takes_its_height_less_two_and_a_half() {
             state: 0,
             look: auberean_protocol::types::VisualDesc::default(),
             speed: 1.0,
-            checking: false,
         });
     }
     drop(&mut h, b, at.origin, at.cell, 40.0, 0.0);

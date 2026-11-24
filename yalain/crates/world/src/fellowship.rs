@@ -376,8 +376,19 @@ fn level_of<S: Store>(s: &Server<S>, id: u64) -> i32 {
 /// When a new fellow is first looked at: anywhere in a look's gap drawn as every other is, from
 /// now (2017: a joiner's first update came 0 to 7 s after it joined, a median 2.8 s, 119 joiners).
 fn first_check<S: Store>(s: &mut Server<S>, now: f64) -> f64 {
-    let gap = CHECK_EVERY + f64::from(s.rng.unit()) * CHECK_SPREAD;
-    now + f64::from(s.rng.unit()) * gap
+    now + first_gap(s)
+}
+
+/// The time to a player's next look, in seconds: at least [`CHECK_EVERY`], and up to
+/// [`CHECK_SPREAD`] more, evenly.
+pub(crate) fn next_gap<S: Store>(s: &mut Server<S>) -> f64 {
+    CHECK_EVERY + f64::from(s.rng.unit()) * CHECK_SPREAD
+}
+
+/// The time to a player's first look, in seconds: anywhere in a gap drawn as every other is.
+pub(crate) fn first_gap<S: Store>(s: &mut Server<S>) -> f64 {
+    let gap = next_gap(s);
+    f64::from(s.rng.unit()) * gap
 }
 
 /// A fellow's vitals as they stand.
@@ -1059,8 +1070,7 @@ pub fn tick<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: LocalTime) 
             if s.fellowships.list[i].fellows[k].next_check > clock.0 {
                 continue;
             }
-            let spread = f64::from(s.rng.unit()) * CHECK_SPREAD;
-            s.fellowships.list[i].fellows[k].next_check = clock.0 + CHECK_EVERY + spread;
+            s.fellowships.list[i].fellows[k].next_check = clock.0 + next_gap(s);
             let Some(now) = vitals_now(s, *id) else {
                 continue;
             };

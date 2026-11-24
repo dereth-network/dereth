@@ -273,7 +273,6 @@ fn a_player_of_the_shrines_kingdom_already_joins_nothing() {
                     state: 0,
                     look: auberean_protocol::types::VisualDesc::default(),
                     speed: 1.0,
-                    checking: false,
                 });
             }
         }

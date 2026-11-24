@@ -11136,11 +11136,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.mounts.ride-ends-indoors",
-        says: "A rider who goes indoors is put off its mount a few seconds later, or a moment after \
-               arriving inside by portal.",
+        says: "A rider indoors, walked in or arrived by portal, is put off its mount at its next look \
+               at where it is, never before it is inside and never later than one gap.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-INDOORS"),
-        station: "yalain-testkit::cpu::play::mounts::a_rider_indoors_is_put_off_its_mount_a_few_seconds_later",
+        station: "yalain-testkit::cpu::play::mounts::a_rider_arriving_indoors_by_portal_is_put_off_at_its_next_look",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -11149,6 +11149,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-EXPIRES"),
         station: "yalain-testkit::cpu::play::mounts::a_saddles_ride_ends_when_its_time_is_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.mounts.rider-looked-at-as-a-fellow-is",
+        says: "A rider is looked at where it is as often as a fellow is, every 3.5 s and up to 4 s \
+               more, the first anywhere in one gap from the mount; walked indoors, it is put off at \
+               the first look after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-INDOOR-CHECK"),
+        station: "yalain-testkit::cpu::play::mounts::a_rider_walked_indoors_is_put_off_at_its_next_look",
         tier: Tier::Cpu,
     },
     behaviour! {

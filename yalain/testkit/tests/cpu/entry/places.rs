@@ -1825,7 +1825,6 @@ fn a_faction_shrine_used_on_a_mount_is_canceled_after_the_rating() {
             state: 0,
             look: auberean_protocol::types::VisualDesc::default(),
             speed: 1.0,
-            checking: false,
         });
     }
     assert_eq!(shown(&mut h), vec![RECORDED, CANCELED], "mounted");

@@ -26,9 +26,13 @@
 //! **The ride's end**, in one instant: the player's own look is shown, it is told it is no longer
 //! mounted, the record is taken off (its speed back), the mount's appearance stopped and its
 //! ending appearance played. Asked for (a dismount, which stops a follow's order first and says
-//! the follow ended last), the record's time up, a resurrection, or the rider indoors: a few
-//! seconds after it walks in, or after it arrives inside by portal. A player not mounted asking to
-//! dismount is not answered.
+//! the follow ended last), the record's time up, a resurrection, or the rider indoors at its next
+//! look at where it is. A player not mounted asking to dismount is not answered.
+//!
+//! **The rider's look at where it is** comes as often as a fellow's is looked at (from
+//! [`crate::fellowship::CHECK_EVERY`] to that and [`crate::fellowship::CHECK_SPREAD`] more): the
+//! first anywhere in one gap from the mount, then a gap after each. Found indoors, walked in or
+//! arrived by portal, it is put off then.
 
 use std::collections::HashMap;
 
@@ -68,11 +72,6 @@ pub mod record {
 /// The text a pet attack order is refused with while mounted, and the kind it is shown as.
 pub const PET_ORDER_REFUSED: (u32, u32) = (0x2DF0_E54D, 0x2500_000B);
 pub const PET_ORDER_SHOWN_AS: u32 = 1;
-
-/// How long a rider may stay indoors before the ride ends, in seconds: walked in (2017: 3.5 to
-/// 4.1 s, 5 rides) and arrived by portal (1.2 s, 1 ride).
-pub const WALKED_IN: f64 = 3.8;
-pub const ARRIVED_IN: f64 = 1.2;
 
 /// The class of the saddles: its templates whose use mounts their user are the ephemeral, steady
 /// and lasting saddles of the five Ataurs (2017: 168 saddle mounts).
@@ -114,8 +113,6 @@ pub struct Riding {
     pub state: u32,
     pub look: VisualDesc,
     pub speed: f32,
-    /// A check of the rider indoors is due.
-    pub checking: bool,
 }
 
 impl Mounts {
@@ -400,8 +397,9 @@ fn mount<S: Store>(
         state,
         look,
         speed,
-        checking: false,
     });
+    let first = crate::fellowship::first_gap(s);
+    s.after(clock, first, Timer::RiderCheck { world, eid });
     crate::world::keep_player(s, world);
 }
 
@@ -460,42 +458,28 @@ pub fn record_ends<S: Store>(
     riding
 }
 
-/// A rider reported where it is: indoors, the ride ends a few seconds on unless it is out again.
-pub fn moved<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
-    check_indoors(s, world, WALKED_IN, clock);
-}
-
-/// A rider came out of portal space: inside, the ride ends a moment later.
-pub fn arrived<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
-    check_indoors(s, world, ARRIVED_IN, clock);
-}
-
-fn check_indoors<S: Store>(s: &mut Server<S>, world: ConnId, wait: f64, clock: Clock) {
-    let Some(p) = s.players.get_mut(&world) else {
+/// A rider's look at where it is is due: still on the same mount, it is put off if it is indoors
+/// (2017: 27 of 29 indoor ends of fellows came in the tick of their own place told to the
+/// fellowship, against 2 of 76 dismounts asked for), else looked at again a gap on.
+pub fn check_due<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    eid: u32,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
         return;
     };
-    let inside = crate::presence::indoors(p.position.cell);
-    let Some(ride) = p.riding.as_mut().filter(|r| inside && !r.checking) else {
+    if p.riding.as_ref().is_none_or(|r| r.eid != eid) {
         return;
-    };
-    ride.checking = true;
-    let eid = ride.eid;
-    s.after(clock, wait, Timer::MountIndoors { world, eid });
-}
-
-/// A rider's check indoors is due: still riding the same mount and still indoors, the ride ends.
-pub fn indoors_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, eid: u32) {
-    let Some(p) = s.players.get_mut(&world) else {
-        return;
-    };
-    let inside = crate::presence::indoors(p.position.cell);
-    let Some(ride) = p.riding.as_mut().filter(|r| r.eid == eid) else {
-        return;
-    };
-    ride.checking = false;
-    if inside {
-        end(s, net, world);
     }
+    if crate::presence::indoors(p.position.cell) {
+        end(s, net, world);
+        return;
+    }
+    let gap = crate::fellowship::next_gap(s);
+    s.after(clock, gap, Timer::RiderCheck { world, eid });
 }
 
 /// A pet attack order from a mounted player is refused, with its text. Returns whether it was.

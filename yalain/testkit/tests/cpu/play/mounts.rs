@@ -691,11 +691,43 @@ fn a_saddles_ride_ends_when_its_time_is_up() {
     assert_eq!(flags(&h, b, from), [0]);
 }
 
-/// A rider reported indoors is put off its mount a few seconds later; one out again before then
-/// rides on; one come out of portal space inside is put off a moment later.
-/// Behaviour: server.mounts.ride-ends-indoors
+/// When a rider's next look at where it is is due on its ride, by the harness clock (a look of an
+/// earlier ride comes to nothing).
+fn next_look(h: &Harness, world: yalain_net::ConnId) -> Option<f64> {
+    let ride = h.server.players[&world].riding.as_ref()?.eid;
+    h.server
+        .timers
+        .iter()
+        .filter_map(|(at, t)| match t {
+            yalain_world::Timer::RiderCheck { world: w, eid } if *w == world && *eid == ride => {
+                Some(at.0)
+            }
+            _ => None,
+        })
+        .reduce(f64::min)
+}
+
+/// Step the harness until its clock reaches `t`.
+fn step_to(h: &mut Harness, t: f64) {
+    while h.now.0 < t {
+        h.step();
+    }
+}
+
+/// How late, by the harness clock, a thing due is seen done: the step it falls due in runs, and
+/// the clock is read after that step has moved it on.
+const LATE: f64 = 2.0 * yalain_testkit::STEP;
+
+/// The longest gap between a rider's looks: the least and all the spread.
+const MOST_GAP: f64 =
+    yalain_world::fellowship::CHECK_EVERY + yalain_world::fellowship::CHECK_SPREAD;
+
+/// A rider is looked at where it is every 3.5 s and up to 4 s more, evenly, the first anywhere in
+/// one gap from the mount: outdoors it rides on, and in and out again between two looks it rides
+/// on; walked in to stay, it is put off at the first look after, never later than one gap.
+/// Behaviour: server.mounts.rider-looked-at-as-a-fellow-is
 #[test]
-fn a_rider_indoors_is_put_off_its_mount_a_few_seconds_later() {
+fn a_rider_walked_indoors_is_put_off_at_its_next_look() {
     let mut h = world();
     let (b, me, world) = in_world(&mut h, "one", "Elara");
     let egg = give(&mut h, world, EGG);
@@ -711,35 +743,113 @@ fn a_rider_indoors_is_put_off_its_mount_a_few_seconds_later() {
             stamp,
         )
     };
-    let inside = at.cell & 0xFFFF_0000 | 0x0105;
-    // In and out again within the wait: the ride goes on.
-    h.bots[b].send(true, queue::WEENIE, &report(inside));
-    h.run(10);
+    let first = next_look(&h, world).expect("a look due");
+    assert!(first - h.now.0 <= MOST_GAP, "the first within one gap");
+    // Mounted again and again, the first look falls anywhere in a gap: some sooner than the least.
+    let mut firsts = Vec::new();
+    for _ in 0..12 {
+        send_dismount(&mut h, b);
+        send_use(&mut h, b, me, egg);
+        firsts.push(next_look(&h, world).expect("a look due") - h.now.0);
+    }
+    assert!(
+        firsts.iter().all(|f| (-LATE..=MOST_GAP).contains(f)),
+        "{firsts:?}"
+    );
+    assert!(
+        firsts
+            .iter()
+            .any(|f| *f < yalain_world::fellowship::CHECK_EVERY - 1.0),
+        "{firsts:?}"
+    );
+    let first = next_look(&h, world).expect("a look due");
+    // Outdoors, look after look: the ride goes on, the gaps spread over their whole span.
+    let mut gaps = Vec::new();
+    let mut due = first;
+    for _ in 0..40 {
+        step_to(&mut h, due + yalain_testkit::STEP);
+        let next = next_look(&h, world).expect("looked at again");
+        gaps.push(next - due);
+        due = next;
+    }
+    assert!(
+        h.server.players[&world].riding.is_some(),
+        "outdoors it rides on"
+    );
+    let least = gaps.iter().copied().fold(f64::MAX, f64::min);
+    let most = gaps.iter().copied().fold(0.0, f64::max);
+    assert!(
+        least >= yalain_world::fellowship::CHECK_EVERY - 1e-9,
+        "least gap {least}"
+    );
+    assert!(most <= MOST_GAP + 1e-9, "longest gap {most}");
+    assert!(least < 4.5 && most > 6.5, "gaps from {least} to {most}");
+    // In and out again between two looks: the ride goes on.
+    h.bots[b].send(true, queue::WEENIE, &report(at.cell & 0xFFFF_0000 | 0x0105));
+    h.run(2);
     h.bots[b].send(true, queue::WEENIE, &report(at.cell));
-    h.run(100);
+    h.run(2);
+    assert!(h.now.0 < due, "out before the look");
+    step_to(&mut h, due + yalain_testkit::STEP);
     assert!(
         h.server.players[&world].riding.is_some(),
         "out again in time"
     );
-    // In and staying.
-    h.bots[b].send(true, queue::WEENIE, &report(inside));
-    h.run(2);
+    // In to stay: off at the next look.
+    let due = next_look(&h, world).expect("a look due");
+    h.bots[b].send(true, queue::WEENIE, &report(at.cell & 0xFFFF_0000 | 0x0105));
+    h.run(1);
     let went_in = h.now.0;
     assert!(h.run_until(200, |h| h.server.players[&world].riding.is_none()));
-    let after = h.now.0 - went_in;
-    assert!((3.5..4.1).contains(&after), "off {after} s after going in");
-    // Arriving inside by portal.
-    h.bots[b].send(true, queue::WEENIE, &report(at.cell));
-    h.run(4);
+    let off = h.now.0;
+    assert!(off >= went_in, "not before it went in");
+    assert!(
+        off - went_in <= MOST_GAP + LATE,
+        "off {} s after going in",
+        off - went_in
+    );
+    assert!(
+        (0.0..=LATE).contains(&(off - due)),
+        "off at the look due at {due}, not {off}"
+    );
+}
+
+/// A rider sent inside by portal is put off at its first look after it arrives: never before it
+/// arrives, never later than one gap.
+/// Behaviour: server.mounts.ride-ends-indoors
+#[test]
+fn a_rider_arriving_indoors_by_portal_is_put_off_at_its_next_look() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "one", "Elara");
+    let egg = give(&mut h, world, EGG);
     send_use(&mut h, b, me, egg);
-    assert!(h.server.players[&world].riding.is_some());
-    h.server.players.get_mut(&world).expect("in").position.cell = inside;
+    let mut to = h.server.players[&world].position;
+    to.cell = to.cell & 0xFFFF_0000 | 0x0105;
     let clock = h.clock();
-    yalain_world::mounts::arrived(&mut h.server, world, clock);
+    yalain_world::places::sent_away(&mut h.server, &mut h.net, world, to, clock);
+    assert!(h.run_until(200, |h| h.server.players[&world].trip.is_none()));
     let arrived = h.now.0;
-    assert!(h.run_until(200, |h| h.server.players[&world].riding.is_none()));
-    let after = h.now.0 - arrived;
-    assert!((1.0..1.4).contains(&after), "off {after} s after arriving");
+    assert_eq!(
+        h.server.players[&world].position.cell, to.cell,
+        "arrived inside"
+    );
+    assert!(
+        h.server.players[&world].riding.is_some(),
+        "a portal keeps the ride"
+    );
+    let due = next_look(&h, world).expect("a look due");
+    assert!(h.run_until(400, |h| h.server.players[&world].riding.is_none()));
+    let off = h.now.0;
+    assert!(off >= arrived, "not before it arrived");
+    assert!(
+        off - arrived <= MOST_GAP + LATE,
+        "off {} s after arriving",
+        off - arrived
+    );
+    assert!(
+        (0.0..=LATE).contains(&(off - due)),
+        "off at the look due at {due}, not {off}"
+    );
 }
 
 /// A resurrection ends a ride as a dismount does.

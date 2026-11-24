@@ -892,8 +892,8 @@ pub enum Timer {
     },
     /// A story shard's protection ends.
     ShardProtectionEnds { world: ConnId, eid: u32 },
-    /// A rider seen indoors is checked again (its ride's record).
-    MountIndoors { world: ConnId, eid: u32 },
+    /// A rider's look at where it is (its ride's record).
+    RiderCheck { world: ConnId, eid: u32 },
     /// The next step of a player's leaving the world after it logged off.
     LogOff {
         world: ConnId,
@@ -1366,7 +1366,7 @@ impl<S: Store> Server<S> {
                     generation,
                     step,
                 } => usable::chests::step(self, net, chest, generation, step, clock),
-                Timer::MountIndoors { world, eid } => mounts::indoors_due(self, net, world, eid),
+                Timer::RiderCheck { world, eid } => mounts::check_due(self, net, world, eid, clock),
                 Timer::LogOff { world, step } => world::log_off_step(self, net, world, step, clock),
                 Timer::Shutdown { left } => shutdown::step(self, net, left, clock),
                 Timer::ShutdownEnds => shutdown::ends(self),

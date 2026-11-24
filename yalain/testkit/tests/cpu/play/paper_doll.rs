@@ -553,7 +553,6 @@ fn a_rider_puts_nothing_on_and_takes_off_nothing_worn_but_may_empty_its_hands() 
         state: 0,
         look: auberean_protocol::types::VisualDesc::default(),
         speed: 1.0,
-        checking: false,
     });
     let mounted = equip::refusal::MOUNTED;
     let from = h.bots[b].inbox.len();
