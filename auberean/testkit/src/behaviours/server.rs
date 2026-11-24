@@ -19563,6 +19563,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.not-used-while-untrained",
+        says: "A skill being untrained is refused when used, the reason told as any refused use's; \
+               other skills are used as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-BEING-UNTRAINED"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_being_untrained_is_refused_and_another_goes_ahead",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.not-while-swimming",
         says: "A player whose feet are 1.25 m or more under its block's water surface is refused any \
                skill's use, as the client says of one swimming; wading less deep it uses them.",

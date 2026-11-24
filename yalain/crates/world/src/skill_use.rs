@@ -1431,6 +1431,11 @@ fn check<S: Store>(
     if !holds(s, p, r.skill) {
         return Err(crate::skills::refusal::UNTRAINED);
     }
+    // A skill on its way out may not be used (2017: 15 of 15 uses asked of a skill being untrained
+    // refused so). Held, it is checked here, before what its use asks of the player.
+    if p.untraining.is_some_and(|u| u.skill == r.skill) {
+        return Err(crate::skills::refusal::BEING_UNTRAINED);
+    }
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }

@@ -2065,6 +2065,81 @@ fn a_player_uses_only_a_skill_it_holds() {
     );
 }
 
+/// A skill being untrained is refused when used, the reason told in the tick any refused use is
+/// told in, and nothing is under way; another skill held (the recall) goes ahead.
+/// Behaviour: server.skills.not-used-while-untrained
+#[test]
+fn a_skill_being_untrained_is_refused_and_another_goes_ahead() {
+    use yalain_world::skills::{flag, function as skills_fn, refusal::BEING_UNTRAINED};
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    // Riposte trained with experience put into it, so its untraining waits on more earned.
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .expect("riposte")
+        .flags |= flag::MAY_UNTRAIN;
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill: RIPOSTE,
+            granted: 0,
+            mask: 0x3,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 100,
+        });
+    }
+    h.ask(b, skills_fn::UNTRAIN, &[Arg::Int(RIPOSTE)], 5);
+    assert_eq!(
+        h.server.players[&world].untraining.map(|u| u.skill),
+        Some(RIPOSTE),
+        "the untraining is under way"
+    );
+    let from = use_skill(&mut h, b, 1, RIPOSTE, beetle);
+    h.run(10);
+    assert_eq!(
+        calls_of(&h, b, from),
+        vec![
+            (ATTACK_STATE, vec![Value::Int(1)]),
+            (function::ENDED, vec![Value::Int(1)]),
+            (
+                function::REFUSED,
+                vec![
+                    Value::Int(RIPOSTE),
+                    Value::Long(beetle),
+                    Value::Int(BEING_UNTRAINED)
+                ]
+            ),
+            (ATTACK_STATE, vec![Value::Int(0)]),
+        ]
+    );
+    assert!(vigor_sent(&h, b, from).is_empty(), "nothing is paid");
+    assert!(
+        h.server.players[&world].using.is_none(),
+        "no use is under way"
+    );
+    let from = use_skill(&mut h, b, 2, LIFESTONE_RECALL, 0);
+    h.run(10);
+    assert!(
+        !functions(&h, b, from).contains(&function::REFUSED),
+        "another skill is not refused"
+    );
+    assert!(
+        h.server.players[&world].using.is_some(),
+        "its use is under way"
+    );
+}
+
 /// A client numbers its own uses, and a number may come again. A use cut short leaves nothing behind
 /// to run another use of that number: each use asked and cut before its story tells no story, and the
 /// one left to run tells one and strikes once.
