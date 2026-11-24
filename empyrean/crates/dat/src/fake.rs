@@ -340,6 +340,7 @@ pub mod sample {
             id: DataId(file_id::SKILL_TABLE),
             buckets: 64,
             skills: BTreeMap::from([(6, melee_defense)]),
+            order: Vec::new(),
         }
     }
 
@@ -425,6 +426,7 @@ pub mod sample {
             spells: BTreeMap::from([(1, spell)]),
             spellset_bucket_index: 1,
             spellsets: BTreeMap::new(),
+            spellset_order: Vec::new(),
         }
     }
 

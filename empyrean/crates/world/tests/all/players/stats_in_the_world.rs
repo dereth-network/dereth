@@ -105,6 +105,7 @@ fn skill_table() -> SkillTable {
         id: DataId(file_id::SKILL_TABLE),
         buckets: 64,
         skills: BTreeMap::from([(Skill::Run.0.cast_unsigned(), run)]),
+        order: Vec::new(),
     }
 }
 
@@ -188,6 +189,7 @@ fn world() -> World {
             .collect(),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let dats = empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_spell_table(table)

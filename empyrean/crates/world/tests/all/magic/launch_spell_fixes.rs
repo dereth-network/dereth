@@ -122,6 +122,7 @@ fn world(era: EraId) -> World {
         spells,
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let dats = empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_spell_table(table)

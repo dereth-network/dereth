@@ -1986,6 +1986,7 @@ mod tests {
             id: DataId(0x0E00_0004),
             buckets: 11,
             skills: BTreeMap::from([(14, row(0)), (22, row(4)), (34, row(0))]),
+            order: Vec::new(),
         };
         let mut c = caster("Pell");
         assert_eq!(c.skill_advancement_classes[14], 0);
@@ -2088,6 +2089,7 @@ mod tests {
             id: DataId(0x0E00_0004),
             buckets: 0,
             skills: BTreeMap::from([(6, skill(4)), (24, skill(0)), (45, skill(4))]),
+            order: Vec::new(),
         }
     }
 

@@ -223,6 +223,7 @@ fn projectile_spell_type_matches_ace() {
         spells,
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let dats = FakeDats::new()
         .with_spell_table(table)
@@ -482,6 +483,7 @@ fn dats_with_lead(
             .collect(),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let comps = SpellComponentTable {
         id: DataId(0x0E00_000F),

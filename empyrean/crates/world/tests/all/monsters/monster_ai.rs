@@ -389,6 +389,7 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
             .collect(),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_spell_table(spells)

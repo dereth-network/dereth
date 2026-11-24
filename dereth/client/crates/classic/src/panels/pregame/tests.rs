@@ -185,6 +185,7 @@ pub(super) fn tables() -> dereth_chargen::CreationTables {
             id: DataId(0),
             buckets: 0,
             skills,
+            order: Vec::new(),
         },
         clothing: Rc::new(clothing),
     }

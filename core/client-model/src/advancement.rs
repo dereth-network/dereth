@@ -225,6 +225,7 @@ mod tests {
                 id: DataId(0x0E00_0004),
                 buckets: 11,
                 skills: [(7u32, base.clone()), (8u32, base)].into(),
+                order: Vec::new(),
             }
         };
         let mut q = Qualities::new();
@@ -294,6 +295,7 @@ mod tests {
                 id: DataId(0x0E00_0004),
                 buckets: 11,
                 skills: m,
+                order: Vec::new(),
             }
         };
         let mut q = Qualities::new();

@@ -23,6 +23,7 @@ pub fn empty_spell_table() -> SpellTable {
         spells: std::collections::BTreeMap::new(),
         spellset_bucket_index: 1,
         spellsets: std::collections::BTreeMap::new(),
+        spellset_order: Vec::new(),
     }
 }
 
@@ -34,6 +35,7 @@ pub fn empty_skill_table() -> SkillTable {
         id: DataId(file_id::SKILL_TABLE),
         buckets: 0,
         skills: std::collections::BTreeMap::new(),
+        order: Vec::new(),
     }
 }
 

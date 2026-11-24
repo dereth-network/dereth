@@ -639,6 +639,7 @@ fn world() -> World {
         spells: defs.iter().map(|d| (d.id, spell_base(d))).collect(),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let comps = SpellComponentTable {
         id: DataId(0x0E00_000F),

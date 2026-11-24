@@ -259,6 +259,10 @@ pub struct SpellTable {
     /// set count.
     pub spellset_bucket_index: u8,
     pub spellsets: BTreeMap<u32, SpellSet>,
+    /// The spell sets' keys in the order the record stores them (its hash buckets' order, which a
+    /// write keeps); empty for a table made in code, which is written in key order. The spells
+    /// themselves are stored in key order.
+    pub spellset_order: Vec<u32>,
 }
 
 impl Decode for SpellTable {
@@ -293,6 +297,7 @@ impl Decode for SpellTable {
                         spells,
                         spellset_bucket_index: 0,
                         spellsets: BTreeMap::new(),
+                        spellset_order: Vec::new(),
                     });
                 }
                 Err(e) => {
@@ -313,6 +318,7 @@ impl Decode for SpellTable {
         let (spell_buckets, spells) = read_spells(c, SpellTail::Full)?;
         let mut spellsets = BTreeMap::new();
         let mut spellset_bucket_index = 0;
+        let mut spellset_order = Vec::new();
         if c.remaining() == 0 {
             return Ok(Self {
                 id,
@@ -320,6 +326,7 @@ impl Decode for SpellTable {
                 spells,
                 spellset_bucket_index,
                 spellsets,
+                spellset_order,
             });
         }
         let (n2, index) = count_then_bucket_index(c)?;
@@ -343,6 +350,7 @@ impl Decode for SpellTable {
                 }
             }
             spellsets.insert(k, SpellSet { tiers });
+            spellset_order.push(k);
         }
         Ok(Self {
             id,
@@ -350,6 +358,7 @@ impl Decode for SpellTable {
             spells,
             spellset_bucket_index,
             spellsets,
+            spellset_order,
         })
     }
 }
@@ -473,6 +482,9 @@ pub struct SkillTable {
     pub id: DataId,
     pub buckets: u32,
     pub skills: BTreeMap<u32, SkillBase>,
+    /// The skills' keys in the order the record stores them (its hash buckets' order, which a
+    /// write keeps); empty for a table made in code, which is written in key order.
+    pub order: Vec<u32>,
 }
 
 impl Decode for SkillTable {
@@ -484,8 +496,10 @@ impl Decode for SkillTable {
         let id = c.data_id()?;
         let (n, buckets) = count_then_buckets(c)?;
         let mut skills = BTreeMap::new();
+        let mut order = Vec::new();
         for _ in 0..n {
             let k = c.u32()?;
+            order.push(k);
             skills.insert(
                 k,
                 SkillBase {
@@ -508,6 +522,7 @@ impl Decode for SkillTable {
             id,
             buckets,
             skills,
+            order,
         })
     }
 }

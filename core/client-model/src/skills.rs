@@ -52,6 +52,7 @@ pub(crate) mod tests {
             id: DataId(0x0E00_0004),
             buckets: 11,
             skills,
+            order: Vec::new(),
         }
     }
 

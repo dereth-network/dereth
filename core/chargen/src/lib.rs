@@ -1891,6 +1891,7 @@ mod tests {
                 id: DataId(0),
                 buckets: 0,
                 skills: BTreeMap::new(),
+                order: Vec::new(),
             },
         )
     }

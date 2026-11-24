@@ -324,6 +324,7 @@ fn spell_table() -> Arc<dereth_assets::tables::SpellTable> {
         spells,
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     })
 }
 

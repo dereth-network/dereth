@@ -280,6 +280,7 @@ fn world_with(defs: &[Def], extra_db: Vec<DbSpell>, spellsets: BTreeMap<u32, Spe
         spells: defs.iter().map(|d| (d.id, spell_base(d))).collect(),
         spellset_bucket_index: 1,
         spellsets,
+        spellset_order: Vec::new(),
     };
     let dats = FakeDats::new()
         .with_spell_table(table)

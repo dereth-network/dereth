@@ -145,6 +145,7 @@ pub(crate) fn spell_table() -> SpellTable {
         spells: [(WARD_SPELL, ward)].into_iter().collect(),
         spellset_bucket_index: 1,
         spellsets: std::collections::BTreeMap::new(),
+        spellset_order: Vec::new(),
     }
 }
 

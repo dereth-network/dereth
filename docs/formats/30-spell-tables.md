@@ -28,6 +28,10 @@ Both mechanisms are given in full below.
 | spell-set hash header | `u32` — count in the low **24** bits, a bucket-size *index* in the high 8 |
 | spell sets | count × { `u32 set_id` ; spell set } |
 
+The spells are stored in id order. The spell sets are in hash order: by bucket, and within a
+bucket in the order they were added, which the record doesn't otherwise say, so a writer that
+must give back the same bytes keeps the order it read.
+
 The first tables of the later files (2005 and 2006) end after the spells, with no set header at
 all, and the files before Throne of Destiny never have one; their spell records also end earlier.
 See [40](40-before-throne-of-destiny.md) and [41](41-older-records-in-the-later-files.md).

@@ -109,6 +109,7 @@ fn world_dats() -> Arc<empyrean_dat::DatManager> {
         spells: BTreeMap::from([(FORCE_BOLT, spell_base())]),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
+        spellset_order: Vec::new(),
     };
     let comps = SpellComponentTable {
         id: DataId(0x0E00_000F),

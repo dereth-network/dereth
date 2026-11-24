@@ -159,6 +159,7 @@ fn tables() -> Rc<CharGenTables> {
                 id: dereth_primitives::DataId(0x0E00_0004),
                 buckets: 0,
                 skills: BTreeMap::new(),
+                order: Vec::new(),
             },
             clothing: Rc::new(BTreeMap::new()),
         }),

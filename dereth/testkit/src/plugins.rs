@@ -809,6 +809,7 @@ pub fn scripted_spell_table() -> dereth_assets::tables::SpellTable {
         spells,
         spellset_bucket_index: 0,
         spellsets: std::collections::BTreeMap::new(),
+        spellset_order: Vec::new(),
     }
 }
 

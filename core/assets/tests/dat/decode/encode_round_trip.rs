@@ -263,3 +263,145 @@ fn the_region_with_another_sky_reads_back_as_written() {
     assert_eq!(back, r);
     assert_eq!(back.encode().unwrap(), bytes);
 }
+
+/// One portal-file record, read, decoded and encoded back, against its own bytes.
+fn portal_record_round_trips(id: u32, encode: impl Fn(DataId, &[u8]) -> Vec<u8>) {
+    let s = store();
+    let id = DataId(id);
+    let bytes = s.read_portal(id).unwrap();
+    let got = encode(id, &bytes);
+    let first = got.iter().zip(&bytes).position(|(a, b)| a != b);
+    assert!(
+        got == bytes,
+        "{id:?} encodes to other bytes: {} against {}, first difference at {first:?}: {:02X?} against {:02X?}",
+        got.len(),
+        bytes.len(),
+        first.map(|i| &got[i.saturating_sub(8)..(i + 8).min(got.len())]),
+        first.map(|i| &bytes[i.saturating_sub(8)..(i + 8).min(bytes.len())]),
+    );
+}
+
+#[test]
+fn the_skill_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_0004, |id, b| {
+        dereth_assets::tables::SkillTable::decode_payload(id, b)
+            .unwrap()
+            .encode()
+    });
+}
+
+#[test]
+fn the_experience_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_0018, |id, b| {
+        dereth_assets::tables::XpTable::decode_payload(id, b)
+            .unwrap()
+            .encode()
+    });
+}
+
+#[test]
+fn the_spell_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_000E, |id, b| {
+        dereth_assets::tables::SpellTable::decode_payload(id, b)
+            .unwrap()
+            .encode()
+    });
+}
+
+/// A skill table a world changes reads back as changed: a skill's costs, a skill added, a skill
+/// gone; the skills it keeps stay in their stored order and the added one follows them.
+#[test]
+fn an_edited_skill_table_reads_back_as_edited() {
+    use dereth_assets::tables::SkillTable;
+    let s = store();
+    let id = DataId(0x0E00_0004);
+    let mut t = SkillTable::decode_payload(id, &s.read_portal(id).unwrap()).unwrap();
+    let stored = t.order.clone();
+    let melee_defense = t.skills.get_mut(&6).expect("Melee Defense");
+    melee_defense.trained_cost = 4;
+    melee_defense.specialized_cost = 8;
+    let mut axe = t.skills[&6].clone();
+    axe.name = "Axe".into();
+    axe.description = "Helps you fight with axes.".into();
+    t.skills.insert(1, axe);
+    t.skills.remove(&54);
+    let back = SkillTable::decode_payload(id, &t.encode()).unwrap();
+    assert_eq!(back.skills, t.skills);
+    let kept: Vec<u32> = stored.into_iter().filter(|k| *k != 54).collect();
+    assert_eq!(back.order[..kept.len()], kept[..]);
+    assert_eq!(back.order[kept.len()..], [1]);
+}
+
+/// An experience table a world changes reads back as changed: a shorter curve with its own
+/// numbers.
+#[test]
+fn an_edited_experience_table_reads_back_as_edited() {
+    use dereth_assets::tables::XpTable;
+    let s = store();
+    let id = DataId(0x0E00_0018);
+    let mut t = XpTable::decode_payload(id, &s.read_portal(id).unwrap()).unwrap();
+    t.level_xp.truncate(21);
+    t.level_credits.truncate(21);
+    for (n, v) in t.level_xp.iter_mut().enumerate() {
+        *v = 1000 * (n as u64) * (n as u64);
+    }
+    assert_eq!(XpTable::decode_payload(id, &t.encode()).unwrap(), t);
+}
+
+/// A spell a world renames keeps its components, now keyed by its new name, and a component it
+/// changes reads back changed; every other spell reads back as it was.
+#[test]
+fn a_renamed_spell_keeps_its_components() {
+    use dereth_assets::tables::SpellTable;
+    let s = store();
+    let id = DataId(0x0E00_000E);
+    let mut t = SpellTable::decode_payload(id, &s.read_portal(id).unwrap()).unwrap();
+    let heal = t.spells.get_mut(&6).expect("Heal Self I");
+    let comps = heal.comps.clone();
+    heal.name = "Mend Self I".into();
+    heal.comps[1] = comps[2];
+    let back = SpellTable::decode_payload(id, &t.encode()).unwrap();
+    let mended = &back.spells[&6];
+    assert_eq!(mended.name, "Mend Self I");
+    assert_eq!(mended.comps[0], comps[0]);
+    assert_eq!(mended.comps[1], comps[2]);
+    assert_eq!(mended.comps[2..], comps[2..]);
+    assert_ne!(
+        mended.comp_key, t.spells[&6].comp_key,
+        "keyed by the new name"
+    );
+    for (k, v) in &t.spells {
+        if *k != 6 {
+            assert_eq!(&back.spells[k], v, "spell {k}");
+        }
+    }
+    assert_eq!(back.spellsets, t.spellsets);
+}
+
+/// The end of retail's spell table and experience table don't fit the February 2005 files: the
+/// older files have no spell sets, and no level past 32 bits of experience.
+#[test]
+fn the_later_spell_sets_and_levels_are_refused_for_the_older_files() {
+    use dereth_assets::tables::{SpellTable, XpTable};
+    let s = store();
+    let spells = DataId(0x0E00_000E);
+    let t = SpellTable::decode_payload(spells, &s.read_portal(spells).unwrap()).unwrap();
+    assert!(t
+        .encode_for(dereth_primitives::EraId::Infiltration)
+        .is_err());
+    let mut no_sets = t.clone();
+    no_sets.spellsets.clear();
+    assert!(no_sets
+        .encode_for(dereth_primitives::EraId::Infiltration)
+        .is_ok());
+    let xp = DataId(0x0E00_0018);
+    let x = XpTable::decode_payload(xp, &s.read_portal(xp).unwrap()).unwrap();
+    assert!(x.level_xp.last().copied().unwrap_or(0) > u64::from(u32::MAX));
+    assert!(x
+        .encode_for(dereth_primitives::EraId::Infiltration)
+        .is_err());
+    assert_eq!(
+        x.encode_for(dereth_primitives::EraId::Eor).unwrap(),
+        x.encode()
+    );
+}

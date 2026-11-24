@@ -1424,6 +1424,7 @@ pub(crate) mod tests {
                 id: DataId(0),
                 buckets: 0,
                 skills,
+                order: Vec::new(),
             },
             clothing: Rc::new(clothing),
         }

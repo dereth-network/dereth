@@ -136,6 +136,7 @@ fn spell_table() -> dereth_assets::SpellTable {
         spells: [(666, vitae)].into_iter().collect(),
         spellset_bucket_index: 1,
         spellsets: std::collections::BTreeMap::new(),
+        spellset_order: Vec::new(),
     }
 }
 

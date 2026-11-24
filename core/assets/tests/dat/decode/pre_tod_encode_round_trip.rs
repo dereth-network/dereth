@@ -263,3 +263,48 @@ fn later_records_written_for_february_2005_read_back_in_its_layout() {
     let rs = RenderSurface::decode_payload_for(eor, picture, &bytes).unwrap();
     assert!(rs.encode_for(ERA, rs.payload(&bytes).unwrap()).is_err());
 }
+
+/// One portal-file record of the February 2005 files, read in their layout and encoded back in it.
+fn portal_record_round_trips(id: u32, encode: impl Fn(DataId, &[u8]) -> Vec<u8>) {
+    let s = store();
+    let id = DataId(id);
+    let bytes = s.read_portal(id).unwrap();
+    let got = encode(id, &bytes);
+    let first = got.iter().zip(&bytes).position(|(a, b)| a != b);
+    assert!(
+        got == bytes,
+        "{id:?} encodes to other bytes: {} against {}, first difference at {first:?}",
+        got.len(),
+        bytes.len(),
+    );
+}
+
+#[test]
+fn the_february_2005_skill_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_0004, |id, b| {
+        dereth_assets::tables::SkillTable::decode_payload_for(ERA, id, b)
+            .unwrap()
+            .encode_for(ERA)
+            .unwrap()
+    });
+}
+
+#[test]
+fn the_february_2005_experience_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_0018, |id, b| {
+        dereth_assets::tables::XpTable::decode_payload_for(ERA, id, b)
+            .unwrap()
+            .encode_for(ERA)
+            .unwrap()
+    });
+}
+
+#[test]
+fn the_february_2005_spell_table_encodes_back_to_its_own_bytes() {
+    portal_record_round_trips(0x0E00_000E, |id, b| {
+        dereth_assets::tables::SpellTable::decode_payload_for(ERA, id, b)
+            .unwrap()
+            .encode_for(ERA)
+            .unwrap()
+    });
+}

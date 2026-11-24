@@ -66,6 +66,7 @@ fn a_world_that_leaves_expiries_unannounced_writes_no_expiry_line() {
         spells: [(2, base)].into_iter().collect(),
         spellset_bucket_index: 0,
         spellsets: Default::default(),
+        spellset_order: Vec::new(),
     }));
     assert!(world.notify_of_enchantment_removal(2));
     assert_eq!(world.scroll.drain()[0].body, "Strength Self I has expired.");
@@ -125,6 +126,7 @@ fn real_targeted_cast_announces_dynamic_spell_name_as_warning_and_unknown_stays_
         spells: [(1, base)].into_iter().collect(),
         spellset_bucket_index: 0,
         spellsets: Default::default(),
+        spellset_order: Vec::new(),
     }));
     let mut notices = crate::RecordingSink::default();
     let mut requests = crate::RecordingRequests::default();

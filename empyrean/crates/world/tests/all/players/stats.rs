@@ -122,6 +122,7 @@ fn tables() -> (XpTable, SkillTable, SecondaryAttributeTable) {
         id: DataId(file_id::SKILL_TABLE),
         buckets: 64,
         skills,
+        order: Vec::new(),
     };
     let vitals = &out["vitals"];
     let secondary = SecondaryAttributeTable {

@@ -1303,6 +1303,7 @@ fn a_running_move_to_moves_at_the_creatures_run_rate() {
         id: DataId(0x0E00_0004),
         buckets: 64,
         skills: BTreeMap::from([(24, run_skill)]),
+        order: Vec::new(),
     };
     let mut w =
         world_on(empyrean_testkit::dats::with_stat_tables(FakeDats::new()).with_skill_table(table));

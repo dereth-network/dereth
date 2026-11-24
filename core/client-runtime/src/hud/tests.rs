@@ -61,6 +61,7 @@ fn appraisal_display_facts_survive_the_live_projection_and_snapshot() {
         .into(),
         spellset_bucket_index: 0,
         spellsets: Default::default(),
+        spellset_order: Vec::new(),
     });
     let view = HudView {
         hud: &hud,
@@ -1037,6 +1038,7 @@ fn a_skills_footer_numbers_follow_the_vitae_as_it_is_now_and_not_the_last_rebuil
         )]
         .into_iter()
         .collect(),
+        order: Vec::new(),
     });
     hud.xp_table = Some(dereth_assets::tables::XpTable {
         id: DataId(0x0E00_0018),

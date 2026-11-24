@@ -2,8 +2,8 @@
 //! and buildings, an indoor cell, a surface, an image texture and an image, a model (`GfxObj`), a
 //! composite object (`Setup`), an animation (each frame's part frames and hooks), a particle
 //! emitter and the script that starts it (its timed hooks), an environment
-//! with its cell shapes, the character-creation table with the world's own starter areas, and the
-//! region with its sky.
+//! with its cell shapes, the character-creation table with the world's own starter areas, the
+//! region with its sky, and the skill, experience and spell tables.
 //!
 //! Each `encode` is the exact inverse of its type's decoder: decoding a record and encoding the
 //! value gives back the record's bytes, for every record of the kind the retail files hold. The
@@ -35,7 +35,10 @@ use crate::motion::{GfxObjDegradeInfo, PhysicsScript};
 use crate::region::{
     GameTime, LandDefs, LandSurf, Region, RegionMisc, SkyInfo, LAND_HEIGHT_TABLE_LEN,
 };
-use crate::tables::{CharGen, GearItem, ObjDesc, SexCg};
+use crate::tables::{
+    spell_component_key, CharGen, GearItem, ObjDesc, SexCg, SkillFormula, SkillTable, SpellBase,
+    SpellTable, XpTable,
+};
 use crate::world::{
     BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
     ParticleEmitterInfo, LANDBLOCK_BYTES,
@@ -71,7 +74,10 @@ impl Out {
     /// A record's string: its windows-1252 length in 16 bits (`0xFFFF` then 32 bits when longer),
     /// its bytes with no terminator, then zero bytes to four.
     fn packobj_string(&mut self, s: &str) {
-        let b = dereth_primitives::text::cp1252::encode_lossy(s);
+        self.packobj_bytes(&dereth_primitives::text::cp1252::encode_lossy(s));
+    }
+    /// A record's string from its bytes, as [`Self::packobj_string`] writes one.
+    fn packobj_bytes(&mut self, b: &[u8]) {
         match u16::try_from(b.len()) {
             Ok(n) if n != 0xFFFF => self.u16(n),
             _ => {
@@ -79,7 +85,7 @@ impl Out {
                 self.count(b.len());
             }
         }
-        self.0.extend_from_slice(&b);
+        self.0.extend_from_slice(b);
         self.align();
     }
     fn vec3(&mut self, v: Vec3) {
@@ -1592,6 +1598,272 @@ impl CharGen {
             for sex_key in in_order(&h.sexes, &h.sex_order) {
                 o.u32(sex_key);
                 o.sex(&h.sexes[&sex_key]);
+            }
+        }
+        o.0
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The gameplay tables: skills, experience, spells
+// ---------------------------------------------------------------------------------------------
+
+impl Out {
+    /// The `u16` count then the `u16` bucket count of the older game tables' maps.
+    fn count_then_buckets(&mut self, n: usize, buckets: u32) {
+        self.u16(u16::try_from(n).unwrap_or(u16::MAX));
+        self.u16(u16::try_from(buckets).unwrap_or(u16::MAX));
+    }
+    fn skill_formula(&mut self, f: &SkillFormula) {
+        for v in [f.w, f.x, f.y, f.z, f.attr1, f.attr2] {
+            self.u32(v);
+        }
+    }
+    /// A spell's name or description: its windows-1252 bytes with each byte's nibbles swapped.
+    fn obfuscated(&mut self, b: &[u8]) {
+        let swapped: Vec<u8> = b.iter().map(|b| b.rotate_left(4)).collect();
+        self.packobj_bytes(&swapped);
+    }
+}
+
+/// A map's keys in the order a record stored them: those of `order` the map still holds, in that
+/// order, then the map's others by key (a table made in code, or one a world added to).
+fn stored_order<V>(map: &std::collections::BTreeMap<u32, V>, order: &[u32]) -> Vec<u32> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut keys: Vec<u32> = order
+        .iter()
+        .copied()
+        .filter(|k| map.contains_key(k) && seen.insert(*k))
+        .collect();
+    keys.extend(map.keys().copied().filter(|k| !seen.contains(k)));
+    keys
+}
+
+impl SkillTable {
+    /// The `0x0E000004` record: the id, the skill count and bucket count, then each skill in the
+    /// stored order ([`SkillTable::order`]).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(16 * 1024));
+        o.id(self.id);
+        o.count_then_buckets(self.skills.len(), self.buckets);
+        for key in stored_order(&self.skills, &self.order) {
+            let s = &self.skills[&key];
+            o.u32(key);
+            o.packobj_string(&s.description);
+            o.packobj_string(&s.name);
+            o.u32(s.icon);
+            o.i32(s.trained_cost);
+            o.i32(s.specialized_cost);
+            o.u32(s.category);
+            o.i32(s.chargen_use);
+            o.u32(s.min_level);
+            o.skill_formula(&s.formula);
+            o.f64(s.upper_bound);
+            o.f64(s.lower_bound);
+            o.f64(s.learn_mod);
+        }
+        o.0
+    }
+
+    /// The record in the layout of the files of `era`: the same in every era there is.
+    ///
+    /// # Errors
+    /// Launch's files, which no encoder writes yet.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(launch_unsupported()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
+        }
+    }
+}
+
+impl XpTable {
+    /// The `0x0E000018` record: the id, each list's last index (its length less one), then the
+    /// attribute, vital, trained and specialized raise costs, the experience to each character
+    /// level (64-bit) and the credits each level gives.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        self.write(|o, v| o.0.extend_from_slice(&v.to_le_bytes()))
+    }
+
+    /// The record in the layout of the files of `era`. Before Throne of Destiny the experience to
+    /// each character level is 32-bit; the other lists are the same.
+    ///
+    /// # Errors
+    /// Launch's files, which no encoder writes yet, and a level more than 32 bits can hold for the
+    /// older files.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(launch_unsupported()),
+            EraId::Infiltration => {
+                if let Some(&v) = self.level_xp.iter().find(|&&v| v > u64::from(u32::MAX)) {
+                    return Err(AssetError::Unsupported {
+                        what: "a character level's experience above 32 bits in the older files",
+                        value: u32::try_from(v >> 32).unwrap_or(u32::MAX),
+                    });
+                }
+                Ok(self.write(|o, v| o.u32(u32::try_from(v).unwrap_or(u32::MAX))))
+            }
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
+        }
+    }
+
+    fn write(&self, level: impl Fn(&mut Out, u64)) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(8 * 1024));
+        o.id(self.id);
+        for n in [
+            self.attribute_xp.len(),
+            self.vital_xp.len(),
+            self.trained_xp.len(),
+            self.specialized_xp.len(),
+            self.level_xp.len(),
+        ] {
+            o.count(n.saturating_sub(1));
+        }
+        for list in [
+            &self.attribute_xp,
+            &self.vital_xp,
+            &self.trained_xp,
+            &self.specialized_xp,
+        ] {
+            for &v in list {
+                o.u32(v);
+            }
+        }
+        for &v in &self.level_xp {
+            level(&mut o, v);
+        }
+        for &v in &self.level_credits {
+            o.u32(v);
+        }
+        o.0
+    }
+}
+
+impl SpellBase {
+    /// The eight component slots as the record stores them: [`Self::comps`], each keyed by the
+    /// name and description written ([`spell_component_key`]), so a renamed spell keeps its
+    /// components. The components go back in the slots they were read from, which keeps an empty
+    /// slot's place; when there are more or fewer of them than were read, they fill the first
+    /// slots in order and the rest stay empty.
+    #[must_use]
+    pub fn stored_comps(&self) -> [u32; 8] {
+        let name = dereth_primitives::text::cp1252::encode_lossy(&self.name);
+        let desc = dereth_primitives::text::cp1252::encode_lossy(&self.description);
+        let key = spell_component_key(&name, &desc);
+        let filled: Vec<usize> = (0..8).filter(|&i| self.raw_comps[i] != 0).collect();
+        let slots: Vec<usize> = if filled.len() == self.comps.len() {
+            filled
+        } else {
+            (0..8).collect()
+        };
+        let mut out = [0u32; 8];
+        for (&slot, &c) in slots.iter().zip(&self.comps) {
+            out[slot] = c.wrapping_add(key);
+        }
+        out
+    }
+}
+
+fn spell(o: &mut Out, s: &SpellBase) {
+    o.obfuscated(&dereth_primitives::text::cp1252::encode_lossy(&s.name));
+    o.obfuscated(&dereth_primitives::text::cp1252::encode_lossy(
+        &s.description,
+    ));
+    o.u32(s.school);
+    o.u32(s.icon);
+    o.u32(s.category);
+    o.u32(s.bitfield);
+    o.i32(s.base_mana);
+    o.f32(s.base_range_constant);
+    o.f32(s.base_range_mod);
+    o.i32(s.power);
+    o.f32(s.spell_economy_mod);
+    o.u32(s.formula_version);
+    o.f32(s.component_loss);
+    o.u32(s.meta_spell_type);
+    o.u32(s.meta_spell_id);
+    if let Some((a, b, c)) = s.duration {
+        o.f64(a);
+        o.f32(b);
+        o.f32(c);
+    }
+    if let Some(t) = s.portal_lifetime {
+        o.f64(t);
+    }
+    for v in s.stored_comps() {
+        o.u32(v);
+    }
+    o.u32(s.caster_effect);
+    o.u32(s.target_effect);
+    o.u32(s.fizzle_effect);
+    o.f64(s.recovery_interval);
+    o.f32(s.recovery_amount);
+    o.i32(s.display_order);
+    o.u32(s.non_component_target_type);
+    o.i32(s.mana_mod);
+}
+
+fn launch_unsupported() -> AssetError {
+    AssetError::Unsupported {
+        what: "Launch asset encoding",
+        value: 0,
+    }
+}
+
+impl SpellTable {
+    /// The record in the layout of the files of `era`. Before Throne of Destiny the table is the
+    /// spells alone, with no spell-set table.
+    ///
+    /// # Errors
+    /// Launch's files, which no encoder writes yet, and spell sets for the older files, which
+    /// have no place for them.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(launch_unsupported()),
+            EraId::Infiltration => {
+                if !self.spellsets.is_empty() {
+                    return Err(AssetError::Unsupported {
+                        what: "spell sets in the older files",
+                        value: u32::try_from(self.spellsets.len()).unwrap_or(u32::MAX),
+                    });
+                }
+                Ok(self.spells_only().0)
+            }
+            EraId::Eor | EraId::NewDereth => Ok(self.encode()),
+        }
+    }
+
+    fn spells_only(&self) -> Out {
+        let mut o = Out(Vec::with_capacity(2 * 1024 * 1024));
+        o.id(self.id);
+        o.count_then_buckets(self.spells.len(), self.spell_buckets);
+        for (&key, s) in &self.spells {
+            o.u32(key);
+            spell(&mut o, s);
+        }
+        o
+    }
+
+    /// The `0x0E00000E` record: the id, the spell count and bucket count, each spell by key, then
+    /// the spell-set table (its count with the bucket-size index in the high byte, then each set in
+    /// the stored order ([`SpellTable::spellset_order`]), its tiers by piece count).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = self.spells_only();
+        let n = u32::try_from(self.spellsets.len()).unwrap_or(0x00FF_FFFF) & 0x00FF_FFFF;
+        o.u32(n | (u32::from(self.spellset_bucket_index) << 24));
+        for key in stored_order(&self.spellsets, &self.spellset_order) {
+            let set = &self.spellsets[&key];
+            o.u32(key);
+            o.count(set.tiers.len());
+            for (&pieces, spells) in &set.tiers {
+                o.u32(pieces);
+                o.count(spells.len());
+                for &sp in spells {
+                    o.u32(sp);
+                }
             }
         }
         o.0
