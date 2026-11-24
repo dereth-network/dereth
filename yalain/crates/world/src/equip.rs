@@ -998,9 +998,8 @@ fn take_off_to<S: Store>(
     crate::inventory::to_holder(s, net, world, item, &m);
     // Its effects go just before the answer, and the answer after the look and the item's holder
     // (2017, by the order sent: its holder before the answer 1,052 of 1,052).
-    let stopped = effects::take_off_worn(s, net, world, item);
+    effects::take_off_worn(s, net, world, item);
     progress::private(net, world, &done);
-    effects::stop_fx(s, net, world, &stopped);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
     }
@@ -1353,9 +1352,8 @@ fn put_away<S: Store>(
     }
     // Its effects go just before the answer, and the answer after the item's holder and its
     // letting go (2017, by the order sent: its holder before the answer 1,052 of 1,052).
-    let stopped = effects::take_off_worn(s, net, world, item);
+    effects::take_off_worn(s, net, world, item);
     progress::private(net, world, &done);
-    effects::stop_fx(s, net, world, &stopped);
     if let Some(p) = s.players.get_mut(&world) {
         crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {

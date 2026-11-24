@@ -5156,6 +5156,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.resurrection-order",
+        says: "A resurrection asked for sends standing at peace first, then each record a death \
+               ends taken off with its appearance stopped right after it, then the protection's \
+               glow, the protection's add and the arrival's effect into portal space.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RESURRECTION-ORDER"),
+        station: "yalain-testkit::cpu::play::dying::a_resurrection_stands_then_stops_each_appearance_with_its_record_then_glows_and_is_protected",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.sent-back-after-ten-minutes",
         says: "A player that sits dead with its box up and asks for nothing is resurrected ten \
                minutes after it was told it was dead, by the usual trip. This rests on one \
@@ -6134,6 +6144,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WIELDED-EFFECTS"),
         station: "yalain-testkit::cpu::play::worn_effects::a_wielded_weapon_puts_its_effect_on_and_putting_it_away_takes_it_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.equip.worn-appearance-stops-with-its-record",
+        says: "A worn item taken off stops each effect's appearance right after the removal of the \
+               last record showing it, before the take-off's answer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-STOP-ORDER"),
+        station: "yalain-testkit::cpu::play::worn_effects::a_worn_items_appearance_stops_right_after_its_record_before_the_answer",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13342,6 +13361,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PET-ATTACKS-WHERE-THEY-STAND"),
         station: "yalain-testkit::cpu::play::pet_skills::a_pets_attack_used_where_it_stands_falls_around_it_and_its_user_effect_goes_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.aura-appearances-stop-with-their-records",
+        says: "A pet's aura gone with its pet stops each pulse's appearance right after the \
+               removal of the last record showing it, one record after another.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-AURA-STOP-ORDER"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_spirits_aura_gone_stops_each_appearance_right_after_its_record",
         tier: Tier::Cpu,
     },
     behaviour! {

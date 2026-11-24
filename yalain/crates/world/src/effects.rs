@@ -2954,9 +2954,10 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &ServerNet, world: ConnId, clock:
 
 /// A resurrection takes off the records whose effects a death ends, as it is asked for (2017: of the
 /// records still running at 227 requests, 1,664 of 1,664 such were gone before the protection's add,
-/// 192 of 192 worn ones and 432 of 432 others stayed). A ride ends as rides end. Returns the
-/// appearances no record shows now, for the caller to stop when they are due.
-pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> Vec<u32> {
+/// 192 of 192 worn ones and 432 of 432 others stayed), each appearance stopped right after the
+/// removal of the last record showing it (2017, by send order: 205 of 206 requests so). A ride
+/// ends as rides end.
+pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let gone: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .effects
@@ -2971,16 +2972,12 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
             .map(|e| e.eid)
             .collect()
     });
-    let mut stop = Vec::new();
     for eid in gone {
         // A ride ends as rides end.
         if !crate::mounts::record_ends(s, net, world, eid) {
-            if let Some(Some(fx)) = take_off(s, net, On::Player(world), eid) {
-                stop.push(fx);
-            }
+            remove_on(s, net, On::Player(world), eid);
         }
     }
-    stop
 }
 
 /// A player is taken somewhere: the records of effects that end at a teleport go, as it goes into
@@ -3904,7 +3901,9 @@ pub fn pet_pulses<S: Store>(
 }
 
 /// A pet that held an aura is gone: the records of its pulses come off whoever holds them, at once
-/// (2017: within 0.3 s of its death, 20 of 23 deaths seen; 2 had run out by then).
+/// (2017: within 0.3 s of its death, 20 of 23 deaths seen; 2 had run out by then), each appearance
+/// stopped right after the removal of the last record showing it (2017, by send order: 383 of 383
+/// stops).
 pub fn pet_pulses_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: u64) {
     let held: Vec<(ConnId, Vec<u32>)> = s
         .players
@@ -3922,13 +3921,9 @@ pub fn pet_pulses_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: u64
         .filter(|(_, eids)| !eids.is_empty())
         .collect();
     for (to, eids) in held {
-        let mut stop = Vec::new();
         for eid in eids {
-            if let Some(Some(fx)) = take_off(s, net, On::Player(to), eid) {
-                stop.push(fx);
-            }
+            remove_on(s, net, On::Player(to), eid);
         }
-        stop_fx(s, net, to, &stop);
     }
 }
 
@@ -4086,14 +4081,9 @@ pub fn put_on_worn<S: Store>(
 
 /// An item's effects come off the player as the item comes off, before the answer: each record
 /// it put on taken away (2017: 256 of 257 removals of such records were a take-off's, right
-/// before its answer). Returns the appearances no record shows any more, which the caller stops
-/// after the answer.
-pub fn take_off_worn<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    item: u64,
-) -> Vec<u32> {
+/// before its answer), each appearance stopped right after the removal of the last record showing
+/// it, before the answer too (2017, by send order: 24 of 25 unequips with a stop).
+pub fn take_off_worn<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
     let ids: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .effects
@@ -4103,14 +4093,10 @@ pub fn take_off_worn<S: Store>(
             .collect()
     });
     if ids.is_empty() {
-        return Vec::new();
+        return;
     }
-    let mut stopped = Vec::new();
     for eid in ids {
-        if let Some(Some(fx)) = take_off(s, net, On::Player(world), eid) {
-            stopped.push(fx);
-        }
+        remove_on(s, net, On::Player(world), eid);
     }
     crate::world::keep_player(s, world);
-    stopped
 }

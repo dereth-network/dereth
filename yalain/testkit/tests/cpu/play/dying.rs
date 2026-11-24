@@ -1510,6 +1510,53 @@ fn a_resurrection_takes_off_what_a_death_ends_and_keeps_the_rest() {
     );
 }
 
+/// A resurrection asked for sends, in order: standing at peace, each record a death ends taken off
+/// with its appearance stopped right after it, the protection's glow, the protection's add, then
+/// the arrival's effect as it goes into portal space.
+/// Behaviour: server.death.resurrection-order
+#[test]
+fn a_resurrection_stands_then_stops_each_appearance_with_its_record_then_glows_and_is_protected() {
+    use yalain_testkit::DASH_EFFECT;
+    use yalain_world::effects::{function as effect_fn, TIMED};
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    record_on(&mut h, DASH_EFFECT, TIMED, 3000.0);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    h.run(3);
+    let order: Vec<String> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some("set".to_string()),
+            ServerMessage::StopFx(e) if e.sender.id == me => Some(format!("stop {:x}", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me => Some(format!("fx {:x}", e.action.fx)),
+            ServerMessage::PlayerCall(c) if c.function.0 == effect_fn::REMOVE => {
+                Some("remove".to_string())
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == effect_fn::ADD => {
+                Some("add".to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "set",
+            "remove",
+            "stop 410004cb",
+            "fx 4100000f",
+            "add",
+            "fx 41000010"
+        ],
+        "{order:?}"
+    );
+}
+
 /// A character that left the world dead loses what its death ends as it comes back, before its
 /// protection, as one resurrected by asking does.
 /// Behaviour: server.death.resurrection-ends-effects

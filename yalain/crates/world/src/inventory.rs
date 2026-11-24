@@ -2642,8 +2642,7 @@ pub fn take_item<S: Store>(
     _template: u32,
 ) -> bool {
     // What it put on its wearer goes with it.
-    let stopped = crate::effects::take_off_worn(s, net, world, item);
-    crate::effects::stop_fx(s, net, world, &stopped);
+    crate::effects::take_off_worn(s, net, world, item);
     let Ok(gone) = holding::destroy_held(s, world, item) else {
         return false;
     };

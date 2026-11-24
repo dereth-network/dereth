@@ -204,6 +204,56 @@ fn a_worn_item_puts_its_effects_on_before_the_answer_and_takes_them_off_before_t
     assert!(records(&h, world).is_empty(), "nothing left on");
 }
 
+/// A worn item taken off stops its effect's appearance right after that record's removal, before
+/// the take-off's answer.
+/// Behaviour: server.equip.worn-appearance-stops-with-its-record
+#[test]
+fn a_worn_items_appearance_stops_right_after_its_record_before_the_answer() {
+    const NAMED_FX: u32 = 0x4100_7201;
+    let (mut h, b, me, world) = wearer();
+    if let Some(d) = h.server.effect_table.effects.get_mut(&NAMED) {
+        d.fx = NAMED_FX;
+    }
+    let chest = h.arm(b, me, CHEST);
+    let named = records(&h, world)
+        .iter()
+        .find(|e| e.state == NAMED)
+        .map(|e| e.eid)
+        .expect("the named record");
+    let from = use_it(&mut h, b, me, chest);
+    let msgs = h.sent_messages(b, from);
+    let call = |m: &auberean_protocol::ServerMessage| match m {
+        auberean_protocol::ServerMessage::PlayerCall(c) => Some(c.function.0),
+        _ => None,
+    };
+    let named_stopped = |m: &auberean_protocol::ServerMessage| match m {
+        auberean_protocol::ServerMessage::StopFx(e) => e.sender.id == me && e.action.0 == NAMED_FX,
+        _ => false,
+    };
+    let stopped = msgs
+        .iter()
+        .position(named_stopped)
+        .expect("the appearance stopped");
+    let answer = msgs
+        .iter()
+        .position(|m| call(m) == Some(equip_fn::UNEQUIP_DONE))
+        .expect("the answer");
+    let removed = |m: &auberean_protocol::ServerMessage| match m {
+        auberean_protocol::ServerMessage::PlayerCall(c) if c.function.0 == effect_fn::REMOVE => c
+            .args
+            .as_ref()
+            .and_then(|a| yalain_world::calls::values(&a.0).ok())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    assert_eq!(
+        stopped.checked_sub(1).map(|i| removed(&msgs[i])),
+        Some(vec![yalain_world::calls::Value::Int(named)]),
+        "right after its own record's removal"
+    );
+    assert!(stopped < answer, "before the answer");
+}
+
 /// The texts a client was shown since `from`.
 fn shown(h: &Harness, b: usize, from: usize) -> Vec<TextInfo> {
     h.calls(b, from)

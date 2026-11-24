@@ -174,8 +174,8 @@ pub fn rises<S: Store>(
     offer: Offer,
     clock: Clock,
 ) {
-    let stop = crate::effects::resurrected(s, net, world);
-    crate::death::stands_at_peace(s, net, world, &stop);
+    crate::death::stands_at_peace(s, net, world);
+    crate::effects::resurrected(s, net, world);
     crate::death::returns_keeping(s, net, world, offer.focus_share);
     crate::death::returned_with(s, net, world, Some(offer.fx));
     s.after(clock, MOVES_AFTER, Timer::RaisedMoves { world });

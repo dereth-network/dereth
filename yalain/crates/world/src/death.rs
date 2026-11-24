@@ -1951,13 +1951,16 @@ pub fn sent_back<S: Store>(
     }
 }
 
-/// A dead player's client asks to be resurrected (only once its corpse is made): what its death
-/// ended taken off, protected (see `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
-/// resurrections, played 0), the resurrection's effect and, into portal space, the arrival's (219 of
-/// 227, in that order 216); a second and a half later it is back at the
-/// lifestone it is bound to (or, never bound, the nearest lifestone the world has, else where it
-/// fell), with 5 vitae less and three quarters of its health and vigor, and free to move again a
-/// moment later ([`moves_again`]).
+/// A dead player's client asks to be resurrected (only once its corpse is made): for everyone who
+/// sees it, set standing at peace at once (2017: the mode set 223 of 227 resurrections, played 0);
+/// what its death ended taken off, each appearance stopped with its record; the protection's glow,
+/// then the protection (see `effects`), then, into portal space, the arrival's effect (2017, by
+/// send order: the mode before the first removal 182 of 182 that set it, the stops before the
+/// protection's add 206 of 206, the last stop followed by the glow, the add and the arrival's
+/// effect 201 of 206); a second and a half later it is back at the lifestone it is bound to (or,
+/// never bound, the nearest lifestone the world has, else where it fell), with 5 vitae less and
+/// three quarters of its health and vigor, and free to move again a moment later
+/// ([`moves_again`]).
 pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(p) = s.players.get(&world) else {
         return;
@@ -1972,10 +1975,12 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         return;
     }
     let to = crate::places::resurrection_place(s, world);
-    // What a death ends goes first, then it is protected for three minutes, before portal space.
-    let stop = crate::effects::resurrected(s, net, world);
+    // Standing first, then what a death ends goes, then it glows and is protected for three
+    // minutes, before portal space.
+    stands_at_peace(s, net, world);
+    crate::effects::resurrected(s, net, world);
+    glows(s, net, world);
     crate::effects::protect(s, net, world, clock);
-    resurrection_look(s, net, world, &stop);
     crate::places::resurrection_trip(s, net, world, to, clock);
 }
 
@@ -1987,14 +1992,8 @@ pub fn moves_again<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId) 
     }
 }
 
-/// For everyone who sees it, a player coming back is set standing at peace and the appearances of
-/// what its death ended stop.
-pub(crate) fn stands_at_peace<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    stop: &[u32],
-) {
+/// For everyone who sees it, a player coming back is set standing at peace.
+pub(crate) fn stands_at_peace<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -2004,19 +2003,11 @@ pub(crate) fn stands_at_peace<S: Store>(
         action: auberean_protocol::physics::Word(crate::combat::mode::PEACE),
     });
     to_all_seeing(s, net, id, &peace);
-    crate::effects::stop_fx(s, net, world, stop);
 }
 
-/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
-/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
-fn resurrection_look<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    stop: &[u32],
-) {
-    stands_at_peace(s, net, world, stop);
-    // The lifestone protection's glow, which stays until the protection ends.
+/// For everyone who sees it, a player coming back glows: the lifestone protection's appearance,
+/// which stays until the protection ends.
+fn glows<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(glow) = crate::effects::lifestone_protection(&s.effect_table).map(|k| k.fx) else {
         return;
     };
@@ -2048,10 +2039,11 @@ pub fn back_after_entry<S: Store>(
     world: ConnId,
     clock: Clock,
 ) {
-    let stop = crate::effects::resurrected(s, net, world);
+    crate::effects::resurrected(s, net, world);
     crate::effects::protect(s, net, world, clock);
     returns(s, net, world);
-    resurrection_look(s, net, world, &stop);
+    stands_at_peace(s, net, world);
+    glows(s, net, world);
     returned(s, net, world);
     crate::world::keep_player(s, world);
 }

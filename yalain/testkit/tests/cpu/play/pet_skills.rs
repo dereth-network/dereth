@@ -360,6 +360,65 @@ fn a_spirits_aura_comes_off_with_the_spirit() {
     );
 }
 
+/// A pet's aura pulsing two effects with appearances of their own, gone with its pet: each
+/// appearance stops right after its own record's removal, one after the other.
+/// Behaviour: server.pets.aura-appearances-stop-with-their-records
+#[test]
+fn a_spirits_aura_gone_stops_each_appearance_right_after_its_record() {
+    const PULSED_FX: u32 = 0x4100_1FB6;
+    const OTHER: u32 = 0x7000_1FB7;
+    const OTHER_FX: u32 = 0x4100_1FB7;
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(aura_skill()));
+    with_aura(&mut h, false);
+    let mut other = h.server.effect_table.effects[&PULSED].clone();
+    other.state = OTHER;
+    other.eq_class = 22;
+    other.fx = OTHER_FX;
+    h.server.effect_table.effects.insert(OTHER, other);
+    if let Some(d) = h.server.effect_table.effects.get_mut(&PULSED) {
+        d.fx = PULSED_FX;
+    }
+    if let Some(Kind::Aura(a)) = h
+        .server
+        .effect_table
+        .effects
+        .get_mut(&AURA)
+        .map(|d| &mut d.kind)
+    {
+        a.pulsed.push(OTHER);
+    }
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    h.step_by(1.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::DIE, &[Arg::LongInt(pet)]),
+    );
+    h.run(5);
+    let msgs = h.sent_messages(b, from);
+    let removal = |m: &ServerMessage| match m {
+        ServerMessage::PlayerCall(c) => c.function.0 == effect_fn::REMOVE,
+        _ => false,
+    };
+    let mut stops = 0;
+    for (i, m) in msgs.iter().enumerate() {
+        if let ServerMessage::StopFx(e) = m {
+            if e.sender.id == me && [PULSED_FX, OTHER_FX].contains(&e.action.0) {
+                stops += 1;
+                assert!(
+                    i > 0 && removal(&msgs[i - 1]),
+                    "{:#x} right after a removal",
+                    e.action.0
+                );
+            }
+        }
+    }
+    assert_eq!(stops, 2, "both stopped");
+}
+
 /// A pet's aura never puts on anything that harms: all it reaches is its owner and its friends.
 /// Behaviour: server.pets.aura-never-harms
 #[test]
