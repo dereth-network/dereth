@@ -1,13 +1,57 @@
 //! What a world names that it doesn't have: a placement's class, a create list's, a generator's,
 //! an emote's, a recipe's result, a cook book's recipe, a spell a weenie knows or an emote casts,
-//! a placement's linked child, a creature's death treasure type.
+//! a placement's linked child, a weenie's death or wielded treasure type, a treasure generator's
+//! treasure type.
 //!
 //! Each is one line, `<what names it>: <what it names> is in no <table>`, in the world's order.
+//!
+//! A generator row with the Treasure flag (`where_create` 64) names no class: its id is a treasure
+//! type, which the server looks up as death treasure and then as wielded treasure. Under the
+//! Infiltration era's loot rules a chest, a container or a ground generator rolls a few death
+//! treasure profiles as another ([`LootRules::moved_profile`]): the profile it rolls is the one
+//! the world must have, since the one it names is never looked up as death treasure.
 
 use std::collections::BTreeSet;
 
+use empyrean_common::era::{EraExt, LootRules};
+use empyrean_content::models::world::Weenie;
 use empyrean_content::WorldContent;
-use empyrean_entity::enums::PropertyDataId;
+use empyrean_entity::enums::{PropertyDataId, RegenLocationType, WeenieType};
+
+/// The loot rules `c`'s treasure is rolled under: its era's, or its own rules' over them.
+fn loot_rules(c: &WorldContent) -> LootRules {
+    let era = c.era.rules();
+    c.rules
+        .as_ref()
+        .and_then(|r| r.apply(era).ok())
+        .unwrap_or(era)
+        .loot_rules
+}
+
+/// The death treasure profile `w` rolls for `id` under `rules`: what a creature, a vendor, a cow
+/// or a pet drops is its own, and anything else's may be moved.
+fn rolled(rules: LootRules, w: &Weenie, id: u32) -> u32 {
+    let creature = u32::try_from(w.r#type).is_ok_and(|t| {
+        [
+            WeenieType::Creature,
+            WeenieType::Vendor,
+            WeenieType::Cow,
+            WeenieType::Pet,
+            WeenieType::CombatPet,
+        ]
+        .contains(&WeenieType(t))
+    });
+    if creature {
+        id
+    } else {
+        rules.moved_profile(id)
+    }
+}
+
+/// Whether a generator row with `where_create` makes treasure: its id is a treasure type.
+fn treasure_generator(where_create: u32) -> bool {
+    where_create & RegenLocationType::Treasure.0 != 0
+}
 
 /// Every reference in `c` to something `c` doesn't have.
 #[must_use]
@@ -29,7 +73,10 @@ pub fn dangling(c: &WorldContent) -> Vec<String> {
             class(format!("{me} create_list[{i}]"), r.weenie_class_id);
         }
         for (i, r) in w.weenie_properties_generator.iter().enumerate() {
-            class(format!("{me} generator[{i}]"), r.weenie_class_id);
+            // A treasure generator's id is a treasure type, checked with the treasure below.
+            if !treasure_generator(r.where_create) {
+                class(format!("{me} generator[{i}]"), r.weenie_class_id);
+            }
         }
         for (i, e) in w.weenie_properties_emote.iter().enumerate() {
             if let Some(id) = e.weenie_class_id {
@@ -100,22 +147,54 @@ pub fn dangling(c: &WorldContent) -> Vec<String> {
             }
         }
     }
-    // A death treasure type is either table's: ACE's death treasure or the source's grouped.
+    // A death treasure type is either table's: ACE's death treasure or the source's grouped. A
+    // treasure generator's is too, or else a wielded treasure type, which the server tries next.
     let treasure: BTreeSet<u32> = c
         .treasure_death
         .iter()
         .map(|t| t.treasure_type)
         .chain(c.grouped_treasure.iter().map(|t| t.treasure_type))
         .collect();
+    let wielded: BTreeSet<u32> = c.treasure_wielded.iter().map(|t| t.treasure_type).collect();
+    let rules = loot_rules(c);
+    // `id` as `w` names it, and as the era's loot rules roll it when they move it.
+    let named = |w: &Weenie, id: u32| match rolled(rules, w, id) {
+        r if r == id => format!("treasure type {id}"),
+        r => format!("treasure type {id} (rolled as {r} under the era's loot rules)"),
+    };
     for w in &c.weenies {
         for d in &w.weenie_properties_did {
+            if d.value == 0 {
+                continue;
+            }
             if d.r#type == PropertyDataId::DeathTreasureType.0
-                && d.value != 0
-                && !treasure.contains(&d.value)
+                && !treasure.contains(&rolled(rules, w, d.value))
             {
                 out.push(format!(
-                    "weenie {} did.DeathTreasureType: treasure type {} is in no death-treasure or grouped-treasure",
+                    "weenie {} did.DeathTreasureType: {} is in no death-treasure or grouped-treasure",
+                    w.class_id,
+                    named(w, d.value)
+                ));
+            } else if d.r#type == PropertyDataId::WieldedTreasureType.0
+                && !wielded.contains(&d.value)
+            {
+                out.push(format!(
+                    "weenie {} did.WieldedTreasureType: treasure type {} is in no wielded-treasure",
                     w.class_id, d.value
+                ));
+            }
+        }
+        for (i, g) in w.weenie_properties_generator.iter().enumerate() {
+            let id = g.weenie_class_id;
+            if treasure_generator(g.where_create)
+                && id != 0
+                && !treasure.contains(&rolled(rules, w, id))
+                && !wielded.contains(&id)
+            {
+                out.push(format!(
+                    "weenie {} generator[{i}]: {} is in no death-treasure, grouped-treasure or wielded-treasure",
+                    w.class_id,
+                    named(w, id)
                 ));
             }
         }

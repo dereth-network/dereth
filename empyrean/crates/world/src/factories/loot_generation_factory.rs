@@ -347,19 +347,7 @@ pub fn era_death_treasure(
     }
 
     // mismatched high-tier chests and generators in low-level places
-    let death_treasure_id = match death_treasure_id {
-        4 => 6,
-        16 | 15 => 18,
-        313 => 453,
-        457 => 459,
-        463 | 462 => 465,
-        460 => 462,
-        3 => 4,
-        13 => 16,
-        454 | 456 => 457,
-        1 => 3,
-        other => other,
-    };
+    let death_treasure_id = w.era.loot_rules.moved_profile(death_treasure_id);
     let profile = w.content.get_cached_death_treasure(death_treasure_id)?;
     if profile.treasure_type >= 1000 {
         return Some(profile);

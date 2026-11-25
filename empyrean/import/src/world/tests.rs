@@ -747,6 +747,230 @@ fn a_checkpoint_whose_source_loot_is_aces_is_the_swap_and_is_reported_not_an_err
     );
 }
 
+/// Weenie `class` of type `ty`, a generator row for each of `generators` (its id and where it
+/// creates), and its treasure properties of `did` (each a property and its type).
+fn treasure_weenie(class: u32, ty: u32, generators: &[(u32, u32)], did: &[(u16, u32)]) -> Weenie {
+    use empyrean_content::models::world::{WeeniePropertiesDID, WeeniePropertiesGenerator};
+    let mut w = weenie(class, "holder");
+    w.r#type = i32::try_from(ty).expect("a weenie type");
+    w.weenie_properties_generator = generators
+        .iter()
+        .map(|&(id, where_create)| WeeniePropertiesGenerator {
+            weenie_class_id: id,
+            where_create,
+            probability: -1.0,
+            init_create: 1,
+            max_create: 1,
+            when_create: 2,
+            ..Default::default()
+        })
+        .collect();
+    w.weenie_properties_did = did
+        .iter()
+        .map(|&(r#type, value)| WeeniePropertiesDID {
+            r#type,
+            value,
+            ..Default::default()
+        })
+        .collect();
+    w
+}
+
+/// The rows of `c` written to `file`, for a patch.
+fn rows_of(c: &WorldContent, file: &str) -> String {
+    empyrean_world_db::write(c, default_stamp()).expect("written")[file].clone()
+}
+
+/// The generator flag of a treasure generator that fills its own container (`ContainTreasure`).
+const CONTAIN_TREASURE: u32 = 72;
+
+/// `base` as a world in `dir` with a patch of each of `patches`, and its checks.
+fn checked(
+    dir: &Scratch,
+    base: &WorldContent,
+    patches: &[(&str, Option<&str>)],
+) -> (PathBuf, Vec<empyrean_world_db::layers::LayerCheck>) {
+    let path = world(&dir.0, base, patches);
+    let checks = empyrean_world_db::world::open(&path, None)
+        .expect("opened")
+        .check();
+    (path, checks)
+}
+
+#[test]
+fn a_swap_that_drops_the_type_a_chests_treasure_generator_names_fails_and_bringing_it_passes() {
+    use empyrean_entity::enums::WeenieType;
+    let mut base = source_loot();
+    let mut chest_type = base.grouped_treasure[0].clone();
+    chest_type.treasure_type = 98;
+    base.grouped_treasure.push(chest_type);
+    base.weenies.push(treasure_weenie(
+        14,
+        WeenieType::Chest.0,
+        &[(98, CONTAIN_TREASURE)],
+        &[],
+    ));
+    // A class of the same number: a treasure generator's id is a treasure type all the same.
+    base.weenies.push(weenie(98, "lantern"));
+    empyrean_world_db::number(&mut base);
+    let swap =
+        "[[remove]]\nitems = [\"loot-policy\", \"grouped-treasure 98\", \"grouped-treasure 99\"]\n";
+    // The swap brings the drudge's type and not the chest's: the chest names nothing.
+    let dir = Scratch::new("chest-swap");
+    let rows = format!("{swap}\n{}", death_row(99));
+    let (path, checks) = checked(&dir, &base, &[("1999-12-sudden-season", Some(&rows))]);
+    assert!(checks[0].errors().is_empty(), "{:?}", checks[0].errors());
+    let broken = "weenie 14 generator[0]: treasure type 98 is in no death-treasure, grouped-treasure or wielded-treasure";
+    assert_eq!(checks[1].errors(), [broken]);
+    let e = content(&path, None, None, &[]).expect_err("refused");
+    assert_eq!(e, format!("1999-12-sudden-season: {broken}"));
+    // The swap that brings the chest's type too passes, and builds.
+    let dir = Scratch::new("chest-swap-whole");
+    let rows = format!("{swap}\n{}\n{}", death_row(99), death_row(98));
+    let (path, checks) = checked(&dir, &base, &[("1999-12-sudden-season", Some(&rows))]);
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    content(&path, None, None, &[]).expect("builds");
+}
+
+#[test]
+fn a_treasure_generator_naming_a_treasure_type_that_is_no_class_passes() {
+    use empyrean_entity::enums::WeenieType;
+    // The chest's rows name the grouped type 99 and the wielded type 3, neither a class; a row
+    // that makes no treasure still names a class.
+    let mut chest = WorldContent {
+        weenies: vec![treasure_weenie(
+            1_000_000,
+            WeenieType::Chest.0,
+            &[(99, CONTAIN_TREASURE), (3, CONTAIN_TREASURE), (4000, 1)],
+            &[],
+        )],
+        ..WorldContent::default()
+    };
+    empyrean_world_db::number(&mut chest);
+    let rows = rows_of(&chest, "weenie/1000000.toml");
+    let dir = Scratch::new("chest-types");
+    let (_, checks) = checked(
+        &dir,
+        &source_loot(),
+        &[("1999-12-sudden-season", Some(&rows))],
+    );
+    assert_eq!(
+        checks[1].errors(),
+        ["weenie 1000000 generator[2]: class 4000 is in no weenie"]
+    );
+    chest.weenies[0].weenie_properties_generator.pop();
+    let rows = rows_of(&chest, "weenie/1000000.toml");
+    let dir = Scratch::new("chest-types-built");
+    let (path, checks) = checked(
+        &dir,
+        &source_loot(),
+        &[("1999-12-sudden-season", Some(&rows))],
+    );
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    content(&path, None, None, &[]).expect("builds");
+}
+
+#[test]
+fn a_layer_that_drops_the_type_a_weenies_death_or_wielded_treasure_names_fails_and_bringing_it_back_passes(
+) {
+    use empyrean_entity::enums::{PropertyDataId, WeenieType};
+    let mut base = source_loot();
+    base.weenies.push(treasure_weenie(
+        15,
+        WeenieType::Creature.0,
+        &[],
+        &[(PropertyDataId::WieldedTreasureType.0, 3)],
+    ));
+    empyrean_world_db::number(&mut base);
+    // A swap that brings a type, but not the drudge's.
+    let swap = "[[remove]]\nitems = [\"loot-policy\", \"grouped-treasure 99\"]\n";
+    let dir = Scratch::new("death-swap");
+    let rows = format!("{swap}\n{}", death_row(97));
+    let (_, checks) = checked(&dir, &base, &[("1999-12-sudden-season", Some(&rows))]);
+    assert_eq!(
+        checks[1].errors(),
+        ["weenie 13 did.DeathTreasureType: treasure type 99 is in no death-treasure or grouped-treasure"]
+    );
+    let dir = Scratch::new("death-swap-whole");
+    let rows = format!("{swap}\n{}", death_row(99));
+    let (_, checks) = checked(&dir, &base, &[("1999-12-sudden-season", Some(&rows))]);
+    assert!(checks[1].errors().is_empty(), "{:?}", checks[1].errors());
+    // The wielded type goes, and comes back a layer later.
+    let wielded = rows_of(&sample(), "treasure_wielded/00003.toml");
+    let dir = Scratch::new("wielded-back");
+    let (_, checks) = checked(
+        &dir,
+        &base,
+        &[
+            (
+                "1999-12-sudden-season",
+                Some("[[remove]]\nitems = [\"wielded-treasure 3\"]\n"),
+            ),
+            ("2000-01-dark-thaw", Some(&wielded)),
+        ],
+    );
+    assert_eq!(
+        checks[1].errors(),
+        ["weenie 15 did.WieldedTreasureType: treasure type 3 is in no wielded-treasure"]
+    );
+    assert!(checks[2].errors().is_empty(), "{:?}", checks[2].errors());
+}
+
+#[test]
+fn under_the_infiltration_loot_rules_a_chest_needs_the_profile_it_rolls_and_a_creature_the_one_it_names(
+) {
+    use empyrean_content::models::world::TreasureDeath;
+    use empyrean_entity::enums::{PropertyDataId, WeenieType};
+    // Under the Infiltration era's loot rules a chest's 4 rolls as 6; a creature's 4 is its own.
+    let mut base = sample();
+    base.treasure_death = [4, 6]
+        .into_iter()
+        .map(|ty| TreasureDeath {
+            treasure_type: ty,
+            tier: 1,
+            last_modified: default_stamp(),
+            ..Default::default()
+        })
+        .collect();
+    base.weenies.push(treasure_weenie(
+        14,
+        WeenieType::Chest.0,
+        &[(4, CONTAIN_TREASURE)],
+        &[],
+    ));
+    base.weenies.push(treasure_weenie(
+        15,
+        WeenieType::Creature.0,
+        &[],
+        &[(PropertyDataId::DeathTreasureType.0, 4)],
+    ));
+    empyrean_world_db::number(&mut base);
+    let rules = "[[rules]]\nloot_rules = \"infiltration\"\n";
+    let errors = |name: &str, rows: &str| {
+        let dir = Scratch::new(name);
+        let (_, checks) = checked(&dir, &base, &[("1999-12-sudden-season", Some(rows))]);
+        checks[1].errors()
+    };
+    let chest = "weenie 14 generator[0]: treasure type 4 is in no death-treasure, grouped-treasure or wielded-treasure";
+    let creature = "weenie 15 did.DeathTreasureType: treasure type 4 is in no death-treasure or grouped-treasure";
+    assert_eq!(
+        errors("rolls-6", &format!("{rules}\n[[remove]]\nitems = [\"death-treasure 6\"]\n")),
+        ["weenie 14 generator[0]: treasure type 4 (rolled as 6 under the era's loot rules) is in no death-treasure, grouped-treasure or wielded-treasure"]
+    );
+    assert_eq!(
+        errors(
+            "rolls-4",
+            &format!("{rules}\n[[remove]]\nitems = [\"death-treasure 4\"]\n")
+        ),
+        [creature]
+    );
+    // Under the era's own rules nothing moves, and both name 4.
+    assert_eq!(
+        errors("launch-4", "[[remove]]\nitems = [\"death-treasure 4\"]\n"),
+        [chest, creature]
+    );
+}
+
 /// A data file of `data_set` in `dir`, named `name`, at `iteration`, holding the records `ids`.
 fn dat(dir: &Path, name: &str, data_set: u32, iteration: u32, ids: &[u32]) {
     let records: Vec<(u32, Vec<u8>)> = ids.iter().map(|&id| (id, b"a record".to_vec())).collect();

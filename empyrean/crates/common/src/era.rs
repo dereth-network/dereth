@@ -1,4 +1,4 @@
-// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/PlayerFactory.cs, Source/ACE.Entity/Enum/Skill.cs, Source/ACE.Server/Network/Handlers/CharacterHandler.cs
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/PlayerFactory.cs, Source/ACE.Entity/Enum/Skill.cs, Source/ACE.Server/Network/Handlers/CharacterHandler.cs, Source/ACE.Server/Factories/LootGenerationFactory.cs
 //! Not ACE: the era a world plays, and the rules that differ by era.
 //!
 //! A world names its era in `empyrean.toml` (`[era] profile`), and its `world.pack` records the
@@ -193,6 +193,33 @@ pub enum LootRules {
     /// heritage and tier (no two-handed weapons) with that era's damage, speed and defense
     /// scripts; that era's pyreal amounts and item values; no aetheria or coalesced mana.
     Infiltration,
+}
+
+impl LootRules {
+    /// The death treasure profile a chest, a container or a treasure generator rolls for `id`
+    /// under these rules. The Infiltration era's moves a few profiles too rich for where they
+    /// stand down a step (ClassicACE's `GetTweakedDeathTreasureProfile`); every other profile,
+    /// and every profile under the other rules, is its own. What a creature drops is never moved.
+    #[must_use]
+    pub fn moved_profile(self, id: u32) -> u32 {
+        if self != Self::Infiltration {
+            return id;
+        }
+        // mismatched high-tier chests and generators in low-level places
+        match id {
+            4 => 6,
+            16 | 15 => 18,
+            313 => 453,
+            457 => 459,
+            463 | 462 => 465,
+            460 => 462,
+            3 => 4,
+            13 => 16,
+            454 | 456 => 457,
+            1 => 3,
+            other => other,
+        }
+    }
 }
 
 /// Which starter-gear table new characters are given from.
