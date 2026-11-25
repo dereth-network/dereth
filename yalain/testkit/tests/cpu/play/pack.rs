@@ -788,6 +788,44 @@ fn taking_all_from_a_container_not_open_is_refused() {
     assert!(pack_order(&h, world).is_empty(), "nothing taken");
 }
 
+/// A take-all whose player has died before its picking-up is through takes nothing: each item's
+/// move is refused as its player dead, and the take-all is answered naming that, nothing taken and
+/// every item left.
+/// Behaviour: server.inventory.take-all-by-the-dead-takes-nothing
+#[test]
+fn a_take_all_whose_player_dies_before_it_is_through_takes_nothing() {
+    let (mut h, b, me, world) = player();
+    let (corpse, items) = opened_corpse(&mut h, world, me, 2);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 2);
+    // It dies as a blow would kill it: its health gone, then its death.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::player::quality::HEALTH, 0);
+    }
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run(((pack::PICK_UP_SECONDS + 1.0) / STEP).ceil() as usize);
+    assert_eq!(took(&h, b, from), [(status::DEAD, 0, 2)], "nothing taken");
+    let refused = h
+        .calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == inventory::function::MOVE_DONE)
+        .filter(|(_, v)| {
+            v.iter().any(|x| match x.root() {
+                Some(Node::Script { slots, .. }) => slots.iter().any(|s| s.1 == status::DEAD),
+                _ => false,
+            })
+        })
+        .count();
+    assert_eq!(refused, 2, "each item's move refused");
+    assert!(pack_order(&h, world).is_empty(), "nothing in the pack");
+    assert!(
+        items.iter().all(|i| h.server.things.get(*i).is_some()),
+        "every item left"
+    );
+}
+
 /// A quest that keeps an item's taking from the player, and the phase it lets it be taken at.
 const KEPT_BY: u32 = 0x8000_0E71;
 const KEPT_PHASE: u32 = 2;

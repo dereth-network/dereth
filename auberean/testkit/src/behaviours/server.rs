@@ -8941,6 +8941,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.take-all-by-the-dead-takes-nothing",
+        says: "A take-all whose player has died before its picking-up is through takes nothing: \
+               each item's move refused as its player dead (1036), and the take-all answered \
+               naming that.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-ALL-DEAD"),
+        station: "yalain-testkit::cpu::play::pack::a_take_all_whose_player_dies_before_it_is_through_takes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.take-all-closed-before-it-comes-due",
         says: "A take-all whose container is closed before it comes due takes nothing: each item's move refused as not open (1052), then the answer refused so.",
         since: RETAIL,

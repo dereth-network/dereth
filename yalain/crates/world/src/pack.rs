@@ -65,6 +65,8 @@ pub mod status {
     pub const NOT_VIEWER: u32 = 1052;
     /// The segment or the pack has no room.
     pub const CONTAINER_FULL: u32 = 1085;
+    /// The player is dead.
+    pub const DEAD: u32 = 1036;
 }
 
 /// "Adding %1 pieces of Gold.", the gold as its variable, shown as plain text; "You are too busy
@@ -801,7 +803,9 @@ pub(crate) fn play_taking<S: Store>(s: &mut Server<S>, net: &mut ServerNet, worl
 /// item is named from the slot it stands at then, past the items left before it. Then the request
 /// is answered, naming the last refusal; one that took nothing is refused with it (2017: 1 of 1).
 /// A container closed since the request takes nothing: each item's move refused as not open, then
-/// the answer (2017: 2 of 2, 5 items).
+/// the answer (2017: 2 of 2, 5 items). A player dead by then takes nothing either: each item's move
+/// refused as its player dead, then the answer naming it (2017: the one take-all whose player died
+/// before it was through, its item refused so and its answer naming it, 79 ms after the death).
 pub fn took_all<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -823,6 +827,10 @@ pub fn took_all<S: Store>(
     let mut last_error = 0;
     let from = Place::Contents(container);
     let closed = inv::open_corpse_of(s, world) != Some(container);
+    let dead = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.dying.is_some() || crate::combat::is_dead(p));
     for item in contents {
         // One item, one holder: what has left the container since is not taken.
         if holding::place_of(s, item) != Some(from) {
@@ -863,6 +871,20 @@ pub fn took_all<S: Store>(
             split_quantity: quantity,
             ..Move::default()
         };
+        if dead {
+            let m = Move {
+                merge: true,
+                merge_slot: 0,
+                split_quantity: 0,
+                quantity_left: quantity,
+                status: status::DEAD,
+                ..m
+            };
+            progress::private(net, world, &move_done(&m));
+            last_error = status::DEAD;
+            left.push(item);
+            continue;
+        }
         if closed {
             let m = Move {
                 from_slot: 0,
