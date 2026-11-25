@@ -1304,8 +1304,18 @@ pub fn message<S: Store>(
                 .note(format!("a call of {} bytes", call.args.0.len()));
         }
         ClientMessage::ServerCall(call) => {
+            // Chat options that change which of the player's channels its windows show send it its
+            // list again at once (2017: the one upload that hid a listed kind in every window was
+            // answered 0.18 s later by a list without it; none of the 19 that changed no listed kind
+            // was answered).
+            let listed = (call.function.0 == request::CHAT_OPTIONS)
+                .then(|| crate::chat::channels_for(s, &p));
             if kept_call(&mut p, call.function.0, &call.args.0) {
                 s.saves.option_changed(p.character);
+                if listed.is_some_and(|l| l != crate::chat::channels_for(s, &p)) {
+                    s.players.insert(world, p);
+                    return crate::chat::send_channels(s, net, world, 1);
+                }
             } else {
                 s.players.insert(world, p);
                 return crate::requests::call(s, net, world, &call, clock);

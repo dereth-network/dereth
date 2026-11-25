@@ -1299,6 +1299,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.filter-change-resends-channels",
+        says: "Chat options that change which of a player's channels its chat windows show send it its \
+               channel list again at once; options that change none of them send nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-FILTER-REFRESH"),
+        station: "yalain-testkit::cpu::entry::chat_filters::chat_options_that_hide_a_listed_channel_send_the_list_again_and_others_send_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.filter-hidden-room-unheard",
+        says: "A channel's room is heard only by the players one of whose chat windows shows that \
+               channel's kind; a line to it from a player whose windows all hide it is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-FILTER-ROOM"),
+        station: "yalain-testkit::cpu::entry::chat_filters::a_channels_room_is_unheard_by_and_refused_from_a_player_whose_windows_hide_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.filter-leaves-out-hidden-channels",
+        says: "A player's channel list holds only the kinds of channel one of its chat windows shows; \
+               with no filters kept, every channel.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAT-FILTER-CHANNELS"),
+        station: "yalain-testkit::cpu::entry::chat_filters::a_channel_no_chat_window_shows_is_left_out_of_the_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.line-from-afar-reaches-the-room",
         says: "A line from elsewhere reaches every player in the world as the room's own line \
                under the name it is given, with no meta letters, except a player the rule says \

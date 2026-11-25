@@ -40,6 +40,11 @@
 //! when it walks into another region or lands from portal space in another region, or indoors. A line to any other room, or from a client not in the
 //! world, is answered with a refusal and reaches nobody.
 //!
+//! **Chat filters.** A player's list holds only the kinds of channel one of its chat windows shows
+//! ([`channels_for`]); when the client sends chat options that change which of them are shown, the
+//! list is sent again at once. A channel's room left out of a player's list is one it neither
+//! hears nor may speak in.
+//!
 //! **Rooms admins made.** A line to one reaches its members ([`crate::admin_calls`]) and no one else.
 //!
 //! **The Dereth Network's rooms.** A line in a room every player has (General, Trade, PvP) is also
@@ -927,12 +932,51 @@ pub fn region_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> u32 {
     s.chat_regions.as_ref().map_or(0, |r| r.of(p.position.cell))
 }
 
-/// The channels of a player where it stands: its kingdom's, and its region's when it is in one.
+/// The kinds of text a player's chat windows show between them: each window's filter is a mask of
+/// kinds, and a channel's kind is one of them. With no filters kept, every kind.
+#[must_use]
+pub fn shown_kinds(options: &crate::options::Options) -> u32 {
+    options.chat_filters.as_ref().map_or(u32::MAX, |f| {
+        f.pairs.iter().fold(0, |all, (_, mask)| all | mask)
+    })
+}
+
+/// The channels of a player where it stands: its kingdom's, and its region's when it is in one;
+/// of those, the kinds one of its chat windows shows. A kind its windows all hide is left out of
+/// the list. (2017: of the lists placed after the options a session start handed back or the
+/// client sent, Trade hidden in every window was left out of 1,895 of 1,895 and shown was in 1,117
+/// of 1,117. The same rule holds for each kind; no recorded player hid PvP, General, its
+/// kingdom's or a region's.)
 #[must_use]
 pub fn channels_for<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Vec<Channel> {
     let mut list = channels_of(crate::kingdoms::of(&p.qualities)).to_vec();
     list.extend(region_channel(region_of(s, p)));
+    let shown = shown_kinds(&p.options);
+    list.retain(|c| c.kind & shown != 0);
     list
+}
+
+/// The kind of channel whose room a room is: PvP's, General's, Trade's, a kingdom's or a region's.
+/// None for any other room (an allegiance's, a fellowship's, one an admin made).
+#[must_use]
+pub fn room_kind(room: u32) -> Option<u32> {
+    if let Some(c) = NEW_CHANNELS.iter().find(|c| c.room == room) {
+        return Some(c.kind);
+    }
+    if KINGDOM_CHANNELS.iter().any(|k| k.1 == room) {
+        return Some(NEW_CHANNELS[3].kind);
+    }
+    let region = room.checked_sub(REGION_ROOMS_AFTER)?;
+    (1..=MOST_REGIONS).contains(&region).then_some(REGION_KIND)
+}
+
+/// Whether a player's channel list holds a room, as far as its chat windows go: a channel's room is
+/// heard and spoken in only while one of the player's windows shows that channel's kind. (2017:
+/// while a Trade line was heard, the other players logged in whose list held Trade heard it, 14 of
+/// 14, and those whose list lacked it did not, 10 of 10.)
+#[must_use]
+pub fn shows_room(p: &crate::world::Player, room: u32) -> bool {
+    room_kind(room).is_none_or(|k| shown_kinds(&p.options) & k != 0)
 }
 
 /// The players in a region's room: those whose channel list names that region.
@@ -1152,7 +1196,8 @@ pub struct RoomSaid {
 
 /// A line that may go: back to its sender as the room's line, then (for a line the client asked to
 /// send) as the answer to its request, and to every other player the room reaches (`members`, or
-/// everyone in the world). A line in a room everyone has is kept for the world's link.
+/// everyone in the world) whose list holds the room ([`shows_room`]). A line in a room everyone has
+/// is kept for the world's link.
 fn relay<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1175,8 +1220,12 @@ fn relay<S: Store>(
         .sessions
         .iter()
         .filter(|(c, x)| match x.stage {
-            Stage::InWorld { character, .. } => {
-                **c != login && members.is_none_or(|m| m.contains(&character))
+            Stage::InWorld { character, world } => {
+                **c != login
+                    && members.is_none_or(|m| m.contains(&character))
+                    && s.players
+                        .get(&world)
+                        .is_none_or(|p| shows_room(p, line.room))
             }
             _ => false,
         })
@@ -1231,8 +1280,8 @@ pub fn say_in_room<S: Store>(
     relay(s, net, login, &name, &line, None, false);
 }
 
-/// A line from elsewhere reaches every player in the world `hears` lets hear it, by id and name, as
-/// the room's own line under the name given. It has no meta letters, since the world knows none for
+/// A line from elsewhere reaches every player in the world `hears` lets hear it, by id and name, and
+/// whose list holds the room ([`shows_room`]), as the room's own line under the name given. It has no meta letters, since the world knows none for
 /// its speaker.
 pub fn hear_from_afar<S: Store>(
     s: &Server<S>,
@@ -1251,7 +1300,7 @@ pub fn hear_from_afar<S: Store>(
             Stage::InWorld { character, world } => s
                 .players
                 .get(&world)
-                .filter(|p| hears(character, &p.name))
+                .filter(|p| hears(character, &p.name) && shows_room(p, room))
                 .map(|_| *login),
             _ => None,
         })
@@ -1355,6 +1404,15 @@ pub fn service<S: Store>(
             refuse(net);
             return;
         }
+    }
+    // A channel's room the speaker's list leaves out, its windows all hiding the kind: refused, as
+    // a room it may not use is. (2017 holds no such line.)
+    if world
+        .and_then(|w| s.players.get(&w))
+        .is_some_and(|p| !shows_room(p, line.room))
+    {
+        refuse(net);
+        return;
     }
     relay(s, net, login, &name, &line, members.as_deref(), true);
 }
