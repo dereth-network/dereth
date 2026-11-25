@@ -814,6 +814,7 @@ pub struct EditorApp {
     pub areas: areas_tab::AreasView,
     /// The Tables tab: the game's tables.
     pub tables: tables_tab::TablesView,
+    pub pull: pull_dungeon::PullView,
     /// Whether the world itself is a world repository, opened at its newest layer.
     pub repo_world: bool,
     /// Its check going on after a save, and what the last one found.
@@ -1292,6 +1293,7 @@ impl EditorApp {
             rules: rules_tab::RulesView::default(),
             areas: areas_tab::AreasView::default(),
             tables: tables_tab::TablesView::default(),
+            pull: pull_dungeon::PullView::default(),
             repo_world: false,
             repo_checking: None,
             repo_found: None,
@@ -5311,6 +5313,9 @@ mod areas_tab;
 
 #[path = "tables_tab.rs"]
 mod tables_tab;
+
+#[path = "pull_dungeon.rs"]
+mod pull_dungeon;
 
 #[path = "rows_edit.rs"]
 mod rows_edit;

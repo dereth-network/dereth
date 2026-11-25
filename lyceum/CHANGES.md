@@ -21,6 +21,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - New Starting Areas tab: set where new characters start from the camera.
 - New Tables tab: change skills, heritages, the experience curve and creature types.
 - Fixed players keeping an old copy of an exported world after it changed.
+- Pull an AC1 dungeon from another world into a world repository.
 
 ## 0.2.8 (2026-11-23)
 

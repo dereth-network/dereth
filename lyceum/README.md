@@ -183,6 +183,13 @@ Anything you place in a room belongs to it and moves with it. A door set by a do
 facing through; anything else lands on the floor, or against the wall clicked. A portal's card
 sends it into a dungeon or to the camera's position.
 
+In a world repository, **Pull a dungeon from another world** (in the Dungeons tab) brings an AC1
+dungeon in from a world over AC1's files: what that world places in it becomes the layer's rows,
+with a portal into it where you stand. The cells aren't copied. AC2's land keeps AC1's dungeons
+under it, and a dungeon whose cells differ between the two worlds is refused. What's left to you is
+listed: exits that lead onto AC1's land, to re-aim. The classes the repository lacks are added to
+its library list (`library.txt`), for its library to copy.
+
 ### AC2's dungeon kits
 
 Asheron's Call 2's dungeons are built from shared pieces, and Lyceum can build with six of its
@@ -316,6 +323,9 @@ lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
               [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <file>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
+lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json>
+            [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library]
+            [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]
 lyceum --version
@@ -347,6 +357,12 @@ and 2 for a usage or input error.
 - **`facts`** prints what a world changes as one line of JSON, from its sources alone: its key,
   era and packs, the landblocks with terrain edits, the statics, buildings, dungeons and rooms, the
   spawns and weenies, and the new pictures and models.
+- **`pull-dungeon`** pulls a dungeon into a world repository, as the editor's Dungeons tab does.
+  `--database` is the source world's server database (the newest cached one by default),
+  `--schema` what `empyrean-import schema` writes, `--on` the repository's land. `--entrance`
+  places a portal into the dungeon (the source's commonest, or `--portal`). `--alongside` adds to
+  what the repository places there already. The classes the repository lacks are added to its
+  library list (`library.txt`), unless `--no-library`. `--dry-run` writes nothing.
 - **`layer`** packs Dereth's own client layer (below).
 - **`fit`** compares a new model's collision with its drawing ([PACKS.md](PACKS.md), New models).
 - **`template`** starts a new weenie's SQL from an existing class in the world database.

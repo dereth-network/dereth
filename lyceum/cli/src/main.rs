@@ -44,6 +44,14 @@
 //!                                               land checked, the overlay numbered from the
 //!                                               ledger, the world pack, what the server reads;
 //!                                               --number, the author's, numbers new content
+//! lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json>
+//!               [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run]
+//!               [--no-library]
+//!               [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
+//!                                               a dungeon of another world pulled into a world
+//!                                               repository: what that world places in it as
+//!                                               the repository's rows, a portal into it, and
+//!                                               the exits and classes left to its author
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
 //! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
@@ -77,6 +85,7 @@ lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
 lyceum lock <world.toml> --dats <dir> [--on <overlay>]
 lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>] [--number] [--empyrean <dir>]
+lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json> [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library] [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -722,6 +731,188 @@ fn import_program(dir: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// `publish`: a world repository built for its operator's server.
+/// `pull-dungeon`: a dungeon of another world pulled into a world repository.
+fn run_pull(args: &Args) -> ExitCode {
+    use lyceum_foundry::pull::{pull, Request};
+    if args
+        .known(&[
+            "into", "dats", "schema", "database", "on", "pack", "entrance", "portal",
+        ])
+        .is_err()
+        || args.words.len() != 2
+        || args
+            .switches
+            .iter()
+            .any(|s| !["alongside", "dry-run", "no-library"].contains(&s.as_str()))
+    {
+        return usage(
+            "pull-dungeon takes the source world file and a landblock, --into, --dats and --schema",
+        );
+    }
+    let (Some(into), Some(dats), Some(schema)) =
+        (args.path("into"), args.path("dats"), args.path("schema"))
+    else {
+        return usage("pull-dungeon takes --into (the world repository), --dats and --schema");
+    };
+    let Ok(landblock) = u16::from_str_radix(args.words[1].trim_start_matches("0x"), 16) else {
+        return usage(&format!(
+            "{} is not a landblock (XXYY, in hex)",
+            args.words[1]
+        ));
+    };
+    let source = Path::new(&args.words[0]);
+    let database = match args.path("database") {
+        Some(d) => d,
+        None => {
+            let era = match lyceum_foundry::world::World::read(source) {
+                Ok(w) => export::Era::of(w.era),
+                Err(e) => return fail(&e),
+            };
+            match export::database_cache().and_then(|c| export::newest_database_for(&c, era)) {
+                Some(d) => d,
+                None => {
+                    return usage(
+                        "no server database in the cache: name the source's with --database",
+                    )
+                }
+            }
+        }
+    };
+    let entrance = match args.value("entrance").map(parse_entrance) {
+        None => None,
+        Some(Some(e)) => Some(e),
+        Some(None) => {
+            return usage("--entrance is <cell>,<x>,<y>,<z>[,<heading>]: a cell in hex, landblock meters and degrees")
+        }
+    };
+    let portal = match args.value("portal").map(sql_ids::number) {
+        None => None,
+        Some(Some(c)) => Some(c),
+        Some(None) => return usage("--portal is a class id"),
+    };
+    let text = match std::fs::read_to_string(&schema) {
+        Ok(t) => t,
+        Err(e) => return usage(&format!("{}: {e}", schema.display())),
+    };
+    let vocabulary = match lyceum_foundry::repo::RowSchema::read(&text) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            return usage(&format!(
+                "{}: no rows; a newer empyrean-import writes them",
+                schema.display()
+            ))
+        }
+        Err(e) => return usage(&format!("{}: {e}", schema.display())),
+    };
+    let land = args.path("on");
+    let r = Request {
+        source,
+        database: &database,
+        landblock,
+        target: &into,
+        schema: &vocabulary,
+        land: land.as_deref(),
+        pack: args.value("pack"),
+        entrance,
+        portal,
+        alongside: args.switch("alongside"),
+        dry_run: args.switch("dry-run"),
+        library: !args.switch("no-library"),
+    };
+    match pull(&r, &dats) {
+        Ok(done) => {
+            let p = &done.plan;
+            println!(
+                "{landblock:04X}: {} thing(s) placed from {}{}",
+                p.rows.len(),
+                source.display(),
+                if done.already > 0 {
+                    format!(", beside the {} the repository placed there", done.already)
+                } else {
+                    String::new()
+                }
+            );
+            if let Some((guid, class)) = done.entrance {
+                println!("the way in: {guid:#010X}, class {class}");
+            } else if let Some((class, n, name)) = p.portals.first() {
+                println!(
+                    "no way in placed; the source's commonest is class {class} ({}, {n} placed): give --entrance",
+                    name.as_deref().unwrap_or("unnamed")
+                );
+            }
+            for e in &p.exits {
+                println!(
+                    "{}: {:#010X} (class {}, {}) leads to {:#010X}{}",
+                    if e.outdoors() {
+                        "exit onto the land, to re-aim".to_owned()
+                    } else {
+                        format!(
+                            "exit into dungeon {:04X}, to pull too or re-aim",
+                            e.to >> 16
+                        )
+                    },
+                    e.guid,
+                    e.class,
+                    e.name.as_deref().unwrap_or("unnamed"),
+                    e.to,
+                    e.at.map_or_else(String::new, |a| format!(
+                        " at {:.1}, {:.1}, {:.1}",
+                        a[0], a[1], a[2]
+                    ))
+                );
+            }
+            for (class, name) in &done.missing {
+                println!(
+                    "class the repository lacks: weenie {class}  # {}",
+                    name.as_deref().unwrap_or("unnamed")
+                );
+            }
+            if let Some((list, added)) = &done.library {
+                let verb = if r.dry_run { "would add" } else { "added" };
+                println!(
+                    "{verb} {} class(es) to {}: {}",
+                    added.len(),
+                    list.display(),
+                    added
+                        .iter()
+                        .map(u32::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            } else if !done.missing.is_empty() && r.library {
+                println!(
+                    "the repository has no library list (library.txt): add the classes by hand"
+                );
+            }
+            for s in &p.skipped {
+                println!("left out (no number): {s}");
+            }
+            for f in &done.files {
+                let verb = if r.dry_run { "would write" } else { "wrote" };
+                println!("{verb} {}", f.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(&e),
+    }
+}
+
+/// `--entrance`'s value: a cell in hex, landblock meters, and a heading in degrees (0 when left
+/// out).
+fn parse_entrance(v: &str) -> Option<lyceum_foundry::pull::Entrance> {
+    let f: Vec<&str> = v.split(',').map(str::trim).collect();
+    if !(4..=5).contains(&f.len()) {
+        return None;
+    }
+    let cell = u32::from_str_radix(f[0].trim_start_matches("0x"), 16).ok()?;
+    let n = |s: &str| s.parse::<f32>().ok();
+    Some(lyceum_foundry::pull::Entrance {
+        cell,
+        at: [n(f[1])?, n(f[2])?, n(f[3])?],
+        heading: f.get(4).map_or(Some(0.0), |h| n(h))?,
+    })
+}
+
 fn run_publish(args: &Args) -> ExitCode {
     use lyceum_foundry::publish::{publish, Publish};
     if args
@@ -1048,6 +1239,8 @@ fn main() -> ExitCode {
         "plain",
         "as-sql",
         "number",
+        "alongside",
+        "no-library",
     ];
     let parsed = |a: &[String]| parse(a, &switches);
     match first.as_str() {
@@ -1169,6 +1362,10 @@ fn main() -> ExitCode {
         },
         "publish" => match parsed(rest) {
             Ok(a) => run_publish(&a),
+            Err(why) => usage(&why),
+        },
+        "pull-dungeon" => match parsed(rest) {
+            Ok(a) => run_pull(&a),
             Err(why) => usage(&why),
         },
         "lock" => match parsed(rest) {

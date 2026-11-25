@@ -839,6 +839,7 @@ impl EditorApp {
                     .desired_width(70.0),
             );
         });
+        self.pull_ui(ui);
         ui.separator();
         let all = self.dungeons();
         ui.strong(t.fill("dungeon.list", &[("n", &all.len())]));

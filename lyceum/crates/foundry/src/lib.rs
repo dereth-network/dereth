@@ -92,6 +92,7 @@ pub mod pick;
 pub mod pictures;
 pub mod pieces;
 pub mod publish;
+pub mod pull;
 pub mod quests;
 pub mod repo;
 pub mod repo_world;

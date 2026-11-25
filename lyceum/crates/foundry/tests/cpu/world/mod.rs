@@ -9,6 +9,7 @@ mod layer_rows;
 mod model_import;
 mod piece;
 mod publish;
+mod pull;
 mod repo;
 mod repo_world;
 mod revise;

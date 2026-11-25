@@ -3726,3 +3726,174 @@ fn a_sample_cave_of_every_family_is_set_at_its_doorways_and_walks_clean() {
     let found = s.walk(lb);
     assert!(found.is_empty(), "{found:#?}");
 }
+
+mod pull {
+    //! Behaviour: none (tooling: a retail dungeon pulled from a world over the retail files into a world repository)
+    use std::path::{Path, PathBuf};
+
+    use lyceum_foundry::pull::{pull, Entrance, Request};
+    use lyceum_foundry::repo::RowSchema;
+
+    use crate::sample::sample;
+
+    /// The dungeon pulled: Holtburg's, and another to copy into it.
+    const DUNGEON: u16 = 0x01F6;
+    const OTHER: u16 = 0x01F7;
+
+    /// A server's world around the dungeon: a generator in it with a creature it links, a portal out
+    /// onto the land, and the portal into it, placed on the land.
+    const DATABASE: &str = "\
+    INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`) VALUES (1154,'gen',1,'2005-02-09 10:00:00'),(7924,'drudge',10,'2005-02-09 10:00:00'),(3631,'surface',7,'2005-02-09 10:00:00'),(3630,'way-in',7,'2005-02-09 10:00:00');
+    INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`) VALUES (3631,1,'Surface'),(3630,1,'Holtburg Dungeon');
+    INSERT INTO `weenie_properties_position` (`object_Id`, `position_Type`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`) VALUES (3631,2,0xA9B40031,84,141,42,1,0,0,0),(3630,2,0x01F60100,10,-30,0,1,0,0,0);
+    INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, `last_Modified`) VALUES (0x701F6000,1154,0x01F60100,10,-30,0,1,0,0,0,'\\0','2019-05-16 00:00:00'),(0x701F6001,7924,0x01F60101,12,-31,0,1,0,0,0,'\u{1}','2019-05-16 00:00:00'),(0x701F6002,3631,0x01F60102,14,-32,0,1,0,0,0,'\\0','2019-05-16 00:00:00'),(0x7A9B4000,3630,0xA9B40031,84,141,42,1,0,0,0,'\\0','2019-05-16 00:00:00');
+    INSERT INTO `landblock_instance_link` (`parent_GUID`, `child_GUID`, `last_Modified`) VALUES (0x701F6000,0x701F6001,'2019-05-16 00:00:00');
+    ";
+
+    /// The server's vocabulary for the rows written, as `empyrean-import schema` writes it.
+    fn schema() -> RowSchema {
+        RowSchema::of_schema(&serde_json::json!({ "rows": {
+            "placement": {
+                "file": "landblock/{cell >> 16:04X}.toml",
+                "item": "spawn {guid:#010X}",
+                "key": ["guid"],
+                "fields": {
+                    "guid": "hex", "class": "int", "cell": "hex",
+                    "at": { "list": "float" }, "rotation": { "list": "float" },
+                    "link_child": "bool", "last_modified": "time",
+                    "links": { "list": { "either": ["hex", { "fields": { "child": "hex", "last_modified": "time" } }] } },
+                },
+            },
+            "weenie": { "file": "weenie/{class:05}.toml", "item": "weenie {class}", "key": ["class"], "fields": { "class": "int" } },
+        } }))
+        .unwrap()
+        .unwrap()
+    }
+
+    /// A world repository of one layer and one pack in `root`, over the retail files with no land:
+    /// the pack's Lyceum edits `edits` (landblock, text), if any.
+    fn repository(root: &Path, edits: Option<(u16, &str)>) -> PathBuf {
+        let write = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, text).unwrap();
+        };
+        write(
+            "base/emergence/pack.toml",
+            "name = \"emergence\"\nversion = \"1\"\n",
+        );
+        write("base/library.txt", "# The way in.\nweenie 3630\n");
+        if let Some((lb, text)) = edits {
+            write(
+                &format!("base/emergence/edits/landblocks/{lb:04X}.toml"),
+                text,
+            );
+        }
+        write(
+            "world.toml",
+            "format_version = 1\ngame = \"ac1\"\nkey = \"test-repo\"\nera = \"newdereth\"\npacks = [\"base/emergence\"]\nlineage = []\n[base]\nmonth = \"2026-12\"\n",
+        );
+        root.join("world.toml")
+    }
+
+    /// A retail dungeon pulled from a world over the retail files into a repository whose world holds
+    /// its cells alike: what the database places in it as the pack's rows, linked as it links them; a
+    /// portal into it where asked, of the class that leads there; its exit onto the land, and every
+    /// class the repository lacks, reported. Pulled again, it is refused for what is there now; a
+    /// repository whose world holds the dungeon's cells otherwise, or a landblock with no dungeon, are
+    /// refused before anything is written.
+    #[test]
+    fn a_retail_dungeon_is_pulled_into_a_repository_as_its_rows() {
+        let (dir, world) = sample("pull-dungeon");
+        let dats = dereth_dat::testing::dat_dir();
+        let database = dir.path().join("ACE-World-Database-v0.9.296.sql");
+        std::fs::write(&database, DATABASE).unwrap();
+        let vocabulary = schema();
+        let target = repository(&dir.path().join("repo"), None);
+        let run = |target: &Path, lb: u16, entrance: Option<Entrance>, alongside: bool| {
+            pull(
+                &Request {
+                    source: &world,
+                    database: &database,
+                    landblock: lb,
+                    target,
+                    schema: &vocabulary,
+                    land: None,
+                    pack: None,
+                    entrance,
+                    portal: None,
+                    alongside,
+                    dry_run: false,
+                    library: true,
+                },
+                &dats,
+            )
+        };
+        let at_holtburg = Entrance {
+            cell: 0xA9B4_0031,
+            at: [90.0, 140.0, 42.0],
+            heading: 90.0,
+        };
+        let done = run(&target, DUNGEON, Some(at_holtburg), false).unwrap();
+        assert_eq!(done.plan.rows.len(), 3);
+        assert_eq!(done.already, 0);
+        assert_eq!(
+            done.entrance,
+            Some((0x7A9B_4800, 3630)),
+            "the portal that leads in"
+        );
+        assert_eq!(done.plan.exits.len(), 1);
+        assert!(done.plan.exits[0].outdoors());
+        let missing: Vec<u32> = done.missing.iter().map(|(c, _)| *c).collect();
+        assert_eq!(
+            missing,
+            [1154, 3630, 3631, 7924],
+            "the repository defines none"
+        );
+        let (list, added) = done.library.clone().expect("its library list");
+        assert_eq!(
+            added,
+            [1154, 3631, 7924],
+            "all but the one it names already"
+        );
+        let text = std::fs::read_to_string(&list).unwrap();
+        assert!(text.contains("weenie 3631  # Surface\n"), "{text}");
+        let repo = dir.path().join("repo/base/emergence");
+        let rows = std::fs::read_to_string(repo.join("landblock/01F6.toml")).unwrap();
+        assert!(rows.contains("guid = 0x701F6000"), "{rows}");
+        assert!(rows.contains("links = [0x701F6001]"), "{rows}");
+        for part in ["source = \"ACE-World-Database\"", "revision = \"v0.9.296\""] {
+            assert!(rows.contains(part), "{part}: {rows}");
+        }
+        let way_in = std::fs::read_to_string(repo.join("landblock/A9B4.toml")).unwrap();
+        assert!(
+            way_in.contains("guid = 0x7A9B4800") && way_in.contains("class = 3630"),
+            "{way_in}"
+        );
+
+        // Pulled again: what the repository places there now stands in the way.
+        let again = run(&target, DUNGEON, None, false).unwrap_err().to_string();
+        assert!(again.contains("already places 3"), "{again}");
+        let beside = run(&target, DUNGEON, None, true).unwrap_err().to_string();
+        assert!(beside.contains("already uses 3 of the guids"), "{beside}");
+
+        // A repository whose world copies another dungeon into this one holds its cells otherwise.
+        let copied = repository(
+            &dir.path().join("copied"),
+            Some((
+                DUNGEON,
+                &format!("[[add-dungeon]]\nname = \"copy\"\ntemplate = 0x{OTHER:04X}\n"),
+            )),
+        );
+        let differ = run(&copied, DUNGEON, None, false).unwrap_err().to_string();
+        assert!(differ.contains("otherwise than"), "{differ}");
+        assert!(
+            !dir.path().join("copied/base/emergence/landblock").exists(),
+            "nothing written"
+        );
+
+        // Holtburg's landblock holds buildings' rooms, not a dungeon.
+        let town = run(&target, 0xA9B4, None, false).unwrap_err().to_string();
+        assert!(town.contains("not a dungeon"), "{town}");
+    }
+}

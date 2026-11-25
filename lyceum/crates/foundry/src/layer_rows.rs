@@ -302,8 +302,17 @@ pub fn write_removal(text: Option<&str>, item: &str, gone: bool) -> Result<Optio
 
 // ---- writing TOML ------------------------------------------------------------------------------
 
-/// A value written as TOML, a number the server writes in hexadecimal (`ty` is `"hex"`) in it.
+/// A value written as TOML, a number the server writes in hexadecimal (`ty` is `"hex"`) in it; of
+/// a type that is one of several (`either`), as the one of its shape.
 fn value_of(v: &T, ty: Option<&J>) -> toml_edit::Value {
+    if let Some(alts) = ty.and_then(|t| t.get("either")).and_then(J::as_array) {
+        let shape = alts.iter().find(|a| match v {
+            T::Table(_) => a.get("fields").is_some(),
+            T::Array(_) => a.get("list").is_some(),
+            _ => a.is_string(),
+        });
+        return value_of(v, shape);
+    }
     match v {
         T::Integer(n) if ty.and_then(J::as_str) == Some("hex") && *n >= 0 => {
             let text = match u32::try_from(*n) {

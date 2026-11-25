@@ -85,7 +85,7 @@ impl EditorApp {
     }
 
     /// Where the camera stands, for a place.
-    fn camera_spot(&mut self) -> Option<Camera> {
+    pub(super) fn camera_spot(&mut self) -> Option<Camera> {
         let (lb, x, y) = self.work_block()?;
         let o = lyceum_foundry::pick::block_origin(lb);
         let z = self.camera.position.z - o.z;
