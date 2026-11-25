@@ -437,3 +437,48 @@ fn spawns_written_as_sql_beside_a_repositorys_rows_are_warned_of() {
         "{faults:?}"
     );
 }
+
+/// The classes of a world repository are the world's to the checks: one the layer edited makes,
+/// and one of the world below, named by the layer's weenie, are no fault; a class nobody has
+/// still is.
+#[test]
+fn a_repositorys_own_classes_are_no_fault_where_the_layer_names_them() {
+    let f = Fixture::new("repo-classes-checked");
+    let world = repo(&f);
+    // The layer's weenie 2000001, whose generators make its weenie 2000002 and the base's 100,
+    // and whose create list names 273, which no one has.
+    let own = std::fs::read_to_string(pair().join("weenie-100.toml"))
+        .unwrap()
+        .replace("class = 100\n", "class = 2000001\n")
+        .replace("weenie_class_id = 300\n", "weenie_class_id = 2000002\n")
+        .replace("weenie_class_id = 200\n", "weenie_class_id = 100\n");
+    f.write("repo/base/emergence/weenie/2000001.toml", &own);
+    f.write(
+        "repo/base/emergence/weenie/2000002.toml",
+        &std::fs::read_to_string(pair().join("weenie-300.toml"))
+            .unwrap()
+            .replace("class = 300\n", "class = 2000002\n"),
+    );
+    let mut s = session(&f, &world);
+    // The server's own classes, beside the repository: one it doesn't name.
+    s.learn_server_beside(lyceum_foundry::sql_ids::server_content(
+        "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`) VALUES (7, 'seven', 1, '2021-11-01 00:00:00');\n",
+    ));
+    let (_scratch, first) =
+        lyceum_foundry::scratch::Scratch::create(&f.path().join("scratch"), &s).unwrap();
+    let faults: Vec<String> = s
+        .check(&first.dir)
+        .unwrap()
+        .into_iter()
+        .filter(|x| !x.warning)
+        .map(|x| x.text)
+        .collect();
+    let names = |class: u32| {
+        faults
+            .iter()
+            .any(|t| t.contains(&format!("names class {class},")))
+    };
+    assert!(names(273), "the check runs: {faults:?}");
+    assert!(!names(2_000_002), "{faults:?}");
+    assert!(!names(100), "{faults:?}");
+}

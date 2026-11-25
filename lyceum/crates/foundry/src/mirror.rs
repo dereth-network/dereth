@@ -327,6 +327,24 @@ impl Mirror {
         self.files.get(item).map(PathBuf::as_path)
     }
 
+    /// The weenie classes the mirror's files `files` (each one's path and text) hold: the
+    /// layer's own, as the session has them.
+    #[must_use]
+    pub fn classes_in<'a>(
+        &self,
+        files: impl IntoIterator<Item = (&'a Path, &'a str)>,
+    ) -> BTreeSet<u32> {
+        files
+            .into_iter()
+            .filter(|(p, _)| p.starts_with(self.dir.join("weenie")))
+            .filter_map(|(_, t)| self.items(Some(t)).ok())
+            .flatten()
+            .filter(|(_, kind, _)| kind == "weenie")
+            .filter_map(|(_, _, r)| r.get("class")?.as_integer())
+            .filter_map(|c| u32::try_from(c).ok())
+            .collect()
+    }
+
     /// Whether the world below the layer has item `item`.
     #[must_use]
     pub fn below_has(&self, item: &str) -> bool {

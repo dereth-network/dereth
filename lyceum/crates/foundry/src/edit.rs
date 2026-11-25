@@ -6296,8 +6296,22 @@ impl Session {
         // The packs' server content: every class, quest and spell it names there, the server's
         // own classes and quests among them once the session has learned them.
         let learned = !self.retail.is_empty();
+        let mut world_classes: Option<BTreeSet<u32>> =
+            learned.then(|| self.retail.keys().copied().collect());
+        // A world repository's: the layer's own, beside those of the world below it, which the
+        // session learned when it opened the repository.
+        if let (Some(w), Some(m)) = (world_classes.as_mut(), &self.mirror) {
+            w.extend(
+                m.classes_in(
+                    self.packs[self.target]
+                        .sql
+                        .iter()
+                        .map(|f| (f.path.as_path(), f.text.as_str())),
+                ),
+            );
+        }
         let known = crate::content_check::Known {
-            world_classes: learned.then(|| self.retail.keys().copied().collect()),
+            world_classes,
             quests: self
                 .retail_quests
                 .keys()
