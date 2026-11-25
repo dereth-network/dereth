@@ -4367,6 +4367,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.npc-table-skips-rows",
+        says: "Each of the world's rows of skipped attacks names a behavior table some creature's \
+               template takes, and skips only basic attacks that table's creatures hold; every \
+               creature of such a table keeps a basic attack the table does not skip.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-NPC-TABLE-SKIPS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_skipped_attacks_are_each_a_basic_attack_of_their_tables_creatures",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.creatures.only-the-hated",
         says: "A creature whose row says it takes on only the players it hates takes on a player a \
                concealing effect makes it hate, and no other: not one that strikes it, not one a \
@@ -22131,6 +22141,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-KEPT"),
         station: "yalain-testkit::cpu::entry::keeping::an_item_kept_worn_takes_its_worn_rows_look_at_the_next_entry",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.knorr-estate-ring-walk-through",
+        says: "The estate's underground ring walks through from each tower: each of the six towers' second portals, beside the tower's own, leads into the ring, whose way up stands within 4 m of the landing and leads back within 4 m of the portal; and from each landing every spot of the ring's camps of Havoc Felsisters and Thralls, Manor Stewards and the Manor Valet stands in its room, each kind moving there, and is reached on foot, the farthest run to and back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-ESTATE-RING"),
+        station: "yalain-testkit::corpus::world_db::the_estates_underground_ring_is_walked_from_each_towers_portal_to_every_camp_and_out",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world.knorr-stores-tunnels-walk-through",

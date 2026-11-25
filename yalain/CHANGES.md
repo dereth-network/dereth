@@ -27,6 +27,7 @@ what they see, not how it was done.
 - Darkenfowl and common vermin no longer shoot.
 - A selected target's health now updates as it changes.
 - Butchering a corpse mid-fight now ends your attack first.
+- Serves world database v0.43.0.
 
 ## 0.8.1 (2026-11-23)
 - Your craft skill now tells you its new rating when it rises.

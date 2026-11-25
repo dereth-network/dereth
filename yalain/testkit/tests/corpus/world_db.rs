@@ -6434,8 +6434,6 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     rows.notice_idle.clear();
     rows.special_weights.clear();
     rows.special_terms.clear();
-    // The behavior tables' skipped attacks are not checked here until the world release that carries
-    // them is the one this test reads.
     rows.skips.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
@@ -6473,6 +6471,52 @@ fn the_worlds_creatures_with_no_victory_are_every_template_of_the_rabbits_kind()
     assert_eq!(rabbits.len(), 22);
     assert!(rabbits.contains(&0x4700_29B9) && rabbits.contains(&0x4700_29BC));
     assert_eq!(rows.no_victory, rabbits);
+}
+
+/// **A behavior table skips only its creatures' own basic attacks**: each of the world's rows of
+/// skipped attacks names a behavior table some creature's template takes, and each skill it skips is
+/// a basic attack one of that table's creatures holds (2017's creatures of the table never used it,
+/// where its draw weight expected them to); and every creature of such a table keeps a basic attack
+/// the table does not skip.
+/// Behaviour: server.creatures.npc-table-skips-rows
+#[test]
+fn the_worlds_skipped_attacks_are_each_a_basic_attack_of_their_tables_creatures() {
+    let rows = &compiled().tables.creatures;
+    assert!(
+        !rows.skips.is_empty(),
+        "the world's rows of skipped attacks"
+    );
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut by_table: std::collections::BTreeMap<
+        String,
+        Vec<(u32, yalain_content::CreatureStats)>,
+    > = std::collections::BTreeMap::new();
+    for (id, props) in portal.every_template_props() {
+        if let Some(stats) = yalain_content::CreatureStats::from_props(&props) {
+            if let Some(table) = stats.npc_table.clone() {
+                by_table.entry(table).or_default().push((id, stats));
+            }
+        }
+    }
+    for (table, skips) in &rows.skips {
+        let creatures = by_table
+            .get(table)
+            .unwrap_or_else(|| panic!("{table}: a table some creature's template takes"));
+        assert!(!skips.is_empty(), "{table}: a skill skipped");
+        for skill in skips {
+            assert!(
+                creatures
+                    .iter()
+                    .any(|(_, s)| s.basic.contains(skill)
+                        && s.skills.iter().any(|(k, _)| k == skill)),
+                "{table}: skill {skill} a basic attack one of its creatures holds"
+            );
+        }
+        for (id, s) in creatures {
+            let kept = s.basic.iter().filter(|b| !skips.contains(b)).count();
+            assert!(kept > 0, "{table}: {id:08X} keeps a basic attack");
+        }
+    }
 }
 
 /// **The marked alone are shot**: the world's 14 marking guards each put on the mark, whose row makes
@@ -8965,6 +9009,67 @@ fn the_estates_ward_towers_give_their_stones_the_shrine_charges_them_and_their_r
         Some(status::COMPLETED),
         "all six back"
     );
+}
+
+/// **The estate's underground ring walks through from each tower**: each of the six towers' second
+/// portals, beside the tower's own, leads into the ring, whose way up stands within 4 m of the
+/// landing and leads back within 4 m of the portal; and from each landing every spot of the ring's
+/// camps of Havoc Felsisters and Thralls, Manor Stewards and the Manor Valet stands in its room, each
+/// kind moving there, and is reached on foot, the farthest run to and back.
+/// Behaviour: server.world.knorr-estate-ring-walk-through
+#[test]
+fn the_estates_underground_ring_is_walked_from_each_towers_portal_to_every_camp_and_out() {
+    use yalain_world::usable::maps::ground_distance;
+    const RING: u32 = 0x08C2;
+    const TOWERS: [u32; 6] = [0xC932, 0xC934, 0xCA32, 0xCA35, 0xCB33, 0xCB35];
+    // Havoc Felsister, Havoc Thrall, the two Manor Stewards and the Manor Valet.
+    const RING_CREATURES: [u32; 5] = [
+        0x4700_2302,
+        0x4700_29DF,
+        0x4700_2A94,
+        0x4700_2A95,
+        0x4700_2AA0,
+    ];
+    let c = compiled();
+    let t = &c.tables;
+    let objects = &t.content.objects;
+    let leads_to = |i: usize, block: u32| {
+        objects[i]
+            .destination
+            .as_ref()
+            .is_some_and(|d| d.cell >> 16 == block)
+    };
+    let mut blocks = vec![RING];
+    blocks.extend(TOWERS);
+    let mut w = walled(t, &blocks);
+    let portals: Vec<usize> = (0..objects.len())
+        .filter(|&i| objects[i].cell >> 16 != RING && leads_to(i, RING))
+        .collect();
+    let towers: std::collections::BTreeSet<u32> =
+        portals.iter().map(|&i| objects[i].cell >> 16).collect();
+    assert_eq!(
+        towers.into_iter().collect::<Vec<_>>(),
+        TOWERS.to_vec(),
+        "a portal into the ring by each tower"
+    );
+    assert_eq!(portals.len(), TOWERS.len(), "one by each");
+    let camps = pack_camps(c, "knorr-estate-ring", RING);
+    for &portal in &portals {
+        let tower = objects[portal].cell >> 16;
+        let landing = through(&mut w, t, portal);
+        assert_eq!(landing.cell >> 16, RING, "{tower:04X}: into the ring");
+        let (up, by) = (0..objects.len())
+            .filter(|&i| objects[i].cell >> 16 == RING && objects[i].destination.is_some())
+            .filter(|&i| !leads_to(i, RING))
+            .map(|i| (i, ground_distance(&landing, &place_of(t, i))))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .expect("a way up");
+        assert!(by < 4.0, "{tower:04X}: its way up beside its landing: {by}");
+        camps_reached_on_foot(c, &mut w, &camps, &RING_CREATURES, 1.5);
+        let back = run_through(&mut w, t, up);
+        let by = ground_distance(&back, &place_of(t, portal));
+        assert!(by < 4.0, "{tower:04X}: back up beside the portal: {by}");
+    }
 }
 
 /// A point of the world, facing north.
