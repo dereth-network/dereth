@@ -108,10 +108,14 @@ impl EditorApp {
         self.after_repository();
     }
 
-    /// What the editor knows of the server's content, let go of: it is the repository's now.
+    /// What the editor knows of the server's content, let go of: it is the repository's now. The
+    /// spawns its rows bring (or, closed, take away) are drawn: the world was drawn before them.
     fn after_repository(&mut self) {
         self.editor.docs.clear();
         self.rebuild_weenies();
+        if let Err(why) = self.redraw_changed_spawns() {
+            self.rows.edit_error = Some(why);
+        }
     }
 
     /// The Rows tab opened on the repository whose world file is `path`, editing its newest

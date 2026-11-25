@@ -744,7 +744,7 @@ pub struct EditorApp {
     spells: Option<BTreeMap<u32, String>>,
     /// Each spawn's landblock and setup as last drawn, so a change of a weenie's SQL redraws
     /// what it changes.
-    looks: BTreeMap<(PathBuf, String), (u16, Option<DataId>)>,
+    looks: Looks,
     /// Where each field of the weenie form was drawn last, by its key.
     pub form_fields: Vec<(String, egui::Rect)>,
     /// The weenie editor, and the Definition pane.
@@ -1625,8 +1625,23 @@ impl EditorApp {
         Ok(applied)
     }
 
+    /// The landblocks of the spawns whose look has changed since they were drawn, drawn again:
+    /// after a world repository is opened or closed, whose rows bring or take away spawns.
+    pub(crate) fn redraw_changed_spawns(&mut self) -> Result<(), String> {
+        let landblocks = looks_changed(&self.looks, &self.spawn_looks());
+        if landblocks.is_empty() {
+            return Ok(());
+        }
+        self.reload_spawns(&Touched {
+            landblocks,
+            sql: false,
+            rows: false,
+            tables: false,
+        })
+    }
+
     /// Each spawn's landblock and the setup it is drawn with, by its file and guid.
-    fn spawn_looks(&self) -> BTreeMap<(PathBuf, String), (u16, Option<DataId>)> {
+    fn spawn_looks(&self) -> Looks {
         self.session
             .spawns()
             .into_iter()
@@ -1642,18 +1657,9 @@ impl EditorApp {
         if touched.sql {
             // A change of a weenie's SQL redraws the landblocks of the spawns it changes the look
             // of: their setups, or spawns come or gone.
-            let now = self.spawn_looks();
             let mut more = touched.clone();
-            for (k, v) in &now {
-                if self.looks.get(k) != Some(v) {
-                    more.landblocks.insert(v.0);
-                }
-            }
-            for (k, v) in &self.looks {
-                if !now.contains_key(k) {
-                    more.landblocks.insert(v.0);
-                }
-            }
+            more.landblocks
+                .extend(looks_changed(&self.looks, &self.spawn_looks()));
             self.rebuild_weenies();
             if !more.landblocks.is_empty() {
                 return self.reload(&more);
@@ -5373,3 +5379,59 @@ mod character_build;
 
 #[path = "character_extras_tab.rs"]
 mod character_extras_tab;
+
+/// The spawns' looks the editor draws by: each spawn's landblock and setup, by its file and guid.
+type Looks = BTreeMap<(PathBuf, String), (u16, Option<DataId>)>;
+
+/// The landblocks whose spawns look otherwise in `now` than in `drawn`: a spawn's setup changed,
+/// or a spawn come or gone (the landblock it stood in, as drawn).
+fn looks_changed(drawn: &Looks, now: &Looks) -> BTreeSet<u16> {
+    let mut landblocks = BTreeSet::new();
+    for (k, v) in now {
+        if drawn.get(k) != Some(v) {
+            landblocks.insert(v.0);
+        }
+    }
+    for (k, v) in drawn {
+        if !now.contains_key(k) {
+            landblocks.insert(v.0);
+        }
+    }
+    landblocks
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: which landblocks the editor draws again when its spawns change)
+    use super::*;
+
+    fn key(guid: &str) -> (PathBuf, String) {
+        (PathBuf::from("landblock/0101.toml"), guid.to_owned())
+    }
+
+    /// A spawn a world repository's rows bring, one whose setup is learned or changed, and one
+    /// taken away each draw their landblock again; a spawn as it was draws nothing again.
+    #[test]
+    fn a_spawn_come_gone_or_given_its_setup_draws_its_landblock_again() {
+        let drawn: Looks = BTreeMap::from([
+            (key("0x70101800"), (0x0101, Some(DataId(0x0200_0001)))),
+            (key("0x70102800"), (0x0102, None)),
+            (key("0x70103800"), (0x0103, Some(DataId(0x0200_0002)))),
+        ]);
+        assert!(looks_changed(&drawn, &drawn).is_empty());
+        let now: Looks = BTreeMap::from([
+            (key("0x70101800"), (0x0101, Some(DataId(0x0200_0001)))),
+            (key("0x70102800"), (0x0102, Some(DataId(0x0200_07DD)))),
+            (key("0x70104800"), (0x0104, Some(DataId(0x0200_07DD)))),
+        ]);
+        assert_eq!(
+            looks_changed(&drawn, &now),
+            BTreeSet::from([0x0102, 0x0103, 0x0104])
+        );
+        assert_eq!(
+            looks_changed(&BTreeMap::new(), &now),
+            BTreeSet::from([0x0101, 0x0102, 0x0104]),
+            "a repository opened over nothing drawn draws every landblock its rows place in"
+        );
+    }
+}
