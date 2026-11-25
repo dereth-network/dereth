@@ -8,7 +8,9 @@
 //! movement. A path of the plugin's own points (`nav.move_along`) is run with the forward key
 //! instead, steered as a journey's walk is (the same follower), and waypoint routes
 //! (`dereth.nav`) are walked so; the way round what stands in between is the client's own
-//! planner's, asked for as a journey or a path (below).
+//! planner's, asked for as a journey or a path (below). A follow (`nav.follow`) runs by the run
+//! lock and steers by that follower too, turning with the turn keys as it runs and walking to
+//! keep pace near its range (see [`crate::chase`]).
 //!
 //! One movement runs at a time across all plugins. Each is a promise:
 //!
@@ -63,11 +65,12 @@ use dereth_plugin_api::Value;
 use dereth_primitives::{ObjectId, Position};
 
 use crate::actions::Settled;
+use crate::chase::{Chase, Drive};
 use crate::overlay::Anchor;
 use crate::places;
 
-/// How far off the target's bearing, in degrees, the character may be and still run; beyond it,
-/// it stops and turns in place.
+/// How far off the target's bearing, in degrees, a move to may be and still run; beyond it, it
+/// stops and turns in place.
 pub const TURN_TOLERANCE: f64 = 15.0;
 /// Seconds without coming half a metre closer before a move fails as `stuck`.
 pub const STUCK_SECS: f64 = 6.0;
@@ -197,6 +200,8 @@ struct Running {
     /// The shut door a move along is opening: the door, when it was last used, and how many
     /// times.
     door: Option<(ObjectId, f64, u32)>,
+    /// A follow's reckoning of its object and its steering.
+    chase: Option<Chase>,
 }
 
 /// A journey asked of the client's travel.
@@ -341,6 +346,7 @@ impl Nav {
             follower: None,
             before,
             door: None,
+            chase: None,
         });
         old.map(|r| settled(&r, Err("replaced".into())))
     }
@@ -936,21 +942,30 @@ impl Nav {
             Goal::Follow { object, range } => match frame.places.object(object) {
                 None if now - r.seen > LOST_SECS => {
                     self.run(frame, &plugin, false);
+                    Self::let_go_of(frame, &mut self.held);
                     Some(Err("lost".to_owned()))
                 }
                 None => {
-                    self.run(frame, &plugin, false);
+                    self.drive(frame, &plugin, Drive::default());
                     None
                 }
                 Some(at) => {
                     r.seen = now;
-                    let d = places::ground_distance(&me, &at);
-                    if d <= range {
-                        self.run(frame, &plugin, false);
-                    } else if !stopping
-                        && (d > range + 1.0 || self.run_owner.as_deref() == Some(plugin.as_str()))
-                    {
-                        self.steer(&mut r, frame, &me, &at, range, now);
+                    if !stopping {
+                        let sight = frame.places;
+                        let drive = r.chase.get_or_insert_with(Chase::default).step(
+                            &me,
+                            at,
+                            range,
+                            now,
+                            |a, b| {
+                                sight.sight(
+                                    &places::raised(a, places::SIGHT_HEIGHT),
+                                    &places::raised(b, places::SIGHT_HEIGHT),
+                                )
+                            },
+                        );
+                        self.drive(frame, &plugin, drive);
                     }
                     None
                 }
@@ -962,6 +977,16 @@ impl Nav {
                 self.running = Some(r);
                 None
             }
+        }
+    }
+
+    /// A follow's controls this frame: the run lock, the walk key, a turn key, and the heading.
+    fn drive(&mut self, frame: &mut HookFrame<'_>, plugin: &str, drive: Drive) {
+        self.set_held(frame, NavKey::Walk, drive.walk);
+        self.set_turn(frame, drive.turn);
+        self.run(frame, plugin, drive.run);
+        if let Some(heading) = drive.face {
+            frame.nav(NavRequest::Heading(heading));
         }
     }
 
@@ -1301,3 +1326,6 @@ fn learned_value(what: &Learned) -> Value {
             .with("to", places::to_value(to)),
     }
 }
+
+#[cfg(test)]
+mod follow_tests;

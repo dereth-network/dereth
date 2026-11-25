@@ -76,8 +76,8 @@ end)
 ```
 
 `chase` has two ways to move. When the follower's client knows the leader's character (the object
-is in view), `nav.follow(id, 3)` closes to within 3 metres and holds there until stopped or the
-object is out of sight for 3 seconds. Started by the `/follow` command, a gesture, it needs
+is in view), `nav.follow(id, 3)` keeps within about 3 metres of it, steering as it runs and
+walking to keep pace, until stopped or the object is out of sight for 3 seconds. Started by the `/follow` command, a gesture, it needs
 `act.interactive`, and a follow started by a gesture keeps running after the activation ends.
 
 ```lua

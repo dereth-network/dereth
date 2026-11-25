@@ -37,7 +37,7 @@
 //! In a scripted world the character and the objects have places. The character's movements are
 //! carried out the way the client's body would carry them out, simplified: a turn to a heading
 //! turns at [`TURN_RATE`], and while the run lock is on the character runs straight ahead at
-//! [`RUN_SPEED`]. A movement control a hook holds moves it too: forward at [`RUN_SPEED`] (at
+//! [`RUN_SPEED`] (walks at [`WALK_SPEED`] with the walk key, as the game's run lock does). A movement control a hook holds moves it too: forward at [`RUN_SPEED`] (at
 //! [`WALK_SPEED`] with the walk key), back and sideways at [`WALK_SPEED`], turns at [`TURN_RATE`];
 //! while a jump charges the character stands, and when it is let go the character leaps
 //! [`leap_distance`] the way the controls held say (straight up when none). A **scripted pre-game** is an account's character list; entering the world as
@@ -423,9 +423,14 @@ impl ScriptedPlaces {
             let h = dereth_plugin_host::places::heading(p).to_radians();
             let (gx, gy, z) = dereth_plugin_host::places::global(p);
             let from = flat(p);
+            let pace = if self.held.contains(&NavKey::Walk) {
+                WALK_SPEED
+            } else {
+                RUN_SPEED
+            };
             let (gx, gy) = (
-                gx + dereth_primitives::num::math::sin(h) * RUN_SPEED * dt,
-                gy + dereth_primitives::num::math::cos(h) * RUN_SPEED * dt,
+                gx + dereth_primitives::num::math::sin(h) * pace * dt,
+                gy + dereth_primitives::num::math::cos(h) * pace * dt,
             );
             // A closed door or a wall in the way stops the run.
             let blocked = self.closed_doors.values().any(|d| {

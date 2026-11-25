@@ -316,6 +316,76 @@ impl Follower {
         }
     }
 
+    /// Move the route's end to `to`: a route after something that moves. Whether the end was
+    /// reached is not undone.
+    pub fn move_end(&mut self, to: Position) {
+        if let Some(w) = self.path.waypoints.last_mut() {
+            w.position = to;
+        }
+    }
+
+    /// Lay a waypoint at `at` just before the route's end, as where what the route goes after
+    /// has been: it is walked to before the end. Nothing is laid once the end is reached. The
+    /// legs on either side of it are walked straight, and no corner of them is cut.
+    pub fn lay_before_end(&mut self, at: Position) {
+        let i = self.path.waypoints.len().saturating_sub(1);
+        if i == 0 || self.next > i {
+            return;
+        }
+        self.path.waypoints.insert(
+            i,
+            crate::path::Waypoint {
+                position: at,
+                action: None,
+            },
+        );
+        self.fine.insert(i.min(self.fine.len()), false);
+        if let Some(leg) = self.path.legs.get_mut(i - 1) {
+            leg.clear();
+        }
+        if i - 1 < self.path.legs.len() {
+            self.path.legs.insert(i, Vec::new());
+        }
+        if i < self.path.cuts.len() {
+            self.path.cuts.insert(i, 0.0);
+        }
+    }
+
+    /// Forget the waypoints already passed, all but the one the body walks on from.
+    pub fn forget_passed(&mut self) {
+        let k = self.next.saturating_sub(1).min(self.path.waypoints.len());
+        if k == 0 {
+            return;
+        }
+        self.path.waypoints.drain(..k);
+        self.fine.drain(..k.min(self.fine.len()));
+        self.path.legs.drain(..k.min(self.path.legs.len()));
+        self.path.cuts.drain(..k.min(self.path.cuts.len()));
+        self.next -= k;
+        self.door_done = self.door_done.and_then(|d| d.checked_sub(k));
+    }
+
+    /// Go straight on from `from` to the route's end, forgetting the waypoints between: the body
+    /// as it is (under way or not, turning or not) carries on toward the end.
+    pub fn straight_to_end(&mut self, from: Position) {
+        let Some(end) = self.path.waypoints.last().cloned() else {
+            return;
+        };
+        self.path.waypoints = vec![
+            crate::path::Waypoint {
+                position: from,
+                action: None,
+            },
+            end,
+        ];
+        self.path.legs.clear();
+        self.path.cuts.clear();
+        self.fine = vec![false; 2];
+        self.next = 1;
+        self.best = f32::MAX;
+        self.door_done = None;
+    }
+
     /// The body's speed and turn rate as seen so far: metres a second, degrees a second.
     #[must_use]
     pub const fn pace(&self) -> (f32, f32) {
@@ -1006,6 +1076,57 @@ mod tests {
             s => panic!("{s:?}"),
         }
         assert_eq!(f.update(&at(9.9, 10.0), 90.0, 2.0), Steer::Arrived);
+    }
+
+    /// A route after something that moves: a place laid before its end is walked to first, the
+    /// end moves without undoing what was reached, what is passed is forgotten, and going
+    /// straight on drops the places between.
+    #[test]
+    fn a_place_laid_before_a_moving_end_is_walked_to_first_and_forgotten_once_passed() {
+        let place = |f: &Follower, i: usize| {
+            let o = f.path().waypoints[i].position.frame.origin;
+            (o.x, o.y)
+        };
+        let whole = |f: &Follower| {
+            let n = f.path().waypoints.len();
+            assert_eq!(
+                f.path().legs.len(),
+                n - 1,
+                "a leg between each two waypoints"
+            );
+            assert_eq!(f.path().cuts.len(), n, "a cut at each waypoint");
+        };
+        let mut f = Follower::new(
+            route_through(&[(0.0, 0.0), (0.0, 10.0)]),
+            FollowConfig::strict(1.0, f64::INFINITY),
+        );
+        f.lay_before_end(at(0.0, 5.0));
+        whole(&f);
+        assert_eq!(f.next_waypoint(), 1);
+        assert_eq!(
+            place(&f, 1),
+            (0.0, 5.0),
+            "the laid place comes before the end"
+        );
+        f.move_end(at(3.0, 12.0));
+        assert_eq!(place(&f, 2), (3.0, 12.0));
+        match f.update(&at(0.0, 4.9), 0.0, 1.0) {
+            Steer::Go { waypoint, .. } => assert_eq!(waypoint, 2, "on past the laid place"),
+            s => panic!("{s:?}"),
+        }
+        f.forget_passed();
+        whole(&f);
+        assert_eq!(f.path().waypoints.len(), 2);
+        assert_eq!(f.next_waypoint(), 1);
+        assert_eq!(place(&f, 0), (0.0, 5.0), "the place walked on from stays");
+        f.lay_before_end(at(1.0, 8.0));
+        f.straight_to_end(at(0.0, 6.0));
+        assert_eq!(f.path().waypoints.len(), 2);
+        assert_eq!((place(&f, 0), place(&f, 1)), ((0.0, 6.0), (3.0, 12.0)));
+        assert!(matches!(
+            f.update(&at(0.0, 6.0), 0.0, 1.1),
+            Steer::Go { waypoint: 1, .. }
+        ));
     }
 
     /// A closed door's waypoint as the planner puts it, a quarter metre before the door's place:

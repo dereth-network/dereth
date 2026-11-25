@@ -880,6 +880,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-follow-steers-while-running-and-keeps-pace",
+        says: "A follow turns while it runs and stops to turn only where the way turns more than \
+               45 degrees; it aims where its object is going, eases off to a walk near its range \
+               while the object moves away, stands only within range of an object that is not \
+               moving away, and goes round the corner the object turned when something stands \
+               between them.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-FOLLOW-PACE"),
+        station: "dereth-plugin-host::lib::nav::follow_tests::a_follower_runs_a_loop_behind_its_leader_without_stopping_or_falling_behind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-held-motion-presses-a-movement-control-for-the-time-asked",
         says: "A held motion presses one of the game's movement controls (a step forward or back, \
                a sidestep or a turn), with the walk key when asked, for the time asked and then \

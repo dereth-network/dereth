@@ -78,6 +78,7 @@
 pub mod actions;
 pub mod calls;
 pub mod character;
+pub mod chase;
 pub mod clock;
 pub mod gamedata;
 pub mod import;

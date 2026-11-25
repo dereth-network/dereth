@@ -13,6 +13,9 @@ the character as a player at the keyboard would. The server sees ordinary moveme
 - A **move along** (`nav.move_along`) runs through a list of the plugin's own places with the
   forward key, steering between them while it runs, and stops only to turn at a sharp corner.
   It is what a [route](#routes-derethnav) is walked with.
+- A **follow** (`nav.follow`) keeps up with an object that moves: it runs by the run lock and
+  steers as a move along does, turning while it runs, aims where the object is going, and walks
+  to keep pace near its range ([following](#following)).
 - A [journey](#journeys) finds its own way, through portals and recalls too.
 - A [path](#paths-and-lines-of-sight) is the client's walking route to a target, answered without
   moving, with whether a straight line to it is clear.
@@ -59,7 +62,7 @@ starting another fails the one running with `replaced`.
 |---|---|---|
 | `nav.move_to(target, range)` | within `range` metres on the ground (default 2); answers `{ distance }` | `stuck` (no half-metre of progress in 6 s), `timeout` (slower than 2 m/s plus 20 s), `target_gone`, `no_position`, `interrupted`, `stopped`, `replaced` |
 | `nav.move_along(points [, { range, on_point }])` | having come within `range` metres on the ground (default 2) of each point in turn; answers `{ points, distance }` (how many, and how far from the last) | `stuck` (no nearer the next point for 6 s), `door_shut: …` (as a journey's: see below), `no_position`, `interrupted`, `stopped`, `replaced` |
-| `nav.follow(object, range)` | never: it closes to within `range` (default 3) and holds there | `lost` (the object out of sight for 3 s), `interrupted`, `stopped`, `replaced` |
+| `nav.follow(object, range)` | never: it keeps within about `range` (default 3) of the object, as [following](#following) says | `lost` (the object out of sight for 3 s), `interrupted`, `stopped`, `replaced` |
 | `nav.face(heading)` | facing within 5° of the heading | `timeout` (3 s), `interrupted`, `stopped`, `replaced` |
 | `nav.jump{ ms, heading, walk, direction }` | a frame after the leap; answers `{ held, heading }` (`held`: the milliseconds charged) | `timeout` (3 s to face the heading), `interrupted`, `stopped`, `replaced` |
 | `nav.motion(kind, ms [, { walk }])` | once the control has been held `ms`; answers `{ held }` | `interrupted`, `stopped`, `replaced` |
@@ -99,6 +102,32 @@ walk does:
   and the failure carries the door as a journey's does (`p.door`: see
   [A shut door](#a-shut-door)). It never picks a lock or looks for a lever.
 
+### Following
+
+`nav.follow(object, range)` keeps the character within about `range` metres of an object (a
+player, a creature) until it is stopped, the way a player following someone at the keyboard
+would:
+
+- **It turns while it runs.** It runs with the run lock and steers as a move along does: a bend
+  inside 20° is eased through, a larger one turned with a turn key held, and it lets the run lock
+  go to turn standing only where the way turns more than 45°, as it does when the object comes
+  back past it. It never uses the turn-to-heading a move does.
+- **It aims where the object is going.** The object's place reaches the client in updates; the
+  host reckons its pace from the places it changed to, and aims a moment ahead of it (half a
+  second at its pace, 6 m at most) rather than at where it was last seen. An update that comes
+  late is taken as the object stopping.
+- **It keeps pace near the range.** While the object moves away, the character walks (holding the
+  walk key) from the range out to a metre past it, and runs again beyond, so a faster character
+  settles at the object's pace without stopping. It stands only within the range of an object
+  that is not moving away (a metre past the range before it sets off again), or within half the
+  range whatever the object does.
+- **It goes round the corner the object turned.** While the line to the object is clear
+  (`nav.sight`), it heads straight for it. While something stands between, it follows the
+  places the object went through, a step of 2 m apart, from the last place it saw the object at,
+  passing each within 1.5 m. Where the host cannot tell whether the line is clear, it follows the
+  places too. An object carried more than 40 m at once (a portal, a recall) is followed from
+  where it is now.
+
 ### What keeps the run lock, and what lets it go
 
 - **Kept:** a plugin's `nav.move_to` or `nav.follow` that replaces its own running one, and one it
@@ -109,7 +138,7 @@ walk does:
   player's or the server's taking control (the player's leaves the lock theirs); the plugin's
   unloading or suspension; another plugin's movement; and any other movement of the plugin's
   (`nav.face`, `nav.jump`, `nav.motion`, `nav.move_along`, a journey) replacing or following the
-  move. A follow lets it go while it holds within range, and any move while it turns in place.
+  move. A follow lets it go while it stands within range, and any move while it turns in place.
 - **Never set:** by `nav.move_along` and journeys, which hold the forward key. Pressing forward
   turns a run lock off, the player's too, as the game's own key does. A move along's forward key
   is held on after its arrival as the run lock is, for the plugin's next `nav.move_along` to run
