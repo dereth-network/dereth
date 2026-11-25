@@ -70,6 +70,41 @@
     }
   },
   "rows": {
+    "placement": {
+      "fields": {
+        "at": {
+          "len": 3,
+          "list": "float"
+        },
+        "cell": "hex",
+        "class": "int",
+        "guid": "hex",
+        "last_modified": "time",
+        "link_child": "bool",
+        "links": {
+          "list": {
+            "either": [
+              "hex",
+              {
+                "fields": {
+                  "child": "hex",
+                  "last_modified": "time"
+                }
+              }
+            ]
+          }
+        },
+        "rotation": {
+          "len": 4,
+          "list": "float"
+        }
+      },
+      "file": "landblock/{cell >> 16:04X}.toml",
+      "item": "spawn {guid:#010X}",
+      "key": [
+        "guid"
+      ]
+    },
     "quest": {
       "fields": {
         "last_modified": "time",

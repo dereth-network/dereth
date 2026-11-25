@@ -1,8 +1,10 @@
 //! The layer of a world repository being edited, as SQL files of the pack being edited: the
 //! mirror. Each item the layer sets, of a kind the server's schema writes as SQL (a weenie, a
 //! quest, a death or wielded treasure), is a file in the pack's `server/sql/.repository/`, the
-//! item as the world at the layer holds it, viewed as SQL ([`crate::row_sql`]). The world below
-//! the layer stands in for the server's database ([`Mirror::below_sql`]).
+//! item as the world at the layer holds it, viewed as SQL ([`crate::row_sql`]); so is each
+//! placement, viewed as the spawn the spawn tool writes ([`crate::placement_sql`]). The world below
+//! the layer stands in for the server's database ([`Mirror::below_sql`]), its placements the
+//! server's own spawns.
 //!
 //! So every edit the editor makes of the pack's SQL works on the repository: a change of a mirror
 //! file is read back, item by item, and written as the layer's rows of it in the same step
@@ -29,6 +31,16 @@ use crate::row_sql::RowSql;
 
 /// The folder of the pack's SQL the mirror's files are in.
 pub const MIRROR: &str = ".repository";
+
+/// The file of a patch's pack that takes items of the world below away (`[[remove]]`).
+pub const REMOVALS: &str = "remove.toml";
+
+/// The kind of row that places an instance in the world, viewed as a spawn.
+pub const PLACEMENT: &str = "placement";
+
+/// The first instance index of a landblock a placement the editor makes takes: the lower ones are
+/// the end of retail's.
+const FIRST_OWN_INDEX: u16 = 0x800;
 
 /// An item of the world below the layer: its kind, its row, and the files its fields came from.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,13 +99,16 @@ impl Mirror {
             .ok_or("the server's schema has no rows")?;
         let vocabulary = RowSchema::of_schema(&serde_json::json!({ "rows": rows }))?
             .ok_or("the server's schema has no rows")?;
-        let kinds: Vec<String> = rows
+        let mut kinds: Vec<String> = rows
             .as_object()
             .into_iter()
             .flatten()
             .filter(|(_, k)| k.get("sql").is_some())
             .map(|(n, _)| n.clone())
             .collect();
+        if vocabulary.kinds.contains_key(PLACEMENT) {
+            kinds.push(PLACEMENT.to_owned());
+        }
         let l = repo
             .layers
             .get(layer)
@@ -198,6 +213,25 @@ impl Mirror {
         RowSql::new(&self.names, kind, self.stamp.as_deref())
     }
 
+    /// Row `row` of `kind` viewed as SQL.
+    fn render(&self, kind: &str, row: &toml::Table) -> Result<String, String> {
+        if kind == PLACEMENT {
+            return crate::placement_sql::to_sql(
+                row,
+                self.stamp.as_deref().unwrap_or("2000-01-01 00:00:00"),
+            );
+        }
+        Ok(self.view(kind)?.to_sql(row)?.render())
+    }
+
+    /// The rows of `kind` SQL `text` holds, as its view reads them back.
+    fn read_rows(&self, kind: &str, text: &str) -> Result<Vec<toml::Table>, String> {
+        if kind == PLACEMENT {
+            return crate::placement_sql::rows(text);
+        }
+        self.view(kind)?.rows(&SqlDoc::parse(text))
+    }
+
     /// The vocabulary of rows the mirror reads.
     #[must_use]
     pub fn vocabulary(&self) -> &RowSchema {
@@ -223,10 +257,9 @@ impl Mirror {
         let Some(text) = text else {
             return Ok(Vec::new());
         };
-        let doc = SqlDoc::parse(text);
         let mut out = Vec::new();
         for kind in &self.kinds {
-            for row in self.view(kind)?.rows(&doc)? {
+            for row in self.read_rows(kind, text)? {
                 let item = crate::repo::item_of(&self.vocabulary, kind, &row)
                     .ok_or_else(|| format!("a {kind} its rows don't name"))?;
                 out.push((item, kind.clone(), row));
@@ -257,7 +290,7 @@ impl Mirror {
                 continue;
             }
             let row = shown.row(&self.vocabulary);
-            let text = self.view(&shown.kind)?.to_sql(&row)?.render();
+            let text = self.render(&shown.kind, &row)?;
             let path = self.file_of(&shown.kind, item);
             self.held
                 .entry(path.clone())
@@ -275,7 +308,7 @@ impl Mirror {
     pub fn below_sql(&self) -> Result<String, String> {
         let mut out = String::new();
         for b in self.below.values() {
-            out.push_str(&self.view(&b.kind)?.to_sql(&b.row)?.render());
+            out.push_str(&self.render(&b.kind, &b.row)?);
             out.push('\n');
         }
         Ok(out)
@@ -285,7 +318,7 @@ impl Mirror {
     #[must_use]
     pub fn below_text(&self, item: &str) -> Option<String> {
         let b = self.below.get(item)?;
-        Some(self.view(&b.kind).ok()?.to_sql(&b.row).ok()?.render())
+        self.render(&b.kind, &b.row).ok()
     }
 
     /// The file of the layer's pack that writes item `item`'s row, when one does.
@@ -306,6 +339,11 @@ impl Mirror {
         let Some(b) = self.below.get(item) else {
             return Ok(None);
         };
+        if b.kind == PLACEMENT {
+            return Ok(self
+                .read_rows(PLACEMENT, &self.render(PLACEMENT, &b.row)?)?
+                .pop());
+        }
         let v = self.view(&b.kind)?;
         v.to_row(&v.to_sql(&b.row)?).map(Some)
     }
@@ -322,6 +360,47 @@ impl Mirror {
             .filter_map(|i| i.strip_prefix("weenie ")?.parse().ok())
             .collect();
         (lo..=hi).find(|c| !used.contains(c) && !taken.contains(c))
+    }
+
+    /// The item of the placement whose guid is `guid`, as the rows name it.
+    #[must_use]
+    pub fn spawn_item(&self, guid: u32) -> Option<String> {
+        let mut row = toml::Table::new();
+        row.insert("guid".into(), toml::Value::Integer(guid.into()));
+        crate::repo::item_of(&self.vocabulary, PLACEMENT, &row)
+    }
+
+    /// Whether the mirror views placements: the server's rows have them.
+    #[must_use]
+    pub fn places(&self) -> bool {
+        self.kinds.iter().any(|k| k == PLACEMENT)
+    }
+
+    /// The guids of the placements of the world below the layer and of the layer.
+    fn placed_guids(&self) -> BTreeSet<u32> {
+        let mut out: BTreeSet<u32> = self
+            .below
+            .values()
+            .filter(|b| b.kind == PLACEMENT)
+            .filter_map(|b| b.row.get("guid")?.as_integer())
+            .filter_map(|g| u32::try_from(g).ok())
+            .collect();
+        out.extend(self.files.keys().filter_map(|item| {
+            let g = item.strip_prefix("spawn 0x")?;
+            u32::from_str_radix(g, 16).ok()
+        }));
+        out
+    }
+
+    /// The guid a new placement in landblock `lb` takes: the first of the landblock's own
+    /// instances, from index 0x800, that no placement of the world below, of the layer or of
+    /// `taken` has.
+    #[must_use]
+    pub fn free_guid(&self, lb: u16, taken: &BTreeSet<u32>) -> Option<u32> {
+        let used = self.placed_guids();
+        (FIRST_OWN_INDEX..=0xFFF)
+            .map(|i| crate::placement_sql::guid_of(lb, i))
+            .find(|g| !used.contains(g) && !taken.contains(g))
     }
 
     /// A step's changed files, `changed`, with the layer's row files its mirror files' changes
@@ -367,7 +446,10 @@ impl Mirror {
         };
         for (item, (kind, row)) in &after {
             let below = self.below_read(item)?;
-            let row = self.times_kept(kind, below.as_ref(), row);
+            let mut row = self.times_kept(kind, below.as_ref(), row);
+            if kind == PLACEMENT {
+                row = crate::placement_sql::links_as_below(&row, below.as_ref());
+            }
             let delta = layer_rows::delta(&self.vocabulary, kind, below.as_ref(), &row);
             let file = match self.files.get(item) {
                 Some(f) => f.clone(),

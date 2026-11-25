@@ -11,6 +11,7 @@ mod piece;
 mod publish;
 mod pull;
 mod repo;
+mod repo_spawns;
 mod repo_world;
 mod revise;
 mod row_sql;

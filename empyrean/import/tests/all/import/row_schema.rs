@@ -394,6 +394,7 @@ fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
     let mut rows = serde_json::Map::new();
     for kind in [
         "weenie",
+        "placement",
         "quest",
         "treasure_death",
         "treasure_wielded",

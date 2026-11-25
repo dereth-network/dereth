@@ -876,6 +876,12 @@ impl EditorApp {
         if let Some(found) = self.rows_server_class(class) {
             return Some(found);
         }
+        self.database_class(class)
+    }
+
+    /// Class `class`'s rows as the server's database has them, read off the frame loop as
+    /// [`Self::server_class`] reads them, a world repository's layer being edited or not.
+    fn database_class(&mut self, class: u32) -> Option<Option<String>> {
         self.server_classes.poll();
         if let Some(found) = self.server_classes.done.get(&class) {
             return Some(found.clone());
@@ -904,6 +910,18 @@ impl EditorApp {
         loop {
             if let Some(found) = self.server_class(class) {
                 return Ok(found);
+            }
+            self.server_classes.wait();
+        }
+    }
+
+    /// Class `class`'s rows as the server's database has them, waited for: `None` without a
+    /// database, or for a class it lacks.
+    pub(super) fn database_class_now(&mut self, class: u32) -> Option<String> {
+        self.server_sql.as_ref()?;
+        loop {
+            if let Some(found) = self.database_class(class) {
+                return found;
             }
             self.server_classes.wait();
         }

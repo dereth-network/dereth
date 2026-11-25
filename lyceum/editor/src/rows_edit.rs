@@ -16,8 +16,7 @@ use lyceum_foundry::repo::{ShownItem, ShownWorld};
 use super::editor_tab::Owner;
 use super::EditorApp;
 
-/// The file of a layer's pack that takes its items away.
-const REMOVALS: &str = "remove.toml";
+use lyceum_foundry::mirror::REMOVALS;
 
 /// The layer edits go into, as the Rows tab shows it.
 #[derive(Debug)]

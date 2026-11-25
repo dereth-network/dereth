@@ -91,6 +91,7 @@ pub mod moves;
 pub mod pick;
 pub mod pictures;
 pub mod pieces;
+pub mod placement_sql;
 pub mod publish;
 pub mod pull;
 pub mod quests;

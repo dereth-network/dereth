@@ -3961,6 +3961,41 @@ impl EditorApp {
                 heading: 0.0,
             }
         };
+        // A world repository places only classes its world has: one only the server's database
+        // has is written into the layer with it.
+        let class = match &op {
+            Op::PlaceSpawn {
+                weenie: Weenie::Class(c),
+                ..
+            }
+            | Op::PlaceSpawnInCell {
+                weenie: Weenie::Class(c),
+                ..
+            } => Some(*c),
+            _ => None,
+        };
+        let op = match &class {
+            Some(c) if self.session.repository_lacks(*c) => match self.database_class_now(*c) {
+                Some(text) => {
+                    let name = self
+                        .session
+                        .server_weenies()
+                        .get(c)
+                        .and_then(|f| f.name.clone())
+                        .unwrap_or_else(|| format!("weenie-{c}"));
+                    let file = self.session.class_file(*c, &name);
+                    Op::Batch(vec![
+                        Op::WriteSql {
+                            file,
+                            text: Some(text),
+                        },
+                        op,
+                    ])
+                }
+                None => op,
+            },
+            _ => op,
+        };
         let applied = self.apply(&op, false)?;
         if let Some(file) = applied.spawned {
             if let Some(s) = self.session.spawns().into_iter().find(|s| s.file == file) {
@@ -4263,7 +4298,7 @@ impl EditorApp {
             self.server_sql.clone_from(&ready.database);
         }
         if learned {
-            self.session.learn_server(ready.server);
+            self.session.learn_server_beside(ready.server);
             self.dungeon_list.listed = None;
             // The flying camera's world is built again, without the doors now known.
             self.collider = None;

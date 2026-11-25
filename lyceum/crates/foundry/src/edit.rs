@@ -2965,9 +2965,10 @@ impl Session {
             .and_then(|f| f.setup)
     }
 
-    /// The guids of the server's own spawns the packs write again or take away.
+    /// The guids of the server's own spawns the packs write again or take away (and a world
+    /// repository's layer being edited takes away).
     fn server_taken(&self) -> BTreeSet<u32> {
-        let mut taken: BTreeSet<u32> = BTreeSet::new();
+        let mut taken: BTreeSet<u32> = self.placements_removed();
         for p in &self.packs {
             for f in &p.sql {
                 taken.extend(
@@ -3335,6 +3336,36 @@ impl Session {
         Ok(texts)
     }
 
+    /// Whether a placement of class `class` in the repository's layer being edited needs the
+    /// class written into the layer too: neither the world below nor the layer has it.
+    #[must_use]
+    pub fn repository_lacks(&self, class: u32) -> bool {
+        let Some(m) = self.placing() else {
+            return false;
+        };
+        let mut row = toml::Table::new();
+        row.insert("class".into(), toml::Value::Integer(i64::from(class)));
+        crate::repo::item_of(m.vocabulary(), "weenie", &row).is_some_and(|i| {
+            !m.below_has(&i)
+                && !self
+                    .weenie_file(&Weenie::Class(class))
+                    .is_some_and(|(f, _)| m.holds(&f))
+        })
+    }
+
+    /// Learn the server's own weenies beside a world repository's layer being edited, to place:
+    /// only those its world lacks, and nothing else the server's world holds (its spawns, its
+    /// quests and its loot), which is the repository's. Without a repository, all it holds.
+    pub fn learn_server_beside(&mut self, content: sql_ids::ServerContent) {
+        if self.mirror.is_none() {
+            self.learn_server(content);
+            return;
+        }
+        for (class, facts) in content.weenies {
+            self.retail.entry(class).or_insert(facts);
+        }
+    }
+
     /// Whether class `class` is a weenie the repository's layer being edited makes: its file is
     /// the layer's, and the world below has none.
     #[must_use]
@@ -3387,13 +3418,25 @@ impl Session {
             .any(|(p, _)| self.is_rows(p) && self.sources.differs(p))
     }
 
-    /// Whether `path` is a file of the world repository whose rows are edited (and none of the
-    /// world's own packs).
+    /// Whether `path` is a file of the world repository whose rows are edited: none of the world
+    /// builder's own files of a pack (its header, its records, edits, art and SQL), where the
+    /// repository is the world itself.
     fn is_rows(&self, path: &Path) -> bool {
         self.rows
             .as_ref()
             .is_some_and(|(repo, _)| path.starts_with(repo))
-            && !self.packs.iter().any(|p| path.starts_with(&p.dir))
+            && !self.packs.iter().any(|p| {
+                path.strip_prefix(&p.dir).is_ok_and(|rel| {
+                    let first = rel
+                        .components()
+                        .next()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    first == "pack.toml"
+                        || first == "server"
+                        || crate::repo::BUILDER_FOLDERS.contains(&first.as_str())
+                })
+            })
     }
 
     fn pack_dir(&self) -> &Path {
@@ -3935,7 +3978,11 @@ impl Session {
                 origin,
                 heading,
             } => {
-                let (path, text) = self.spawn_sql(*landblock, None, weenie, *origin, *heading);
+                let (path, text) = if self.placing().is_some() {
+                    self.placement_file(*landblock, None, weenie, *origin, *heading, out)?
+                } else {
+                    self.spawn_sql(*landblock, None, weenie, *origin, *heading)
+                };
                 out.insert(path.clone(), Some(text));
                 spawned = Some(path);
             }
@@ -3946,8 +3993,11 @@ impl Session {
                 origin,
                 heading,
             } => {
-                let (path, text) =
-                    self.spawn_sql(*landblock, Some(*cell), weenie, *origin, *heading);
+                let (path, text) = if self.placing().is_some() {
+                    self.placement_file(*landblock, Some(*cell), weenie, *origin, *heading, out)?
+                } else {
+                    self.spawn_sql(*landblock, Some(*cell), weenie, *origin, *heading)
+                };
                 out.insert(path.clone(), Some(text));
                 spawned = Some(path);
             }
@@ -4050,6 +4100,28 @@ impl Session {
                 origin,
                 heading,
             } => {
+                // A placement of the world below a repository's layer: the layer's own placement
+                // of it, written whole first.
+                if let (Some(_), Some(m)) = (self.override_landblock(file), self.placing()) {
+                    let (path, text) = sql_ids::number(guid)
+                        .and_then(|g| m.spawn_item(g))
+                        .and_then(|item| {
+                            Some((
+                                m.file_of(crate::mirror::PLACEMENT, &item),
+                                m.below_text(&item)?,
+                            ))
+                        })
+                        .ok_or_else(|| {
+                            Error::Refused(format!("the world below places no spawn {guid}"))
+                        })?;
+                    let text = match self.current(&path, out) {
+                        Some(t) => t,
+                        None => text,
+                    };
+                    let moved = Self::moved_spawn(&path, &text, guid, *origin, *heading)?;
+                    out.insert(path, Some(moved));
+                    return Ok((placed, spawned));
+                }
                 let text = match self.override_landblock(file) {
                     // One of the server's own: written into the file whole first.
                     Some(lb) => {
@@ -4068,6 +4140,19 @@ impl Session {
                     file.clone(),
                     Some(Self::moved_spawn(file, &text, guid, *origin, *heading)?),
                 );
+            }
+            Op::RemoveServerSpawn { file, guid } if self.placing().is_some() => {
+                if self.override_landblock(file).is_none() {
+                    return Err(Error::Refused(format!(
+                        "{} is not a server spawn's file",
+                        file.display()
+                    )));
+                }
+                let gone = self.spawn(file, guid);
+                self.remove_placement_below(guid, out)?;
+                if let Some(s) = gone {
+                    self.draft_unlinked(&s, out)?;
+                }
             }
             Op::RemoveServerSpawn { file, guid } => {
                 let lb = self.override_landblock(file).ok_or_else(|| {
@@ -4106,6 +4191,16 @@ impl Session {
                 }
                 if let Some(s) = placed.first().and_then(|i| self.spawn(file, &i.guid)) {
                     self.draft_unlinked(&s, out)?;
+                }
+                // A repository's layer's change of a placement below it: taken away there too.
+                if let (Some(m), Some(i)) = (self.placing(), placed.first()) {
+                    if m.holds(file)
+                        && sql_ids::number(&i.guid)
+                            .and_then(|g| m.spawn_item(g))
+                            .is_some_and(|item| m.below_has(&item))
+                    {
+                        self.remove_placement_below(&i.guid, out)?;
+                    }
                 }
                 out.insert(file.clone(), None);
             }
@@ -5844,6 +5939,170 @@ impl Session {
         (dir.join(format!("{lb:04X} {name}.sql")), text)
     }
 
+    /// The layer of a world repository being edited, when its placements are the spawns.
+    fn placing(&self) -> Option<&crate::mirror::Mirror> {
+        self.mirror.as_ref().filter(|m| m.places())
+    }
+
+    /// A new placement of the repository's layer being edited, as its mirror file and the SQL
+    /// the spawn tool writes: its guid the first free of the landblock's own (none of those the
+    /// drafts in `out` place either), its cell and its class numbers, as a placement names them.
+    fn placement_file(
+        &mut self,
+        lb: u16,
+        in_cell: Option<u16>,
+        weenie: &Weenie,
+        origin: Vec3,
+        heading: f32,
+        out: &BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(PathBuf, String), Error> {
+        let class = match weenie {
+            Weenie::Class(c) => *c,
+            Weenie::Symbol(s) => {
+                return Err(Error::Refused(format!(
+                    "{s} is a pack's weenie, which a world repository's placement can't name: it names a class"
+                )))
+            }
+        };
+        let mut taken: BTreeSet<u32> = self.packs[self.target]
+            .sql
+            .iter()
+            .flat_map(|f| sql_ids::instances(&f.text))
+            .filter_map(|i| sql_ids::number(&i.guid))
+            .collect();
+        taken.extend(
+            out.values()
+                .flatten()
+                .flat_map(|t| sql_ids::instances(t))
+                .filter_map(|i| sql_ids::number(&i.guid)),
+        );
+        let m = self
+            .placing()
+            .ok_or_else(|| Error::Refused("no world repository's layer is being edited".into()))?;
+        let guid = m.free_guid(lb, &taken).ok_or_else(|| {
+            Error::Refused(format!(
+                "landblock {lb:04X} has no instance free for another placement"
+            ))
+        })?;
+        let item = m
+            .spawn_item(guid)
+            .ok_or_else(|| Error::Refused(format!("the rows name no spawn {guid:#010X}")))?;
+        let cell = (u32::from(lb) << 16)
+            | in_cell.map_or_else(|| outdoor_cell(origin.x, origin.y), u32::from);
+        let q = compile::heading_quat(heading);
+        let num = |t: String| toml::Value::Float(t.parse().unwrap_or(0.0));
+        let angle = |v: f32| num(trimmed(format!("{v:.6}")));
+        let mut row = toml::Table::new();
+        row.insert("guid".into(), toml::Value::Integer(guid.into()));
+        row.insert("class".into(), toml::Value::Integer(class.into()));
+        row.insert("cell".into(), toml::Value::Integer(cell.into()));
+        row.insert(
+            "at".into(),
+            toml::Value::Array(vec![
+                num(meters(origin.x)),
+                num(meters(origin.y)),
+                num(meters(origin.z)),
+            ]),
+        );
+        row.insert(
+            "rotation".into(),
+            toml::Value::Array(vec![angle(q.w), angle(q.x), angle(q.y), angle(q.z)]),
+        );
+        let text = crate::placement_sql::to_sql(&row, &self.today).map_err(Error::Refused)?;
+        Ok((m.file_of(crate::mirror::PLACEMENT, &item), text))
+    }
+
+    /// Placement `guid` of the world below the repository's layer being edited taken away by the
+    /// layer: a `[[remove]]` row of its patch (`out` holding the drafts so far). The base takes
+    /// nothing away.
+    fn remove_placement_below(
+        &mut self,
+        guid: &str,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(), Error> {
+        let m = self
+            .placing()
+            .ok_or_else(|| Error::Refused("no world repository's layer is being edited".into()))?;
+        if !m.patch {
+            return Err(Error::Refused(
+                "the base takes nothing away: a patch takes away a placement of the world below it"
+                    .into(),
+            ));
+        }
+        let item = sql_ids::number(guid)
+            .and_then(|g| m.spawn_item(g))
+            .ok_or_else(|| Error::Refused(format!("{guid} is no placement's guid")))?;
+        let file = m.pack.join(crate::mirror::REMOVALS);
+        let text = self.current(&file, out);
+        let new = crate::layer_rows::write_removal(text.as_deref(), &item, true)
+            .map_err(Error::Refused)?;
+        out.insert(file, new);
+        Ok(())
+    }
+
+    /// A warning for each SQL file of the pack being edited that places spawns where the pack is
+    /// a world repository's layer: those spawns (a dropped building's doors, a house's objects)
+    /// are not the layer's placement rows, so a world published from the repository lacks them.
+    fn spawns_beside_rows(&self) -> Vec<String> {
+        let Some(m) = self.placing() else {
+            return Vec::new();
+        };
+        if !self.pack_dir().starts_with(&m.repo) {
+            return Vec::new();
+        }
+        self.packs[self.target]
+            .sql
+            .iter()
+            .filter(|f| !m.holds(&f.path) && !sql_ids::instances(&f.text).is_empty())
+            .map(|f| {
+                format!(
+                    "{}: these spawns aren't the repository's placement rows, so a world published from it won't have them",
+                    f.path.display()
+                )
+            })
+            .collect()
+    }
+
+    /// The guids of the placements of the world below that the repository's layer being edited
+    /// takes away (its `[[remove]]` rows), as the session holds its file.
+    fn placements_removed(&self) -> BTreeSet<u32> {
+        let Some(m) = self.placing() else {
+            return BTreeSet::new();
+        };
+        let file = m.pack.join(crate::mirror::REMOVALS);
+        let text = match self.sources.iter().find(|(p, _)| *p == file) {
+            Some((_, t)) => t.map(str::to_owned),
+            None => std::fs::read_to_string(&file).ok(),
+        };
+        let Some(t) = text.and_then(|t| toml::from_str::<toml::Table>(&t).ok()) else {
+            return BTreeSet::new();
+        };
+        let mut out = BTreeSet::new();
+        for r in t
+            .get("remove")
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let names = r
+                .get("items")
+                .and_then(toml::Value::as_array)
+                .into_iter()
+                .flatten()
+                .chain(r.get("item"))
+                .filter_map(toml::Value::as_str);
+            for n in names {
+                if let Some(g) = n
+                    .strip_prefix("spawn 0x")
+                    .and_then(|g| u32::from_str_radix(g, 16).ok())
+                {
+                    out.insert(g);
+                }
+            }
+        }
+        out
+    }
+
     // ---------------------------------------------------------------------------------------
     // the scratch overlay and its checks
     // ---------------------------------------------------------------------------------------
@@ -6088,6 +6347,7 @@ impl Session {
         let (problems, warnings) = crate::drops::checks(self, self.buildings.as_ref());
         report.problems.extend(problems);
         report.warnings.extend(warnings);
+        report.warnings.extend(self.spawns_beside_rows());
         for (lb, which) in &moved {
             report
                 .warnings
