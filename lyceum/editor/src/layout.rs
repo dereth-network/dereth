@@ -618,6 +618,18 @@ pub fn on_own_floor(f: &Free, floors: &[f32], shown: f32) -> bool {
     }
 }
 
+/// How far apart the floors stand at floor `floor`, by the rooms `rooms` (each by the floor it
+/// stands on and its kit's step): the step of those standing on it, the most where kits share
+/// it; `None` when none does.
+#[must_use]
+pub fn rise_on(rooms: &[(f32, f32)], floor: f32) -> Option<f32> {
+    rooms
+        .iter()
+        .filter(|(z, _)| (z - floor).abs() <= FLOOR_BAND)
+        .map(|(_, r)| *r)
+        .fold(None, |a: Option<f32>, r| Some(a.map_or(r, |a| a.max(r))))
+}
+
 /// Whether a piece standing on floor `floor` (of floors `rise` apart) may join free doorway `f`:
 /// one on that floor, the open top of a room under it, or the open floor of a room over it.
 #[must_use]
@@ -834,19 +846,7 @@ impl EditorApp {
     /// open onto, and one more past the lowest and the highest room; and the floor shown: the one
     /// chosen, else the camera's (going in, the one players arrive on).
     pub fn plan_floors(&mut self, lb: u16) -> (Vec<f32>, f32) {
-        let cells = self.cells_of(lb);
-        let lids = self.lids(lb).cells();
-        // Each room's floor, and how far apart its kit's floors stand.
-        let rooms: Vec<(f32, f32)> = cells
-            .iter()
-            .filter(|(n, c)| {
-                !lids.contains(n) && c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0
-            })
-            .filter_map(|(_, c)| {
-                let low = c.frame.origin.z + self.piece_plan(c.environment, c.cell_struct)?.low;
-                Some((low, self.rise_of(lb, c.environment)))
-            })
-            .collect();
+        let rooms = self.room_floors(lb);
         let arrival = self.arrival_floor(lb);
         let mut lows: Vec<f32> = rooms.iter().map(|(z, _)| *z).collect();
         lows.extend(self.open_ways(lb, &[]).iter().map(sill));
@@ -867,6 +867,41 @@ impl EditorApp {
         let shown = shown_floor(&floors, self.layout.floor, camera, arrival);
         self.layout.floors.clone_from(&floors);
         (floors, shown)
+    }
+
+    /// Each room of dungeon `lb`, by the floor it stands on and how far apart its kit's floors
+    /// stand.
+    fn room_floors(&mut self, lb: u16) -> Vec<(f32, f32)> {
+        let cells = self.cells_of(lb);
+        let lids = self.lids(lb).cells();
+        cells
+            .iter()
+            .filter(|(n, c)| {
+                !lids.contains(n) && c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0
+            })
+            .filter_map(|(_, c)| {
+                let low = c.frame.origin.z + self.piece_plan(c.environment, c.cell_struct)?.low;
+                Some((low, self.rise_of(lb, c.environment)))
+            })
+            .collect()
+    }
+
+    /// How far apart the floors stand at floor `floor` of dungeon `lb`, in meters: the step of the
+    /// kit whose rooms stand on it (the most, where kits share a floor), so a mixed dungeon's
+    /// floors count by each place's own kit; on a floor no room stands on, the kit the panel
+    /// offers, else the dungeon's.
+    pub fn rise_at(&mut self, lb: u16, floor: f32) -> f32 {
+        rise_on(&self.room_floors(lb), floor)
+            .or_else(|| {
+                (self.dungeon_game(lb) == Some(super::dungeon::Game::Ac2))
+                    .then(|| {
+                        self.palette_ac2_kit(lb)
+                            .and_then(lyceum_foundry::ac2_kit::Kit::parse)
+                            .map(lyceum_foundry::ac2_kit::Kit::rise)
+                    })
+                    .flatten()
+            })
+            .unwrap_or_else(|| self.session.floor_rise(lb))
     }
 
     /// The camera's eye's height in dungeon `lb`, landblock meters: the flying camera's, or the
@@ -992,7 +1027,7 @@ impl EditorApp {
             return Vec::new();
         };
         let (rooms, doorways, land) = self.grid_world(lb);
-        let rise = self.session.floor_rise(lb);
+        let rise = self.rise_at(lb, floor);
         let among: Vec<usize> = doorways
             .iter()
             .enumerate()
@@ -1005,7 +1040,7 @@ impl EditorApp {
             rooms: &rooms,
             doorways: &doorways,
             ground: land.then_some(&ground as &dyn Fn(f32, f32) -> Option<f32>),
-            pitch: self.session.grid_pitch(lb),
+            pitch: self.piece_pitch(lb, &piece),
         };
         self.session.ac2_offered(
             lb,
@@ -1290,10 +1325,10 @@ impl EditorApp {
             return;
         };
         let t = self.text.table();
-        let rise = self.session.floor_rise(lb);
         let pitch = self.plan_pitch(lb);
         let squares = self.plan_squares(lb);
         let (floors, shown) = self.plan_floors(lb);
+        let rise = self.rise_at(lb, shown);
         let at = floors
             .iter()
             .position(|f| (f - shown).abs() < 0.01)
@@ -2180,6 +2215,32 @@ mod tests {
         assert!(on_own_floor(&bottom, &floors, 0.0));
         assert!(!on_own_floor(&bottom, &floors, -6.0));
         assert!(opens_on(&bottom, -6.0, grid::RISE) && !opens_on(&bottom, 0.0, grid::RISE));
+    }
+
+    /// In a dungeon of two kits, a castle's 10 m floors over a tomb's 12 m ones, each floor counts
+    /// by the kit whose rooms stand on it: a room's open floor 12 m over a tomb floor is built on
+    /// from it, where the castle's 10 m would not reach. A floor kits share takes the larger step;
+    /// one no room stands on has none of its own.
+    #[test]
+    fn a_mixed_dungeons_floors_count_by_the_kit_standing_on_each() {
+        let rooms = [(0.0, 10.0), (10.0, 10.0), (-24.0, 12.0), (-12.0, 12.0)];
+        assert_eq!(rise_on(&rooms, 0.0), Some(10.0));
+        assert_eq!(rise_on(&rooms, -12.0), Some(12.0));
+        assert_eq!(
+            rise_on(&rooms, -12.5),
+            Some(12.0),
+            "within the floor's band"
+        );
+        assert_eq!(rise_on(&rooms, 30.0), None);
+        assert_eq!(rise_on(&[(0.0, 10.0), (0.5, 12.0)], 0.0), Some(12.0));
+        // The tomb's stair room's open floor, 12 m over the lower tomb floor.
+        let over = opening(-12.0, false);
+        let step = rise_on(&rooms, -24.0).unwrap();
+        assert!(opens_on(&over, -24.0, step));
+        assert!(
+            !opens_on(&over, -24.0, 10.0),
+            "the castle's step falls short"
+        );
     }
 
     #[test]

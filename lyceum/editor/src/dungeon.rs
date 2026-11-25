@@ -643,6 +643,17 @@ impl EditorApp {
         Ok(())
     }
 
+    /// The side of the squares kit piece `piece` stands on in dungeon `lb`, in meters: its AC2
+    /// kit's, so a mixed dungeon's pieces each meet the squares of their own kit; else the
+    /// dungeon's.
+    #[must_use]
+    pub fn piece_pitch(&self, lb: u16, piece: &KitPiece) -> f32 {
+        piece
+            .ac2
+            .as_ref()
+            .map_or_else(|| self.session.grid_pitch(lb), |a| a.pitch())
+    }
+
     /// The AC2 kit the palette offers in dungeon `lb`: the one chosen, else the dungeon's own,
     /// else the first the kit holds.
     #[must_use]
@@ -733,7 +744,7 @@ impl EditorApp {
             return Vec::new();
         };
         let (rooms, doorways, land) = self.grid_world(lb);
-        let rise = self.session.floor_rise(lb);
+        let rise = self.rise_at(lb, floor);
         let among: Vec<usize> = match target {
             Target::Doorway(link) => doorways
                 .iter()
@@ -803,7 +814,7 @@ impl EditorApp {
                 rooms: &rooms,
                 doorways: &doorways,
                 ground: ground_fn,
-                pitch: self.session.grid_pitch(lb),
+                pitch: self.piece_pitch(lb, &pieces[i]),
             };
             let found: Vec<PiecePlacement> = if first {
                 // The first room: on the square, its floor on the floor shown, at each turn.
@@ -822,8 +833,8 @@ impl EditorApp {
                     grid::piece_placements(form, &spaces, &dungeon, &among),
                 );
                 if let Target::Square(s) = target {
-                    let pitch = self.session.grid_pitch(lb);
-                    v.retain(|p| p.square_at(pitch).is_some_and(|(q, _)| q == *s));
+                    // The square chosen, on the grid it was chosen on.
+                    v.retain(|p| p.square_at(plan_pitch).is_some_and(|(q, _)| q == *s));
                 }
                 v
             };
@@ -971,7 +982,7 @@ impl EditorApp {
                 rooms,
                 doorways: tops,
                 ground: None,
-                pitch: self.session.grid_pitch(lb),
+                pitch: self.piece_pitch(lb, &pieces[c]),
             };
             let Some(best) = self
                 .session
@@ -1360,7 +1371,7 @@ impl EditorApp {
                         rooms: &BTreeMap::new(),
                         doorways: &[],
                         ground: None,
-                        pitch: self.session.grid_pitch(lb),
+                        pitch: self.piece_pitch(lb, &pieces[i]),
                     },
                 )
                 .map_err(|_| self.say("layout.no_fit"))?
@@ -1374,7 +1385,7 @@ impl EditorApp {
                         rooms: &rooms,
                         doorways: &doorways,
                         ground: None,
-                        pitch: self.session.grid_pitch(lb),
+                        pitch: self.piece_pitch(lb, &pieces[i]),
                     },
                     &among,
                 );
@@ -1864,10 +1875,11 @@ impl EditorApp {
                         for k in (row * columns)..((row + 1) * columns).min(fits.len()) {
                             let f = &fits[k];
                             let (rect, r) = ui.allocate_exact_size(cell, egui::Sense::click());
-                            let turn = f
-                                .placement
-                                .square_at(self.session.grid_pitch(lb))
-                                .map_or(0, |(_, t)| t);
+                            let pitch = pieces.get(f.piece).map_or_else(
+                                || self.session.grid_pitch(lb),
+                                |p| self.piece_pitch(lb, p),
+                            );
+                            let turn = f.placement.square_at(pitch).map_or(0, |(_, t)| t);
                             let lit = r.hovered() || self.kit.hover_fit == Some(k);
                             self.draw_piece(ui, rect, f.piece, turn, lit, false);
                             self.kit.fit_rects.push((k, rect));
