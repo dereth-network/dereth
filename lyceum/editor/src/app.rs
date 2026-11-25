@@ -976,6 +976,10 @@ impl EditorApp {
                 land.as_deref(),
                 &out,
             )?;
+            lyceum_foundry::repo_world::check_inputs(
+                &repo,
+                &world_dats(&cfg, dereth_primitives::EraId::Eor),
+            )?;
             if let Some(l) = &land {
                 crate::world_home::remember_land(&args.world, l);
             }

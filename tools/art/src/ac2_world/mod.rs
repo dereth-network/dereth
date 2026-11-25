@@ -1,8 +1,9 @@
 //! The AC2-in-AC1 world: Asheron's Call 2's landmass in Asheron's Call's formats, as a world
 //! overlay over Asheron's Call's cell and portal files, built from a player's own installs.
 //!
-//! [`build`] reads acclient 00.00.11.6096's `client_cell_1.dat` and `client_portal.dat` and
-//! Asheron's Call 2's end-of-retail `cell_1.dat` and `portal.dat` (refusing any other files, by
+//! [`build`] reads acclient 00.00.11.6096's `client_cell_1.dat`, `client_portal.dat`,
+//! `client_local_English.dat` and `client_highres.dat`, and Asheron's Call 2's end-of-retail
+//! `cell_1.dat`, `portal.dat`, `local_English.dat` and `highres.dat` (refusing any other files, by
 //! SHA-256), and writes the world `ac2-in-ac1` into the overlay folder:
 //! - the cell overlay: every one of AC1's 65,025 landblocks as a dense record (3 vertex steps a
 //!   24 m cell, 25 x 25 vertices 8 m apart), AC2's ground at its true size with AC2's origin on
@@ -129,8 +130,10 @@ const MAX_ROUNDING: f64 = 2.0;
 const SCENERY_MARGIN: f64 = 4.0;
 
 /// The files read, and their SHA-256: acclient 00.00.11.6096's, and Asheron's Call 2's at the end
-/// of retail.
-const INPUTS: [(Side, &str, &str); 4] = [
+/// of retail as the AC Community Preservation Project archives them and the launcher fetches them,
+/// the files players have. Each one the land is drawn from counts, the English strings and the high-resolution
+/// pictures as much as the cells and the portal file.
+const INPUTS: [(Side, &str, &str); 8] = [
     (
         Side::Ac1,
         "client_cell_1.dat",
@@ -144,12 +147,32 @@ const INPUTS: [(Side, &str, &str); 4] = [
     (
         Side::Ac2,
         "cell_1.dat",
-        "e855b98216f1af06da4097c9196f221c36e62af565922cf88ffd390fe396a258",
+        "49aa87ab218153b38acd763cf8beea5adef171db2836a1a5623c1f32331bf5fa",
     ),
     (
         Side::Ac2,
         "portal.dat",
-        "f207b3db502efaff78d11893b2cdda33f42ff6da8fe1bbb795f6ea9a3b2d5772",
+        "d2161c83e662f8009a1733ebb9cb5004f4079dc4feeec0211963178eb6999c7c",
+    ),
+    (
+        Side::Ac1,
+        "client_local_English.dat",
+        "667c8119238b6a586c061d1730b2453aedb3de499affb9ef10df30d639e108ba",
+    ),
+    (
+        Side::Ac1,
+        "client_highres.dat",
+        "503e0828d14f2f9ccbc31431e1055ac188464bf4b499de37f4c3d5b2d9f3e727",
+    ),
+    (
+        Side::Ac2,
+        "local_English.dat",
+        "821851e8995a046780b7eab1b9b212fe774a51ade0a4d1fcc23d69a5f607b2b3",
+    ),
+    (
+        Side::Ac2,
+        "highres.dat",
+        "ff74aab435bed14e746fe133f0a1efdd571834aa1deb04c0e3e84c5a446bec42",
     ),
 ];
 

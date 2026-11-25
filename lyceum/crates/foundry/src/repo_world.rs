@@ -5,7 +5,8 @@
 //! from and by the SHA-256 of each of its four files (`[land]` in its `world.toml`); the overlay
 //! itself is the server owner's own, never in the repository. The folder given for it must be
 //! that land, file for file ([`check_land`]): one built otherwise is refused, with the command that
-//! builds it from the repository's pins.
+//! builds it from the repository's pins. The land lies over AC1's files, so the player's own must be
+//! the ones it was built over, file for file too ([`check_inputs`]).
 //!
 //! The world builder's own edits of the land (`records/`, `edits/`) are in those packs beside their
 //! rows, and its ids in `world.lock` at the repository's root, beside `world.toml`. What it builds
@@ -13,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
+use dereth_dat::ModernDat;
 use sha2::{Digest, Sha256};
 
 use crate::repo::Repo;
@@ -43,14 +45,91 @@ fn world_table(repo: &Repo) -> Result<toml::Table, String> {
     toml::from_str(&text).map_err(|e| format!("{}: {e}", repo.path.display()))
 }
 
+/// The AC1 files a converted land is built over, each with the `[land]` key that pins it: the
+/// player's own files must be these, or the land isn't the repository's.
+pub const INPUT_FILES: [(ModernDat, &str); 4] = [
+    (ModernDat::Cell, "ac1_cell_sha256"),
+    (ModernDat::Portal, "ac1_portal_sha256"),
+    (ModernDat::Local, "ac1_local_sha256"),
+    (ModernDat::HighRes, "ac1_highres_sha256"),
+];
+
+/// Where the SHA-256 of files already hashed is kept, by each file's path, length and time of
+/// change, so a land and its inputs (more than a gigabyte) are hashed again only when they change.
+fn hash_cache() -> PathBuf {
+    std::env::temp_dir().join("lyceum-file-hashes.tsv")
+}
+
+/// A file's SHA-256, read through: `None` when it doesn't read.
 fn sha256_of(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    Some(
-        Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+    let meta = std::fs::metadata(path).ok()?;
+    let when = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let whole = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let key = format!("{}\t{}\t{when}\t", whole.display(), meta.len());
+    let cache = hash_cache();
+    let whole_hash = |h: &str| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit());
+    if let Some(found) = std::fs::read_to_string(&cache).ok().and_then(|t| {
+        t.lines().rev().find_map(|l| {
+            l.strip_prefix(key.as_str())
+                .filter(|h| whole_hash(h))
+                .map(str::to_owned)
+        })
+    }) {
+        return Some(found);
+    }
+    let mut h = Sha256::new();
+    std::io::copy(&mut std::fs::File::open(path).ok()?, &mut h).ok()?;
+    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    // One write a line, so lines written at once by several builders don't run into each other.
+    use std::io::Write as _;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cache)
+    {
+        let _ = f.write_all(format!("{key}{hex}\n").as_bytes());
+    }
+    Some(hex)
+}
+
+/// Refused unless the player's own AC1 files in `dats` are those the repository's land is built
+/// over (`[land]`'s `ac1_*_sha256`), naming each that isn't, with its expected and found SHA-256.
+/// A repository that pins none of them (or no land) checks nothing.
+///
+/// # Errors
+/// Any pinned file that isn't the one named.
+pub fn check_inputs(repo: &Repo, dats: &Path) -> Result<(), String> {
+    let world = world_table(repo)?;
+    let Some(land) = world.get("land").and_then(toml::Value::as_table) else {
+        return Ok(());
+    };
+    let mut wrong = Vec::new();
+    for (role, key) in INPUT_FILES {
+        let Some(expected) = land.get(key).and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let found = sha256_of(&role.in_dir(dats));
+        if found.as_deref() != Some(expected) {
+            wrong.push(format!(
+                "  {}: expected {expected}, found {}",
+                role.file_name(),
+                found.as_deref().unwrap_or("no file")
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} aren't the files {}'s land is built over, so its land wouldn't be the one the server sends:\n{}\nUse acclient 00.00.11.6096's own files.",
+        dats.display(),
+        repo.path.display(),
+        wrong.join("\n")
+    ))
 }
 
 /// Refused unless `overlay` is the land the repository pins (`[land]`): each of its four files

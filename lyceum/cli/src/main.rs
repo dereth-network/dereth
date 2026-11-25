@@ -170,7 +170,9 @@ fn lock(args: &Args) -> ExitCode {
             let repo = lyceum_foundry::repo::Repo::open(path)?;
             let out = std::env::temp_dir().join(format!("lyceum-lock-{}", std::process::id()));
             let land = args.path("on");
-            repo_world::world_of(&repo, repo.shown_layers() - 1, land.as_deref(), &out)?
+            let w = repo_world::world_of(&repo, repo.shown_layers() - 1, land.as_deref(), &out)?;
+            repo_world::check_inputs(&repo, &dats)?;
+            w
         } else {
             lyceum_foundry::world::World::read(path).map_err(|e| e.to_string())?
         };

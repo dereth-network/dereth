@@ -231,6 +231,7 @@ pub fn publish(
     repo_world::check_lock(&repo, p.land).map_err(refused)?;
     let build = out.join(".build");
     let world = repo_world::world_of(&repo, at, p.land, &build).map_err(refused)?;
+    repo_world::check_inputs(&repo, dats).map_err(refused)?;
     let key = world.key.clone();
 
     // The served overlay, numbered from the repository's ledger.

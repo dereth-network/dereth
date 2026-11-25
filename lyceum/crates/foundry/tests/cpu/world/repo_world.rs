@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 
+use dereth_dat::ModernDat;
 use lyceum_foundry::compile::Field;
 use lyceum_foundry::edit::{Op, Session, VertexSet};
 use lyceum_foundry::repo::Repo;
-use lyceum_foundry::repo_world::{check_land, world_of};
+use lyceum_foundry::repo_world::{check_inputs, check_land, world_of};
 use sha2::{Digest, Sha256};
 
 use crate::common::Fixture;
@@ -85,6 +86,38 @@ fn a_repositorys_land_is_taken_only_as_its_pins_name_it() {
         "{why}"
     );
     assert!(!why.contains("overlay_cell.dat"), "{why}");
+}
+
+/// A land lies over the AC1 files it was built over, so a player's own files are taken only as
+/// `[land]` pins them, each by SHA-256: one that differs, or isn't there, is refused by name with
+/// what was expected and found, and the others aren't named. Files it doesn't pin aren't asked for.
+#[test]
+fn a_land_is_refused_over_ac1_files_other_than_the_ones_it_was_built_over() {
+    let f = Fixture::new("repo-land-inputs");
+    let (_, mut pins) = land(&f);
+    for (role, key) in lyceum_foundry::repo_world::INPUT_FILES {
+        let bytes = format!("{} of the install", role.file_name());
+        f.write(&format!("install/{}", role.file_name()), &bytes);
+        pins.push_str(&format!("{key} = \"{}\"\n", sha(bytes.as_bytes())));
+    }
+    let pinned = Repo::open(&repo(&f, Some(&pins))).unwrap();
+    let install = f.path().join("install");
+    check_inputs(&pinned, &install).unwrap();
+
+    std::fs::write(ModernDat::HighRes.in_dir(&install), "a later picture file").unwrap();
+    std::fs::remove_file(ModernDat::Local.in_dir(&install)).unwrap();
+    let why = check_inputs(&pinned, &install).unwrap_err();
+    assert!(why.contains("client_highres.dat: expected"), "{why}");
+    assert!(why.contains(&sha(b"a later picture file")), "{why}");
+    assert!(why.contains("client_local_English.dat: expected"), "{why}");
+    assert!(why.contains("found no file"), "{why}");
+    assert!(why.contains("00.00.11.6096"), "{why}");
+    assert!(!why.contains("client_portal.dat"), "{why}");
+
+    // A world pinning its land's files alone asks nothing of the install.
+    let (_, only_land) = land(&f);
+    let bare = Repo::open(&repo(&f, Some(&only_land))).unwrap();
+    check_inputs(&bare, &install).unwrap();
 }
 
 /// A repository is the world builder's world at the layer it edits: every layer's packs up to it

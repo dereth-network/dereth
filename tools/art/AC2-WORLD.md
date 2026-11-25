@@ -11,9 +11,11 @@ installs, and it stays with you and the players of your server.
 
 ## What you need
 
-- **Asheron's Call**, the final retail client's files: `client_cell_1.dat` and `client_portal.dat`
-  from acclient 00.00.11.6096 (June 2015).
-- **Asheron's Call 2**, its end-of-retail files: `cell_1.dat` and `portal.dat`.
+- **Asheron's Call**, the final retail client's files: `client_cell_1.dat`, `client_portal.dat`,
+  `client_local_English.dat` and `client_highres.dat` from acclient 00.00.11.6096 (June 2015).
+- **Asheron's Call 2**, its end-of-retail files: `cell_1.dat`, `portal.dat`, `local_English.dat`
+  and `highres.dat`, as the AC Community Preservation Project archives them and Dereth's launcher
+  fetches them.
 - `dereth-art`, built from this repository (`cargo build --release -p dereth-art`). A build takes
   about ten minutes.
 

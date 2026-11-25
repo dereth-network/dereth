@@ -166,6 +166,52 @@ fn a_published_worlds_overlay_is_numbered_from_its_repositorys_ledger() {
     assert!(publish(&world, &f.dats(), &other, &author).is_err());
 }
 
+/// A repository's land lies over the AC1 files it was built over, so publishing over others is
+/// refused, naming the file: the overlay a server sent would not be the repository's land. Over
+/// the files it pins, it publishes.
+#[test]
+fn a_repository_is_published_only_over_the_ac1_files_its_land_was_built_over() {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new("publish-inputs");
+    let world = repo(&f, PICTURE);
+    let pinned = |portal: &str| {
+        let text = std::fs::read_to_string(&world).unwrap();
+        let text = text
+            .lines()
+            .filter(|l| !l.starts_with("ac1_portal_sha256"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(
+            &world,
+            format!("{text}\nac1_portal_sha256 = \"{portal}\"\n"),
+        )
+        .unwrap();
+    };
+    let tool = Tool::default();
+    let author = Publish {
+        layer: None,
+        land: None,
+        number: true,
+        importer: &tool,
+    };
+    let out = f.path().join("served");
+    pinned(&"0".repeat(64));
+    let why = publish(&world, &f.dats(), &out, &author)
+        .unwrap_err()
+        .to_string();
+    assert!(why.contains("client_portal.dat: expected"), "{why}");
+    assert!(tool.asked.borrow().is_empty(), "nothing built");
+    assert!(!out.exists());
+
+    let bytes = std::fs::read(ModernDat::Portal.in_dir(&f.dats())).unwrap();
+    let hex: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    pinned(&hex);
+    publish(&world, &f.dats(), &out, &author).unwrap();
+}
+
 /// A world with no repository is exported with its overlay numbered by its content, from a ledger
 /// beside its world file that the export keeps: the first export is generation 1; an unchanged
 /// export keeps it, so a client holding it doesn't patch again; a changed record is the next
