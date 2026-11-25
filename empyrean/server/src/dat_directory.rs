@@ -125,7 +125,7 @@ pub fn world_rules(config: &MasterConfiguration, base: &PathBase) -> Result<Worl
 
 /// The file in a world's overlay folder holding the things it places itself
 /// ([`empyrean_content::own_placements`]).
-pub const WORLD_PLACEMENTS_FILE: &str = "placements.tsv";
+pub const WORLD_PLACEMENTS_FILE: &str = empyrean_content::own_placements::FILE;
 
 /// The world's own placements table, from [`WORLD_PLACEMENTS_FILE`] in its overlay folder, with
 /// the file's path; `None` for a world with no overlay, or none of the file.

@@ -239,6 +239,10 @@ fn property(field: &str) -> Option<OwnProperty> {
     })
 }
 
+/// The file in a world's overlay folder holding the things it places itself, as [`parse`] reads
+/// it.
+pub const FILE: &str = "placements.tsv";
+
 /// The instances a placements table names.
 ///
 /// # Errors

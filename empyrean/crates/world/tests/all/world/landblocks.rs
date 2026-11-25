@@ -523,6 +523,56 @@ fn a_world_that_places_its_own_things_spawns_none_of_the_world_databases_on_load
     assert_eq!(h.objects_of(id), [0x7A9B_4001, 0x8000_0000]);
 }
 
+/// A world that places its own things, its own placements read again from its overlay folder for
+/// a landblock built again: the instance stands where the new file puts it, and one the file no
+/// longer has is gone.
+/// Divergence: V565
+#[test]
+fn a_worlds_own_placements_read_again_for_a_landblock_built_again_follow_the_overlay() {
+    use empyrean_world::managers::dat_overlay;
+    let id = LandblockId::new(LB | 0xFFFF);
+    let content = MemContent::new().weenie(weenie(10));
+    empyrean_content::WorldDatabase::hide_placements(&content);
+    assert!(empyrean_content::WorldDatabase::place_own(
+        &content,
+        vec![LandblockInstance::new(
+            0x7A9B_4001,
+            10,
+            LB | 0x0001,
+            [1.0, 2.0, 3.0]
+        )],
+    ));
+    let mut h = H::new(content, FakeDats::new().build().unwrap());
+    lm::get_landblock(&mut h.w, id, false, false);
+    h.tick();
+    let at = |h: &H| {
+        h.w.objects
+            .get(ObjectGuid::new(0x7A9B_4001))
+            .and_then(|o| o.location())
+            .map(|l| (l.pos().x, l.pos().y))
+    };
+    assert_eq!(at(&h), Some((1.0, 2.0)));
+    let scratch = dereth_dat::testing::ScratchDir::new("own-placements-reread").unwrap();
+    let file = scratch.path().join(empyrean_content::own_placements::FILE);
+    let header = "guid\twcid\tcell\tx\ty\tz\tqw\tqx\tqy\tqz\tlinks\n";
+    std::fs::write(
+        &file,
+        format!("{header}0x7A9B4001\t10\t0xA9B40001\t5\t6\t3\t1\t0\t0\t0\t\n"),
+    )
+    .unwrap();
+    dat_overlay::read_own_placements_in(&mut h.w, scratch.path(), &[0xA9B4]).unwrap();
+    assert_eq!(at(&h), Some((1.0, 2.0)), "where it was until built again");
+    assert!(dat_overlay::reload_landblock(&mut h.w, 0xA9B4));
+    h.tick();
+    assert_eq!(at(&h), Some((5.0, 6.0)));
+    // Taken out of the file, it is gone once built again.
+    std::fs::write(&file, header).unwrap();
+    dat_overlay::read_own_placements_in(&mut h.w, scratch.path(), &[0xA9B4]).unwrap();
+    assert!(dat_overlay::reload_landblock(&mut h.w, 0xA9B4));
+    h.tick();
+    assert!(h.objects_of(id).is_empty(), "{:?}", h.objects_of(id));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Adjacency
 

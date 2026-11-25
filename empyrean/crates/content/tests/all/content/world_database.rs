@@ -615,6 +615,42 @@ fn a_worlds_own_placements_are_in_their_landblocks_with_their_links_when_the_pac
     assert!(db.get_cached_instances_by_landblock(0xA9B5).is_empty());
 }
 
+/// A world's own placements read again for one landblock, as its overlay is read again while it
+/// runs: that landblock's are the new ones, another landblock's stay.
+/// Divergence: V565
+#[test]
+fn a_worlds_own_placements_read_again_for_a_landblock_leave_the_others_as_they_were() {
+    let db = fixture::db();
+    db.hide_placements();
+    let read = |text: &str| empyrean_content::own_placements::parse(text).expect("reads");
+    assert!(db.place_own(read(
+        "0x7A9B4F00	24037	0xA9B40100	10	20	30	1	0	0	0
+         0x7A9B5F00	24037	0xA9B50100	10	20	30	1	0	0	0
+"
+    )));
+    // The file now: Holtburg's moved, one more beside it, the next landblock's moved too, but
+    // only Holtburg is read again.
+    assert!(db.replace_own(
+        &[0xA9B4],
+        read(
+            "0x7A9B4F00	24037	0xA9B40100	11	21	30	1	0	0	0
+              0x7A9B4F02	10762	0xA9B40105	1	2	3	1	0	0	0
+              0x7A9B5F00	24037	0xA9B50100	99	99	30	1	0	0	0
+"
+        )
+    ));
+    db.clear_cached_instances_by_landblock(0xA9B4);
+    let here = db.get_cached_instances_by_landblock(0xA9B4);
+    let read_back: Vec<(u32, f32)> = here.iter().map(|i| (i.guid, i.origin_x)).collect();
+    assert_eq!(read_back, [(0x7A9B_4F00, 11.0), (0x7A9B_4F02, 1.0)]);
+    let next = db.get_cached_instances_by_landblock(0xA9B5);
+    assert_eq!(next[0].origin_x, 10.0, "the next landblock's as it was");
+    // Read again with none of Holtburg's: it has none.
+    assert!(db.replace_own(&[0xA9B4], Vec::new()));
+    db.clear_cached_instances_by_landblock(0xA9B4);
+    assert!(db.get_cached_instances_by_landblock(0xA9B4).is_empty());
+}
+
 /// Divergence: V565
 #[test]
 fn a_worlds_own_weenie_is_its_base_with_its_own_properties_and_leaves_the_base_as_it_was() {

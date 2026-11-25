@@ -92,6 +92,14 @@ macro_rules! world_database_api {
                 false
             }
 
+            /// Not ACE (V565): the world's own instances of each of `landblocks` are those of
+            /// `instances` in it, read again as the world's overlay is
+            /// ([`crate::world_database::WorldDatabaseBase::replace_own`]); `false` when the
+            /// content cannot take them.
+            fn replace_own(&self, _landblocks: &[u16], _instances: Vec<LandblockInstance>) -> bool {
+                false
+            }
+
             /// Not ACE (V565): `weenies`, the world's own, are weenies of the world
             /// ([`crate::world_database::WorldDatabaseBase::define_own_weenies`]); how many.
             /// Called at start-up, before anything is read.
@@ -155,6 +163,11 @@ macro_rules! world_database_api {
                 self.base().place_own(instances).is_ok()
             }
 
+            fn replace_own(&self, landblocks: &[u16], instances: Vec<LandblockInstance>) -> bool {
+                self.base().replace_own(landblocks, instances);
+                true
+            }
+
             fn define_own_weenies(&self, weenies: &[crate::own_placements::OwnWeenie]) -> Result<usize, String> {
                 self.base().define_own_weenies(weenies)
             }
@@ -210,6 +223,11 @@ macro_rules! world_database_api {
 
             fn place_own(&self, instances: Vec<LandblockInstance>) -> bool {
                 self.db().base().place_own(instances).is_ok()
+            }
+
+            fn replace_own(&self, landblocks: &[u16], instances: Vec<LandblockInstance>) -> bool {
+                self.db().base().replace_own(landblocks, instances);
+                true
             }
 
             fn define_own_weenies(&self, weenies: &[crate::own_placements::OwnWeenie]) -> Result<usize, String> {

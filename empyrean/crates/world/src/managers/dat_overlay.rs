@@ -57,6 +57,47 @@ pub fn reopen(w: &mut crate::World, overlay: Option<&Path>) -> Result<(), String
     Ok(())
 }
 
+/// Not ACE (V565): the world's own placements of `landblocks` read again from the overlay over
+/// the world's files now (its [`empyrean_content::own_placements::FILE`]), so a landblock built
+/// again places what the overlay places now; none, where it has no file. A world with no overlay
+/// keeps them as they are.
+///
+/// # Errors
+/// The file is there and cannot be read, or does not read as placements; the world keeps them as
+/// they are.
+pub fn reread_own_placements(w: &mut crate::World, landblocks: &[u16]) -> Result<(), String> {
+    let Some(dir) = w
+        .dats
+        .cell_dat()
+        .overlay()
+        .and_then(|l| l.path().parent().map(Path::to_path_buf))
+    else {
+        return Ok(());
+    };
+    read_own_placements_in(w, &dir, landblocks)
+}
+
+/// Not ACE (V565): the world's own placements of `landblocks` read again from overlay folder
+/// `dir`'s [`empyrean_content::own_placements::FILE`]; none, where it has no file.
+///
+/// # Errors
+/// As [`reread_own_placements`].
+pub fn read_own_placements_in(
+    w: &mut crate::World,
+    dir: &Path,
+    landblocks: &[u16],
+) -> Result<(), String> {
+    let file = dir.join(empyrean_content::own_placements::FILE);
+    let rows = match std::fs::read_to_string(&file) {
+        Ok(text) => empyrean_content::own_placements::parse(&text)
+            .map_err(|e| format!("{}: {e}", file.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(format!("{}: {e}", file.display())),
+    };
+    w.content.replace_own(landblocks, rows);
+    Ok(())
+}
+
 /// Not ACE (V452): landblock `landblock` built again from the files and the world database as
 /// they are now, as `reload-landblock` builds the player's own: its objects destroyed (players
 /// stay), its instances read again, its physics built again, and its objects made again. Answers

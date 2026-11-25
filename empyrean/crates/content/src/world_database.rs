@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use empyrean_common::dotnet::DotNetDict;
 use empyrean_entity::enums::WeenieType;
@@ -80,8 +80,9 @@ pub struct WorldDatabaseBase {
     overlay: OnceLock<Arc<ContentOverlay>>,
     /// Not ACE (V565): the pack's [`PLACEMENT_TABLES`] are not read ([`Self::hide_placements`]).
     placements_hidden: AtomicBool,
-    /// Not ACE (V565): the world's own landblock instances, by landblock ([`Self::place_own`]).
-    own: OnceLock<HashMap<u16, Vec<LandblockInstance>>>,
+    /// Not ACE (V565): the world's own landblock instances, by landblock ([`Self::place_own`]),
+    /// once placed; some landblocks' read again as the world's overlay is ([`Self::replace_own`]).
+    own: RwLock<Option<HashMap<u16, Vec<LandblockInstance>>>>,
     /// Not ACE (V565): the world's own weenies, by class id ([`Self::define_own_weenies`]).
     own_weenies: OnceLock<HashMap<u32, Weenie>>,
 }
@@ -103,7 +104,7 @@ impl WorldDatabaseBase {
             pack,
             overlay: OnceLock::new(),
             placements_hidden: AtomicBool::new(false),
-            own: OnceLock::new(),
+            own: RwLock::new(None),
             own_weenies: OnceLock::new(),
         }
     }
@@ -121,7 +122,30 @@ impl WorldDatabaseBase {
                 .or_default()
                 .push(i.clone());
         }
-        self.own.set(by).map_err(|_| instances)
+        let mut own = self.own.write().unwrap_or_else(PoisonError::into_inner);
+        if own.is_some() {
+            return Err(instances);
+        }
+        *own = Some(by);
+        Ok(())
+    }
+
+    /// Not ACE (V565): the world's own instances of each of `landblocks` are those of `instances`
+    /// in it now, and none where it has none: the world's own placements read again for those
+    /// landblocks, as the world's overlay is read again while it runs. Another landblock's stay
+    /// as they were; a landblock built again from now on reads the new ones.
+    pub fn replace_own(&self, landblocks: &[u16], instances: Vec<LandblockInstance>) {
+        let mut own = self.own.write().unwrap_or_else(PoisonError::into_inner);
+        let by = own.get_or_insert_with(HashMap::new);
+        for lb in landblocks {
+            by.remove(lb);
+        }
+        for i in instances {
+            let lb = u16::try_from(i.obj_cell_id >> 16).unwrap_or(u16::MAX);
+            if landblocks.contains(&lb) {
+                by.entry(lb).or_default().push(i);
+            }
+        }
     }
 
     /// Not ACE (V565): `weenies`, the world's own, are weenies of the world beside the pack's and
@@ -242,7 +266,8 @@ impl WorldDatabaseBase {
         let mut v = self
             .get::<Vec<LandblockInstance>>(TableId::LANDBLOCK_INSTANCE, u64::from(landblock))
             .unwrap_or_default();
-        if let Some(own) = self.own.get().and_then(|o| o.get(&landblock)) {
+        let own = self.own.read().unwrap_or_else(PoisonError::into_inner);
+        if let Some(own) = own.as_ref().and_then(|o| o.get(&landblock)) {
             v.extend(own.iter().cloned());
             v.sort_by_key(|i| i.guid);
         }
@@ -256,7 +281,12 @@ impl WorldDatabaseBase {
             .into_iter()
             .flatten()
             .collect();
-        if let Some(own) = self.own.get() {
+        if let Some(own) = self
+            .own
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
             all.extend(own.values().flatten().cloned());
         }
         all.sort_by_key(|i| i.guid);

@@ -5,7 +5,9 @@
 //! [<folder>] [<landblock> ...]` opens the world's files again with the overlay in `<folder>`
 //! over them (the one over them now, read afresh, when none is named), then builds each landblock
 //! named again from the new files and the world database, as `reload-landblock` builds the
-//! player's own: its objects (players stay), its terrain, cells, buildings and statics. It needs no
+//! player's own: its objects (players stay), its terrain, cells, buildings and statics. A world
+//! that places its own things reads its own placements of those landblocks again from the
+//! overlay's `placements.tsv` (V565), so they follow the overlay too. It needs no
 //! player, so a tool driving the server's console can run it after each change it writes. A folder
 //! whose path has a space is given in quotes.
 
@@ -92,6 +94,8 @@ fn reload(w: &mut World, parameters: &[String]) -> Result<(usize, usize), String
         }
     }
     dat_overlay::reopen(w, folder.as_deref())?;
+    let named: Vec<u16> = blocks.iter().copied().collect();
+    dat_overlay::reread_own_placements(w, &named)?;
     let built = blocks
         .iter()
         .filter(|lb| dat_overlay::reload_landblock(w, **lb))
