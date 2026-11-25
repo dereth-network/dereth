@@ -253,3 +253,62 @@ fn an_export_over_a_world_that_places_its_own_things_carries_the_packs_spawns_as
         "{own}"
     );
 }
+
+/// The world files Lyceum's own Play writes beside its overlay, from the session editing a world
+/// built on an imported world that places its own things: the packs' spawns among the things it
+/// places, as an export has them, and a spawn moved in the session where it stands now.
+#[test]
+fn play_over_a_world_that_places_its_own_things_hosts_the_packs_spawns_as_its_own() {
+    use dereth_primitives::Vec3;
+    use lyceum_foundry::edit::{Op, Session};
+    let f = Fixture::new("pack-import-play-spawns");
+    let (base, world) = base_and_world(&f);
+    import::import(
+        &base,
+        &world,
+        &f.path().join("imported"),
+        "x",
+        Iterations::Revision,
+        false,
+    )
+    .unwrap();
+    f.world();
+    f.write(
+        "imported/world.toml",
+        "dungeons_by_cells = true\nown_placements = true\n",
+    );
+    let world_file = f.write(
+        "world.toml",
+        "key = \"test-world\"\npacks = [\"sample\"]\nimports = [\"imported\"]\nout = \"build\"\n",
+    );
+    f.write(
+        "sample/server/sql/landblocks/0202 guide.sql",
+        "INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, \
+         `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, \
+         `last_Modified`) VALUES (0x70202001, 1, 0x02020001, 10.0, 12.0, 0.0, 1.0, 0.0, 0.0, 0.0, \
+         False, '2026-11-25 00:00:00');\n",
+    );
+    let mut s = Session::open(&world_file, &base, None).unwrap();
+    let played = |s: &Session, tag: &str| {
+        let dir = f.path().join(tag);
+        compile::write_world_files(s.world(), &s.compiled().sql, &dir).unwrap();
+        std::fs::read_to_string(dir.join("placements.tsv")).unwrap()
+    };
+    let own = played(&s, "play-0");
+    assert!(own.contains("0x70202001\t1\t0x02020001\t10\t12\t"), "{own}");
+    // Moved in the session: where it stands now, in the next overlay.
+    let guide = s
+        .spawns()
+        .into_iter()
+        .find(|x| x.guid == "0x70202001")
+        .unwrap();
+    s.apply(&Op::MoveSpawn {
+        file: guide.file,
+        guid: guide.guid,
+        origin: Vec3::new(20.0, 22.0, 0.0),
+        heading: 0.0,
+    })
+    .unwrap();
+    let own = played(&s, "play-1");
+    assert!(own.contains("0x70202001\t1\t0x02020001\t20\t22\t"), "{own}");
+}

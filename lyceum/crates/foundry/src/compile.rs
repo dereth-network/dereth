@@ -658,6 +658,22 @@ pub fn write_own_spawns(
     Ok(true)
 }
 
+/// The world's own files beside overlay folder `dir`, as a build writes them: those an import of
+/// `world` holds ([`carry_world_files`]), with the packs' spawns (`sql`, the filled SQL) among the
+/// things it places itself when its world places its own ([`write_own_spawns`]).
+///
+/// # Errors
+/// A file that will not copy, read or write.
+pub fn write_world_files(
+    world: &World,
+    sql: &BTreeMap<PathBuf, String>,
+    dir: &Path,
+) -> Result<(), Error> {
+    carry_world_files(world, dir)?;
+    write_own_spawns(world, sql, dir)?;
+    Ok(())
+}
+
 /// The files beside an overlay that a server reads as the world's own: its rules, the places it
 /// names and the things it places itself.
 pub const WORLD_FILES: [&str; 3] = ["world.toml", "places.tsv", "placements.tsv"];
@@ -3088,8 +3104,7 @@ fn build_inner(
             write_overlay(&c, &base, &world.key, &staging.join("overlay"))?;
             None
         };
-        carry_world_files(&world, &staging.join("overlay"))?;
-        write_own_spawns(&world, &c.sql, &staging.join("overlay"))?;
+        write_world_files(&world, &c.sql, &staging.join("overlay"))?;
         write_sql(&c, &staging.join("sql"))?;
         // The checks, over the overlay as it was written; its files are closed again before it
         // is moved into place.
