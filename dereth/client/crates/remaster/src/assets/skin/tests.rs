@@ -879,3 +879,44 @@ fn a_stopping_stride_keeps_the_walk_at_its_pace_until_it_stops_carrying_the_obje
     }
     assert_eq!(played[16].0, Some(Slot::Idle), "{played:?}");
 }
+
+/// A body bent by its parts follows each part where the frame places it: the vertex on part 2
+/// goes where part 2 now stands, the one shared by both goes halfway, and the place a body
+/// playing its own clips would stand at is not read.
+#[test]
+fn a_body_bent_by_its_parts_follows_each_part_where_the_frame_places_it() {
+    let b = two_parts().with_rig(Rig {
+        by_parts: true,
+        ..Rig::default()
+    });
+    // Part 1 (the anchor) where the bind holds it; part 2 lifted two meters and turned a
+    // quarter about the third axis.
+    let turned = Mat4::from_rotation_translation(
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Vec3::new(0.0, 0.0, 3.0),
+    );
+    let parts = [Mat4::IDENTITY, Mat4::IDENTITY, turned];
+    let mut state = PoseState::default();
+    let live = Live {
+        clock: 0.0,
+        state: &mut state,
+        motion: Some(Motion {
+            frame: Mat4::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            ..motion(Some(Slot::Walk))
+        }),
+    };
+    let joints = b.joints_live(&parts, Some(live)).expect("joints");
+    let posed = b.posed(&joints);
+    let at = |k: usize| Vec3::from(posed[k].0);
+    assert!(at(0).abs_diff_eq(Vec3::ZERO, 1e-5), "{:?}", at(0));
+    assert!(
+        at(1).abs_diff_eq(Vec3::new(0.0, 0.0, 3.0), 1e-5),
+        "{:?}",
+        at(1)
+    );
+    assert!(
+        at(2).abs_diff_eq(Vec3::new(0.0, 0.0, 1.5), 1e-5),
+        "{:?}",
+        at(2)
+    );
+}

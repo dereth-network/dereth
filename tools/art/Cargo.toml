@@ -57,6 +57,8 @@ dereth-ac2-convert = { workspace = true, features = ["fs"] }
 dereth-physics.workspace = true
 # The scenery the converted land grows, placed as the client places it.
 dereth-landscape.workspace = true
+# The motion commands by name, for an AC2 creature's motion table.
+dereth-animation.workspace = true
 # The overlay's content digest, and each input's.
 sha2.workspace = true
 

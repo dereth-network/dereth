@@ -1379,17 +1379,21 @@ impl Renderer {
         // its bodies in place of the parts of the objects it has them for, as the objects come.
         let deltas = self.packs.swap(deltas, &mut |id| src.pack_model(id));
         // A body still dying when its object leaves is drawn on to the end of its death.
-        let deltas = self
-            .skins
-            .haunt(deltas, &frame, self.packs.settings.characters);
-        let deltas = if self.packs.settings.characters {
-            self.skins.swap(deltas, &mut |setup, palettes, who| {
-                src.pack_skin(setup, palettes, who)
-            })
-        } else {
+        let characters = self.packs.settings.characters;
+        let deltas = self.skins.haunt(deltas, &frame, characters);
+        if !characters {
             self.skins.forget(&deltas);
-            deltas
-        };
+        }
+        // The pack's body for an object first, then the one the files give its setup; a pack's
+        // model for the setup or its parts has already taken the parts, so neither body fits.
+        let deltas = self.skins.swap(deltas, &mut |setup, palettes, who| {
+            skins::first_body(
+                &mut *src,
+                characters,
+                |s| s.pack_skin(setup, palettes, who),
+                |s| s.skinned_body(setup),
+            )
+        });
         let mut with_skins = skins::WithSkins {
             src,
             meshes: self.skins.meshes(),

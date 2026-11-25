@@ -374,6 +374,9 @@ pub struct Presence {
     pub pending_placement: Option<u32>,
     /// from `PhysicsDesc.object_scale`.
     pub scale: f32,
+    /// From `PhysicsDesc.translucency`: how see-through the object is drawn, 0 (solid, and
+    /// the value when the description names none) to 1 (not drawn).
+    pub translucency: f32,
     /// **The object's one position.**
     ///
     /// `None` for a contained or wielded object, which has no position of its own —
@@ -563,6 +566,7 @@ impl Default for Presence {
             placement: crate::models::PLACEMENT_RESTING,
             pending_placement: None,
             scale: 0.0,
+            translucency: 0.0,
             position: None,
             server_position: None,
             parent: None,
@@ -2001,6 +2005,7 @@ impl ObjectStream {
         // [`dereth_client_model::objects::PhysicsPresence::state`] on both the create and the merge path,
         // and that is the only copy. See [`Presence`] and [`ObjectStream::physics_state`].
         e.scale = d.object_scale.unwrap_or(1.0);
+        e.translucency = d.translucency.unwrap_or(0.0);
         if let Some(s) = d.setup_id {
             e.setup_id = Some(DataId(s));
         }

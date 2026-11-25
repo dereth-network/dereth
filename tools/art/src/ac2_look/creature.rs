@@ -73,7 +73,7 @@ fn trs(t: DVec3, q: DQuat, s: DVec3) -> DMat4 {
 
 /// The turn nearest a matrix's: its scale and shear taken out. A matrix scaled to nothing (a bone
 /// AC2 hides) turns nothing.
-fn rot(m: &DMat4) -> DMat3 {
+pub(crate) fn rot(m: &DMat4) -> DMat3 {
     let r = DMat3::from_mat4(*m);
     let largest = r.to_cols_array().iter().fold(0f64, |a, v| a.max(v.abs()));
     if largest == 0.0 {
@@ -151,14 +151,14 @@ type Moment = Vec<[Option<DVec4>; 3]>;
 
 /// A clip on the AC2 skeleton: per body bone, its translation, turn and scale channels.
 #[derive(Debug, Clone, Default)]
-struct NativeClip {
+pub(crate) struct NativeClip {
     bones: Vec<[Option<Channel>; 3]>,
 }
 
 impl NativeClip {
     /// `a`'s keys, each channel closed at the clip's period: on its first keys for a loop, on its
     /// last for a clip played once (`held`). A scale that never leaves 1 is no channel.
-    fn of(a: &KeyframeAnimation, held: bool) -> Self {
+    pub(crate) fn of(a: &KeyframeAnimation, held: bool) -> Self {
         let period = f64::from(a.period);
         let close = |times: &mut Vec<f64>, values: &mut Vec<DVec4>, turn: bool| {
             if turn {
@@ -245,7 +245,7 @@ impl NativeClip {
     }
 
     /// The clip's length: its latest key.
-    fn period(&self) -> f64 {
+    pub(crate) fn period(&self) -> f64 {
         self.bones
             .iter()
             .flatten()
@@ -255,7 +255,7 @@ impl NativeClip {
     }
 
     /// Each body bone's channels at `t`.
-    fn at(&self, t: f64) -> Vec<[Option<DVec4>; 3]> {
+    pub(crate) fn at(&self, t: f64) -> Vec<[Option<DVec4>; 3]> {
         self.bones
             .iter()
             .map(|b| [0, 1, 2].map(|k| b[k].as_ref().map(|c| c.at(t))))
@@ -327,7 +327,7 @@ impl NativeClip {
     }
 
     /// Each body bone's first keys.
-    fn first(&self) -> Vec<[Option<DVec4>; 3]> {
+    pub(crate) fn first(&self) -> Vec<[Option<DVec4>; 3]> {
         self.bones
             .iter()
             .map(|b| [0, 1, 2].map(|k| b[k].as_ref().map(|c| c.values[0])))
@@ -337,40 +337,73 @@ impl NativeClip {
 
 /// One vertex of an AC2 mesh in glTF's axes, with up to four joints and their weights.
 #[derive(Debug, Clone, Copy)]
-struct NativeVertex {
-    position: DVec3,
-    normal: DVec3,
-    uv: [f32; 2],
-    joints: [usize; 4],
-    weights: [f64; 4],
+pub(crate) struct NativeVertex {
+    pub(crate) position: DVec3,
+    pub(crate) normal: DVec3,
+    pub(crate) uv: [f32; 2],
+    pub(crate) joints: [usize; 4],
+    pub(crate) weights: [f64; 4],
 }
 
 /// One mesh's triangles of one material.
 #[derive(Debug, Clone)]
-struct NativePrimitive {
-    mesh: usize,
-    indices: Vec<u32>,
-    material: usize,
+pub(crate) struct NativePrimitive {
+    pub(crate) mesh: usize,
+    pub(crate) indices: Vec<u32>,
+    pub(crate) material: usize,
 }
 
 /// An AC2 entity's skeleton and skinned meshes, at rest, in glTF's axes.
 #[derive(Debug, Clone, Default)]
-struct Native {
+pub(crate) struct Native {
     names: Vec<String>,
-    parent: Vec<Option<usize>>,
-    rest: Vec<(DVec3, DQuat, DVec3)>,
-    inverse_binds: Vec<DMat4>,
+    pub(crate) parent: Vec<Option<usize>>,
+    pub(crate) rest: Vec<(DVec3, DQuat, DVec3)>,
+    pub(crate) inverse_binds: Vec<DMat4>,
     /// The body group's bones, by joint: the bones a clip's tracks move.
-    body: Vec<usize>,
-    meshes: Vec<Vec<NativeVertex>>,
-    primitives: Vec<NativePrimitive>,
+    pub(crate) body: Vec<usize>,
+    pub(crate) meshes: Vec<Vec<NativeVertex>>,
+    pub(crate) primitives: Vec<NativePrimitive>,
     /// Each material's picture list, by material instance in the order first drawn.
-    materials: Vec<(u32, Option<u32>)>,
+    pub(crate) materials: Vec<(u32, Option<u32>)>,
+    /// The body's coarser levels of detail, coarsest last: each its triangles, over the vertices
+    /// the fullest level draws.
+    pub(crate) lower: Vec<Vec<NativePrimitive>>,
+    /// How far from the eye each of [`Self::lower`] is drawn from, meters at the body's own size.
+    pub(crate) lower_from: Vec<f32>,
+}
+
+/// The model detail AC2 draws its bodies at by default, as a bit of a level's detail word: high.
+pub(crate) const HIGH_DETAIL: u32 = 4;
+
+/// The distance at which an AC2 body's detail falls to `t` (1 full, 0 least): full at `near`,
+/// half at `ideal`, none at `far`, in straight lines between.
+fn detail_distance(t: f32, near: f32, ideal: f32, far: f32) -> f32 {
+    if t >= 0.5 {
+        near + (2.0 - 2.0 * t) * (ideal - near)
+    } else {
+        ideal + (1.0 - 2.0 * t) * (far - ideal)
+    }
+}
+
+/// How far from the eye each of `count` levels past the fullest is drawn from, for a body whose
+/// high detail distances are `near`, `ideal` and `far`: level `j` of `count + 1` once the
+/// body's detail has fallen to `1 - j / count`.
+fn lower_distances(count: usize, near: f32, ideal: f32, far: f32) -> Vec<f32> {
+    #[allow(clippy::cast_precision_loss)] // a handful of levels
+    let n = count as f32;
+    (1..=count)
+        .map(|j| {
+            #[allow(clippy::cast_precision_loss)]
+            let t = 1.0 - j as f32 / n;
+            detail_distance(t, near, ideal, far)
+        })
+        .collect()
 }
 
 /// The joints' worlds with `over` (per body bone: translation, turn, scale) in place of their
 /// rest.
-fn worlds(n: &Native, over: Option<&[[Option<DVec4>; 3]]>) -> Vec<DMat4> {
+pub(crate) fn worlds(n: &Native, over: Option<&[[Option<DVec4>; 3]]>) -> Vec<DMat4> {
     let mut local: Vec<(DVec3, DQuat, DVec3)> = n.rest.clone();
     if let Some(over) = over {
         for (bi, &j) in n.body.iter().enumerate() {
@@ -498,7 +531,7 @@ fn mesh_vertices(m: &Mesh, joint_of: &dyn Fn(usize) -> usize) -> Option<Vec<Nati
 /// The entity's skeleton and meshes: its body group, and the head, beard, crest and tail groups
 /// each hung from its parent group's connection point, each group's bones in its rest pose; each
 /// mesh's most detailed level.
-fn native(ac2: &Ac2, entity: u32) -> Result<Native, String> {
+pub(crate) fn native(ac2: &Ac2, entity: u32) -> Result<Native, String> {
     let e: Entity = ac2
         .record(entity)
         .ok_or_else(|| format!("entity {entity:08X} will not read"))?;
@@ -623,6 +656,8 @@ fn native(ac2: &Ac2, entity: u32) -> Result<Native, String> {
         setups.insert(k, s);
     }
     let mut material_index: BTreeMap<u32, usize> = BTreeMap::new();
+    // Each mesh's fullest level and its own coarser ones.
+    let mut meshes_levels: Vec<(Vec<NativePrimitive>, Vec<Vec<NativePrimitive>>)> = Vec::new();
     for &k in &placed {
         let (Some(s), Some(nodes)) = (setups.get(&k), nodes_of.get(&k)) else {
             continue;
@@ -647,8 +682,29 @@ fn native(ac2: &Ac2, entity: u32) -> Result<Native, String> {
             let Some(vertices) = mesh_vertices(&m, &joint_of) else {
                 continue;
             };
+            // The coarser levels AC2 draws at high model detail, after the fullest, each drawn
+            // over the fullest's vertices: a coarser level's vertex is a copy of one of them.
+            let fullest: BTreeMap<[u64; 8], u32> = m.levels[best]
+                .fragments
+                .iter()
+                .flat_map(|f| f.indices.iter())
+                .filter_map(|&i| {
+                    let v = vertices.get(usize::from(i))?;
+                    Some((vertex_key(v), u32::from(i)))
+                })
+                .collect();
+            let marked: Vec<usize> = (0..m.levels.len())
+                .filter(|&k| k > best && m.levels[k].detail & HIGH_DETAIL != 0)
+                .collect();
             n.meshes.push(vertices);
             let mesh_at = n.meshes.len() - 1;
+            let mut material_of = |n: &mut Native, mi: u32| -> usize {
+                *material_index.entry(mi).or_insert_with(|| {
+                    n.materials.push((mi, ac2.diffuse(mi)));
+                    n.materials.len() - 1
+                })
+            };
+            let mut full = Vec::new();
             for f in &m.levels[best].fragments {
                 if f.indices.is_empty() {
                     continue;
@@ -656,26 +712,93 @@ fn native(ac2: &Ac2, entity: u32) -> Result<Native, String> {
                 let Some(&mi) = m.materials.get(f.material as usize) else {
                     continue;
                 };
-                let material = *material_index.entry(mi.0).or_insert_with(|| {
-                    n.materials.push((mi.0, ac2.diffuse(mi.0)));
-                    n.materials.len() - 1
-                });
-                n.primitives.push(NativePrimitive {
+                let material = material_of(&mut n, mi.0);
+                full.push(NativePrimitive {
                     mesh: mesh_at,
                     indices: f.indices.iter().map(|i| u32::from(*i)).collect(),
                     material,
                 });
             }
+            n.primitives.extend(full.iter().cloned());
+            let mut own: Vec<Vec<NativePrimitive>> = Vec::with_capacity(marked.len());
+            for &k in &marked {
+                let mut level = Vec::new();
+                for f in &m.levels[k].fragments {
+                    let Some(&mi) = m.materials.get(f.material as usize) else {
+                        continue;
+                    };
+                    let indices: Option<Vec<u32>> = f
+                        .indices
+                        .iter()
+                        .map(|&i| {
+                            let v = n.meshes[mesh_at].get(usize::from(i))?;
+                            fullest.get(&vertex_key(v)).copied()
+                        })
+                        .collect();
+                    let Some(indices) = indices.filter(|i| !i.is_empty()) else {
+                        continue;
+                    };
+                    let material = material_of(&mut n, mi.0);
+                    level.push(NativePrimitive {
+                        mesh: mesh_at,
+                        indices,
+                        material,
+                    });
+                }
+                own.push(level);
+            }
+            meshes_levels.push((full, own));
         }
     }
     if n.body.is_empty() {
         return Err(format!("entity {entity:08X} has no body"));
     }
+    // Every mesh draws at every level, so the body's parts switch together: a mesh with fewer
+    // coarse levels than another draws its coarsest at the levels past them, and one with none
+    // its fullest.
+    let count = meshes_levels
+        .iter()
+        .map(|(_, own)| own.len())
+        .max()
+        .unwrap_or(0);
+    n.lower = (0..count)
+        .map(|j| {
+            meshes_levels
+                .iter()
+                .flat_map(|(full, own)| own.get(j).or(own.last()).unwrap_or(full).iter().cloned())
+                .collect()
+        })
+        .collect();
+    if !n.lower.is_empty() {
+        let body_setup = group(body_key).and_then(|g| g.setup).map(|s| s.0);
+        let (near, ideal, far) =
+            body_setup
+                .and_then(|s| ac2.record::<Ac2Setup>(s))
+                .map_or((10.0, 15.0, 25.0), |s| {
+                    let d = s.detail[2];
+                    (d.near_degrade, d.ideal_degrade, d.far_degrade)
+                });
+        n.lower_from = lower_distances(n.lower.len(), near, ideal, far);
+    }
     Ok(n)
 }
 
+/// A vertex's place, normal and picture coordinates, to find its copies by.
+fn vertex_key(v: &NativeVertex) -> [u64; 8] {
+    [
+        v.position.x.to_bits(),
+        v.position.y.to_bits(),
+        v.position.z.to_bits(),
+        v.normal.x.to_bits(),
+        v.normal.y.to_bits(),
+        v.normal.z.to_bits(),
+        u64::from(v.uv[0].to_bits()),
+        u64::from(v.uv[1].to_bits()),
+    ]
+}
+
 /// The keyframe animation `id`.
-fn keyframes(ac2: &Ac2, id: u32) -> Result<KeyframeAnimation, String> {
+pub(crate) fn keyframes(ac2: &Ac2, id: u32) -> Result<KeyframeAnimation, String> {
     let a: Animation = ac2
         .record(id)
         .ok_or_else(|| format!("animation {id:08X} will not read"))?;
@@ -723,7 +846,7 @@ struct Carried {
 }
 
 /// The native joints, each after its parent.
-fn parents_first(n: &Native) -> Vec<usize> {
+pub(crate) fn parents_first(n: &Native) -> Vec<usize> {
     let mut order = Vec::new();
     let mut seen = vec![false; n.rest.len()];
     fn visit(k: usize, n: &Native, seen: &mut Vec<bool>, order: &mut Vec<usize>) {

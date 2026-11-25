@@ -186,6 +186,10 @@ The five material and mesh types (`RenderTexture`, `RenderMaterial`, `MaterialMo
 renderer consumes them. They are a next-generation renderer's asset types that never shipped, and a
 rebuild can omit them entirely.
 
+Dereth keeps its own skinned-body record in the empty `RenderMesh` range, a world's overlay
+adding it for a setup at `0x19000000` over the setup's low sixteen bits. It is not a retail
+format; `dereth_assets::skinned` lays it out.
+
 ## 8. Where reimplementations differ
 
 | topic | the client | common reimplementations |

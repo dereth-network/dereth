@@ -1,0 +1,94 @@
+# The Thornling: Asheron's Call 2's thornling body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "thornling"
+label = "Thornling"
+entity = 0x470001C7
+# The idle's first keys.
+bind = 0x050002E4
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x050002E4
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x050002E5
+
+[[motion]]
+command = "WalkForward"
+animation = 0x050002E2
+# AC2 plays it at 1.5 m/s.
+stride = 2.25
+
+[[motion]]
+command = "RunForward"
+animation = 0x050002F3
+# AC2 plays it at 4 m/s.
+stride = 2.84
+
+[[motion]]
+command = "TurnRight"
+animation = 0x050002F5
+
+[[motion]]
+command = "Falling"
+animation = 0x050002E3
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x050002E7
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x050002E6
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x050002E7
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x0500049E
+
+[[motion]]
+command = "Twitch2"
+animation = 0x0500049E
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x0500049E
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x0500049E
+
+[[motion]]
+command = "Dead"
+animation = 0x050002EF
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "thornling-2"
+entity = 0x47002C06
+
+[[look]]
+name = "thornling-3"
+entity = 0x47002C10
+
+[[look]]
+name = "thornling-4"
+entity = 0x47002C18
+
+[[look]]
+name = "thornling-5"
+entity = 0x47003204

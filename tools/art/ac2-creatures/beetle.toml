@@ -1,0 +1,102 @@
+# The Beetle: Asheron's Call 2's beetle body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "beetle"
+label = "Beetle"
+entity = 0x470001C1
+# The idle's first keys.
+bind = 0x0500013D
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x0500013D
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x0500014B
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000146
+# AC2 plays it at 1.25 m/s.
+stride = 0.71
+
+[[motion]]
+command = "RunForward"
+animation = 0x05000147
+# AC2 plays it at 5 m/s.
+stride = 2.00
+
+[[motion]]
+command = "TurnRight"
+animation = 0x0500014A
+
+[[motion]]
+command = "Falling"
+animation = 0x0500014D
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05000140
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x0500013A
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000245
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x05000444
+
+[[motion]]
+command = "Twitch2"
+animation = 0x05000444
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x05000444
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x05000444
+
+[[motion]]
+command = "Dead"
+animation = 0x0500044C
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "beetle-2"
+entity = 0x47002220
+
+[[look]]
+name = "beetle-3"
+entity = 0x47002223
+
+[[look]]
+name = "beetle-4"
+entity = 0x4700222D
+
+[[look]]
+name = "beetle-5"
+entity = 0x47002233
+
+[[look]]
+name = "beetle-6"
+entity = 0x47002243
+
+[[look]]
+name = "beetle-7"
+entity = 0x4700340C

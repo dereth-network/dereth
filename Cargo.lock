@@ -1553,6 +1553,7 @@ dependencies = [
  "auberean-text",
  "auberean-world",
  "dereth-ac2-convert",
+ "dereth-animation",
  "dereth-assets",
  "dereth-builder",
  "dereth-client-runtime",

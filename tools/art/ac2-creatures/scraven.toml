@@ -1,0 +1,103 @@
+# The Scraven: Asheron's Call 2's scraven body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "scraven"
+label = "Scraven"
+entity = 0x4700026C
+# The idle's first keys.
+bind = 0x0500016D
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x0500016D
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x0500016E
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000162
+# AC2 plays it at 1.5 m/s.
+stride = 1.24
+
+[[motion]]
+command = "RunForward"
+animation = 0x0500016A
+# AC2 plays it at 3.228 m/s.
+stride = 2.68
+
+[[motion]]
+command = "TurnRight"
+animation = 0x0500016C
+
+[[motion]]
+command = "Falling"
+animation = 0x05000170
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x0500026A
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05000166
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000165
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x05000494
+
+[[motion]]
+command = "Twitch2"
+animation = 0x05000494
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x05000494
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x05000494
+
+[[motion]]
+command = "Dead"
+animation = 0x0500049B
+rate = 1.14
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "scraven-2"
+entity = 0x47002A5F
+
+[[look]]
+name = "scraven-3"
+entity = 0x47002A6F
+
+[[look]]
+name = "scraven-4"
+entity = 0x47002A74
+
+[[look]]
+name = "scraven-5"
+entity = 0x47002A78
+
+[[look]]
+name = "scraven-6"
+entity = 0x47002A7C
+
+[[look]]
+name = "scraven-7"
+entity = 0x47002A81

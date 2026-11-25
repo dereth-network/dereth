@@ -185,6 +185,26 @@ impl SceneDraw {
                 continue;
             };
             let d = self.object_draw(*id);
+            // A skinned body is drawn as one mesh with its first part's frame, in place of
+            // every part.
+            if let (Some(skin), Some(part)) = (d.skin.as_ref(), driver.part_array.parts.first()) {
+                if !part.no_draw() && !skin.meshes().is_empty() {
+                    subs.push(PartSubmission {
+                        object: Some(*id),
+                        placed: None,
+                        index: 0,
+                        part,
+                        outdoors,
+                        before_depth_clear: phase == ObjectPhase::Outdoors,
+                        cell: list_cell,
+                        drawing_sphere: skin.sphere(),
+                        draw_pos: part.pos,
+                        cypt: d.part_cypt.first().copied().unwrap_or(0.0),
+                        meshes: skin.meshes(),
+                    });
+                }
+                continue;
+            }
             for (i, pl) in d.meshes.iter().enumerate() {
                 let Some(part) = driver.part_array.parts.get(i) else {
                     continue;
@@ -668,7 +688,21 @@ impl SceneDraw {
             }
             #[cfg(feature = "remaster")]
             if let Some(log) = self.frame_walk.borrow_mut().as_mut() {
-                log.parts.push(remaster_bridge::WalkPart::of(s));
+                let drawn = remaster_bridge::WalkPart::of(s);
+                // A skinned body is one submission in place of all its object's parts: each of
+                // them is drawn, for the remaster draws the body through them, or the parts
+                // themselves where it draws them.
+                let skinned = s
+                    .object
+                    .and_then(|id| self.object_draws.get(&id))
+                    .filter(|d| d.skin.is_some())
+                    .map_or(0, |d| d.meshes.len());
+                if skinned > 1 {
+                    log.parts
+                        .extend((0..skinned).map(|part| drawn.with_part(part)));
+                } else {
+                    log.parts.push(drawn);
+                }
             }
             // LINT-OK: an index into this frame's own submission list; the largest scene
             // measured here holds a four-digit number of parts. Not a float conversion.

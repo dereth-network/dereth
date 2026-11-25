@@ -64,7 +64,13 @@ pub struct DatAssets<'a> {
     )>,
     /// Where pictures are made ahead of their use, off the frame, when they are.
     pictures: Option<&'a RefCell<super::remaster_pictures::Pictures>>,
+    /// The skinned bodies the files give, made once a setup; none while they are not drawn.
+    bodies: Option<&'a RefCell<Bodies>>,
 }
+
+/// The skinned bodies the files give, by setup, as the remaster draws them; `None` for a setup
+/// without one.
+pub(crate) type Bodies = HashMap<u32, Option<Arc<dereth_remaster::assets::skin::SkinModel>>>;
 
 impl std::fmt::Debug for DatAssets<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -94,7 +100,16 @@ impl<'a> DatAssets<'a> {
             palettised: HashMap::new(),
             pack: None,
             pictures: None,
+            bodies: None,
         }
+    }
+
+    /// This source with the skinned bodies the files give drawn, made once a setup in `bodies`;
+    /// none with `None`.
+    #[must_use]
+    pub(crate) fn with_bodies(mut self, bodies: Option<&'a RefCell<Bodies>>) -> Self {
+        self.bodies = bodies;
+        self
     }
 
     /// This source with its pictures made ahead in `pictures`, off the frame.
@@ -707,6 +722,19 @@ impl AssetSource for DatAssets<'_> {
             .flatten()
     }
 
+    fn skinned_body(
+        &mut self,
+        setup: u32,
+    ) -> Option<Arc<dereth_remaster::assets::skin::SkinModel>> {
+        let bodies = self.bodies?;
+        if let Some(made) = bodies.borrow().get(&setup) {
+            return made.clone();
+        }
+        let made = remaster_body(self.store, DataId(setup)).map(Arc::new);
+        bodies.borrow_mut().insert(setup, made.clone());
+        made
+    }
+
     fn sky(&mut self, id: u32) -> Option<Mesh> {
         // A sky object never moves its parts, so each part's place is folded into its vertices,
         // as the scene's sky is built.
@@ -806,6 +834,97 @@ impl AssetSource for DatAssets<'_> {
         out
     }
 }
+
+/// The skinned body of `setup` as the remaster draws it: the record's vertices and triangles as
+/// one mesh, each part a joint at the inverse of its bind frame, bent by the parts' frames and
+/// drawn with the object's own look. `None` when the setup has none, or it does not read.
+pub(super) fn remaster_body(
+    store: &RetailDatStore,
+    setup: DataId,
+) -> Option<dereth_remaster::assets::skin::SkinModel> {
+    use dereth_remaster::assets::skin::{Rig, SkinModel};
+    use dereth_remaster::assets::{Mesh, Subset, SurfaceRef, Vertex};
+    let id = dereth_assets::skinned_body_id(setup);
+    let bytes = store
+        .read_typed(dereth_assets::SkinnedBody::TYPE, id)
+        .ok()?;
+    let body = dereth_assets::SkinnedBody::decode_payload(id, &bytes).ok()?;
+    if body.setup != setup || body.bind.is_empty() {
+        return None;
+    }
+    let count = body.vertices.len();
+    let mut indices = Vec::new();
+    let mut subsets = Vec::with_capacity(body.groups.len());
+    // The remaster poses every vertex on the device, and draws the fullest level.
+    for g in body.groups.iter().filter(|g| g.level == 0) {
+        if g.indices.iter().any(|&i| i as usize >= count) {
+            return None;
+        }
+        subsets.push(Subset {
+            first_index: u32::try_from(indices.len()).ok()?,
+            index_count: u32::try_from(g.indices.len()).ok()?,
+            surface: body
+                .surfaces
+                .get(g.surface as usize)
+                .map_or(SurfaceRef::Missing, |s| SurfaceRef::Surface(s.0)),
+            two_sided: g.two_sided,
+            // A body's picture coordinates run past the picture's edges: its pictures repeat.
+            tiled: true,
+        });
+        indices.extend_from_slice(&g.indices);
+    }
+    let mesh = Mesh {
+        vertices: body
+            .vertices
+            .iter()
+            .map(|v| Vertex {
+                position: [v.position.x, v.position.y, v.position.z],
+                normal: [v.normal.x, v.normal.y, v.normal.z],
+                uv: v.uv,
+            })
+            .collect(),
+        indices,
+        subsets,
+        ..Mesh::default()
+    };
+    let parts = body.vertices.iter().map(|v| v.parts).collect();
+    let weights = body.vertices.iter().map(|v| v.weights).collect();
+    let binds: Vec<(u16, glam::Mat4)> = body
+        .bind
+        .iter()
+        .enumerate()
+        .filter_map(|(k, f)| Some((u16::try_from(k).ok()?, super::skinned::matrix(f).inverse())))
+        .collect();
+    // The models its parts draw, so that an object whose parts draw others (a pack's in their
+    // place) keeps them.
+    let gfxobjs = store
+        .read_typed(DbType::Setup, setup)
+        .ok()
+        .and_then(|b| dereth_assets::Setup::decode_payload(setup, &b).ok())
+        .map(|s| {
+            s.parts
+                .iter()
+                .take(body.bind.len())
+                .enumerate()
+                .filter_map(|(k, g)| Some((u16::try_from(k).ok()?, g.0)))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Numbered apart from any pack's bodies, one a setup.
+    let skin = RECORD_BODIES | (setup.0 & 0xFFFF);
+    Some(
+        SkinModel::new(skin, mesh, parts, weights, &binds)?.with_rig(Rig {
+            gfxobjs,
+            retail: true,
+            by_parts: true,
+            ..Rig::default()
+        }),
+    )
+}
+
+/// The first number the remaster's bodies made from these records are numbered from, past any
+/// pack's.
+const RECORD_BODIES: u32 = 0x8000_0000;
 
 #[cfg(test)]
 #[path = "remaster_assets_tests.rs"]

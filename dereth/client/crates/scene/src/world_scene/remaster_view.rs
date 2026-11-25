@@ -73,6 +73,9 @@ pub(crate) struct View {
     pub(super) landscape: super::remaster_landscape::RemasterLandscape,
     /// The pictures made ahead of the changes that hold them.
     pub(super) pictures: RefCell<super::remaster_pictures::Pictures>,
+    /// The skinned bodies the files give, by setup, as the remaster draws them; `None` for a
+    /// setup without one.
+    pub(super) bodies: RefCell<super::remaster_assets::Bodies>,
 }
 
 /// Where the remaster works retail's light out.
@@ -245,6 +248,7 @@ impl SceneDraw {
         let view = self.remaster_view.get_mut();
         view.inbox = Some(inbox);
         view.store = Some(store.clone());
+        view.bodies.borrow_mut().clear();
         Ok(())
     }
 
@@ -769,7 +773,9 @@ pub(super) fn deliver(draw: &SceneDraw, gpu: &mut Gpu) {
         let d = draw.detail.current(cls)?;
         Some((d.surface.texture.0, d.tiling))
     });
-    let mut src = DatAssets::for_scene(store, draw).with_pack(view.pack.clone(), view.packs);
+    let mut src = DatAssets::for_scene(store, draw)
+        .with_pack(view.pack.clone(), view.packs)
+        .with_bodies(draw.skinned_bodies.then_some(&view.bodies));
     // While the landscape streams within a budget, the pictures a change brings are made ahead of
     // it, off the frame, and the change waits for them.
     if draw.cfg.stream_budget.is_some() {

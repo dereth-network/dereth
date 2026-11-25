@@ -47,6 +47,7 @@ pub mod material;
 pub mod motion;
 pub mod packed_art;
 pub mod region;
+pub mod skinned;
 pub mod sky_tints;
 pub mod subids;
 pub mod tables;
@@ -69,6 +70,7 @@ pub use motion::{
     ClothingTable, GfxObjDegradeInfo, MotionTable, PhysicsScript, PhysicsScriptTable,
 };
 pub use region::Region;
+pub use skinned::{skinned_body_id, SkinnedBody, SkinnedGroup, SkinnedVertex};
 pub use subids::{closure, SubDataIds};
 pub use tables::{
     did_by_enum, Attribute2ndTable, BadData, CharGen, ChatPoseTable, CombatManeuverTable,

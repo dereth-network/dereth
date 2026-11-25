@@ -112,6 +112,14 @@ pub(super) struct WalkPart {
 }
 
 impl WalkPart {
+    /// The same drawing, of the object's part `part`.
+    pub(super) fn with_part(self, part: usize) -> Self {
+        Self {
+            part: u32::try_from(part).unwrap_or(u32::MAX),
+            ..self
+        }
+    }
+
     /// The part `s` the walk is drawing, the sphere its lights are chosen by worked out as the
     /// walk works it out.
     pub(super) fn of(s: &PartSubmission<'_>) -> Self {

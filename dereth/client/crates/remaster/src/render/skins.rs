@@ -31,6 +31,19 @@ use crate::scene::{BlockId, FrameDelta, ObjectKey, ObjectPose, PartLook, SceneDe
 /// when there is one.
 pub type SkinFor<'a> = dyn FnMut(u32, &[u32], crate::scene::Who) -> Option<Arc<SkinModel>> + 'a;
 
+/// The body an object is drawn with: the pack's for it while the pack's bodies are drawn
+/// (`characters`), else the one the files give its setup. Neither is drawn where a pack's models
+/// have taken the parts it is drawn in place of ([`SkinModel::fits`]).
+pub fn first_body<S: ?Sized>(
+    src: &mut S,
+    characters: bool,
+    pack: impl FnOnce(&mut S) -> Option<Arc<SkinModel>>,
+    files: impl FnOnce(&mut S) -> Option<Arc<SkinModel>>,
+) -> Option<Arc<SkinModel>> {
+    let found = if characters { pack(src) } else { None };
+    found.or_else(|| files(src))
+}
+
 /// The objects drawn with a body.
 #[derive(Debug)]
 pub struct Skins {
@@ -94,7 +107,8 @@ impl Skins {
                             }
                         }
                     }
-                    let Some(model) = skin(o.setup, &palettes, o.who) else {
+                    let found = skin(o.setup, &palettes, o.who);
+                    let Some(model) = found else {
                         self.objects.remove(&o.key);
                         continue;
                     };
@@ -361,6 +375,9 @@ impl AssetSource for WithSkins<'_> {
         who: crate::scene::Who,
     ) -> Option<Arc<SkinModel>> {
         self.src.pack_skin(setup, palettes, who)
+    }
+    fn skinned_body(&mut self, setup: u32) -> Option<Arc<SkinModel>> {
+        self.src.skinned_body(setup)
     }
 }
 
@@ -776,5 +793,125 @@ mod tests {
             "an object drawing other parts keeps them"
         );
         assert_eq!(skins.objects(), 1);
+    }
+
+    /// Two objects of one setup drawn with the one body each wear their own look on it.
+    #[test]
+    fn two_objects_sharing_a_body_each_wear_their_own_look() {
+        use crate::assets::skin::Rig;
+        use crate::scene::PartLook;
+        let b = Arc::new((*body()).clone().with_rig(Rig {
+            gfxobjs: vec![(1, 0x0100_0020), (2, 0x0100_0030)],
+            retail: true,
+            by_parts: true,
+            ..Rig::default()
+        }));
+        let look = |new: u32| PartLook {
+            textures: vec![(0x0500_0001, new)],
+            palette: None,
+            ranges: Vec::new(),
+        };
+        let dressed = |key: u32, new: u32| {
+            let mut o = Object {
+                key: ObjectKey::Server(key),
+                ..object(0x0200_0001)
+            };
+            o.parts[1].look = Some(look(new));
+            o.parts[2].look = Some(look(new));
+            SceneDelta::ObjectBuilt(Box::new(o))
+        };
+        let mut made = 0;
+        let mut skins = Skins::default();
+        let out = skins.swap(
+            vec![dressed(7, 0x0500_0002), dressed(8, 0x0500_0003)],
+            &mut |_, _, _| {
+                made += 1;
+                Some(Arc::clone(&b))
+            },
+        );
+        let worn: Vec<_> = out
+            .iter()
+            .map(|d| {
+                let SceneDelta::ObjectBuilt(o) = d else {
+                    panic!("an object");
+                };
+                let anchor = usize::from(b.anchor());
+                o.parts[anchor].look.clone()
+            })
+            .collect();
+        assert_eq!(made, 2, "the body is asked for each object");
+        assert_eq!(worn, [Some(look(0x0500_0002)), Some(look(0x0500_0003))]);
+    }
+
+    /// A pack's body for a setup is drawn before the one the files give it, while the pack's
+    /// bodies are drawn; the files' is drawn otherwise; and where a pack's models have taken the
+    /// parts a body is drawn in place of, the object keeps those models.
+    #[test]
+    fn a_packs_body_comes_first_then_the_files_and_a_packs_models_keep_their_parts() {
+        use crate::assets::skin::Rig;
+        let pack = body();
+        let files = Arc::new((*body()).clone().with_rig(Rig {
+            gfxobjs: vec![(1, 0x0100_0020), (2, 0x0100_0030)],
+            retail: true,
+            by_parts: true,
+            ..Rig::default()
+        }));
+        let chosen = |characters: bool, has_pack: bool| {
+            first_body(
+                &mut (),
+                characters,
+                |()| has_pack.then(|| Arc::clone(&pack)),
+                |()| Some(Arc::clone(&files)),
+            )
+            .map(|b| b.rig.by_parts)
+        };
+        assert_eq!(chosen(true, true), Some(false), "the pack's body first");
+        assert_eq!(
+            chosen(false, true),
+            Some(true),
+            "the files' with the pack's bodies off"
+        );
+        assert_eq!(
+            chosen(true, false),
+            Some(true),
+            "the files' where the pack has none"
+        );
+        // A pack's model for the GfxObj part 2 draws takes that part: the files' body no
+        // longer fits, and the object keeps its parts, the pack's model among them.
+        let mut packed = object(0x0200_0001);
+        let swapped = crate::assets::pack::swap_object_parts(&mut packed, &mut |g| {
+            (g == 0x0100_0030).then(|| crate::assets::pack::PackModel {
+                levels: vec![crate::assets::pack::PackLevel {
+                    mesh: 0xF000_0001,
+                    distance: f32::INFINITY,
+                }],
+                category: crate::assets::pack::Category::Rock,
+                cover: false,
+            })
+        });
+        assert_eq!(swapped, 1);
+        let mut skins = Skins::default();
+        let out = skins.swap(
+            vec![
+                SceneDelta::ObjectBuilt(Box::new(packed.clone())),
+                SceneDelta::ObjectBuilt(Box::new(Object {
+                    key: ObjectKey::Server(8),
+                    ..object(0x0200_0001)
+                })),
+            ],
+            &mut |_, _, _| Some(Arc::clone(&files)),
+        );
+        let SceneDelta::ObjectBuilt(kept) = &out[0] else {
+            panic!("an object");
+        };
+        assert_eq!(kept.parts, packed.parts, "the pack's model is drawn");
+        let SceneDelta::ObjectBuilt(bent) = &out[1] else {
+            panic!("an object");
+        };
+        assert!(
+            of_skin_mesh(bent.parts[1].levels[0]).is_some(),
+            "the files' body"
+        );
+        assert!(bent.parts[2].levels.is_empty());
     }
 }

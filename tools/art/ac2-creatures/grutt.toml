@@ -1,0 +1,85 @@
+# The Grutt: Asheron's Call 2's grutt body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "grutt"
+label = "Grutt"
+entity = 0x47000270
+# The idle's first keys.
+bind = 0x05000191
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x05000191
+# AC2 plays the same idle in combat.
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000184
+# AC2 plays it at 1.5 m/s.
+stride = 3.00
+
+[[motion]]
+command = "RunForward"
+animation = 0x0500018C
+# AC2 plays it at 5 m/s.
+stride = 4.80
+
+[[motion]]
+command = "TurnRight"
+animation = 0x0500018F
+
+[[motion]]
+command = "Falling"
+animation = 0x05000193
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05000187
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05000188
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000187
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x050004A7
+
+[[motion]]
+command = "Twitch2"
+animation = 0x050004A7
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x050004A7
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x050004A7
+
+[[motion]]
+command = "Dead"
+animation = 0x05000186
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "grutt-2"
+entity = 0x4700031B
+
+[[look]]
+name = "grutt-3"
+entity = 0x4700031C
+
+[[look]]
+name = "grutt-4"
+entity = 0x470025E6

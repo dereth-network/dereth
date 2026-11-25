@@ -56,8 +56,11 @@ mod picture_worker;
 #[cfg(feature = "remaster")]
 #[path = "remaster_assets.rs"]
 mod remaster_assets;
+#[path = "skinned.rs"]
+mod skinned;
 #[cfg(feature = "remaster")]
 pub use remaster_assets::DatAssets;
+pub use skinned::SkinCosts;
 #[cfg(feature = "remaster")]
 #[path = "remaster_bridge.rs"]
 mod remaster_bridge;
@@ -1468,6 +1471,15 @@ pub struct SceneDraw {
     /// Two mosswarts cost one decode and one set of textures; two players in the same outfit do
     /// too, and two in different outfits do not.
     object_meshes: BTreeMap<AppearanceKey, Arc<Vec<PartLevels>>>,
+    /// Skinned bodies' meshes per appearance, for the objects whose setups have one
+    /// ([`skinned::SkinTemplate`]).
+    skins: BTreeMap<AppearanceKey, Arc<skinned::SkinTemplate>>,
+    /// Whether an object whose setup has a skinned body draws it rather than its parts.
+    skinned_bodies: bool,
+    /// What posing the skinned bodies took in the last frame.
+    skin_costs: SkinCosts,
+    /// Frames the skinned bodies have been posed for, which spreads the far ones' posing.
+    skin_frame: u64,
     /// Geometry per setup for the placed statics that play a default animation, and whether it
     /// was built with the objects' look: every butterfly of a meadow shares one entry. An entry
     /// no host holds any more is released with the blocks that held it.
@@ -2018,6 +2030,9 @@ struct SceneObject {
     /// It is the part's depth-sort key, and without it the object
     /// pass draws in `BTreeMap<ObjectId, _>` order — which is id order, not depth order.
     part_cypt: Vec<f32>,
+    /// The skinned body drawn in place of the parts, when the setup has one
+    /// ([`skinned::ObjectSkin`]).
+    skin: Option<skinned::ObjectSkin>,
 }
 
 /// The scene's own sound stash, as the hook drain's sink. `dereth_client_runtime::audio::SoundTrigger`
@@ -2084,6 +2099,7 @@ impl world_objects::ObjectAppearance for DrawFollows<'_> {
         // length of a session rather than on what is on screen. See
         // [`SceneDraw::release_unlinked_appearances`].
         let _ = self.draw.release_unlinked_appearances(self.gpu);
+        let _ = self.draw.release_unlinked_skins(self.gpu);
     }
 
     fn body_parts_changed(&mut self, ws: &WorldState) -> Result<(), WorldError> {
@@ -2148,6 +2164,13 @@ impl world_objects::ObjectAppearance for DrawFollows<'_> {
         let part_draw_pos = vec![Frame::default(); meshes.len()];
         // On the same footing: zero until the first `refresh_part_levels`.
         let part_cypt = vec![0.0f32; meshes.len()];
+        let skin = self.draw.skin_for(
+            self.store,
+            self.gpu,
+            setup_id,
+            &key,
+            &driver.part_array.parts,
+        )?;
         // The drawing half first, then the simulation half, under the same
         // id: both maps gain it together.
         self.draw.object_draws.insert(
@@ -2159,6 +2182,7 @@ impl world_objects::ObjectAppearance for DrawFollows<'_> {
                 part_levels,
                 part_draw_pos,
                 part_cypt,
+                skin,
             },
         );
         Ok(())

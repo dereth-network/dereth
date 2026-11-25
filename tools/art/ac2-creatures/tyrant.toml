@@ -1,0 +1,114 @@
+# The Tyrant: Asheron's Call 2's tyrant body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+#
+# Each [[motion]] row is one Asheron's Call motion and the AC2 clip played for it. A walk or a
+# run is paced so its feet keep up with the speed Asheron's Call moves a creature at; `rate`
+# speeds up anything else. An attack names the combat table's row the server chooses it by. A
+# row with a `stance` plays only in that stance: a combat Ready is the idle it fights from. A turn
+# turns at AC2's own rate for the body unless its row gives an `omega`.
+
+version = 1
+name = "tyrant"
+label = "Tyrant"
+entity = 0x470001C8
+# The idle's first keys.
+bind = 0x050002A1
+# Worlds draw it at 0.45 of AC2's size (the weenie's scale); its walk is paced for that.
+paced_at = 0.45
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x050002A1
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x050002A2
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000290
+
+[[motion]]
+command = "RunForward"
+animation = 0x05000290
+
+[[motion]]
+command = "TurnRight"
+animation = 0x050002A0
+
+[[motion]]
+command = "Falling"
+animation = 0x05000291
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05000295
+# Asheron's Call creatures swing in one to three seconds: this clip is sped up to about 2.8.
+rate = 1.25
+attack = { height = "high", kind = "punch", part = 0, reach = 6.0 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05000294
+attack = { height = "medium", kind = "punch", part = 20, reach = 6.0 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000296
+# The slowest of the three, sped up to about 3 seconds.
+rate = 2.2
+attack = { height = "low", kind = "kick", part = 20, reach = 6.0 }
+
+# The body has one hit reaction, a rear with the wings spread. A server never sends these four to
+# a creature; they are here for a world that does.
+[[motion]]
+command = "Twitch1"
+animation = 0x050004A6
+
+[[motion]]
+command = "Twitch2"
+animation = 0x050004A6
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x050004A6
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x050004A6
+
+[[motion]]
+command = "Dead"
+animation = 0x0500029B
+# The fall, sped up to about 3 seconds: a server waits as long before it leaves a corpse.
+rate = 2.3
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "tyrant-2"
+entity = 0x47002C47
+
+[[look]]
+name = "tyrant-3"
+entity = 0x47002C4A
+
+[[look]]
+name = "tyrant-4"
+entity = 0x47002C4E
+
+[[look]]
+name = "tyrant-5"
+entity = 0x47002C53
+
+[[look]]
+name = "tyrant-6"
+entity = 0x47002C5D
+
+[[look]]
+name = "tyrant-7"
+entity = 0x47002C62

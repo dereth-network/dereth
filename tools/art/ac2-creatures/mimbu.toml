@@ -1,0 +1,90 @@
+# The Mimbu: Asheron's Call 2's mimbu body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "mimbu"
+label = "Mimbu"
+entity = 0x470001C3
+# The idle's first keys.
+bind = 0x05000115
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x05000115
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x05000116
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000101
+# AC2 plays it at 1.5 m/s.
+stride = 2.31
+
+[[motion]]
+command = "RunForward"
+animation = 0x0500010B
+# AC2 plays it at 5 m/s.
+stride = 10.20
+
+[[motion]]
+command = "TurnRight"
+animation = 0x05000114
+
+[[motion]]
+command = "Falling"
+animation = 0x05000118
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x050002D8
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x050002D8
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x050002D8
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x05000471
+
+[[motion]]
+command = "Twitch2"
+animation = 0x05000471
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x05000471
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x05000471
+
+[[motion]]
+command = "Dead"
+animation = 0x05000477
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "mimbu-2"
+entity = 0x470027A1
+
+[[look]]
+name = "mimbu-3"
+entity = 0x470027A5
+
+[[look]]
+name = "mimbu-4"
+entity = 0x470027B4

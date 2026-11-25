@@ -121,6 +121,10 @@ pub struct MotionDriver {
     pub scale: f32,
     /// Whether physics-state bit `0x100000` locks translucency.
     pub translucency_locked: bool,
+    /// The translucency the object's description gives it: the least it is ever drawn with.
+    pub translucency_original: f32,
+    /// The translucency the whole object was last given; 0 for none.
+    pub translucency: f32,
     /// The object's own default play-script type and intensity, from `PhysicsDesc`.
     pub default_script: u32,
     pub default_script_intensity: f32,
@@ -178,6 +182,8 @@ impl MotionDriver {
             env: MotionEnv::default(),
             scale: 1.0,
             translucency_locked: false,
+            translucency_original: 0.0,
+            translucency: 0.0,
             default_script: 0,
             default_script_intensity: 0.0,
             script_table: None,
@@ -244,13 +250,44 @@ impl MotionDriver {
     /// non-zero id. This method forwards `self.assets`, so a swap naming an object absent
     /// from the dat fails and preserves the limb.
     pub fn do_obj_desc_changes(&mut self, od: &crate::parts::ObjDesc) -> bool {
-        self.part_array.do_obj_desc_changes_with(od, &*self.assets)
+        let ok = self.part_array.do_obj_desc_changes_with(od, &*self.assets);
+        self.keep_translucency();
+        ok
     }
 
     /// The same, from the default object description.
     pub fn do_obj_desc_changes_from_default(&mut self, od: &crate::parts::ObjDesc) -> bool {
+        let ok = self
+            .part_array
+            .do_obj_desc_changes_from_default_with(od, &*self.assets);
+        self.keep_translucency();
+        ok
+    }
+
+    /// Give the object the translucency its description names, `t`: drawn that see-through when
+    /// it is not 0, and never drawn more solid than that by anything that fades it later.
+    pub fn set_described_translucency(&mut self, t: f32) {
+        self.translucency_original = t;
+        if t != 0.0 {
+            self.translucency = t;
+            self.part_array
+                .set_translucency_internal(t, self.translucency_locked);
+        }
+    }
+
+    /// Set the whole object's translucency to `t`, or to its description's where that is more.
+    pub fn set_translucency_internal(&mut self, t: f32) {
+        let t = t.max(self.translucency_original);
+        self.translucency = t;
         self.part_array
-            .do_obj_desc_changes_from_default_with(od, &*self.assets)
+            .set_translucency_internal(t, self.translucency_locked);
+    }
+
+    /// The object's translucency laid again over parts a description has just changed.
+    fn keep_translucency(&mut self) {
+        if self.translucency != 0.0 {
+            self.set_translucency_internal(self.translucency);
+        }
     }
 
     /// Drain the events raised since the last call, **in the order they were raised**. The order
@@ -551,10 +588,7 @@ impl MotionDriver {
                     self.play_script_internal(DataId(part));
                 }
             }
-            FpHookKind::Translucency => {
-                self.part_array
-                    .set_translucency_internal(v, self.translucency_locked);
-            }
+            FpHookKind::Translucency => self.set_translucency_internal(v),
             FpHookKind::PartTranslucency => {
                 self.part_array
                     .set_part_translucency_internal(part, v, self.translucency_locked);
@@ -1245,6 +1279,41 @@ mod tests {
     use super::*;
     use crate::data::{AnimFrame, AnimationData, MapAssets, Sphere};
     use dereth_primitives::{ObjectId, Vec3};
+
+    /// A description's translucency reaches every part, survives a later change of the object's
+    /// look, and is the floor of any fade: a fade to solid stops at it, a fade past it goes on.
+    #[test]
+    fn a_described_translucency_reaches_every_part_and_is_the_least_any_fade_leaves() {
+        let mut driver = MotionDriver::new(Arc::new(crate::data::NoAssets));
+        let setup = Arc::new(SetupData {
+            parts: vec![DataId(0x0100_0001), DataId(0x0100_0002)],
+            ..SetupData::default()
+        });
+        assert!(driver.set_setup(setup));
+        let seen = |d: &MotionDriver| -> Vec<f32> {
+            d.part_array
+                .parts
+                .iter()
+                .map(|p| p.material.map_or(0.0, |m| m.translucency))
+                .collect()
+        };
+        driver.set_described_translucency(0.6);
+        assert_eq!(seen(&driver), [0.6, 0.6]);
+        driver.do_obj_desc_changes(&crate::parts::ObjDesc::default());
+        assert_eq!(seen(&driver), [0.6, 0.6], "a change of look keeps it");
+        driver.set_translucency_internal(0.0);
+        assert_eq!(seen(&driver), [0.6, 0.6], "no fade makes it more solid");
+        driver.set_translucency_internal(0.8);
+        assert_eq!(seen(&driver), [0.8, 0.8]);
+        // An object whose description names none is untouched.
+        let mut solid = MotionDriver::new(Arc::new(crate::data::NoAssets));
+        assert!(solid.set_setup(Arc::new(SetupData {
+            parts: vec![DataId(0x0100_0001)],
+            ..SetupData::default()
+        })));
+        solid.set_described_translucency(0.0);
+        assert!(solid.part_array.parts[0].material.is_none());
+    }
 
     /// The driver remembers how far on its parts were last placed: drawn between keyframes, as
     /// far on as they were drawn; at a keyframe, not at all, as before it first places them.

@@ -1,0 +1,38 @@
+# A test world for Asheron's Call 2's creatures: the Lyceum sample's Holtburg pack, and the
+# ac2-creatures pack over it. The pack's weenies name the records `dereth-art ac2-creature` makes
+# from the player's own Asheron's Call 2 install, at the ids below; it lays one of each family in a
+# ring on the flat marsh west of Holtburg (landblock A8B5, around 120, 96), and every look of each
+# family in rows north of it (A8B6, a row a family, the Tyrant's first). They are level 5 and
+# fight only when struck.
+#
+# From the workspace, with the Asheron's Call files in <ac1> and the Asheron's Call 2 files in <ac2>:
+#
+# 1. The creatures, each family from its own low id, into one overlay folder:
+#
+#      cargo build --profile test-release -p dereth-art -p lyceum-cli -p empyrean-server -p empyrean-import
+#      dereth-art ac2-creature --ac1 <ac1> --ac2 <ac2> --table tools/art/ac2-creatures/<family>.toml
+#          --out target/ac2-creatures-testworld/creatures --ids <id> --world ac2-creatures-test --replace
+#          --weenies tools/art/ac2-creatures/testworld/ac2-creatures/server/sql/weenies
+#
+#    for tyrant 0xE000, beetle 0xE100, crone 0xE200, darkenfowl 0xE300, flayer 0xE400,
+#    gigurath 0xE500, grutt 0xE600, mimbu 0xE700, mucor 0xE800, scraven 0xE900, thornling 0xEA00
+#    and vermin 0xEB00. Each prints the ids its weenies name; the pack's are these. With
+#    --weenies it writes each look weenie's texture swaps again, on every part that draws them.
+#
+# 2. The world, and an export for Empyrean:
+#
+#      lyceum build tools/art/ac2-creatures/testworld/world.toml --dats <ac1>
+#      lyceum export tools/art/ac2-creatures/testworld/world.toml --dats <ac1> --for empyrean
+#          --out target/ac2-creatures-testworld/export --empyrean target/test-release
+#
+# 3. Empyrean over the export (its README.txt gives the `empyrean.toml` lines; bind it to
+#    127.0.0.1), then a client. The first account made on a new server is its admin; take a
+#    character to the ring with
+#
+#      @teleloc 0xA8B5002B [120 54 29] 1 0 0 0      (south of the ring, facing it)
+#      @teleloc 0xA8B50017 [51 150 29] 1 0 0 0      (south of the rows, facing them)
+key = "ac2-creatures-test"
+format_version = 1
+packs = ["../../../../lyceum/sample/holtburg", "ac2-creatures"]
+imports = ["../../../../target/ac2-creatures-testworld/creatures"]
+out = "../../../../target/ac2-creatures-testworld/world"

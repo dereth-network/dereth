@@ -475,6 +475,13 @@ pub trait AssetSource {
         let _ = (setup, palettes, who);
         None
     }
+    /// The body drawn in place of the parts of an object built on `setup` that the files
+    /// themselves give it, bent by its parts ([`skin::Rig::by_parts`]), when they give one and
+    /// such bodies are drawn. None by default.
+    fn skinned_body(&mut self, setup: u32) -> Option<std::sync::Arc<skin::SkinModel>> {
+        let _ = setup;
+        None
+    }
 }
 
 /// One entry, as [`AssetSink::release`] names it.

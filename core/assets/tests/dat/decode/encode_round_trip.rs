@@ -3,8 +3,9 @@
 //! Fixture: the shipped retail DAT records.
 
 use dereth_assets::{
-    Animation, CellLandblock, Decode, EnvCell, Environment, GfxObj, LandblockInfo,
-    ParticleEmitterInfo, PhysicsScript, Region, RenderSurface, Setup, Surface, SurfaceTexture,
+    Animation, CellLandblock, CombatManeuverTable, Decode, EnvCell, Environment, GfxObj,
+    LandblockInfo, MotionTable, ParticleEmitterInfo, PhysicsScript, Region, RenderSurface, Setup,
+    Surface, SurfaceTexture,
 };
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
@@ -404,4 +405,39 @@ fn the_later_spell_sets_and_levels_are_refused_for_the_older_files() {
         x.encode_for(dereth_primitives::EraId::Eor).unwrap(),
         x.encode()
     );
+}
+
+#[test]
+fn every_motion_table_written_again_reads_back_the_same() {
+    // A retail table keeps its keyed tables in hash order, written here in key order, so the
+    // check is on what the record says, not its bytes.
+    let s = store();
+    let ids = s.ids_of(DbType::MTable);
+    let mut differ = Vec::new();
+    for id in &ids {
+        let t =
+            MotionTable::decode_payload(*id, &s.read_typed(DbType::MTable, *id).unwrap()).unwrap();
+        if MotionTable::decode_payload(*id, &t.encode()).ok().as_ref() != Some(&t) {
+            differ.push(*id);
+        }
+    }
+    assert!(
+        differ.is_empty(),
+        "{} differ: {:?}",
+        differ.len(),
+        &differ[..differ.len().min(8)]
+    );
+    assert!(ids.len() > 200, "{} motion tables", ids.len());
+}
+
+#[test]
+fn every_combat_table_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::CombatTable);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::CombatTable, id).unwrap(),
+        |id, b| CombatManeuverTable::decode_payload(id, b).unwrap().encode(),
+    );
+    assert!(n > 20, "{n} combat tables");
 }

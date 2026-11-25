@@ -3,7 +3,8 @@
 //! composite object (`Setup`), an animation (each frame's part frames and hooks), a particle
 //! emitter and the script that starts it (its timed hooks), an environment
 //! with its cell shapes, the character-creation table with the world's own starter areas, the
-//! region with its sky, and the skill, experience and spell tables.
+//! region with its sky, the skill, experience and spell tables, and a creature's motion table and
+//! combat maneuvers.
 //!
 //! Each `encode` is the exact inverse of its type's decoder: decoding a record and encoding the
 //! value gives back the record's bytes, for every record of the kind the retail files hold. The
@@ -31,13 +32,13 @@ use crate::error::AssetError;
 use crate::geometry::{Animation, CellStruct, Environment, GfxObj, Setup};
 use crate::hook::{AnimHook, HookData};
 use crate::material::{pre_tod_image_format, PFID_CUSTOM_B8G8R8, PFID_INDEX16, PFID_P8};
-use crate::motion::{GfxObjDegradeInfo, PhysicsScript};
+use crate::motion::{GfxObjDegradeInfo, MotionData, MotionTable, PhysicsScript};
 use crate::region::{
     GameTime, LandDefs, LandSurf, Region, RegionMisc, SkyInfo, LAND_HEIGHT_TABLE_LEN,
 };
 use crate::tables::{
-    spell_component_key, CharGen, GearItem, ObjDesc, SexCg, SkillFormula, SkillTable, SpellBase,
-    SpellTable, XpTable,
+    spell_component_key, CharGen, CombatManeuverTable, GearItem, ObjDesc, SexCg, SkillFormula,
+    SkillTable, SpellBase, SpellTable, XpTable,
 };
 use crate::world::{
     BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
@@ -1144,6 +1145,83 @@ impl GfxObjDegradeInfo {
             }),
             EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
         }
+    }
+}
+
+/// One motion entry: its key, its animation count, its two header bytes and a pad byte, each
+/// animation's id, frame range and rate, then the velocity and the omega its flags name.
+fn motion_data(o: &mut Out, m: &MotionData) {
+    o.u32(m.key);
+    o.u8(u8::try_from(m.anims.len()).unwrap_or(u8::MAX));
+    o.u8(m.bitfield);
+    o.u8(m.flags);
+    o.align();
+    for a in &m.anims {
+        o.id(a.anim_id);
+        o.i32(a.low_frame);
+        o.i32(a.high_frame);
+        o.f32(a.framerate);
+    }
+    if m.flags & 1 != 0 {
+        o.vec3(m.velocity.unwrap_or(Vec3::ZERO));
+    }
+    if m.flags & 2 != 0 {
+        o.vec3(m.omega.unwrap_or(Vec3::ZERO));
+    }
+}
+
+impl MotionTable {
+    /// The `0x09` record: the id, the default style, each style's default motion, the cycles, the
+    /// modifiers, then each link table (its key, then its entries). The two keyed tables are
+    /// written in key order: a retail record holds them in its hash table's order, which a reader
+    /// does not depend on, so a retail table written again reads back the same but need not be
+    /// the same bytes.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out::default();
+        o.id(self.id);
+        o.u32(self.default_style);
+        o.count(self.style_defaults.len());
+        for (k, v) in &self.style_defaults {
+            o.u32(*k);
+            o.u32(*v);
+        }
+        o.count(self.cycles.len());
+        for m in &self.cycles {
+            motion_data(&mut o, m);
+        }
+        o.count(self.modifiers.len());
+        for m in &self.modifiers {
+            motion_data(&mut o, m);
+        }
+        o.count(self.links.len());
+        for (k, entries) in &self.links {
+            o.u32(*k);
+            o.count(entries.len());
+            for m in entries {
+                motion_data(&mut o, m);
+            }
+        }
+        o.0
+    }
+}
+
+impl CombatManeuverTable {
+    /// The `0x30` record: the id, then each maneuver's style, attack height, attack type, least
+    /// skill and motion.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(8 + self.maneuvers.len() * 20));
+        o.id(self.id);
+        o.count(self.maneuvers.len());
+        for m in &self.maneuvers {
+            o.u32(m.style);
+            o.u32(m.attack_height);
+            o.u32(m.attack_type);
+            o.u32(m.min_skill_level);
+            o.u32(m.motion);
+        }
+        o.0
     }
 }
 

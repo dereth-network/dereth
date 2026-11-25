@@ -1,0 +1,90 @@
+# The Mucor: Asheron's Call 2's mucor body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "mucor"
+label = "Mucor"
+entity = 0x4700245C
+# The idle's first keys.
+bind = 0x0500111D
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x0500111D
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x0500111F
+
+[[motion]]
+command = "WalkForward"
+animation = 0x0500111C
+# AC2 plays it at 1.25 m/s.
+stride = 1.88
+
+[[motion]]
+command = "RunForward"
+animation = 0x0500112A
+# AC2 plays it at 5 m/s.
+stride = 5.00
+
+[[motion]]
+command = "TurnRight"
+animation = 0x0500112D
+
+[[motion]]
+command = "Falling"
+animation = 0x0500111E
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05001121
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05001120
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05001122
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x05001124
+
+[[motion]]
+command = "Twitch2"
+animation = 0x05001124
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x05001124
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x05001124
+
+[[motion]]
+command = "Dead"
+animation = 0x05001131
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "mucor-2"
+entity = 0x4700282E
+
+[[look]]
+name = "mucor-3"
+entity = 0x47002830
+
+[[look]]
+name = "mucor-4"
+entity = 0x4700283D

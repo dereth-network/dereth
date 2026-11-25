@@ -274,6 +274,10 @@ impl SceneDraw {
             #[cfg(feature = "remaster")]
             remaster_view: RefCell::new(super::remaster_view::View::default()),
             object_meshes: BTreeMap::new(),
+            skins: BTreeMap::new(),
+            skinned_bodies: true,
+            skin_costs: SkinCosts::default(),
+            skin_frame: 0,
             host_meshes: BTreeMap::new(),
             game_viewport: None,
             particle_gfx: ParticleGeometry::default(),
@@ -2347,5 +2351,7 @@ impl SceneDraw {
         // needs the same two predecessors -- the bias `calc_deg_level` just produced and the
         // part frames `advance_objects` just wrote.
         self.stats.part_degrade_switches += u64::from(self.refresh_part_levels(ws));
+        // And the skinned bodies, from the same part frames.
+        self.pose_skins(ws);
     }
 }

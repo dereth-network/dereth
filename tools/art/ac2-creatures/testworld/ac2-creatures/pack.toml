@@ -1,0 +1,6 @@
+name = "ac2-creatures"
+format_version = 1
+version = "0.1.0"
+authors = ["Dereth"]
+license = "MIT"
+description = "Asheron's Call 2's twelve families as Asheron's Call creatures: one of each in a ring west of Holtburg, and every look of each in rows north of it."

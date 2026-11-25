@@ -2033,6 +2033,42 @@ impl Shot {
         heading: f32,
         movement: Option<Vec<u8>>,
     ) {
+        self.create_object_with(id, (setup, mtable), block, (x, y), heading, movement, None);
+    }
+
+    /// [`Self::create_object`], at the size `scale` as its weenie gives it.
+    pub(crate) fn create_object_scaled(
+        &mut self,
+        id: u32,
+        (setup, mtable): (u32, Option<u32>),
+        block: u16,
+        (x, y): (f32, f32),
+        heading: f32,
+        scale: f32,
+    ) {
+        self.create_object_with(
+            id,
+            (setup, mtable),
+            block,
+            (x, y),
+            heading,
+            None,
+            Some(scale),
+        );
+    }
+
+    /// [`Self::create_object_moving`], at the size `scale` gives when there is one.
+    #[allow(clippy::too_many_arguments)] // one parameter per field of the creation
+    fn create_object_with(
+        &mut self,
+        id: u32,
+        (setup, mtable): (u32, Option<u32>),
+        block: u16,
+        (x, y): (f32, f32),
+        heading: f32,
+        movement: Option<Vec<u8>>,
+        scale: Option<f32>,
+    ) {
         use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
         let region =
             dereth_world_data::landblock::load_region(&self.store).expect("the region decodes");
@@ -2055,9 +2091,11 @@ impl Shot {
                         flags::MOVEMENT
                     } else {
                         0
-                    },
+                    }
+                    | if scale.is_some() { flags::OBJSCALE } else { 0 },
                 setup_id: Some(setup),
                 mtable_id: mtable,
+                object_scale: scale,
                 movement: movement.map(|m| (m, 0)),
                 state: 0,
                 position: Some(dereth_protocol::types::PositionWire {

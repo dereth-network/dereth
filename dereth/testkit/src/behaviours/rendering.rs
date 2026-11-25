@@ -1397,6 +1397,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.translucency.an-object-is-drawn-as-see-through-as-its-description-says",
+        says: "An object the server describes as partly see-through is drawn that see-through \
+               from the moment it appears, every part of it, and no fade it plays later makes \
+               it more solid than that; an object described with none is drawn solid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-1294-DESCRIBED-TRANSLUCENCY"),
+        station: "dereth-client::dat::rendering::object_translucency::a_drudge_described_as_see_through_has_every_part_drawn_see_through",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.translucency.authored-surface-translucency-changes-only-translucent-pixels",
         says: "Surfaces the art marks as partly see-through are drawn that way, and honouring it \
                changes the picture only where such a surface is: looking at the horizon only \

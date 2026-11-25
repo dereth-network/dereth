@@ -15,6 +15,7 @@
 //! shapes' coordinates), `dereth-builder` (the trees a new model or room needs), `dereth-physics`
 //! (the starting area's ground and water, told as the server tells them), `dereth-ac2-convert`
 //! (AC2's dungeon cells and materials as AC1's, and its install read, shared with Lyceum),
+//! `dereth-animation` (the motion commands' names, for a creature's motion table),
 //! `dereth-landscape`
 //! (the scenery the converted land grows, placed as the client places it) and `auberean-draw` (its
 //! sky's materials made ready as AC2 draws them, to work out their pictures). **Used
@@ -27,7 +28,8 @@
 //!
 //! [`pack`] packs an art pack's folder as the client opens it. [`skeleton`] writes a setup as a
 //! skeleton an artist rigs a new body to, with its own parts as a reference body and its animations as
-//! clips. [`ac2_look`] builds the AC2 look, Asheron's Call 2's ground, trees, rocks and sky, as a
+//! clips. [`ac2_creature`] makes an Asheron's Call 2 creature into Asheron's Call's own records
+//! (body, animations, motion and combat tables) for a world's overlay. [`ac2_look`] builds the AC2 look, Asheron's Call 2's ground, trees, rocks and sky, as a
 //! pack from the player's own Asheron's Call 2 files and the tables of which AC2 thing stands for
 //! which of this game's.
 //!
@@ -38,6 +40,7 @@
 
 #![doc(html_no_source)]
 
+pub mod ac2_creature;
 pub mod ac2_look;
 pub mod ac2_world;
 pub mod character;

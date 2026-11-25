@@ -1,0 +1,98 @@
+# The Vermin: Asheron's Call 2's vermin body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "vermin"
+label = "Vermin"
+entity = 0x4700026D
+# The idle's first keys.
+bind = 0x05000353
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x05000353
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x05000354
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000351
+# AC2 plays it at 1.5 m/s.
+stride = 2.19
+
+[[motion]]
+command = "RunForward"
+animation = 0x05000362
+# AC2 plays it at 4 m/s.
+stride = 3.84
+
+[[motion]]
+command = "TurnRight"
+animation = 0x05000364
+
+[[motion]]
+command = "Falling"
+animation = 0x05000352
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05000355
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05000356
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000357
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x050004AF
+
+[[motion]]
+command = "Twitch2"
+animation = 0x050004AF
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x050004AF
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x050004AF
+
+[[motion]]
+command = "Dead"
+animation = 0x0500035E
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "vermin-2"
+entity = 0x47002D24
+
+[[look]]
+name = "vermin-3"
+entity = 0x47002D2C
+
+[[look]]
+name = "vermin-4"
+entity = 0x47002D37
+
+[[look]]
+name = "vermin-5"
+entity = 0x47002D3A
+
+[[look]]
+name = "vermin-6"
+entity = 0x47002D49

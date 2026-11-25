@@ -486,6 +486,10 @@ pub struct Rig {
     pub gfxobjs: Vec<(u16, u32)>,
     /// Whether its surfaces are retail ones, drawn with the object's own look.
     pub retail: bool,
+    /// Whether it is bent by the object's own parts: each vertex goes where the parts it names
+    /// now carry it from where their bind frames held it, as the object's animation places
+    /// them, rather than the body playing clips of its own.
+    pub by_parts: bool,
     /// The bones of its own skeleton.
     pub bones: Vec<Bone>,
     /// Its own clips, each for its slot.
@@ -570,13 +574,16 @@ impl SkinModel {
     }
 
     /// Whether an object whose parts draw `levels` (each part's GfxObjs, nearest first) draws what
-    /// the body expects: each part the rig names draws the GfxObj it names.
+    /// the body expects: each part the rig names draws the GfxObj it names. A body bent by its
+    /// parts also fits a part that draws nothing at all, as a bone that carries skin but has no
+    /// model of its own does.
     #[must_use]
     pub fn fits(&self, levels: &[&[u32]]) -> bool {
-        self.rig
-            .gfxobjs
-            .iter()
-            .all(|(p, g)| levels.get(usize::from(*p)).is_some_and(|l| l.contains(g)))
+        self.rig.gfxobjs.iter().all(|(p, g)| {
+            levels
+                .get(usize::from(*p))
+                .is_some_and(|l| l.contains(g) || (self.rig.by_parts && l.is_empty()))
+        })
     }
 
     /// The place in [`Self::joints`] of the joint a vertex names: a part's, a bone's after the
@@ -669,6 +676,20 @@ impl SkinModel {
             return None;
         }
         let from_anchor = anchor.inverse();
+        if self.rig.by_parts {
+            // Each part's joint takes the bind space to where the part now stands, in the
+            // anchor's space; a part the frame lacks stands where the anchor does.
+            return Some(
+                self.inverse_binds
+                    .iter()
+                    .enumerate()
+                    .map(|(k, ib)| {
+                        let at = parts.get(k).copied().unwrap_or(anchor);
+                        from_anchor * at * ib.unwrap_or(Mat4::IDENTITY)
+                    })
+                    .collect(),
+            );
+        }
         let (frame, pose) = match live {
             Some(live) => match live.motion {
                 Some(m) => {

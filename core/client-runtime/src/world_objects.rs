@@ -231,7 +231,7 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
         }
         // Read here, applied after the insert below through the one path.
         let wire_state = stream.physics_state(id).unwrap_or(0);
-        let (scale, mtable) = (p.scale, p.mtable_id);
+        let (scale, mtable, translucency) = (p.scale, p.mtable_id, p.translucency);
         // The description's sound table overrides the setup's default, as its script table does
         // below; a zero names none.
         let described_sound_table = p.sound_table.map(|t| (t != DataId(0)).then_some(t));
@@ -279,6 +279,9 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
             }
             counters.objdescs_applied += 1;
         }
+        // The description's translucency: the object is drawn that see-through, and nothing
+        // that fades it later makes it more solid than that.
+        driver.set_described_translucency(translucency);
         // With a local body the player never reaches here; without one the server's copy of him
         // is the only body there is.
         let is_player = stream.player() == Some(id);

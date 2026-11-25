@@ -1,0 +1,99 @@
+# The Crone: Asheron's Call 2's crone body, played with its own clips for Asheron's Call's
+# motions. Ids and numbers only; the player's own Asheron's Call 2 install supplies the rest.
+
+version = 1
+name = "crone"
+label = "Crone"
+entity = 0x470000C9
+# The idle's first keys.
+bind = 0x05000171
+picture = 512
+
+[[motion]]
+command = "Ready"
+animation = 0x05000171
+
+[[motion]]
+command = "Ready"
+stance = "combat"
+# Its fighting idle.
+animation = 0x0500024F
+
+[[motion]]
+command = "WalkForward"
+animation = 0x05000174
+# AC2 plays it at 1.5 m/s.
+stride = 2.43
+
+[[motion]]
+command = "RunForward"
+animation = 0x0500017C
+# AC2 plays it at 4 m/s.
+stride = 2.84
+
+[[motion]]
+command = "TurnRight"
+animation = 0x0500017E
+
+[[motion]]
+command = "Falling"
+animation = 0x05000180
+
+[[motion]]
+command = "AttackHigh1"
+animation = 0x05000177
+attack = { height = "high", kind = "punch", part = 0, reach = 2.5 }
+
+[[motion]]
+command = "AttackMed1"
+animation = 0x05000177
+attack = { height = "medium", kind = "punch", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "AttackLow1"
+animation = 0x05000177
+attack = { height = "low", kind = "kick", part = 20, reach = 2.5 }
+
+[[motion]]
+command = "Twitch1"
+animation = 0x05000450
+
+[[motion]]
+command = "Twitch2"
+animation = 0x05000450
+
+[[motion]]
+command = "StaggerBackward"
+animation = 0x05000450
+
+[[motion]]
+command = "StaggerForward"
+animation = 0x05000450
+
+[[motion]]
+command = "Dead"
+animation = 0x05000458
+rate = 1.17
+
+# Its other looks: AC2 draws the same body under other pictures. A weenie draws one by
+# swapping the body's textures for the look's, as the tool prints them.
+
+[[look]]
+name = "crone-2"
+entity = 0x470022E9
+
+[[look]]
+name = "crone-3"
+entity = 0x470022EC
+
+[[look]]
+name = "crone-4"
+entity = 0x470022FD
+
+[[look]]
+name = "crone-5"
+entity = 0x470022FF
+
+[[look]]
+name = "crone-6"
+entity = 0x47002303

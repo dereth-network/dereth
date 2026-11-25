@@ -633,6 +633,7 @@ impl PackAssets {
             dqs,
             gfxobjs: skin.gfxobjs.clone(),
             retail: skin.extras.iter().any(|e| e.surface.is_some()),
+            by_parts: false,
             bones: skin
                 .bones
                 .iter()

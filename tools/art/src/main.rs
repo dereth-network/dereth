@@ -11,6 +11,9 @@
 //! dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3]
 //!                      [--names on|off] [--frills on|off] [--vaults <file> --placements <file>]
 //!                      [--ledger <file>] [--any-install]
+//! dereth-art ac2-creature --ac1 <dir> --ac2 <dir> --table <file> --out <dir> [--ids <hex>]
+//!                         [--world <key>] [--replace] [--weenies <dir>]
+//! dereth-art ac2-creature-probe --ac2 <dir> (--entity <hex> | --setup <hex> | --looks <hex>)
 //! ```
 //!
 //! `survey`: `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`, `--out` to `target/art-survey`,
@@ -44,6 +47,18 @@
 //! players hold. The installs' files are checked by their SHA-256 and others refused, so every
 //! build from the same files is the same world; `--any-install` builds from others anyway, and
 //! the world may then match no one else's.
+//!
+//! `ac2-creature`: an Asheron's Call 2 creature as Asheron's Call's own records (its body, its
+//! animations, its motion table and its combat table), made from the Asheron's Call 2 install in
+//! `--ac2` by the creature's table `--table`, into the overlay folder `--out`
+//! ([`dereth_art::ac2_creature`]). Each kind of record is numbered from the low id `--ids`
+//! (default `0xE000`); the overlay is for the world `--world`. A record the overlay holds already
+//! with other contents is refused unless `--replace` (the same creature made again). It prints the ids a weenie names and
+//! each motion's animation. `ac2-creature-probe` prints what a creature table is written from:
+//! an entity's body groups and each animation map key's clips (`--entity`), or the entities drawn
+//! with a setup (`--setup`), or every look of an entity's body (its pictures, size and the meshes
+//! it swaps) with the templates drawn as each (`--looks`). The tool prints each look a table
+//! names with the textures its weenie swaps.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -55,7 +70,9 @@ const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns
        dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
        dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
        dereth-art ac2-look --versions
-       dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--vaults <file> --placements <file>] [--ledger <file>] [--any-install]";
+       dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--vaults <file> --placements <file>] [--ledger <file>] [--any-install]
+       dereth-art ac2-creature --ac1 <dir> --ac2 <dir> --table <file> --out <dir> [--ids <hex>] [--world <key>] [--replace] [--weenies <dir>]
+       dereth-art ac2-creature-probe --ac2 <dir> (--entity <hex> | --setup <hex> | --looks <hex>)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -86,6 +103,130 @@ usage: {USAGE}"
             }
         },
         Some("ac2-look") => ac2_look(&args[1..]),
+        Some("ac2-creature-probe") => match dereth_art::ac2_creature::probe(&args[1..]) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("dereth-art ac2-creature-probe: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("ac2-creature") => match dereth_art::ac2_creature::Args::parse(&args[1..]) {
+            Ok(a) => match dereth_art::ac2_creature::build(&a) {
+                Ok(m) => {
+                    println!(
+                        "setup {:08X} motion table {:08X} combat table {:08X} skinned body {:08X}",
+                        m.setup.raw(),
+                        m.motion_table.raw(),
+                        m.combat_table.raw(),
+                        m.skinned_body.raw()
+                    );
+                    let triangles: Vec<String> =
+                        m.triangles.iter().map(ToString::to_string).collect();
+                    println!(
+                        "{} parts, {} vertices, {} triangles, {} surfaces ({} from both sides)",
+                        m.parts,
+                        m.vertices,
+                        triangles.join("/"),
+                        m.surfaces.0,
+                        m.surfaces.1
+                    );
+                    if !m.levels.is_empty() {
+                        let from: Vec<String> =
+                            m.levels.iter().map(|d| format!("{d:.1} m")).collect();
+                        println!("coarser levels from {}", from.join(", "));
+                    }
+                    for (command, clip, anim, frames, rate, hit) in &m.motions {
+                        let hit = hit.map_or(String::new(), |h| format!(" hit at {h:.3}"));
+                        println!(
+                            "{command:<14} {clip:08X} -> {:08X} {frames} frames at x{rate:.3}{hit}",
+                            anim.raw()
+                        );
+                    }
+                    let s = &m.size;
+                    println!(
+                        "size: radius {:.2} height {:.2} (AC2's radius {:.2} height {:.2})",
+                        s.made.radius, s.made.height, s.ac2.0, s.ac2.1
+                    );
+                    for (at, r) in &s.made.spheres {
+                        println!(
+                            "sphere at ({:.2}, {:.2}, {:.2}) radius {r:.2}",
+                            at.x, at.y, at.z
+                        );
+                    }
+                    println!("turn {:.2} rad/s", m.turn);
+                    match m.stances {
+                        Some(d) => println!("stances' Readies {d:.2} m apart"),
+                        None => println!("one Ready for both stances"),
+                    }
+                    for (stance, command, into, back) in &m.eased {
+                        let show =
+                            |d: &Option<f64>| d.map_or("-".to_owned(), |d| format!("{d:.2} m"));
+                        println!(
+                            "{stance:<6} {command:<15} eased in {} back {}",
+                            show(into),
+                            show(back)
+                        );
+                    }
+                    if let Some((carried, lift)) = m.death {
+                        println!("death: {carried:.2} m of travel taken out, raised {lift:.2} m");
+                    }
+                    for l in &m.looks {
+                        let swaps: Vec<String> = l
+                            .textures
+                            .iter()
+                            .map(|(old, new)| format!("{:08X}>{:08X}", old.raw(), new.raw()))
+                            .collect();
+                        println!(
+                            "look {} {:08X} scale {:.3} textures {}{}",
+                            l.name,
+                            l.entity,
+                            l.scale,
+                            if swaps.is_empty() {
+                                "none".to_owned()
+                            } else {
+                                swaps.join(" ")
+                            },
+                            match (l.swapped, l.unswapped) {
+                                (0, 0) => String::new(),
+                                (s, u) => format!(
+                                    " ({s} meshes swapped and {u} materials changed are left as the body's)"
+                                ),
+                            }
+                        );
+                        if !l.parts.is_empty() {
+                            let mut on: Vec<u16> = l.parts.iter().map(|p| p.0).collect();
+                            on.dedup();
+                            println!(
+                                "  its weenie swaps them {} times, on {} parts",
+                                l.parts.len(),
+                                on.len()
+                            );
+                        }
+                        if let Some(t) = l.translucency {
+                            println!("  its weenie's Translucency (float 76): {t:.2}");
+                        }
+                        if !l.lost.is_empty() {
+                            println!("  not carried: {}", l.lost.join(", "));
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("dereth-art ac2-creature: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!(
+                    "dereth-art ac2-creature: {e}
+usage: {USAGE}"
+                );
+                ExitCode::from(2)
+            }
+        },
         Some("ac2-world") => match dereth_art::ac2_world::Args::parse(&args[1..]) {
             Ok(a) => match dereth_art::ac2_world::build(&a) {
                 Ok(()) => ExitCode::SUCCESS,
