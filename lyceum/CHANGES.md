@@ -23,6 +23,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Fixed players keeping an old copy of an exported world after it changed.
 - Pull an AC1 dungeon from another world into a world repository.
 - Fixed the check calling a world repository's own weenies missing.
+- `lyceum edit` writes a world repository's spawns as its rows, as the editor does.
 - Generate a person's name from the world's name tables, by their heritage.
 - Worlds started from another tool's world keep their packs' spawns, in exports and in Play.
 - Buildings and houses dropped in a world repository now keep their doors and house objects.

@@ -294,3 +294,37 @@ fn name_draws_the_same_names_for_a_seed_from_the_worlds_table() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Editing a world repository takes the server's schema of rows, its spawns being the layer's
+/// placement rows: without one, and with no import tool where `--empyrean` says, it is refused
+/// before the world's files are opened.
+#[test]
+fn edit_of_a_world_repository_without_the_servers_schema_is_refused() {
+    let dir = std::env::temp_dir().join(format!("lyceum-cli-edit-repo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("world.toml"),
+        "format_version = 1\ngame = \"ac1\"\nkey = \"r\"\npacks = []\nlineage = []\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("edits.toml"), "").unwrap();
+    let world = dir.join("world.toml");
+    let edits = dir.join("edits.toml");
+    let nowhere = dir.join("no-server");
+    let out = lyceum(&[
+        "edit",
+        world.to_str().unwrap(),
+        "--dats",
+        "absent",
+        "--edits",
+        edits.to_str().unwrap(),
+        "--empyrean",
+        nowhere.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(out.status.code(), Some(2));
+    let error = String::from_utf8_lossy(&out.stderr);
+    assert!(error.contains("the server's schema of rows"), "{error}");
+    assert!(!error.contains("absent"), "{error}");
+}

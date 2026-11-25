@@ -20,6 +20,9 @@
 //! lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y>
 //!             <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>]
 //!             [--dry-run]           a house drops as one players can buy, unless --plain
+//!             A world repository is edited at its newest layer, over its land (--on), with the
+//!             server's schema of rows (--schema, or empyrean-import's from --empyrean or beside
+//!             the command): its spawns are written as the layer's placement rows.
 //! lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 //! lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
 //! lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
@@ -82,8 +85,8 @@ lyceum new <folder> [--empty] [--era eor|infiltration] [--spacing 24|12|8 | --on
 lyceum upgrade <world.toml> [--check]
 lyceum build <world.toml> --dats <dir> [--ac2 <dir>] [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>] [--schema <json>]
-lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>] [--dry-run]
-lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--dry-run]
+lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>] [--on <overlay>] [--schema <json> | --empyrean <dir>] [--dry-run]
+lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--on <overlay>] [--schema <json> | --empyrean <dir>] [--dry-run]
 lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
 lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
@@ -614,7 +617,17 @@ fn sql_files(path: &Path) -> Result<Vec<PathBuf>, lyceum_foundry::Error> {
 }
 
 fn run_edit(args: &Args) -> ExitCode {
-    if let Err(why) = args.known(&["dats", "edits", "pack", "weenies", "layout", "furnished"]) {
+    if let Err(why) = args.known(&[
+        "dats",
+        "edits",
+        "pack",
+        "weenies",
+        "layout",
+        "furnished",
+        "on",
+        "schema",
+        "empyrean",
+    ]) {
         return usage(&why);
     }
     let (Some((world, verb)), Some(dats)) = (args.words.split_first(), args.path("dats")) else {
@@ -638,11 +651,34 @@ fn run_edit(args: &Args) -> ExitCode {
     if verb.is_some() == edits.is_some() {
         return usage("edit takes --edits, or one edit (add-building ...)");
     }
-    let mut session =
+    // A world repository is edited at its newest layer, as the editor edits it: its spawns are
+    // that layer's placement rows, which takes the server's schema of rows.
+    let repository = lyceum_foundry::repo_world::is_repository(Path::new(world));
+    let built = std::env::temp_dir().join(format!("lyceum-edit-{}", std::process::id()));
+    let mut session = if repository {
+        let opened = edit_schema(args).and_then(|schema| {
+            lyceum_foundry::repo_world::open_to_edit(
+                Path::new(world),
+                &dats,
+                args.path("on").as_deref(),
+                &built,
+                args.value("pack"),
+                schema,
+            )
+        });
+        match opened {
+            Ok(s) => s,
+            Err(why) => {
+                eprintln!("lyceum: {why}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
         match lyceum_foundry::edit::Session::open(Path::new(world), &dats, args.value("pack")) {
             Ok(s) => s,
             Err(e) => return fail(&e),
-        };
+        }
+    };
     let mut server = None;
     if let Some(sql) = args.path("weenies") {
         match std::fs::read_to_string(&sql) {
@@ -688,8 +724,25 @@ fn run_edit(args: &Args) -> ExitCode {
         session.learn_buildings(catalog);
     }
     if let Some(content) = server {
-        session.learn_server(content);
+        if repository {
+            session.learn_server_beside(content);
+        } else {
+            session.learn_server(content);
+        }
     }
+    let done = edit_with(&mut session, &actions, args.switch("dry-run"));
+    if repository {
+        let _ = std::fs::remove_dir_all(&built);
+    }
+    done
+}
+
+/// `actions` done in `session` and, but for a dry run, saved.
+fn edit_with(
+    session: &mut lyceum_foundry::edit::Session,
+    actions: &[lyceum_foundry::script::Action],
+    dry_run: bool,
+) -> ExitCode {
     for (i, a) in actions.iter().enumerate() {
         match session.act(a) {
             Ok(done) => {
@@ -719,7 +772,7 @@ fn run_edit(args: &Args) -> ExitCode {
             }
         }
     }
-    if args.switch("dry-run") {
+    if dry_run {
         return ExitCode::SUCCESS;
     }
     match session.save() {
@@ -731,6 +784,35 @@ fn run_edit(args: &Args) -> ExitCode {
         }
         Err(e) => fail(&e),
     }
+}
+
+/// The server's schema of rows a world repository's edit needs: `--schema`'s file, or what the
+/// server's import tool (`--empyrean`'s, or beside the command) writes.
+fn edit_schema(args: &Args) -> Result<lyceum_foundry::content::Schema, String> {
+    let read = |p: &Path| -> Result<lyceum_foundry::content::Schema, String> {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        lyceum_foundry::content::Schema::read(&text).map_err(|e| format!("{}: {e}", p.display()))
+    };
+    if let Some(p) = args.path("schema") {
+        return read(&p);
+    }
+    let named = args.path("empyrean");
+    let tool = import_program(named.as_deref()).ok_or(
+        "a world repository is edited with the server's schema of rows: --schema <json>, or the server's folder with --empyrean",
+    )?;
+    let out = std::env::temp_dir().join(format!("lyceum-edit-schema-{}.json", std::process::id()));
+    let ran = std::process::Command::new(&tool)
+        .args(["schema", "--out"])
+        .arg(&out)
+        .status()
+        .map_err(|e| format!("{}: {e}", tool.display()))?;
+    let schema = if ran.success() {
+        read(&out)
+    } else {
+        Err(format!("{} wrote no schema", tool.display()))
+    };
+    let _ = std::fs::remove_file(&out);
+    schema
 }
 
 /// `template`: a new weenie's SQL from a class of the world database's SQL (a dump or an

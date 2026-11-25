@@ -360,3 +360,35 @@ pub fn world_of(
         land_steps: None,
     })
 }
+
+/// World repository `world_toml` opened to edit as the editor opens it: its world at its newest
+/// layer over land `land` ([`world_of`], building into `out`), the player's files `dats` checked
+/// against its pins ([`check_inputs`]), with the server's `schema`, and its newest layer the one
+/// edited ([`crate::edit::Session::open_repository`]), so that its spawns are written as that
+/// layer's placement rows. `pack` names the pack edits go into, as for any world.
+///
+/// # Errors
+/// A lockfile in conflict, a land or files that aren't the repository's, a world that doesn't
+/// open, or a layer that can't be edited.
+pub fn open_to_edit(
+    world_toml: &Path,
+    dats: &Path,
+    land: Option<&Path>,
+    out: &Path,
+    pack: Option<&str>,
+    schema: crate::content::Schema,
+) -> Result<crate::edit::Session, String> {
+    let repo = Repo::open(world_toml)?;
+    check_lock(&repo, land)?;
+    let layer = repo
+        .shown_layers()
+        .checked_sub(1)
+        .ok_or_else(|| format!("{}: no layer can be edited", repo.path.display()))?;
+    let world = world_of(&repo, layer, land, out)?;
+    check_inputs(&repo, dats)?;
+    let mut s =
+        crate::edit::Session::open_world(world, dats, pack, None).map_err(|e| e.to_string())?;
+    s.set_schema(Some(schema));
+    s.open_repository(&repo, layer).map_err(|e| e.to_string())?;
+    Ok(s)
+}

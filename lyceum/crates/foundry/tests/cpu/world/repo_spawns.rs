@@ -482,3 +482,46 @@ fn a_repositorys_own_classes_are_no_fault_where_the_layer_names_them() {
     assert!(!names(2_000_002), "{faults:?}");
     assert!(!names(100), "{faults:?}");
 }
+
+/// A world repository opened to edit as `lyceum edit` opens it: an edit's spawn is a placement
+/// row of its newest layer, as saved, and no SQL.
+#[test]
+fn a_repository_opened_to_edit_writes_a_scripts_spawn_as_its_layers_placement_row() {
+    let f = Fixture::new("repo-spawns-edit-command");
+    let world = repo(&f);
+    let mut s = lyceum_foundry::repo_world::open_to_edit(
+        &world,
+        &f.dats(),
+        None,
+        &f.path().join("build"),
+        None,
+        Schema::read(&schema_text()).unwrap(),
+    )
+    .unwrap();
+    let actions = lyceum_foundry::script::actions(
+        "[[edit]]\ndo = \"spawn\"\nweenie = 100\nlandblock = \"0101\"\nat = [60.0, 70.0, 5.0]\nheading = 0.0\n",
+        "emergence",
+    )
+    .unwrap();
+    for a in &actions {
+        s.act(a).unwrap();
+    }
+    s.save().unwrap();
+    let pack = f.path().join("repo/base/emergence");
+    assert!(!pack.join("server").exists(), "the pack holds SQL");
+    let rows: toml::Table =
+        toml::from_str(&std::fs::read_to_string(pack.join("landblock/0101.toml")).unwrap())
+            .unwrap();
+    let placed: Vec<(i64, i64)> = rows["placement"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["guid"].as_integer().unwrap(),
+                r["class"].as_integer().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(placed, [(0x7010_1800, 100), (0x7010_1801, 100)]);
+}
