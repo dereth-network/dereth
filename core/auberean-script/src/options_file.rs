@@ -185,17 +185,30 @@ impl GameplayOptions {
         Ok(tree::to_file_bytes(&mut root))
     }
 
-    /// A new profile read from an export's file (`bytes`, as read), or the error: an empty file
-    /// name, a file that does not parse or whose options do not read, or one holding nothing.
+    /// A new profile read from an export's file (`bytes`, as read; it includes nothing), or the
+    /// error: an empty file name, a file that does not parse or whose options do not read, or one
+    /// holding nothing.
+    ///
+    /// # Errors
+    /// [`NO_FILE_NAME`], [`NOT_READ`] or [`NO_OPTIONS`].
+    pub fn import(filename: &str, bytes: &[u8]) -> Result<Self, u32> {
+        Self::import_including(filename, bytes, &tree::NoIncludes)
+    }
+
+    /// [`GameplayOptions::import`], a file the export includes found through `includes`.
     ///
     /// # Errors
     /// [`NO_FILE_NAME`], [`NOT_READ`] or [`NO_OPTIONS`].
     // D2-12005
-    pub fn import(filename: &str, bytes: &[u8]) -> Result<Self, u32> {
+    pub fn import_including(
+        filename: &str,
+        bytes: &[u8],
+        includes: &dyn tree::Includes,
+    ) -> Result<Self, u32> {
         if filename.is_empty() {
             return Err(NO_FILE_NAME);
         }
-        let mut root = tree::parse_bytes(filename.as_bytes(), bytes).ok_or(NOT_READ)?;
+        let mut root = tree::parse_file(filename.as_bytes(), bytes, includes).ok_or(NOT_READ)?;
         let node = root.child_mut(0).ok_or(NO_OPTIONS)?;
         let mut o = Self::default();
         if o.from_node(node) {

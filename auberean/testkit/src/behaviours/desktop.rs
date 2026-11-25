@@ -1981,6 +1981,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.keys.a-key-map-file-includes-a-file-beside-it",
+        says: "A key map file may include another file, looked for beside it, whose bindings are \
+               read in the include's place; without that file the map does not read and the \
+               data's Defaults map stands in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-INCLUDE"),
+        station: "auberean-shell::cpu::keys::a_key_map_file_reads_the_bindings_of_a_file_it_includes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.keys.a-preset-binds-and-writes-nothing",
         says: "A key map preset is bound at once and written to no file until Apply, so Undo does not take it back.",
         since: RETAIL,

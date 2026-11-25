@@ -1914,6 +1914,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.options.an-import-includes-a-file-beside-it",
+        says: "An options file may include another, looked for beside it, whose sections are read \
+               in the include's place; without that file the import does not read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-INCLUDE"),
+        station: "auberean-script::cpu::options_file::an_options_file_reads_the_sections_of_a_file_it_includes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.options.an-import-refuses-what-it-does-not-know",
         says: "An options import fails on an empty file name, a file that does not parse or holds \
                nothing, a node that is not the options', an unknown section, an alias with \

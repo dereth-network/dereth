@@ -29,7 +29,7 @@ pub mod write;
 
 use std::cmp::Ordering;
 
-pub use parse::{parse_bytes, parse_file, parse_text, Includes, NoIncludes, Parser};
+pub use parse::{parse_bytes, parse_file, parse_text, Beside, Includes, NoIncludes, Parser};
 pub use write::{to_file_bytes, to_text, Writer};
 
 /// The kind of a node's name, by the client's numbering.

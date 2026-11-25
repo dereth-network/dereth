@@ -39,6 +39,29 @@ fn an_exported_options_file_imports_back_into_a_new_profile() {
     assert_eq!(o.export(""), Err(NO_FILE_NAME));
 }
 
+/// An options file may include another, looked for beside it: its sections are read in the
+/// include's place. Without the included file the import does not read.
+///
+/// Behaviour: script.options.an-import-includes-a-file-beside-it
+#[test]
+fn an_options_file_reads_the_sections_of_a_file_it_includes() {
+    use auberean_dat::tree::Beside;
+    let main = b"\"GAMEPLAY OPTIONS\" [ !include [ aliases.txt ] AutoTarget ]\r\n";
+    let with =
+        |n: &str| (n == "saved/aliases.txt").then(|| b"Aliases [ loc [ /loc ] ]\r\n".to_vec());
+    let read =
+        GameplayOptions::import_including("saved/mine.txt", main, &Beside(&with)).expect("read");
+    let plain = GameplayOptions::import("f", b"\"GAMEPLAY OPTIONS\" [ Aliases [ loc [ /loc ] ] ]")
+        .expect("read");
+    assert!(!plain.aliases.entries.is_empty());
+    assert_eq!(read.aliases.entries, plain.aliases.entries);
+    let without = |_: &str| None;
+    assert_eq!(
+        GameplayOptions::import_including("saved/mine.txt", main, &Beside(&without)).err(),
+        Some(NOT_READ)
+    );
+}
+
 /// An import fails on an empty file name, a file that does not parse, one holding nothing, one
 /// whose node is not the options', one with a section it does not know, an alias with nothing
 /// under it, or a range that is not a number; `Other` turns the damage text for others on and a

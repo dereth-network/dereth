@@ -314,8 +314,8 @@ pub struct Keys {
 }
 
 impl Keys {
-    /// A key map read from its file: parsed, read with `updates`, and when an update added a
-    /// binding, written back. None when the file is missing; `Some(None)` when it does not read.
+    /// A key map read from its file: parsed (a file it includes looked for beside it), read with
+    /// `updates`, and when an update added a binding, written back. None when the file is missing; `Some(None)` when it does not read.
     // D2-04965
     fn read_file(
         &self,
@@ -324,7 +324,8 @@ impl Keys {
         updates: &[VersionUpdate],
     ) -> Option<Option<KeyMap>> {
         let bytes = store.load(name)?;
-        let Some(mut root) = tree::parse_bytes(name.as_bytes(), &bytes) else {
+        let read = |n: &str| store.load(n);
+        let Some(mut root) = tree::parse_file(name.as_bytes(), &bytes, &tree::Beside(&read)) else {
             return Some(None);
         };
         let action_of = |n: &str| self.records.action_of(n);

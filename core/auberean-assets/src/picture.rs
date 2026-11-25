@@ -3,7 +3,7 @@
 //! `0x40000000`-`0x400FFFFF`, local `0x40100000`+).
 
 use auberean_dat::reader::Result;
-use auberean_dat::Reader;
+use auberean_dat::{Reader, RecordType};
 use auberean_primitives::DataId;
 
 use crate::{Context, Decode};
@@ -50,11 +50,16 @@ impl Picture {
 }
 
 impl Decode for Picture {
-    /// The id, the category word, width, height, format, a byte count and the bytes.
+    /// The id, the category word (when the table says the type carries one: both picture types
+    /// do), width, height, format, a byte count and the bytes.
     // D2-09943, D2-12693
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
-        let category = r.u32()?;
+        let category = if auberean_dat::type_of_id(id).is_some_and(RecordType::is_categorized) {
+            r.u32()?
+        } else {
+            0
+        };
         let width = r.u32()?;
         let height = r.u32()?;
         let format = r.u32()?;

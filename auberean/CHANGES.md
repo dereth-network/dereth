@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Key map and options files can now include other files.
 
 ## 0.1.13 (2026-11-23)
 - No changes of its own; built with the latest shared code.

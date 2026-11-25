@@ -50,6 +50,14 @@ impl Body {
         self.minterp.constraint_factor(&self.position)
     }
 
+    /// The motion the body was last asked for (sideways, forward, vertical), kept until it is asked
+    /// again.
+    // D2-05903, D2-00089
+    #[must_use]
+    pub fn last_do_motion_values(&self) -> Vec3 {
+        self.minterp.asked
+    }
+
     /// The motion the server last sent for the body.
     // D2-05904
     #[must_use]

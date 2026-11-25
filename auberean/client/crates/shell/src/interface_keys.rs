@@ -223,11 +223,13 @@ pub fn horizon_map(records: &KeyRecords, meta: u32) -> KeyMap {
     m
 }
 
-/// One of an interface's maps read from its file, its actions named as the input actions or this
-/// client's own name them; none when the file is missing or does not read.
+/// One of an interface's maps read from its file (a file it includes looked for beside it), its
+/// actions named as the input actions or this client's own name them; none when the file is
+/// missing or does not read.
 fn read(records: &KeyRecords, store: &dyn KeyFileStore, name: &str) -> Option<KeyMap> {
     let bytes = store.load(name)?;
-    let mut root = tree::parse_bytes(name.as_bytes(), &bytes)?;
+    let read = |n: &str| store.load(n);
+    let mut root = tree::parse_file(name.as_bytes(), &bytes, &tree::Beside(&read))?;
     let action_of = |n: &str| own::by_name(n).or_else(|| records.action_of(n));
     Some(KeyMap::from_tree(&mut root, &action_of, &[])?.map)
 }

@@ -1394,9 +1394,11 @@ impl Field for Qualities {
         Ok(q)
     }
 
+    /// The header the qualities work out ([`Qualities::pack_header`]), not the one stored, then
+    /// the description and each table that holds an entry.
     // D2-07265
     fn write(&self, w: &mut Writer) {
-        let header = self.header;
+        let header = self.pack_header();
         let h = |bit| has(header, bit);
         w.u32(header);
         w.u32(self.did);

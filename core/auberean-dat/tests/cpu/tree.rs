@@ -217,6 +217,37 @@ fn directives_include_fail_or_drop_as_the_client_does() {
     assert!(tree::parse_text(b"!warning [ w ] next\n").is_some());
 }
 
+/// The client looks for an included file beside the file including it: the including file's
+/// folder, backslashes read as slashes and a slash after a drive, then the name; a file with no
+/// folder looks for the name alone, and one not there fails the parse.
+///
+/// Behaviour: data.text-tree.an-include-is-found-beside-the-including-file
+#[test]
+fn an_include_is_looked_for_beside_the_file_including_it() {
+    let asked = std::cell::RefCell::new(Vec::new());
+    let read = |name: &str| {
+        asked.borrow_mut().push(name.to_owned());
+        match name {
+            "maps/more.txt" | "more.txt" | "c:/more.txt" => Some(b"more [ x ]\n".to_vec()),
+            _ => None,
+        }
+    };
+    let beside = tree::Beside(&read);
+    for (from, want) in [
+        (&b"maps/keys.txt"[..], "maps/more.txt"),
+        (b"maps\\keys.txt", "maps/more.txt"),
+        (b"keys.txt", "more.txt"),
+        (b"c:keys.txt", "c:/more.txt"),
+    ] {
+        asked.borrow_mut().clear();
+        let root = tree::parse_file(from, b"a\n!include [ more.txt ]\nb\n", &beside)
+            .expect("the include is found");
+        assert_eq!(names(&root), ["a", "more", "b"], "{from:?}");
+        assert_eq!(*asked.borrow(), [want], "{from:?}");
+    }
+    assert!(tree::parse_file(b"elsewhere/keys.txt", b"!include [ more.txt ]\n", &beside).is_none());
+}
+
 /// The writer puts a blank line before each of the root's children and writes a node's children
 /// on its line, separated by spaces, unless the node is too wide (its name, six for the
 /// brackets, and its children's names past 80 characters, measured three levels down) or a child

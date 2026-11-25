@@ -348,6 +348,38 @@ fn the_key_maps_come_from_their_files_else_the_defaults() {
     );
 }
 
+/// A key map file may include another file, looked for beside it: its bindings are read in the
+/// include's place. Without the included file the map does not read, and the data's Defaults map
+/// stands in.
+///
+/// Behaviour: desktop.keys.a-key-map-file-includes-a-file-beside-it
+#[test]
+fn a_key_map_file_reads_the_bindings_of_a_file_it_includes() {
+    let main = b"\"\" [ old ]\r\n\"\" [ 0 0 0 0 0 0 0 0 0 0 0 ]\r\n!include [ moves.txt ]\r\n";
+    let mut host = TestHost::default();
+    host.files.insert("Main.keymap".into(), main.to_vec());
+    host.files.insert(
+        "moves.txt".into(),
+        b"\"\" [ Forward_KEY DIKEYBOARD_UP ]\r\n".to_vec(),
+    );
+    let keys = Keys::start(records(), KeyFiles::default(), &mut HostFiles(&mut host));
+    let plain = &keys.stack.layers()[1].map;
+    assert_eq!(plain.name, "old");
+    assert!(
+        plain
+            .bindings
+            .iter()
+            .any(|b| (b.input, b.action) == (Key::ArrowUp.input_word(), FORWARD)),
+        "{:?}",
+        plain.bindings
+    );
+
+    let mut host = TestHost::default();
+    host.files.insert("Main.keymap".into(), main.to_vec());
+    let keys = Keys::start(records(), KeyFiles::default(), &mut HostFiles(&mut host));
+    assert_eq!(keys.stack.layers()[1].map.name, "Defaults");
+}
+
 /// Applying keys writes the three files the preferences name (`mydefault`, `mydefaults`,
 /// `mydefaultc`, each binding named by its action) and binds them in place of the three player's
 /// maps; when a file cannot be written, nothing changes.

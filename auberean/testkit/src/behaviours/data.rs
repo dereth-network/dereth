@@ -1698,6 +1698,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.text-tree.an-include-is-found-beside-the-including-file",
+        says: "The client looks for a file a text tree includes beside the file including it: \
+               that file's folder, its backslashes made slashes and ending in one, then the name \
+               as given; with no folder, the name alone. Key maps and option profiles read from \
+               files include so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TEXT-TREE-INCLUDE-BESIDE"),
+        station: "auberean-dat::cpu::tree::an_include_is_looked_for_beside_the_file_including_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.text-tree.directives",
         says: "In a text tree an include puts the named file's nodes in its place, its first \
                node carrying the directive's comment, the file's leading comment and its own; a \

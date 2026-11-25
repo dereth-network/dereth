@@ -38,6 +38,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "protocol.qualities.packed-with-the-header-worked-out",
+        says: "Qualities pack with the header the client works out from them, not the one they \
+               hold: the description's bit as held, and the bit of each table holding an entry, \
+               each such table packed and no empty one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROTOCOL-QUALITIES-PACK"),
+        station: "auberean-protocol::cpu::qualities::qualities_pack_with_the_header_worked_out_from_their_tables",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "protocol.qualities.the-header-names-the-tables-that-hold-entries",
         says: "Every player's qualities the 2005, 2013 and 2017 servers sent carry the header the \
                client works out from them (the description's bit, and the bit of each table holding \

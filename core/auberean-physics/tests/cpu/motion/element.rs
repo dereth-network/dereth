@@ -250,6 +250,29 @@ fn a_body_runs_and_jumps_at_its_own_scale_not_its_looks() {
     }
 }
 
+/// A body answers the motion it was last asked for (sideways, forward, vertical), kept through
+/// its steps until it is asked again: half forward and half to the left, then nothing.
+///
+/// Behaviour: motion.input.a-body-answers-the-motion-last-asked-of-it
+#[test]
+fn a_body_answers_the_motion_it_was_last_asked_for_until_asked_again() {
+    let land = world(None);
+    let mut b = body(GROUND_Z, 0.0);
+    assert_eq!(b.last_do_motion_values(), Vec3::ZERO, "nothing asked yet");
+    b.steer(auberean_physics::motion::MotionInput {
+        forward: 0.5,
+        sideways: -0.5,
+        ..auberean_physics::motion::MotionInput::default()
+    });
+    for _ in 0..3 {
+        b.tick(&land, dt());
+    }
+    assert_eq!(b.last_do_motion_values(), Vec3::new(-0.5, 0.5, 0.0));
+    b.steer(auberean_physics::motion::MotionInput::default());
+    b.tick(&land, dt());
+    assert_eq!(b.last_do_motion_values(), Vec3::ZERO);
+}
+
 /// A body with a figure stays in its old element through the step that takes the figure to the
 /// new one, while the element it is going to leads: it may not jump again until the figure stands
 /// on the ground, and going back asks its animation again.

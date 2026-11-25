@@ -680,6 +680,9 @@ pub fn is_panel_notice(lib: &Library, id: u32) -> bool {
 pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
     let mut master = MasterMap::default();
     master.init();
+    // D2-12616
+    master.set_game_data_dir(MasterMap::PLAYER_FOLDER);
+    master.set_engine_data_dir(MasterMap::PLAYER_FOLDER);
     ClientHost {
         file_names: started_file_names(&master),
         master,

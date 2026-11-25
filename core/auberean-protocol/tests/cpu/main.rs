@@ -3,6 +3,7 @@
 
 mod descriptions;
 mod positions;
+mod qualities;
 mod round_trip;
 mod table;
 mod text;

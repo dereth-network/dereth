@@ -8,7 +8,8 @@
 //!
 //! `!include` names files to read in the directive's place. The parser asks for them through
 //! [`Includes`]: the host's search, by the directive's name and the including file's name, of
-//! the folders the client looks in. With [`NoIncludes`] every include fails the parse.
+//! the folders the client looks in: [`Beside`] is the client's own, the folder of the file being
+//! read. With [`NoIncludes`] every include fails the parse.
 
 use super::{stricmp, Node};
 use std::cmp::Ordering;
@@ -35,6 +36,35 @@ pub struct NoIncludes;
 impl Includes for NoIncludes {
     fn find(&self, _name: &[u8], _from: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
         Vec::new()
+    }
+}
+
+/// The client's search for an included file: the named file beside the including one. The
+/// including file's folder ([`super::directory_of`]), its backslashes made slashes and ending in
+/// one, then the name as given; a file with no folder looks for the name alone. The file is read
+/// through the function, by that name; one that is not there is not found.
+pub struct Beside<'a>(pub &'a dyn Fn(&str) -> Option<Vec<u8>>);
+
+impl std::fmt::Debug for Beside<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Beside")
+    }
+}
+
+impl Includes for Beside<'_> {
+    // D2-14584, D2-17786, D2-17811, D2-17810
+    fn find(&self, name: &[u8], from: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let mut path: Vec<u8> = super::directory_of(from)
+            .iter()
+            .map(|&c| if c == b'\\' { b'/' } else { c })
+            .collect();
+        if !path.is_empty() && path.last() != Some(&b'/') {
+            path.push(b'/');
+        }
+        path.extend_from_slice(name);
+        (self.0)(&String::from_utf8_lossy(&path))
+            .map(|bytes| vec![(path, bytes)])
+            .unwrap_or_default()
     }
 }
 

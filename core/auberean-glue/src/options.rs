@@ -30,6 +30,7 @@
 
 use std::sync::Arc;
 
+use auberean_dat::tree::Beside;
 use auberean_script::library::Elem;
 use auberean_script::native::{Call, NativeFn, NativeTable, Status, Stop};
 use auberean_script::native_object::{native_type, Item, NativeObject};
@@ -391,9 +392,9 @@ fn export(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Read the receiver's profile from a file in the client's folder named by a string (`fp[-2]`);
-/// answers 0, or the error (`fp[-3]`): no name, no file or one that does not read, or one holding
-/// nothing. The profile changes only when the file reads.
+/// Read the receiver's profile from a file in the client's folder named by a string (`fp[-2]`), a
+/// file it includes looked for beside it; answers 0, or the error (`fp[-3]`): no name, no file or
+/// one that does not read, or one holding nothing. The profile changes only when the file reads.
 // D2-01434
 fn import(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.receiver()?;
@@ -404,9 +405,15 @@ fn import(c: &mut Call<'_>) -> Result<Status, Stop> {
     let answer = if name.is_empty() {
         options_file::NO_FILE_NAME
     } else {
-        match c.host.read_file(&name) {
+        let imported = {
+            let host = std::cell::RefCell::new(&mut *c.host);
+            let read = |n: &str| host.borrow_mut().read_file(n);
+            read(&name)
+                .map(|bytes| GameplayOptions::import_including(&name, &bytes, &Beside(&read)))
+        };
+        match imported {
             None => options_file::NOT_READ,
-            Some(bytes) => match GameplayOptions::import(&name, &bytes) {
+            Some(imported) => match imported {
                 Err(e) => e,
                 Ok(read) => {
                     let Some(p) = profile_mut(c, r)? else {

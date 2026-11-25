@@ -599,7 +599,7 @@ pub fn is_player_or_creature(client: &mut Client, id: u64) -> bool {
 /// What a body says of itself when the scripts ask, read for them after the frame's ticks.
 #[must_use]
 pub fn reading_of(b: &Body, f: Option<&Figure>) -> auberean_client_runtime::body::BodyReading {
-    let m = b.minterp.asked;
+    let m = b.last_do_motion_values();
     let mode = f.map_or(0, |f| f.modes.desired_mode);
     auberean_client_runtime::body::BodyReading {
         element: b.element(),

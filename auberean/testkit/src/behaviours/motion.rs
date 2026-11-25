@@ -391,6 +391,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.input.a-body-answers-the-motion-last-asked-of-it",
+        says: "A body answers the motion it was last asked for (sideways, forward, vertical), kept \
+               through its steps until it is asked again; what the scripts read of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-LAST-ASKED"),
+        station: "auberean-physics::cpu::motion::element::a_body_answers_the_motion_it_was_last_asked_for_until_asked_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.interior.a-body-falls-by-the-gravity-where-it-is",
         says: "A body falls by the gravity where it is: a room's own properties may set it (3 m/s2 in some, 1 m/s2 \
                upward in others), and the region lays it over the land, block by block (9.8039 m/s2 nearly \
