@@ -216,3 +216,35 @@ fn a_merged_lockfile_is_regenerated_and_a_symbol_numbered_again_takes_its_rows_w
             .contains("Surface = 0x05000011")
     );
 }
+
+/// A world repository's world builder opens where its characters start: the destination of the
+/// weenie its first `Start:` point names, as the newest layer moves it; none without one.
+#[test]
+fn a_repository_starts_where_its_characters_do() {
+    let f = Fixture::new("repo-start");
+    let path = repo(&f, None);
+    assert_eq!(
+        lyceum_foundry::repo_world::start_landblock(&Repo::open(&path).unwrap()),
+        None
+    );
+    f.write(
+        "repo/base/emergence/poi/Start__Arwic.toml",
+        "[[poi]]\nname = \"Start: Arwic\"\nweenie_class_id = 2300001\n",
+    );
+    f.write(
+        "repo/base/emergence/weenie/2300001.toml",
+        "[[weenie]]\nclass = 2300001\nclass_name = \"start-arwic\"\ntype = \"Portal\"\n\n[weenie.position]\nDestination = { cell = 0x6498002C, at = [122.5, 76.5, 128.0], rotation = [1.0, 0.0, 0.0, 0.0] }\n",
+    );
+    assert_eq!(
+        lyceum_foundry::repo_world::start_landblock(&Repo::open(&path).unwrap()),
+        Some(0x6498)
+    );
+    f.write(
+        "repo/patches/2027-01-fixes/packs/fixes/weenie/2300001.toml",
+        "[[weenie]]\nclass = 2300001\n\n[weenie.position]\nDestination = { cell = 0x64990001, at = [12.0, 12.0, 128.0], rotation = [1.0, 0.0, 0.0, 0.0] }\n",
+    );
+    assert_eq!(
+        lyceum_foundry::repo_world::start_landblock(&Repo::open(&path).unwrap()),
+        Some(0x6499)
+    );
+}

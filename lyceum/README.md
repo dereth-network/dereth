@@ -39,7 +39,7 @@ is reused. Development builds use the server programs built beside the editor, o
 
 The editor keeps its settings in its own folder (`Dereth/lyceum` beside the client's). It reopens
 where you left off: the window, the panel layout (`lyceum-layout.json`), and each world's camera,
-tool and dungeon (`.lyceum-place.toml` beside the world), unless the command line names a
+tool and dungeon (`.lyceum-place.toml` beside the world; a world repository's in the cache), unless the command line names a
 landblock. To change the words it shows, put a `lyceum-text.toml` with just the lines you want in
 its settings folder; `lyceum-editor --write-text` writes every line to start from, and
 `--overwrite` replaces an existing file.

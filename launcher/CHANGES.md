@@ -10,6 +10,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 - New Dereth can now be chosen as a world's era.
+- Lyceum opens a New Dereth world, asking once for the folder of its land.
+- A New Dereth world from Lyceum can be published to a world you host.
 
 ## 0.5.10 (2026-11-23)
 

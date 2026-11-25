@@ -739,7 +739,7 @@ fn find_client(named: Option<PathBuf>, here: &Path, installed: Option<PathBuf>) 
     let workspace = here
         .ancestors()
         .find(|a| a.join("Cargo.toml").is_file() && a.join("dereth/client/Cargo.toml").is_file())?;
-    ["release", "debug"]
+    ["release", "test-release", "debug"]
         .iter()
         .flat_map(|profile| {
             CLIENT_NAMES
@@ -1280,6 +1280,27 @@ mod tests {
         );
     }
 
+    /// A launcher built in a checkout plays the checkout's client from any of the profiles the
+    /// workspace builds with, `test-release` among them, the release build first.
+    #[test]
+    fn a_checkout_plays_its_own_client_from_any_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        let checkout = temp.path();
+        std::fs::write(checkout.join("Cargo.toml"), b"[workspace]").unwrap();
+        std::fs::create_dir_all(checkout.join("dereth/client")).unwrap();
+        std::fs::write(checkout.join("dereth/client/Cargo.toml"), b"[package]").unwrap();
+        let here = checkout.join("launcher/target/test-release");
+        std::fs::create_dir_all(&here).unwrap();
+        let name = super::CLIENT_NAMES[usize::from(!cfg!(windows))];
+        assert_eq!(super::find_client(None, &here, None), None);
+        for profile in ["debug", "test-release", "release"] {
+            let dir = checkout.join("target").join(profile);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(name), b"client").unwrap();
+            assert_eq!(super::find_client(None, &here, None), Some(dir.join(name)));
+        }
+    }
+
     /// Every launcher offers both realms: it opens in the one it last showed, and draws the
     /// portals that pick one.
     #[test]
@@ -1793,6 +1814,24 @@ mod tests {
             !page.contains("custom_worlds.find((c) => c.slug === world.slug)?.era"),
             "what the player set is not the world's era"
         );
+    }
+
+    /// A world's base is named by the era it plays: every era a hosted world can play has its
+    /// name, so a New Dereth world is never said to play the end of retail's.
+    #[test]
+    fn every_era_a_world_can_play_names_its_world_base() {
+        let page = include_str!("../ui/app.js");
+        let at = page
+            .find("const BASE_NAMES = {")
+            .expect("the page names world bases");
+        let names = &page[at..at + page[at..].find("};").expect("their end")];
+        for era in dereth_launch::eras::eras() {
+            assert!(
+                names.contains(&format!("{}: \"", era.name)),
+                "{} has no world base name: {names}",
+                era.name
+            );
+        }
     }
 
     fn page_function(name: &str) -> &'static str {

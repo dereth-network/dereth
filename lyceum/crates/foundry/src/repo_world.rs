@@ -160,6 +160,59 @@ pub fn launched_at(repo: &Repo) -> Result<Option<String>, String> {
         .or_else(|| s("base", "month").map(|m| format!("{m}-01T00:00:00Z"))))
 }
 
+/// The landblock of the repository's first starting area, where new characters appear: the
+/// destination of the weenie its first `Start: <name>` point of interest names, as the newest layer
+/// that sets each has it. `None` when it has none.
+#[must_use]
+pub fn start_landblock(repo: &Repo) -> Option<u16> {
+    let mut starts: Vec<(String, i64)> = Vec::new();
+    let mut cells: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
+    for pack in repo.layers.iter().flat_map(|l| &l.packs) {
+        for text in pack.files.values() {
+            let Ok(t) = toml::from_str::<toml::Table>(text) else {
+                continue;
+            };
+            let rows = |kind: &str| {
+                t.get(kind)
+                    .and_then(toml::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(toml::Value::as_table)
+            };
+            for poi in rows("poi") {
+                let (Some(name), Some(class)) = (
+                    poi.get("name").and_then(toml::Value::as_str),
+                    poi.get("weenie_class_id").and_then(toml::Value::as_integer),
+                ) else {
+                    continue;
+                };
+                if name.starts_with("Start:") {
+                    starts.retain(|(n, _)| n != name);
+                    starts.push((name.to_owned(), class));
+                }
+            }
+            for weenie in rows("weenie") {
+                let (Some(class), Some(cell)) = (
+                    weenie.get("class").and_then(toml::Value::as_integer),
+                    weenie
+                        .get("position")
+                        .and_then(|p| p.get("Destination"))
+                        .and_then(|d| d.get("cell"))
+                        .and_then(toml::Value::as_integer),
+                ) else {
+                    continue;
+                };
+                cells.insert(class, cell);
+            }
+        }
+    }
+    starts.sort();
+    starts
+        .iter()
+        .find_map(|(_, class)| cells.get(class))
+        .and_then(|cell| u16::try_from(cell >> 16).ok())
+}
+
 /// The repository's key: its world file's, else its folder's name.
 ///
 /// # Errors

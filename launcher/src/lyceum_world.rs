@@ -56,6 +56,33 @@ pub fn header(world: &Path) -> Header {
     }
 }
 
+/// The world file `world`, read as a table: an empty one when it does not read.
+fn table_of(world: &Path) -> toml::Table {
+    std::fs::read_to_string(world)
+        .ok()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or_default()
+}
+
+/// Whether `world` is a world repository's world file, which names its layers (`lineage`), rather
+/// than a Lyceum world's.
+#[must_use]
+pub fn is_repository(world: &Path) -> bool {
+    table_of(world).contains_key("lineage")
+}
+
+/// Whether `world` is a world repository built on a converted land: its `[land]` pins the land's
+/// files by their hashes, and Lyceum and its publish are given that land's folder.
+#[must_use]
+pub fn needs_land(world: &Path) -> bool {
+    let table = table_of(world);
+    table.contains_key("lineage")
+        && table
+            .get("land")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|l| l.keys().any(|k| k.ends_with("_overlay_sha256")))
+}
+
 /// Every file under `dir`, links passed over.
 fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {

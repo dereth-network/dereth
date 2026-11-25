@@ -265,6 +265,24 @@ fn run(program: &Path, args: &[&std::ffi::OsStr], dir: &Path) -> Result<(), Stri
     }
 }
 
+/// A new, empty snapshot folder in the world in `dir`'s `published` folder, numbered after the
+/// newest, so the numbers say which is newer.
+fn new_snapshot(dir: &Path) -> Result<PathBuf, String> {
+    let root = dir.join("published");
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let first = snapshots(dir).first().map_or(0, |(n, _)| n + 1);
+    (first..first.saturating_add(10_000))
+        .find_map(|n| {
+            let p = root.join(format!("snapshot-{n}"));
+            match std::fs::create_dir(&p) {
+                Ok(()) => Some(Ok(p)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(e.to_string())),
+            }
+        })
+        .ok_or("Too many retained snapshots.")?
+}
+
 /// Builds from saved sources into a new folder, leaving the selected world intact on failure.
 /// The caller excludes source edits; this operation locks the stopped host.
 pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, String> {
@@ -294,6 +312,25 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
         return Err(why);
     }
     let settings = host_config::Settings::from_config(&config)?;
+    if crate::lyceum_world::is_repository(world) {
+        let world = components::plain_path(&world.canonicalize().map_err(|e| e.to_string())?);
+        let land = if crate::lyceum_world::needs_land(&world) {
+            Some(crate::components::repository_land(&world).ok_or(
+                "Open the world in Lyceum first: it asks for the land the world is built over, which publishing builds on.",
+            )?)
+        } else {
+            None
+        };
+        return publish_repository(
+            dir,
+            &world,
+            builder,
+            land.as_deref(),
+            &settings,
+            doc,
+            &definition.program,
+        );
+    }
     let era = doc
         .get("era")
         .and_then(|e| e.get("profile"))
@@ -340,8 +377,6 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
                 .collect()
         })
         .unwrap_or_default();
-    let root = dir.join("published");
-    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     // Players hold the overlay this world was last published with; the new one is its next
     // revision, so they are patched with what changed.
     let last_folder = last_publication(dir, &key);
@@ -351,18 +386,7 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
         .and_then(|b| serde_json::from_slice(&b).ok());
     let last = last_folder.map(|p| p.join("overlay"));
     let sources = crate::lyceum_world::digest(&world)?;
-    // Each snapshot is numbered after the newest, so the numbers say which is newer.
-    let first = snapshots(dir).first().map_or(0, |(n, _)| n + 1);
-    let folder = (first..first.saturating_add(10_000))
-        .find_map(|n| {
-            let p = root.join(format!("snapshot-{n}"));
-            match std::fs::create_dir(&p) {
-                Ok(()) => Some(Ok(p)),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
-                Err(e) => Some(Err(e.to_string())),
-            }
-        })
-        .ok_or("Too many retained snapshots.")??;
+    let folder = new_snapshot(dir)?;
     // A build that fails part way leaves nothing behind: the snapshot folder was made above
     // for this build alone, and the selected world is untouched until the very end.
     let built = (|| -> Result<Publication, String> {
@@ -541,6 +565,184 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
         }
     }
     built
+}
+
+/// Publish world repository `world` (its world file) to the stopped world in `dir`, as `lyceum
+/// publish` (`builder`) builds it at its newest layer, over `land` when it is built on a converted
+/// one: the world pack and the overlay the server streams to every Dereth player, numbered from the
+/// repository's ledger. Whoever publishes from Lyceum is the world's author, so content the ledger
+/// has no generation for yet is numbered there, a line to commit with the world. The world plays
+/// the repository's era and calendar from then on.
+///
+/// # Errors
+/// A build that fails (the world as it was is kept), or a configuration the server refuses.
+fn publish_repository(
+    dir: &Path,
+    world: &Path,
+    builder: &Path,
+    land: Option<&Path>,
+    settings: &host_config::Settings,
+    mut doc: DocumentMut,
+    server: &Path,
+) -> Result<Publication, String> {
+    use std::ffi::OsStr;
+    let source = std::fs::read_to_string(world).map_err(|e| e.to_string())?;
+    let sources = crate::lyceum_world::digest(world)?;
+    let header = crate::lyceum_world::header(world);
+    let root = world.parent().ok_or("Missing world folder")?;
+    let key = header
+        .key
+        .or_else(|| root.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .ok_or("The world has no key.")?;
+    let packs = header
+        .folders
+        .iter()
+        .filter_map(|f| f.strip_prefix(root).ok())
+        .map(|f| f.to_string_lossy().replace('\\', "/"))
+        .collect();
+    let last_published: Option<Publication> = last_publication(dir, &key)
+        .and_then(|p| std::fs::read(p.join("publication.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let tools = server.parent().ok_or("Missing runtime folder")?;
+    let folder = new_snapshot(dir)?;
+    let built = (|| -> Result<Publication, String> {
+        let mut args = vec![
+            OsStr::new("publish"),
+            world.as_os_str(),
+            OsStr::new("--dats"),
+            settings.dats.as_os_str(),
+            OsStr::new("--out"),
+            folder.as_os_str(),
+            OsStr::new("--number"),
+            OsStr::new("--empyrean"),
+            tools.as_os_str(),
+        ];
+        if let Some(land) = land {
+            args.extend([OsStr::new("--on"), land.as_os_str()]);
+        }
+        run(builder, &args, dir)?;
+        if std::fs::read_to_string(world).map_err(|e| e.to_string())? != source
+            || crate::lyceum_world::digest(world)? != sources
+        {
+            return Err(
+                "The world changed during publication. Save and close the editor, then retry."
+                    .into(),
+            );
+        }
+        let pack = folder.join("world.pack");
+        let mut files = BTreeMap::new();
+        inventory(&folder, &folder.join("overlay"), &mut files)?;
+        files.insert("world.pack".into(), digest(&pack)?);
+        let build = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&files).map_err(|e| e.to_string())?)
+        );
+        let publication = Publication {
+            revision: next_revision(last_published.as_ref(), &build),
+            source: world.to_path_buf(),
+            key,
+            packs,
+            build,
+            files,
+            sources,
+            base: None,
+        };
+        host_runtime::write_json(&folder.join("publication.json"), &publication)?;
+        // What lyceum publish says the server reads, the era and its calendar among it.
+        let served = std::fs::read_to_string(folder.join("empyrean.toml"))
+            .map_err(|e| e.to_string())?
+            .parse::<DocumentMut>()
+            .map_err(|e| e.to_string())?;
+        served_config(&mut doc, dir, &folder, &served)?;
+        for name in publication
+            .files
+            .keys()
+            .map(String::as_str)
+            .chain(["publication.json"])
+        {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(folder.join(name))
+                .and_then(|f| f.sync_all())
+                .map_err(|e| e.to_string())?;
+        }
+        crate::hosts::validate_config(server, dir, &doc.to_string())?;
+        Ok(publication)
+    })();
+    match &built {
+        Ok(_) => {
+            prune(dir);
+        }
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(&folder);
+        }
+    }
+    built
+}
+
+/// Configuration `doc` of the world in `dir` made to play the world repository published in
+/// snapshot `folder`, whose `lyceum publish` said the server reads `served`: its world pack, its
+/// overlay sent to every Dereth player, and its era with its calendar.
+fn served_config(
+    doc: &mut DocumentMut,
+    dir: &Path,
+    folder: &Path,
+    served: &DocumentMut,
+) -> Result<(), String> {
+    drop_published_inputs(doc, dir)?;
+    doc["server"]["world_pack_path"] = value(folder.join("world.pack").to_string_lossy().as_ref());
+    if doc.get("dat_overlay").is_none() {
+        doc["dat_overlay"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    if !doc["dat_overlay"].is_table() {
+        return Err("dat_overlay must be a table.".into());
+    }
+    doc["dat_overlay"]["path"] = value(folder.join("overlay").to_string_lossy().as_ref());
+    // The land is streamed to every Dereth player: patching stays on.
+    doc["dat_overlay"]["patching"] = value(true);
+    if let Some(era) = served.get("era").and_then(toml_edit::Item::as_table) {
+        if !doc.get("era").is_some_and(toml_edit::Item::is_table) {
+            doc["era"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        for (k, v) in era {
+            doc["era"][k] = v.clone();
+        }
+    }
+    Ok(())
+}
+
+/// Take from configuration `doc` of the world in `dir` the inputs of a world database published
+/// to it before (`world_base_sql` and `world_base_patches` in its `published` folder), from which a
+/// server update would rebuild that world in place of the one it plays.
+fn drop_published_inputs(doc: &mut DocumentMut, dir: &Path) -> Result<(), String> {
+    let published = dir.join("published");
+    let inside = |path: &str| {
+        let path = path.strip_prefix("json:").unwrap_or(path);
+        resolved(dir, path).starts_with(&published)
+    };
+    if !doc.contains_key("server") {
+        doc["server"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    let server = doc["server"]
+        .as_table_like_mut()
+        .ok_or("server must be a table.")?;
+    if server
+        .get("world_base_sql")
+        .and_then(toml_edit::Item::as_str)
+        .is_some_and(inside)
+    {
+        server.remove("world_base_sql");
+    }
+    if let Some(patches) = server
+        .get_mut("world_base_patches")
+        .and_then(toml_edit::Item::as_array_mut)
+    {
+        patches.retain(|p| !p.as_str().is_some_and(inside));
+        if patches.is_empty() {
+            server.remove("world_base_patches");
+        }
+    }
+    Ok(())
 }
 
 // ----- Athenaeum worlds, published to Yalain worlds ----------------------------------------------
@@ -888,34 +1090,8 @@ pub fn unpublish(dir: &Path) -> Result<(), String> {
 fn unpublished(config: &str, dir: &Path) -> Result<String, String> {
     let mut doc = config.parse::<DocumentMut>().map_err(|e| e.to_string())?;
     let era = host_config::Settings::from_config(config)?.era;
-    let published = dir.join("published");
-    let inside = |path: &str| {
-        let path = path.strip_prefix("json:").unwrap_or(path);
-        resolved(dir, path).starts_with(&published)
-    };
-    if !doc.contains_key("server") {
-        doc["server"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-    let server = doc["server"]
-        .as_table_like_mut()
-        .ok_or("server must be a table.")?;
-    server.insert("world_pack_path", value(host_config::era_pack(&era)));
-    if server
-        .get("world_base_sql")
-        .and_then(toml_edit::Item::as_str)
-        .is_some_and(inside)
-    {
-        server.remove("world_base_sql");
-    }
-    if let Some(patches) = server
-        .get_mut("world_base_patches")
-        .and_then(toml_edit::Item::as_array_mut)
-    {
-        patches.retain(|p| !p.as_str().is_some_and(inside));
-        if patches.is_empty() {
-            server.remove("world_base_patches");
-        }
-    }
+    drop_published_inputs(&mut doc, dir)?;
+    doc["server"]["world_pack_path"] = value(host_config::era_pack(&era));
     if let Some(overlay) = doc
         .get_mut("dat_overlay")
         .and_then(toml_edit::Item::as_table_like_mut)
@@ -1243,6 +1419,74 @@ packs = [\"town\"]
         std::fs::write(dir.join("empyrean.toml"), doc.to_string()).unwrap();
         (folder, publication)
     }
+    /// A world repository publishes to a world of its own era (New Dereth's is no end-of-retail
+    /// world) through `lyceum publish`: one built on a converted land only once Lyceum knows that
+    /// land, and a failed build leaves the world as it was.
+    #[test]
+    fn a_world_repository_publishes_to_a_world_of_its_era_over_its_land() {
+        let (_root, dir) = host_of("newdereth");
+        let config = std::fs::read(dir.join("empyrean.toml")).unwrap();
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let world = repo.join("world.toml");
+        std::fs::write(
+            &world,
+            "key = 'nd'\nera = 'newdereth'\npacks = []\nlineage = []\n[land]\ncell_overlay_sha256 = '00'\n",
+        )
+        .unwrap();
+        let refused = publish(&dir, &world, &dir.join("missing-builder")).unwrap_err();
+        assert!(
+            refused.starts_with("Open the world in Lyceum first"),
+            "{refused}"
+        );
+        std::fs::write(
+            &world,
+            "key = 'nd'\nera = 'newdereth'\npacks = []\nlineage = []\n",
+        )
+        .unwrap();
+        let failed = publish(&dir, &world, &dir.join("missing-builder")).unwrap_err();
+        assert!(!failed.contains("publish only"), "{failed}");
+        assert_eq!(std::fs::read(dir.join("empyrean.toml")).unwrap(), config);
+        assert!(!dir.join("published/snapshot-0").exists());
+    }
+
+    /// The world plays what `lyceum publish` built: its pack, its overlay sent to every Dereth
+    /// player, and its era with its calendar; a world database published to it before is no longer
+    /// what a server update would rebuild.
+    #[test]
+    fn a_published_world_repository_is_played_with_its_era_and_overlay_sent_to_players() {
+        let (_root, dir) = host();
+        let folder = dir.join("published/snapshot-1");
+        let mut doc = std::fs::read_to_string(dir.join("empyrean.toml"))
+            .unwrap()
+            .parse::<DocumentMut>()
+            .unwrap();
+        let old = dir.join("published/snapshot-0");
+        doc["server"]["world_base_sql"] = value(old.join("base.sql").to_string_lossy().as_ref());
+        let served =
+            "[server]\nworld_pack_path = 'x'\n[dat_overlay]\npath = 'y'\npatching = true\n\
+                      [era]\nprofile = 'newdereth'\nlaunched_at = '2026-12-01T00:00:00Z'\n"
+                .parse::<DocumentMut>()
+                .unwrap();
+        served_config(&mut doc, &dir, &folder, &served).unwrap();
+        let s = |t: &str, k: &str| doc[t][k].as_str().map(str::to_owned);
+        assert_eq!(
+            s("server", "world_pack_path"),
+            Some(folder.join("world.pack").to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            s("dat_overlay", "path"),
+            Some(folder.join("overlay").to_string_lossy().into_owned())
+        );
+        assert_eq!(doc["dat_overlay"]["patching"].as_bool(), Some(true));
+        assert_eq!(s("era", "profile").as_deref(), Some("newdereth"));
+        assert_eq!(
+            s("era", "launched_at").as_deref(),
+            Some("2026-12-01T00:00:00Z")
+        );
+        assert!(doc["server"].get("world_base_sql").is_none());
+    }
+
     #[test]
     fn a_failed_build_keeps_the_selected_world_and_configuration_and_leaves_no_snapshot() {
         let (_root, dir) = host();

@@ -515,7 +515,7 @@ function programName(product) {
   return c?.installed?.version ? `${title} ${vee(c.installed.version)}` : title;
 }
 // The world each era's world base is.
-const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)", launch: "ac1999 Launch (1999)" };
+const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)", launch: "ac1999 Launch (1999)", newdereth: "New Dereth, Emergence" };
 // A world base in words: `ACE End of Retail v0.9.295`, or the era's world alone when its release
 // is not known.
 const baseName = (era, base) => `${BASE_NAMES[base?.era ?? era] ?? BASE_NAMES.eor}${base?.version ? ` ${base.version}` : ""}`;

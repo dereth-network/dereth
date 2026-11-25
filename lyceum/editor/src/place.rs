@@ -1,6 +1,7 @@
-//! Where a world was left, kept beside it in `.lyceum-place.toml` and taken up when it opens again
-//! (unless the command line names a landblock): the camera, the tool, and the dungeon gone into
-//! with where Leave goes back to.
+//! Where a world was left, kept in `.lyceum-place.toml` among the editor's files of the world
+//! ([`crate::world_home`]: beside a Lyceum world, never inside a world repository) and taken up
+//! when it opens again (unless the command line names a landblock): the camera, the tool, and the
+//! dungeon gone into with where Leave goes back to.
 //!
 //! ```toml
 //! camera = [41570.5, 34650.0, 112.0, 30.0, -20.0, 3]   # world meters, yaw and pitch, speed
@@ -16,13 +17,10 @@ use dereth_primitives::Vec3;
 
 use crate::camera::FlyCamera;
 
-/// The file a world's place is kept in, beside its `world.toml`.
+/// The file a world's place is kept in, among the editor's files of it.
 #[must_use]
 pub fn file(world: &Path) -> PathBuf {
-    world
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(".lyceum-place.toml")
+    crate::world_home::world_home(world).join(".lyceum-place.toml")
 }
 
 /// Where a world was left.
@@ -147,6 +145,9 @@ pub fn read(world: &Path) -> Option<Left> {
 /// The file would not write.
 pub fn write(world: &Path, left: &Left) -> Result<(), String> {
     let path = file(world);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
     std::fs::write(&path, text(left)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -188,5 +189,22 @@ mod tests {
         let again = read_text(&text(&out)).unwrap();
         assert_eq!((again.dungeon, again.speeds), (None, None));
         assert_eq!(read_text("not = [toml"), None);
+    }
+
+    /// A Lyceum world's place is kept beside it; a world repository's never in the repository,
+    /// which holds only what its authors commit.
+    #[test]
+    fn a_world_repositorys_place_is_kept_out_of_it() {
+        let dir = std::env::temp_dir().join(format!("lyceum-place-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("repo")).unwrap();
+        std::fs::create_dir_all(dir.join("plain")).unwrap();
+        let repo = dir.join("repo/world.toml");
+        std::fs::write(&repo, "format_version = 1\npacks = []\nlineage = []\n").unwrap();
+        let plain = dir.join("plain/world.toml");
+        std::fs::write(&plain, "key = \"plain\"\npacks = []\n").unwrap();
+        assert_eq!(file(&plain), dir.join("plain/.lyceum-place.toml"));
+        assert!(!file(&repo).starts_with(&dir), "{}", file(&repo).display());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -34,7 +34,7 @@ The plugin author's tool, `dereth-plugin`, comes with each one beside the client
   components folder at the first start (`components/dereth/<version>`, with the plugin tool, MoltenVK
   and any `UserPreferences.ini` beside it). It runs from there: an update replaces the launcher's
   whole bundle on macOS and Linux. It's updated from its game's own releases, apart from the
-  launcher. A launcher built from the repository uses the workspace's build instead, `target/release/dereth-client` (then `debug`); `DERETH_CLIENT` names
+  launcher. A launcher built from the repository uses the workspace's build instead, `target/release/dereth-client` (then `test-release`, then `debug`); `DERETH_CLIENT` names
   another.
 - **The retail client** (Windows only): you can point the launcher at one retail install, the
   folder holding `acclient.exe`. Choosing another replaces it. On macOS and Linux the launcher

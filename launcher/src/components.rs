@@ -1790,15 +1790,102 @@ fn lyceum_command(store: &Store) -> Result<PathBuf, String> {
 /// Open Lyceum on `world` (its `world.toml`, or the folder that holds it), drawn over the game's
 /// data files: the ones Lyceum used last, else `dats` (the launcher's own), with the Classic data
 /// files `classic` beside them, which a world built on Infiltration's files is drawn from. With no
-/// world, Lyceum's start screen.
+/// world, Lyceum's start screen. A world repository built on a converted land is opened over the
+/// land Lyceum remembers for it, else the one the person chooses now.
 #[tauri::command]
-pub fn open_lyceum(
+pub async fn open_lyceum(
+    app: tauri::AppHandle,
     shared: State<'_, Shared>,
     world: Option<PathBuf>,
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
 ) -> Result<(), String> {
-    open_editor(&shared, world, dats, classic)
+    let Some(land) = land_for(&app, world.as_deref()) else {
+        return Ok(());
+    };
+    open_editor(&shared, world, dats, classic, land)
+}
+
+/// The land world `world` is opened over: `Some(None)` for a world that takes none, `None` when
+/// the person was asked for it and chose nothing.
+fn land_for(app: &tauri::AppHandle, world: Option<&Path>) -> Option<Option<PathBuf>> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(world) = world
+        .map(world_file)
+        .filter(|w| crate::lyceum_world::needs_land(w))
+    else {
+        return Some(None);
+    };
+    if let Some(land) = repository_land(&world) {
+        return Some(Some(land));
+    }
+    app.dialog()
+        .file()
+        .set_title(
+            "Choose this world's land: the folder holding overlay_cell.dat and overlay_portal.dat",
+        )
+        .blocking_pick_folder()
+        .and_then(|f| f.into_path().ok())
+        .map(Some)
+}
+
+/// `world`'s world file: `world` itself, or the `world.toml` in the folder it names, as a person
+/// writes its path.
+fn world_file(world: &Path) -> PathBuf {
+    let world = if world.is_dir() {
+        world.join("world.toml")
+    } else {
+        world.to_path_buf()
+    };
+    world.canonicalize().map_or(world, |w| plain_path(&w))
+}
+
+/// What tells Lyceum that it was started where no terminal shows what it says, so a world it
+/// cannot open is said in a box of the system's.
+const LYCEUM_SHOWS_ERRORS: &str = "LYCEUM_STARTED_BY_SCREEN";
+
+/// The file in Lyceum's settings that remembers the land each world repository was opened over.
+const REPOSITORY_LANDS: &str = "repository-lands.toml";
+
+/// The land Lyceum last opened world repository `world` over, while that folder is still there.
+#[must_use]
+pub fn repository_land(world: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(lyceum_settings()?.join(REPOSITORY_LANDS)).ok()?;
+    repository_land_in(&text, world).filter(|l| l.is_dir())
+}
+
+/// The land `text` (Lyceum's lands file) names for world repository `world`, by the world file's
+/// whole path.
+fn repository_land_in(text: &str, world: &Path) -> Option<PathBuf> {
+    let whole = std::path::absolute(world).ok()?;
+    text.parse::<toml::Table>()
+        .ok()?
+        .get(whole.to_string_lossy().as_ref())?
+        .as_str()
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The editor's arguments for world file `world`: the data files it is drawn over, the Classic
+/// ones beside them, and the land a world repository is built over.
+fn editor_args(
+    world: &Path,
+    dats: Option<&Path>,
+    classic: Option<&Path>,
+    land: Option<&Path>,
+) -> Vec<std::ffi::OsString> {
+    let mut args = vec![world.as_os_str().to_owned()];
+    for (switch, folder) in [
+        ("--dats", dats),
+        ("--classic-dats", classic),
+        ("--on", land),
+    ] {
+        if let Some(folder) = folder {
+            args.push(switch.into());
+            args.push(folder.as_os_str().to_owned());
+        }
+    }
+    args
 }
 
 fn open_editor(
@@ -1806,6 +1893,7 @@ fn open_editor(
     world: Option<PathBuf>,
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
+    land: Option<PathBuf>,
 ) -> Result<(), String> {
     let mut store = lock(shared);
     let editor = program(&store, Product::Lyceum).ok_or("Download Lyceum first.")?;
@@ -1813,29 +1901,21 @@ fn open_editor(
         return Err("Lyceum is busy. Try again in a moment.".into());
     }
     let mut cmd = command(&editor);
+    cmd.env(LYCEUM_SHOWS_ERRORS, "1");
     if let Some(world) = world {
-        let world = if world.is_dir() {
-            world.join("world.toml")
-        } else {
-            world
-        };
-        let world = world
-            .canonicalize()
-            .map(|w| plain_path(&w))
-            .map_err(|_| "That folder holds no Lyceum world (no world.toml).".to_owned())?;
+        let world = world_file(&world);
         if !world.is_file() {
             return Err("That folder holds no Lyceum world (no world.toml).".into());
         }
-        cmd.arg(&world);
         // Listed at once, whatever Lyceum itself remembers of it.
         remember_opened(&store.root, &world);
         store.listed = None;
-        if let Some(dats) = recent_dats().or(dats).filter(|d| d.is_dir()) {
-            cmd.arg("--dats").arg(dats);
-        }
-        if let Some(classic) = classic.filter(|d| d.is_dir()) {
-            cmd.arg("--classic-dats").arg(classic);
-        }
+        cmd.args(editor_args(
+            &world,
+            recent_dats().or(dats).filter(|d| d.is_dir()).as_deref(),
+            classic.filter(|d| d.is_dir()).as_deref(),
+            land.as_deref(),
+        ));
     }
     cmd.current_dir(editor.parent().ok_or("Invalid editor path")?);
     let e = entry(&mut store, Product::Lyceum);
@@ -1957,11 +2037,11 @@ pub async fn new_lyceum_world(
     let shared = shared.inner();
     if output.status.success() {
         let world = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-        return open_editor(shared, Some(world), dats, classic);
+        return open_editor(shared, Some(world), dats, classic, None);
     }
     let error = String::from_utf8_lossy(&output.stderr);
     if error.contains("new is not a command") {
-        open_editor(shared, None, None, None)?;
+        open_editor(shared, None, None, None, None)?;
         return Err("This Lyceum makes new worlds on its own start screen, which is open now. Update Lyceum to make them here.".into());
     }
     Err(error
@@ -2066,12 +2146,11 @@ pub async fn choose_lyceum_world(
     let Some(folder) = dialog.blocking_pick_folder() else {
         return Ok(());
     };
-    open_editor(
-        &shared,
-        Some(folder.into_path().map_err(|e| e.to_string())?),
-        dats,
-        classic,
-    )
+    let world = folder.into_path().map_err(|e| e.to_string())?;
+    let Some(land) = land_for(&app, Some(&world)) else {
+        return Ok(());
+    };
+    open_editor(&shared, Some(world), dats, classic, land)
 }
 
 /// Open Lyceum's folder for new worlds in the system's file manager, making it first.
@@ -2727,6 +2806,58 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let outside = elsewhere.path().to_path_buf();
         assert_eq!(build_folders(&outside), [outside]);
+    }
+
+    /// A world repository built on a converted land opens over the land Lyceum remembers for it
+    /// (`--on`), which the editor refuses to open it without; a Lyceum world takes none. Lyceum is
+    /// told to show a world it can't open in a box, since nothing shows what it prints.
+    #[test]
+    fn a_world_repository_opens_over_its_land_and_lyceum_says_why_it_cannot() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let world = repo.join("world.toml");
+        std::fs::write(
+            &world,
+            "lineage = []\npacks = []\n[land]\ncell_overlay_sha256 = \"00\"\n",
+        )
+        .unwrap();
+        let plain = temp.path().join("plain.toml");
+        std::fs::write(&plain, "key = \"plain\"\npacks = []\n").unwrap();
+        let unpinned = temp.path().join("unpinned.toml");
+        std::fs::write(&unpinned, "lineage = []\n[land]\nledger = \"land/g.tsv\"\n").unwrap();
+        assert!(crate::lyceum_world::needs_land(&world));
+        assert!(!crate::lyceum_world::needs_land(&plain));
+        assert!(!crate::lyceum_world::needs_land(&unpinned));
+
+        let land = temp.path().join("land");
+        let mut lands = toml::Table::new();
+        lands.insert(
+            std::path::absolute(&world)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            land.to_string_lossy().as_ref().into(),
+        );
+        let text = lands.to_string();
+        assert_eq!(repository_land_in(&text, &world), Some(land.clone()));
+        assert_eq!(repository_land_in(&text, &plain), None);
+        assert_eq!(repository_land_in("not toml [", &world), None);
+
+        let dats = temp.path().join("dats");
+        let args = editor_args(&world, Some(&dats), None, Some(&land));
+        assert_eq!(
+            args,
+            [
+                world.as_os_str(),
+                "--dats".as_ref(),
+                dats.as_os_str(),
+                "--on".as_ref(),
+                land.as_os_str()
+            ]
+        );
+        assert!(!editor_args(&plain, Some(&dats), None, None).contains(&"--on".into()));
+        assert_eq!(LYCEUM_SHOWS_ERRORS, "LYCEUM_STARTED_BY_SCREEN");
     }
 
     #[test]
