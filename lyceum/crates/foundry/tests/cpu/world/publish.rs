@@ -215,7 +215,8 @@ fn a_repository_is_published_only_over_the_ac1_files_its_land_was_built_over() {
 /// A world with no repository is exported with its overlay numbered by its content, from a ledger
 /// beside its world file that the export keeps: the first export is generation 1; an unchanged
 /// export keeps it, so a client holding it doesn't patch again; a changed record is the next
-/// generation, one iteration on, so a client holding the last one patches.
+/// generation, one iteration on, so a client holding the last one patches, and what reads as it
+/// did keeps its own iteration, so that client is sent the change alone.
 #[test]
 fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
     use lyceum_foundry::export::{export, Era, Options, Target};
@@ -252,8 +253,15 @@ fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
     assert_eq!(iterations(&f, &out), once, "unchanged: the same iteration");
     assert_eq!(std::fs::read_to_string(&ledger).unwrap(), lines);
 
+    let kept = record_iterations(&f, &out);
     textures(&["stone", "slate"]);
     export(&world, &f.dats(), &opts).unwrap();
+    let now = record_iterations(&f, &out);
+    assert!(
+        kept.iter().all(|r| now.contains(r)),
+        "what reads as it did keeps its iteration: {kept:x?} {now:x?}"
+    );
+    assert_eq!(now.len(), kept.len() + 1, "the new texture alone");
     assert_eq!(
         iterations(&f, &out),
         [once[0], once[0] + 1],
@@ -264,4 +272,76 @@ fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
         lines.lines().count() + 1,
         "the ledger's new line"
     );
+}
+
+/// Each record of the served overlay with the iteration it is in, file by file.
+fn record_iterations(f: &Fixture, out: &Path) -> Vec<(ModernDat, u32, u32)> {
+    let base =
+        lyceum_foundry::dats::DatSet::for_world(&f.dats(), dereth_primitives::EraId::Eor).unwrap();
+    let dir = OverlayDir::new(&out.join("overlay")).unwrap();
+    let mut v = Vec::new();
+    for t in [ModernDat::Portal, ModernDat::Cell] {
+        if let Some(l) = dir.layer_over(t, base.file(t).unwrap(), None).unwrap() {
+            v.extend(l.records().map(|(id, e)| (t, id.raw(), e.iteration)));
+        }
+    }
+    v
+}
+
+/// A world published again after one land square changed takes the next generation, and only that
+/// landblock's land takes its iteration: every other record keeps the one it had, so a client
+/// patched to the first publish is sent that landblock alone.
+#[test]
+fn a_publish_after_one_land_square_changed_raises_only_that_landblock() {
+    let f = Fixture::new("publish-changed-only");
+    let world = repo(&f, PICTURE);
+    let square = |lb: u16, height: u8| {
+        f.write(
+            &format!("repo/base/emergence/edits/landblocks/{lb:04X}.toml"),
+            &format!("[[vertex]]\nat = [4, 3]\nheight = {height}\n"),
+        );
+    };
+    square(0x0101, 80);
+    square(0x0102, 80);
+    let tool = Tool::default();
+    let out = f.path().join("served");
+    let author = Publish {
+        layer: None,
+        land: None,
+        number: true,
+        importer: &tool,
+    };
+    let first = publish(&world, &f.dats(), &out, &author).unwrap();
+    let before = record_iterations(&f, &out);
+    assert!(
+        before.iter().any(|(_, id, _)| *id == 0x0102_FFFF)
+            && before.iter().any(|(_, id, _)| *id == 0x0101_FFFF)
+            && before.iter().any(|(t, _, _)| *t == ModernDat::Portal),
+        "{before:x?}"
+    );
+
+    square(0x0102, 90);
+    let second = publish(&world, &f.dats(), &out, &author).unwrap();
+    assert_eq!(second.generation, first.generation + 1);
+    assert!(!first.followed.followed && second.followed.followed);
+    assert_eq!(second.followed.restarted, None);
+    assert_eq!(second.followed.changed, 1, "{:?}", second.followed);
+    let after = record_iterations(&f, &out);
+    let raised: Vec<u32> = after
+        .iter()
+        .filter(|a| !before.contains(a))
+        .map(|(_, id, _)| *id)
+        .collect();
+    assert_eq!(raised, [0x0102_FFFF], "{after:x?}");
+    let top = after.iter().map(|(_, _, i)| *i).max().unwrap();
+    assert_eq!(
+        after
+            .iter()
+            .find(|(_, id, _)| *id == 0x0102_FFFF)
+            .unwrap()
+            .2,
+        top,
+        "the changed land in the new generation's iteration"
+    );
+    assert_eq!(after.len(), before.len());
 }

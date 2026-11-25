@@ -473,6 +473,7 @@ impl EditorApp {
             self.session.base(),
             world,
             &staging,
+            Some(&out.join("overlay")),
         )
         .map_err(|e| e.to_string())?;
         let sql = self.session.compiled().sql.clone();

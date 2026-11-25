@@ -41,6 +41,13 @@ pub enum ReviseError {
     /// The overlay numbers its iterations as its world does, not as revisions over its base.
     #[error("{} carries its world's own iterations, not revisions over its base", .0.display())]
     OwnIterations(PathBuf),
+    /// The last overlay's iterations are not a part of those the new one is numbered with.
+    #[error("{} holds iterations {held:?}, not among the {wanted:?} it is numbered after", .path.display())]
+    Numbering {
+        path: PathBuf,
+        held: Vec<u32>,
+        wanted: Vec<u32>,
+    },
 }
 
 /// What [`revise`] wrote of one file.
@@ -133,6 +140,28 @@ pub fn revise(
     base_name: &str,
     world_key: &str,
 ) -> Result<Revised, ReviseError> {
+    revise_at(base, last, fresh, path, base_name, world_key, None)
+}
+
+/// [`revise`], numbered with the iterations `numbered` gives (an overlay's generation's,
+/// [`crate::generations::iterations`]) in place of the revision after the last: the overlay holds
+/// those iterations, a record that reads as it did keeps the one it had, and one that changed, is
+/// new or is deleted goes into the last of them. So a client holding any earlier generation is
+/// sent what changed since, and nothing else.
+///
+/// # Errors
+/// As [`revise`], and [`ReviseError::Numbering`] for a last overlay whose iterations are not
+/// among `numbered`'s.
+#[allow(clippy::too_many_lines)]
+pub fn revise_at(
+    base: &DatFile,
+    last: Option<&Layer>,
+    fresh: Option<&Layer>,
+    path: &Path,
+    base_name: &str,
+    world_key: &str,
+    numbered: Option<&[u32]>,
+) -> Result<Revised, ReviseError> {
     let base = base.base();
     for l in [last, fresh].into_iter().flatten() {
         if l.manifest().exact_iterations {
@@ -143,7 +172,17 @@ pub fn revise(
         .map(|l| l.own_iterations().to_vec())
         .unwrap_or_default();
     let first = crate::decompose::revision_over(&base);
-    let next = revisions.last().map_or(first, |r| (r + 1).max(first));
+    let mut next = revisions.last().map_or(first, |r| (r + 1).max(first));
+    if let Some(list) = numbered.filter(|l| !l.is_empty()) {
+        if let Some(l) = last.filter(|_| !revisions.iter().all(|r| list.contains(r))) {
+            return Err(ReviseError::Numbering {
+                path: l.path().to_path_buf(),
+                held: revisions,
+                wanted: list.to_vec(),
+            });
+        }
+        next = *list.last().expect("not empty");
+    }
     let mut tombstones: BTreeMap<(u32, u32), u32> = last
         .map(|l| {
             l.tombstones()
@@ -201,8 +240,14 @@ pub fn revise(
         }
     }
     if out.changed + out.deleted > 0 {
-        revisions.push(next);
+        if !revisions.contains(&next) {
+            revisions.push(next);
+        }
         out.revision = Some(next);
+    }
+    if let Some(list) = numbered.filter(|l| !l.is_empty() && (last.is_some() || fresh.is_some())) {
+        // Every iteration of the generation, unbroken, whatever changed.
+        revisions = list.to_vec();
     }
     if path.is_file() {
         std::fs::remove_file(path).map_err(DatError::from)?;
@@ -245,6 +290,23 @@ pub fn revise_folder(
     out: &OverlayDir,
     world_key: &str,
 ) -> Result<Vec<(ModernDat, Revised)>, ReviseError> {
+    revise_folder_at(bases, last, fresh, out, world_key, None)
+}
+
+/// [`revise_folder`], each file numbered as generation `generation` of its overlay's content
+/// ([`revise_at`] with [`crate::generations::iterations`] over the file's own): a client is sent
+/// only the records that changed since the generation it holds.
+///
+/// # Errors
+/// As [`revise_folder`], and [`ReviseError::Numbering`].
+pub fn revise_folder_at(
+    bases: &[(ModernDat, DatFile)],
+    last: Option<&OverlayDir>,
+    fresh: &OverlayDir,
+    out: &OverlayDir,
+    world_key: &str,
+    generation: Option<u32>,
+) -> Result<Vec<(ModernDat, Revised)>, ReviseError> {
     let mut done = Vec::new();
     for (t, base) in bases {
         let last = match last {
@@ -256,13 +318,17 @@ pub fn revise_folder(
             || t.file_name().to_owned(),
             |l| l.manifest().base_name.clone(),
         );
-        let revised = revise(
+        let numbered = generation.map(|g| {
+            crate::generations::iterations(crate::decompose::revision_over(&base.base()), g)
+        });
+        let revised = revise_at(
             base,
             last.as_ref(),
             fresh.as_ref(),
             &out.container(*t),
             &base_name,
             world_key,
+            numbered.as_deref(),
         )?;
         done.push((*t, revised));
     }

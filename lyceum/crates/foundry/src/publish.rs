@@ -9,7 +9,10 @@
 //!    the world has ever served ([`dereth_dat::generations`]): a digest of what it serves
 //!    ([`served_digest`]) is its generation. Content the ledger lacks is refused: its author
 //!    publishes it once with `number` and commits the ledger's new line, so every operator numbers
-//!    it alike. An operator never numbers a generation.
+//!    it alike. An operator never numbers a generation. Published again into the same folder, it
+//!    follows the overlay it served there: a record that reads as it did keeps its iteration, and
+//!    only what changed takes the new generation's, so a client is sent what changed alone. A
+//!    first publish into a new folder has none to follow: its clients take it whole, once.
 //! 3. **The world pack** (`world.pack`), built by the server's own tool at the same layer
 //!    (`empyrean-import world build`).
 //!
@@ -67,6 +70,10 @@ pub struct Published {
     pub numbered: bool,
     /// Every file written, by its path under `out`, with its SHA-256.
     pub files: Vec<(PathBuf, String)>,
+    /// How the overlay the folder held was followed: the records kept in their iterations, those
+    /// a client patched before is sent, and, when it couldn't be followed, why (every record is
+    /// then the generation's, and that client takes the whole overlay again).
+    pub followed: crate::compile::Followed,
 }
 
 /// The digest of what an overlay serves: each file's records in id order (its id, its version and
@@ -247,14 +254,16 @@ pub fn publish(
         )));
     }
     n.record()?;
+    // Numbered after the overlay this folder last served, so a client is sent what changed alone.
     let overlay = out.join("overlay");
-    crate::compile::write_records_at(
+    let followed = crate::compile::write_records_after(
         &c.records,
         &c.tombstones,
         s.base(),
         &key,
         &overlay,
         generation,
+        Some(&overlay),
     )?;
     crate::compile::carry_world_files(s.world(), &overlay)?;
 
@@ -355,5 +364,6 @@ pub fn publish(
         digest: n.digest,
         numbered: new,
         files,
+        followed,
     })
 }

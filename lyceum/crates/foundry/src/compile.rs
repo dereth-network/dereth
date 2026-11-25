@@ -2713,7 +2713,8 @@ pub fn write_overlay(c: &Compiled, base: &DatSet, key: &str, dir: &Path) -> Resu
 }
 
 /// [`write_overlay`] for `world`, numbered by its content in the world's ledger as
-/// [`build_numbered`] numbers it, the ledger's new line written with it. Answers its generation.
+/// [`build_numbered`] numbers it (following `last`), the ledger's new line written with it.
+/// Answers its generation.
 ///
 /// # Errors
 /// The writer's errors, and a ledger that doesn't read or write.
@@ -2722,15 +2723,17 @@ pub fn write_overlay_numbered(
     base: &DatSet,
     world: &World,
     dir: &Path,
+    last: Option<&Path>,
 ) -> Result<u32, Error> {
     let n = crate::publish::Numbered::of(&world.path, &c.records, &c.tombstones)?;
-    write_records_at(
+    write_records_after(
         &c.records,
         &c.tombstones,
         base,
         &world.key,
         dir,
         n.generation,
+        last,
     )?;
     n.record()?;
     Ok(n.generation)
@@ -2798,6 +2801,107 @@ pub fn write_records_at(
         w.flush(0)?;
     }
     Ok(())
+}
+
+/// What [`write_records_after`] did: how many records it kept in the iterations they had, how many
+/// went into the new generation's (changed or new) and how many it deleted there; and why the
+/// last overlay was not followed, when it was not.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Followed {
+    /// Whether a last overlay was followed.
+    pub followed: bool,
+    pub kept: usize,
+    pub changed: usize,
+    pub deleted: usize,
+    pub restarted: Option<String>,
+}
+
+/// [`write_records_at`], following `last`, the overlay the world was last served with (it may be
+/// `dir` itself): a record that reads as it did there keeps its iteration, and only what changed
+/// goes into the generation's last ([`dereth_dat::revise::revise_folder_at`]), so a client is sent
+/// what changed alone. Without a last overlay, or with one this world's can't follow (another
+/// world's, over other files, or numbered past `generation`), everything is the generation's, as
+/// [`write_records_at`] writes it, and why is answered. `dir` is replaced once the whole overlay is
+/// written.
+///
+/// # Errors
+/// The writer's errors, and a last overlay that won't read.
+pub fn write_records_after(
+    records: &Records,
+    tombstones: &BTreeMap<ModernDat, BTreeSet<(u32, u32)>>,
+    base: &DatSet,
+    key: &str,
+    dir: &Path,
+    generation: u32,
+    last: Option<&Path>,
+) -> Result<Followed, Error> {
+    let everything = || Followed {
+        changed: records.values().map(BTreeMap::len).sum(),
+        deleted: tombstones.values().map(BTreeSet::len).sum(),
+        ..Followed::default()
+    };
+    let Some(last) = last.filter(|l| l.is_dir()) else {
+        write_records_at(records, tombstones, base, key, dir, generation)?;
+        return Ok(everything());
+    };
+    let name = dir
+        .file_name()
+        .map_or_else(|| "overlay".into(), |n| n.to_string_lossy().into_owned());
+    let fresh = dir.with_file_name(format!(".{name}-fresh"));
+    let next = dir.with_file_name(format!(".{name}-next"));
+    let result = (|| -> Result<Followed, Error> {
+        write_records_at(records, tombstones, base, key, &fresh, generation)?;
+        if next.exists() {
+            std::fs::remove_dir_all(&next).map_err(|e| Error::io(&next, e))?;
+        }
+        std::fs::create_dir_all(&next).map_err(|e| Error::io(&next, e))?;
+        let bases: Vec<(ModernDat, dereth_dat::DatFile)> =
+            base.files().map(|(t, f)| (t, f.clone())).collect();
+        let followed = dereth_dat::revise::revise_folder_at(
+            &bases,
+            Some(&OverlayDir::new(last)?),
+            &OverlayDir::new(&fresh)?,
+            &OverlayDir::new(&next)?,
+            key,
+            Some(generation),
+        );
+        let (from, done) = match followed {
+            Ok(files) => (
+                &next,
+                Followed {
+                    followed: true,
+                    kept: files.iter().map(|(_, r)| r.kept).sum(),
+                    changed: files.iter().map(|(_, r)| r.changed).sum(),
+                    deleted: files.iter().map(|(_, r)| r.deleted).sum(),
+                    restarted: None,
+                },
+            ),
+            Err(
+                e @ (dereth_dat::revise::ReviseError::Numbering { .. }
+                | dereth_dat::revise::ReviseError::OwnIterations(_)
+                | dereth_dat::revise::ReviseError::Overlay(
+                    dereth_dat::overlay::OverlayError::OtherWorld { .. }
+                    | dereth_dat::overlay::OverlayError::BaseMismatch { .. },
+                )),
+            ) => (
+                &fresh,
+                Followed {
+                    restarted: Some(e.to_string()),
+                    ..everything()
+                },
+            ),
+            Err(e) => return Err(Error::Dat(e.to_string())),
+        };
+        if dir.exists() {
+            std::fs::remove_dir_all(dir).map_err(|e| Error::io(dir, e))?;
+        }
+        std::fs::rename(from, dir).map_err(|e| Error::io(dir, e))?;
+        Ok(done)
+    })();
+    for d in [&fresh, &next] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+    result
 }
 
 /// What [`build`] did.
@@ -2910,18 +3014,24 @@ pub fn build_with(
     check: bool,
     ac2: Option<&dereth_ac2_convert::source::Ac2>,
 ) -> Result<Built, Error> {
-    build_inner(world_path, dats, out, check, ac2, false)
+    build_inner(world_path, dats, out, check, ac2, None)
 }
 
 /// [`build`], its overlay numbered by its content in the world's ledger
 /// ([`crate::publish::Numbered`]), as an export serves it: a changed overlay gets the next
 /// generation, so a client that holds the last one patches again, and an unchanged one keeps its
-/// own. The ledger's new line is written with the build.
+/// own. The ledger's new line is written with the build. Following `last`, the overlay the world
+/// was last served with, only what changed takes the new generation ([`write_records_after`]).
 ///
 /// # Errors
 /// As [`build`], and a ledger that doesn't read or write.
-pub fn build_numbered(world_path: &Path, dats: &Path, out: Option<&Path>) -> Result<Built, Error> {
-    build_inner(world_path, dats, out, false, None, true)
+pub fn build_numbered(
+    world_path: &Path,
+    dats: &Path,
+    out: Option<&Path>,
+    last: Option<&Path>,
+) -> Result<Built, Error> {
+    build_inner(world_path, dats, out, false, None, Some(last))
 }
 
 fn build_inner(
@@ -2930,7 +3040,7 @@ fn build_inner(
     out: Option<&Path>,
     check: bool,
     ac2: Option<&dereth_ac2_convert::source::Ac2>,
-    numbered: bool,
+    numbered: Option<Option<&Path>>,
 ) -> Result<Built, Error> {
     let world = World::read(world_path)?;
     let packs = world
@@ -2962,15 +3072,16 @@ fn build_inner(
         std::fs::remove_dir_all(&staging).map_err(|e| Error::io(&staging, e))?;
     }
     let result = (|| {
-        let numbered = if numbered {
+        let numbered = if let Some(last) = numbered {
             let n = crate::publish::Numbered::of(&world.path, &c.records, &c.tombstones)?;
-            write_records_at(
+            write_records_after(
                 &c.records,
                 &c.tombstones,
                 &base,
                 &world.key,
                 &staging.join("overlay"),
                 n.generation,
+                last,
             )?;
             Some(n)
         } else {

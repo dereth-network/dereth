@@ -367,3 +367,83 @@ fn an_overlay_with_its_worlds_own_iterations_is_not_revised() {
     assert!(matches!(e, ReviseError::OwnIterations(_)), "{e}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A world published by generation (its content's, from a ledger): each publish holds its
+/// generation's iterations, unbroken, a generation it skipped among them; what changed goes into
+/// the last of them and what reads as it did keeps its own. A client patched to an earlier
+/// generation is sent only the iterations it lacks and reads the new world; one with nothing is
+/// sent every one. A last overlay numbered past the new generation is refused.
+#[test]
+fn a_publish_by_generation_raises_only_what_changed_and_holds_every_iteration_of_it() {
+    let root = scratch("generations");
+    base_set(&root.join("base"));
+    let bases = bases(&root.join("base"));
+    let first_build = build(&root.join("build-1"), &bases, &first());
+    let publish_1 = OverlayDir::new(&root.join("publish-1")).unwrap();
+    let r1 =
+        revise::revise_folder_at(&bases, None, &first_build, &publish_1, WORLD, Some(1)).unwrap();
+    assert_eq!(
+        r1[0].1.revisions,
+        [11],
+        "generation 1: one iteration past the base"
+    );
+    let client = OverlayDir::new(&root.join("client")).unwrap();
+    assert_eq!(patch(&client, &publish_1, &bases), [11, 11]);
+
+    // Generation 3 (the ledger's second was never served): its three iterations.
+    let second_build = build(&root.join("build-2"), &bases, &second());
+    let publish_3 = OverlayDir::new(&root.join("publish-3")).unwrap();
+    let r3 = revise::revise_folder_at(
+        &bases,
+        Some(&publish_1),
+        &second_build,
+        &publish_3,
+        WORLD,
+        Some(3),
+    )
+    .unwrap();
+    assert_eq!(r3[0].1.revisions, [11, 12, 13]);
+    assert_eq!(r3[1].1.revisions, [11, 12, 13]);
+    assert!(
+        !publish_3.holds(ModernDat::Local),
+        "a file it does not change"
+    );
+    let layer = |t: ModernDat| -> Layer {
+        publish_3
+            .layer_over(t, &bases.iter().find(|(b, _)| *b == t).unwrap().1, None)
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(
+        layer(ModernDat::Cell).record(ROOM_1).unwrap().iteration,
+        11,
+        "as it was: its own"
+    );
+    assert_eq!(layer(ModernDat::Portal).record(A).unwrap().iteration, 13);
+    assert_reads_as(&publish_3, &second_build, &bases);
+
+    // The client from generation 1 is sent the two it lacks; what changed is in the last.
+    assert_eq!(patch(&client, &publish_3, &bases), [12, 13, 12, 13]);
+    assert_reads_as(&client, &second_build, &bases);
+    assert_iterations_of(&client, &publish_3, &bases);
+    let new_client = OverlayDir::new(&root.join("new-client")).unwrap();
+    assert_eq!(
+        patch(&new_client, &publish_3, &bases),
+        [11, 12, 13, 11, 12, 13]
+    );
+    assert_reads_as(&new_client, &second_build, &bases);
+
+    // A last overlay of generation 3 under a new generation 2 is numbered past it.
+    let back = OverlayDir::new(&root.join("publish-back")).unwrap();
+    let e = revise::revise_folder_at(
+        &bases,
+        Some(&publish_3),
+        &first_build,
+        &back,
+        WORLD,
+        Some(2),
+    )
+    .unwrap_err();
+    assert!(matches!(e, ReviseError::Numbering { .. }), "{e}");
+    let _ = std::fs::remove_dir_all(&root);
+}

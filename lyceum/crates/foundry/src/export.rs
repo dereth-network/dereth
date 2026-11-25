@@ -12,7 +12,9 @@
 //!
 //! The overlay is numbered by its content, from a ledger beside the world file
 //! ([`crate::publish::ledger_path`]): a changed overlay is the next generation, so a client
-//! holding the last one patches again, and an unchanged one keeps its number.
+//! holding the last one patches again, and an unchanged one keeps its number. It follows the
+//! overlay the last export left in its folder: only what changed takes the new generation's
+//! iteration, so that client is sent the change alone.
 //!
 //! The export folder is new, empty, or an earlier export, which it replaces; never the data files'
 //! own folder. The world database the content goes over is a dump named by the caller, else the
@@ -272,11 +274,14 @@ pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported,
     let w = crate::world::World::read(world)?;
     refuse_era(w.era, opts)?;
     refuse_inputs(opts)?;
+    // The overlay the last export served, set aside before the folder is replaced: the new one
+    // follows it, so a client is sent what changed alone.
+    let last = last_overlay(opts.out)?;
     prepare(opts.out, dats)?;
     let staging = opts.out.join(STAGING);
     let result = (|| {
         let key = w.key.clone();
-        let built = crate::compile::build_numbered(world, dats, Some(&staging))?;
+        let built = crate::compile::build_numbered(world, dats, Some(&staging), last.as_deref())?;
         let sql = read_sql(&staging.join("sql"))?;
         let mut done = write(&staging.join("overlay"), &sql, &key, dats, opts)?;
         done.warnings = built.warnings;
@@ -288,6 +293,9 @@ pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported,
         Ok(done)
     })();
     let _ = std::fs::remove_dir_all(&staging);
+    if let Some(l) = &last {
+        let _ = std::fs::remove_dir_all(l);
+    }
     result
 }
 
@@ -309,6 +317,27 @@ pub fn export_compiled(
     let result = write(overlay, sql, key, dats, opts);
     let _ = std::fs::remove_dir_all(opts.out.join(STAGING));
     result
+}
+
+/// The overlay an earlier export left in `out` (a folder an export wrote), moved beside it to be
+/// followed; `None` when there is none.
+///
+/// # Errors
+/// An overlay that won't move.
+fn last_overlay(out: &Path) -> Result<Option<PathBuf>, Error> {
+    let overlay = out.join("overlay");
+    if !out.join(MARKER).is_file() || !overlay.is_dir() {
+        return Ok(None);
+    }
+    let name = out
+        .file_name()
+        .map_or_else(|| "export".into(), |n| n.to_string_lossy().into_owned());
+    let aside = out.with_file_name(format!(".{name}-last-overlay"));
+    if aside.exists() {
+        std::fs::remove_dir_all(&aside).map_err(|e| Error::io(&aside, e))?;
+    }
+    std::fs::rename(&overlay, &aside).map_err(|e| Error::io(&overlay, e))?;
+    Ok(Some(aside))
 }
 
 /// Refuse unsupported eras and inputs the export cannot read, before anything is written.

@@ -43,7 +43,10 @@
 //!               [--number] [--empyrean <dir>]   a world repository built for its server: the
 //!                                               land checked, the overlay numbered from the
 //!                                               ledger, the world pack, what the server reads;
-//!                                               --number, the author's, numbers new content
+//!                                               --number, the author's, numbers new content;
+//!                                               published again into the same --out, clients
+//!                                               are sent what changed alone (a new folder's
+//!                                               first publish, all of it once)
 //! lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json>
 //!               [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run]
 //!               [--no-library]
@@ -1026,6 +1029,20 @@ fn run_publish(args: &Args) -> ExitCode {
                     ""
                 }
             );
+            let f = &done.followed;
+            match &f.restarted {
+                Some(why) => println!(
+                    "the overlay served before was not followed ({why}): clients take it whole"
+                ),
+                None if f.followed => println!(
+                    "  {} record(s) changed and {} deleted since the overlay served before; {} kept",
+                    f.changed, f.deleted, f.kept
+                ),
+                None => println!(
+                    "  {} record(s) and {} deletion(s), all new to clients: no overlay served before",
+                    f.changed, f.deleted
+                ),
+            }
             for (f, h) in &done.files {
                 println!("  {h}  {}", f.display());
             }
