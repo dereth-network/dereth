@@ -2293,12 +2293,13 @@ fn the_ac2_tomb_stands_on_fifteen_meter_squares_and_its_room_laid_through_an_ent
         north: 3,
     };
     // As in AC2's own tombs, a hall reaches a room through a room entrance, never straight: the
-    // room stands a square back, the entrance between, its second doorway to the hall.
+    // entrance stands on the room's square against the hall, its second doorway to the hall, and
+    // the room's tiles fill the rest but for the row the hall meets.
     let laid = s.lay_ac2_room(&room).unwrap();
     assert_eq!(
         laid.len(),
-        19,
-        "the entrance, nine floor tiles and nine roof tiles"
+        13,
+        "the entrance, six floor tiles and six roof tiles"
     );
     let cells = s.cells(lb);
     let entrance = pieces
@@ -2320,12 +2321,16 @@ fn the_ac2_tomb_stands_on_fifteen_meter_squares_and_its_room_laid_through_an_ent
         "its second doorway faces the hall: {:?}",
         to_hall.out
     );
-    assert!(
+    let at = |x: f32, y: f32| {
         cells
             .values()
-            .any(|c| (c.frame.origin.y - 45.0).abs() < 0.01
-                && (c.frame.origin.x - 90.0).abs() < 0.01),
-        "the room a square back"
+            .any(|c| (c.frame.origin.x - x).abs() < 0.01 && (c.frame.origin.y - y).abs() < 0.01)
+    };
+    assert!(at(90.0, 60.0), "the room where it was asked");
+    assert!(!at(90.0, 45.0), "not a square back");
+    assert!(
+        !at(90.0, 90.0) && !at(120.0, 90.0),
+        "nothing beside the entrance, which narrows to the hall"
     );
     s.undo().unwrap();
     assert_eq!(
@@ -2334,7 +2339,7 @@ fn the_ac2_tomb_stands_on_fifteen_meter_squares_and_its_room_laid_through_an_ent
         "one undo takes the entrance and the room"
     );
     s.redo().unwrap();
-    assert_eq!(s.cells(lb).len(), 20);
+    assert_eq!(s.cells(lb).len(), 14);
     let free = s.free_doorways(lb, &[]);
     assert_eq!(free.len(), 1, "the hall's far end: {free:?}");
     let found = s.walk(lb);
@@ -2569,17 +2574,22 @@ fn a_refused_ac2_room_leaves_undo_and_redo_as_they_were() {
 /// A hall of a test layout: its piece, where it stands (x, y) and the sides it opens on.
 type Hall = (&'static str, f32, f32, &'static str);
 
-/// A tomb room that would meet two halls is refused before anything is laid, whichever hall the
-/// room comes to first and with both on one side: the history is as it was. (One hall gives the
-/// entrance and the room a square back, as the tomb's own test shows.)
+/// Where a test room's entrances stand (x, y), or what its refusal says.
+type RoomOutcome = Result<(&'static [(i32, i32)], usize, [f32; 4]), &'static str>;
+
+/// A tomb room laid against two halls gets an entrance at each, on the room's squares against them,
+/// whichever hall the room comes to first, with both on one side or round a corner; as in AC2's own
+/// tombs nothing stands beside an entrance: the room's tiles fill the rectangle inside the rows and
+/// columns the halls meet, and it walks. A square two halls meet is refused before anything is
+/// laid, the history as it was.
 #[test]
-fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
+fn a_tomb_room_meets_each_hall_through_an_entrance_of_its_own() {
     use lyceum_foundry::ac2_kit::Kit;
     let dats = dereth_dat::testing::dat_dir();
     let store = dereth_dat::testing::open_store_or_fail();
     // Each layout's halls, joined into one dungeon, around a room of three squares by three whose
-    // south-west square is at 90, 60.
-    let layouts: [(&str, &[Hall]); 3] = [
+    // south-west square is at 90, 60; and where its entrances stand, or why it is refused.
+    let layouts: [(&str, &[Hall], RoomOutcome); 5] = [
         (
             "north and east, the east one met first",
             &[
@@ -2591,6 +2601,7 @@ fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
                 ("straight", 135.0, 90.0, "NS"),
                 ("tee", 135.0, 75.0, "NSW"),
             ],
+            Ok((&[(105, 90), (120, 75)], 10, [90.0, 60.0, 105.0, 75.0])),
         ),
         (
             "south and east, the south one met first",
@@ -2603,6 +2614,7 @@ fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
                 ("straight", 135.0, 60.0, "NS"),
                 ("tee", 135.0, 75.0, "NSW"),
             ],
+            Ok((&[(105, 60), (120, 75)], 10, [90.0, 75.0, 105.0, 90.0])),
         ),
         (
             "two on the north side",
@@ -2612,9 +2624,33 @@ fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
                 ("tee", 120.0, 120.0, "WES"),
                 ("straight", 120.0, 105.0, "NS"),
             ],
+            Ok((&[(105, 90), (120, 90)], 14, [90.0, 60.0, 120.0, 75.0])),
+        ),
+        (
+            "north and west, round the room's north-west corner",
+            &[
+                ("corner", 105.0, 105.0, "SW"),
+                ("straight", 90.0, 105.0, "EW"),
+                ("corner", 75.0, 105.0, "ES"),
+                ("straight", 75.0, 90.0, "NS"),
+                ("straight", 75.0, 75.0, "NS"),
+                ("corner", 75.0, 60.0, "NE"),
+            ],
+            Ok((&[(90, 60), (105, 90)], 10, [105.0, 60.0, 120.0, 75.0])),
+        ),
+        (
+            "north and east at the north-east corner square",
+            &[
+                ("straight", 120.0, 105.0, "NS"),
+                ("corner", 120.0, 120.0, "SE"),
+                ("corner", 135.0, 120.0, "WS"),
+                ("straight", 135.0, 105.0, "NS"),
+                ("corner", 135.0, 90.0, "NW"),
+            ],
+            Err("two halls meet the room's square 3, 3"),
         ),
     ];
-    for (name, halls) in layouts {
+    for (name, halls, want) in layouts {
         let (dir, world) = super::sample::sample("dungeon-ac2-two-halls");
         std::fs::write(
             dir.path().join("holtburg/records/ac2.toml"),
@@ -2622,7 +2658,7 @@ fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
         )
         .unwrap();
         let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
-        s.set_today("2026-11-22 00:00:00");
+        s.set_today("2026-11-24 00:00:00");
         let lb = empty_landblock(&store);
         let z = -40.0;
         for &(label, x, y, sides) in halls {
@@ -2639,10 +2675,54 @@ fn a_tomb_room_meeting_two_halls_is_refused_and_lays_nothing() {
         };
         let cells = s.cells(lb).len();
         let history = s.history();
-        let refusal = s.lay_ac2_room(&room).expect_err(name).to_string();
-        assert_eq!(refusal, "A tomb room can meet only one hall.", "{name}");
-        assert_eq!(s.cells(lb).len(), cells, "{name}: nothing laid");
-        assert_eq!(s.history(), history, "{name}: the history as it was");
+        let (want, count, [x0, y0, x1, y1]) = match want {
+            Ok(w) => w,
+            Err(why) => {
+                let refusal = s.lay_ac2_room(&room).expect_err(name).to_string();
+                assert!(refusal.contains(why), "{name}: {refusal}");
+                assert_eq!(s.cells(lb).len(), cells, "{name}: nothing laid");
+                assert_eq!(s.history(), history, "{name}: the history as it was");
+                continue;
+            }
+        };
+        let laid = s
+            .lay_ac2_room(&room)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(laid.len(), count, "{name}: two entrances and the tiles");
+        let entrance = s
+            .ac2_pieces()
+            .iter()
+            .find(|p| p.label == "room floor entrance")
+            .unwrap()
+            .environment;
+        let mut entrances: Vec<(i32, i32)> = s
+            .cells(lb)
+            .values()
+            .filter(|c| c.environment == entrance)
+            .map(|c| {
+                (
+                    dereth_primitives::num::floor_to_i32(c.frame.origin.x + 0.5),
+                    dereth_primitives::num::floor_to_i32(c.frame.origin.y + 0.5),
+                )
+            })
+            .collect();
+        entrances.sort_unstable();
+        assert_eq!(entrances, want, "{name}: on the squares against the halls");
+        // Every tile in the rectangle inside the halls' rows and columns: none beside an entrance.
+        let now = s.cells(lb);
+        for n in &laid {
+            let c = &now[n];
+            let (x, y) = (c.frame.origin.x, c.frame.origin.y);
+            assert!(
+                c.environment == entrance
+                    || (x0 - 0.5..=x1 + 0.5).contains(&x) && (y0 - 0.5..=y1 + 0.5).contains(&y),
+                "{name}: a tile at {x}, {y}, outside {x0}..{x1}, {y0}..{y1}"
+            );
+        }
+        let found = s.walk(lb);
+        assert!(found.is_empty(), "{name}: {found:#?}");
+        s.undo().unwrap();
+        assert_eq!(s.cells(lb).len(), cells, "{name}: one undo takes the room");
     }
 }
 

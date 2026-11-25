@@ -1,9 +1,11 @@
 //! A room of an AC2 kit's tiles laid in one step: a rectangle of its grid's squares, a floor tile
 //! on each and a ceiling (or roof) tile over it, each turned to open on the squares beside it; where a free
 //! doorway of the dungeon meets the room's side, the kit's tile with a doorway stands there. A kit
-//! whose halls reach its rooms through a room entrance (the tomb) gets one: a room laid against a
-//! hall stands a square back, the entrance between, its first doorway to the room as in every one of
-//! AC2's own tombs.
+//! whose halls reach its rooms through a room entrance (the tomb) gets one at each hall the room
+//! meets, on the room's square against the hall, its first doorway to the room as in every one of
+//! AC2's own tombs. As there, an entrance stands outside the room's tiles, nothing beside it (it
+//! narrows from the room's side to the hall's): the room's row or column on each side a hall meets
+//! holds only its entrances, and the tiles fill the rest.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -176,66 +178,108 @@ impl Session {
 
     /// Lay `room`: its floor tiles, then its ceiling tiles a floor up, as one change that one undo
     /// takes back. A free doorway of the dungeon on the room's side, in the middle of one of its
-    /// squares' sides, gets the kit's tile with a doorway there. Answers the cells laid.
+    /// squares' sides, gets the kit's tile with a doorway there; in a kit entered through a room
+    /// entrance (the tomb), each hall the room meets gets an entrance on the room's square against
+    /// it, and the room's tiles fill the rectangle inside the rows and columns the halls meet.
+    /// Answers the cells laid.
     ///
     /// # Errors
-    /// A room under two squares either way, a kit the packs do not ask for, a doorway at a corner
-    /// of the room, a room of a kit entered through a room entrance (the tomb) that meets more than
-    /// one hall, or a tile that does not fit where it goes (nothing is laid then).
+    /// A room under two squares either way (its tiles' rectangle, in a kit entered through room
+    /// entrances), a kit the packs do not ask for, a doorway at a corner of the room, two halls at
+    /// one square, an entrance at a corner of the room's tiles, or a tile that does not fit where
+    /// it goes (nothing is laid then).
     pub fn lay_ac2_room(&mut self, room: &Ac2Room) -> Result<Vec<u16>, Error> {
         let Some(entrance) = room.kit.room_entrance() else {
             return self.lay_room_of_tiles(room);
         };
-        let (i, j, side) = match self.halls_against(room)[..] {
-            [] => return self.lay_room_of_tiles(room),
-            [one] => one,
-            _ => return Err(Error::Refused("A tomb room can meet only one hall.".into())),
-        };
-        // The entrance on the room's square against the hall, its second doorway to the hall as
-        // AC2's tombs set it, and the room a square back from it.
-        let pitch = room.kit.grid().pitch;
-        let at = Vec3::new(
-            room.south_west.0 + pitch * f32::from(i),
-            room.south_west.1 + pitch * f32::from(j),
-            room.floor,
+        let halls = self.halls_against(room);
+        if halls.is_empty() {
+            return self.lay_room_of_tiles(room);
+        }
+        // The tiles' rectangle: the room less its row or column on each side a hall meets.
+        let met = |s: Side| u8::from(halls.iter().any(|(_, _, h)| *h == s));
+        let (w, e, so, n) = (
+            met(Side::West),
+            met(Side::East),
+            met(Side::South),
+            met(Side::North),
         );
-        let back = side.turned(2);
-        let step = |s: Side| match s {
-            Side::East => (pitch, 0.0),
-            Side::West => (-pitch, 0.0),
-            Side::North => (0.0, pitch),
-            Side::South => (0.0, -pitch),
-        };
-        let start = self.history.len();
-        self.lay_tile(
-            room,
-            entrance,
-            at,
-            &BTreeSet::from([side, back]),
-            Some((1, side)),
-        )?;
-        let (dx, dy) = step(back);
-        let behind = Ac2Room {
-            south_west: (room.south_west.0 + dx, room.south_west.1 + dy),
+        let pitch = room.kit.grid().pitch;
+        let tiles = Ac2Room {
+            south_west: (
+                room.south_west.0 + pitch * f32::from(w),
+                room.south_west.1 + pitch * f32::from(so),
+            ),
+            east: room.east.saturating_sub(w + e),
+            north: room.north.saturating_sub(so + n),
             ..room.clone()
         };
-        match self.lay_room_of_tiles(&behind) {
-            Ok(mut laid) => {
-                self.history.merge_since(start);
-                self.history.clear_redo();
-                let cells: Vec<u16> = self.cells(room.landblock).keys().copied().collect();
-                laid.extend(
-                    cells
-                        .get(cells.len().saturating_sub(laid.len() + 1))
-                        .copied(),
-                );
-                Ok(laid)
-            }
-            Err(e) => {
-                self.roll_back_to(start);
-                Err(e)
+        if tiles.east < 2 || tiles.north < 2 {
+            return Err(Error::Refused(
+                "a room of tiles is two squares or more each way, besides the row or column of \
+                 each side a hall meets"
+                    .into(),
+            ));
+        }
+        // Each entrance's square meets one hall, and the square behind it is one of the tiles'.
+        let i_tiles = w..room.east - e;
+        let j_tiles = so..room.north - n;
+        for (k, (i, j, _)) in halls.iter().enumerate() {
+            if halls[..k].iter().any(|(a, b, _)| (a, b) == (i, j)) {
+                return Err(Error::Refused(format!(
+                    "two halls meet the room's square {}, {}: a square holds one entrance",
+                    i + 1,
+                    j + 1
+                )));
             }
         }
+        for (i, j, side) in &halls {
+            let behind = match side {
+                Side::North | Side::South => i_tiles.contains(i),
+                Side::East | Side::West => j_tiles.contains(j),
+            };
+            if !behind {
+                return Err(Error::Refused(format!(
+                    "the hall at the room's square {}, {} meets it at a corner: its entrance would \
+                     have no room behind it",
+                    i + 1,
+                    j + 1
+                )));
+            }
+        }
+        let before: BTreeSet<u16> = self.cells(room.landblock).keys().copied().collect();
+        let start = self.history.len();
+        let laid = (|| -> Result<(), Error> {
+            // The entrances first, each joining its hall by its second doorway as AC2's tombs set
+            // it; then the room's tiles, outward from them.
+            for (i, j, side) in &halls {
+                let at = Vec3::new(
+                    room.south_west.0 + pitch * f32::from(*i),
+                    room.south_west.1 + pitch * f32::from(*j),
+                    room.floor,
+                );
+                self.lay_tile(
+                    room,
+                    entrance,
+                    at,
+                    &BTreeSet::from([*side, side.turned(2)]),
+                    Some((1, *side)),
+                )?;
+            }
+            self.lay_room_of_tiles(&tiles).map(|_| ())
+        })();
+        if let Err(e) = laid {
+            self.roll_back_to(start);
+            return Err(e);
+        }
+        self.history.merge_since(start);
+        self.history.clear_redo();
+        Ok(self
+            .cells(room.landblock)
+            .keys()
+            .copied()
+            .filter(|c| !before.contains(c))
+            .collect())
     }
 
     /// Where the free doorways of halls (no room entrance) meet `room`'s sides: each square and
@@ -354,7 +398,7 @@ impl Session {
         let (floor_tiles, doorway_tile, ceiling_tiles) = tiles(room.kit).ok_or_else(|| {
             Error::Refused(format!("the {} kit has no room tiles", room.kit.name()))
         })?;
-        let mut plan: Vec<(u8, u8, BTreeSet<Side>, Option<Side>)> = Vec::new();
+        let mut plan: Vec<(u8, u8, BTreeSet<Side>, BTreeSet<Side>)> = Vec::new();
         for j in 0..room.north {
             for i in 0..room.east {
                 let mut sides = BTreeSet::new();
@@ -370,29 +414,30 @@ impl Session {
                 if i > 0 {
                     sides.insert(Side::West);
                 }
-                let outward: Vec<Side> = Side::ALL
+                let doors: BTreeSet<Side> = Side::ALL
                     .into_iter()
                     .filter(|s| !sides.contains(s) && door_at(i, j, *s))
                     .collect();
-                let door = match outward.as_slice() {
-                    [] => None,
-                    [s] if sides.len() == 3 || doorway_tile.is_none() => Some(*s),
-                    _ => {
-                        return Err(Error::Refused(
-                            "a doorway meets the room at a corner: the kit has no corner tile \
-                             with a doorway"
-                                .into(),
-                        ))
-                    }
-                };
-                plan.push((i, j, sides, door));
+                // A kit whose tiles open on whole sides (the tomb) takes each doorway as one more
+                // open side; one with a doorway tile has it on a side square only.
+                if doorway_tile.is_some()
+                    && !doors.is_empty()
+                    && (doors.len() > 1 || sides.len() != 3)
+                {
+                    return Err(Error::Refused(
+                        "a doorway meets the room at a corner: the kit has no corner tile with a \
+                         doorway"
+                            .into(),
+                    ));
+                }
+                plan.push((i, j, sides, doors));
             }
         }
         // Laid outward from the doorway (from the south-west corner in a dungeon with no rooms
         // yet), so each tile joins one laid before it, as a piece in a dungeon must.
         let first = plan
             .iter()
-            .position(|(_, _, _, d)| d.is_some())
+            .position(|(_, _, _, d)| !d.is_empty())
             .or_else(|| self.cells(room.landblock).is_empty().then_some(0))
             .ok_or_else(|| {
                 Error::Refused(
@@ -413,12 +458,12 @@ impl Session {
         let plan: Vec<_> = order.into_iter().map(|n| plan[n].clone()).collect();
         let start = self.history.len();
         let laid = (|| -> Result<(), Error> {
-            for (i, j, sides, door) in &plan {
+            for (i, j, sides, doors) in &plan {
                 let (x, y) = middle(*i, *j);
                 let mut open = sides.clone();
-                open.extend(*door);
-                let label = match (door, doorway_tile, open.len()) {
-                    (Some(_), Some(t), _) => t,
+                open.extend(doors.iter().copied());
+                let label = match (doors.is_empty(), doorway_tile, open.len()) {
+                    (false, Some(t), _) => t,
                     (_, _, 2) => floor_tiles[0],
                     (_, _, 3) => floor_tiles[1],
                     _ => floor_tiles[2],
