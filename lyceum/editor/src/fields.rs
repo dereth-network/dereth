@@ -86,6 +86,8 @@ pub enum Widget {
     OneOf(&'static [(i64, &'static str)]),
     /// One value of the server's enum of this name, by the server's names.
     Named(&'static str),
+    /// A person's name: typed, or drawn from the world's name table of its heritage.
+    PersonName,
     /// One of the server's properties of this type, by its name.
     PropertyName(PropertyKind),
     /// One of the world's loot tables of this kind, by its id or a pack's symbol.
@@ -567,7 +569,13 @@ const MAGIC_ITEMS: &[Kind] = &[MeleeWeapon, MissileWeapon, Caster, Armor, Clothi
 /// Every field, by section, each section's in the order they are shown.
 pub static FIELDS: &[Field] = &[
     // Basic
-    field("name", S::Basic, Target::Property(Str, 1), W::Text, &[]),
+    field(
+        "name",
+        S::Basic,
+        Target::Property(Str, 1),
+        W::PersonName,
+        &[],
+    ),
     field(
         "description",
         S::Basic,
@@ -3266,6 +3274,24 @@ impl EditorApp {
         }
     }
 
+    /// A name for weenie `w` from the world's name table of `heritage`: the first press draws the
+    /// weenie's own (its class id, or its symbol, as `lyceum name --seed` takes it), each press
+    /// after another (`#2`, `#3`, ...).
+    fn drawn_name(&mut self, w: &Weenie, heritage: &str) -> Result<String, String> {
+        let tables = lyceum_foundry::names::NameTables::of_packs(&self.session.world().packs)?;
+        let Some(table) = tables.get(heritage) else {
+            return Err(self.say_with("fields.no_name_table", &[("heritage", &heritage)]));
+        };
+        let who = match w {
+            Weenie::Class(c) => c.to_string(),
+            Weenie::Symbol(s) => s.clone(),
+        };
+        let n = self.editor.name_draws.entry(who.clone()).or_insert(0);
+        *n += 1;
+        let seed = if *n == 1 { who } else { format!("{who}#{n}") };
+        Ok(table.name(&seed))
+    }
+
     /// One property's value, chosen by `widget`.
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn property_widget(
@@ -3599,6 +3625,43 @@ impl EditorApp {
                     } else {
                         "fields.seconds_unit"
                     }));
+                });
+            }
+            Widget::PersonName => {
+                let now = doc
+                    .property(kind, id)
+                    .map(|v| content::unquote(&v))
+                    .unwrap_or_default();
+                let heritage =
+                    int_of(doc, Int, 188).and_then(lyceum_foundry::names::heritage_named);
+                ui.horizontal(|ui| {
+                    self.field(
+                        ui,
+                        w,
+                        &key,
+                        &now,
+                        220.0,
+                        move |v| FormEdit::Property {
+                            kind,
+                            id,
+                            value: Some(v),
+                        },
+                        out,
+                    );
+                    let b = ui
+                        .add_enabled(
+                            heritage.is_some(),
+                            egui::Button::new(t.get("fields.generate_name")),
+                        )
+                        .on_hover_text(t.get("fields.generate_name_about"))
+                        .on_disabled_hover_text(t.get("fields.generate_name_no_heritage"));
+                    self.editor.generate_name_button = Some(b.rect);
+                    if let (true, Some(heritage)) = (b.clicked(), heritage) {
+                        match self.drawn_name(w, heritage) {
+                            Ok(name) => out.push(set(Some(name))),
+                            Err(why) => self.panels.message = why,
+                        }
+                    }
                 });
             }
             _ => {

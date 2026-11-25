@@ -52,6 +52,10 @@
 //!                                               repository: what that world places in it as
 //!                                               the repository's rows, a portal into it, and
 //!                                               the exits and classes left to its author
+//! lyceum name <world.toml> --heritage <name> --seed <text> [--count <n>]
+//!                                               people's names drawn from the world's name
+//!                                               table of that heritage: the same seed, the
+//!                                               same name; --count draws more after it
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
 //! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
@@ -84,6 +88,7 @@ lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterat
 lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
 lyceum lock <world.toml> --dats <dir> [--on <overlay>]
+lyceum name <world.toml> --heritage <name> --seed <text> [--count <n>]
 lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>] [--number] [--empyrean <dir>]
 lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json> [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library] [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 lyceum layer <manifest> [--out <container>] [--check]
@@ -152,6 +157,60 @@ impl Args {
 fn fail(e: &lyceum_foundry::Error) -> ExitCode {
     eprintln!("lyceum: {e}");
     ExitCode::from(2)
+}
+
+/// `name`: people's names from the world's name table of a heritage, one a line: the first is
+/// the seed's, each after it the seed's with `#2`, `#3` and so on.
+fn name(args: &Args) -> ExitCode {
+    use lyceum_foundry::names::NameTables;
+    if args.known(&["heritage", "seed", "count"]).is_err() || args.words.len() != 1 {
+        return usage("name takes a world file, --heritage and --seed");
+    }
+    let (Some(heritage), Some(seed)) = (args.value("heritage"), args.value("seed")) else {
+        return usage("name takes --heritage (whose table) and --seed (what names the person)");
+    };
+    let Ok(count) = args.value("count").unwrap_or("1").parse::<usize>() else {
+        return usage("--count is a whole number");
+    };
+    let path = Path::new(&args.words[0]);
+    let tables = if lyceum_foundry::repo_world::is_repository(path) {
+        lyceum_foundry::repo::Repo::open(path).and_then(|repo| {
+            NameTables::of_files(
+                repo.layers
+                    .iter()
+                    .flat_map(|l| &l.packs)
+                    .flat_map(|p| p.files.iter().map(|(f, t)| (f.as_str(), t.as_str()))),
+            )
+        })
+    } else {
+        lyceum_foundry::world::World::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|w| NameTables::of_packs(&w.packs))
+    };
+    let tables = match tables {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("lyceum: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(table) = tables.get(heritage) else {
+        eprintln!(
+            "lyceum: {} has no name table of {heritage}; it has: {}",
+            path.display(),
+            tables.heritages().join(", ")
+        );
+        return ExitCode::FAILURE;
+    };
+    for n in 1..=count.max(1) {
+        let seed = if n == 1 {
+            seed.to_owned()
+        } else {
+            format!("{seed}#{n}")
+        };
+        println!("{}", table.name(&seed));
+    }
+    ExitCode::SUCCESS
 }
 
 /// `lock`: a world's lockfile regenerated after a merge, its conflict markers and all: every id
@@ -1386,6 +1445,10 @@ fn main() -> ExitCode {
         },
         "lock" => match parsed(rest) {
             Ok(a) => lock(&a),
+            Err(why) => usage(&why),
+        },
+        "name" => match parsed(rest) {
+            Ok(a) => name(&a),
             Err(why) => usage(&why),
         },
         other => usage(&format!("{other} is not a command")),

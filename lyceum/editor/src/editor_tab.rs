@@ -26,6 +26,10 @@ use crate::docks::{self, Tab};
 pub struct WeenieEditor {
     /// Whether its tab is open.
     pub open: bool,
+    /// How many names each weenie (by its class id or symbol) has drawn, and the Name field's
+    /// Generate, as drawn last.
+    pub name_draws: std::collections::BTreeMap<String, u32>,
+    pub generate_name_button: Option<egui::Rect>,
     shown: Vec<Weenie>,
     at: usize,
     /// The field to show when the editor next draws a weenie's form: the weenie, and the field's

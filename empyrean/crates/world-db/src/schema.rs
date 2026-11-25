@@ -580,6 +580,12 @@ pub fn rows() -> Value {
             vec!["treasure_type"],
         ),
         ("loot_policy", "loot_policy.toml", "loot-policy", vec![]),
+        (
+            "name_table",
+            "name_table/{heritage:file}.toml",
+            "name-table {heritage:lower}",
+            vec!["heritage"],
+        ),
     ] {
         kinds.insert(
             kind.into(),

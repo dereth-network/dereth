@@ -125,7 +125,7 @@ pub fn item_form(text: &str) -> Option<String> {
             let (x, y) = (x.parse::<i32>().ok()?, y.parse::<i32>().ok()?);
             Some(format!("encounter {lb:04X} {x},{y}"))
         }
-        "quest" | "event" | "poi" if !rest.is_empty() => {
+        "quest" | "event" | "poi" | "name-table" if !rest.is_empty() => {
             Some(format!("{head} {}", rest.to_lowercase()))
         }
         "loot-policy" | "version" | "rules" if rest.is_empty() => Some(head.to_owned()),
@@ -188,6 +188,13 @@ impl RowKinds for Ac1Rows {
             "recipe_vital" => Item::new(format!("recipe-vital {}", n("recipe")?)),
             "spell" => Item::new(format!("spell {}", n("id")?)),
             "quest" | "event" | "poi" => Item::new(format!("{kind} {}", name_of(t)?)),
+            "name_table" => Item::new(format!(
+                "name-table {}",
+                t.get("heritage")
+                    .and_then(Value::as_str)
+                    .ok_or("a name table names its heritage (heritage)")?
+                    .to_lowercase()
+            )),
             "house_portal" => Item::new(format!(
                 "house-portal {} {:#010X}",
                 n("house_id")?,
@@ -442,6 +449,8 @@ pub fn content_of(
                 .loot_policies
                 .push(kinds::loot_policy_of(table).map_err(err)?),
             "rules" => c.rules = Some(kinds::rules_of(table).map_err(err)?),
+            // The world builder's: checked, and not served.
+            "name_table" => kinds::name_table_of(table).map_err(err)?,
             "version" => c
                 .versions
                 .push(kinds::Fields::take(table, stamp).map_err(err)?),
@@ -529,6 +538,7 @@ pub fn key_fields(kind: &str) -> &'static [&'static str] {
         "recipe" | "spell" => &["id"],
         "recipe_vital" => &["recipe"],
         "quest" | "event" | "poi" => &["name"],
+        "name_table" => &["heritage"],
         "house_portal" => &["house_id", "obj_cell_id"],
         "treasure_death" | "treasure_wielded" => &["type"],
         "grouped_treasure" => &["treasure_type"],

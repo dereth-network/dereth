@@ -88,6 +88,7 @@ pub mod mirror;
 pub mod model_import;
 pub mod models;
 pub mod moves;
+pub mod names;
 pub mod pick;
 pub mod pictures;
 pub mod pieces;

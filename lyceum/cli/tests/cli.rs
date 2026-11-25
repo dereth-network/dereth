@@ -234,3 +234,63 @@ fn facts_refuses_a_missing_world_and_a_wrong_command_line() {
         );
     }
 }
+
+/// `name` draws people's names from a world's name table of a heritage: the same seed gives the
+/// same names, `--count` draws more after the first, and a heritage without a table is refused
+/// with the ones there are.
+#[test]
+fn name_draws_the_same_names_for_a_seed_from_the_worlds_table() {
+    let dir = std::env::temp_dir().join(format!("lyceum-cli-name-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("people/name_table")).unwrap();
+    std::fs::write(
+        dir.join("world.toml"),
+        "key = \"names\"\npacks = [\"people\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("people/pack.toml"),
+        "name = \"people\"\nversion = \"1\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("people/name_table/Sho.toml"),
+        "[[name_table]]\nheritage = \"Sho\"\n[[name_table.slot]]\nparts = { Ko = 2, Ma = 1 }\n[[name_table.slot]]\nparts = { ri = 1, sen = 1 }\n",
+    )
+    .unwrap();
+    let world = dir.join("world.toml");
+    let world = world.to_str().unwrap();
+    let args = [
+        "name",
+        world,
+        "--heritage",
+        "sho",
+        "--seed",
+        "2012392",
+        "--count",
+        "3",
+    ];
+    let once = lyceum(&args);
+    assert!(
+        once.status.success(),
+        "{}",
+        String::from_utf8_lossy(&once.stderr)
+    );
+    let names = String::from_utf8_lossy(&once.stdout).into_owned();
+    assert_eq!(names.lines().count(), 3, "{names}");
+    for n in names.lines() {
+        assert!(
+            ["Kori", "Kosen", "Mari", "Masen"].contains(&n),
+            "{n} is drawn from the table"
+        );
+    }
+    assert_eq!(String::from_utf8_lossy(&lyceum(&args).stdout), names);
+    let none = lyceum(&["name", world, "--heritage", "Lugian", "--seed", "x"]);
+    assert!(!none.status.success());
+    let why = String::from_utf8_lossy(&none.stderr);
+    assert!(
+        why.contains("no name table of Lugian") && why.contains("Sho"),
+        "{why}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

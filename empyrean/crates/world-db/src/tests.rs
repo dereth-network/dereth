@@ -1037,6 +1037,67 @@ heritages = ["aluvian", "Gharu'ndim"]
     assert!(e.contains("cow_tipping"), "{e}");
 }
 
+/// A name table is the world builder's row, one per heritage: a patch may carry one, which the
+/// fold checks and the server never reads, so the world folds to what it was without it. A table
+/// without slots, a slot without parts, a weight of 0 and a heritage that isn't one are refused.
+#[test]
+fn a_name_table_folds_unread_by_the_server_and_one_without_parts_is_refused() {
+    use crate::layers::{fold_layers, Layers, PatchLayer};
+    let mut c = sample();
+    number(&mut c);
+    let mut base = write(&c, default_stamp()).expect("written");
+    base.remove(crate::files::META);
+    let layers = |table: &str| Layers {
+        base: base.clone(),
+        patches: vec![PatchLayer {
+            id: "2027-01-first".into(),
+            packs: vec![(
+                "names".into(),
+                BTreeMap::from([("name_table/Aluvian.toml".into(), table.into())]),
+            )],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let good = "[[name_table]]\nheritage = \"Aluvian\"\n[[name_table.slot]]\nparts = { Bre = 3, Cal = 1 }\n[[name_table.slot]]\nword = true\nparts = { Ash = 1, \"\" = 2 }\n";
+    let plain = fold_layers(
+        Layers {
+            base: base.clone(),
+            ..Default::default()
+        },
+        c.era,
+        default_stamp(),
+    )
+    .expect("the base folds");
+    let with = fold_layers(layers(good), c.era, default_stamp()).expect("a name table folds");
+    assert_eq!(format!("{with:?}"), format!("{plain:?}"));
+    for (table, why) in [
+        (
+            "[[name_table]]\nheritage = \"Aluvian\"\n",
+            "at least one slot",
+        ),
+        (
+            "[[name_table]]\nheritage = \"Aluvian\"\n[[name_table.slot]]\nparts = {}\n",
+            "slot 1 has no parts",
+        ),
+        (
+            "[[name_table]]\nheritage = \"Aluvian\"\n[[name_table.slot]]\nword = true\n",
+            "slot 1 has no parts",
+        ),
+        (
+            "[[name_table]]\nheritage = \"Aluvian\"\n[[name_table.slot]]\nparts = { Bre = 0 }\n",
+            "above 0",
+        ),
+        (
+            "[[name_table]]\nheritage = \"Drudge\"\n[[name_table.slot]]\nparts = { Bre = 1 }\n",
+            "\"Drudge\" is not a heritage",
+        ),
+    ] {
+        let e = fold_layers(layers(table), c.era, default_stamp()).expect_err(why);
+        assert!(e.contains(why), "{why}: {e}");
+    }
+}
+
 /// A pack that also holds the world builder's own folders at its root (its records, its edits of
 /// the land, its pictures) reads as its rows alone; a folder of that name below the root is rows.
 #[test]

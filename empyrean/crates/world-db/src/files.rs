@@ -474,6 +474,7 @@ pub fn read(files: &BTreeMap<String, String>) -> R<WorldContent> {
         "loot_policy",
         "rules",
         "version",
+        "name_table",
     ];
     for path in files.keys() {
         let top = path

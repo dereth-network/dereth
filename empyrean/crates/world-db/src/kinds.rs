@@ -1452,6 +1452,69 @@ pub fn loot_policy_of(t: &Table) -> R<SourceLootPolicy> {
     serde_of(t)
 }
 
+/// A name table's row checked: a heritage the world knows, and at least one slot, each with at
+/// least one part, each part's weight a whole number above 0. The server reads none of it; the
+/// world builder draws its people's names from it.
+///
+/// ```toml
+/// [[name_table]]
+/// heritage = "Aluvian"
+/// [[name_table.slot]]
+/// parts = { Bre = 3, Cal = 1 }
+/// [[name_table.slot]]
+/// word = true          # this slot starts a new word
+/// parts = { Ash = 1, "" = 2 }
+/// ```
+///
+/// # Errors
+/// A heritage that isn't one, a table without slots, a slot without parts, a weight that isn't
+/// a whole number above 0, or a key that isn't one of these.
+pub fn name_table_of(t: &Table) -> R<()> {
+    let heritage = t
+        .get("heritage")
+        .ok_or("a name table names its heritage (heritage)")?;
+    Names::heritages().id(&toml_json(heritage))?;
+    if let Some(k) = t
+        .keys()
+        .find(|k| !["heritage", "slot", "prov"].contains(&k.as_str()))
+    {
+        return Err(format!("a name table has no {k}"));
+    }
+    let slots = t
+        .get("slot")
+        .and_then(Value::as_array)
+        .filter(|s| !s.is_empty())
+        .ok_or("a name table has at least one slot ([[name_table.slot]])")?;
+    for (n, slot) in slots.iter().enumerate() {
+        let n = n + 1;
+        let slot = slot
+            .as_table()
+            .ok_or_else(|| format!("slot {n} is a table"))?;
+        if let Some(k) = slot
+            .keys()
+            .find(|k| !["parts", "word"].contains(&k.as_str()))
+        {
+            return Err(format!("slot {n} has no {k}"));
+        }
+        if slot.get("word").is_some_and(|w| w.as_bool().is_none()) {
+            return Err(format!("slot {n}'s word is true or false"));
+        }
+        let parts = slot
+            .get("parts")
+            .and_then(Value::as_table)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| format!("slot {n} has no parts"))?;
+        for (part, weight) in parts {
+            if !weight.as_integer().is_some_and(|w| w > 0) {
+                return Err(format!(
+                    "slot {n}'s part {part:?} weighs a whole number above 0, not {weight}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A name as the rules row compares names: its letters and digits, lower case.
 fn plain_name(s: &str) -> String {
     s.chars()
