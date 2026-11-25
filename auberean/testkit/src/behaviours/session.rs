@@ -270,6 +270,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.headless.the-inventory-lists-what-the-player-holds",
+        says: "Our choice: the headless client's view as text, and its count at the log-off, list as \
+               the inventory what the player's pack holds and what it wears, never the selection \
+               or another's trade offer; a selection neither held nor around is told by name on a \
+               line of its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-HEADLESS-INVENTORY-HELD"),
+        station: "auberean-headless::cpu::snapshot::the_inventory_lists_the_pack_and_what_is_worn_never_the_selection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.headless.the-walk-flag-runs-and-turns-with-no-window",
         says: "Our choice: with no window, the headless client's built-in walk runs the player's body \
                forward for two seconds from the second second, then lets the run go and turns right \

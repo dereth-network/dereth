@@ -3,7 +3,9 @@
 //! One fact a line, a list's members indented under it, numbers as the view holds them; an object
 //! by its id, a name the view has only as a string reference shown as `?`.
 
-use auberean_client_sdk::contract::view::View;
+use std::collections::BTreeSet;
+
+use auberean_client_sdk::contract::view::{Inventory, View};
 use auberean_client_sdk::Phase;
 
 /// Where the player's body stands: its cell, its place there and its heading, and whether it
@@ -26,6 +28,22 @@ pub fn position(view: &View) -> String {
             )
         },
     )
+}
+
+/// What the player holds, by id: its pack's contents and what it wears. The inventory's items also
+/// carry what the panels may show besides, the selection dragged from the world and what a trade
+/// offers, which the player does not hold.
+#[must_use]
+pub fn held(inventory: &Inventory) -> BTreeSet<u64> {
+    let pack = inventory
+        .containers
+        .get(&inventory.player)
+        .into_iter()
+        .flat_map(|c| c.segments.iter())
+        .flat_map(|s| s.items.iter().copied());
+    pack.chain(inventory.worn.iter().map(|(_, id)| *id))
+        .filter(|id| inventory.items.contains_key(id))
+        .collect()
 }
 
 /// The view, a line each fact.
@@ -82,18 +100,29 @@ pub fn text(view: &View, phase: Phase) -> Vec<String> {
         }
     }
     if let Some(i) = &view.inventory {
+        let held = held(i);
         out.push(format!(
             "inventory: {} items, {} money",
-            i.items.len(),
+            held.len(),
             i.money
         ));
-        for (id, item) in &i.items {
+        for (id, item) in i.items.iter().filter(|(id, _)| held.contains(id)) {
             out.push(format!(
                 "  {id:#018x} {} x{}{}",
                 item.name,
                 item.quantity,
                 if item.worn { " worn" } else { "" }
             ));
+        }
+        // A selection neither held nor around, shown by name.
+        let around = view
+            .world
+            .as_ref()
+            .is_some_and(|w| w.things.iter().any(|t| t.id == i.selection));
+        if let Some(item) = i.items.get(&i.selection) {
+            if !held.contains(&i.selection) && !around {
+                out.push(format!("selected: {:#018x} {}", i.selection, item.name));
+            }
         }
     }
     if let Some(e) = &view.effects {

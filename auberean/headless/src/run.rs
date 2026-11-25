@@ -433,7 +433,10 @@ impl<'w> Runner<'w> {
             Command::Logoff => {
                 let v = self.view();
                 let around = v.world.as_ref().map_or(0, |w| w.things.len());
-                let held = v.inventory.as_ref().map_or(0, |i| i.items.len());
+                let held = v
+                    .inventory
+                    .as_ref()
+                    .map_or(0, |i| crate::snapshot::held(i).len());
                 let calls = v.calls;
                 self.tell(format!(
                     "logging off: {around} objects around, {held} in the inventory, {} calls run \
