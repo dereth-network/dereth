@@ -4,6 +4,10 @@
 //! **Selection.** When the client selects a player, a creature or a person, the server answers
 //! with its selection information: its health and vigor, current and greatest, and what
 //! player-killer damage it has taken. Selecting any other object, or nothing, is not answered.
+//! While it stays selected, the object is looked at again every 3.5 s from the answer, as an
+//! examined object is, and its information sent again when its vitals have changed since the last
+//! sent; another selection, or none, ends that. A look that falls with the examination's look of
+//! the same object goes first.
 //!
 //! **Examination.** Each request about an object or an attackable target is answered with the
 //! object's profile ([`crate::profile`]); a request to stop is not answered. While the player
@@ -145,6 +149,15 @@ pub const NO_ACCURACY: u32 = 2;
 
 /// How often what a player examines is looked at again, in seconds.
 pub const AGAIN_SECONDS: f64 = 3.5;
+
+/// What a player has selected, while it has vitals: the object, when it is next looked at again,
+/// and the vitals last sent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Selecting {
+    pub object: u64,
+    pub look_at: f64,
+    pub sent: Vitals,
+}
 
 /// What a player is examining: the request as it was asked, when it was asked, when it is next
 /// looked at again, and the profile last sent.

@@ -507,6 +507,8 @@ pub struct Server<S: Store> {
     pub examining: HashMap<ConnId, examine::Examining>,
     /// The players with a look at it waiting.
     pub examine_waits: HashSet<ConnId>,
+    /// What each player has selected that has vitals.
+    pub selecting: HashMap<ConnId, examine::Selecting>,
     /// The packages of the objects a player uses by walking into them (portals).
     pub walk_in_packages: std::collections::HashSet<u32>,
     /// Which script packages derive from which, for the gives that take any item of a class.
@@ -876,6 +878,8 @@ pub enum Timer {
     Landing(combat::Landing),
     /// Look again at what a player examines (the examination's number).
     Examine { world: ConnId },
+    /// Look again at what a player has selected.
+    SelectionLook { world: ConnId },
     /// A player's putting an item down is through: the item it asked to move, from its pack's slot.
     PutDown {
         world: ConnId,
@@ -1028,6 +1032,7 @@ impl<S: Store> Server<S> {
             quest_ids: HashMap::new(),
             examining: HashMap::new(),
             examine_waits: HashSet::new(),
+            selecting: HashMap::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
             lifestone_packages: std::collections::HashSet::new(),
@@ -1368,6 +1373,7 @@ impl<S: Store> Server<S> {
                 }
                 Timer::Settle { item } => drops::settle(self, net, item, clock),
                 Timer::Examine { world } => requests::examine_again(self, net, world, clock),
+                Timer::SelectionLook { world } => requests::selection_look(self, net, world, clock),
                 Timer::ShardProtectionEnds { world, eid } => {
                     scenes::protection_ends(self, net, world, eid);
                 }

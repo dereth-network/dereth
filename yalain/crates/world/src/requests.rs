@@ -54,7 +54,7 @@ pub fn call<S: Store>(
         return;
     };
     match f {
-        function::SET_SELECTION => select(s, net, world, &values),
+        function::SET_SELECTION => select(s, net, world, &values, clock),
         function::EXAMINE => examine_object(s, net, world, &values, clock),
         function::SAY => chat::say(s, net, world, call, clock),
         function::TELL => chat::tell(s, net, world, &values),
@@ -518,6 +518,14 @@ pub fn examine_again<S: Store>(
         return;
     }
     let req = profile::read_request(&e.request);
+    // The selection's look at the same object, due as well, goes first (2017: 11,168 of 11,496
+    // ticks holding both).
+    if s.selecting
+        .get(&world)
+        .is_some_and(|x| x.object == req.object && x.look_at <= clock.local.0)
+    {
+        selection_look(s, net, world, clock);
+    }
     let Some(now) = profile_bytes(s, world, &req, clock.local.0) else {
         s.examining.remove(&world);
         return;
@@ -859,7 +867,13 @@ fn placed_name<S: Store>(
     }
 }
 
-fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+fn select<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) {
     let id = v
         .iter()
         .find_map(|x| match x {
@@ -872,10 +886,13 @@ fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[
         return;
     };
     p.selection = id;
+    // Another selection, or none, ends the looks at the one before.
+    s.selecting.remove(&world);
     if id == 0 {
         return;
     }
-    // Only an object with vitals (a player, a creature, a person) is answered.
+    // Only an object with vitals (a player, a creature, a person) is answered, and looked at again
+    // from then.
     if let Some(v) = vitals {
         net.send(
             world,
@@ -883,5 +900,67 @@ fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[
             BlobKind::PRIVATE,
             examine::selection_info(id, Some(v)).encode(),
         );
+        s.selecting.insert(
+            world,
+            examine::Selecting {
+                object: id,
+                look_at: clock.local.0 + examine::AGAIN_SECONDS,
+                sent: v,
+            },
+        );
+        s.after(
+            clock,
+            examine::AGAIN_SECONDS,
+            crate::Timer::SelectionLook { world },
+        );
     }
+}
+
+/// Look again at what a player has selected: its information sent again when its vitals changed
+/// since the last sent (2017: 45,324 of the selections' later informations, 30 with vitals
+/// unchanged; 33,266 of 37,976 creatures' a whole number of 3.5 s looks after the one before), and
+/// another look later. A look set for an earlier selection comes to nothing; one whose object is
+/// gone ends the looks.
+pub fn selection_look<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let Some(e) = s.selecting.get(&world).copied() else {
+        return;
+    };
+    if e.look_at > clock.local.0 {
+        return;
+    }
+    let now = s
+        .players
+        .contains_key(&world)
+        .then(|| vitals_of(s, world, e.object))
+        .flatten();
+    let Some(v) = now else {
+        s.selecting.remove(&world);
+        return;
+    };
+    if v != e.sent {
+        net.send(
+            world,
+            queue::EVENT,
+            BlobKind::PRIVATE,
+            examine::selection_info(e.object, Some(v)).encode(),
+        );
+    }
+    s.selecting.insert(
+        world,
+        examine::Selecting {
+            object: e.object,
+            look_at: clock.local.0 + examine::AGAIN_SECONDS,
+            sent: v,
+        },
+    );
+    s.after(
+        clock,
+        examine::AGAIN_SECONDS,
+        crate::Timer::SelectionLook { world },
+    );
 }

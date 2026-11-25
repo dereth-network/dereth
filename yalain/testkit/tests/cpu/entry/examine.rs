@@ -2553,3 +2553,192 @@ fn a_portal_with_no_destination_is_examined_as_a_place() {
         "a sign: its name and page"
     );
 }
+
+/// A player beside the test camp's creature, which stays where it is and never fights: the
+/// harness, the client, the player's connection and the creature.
+fn beside_a_still_creature() -> (Harness, usize, yalain_net::ConnId, u64) {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let id = h
+        .server
+        .things
+        .awake()
+        .find(|i| {
+            h.server
+                .things
+                .get(*i)
+                .is_some_and(|t| matches!(t.kind, yalain_world::things::Kind::Creature))
+        })
+        .expect("the camp's creature");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.fights = false;
+    }
+    (h, b, world, id)
+}
+
+/// The healths a client was sent of an object in selection informations since `from`.
+fn selection_healths(h: &Harness, b: usize, from: usize, object: u64) -> Vec<u32> {
+    h.world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == answered::SELECTION_INFO => {
+                let v = calls::values(&c.args?.0).ok()?;
+                if v.get(1) != Some(&Value::Long(object)) {
+                    return None;
+                }
+                match v[0].root() {
+                    Some(Node::Native { ty: 171, bytes }) if bytes.len() >= 8 => {
+                        Some(u32::from_le_bytes(bytes[4..8].try_into().ok()?))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn select(h: &mut Harness, b: usize, id: u64) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SET_SELECTION, &[Arg::LongInt(id)]),
+    );
+    h.run(4);
+    from
+}
+
+/// When a player's next look at its selection is due, by the harness clock.
+fn selection_due(h: &Harness, world: yalain_net::ConnId) -> f64 {
+    h.server.selecting[&world].look_at
+}
+
+/// Step the harness until its clock reaches `t`.
+fn step_to(h: &mut Harness, t: f64) {
+    while h.now.0 < t {
+        h.step();
+    }
+}
+
+/// How late, by the harness clock, a thing due is seen done: the step it falls due in runs, and
+/// the clock is read after that step has moved it on.
+const LATE: f64 = 2.0 * yalain_testkit::STEP;
+
+/// A selected creature hurt between two looks has its information sent again at the next look,
+/// not when it is hurt; looks that find its vitals as last sent send nothing.
+/// Behaviour: server.selection.sent-again-when-changed
+#[test]
+fn a_selected_creature_hurt_between_looks_is_sent_again_at_the_next_look() {
+    let (mut h, b, world, id) = beside_a_still_creature();
+    let from = select(&mut h, b, id);
+    let full = selection_healths(&h, b, from, id);
+    assert_eq!(full.len(), 1, "answered once");
+    // Looks with nothing changed send nothing.
+    let due = selection_due(&h, world);
+    step_to(
+        &mut h,
+        due + 2.0 * yalain_world::examine::AGAIN_SECONDS + LATE,
+    );
+    assert!(
+        selection_healths(&h, b, from, id).len() == 1,
+        "nothing changed, nothing sent"
+    );
+    assert!(
+        selection_due(&h, world) > due + yalain_world::examine::AGAIN_SECONDS,
+        "looked at"
+    );
+    // Hurt just after a look: nothing until the next, 3.5 s after it; then the new health.
+    let last = selection_due(&h, world);
+    step_to(&mut h, last + LATE);
+    let mark = h.bots[b].inbox.len();
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health -= 10;
+    }
+    let next = selection_due(&h, world);
+    assert!(
+        (yalain_world::examine::AGAIN_SECONDS..=yalain_world::examine::AGAIN_SECONDS + LATE)
+            .contains(&(next - last)),
+        "the next look {} s after",
+        next - last
+    );
+    while h.now.0 < next - yalain_testkit::STEP {
+        h.step();
+        assert!(
+            selection_healths(&h, b, mark, id).is_empty(),
+            "not before the look"
+        );
+    }
+    step_to(&mut h, next + LATE);
+    // As it stands at the look (it regains a little between).
+    let now = u32::try_from(h.server.things.get(id).expect("there").health).expect("alive");
+    assert!(now < full[0], "still hurt at the look");
+    assert_eq!(selection_healths(&h, b, mark, id), [now], "at the look");
+}
+
+/// Another selection, or none, ends the looks at the one before: hurt after, it is sent nothing.
+/// Behaviour: server.selection.sent-again-when-changed
+#[test]
+fn a_new_selection_ends_the_looks_at_the_one_before() {
+    let (mut h, b, world, id) = beside_a_still_creature();
+    select(&mut h, b, id);
+    let from = select(&mut h, b, 0);
+    assert!(
+        !h.server.selecting.contains_key(&world),
+        "no looks for nothing"
+    );
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health -= 10;
+    }
+    let t = h.now.0 + 3.0 * yalain_world::examine::AGAIN_SECONDS;
+    step_to(&mut h, t);
+    assert!(selection_healths(&h, b, from, id).is_empty());
+}
+
+/// Selected and examined at once, a creature hurt has its selection information sent before its
+/// profile when their looks fall in one tick.
+/// Behaviour: server.selection.sent-again-when-changed
+#[test]
+fn a_selection_look_goes_before_the_examinations_in_one_tick() {
+    let (mut h, b, world, id) = beside_a_still_creature();
+    // Examined first, selected in the same moment: the two looks fall due together.
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(id, 0x3FF)]),
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SET_SELECTION, &[Arg::LongInt(id)]),
+    );
+    h.run(4);
+    let due = selection_due(&h, world);
+    let from = h.bots[b].inbox.len();
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health -= 10;
+    }
+    step_to(&mut h, due + LATE);
+    let order: Vec<&str> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == answered::SELECTION_INFO => {
+                Some("selection")
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                Some("profile")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, ["selection", "profile"]);
+}

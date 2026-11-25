@@ -19237,6 +19237,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.selection.sent-again-when-changed",
+        says: "While an object with vitals stays selected it is looked at again every 3.5 s from the \
+               answer, and its information sent again when its vitals changed since the last sent; \
+               another selection, or none, ends that; with the examination's look of the same \
+               object in one tick, the selection's goes first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SELECTION-AGAIN"),
+        station: "yalain-testkit::cpu::entry::examine::a_selected_creature_hurt_between_looks_is_sent_again_at_the_next_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.selection.the-pk-part",
         says: "A selected player's information carries what other players took of its health and \
                vigor, less than nothing, and still holds it at full health.",
