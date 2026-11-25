@@ -1806,16 +1806,19 @@ fn lyceum_command(store: &Store) -> Result<PathBuf, String> {
 /// data files: the ones Lyceum used last, else `dats` (the launcher's own), with the Classic data
 /// files `classic` beside them, which a world built on Infiltration's files is drawn from. With no
 /// world, Lyceum's start screen. A world repository built on a converted land is opened over the
-/// land Lyceum remembers for it, else the one the person chooses now.
+/// Library's New Dereth data set when that holds the land it pins, else the land Lyceum remembers
+/// for it, else the one the person chooses now.
 #[tauri::command]
 pub async fn open_lyceum(
     app: tauri::AppHandle,
     shared: State<'_, Shared>,
+    backend: State<'_, crate::backend::Shared>,
     world: Option<PathBuf>,
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
 ) -> Result<(), String> {
-    let Some(land) = land_for(&app, world.as_deref()) else {
+    let built = |w: &Path| crate::backend::lock(&backend).newdereth_land(w);
+    let Some(land) = land_for(&app, world.as_deref(), &built) else {
         return Ok(());
     };
     open_editor(&shared, world, dats, classic, land)
@@ -1851,9 +1854,14 @@ pub async fn fetch_world_repository(
     })
     .await
     .map_err(|e| e.to_string())??;
-    remember_opened(&lock(&shared).root, &world);
-    look_again(&shared);
+    list_fetched(&shared, &world);
     Ok(world)
+}
+
+/// List world `world`, just fetched, among Lyceum's worlds at once.
+pub fn list_fetched(shared: &Shared, world: &Path) {
+    remember_opened(&lock(shared).root, world);
+    look_again(shared);
 }
 
 /// Bring fetched world repository `world` (its world file) up to its branch's newest commit
@@ -1908,8 +1916,13 @@ pub async fn update_world_repository(
 }
 
 /// The land world `world` is opened over: `Some(None)` for a world that takes none, `None` when
-/// the person was asked for it and chose nothing.
-fn land_for(app: &tauri::AppHandle, world: Option<&Path>) -> Option<Option<PathBuf>> {
+/// the person was asked for it and chose nothing. `built` answers the land built on this computer
+/// for a world file, which comes before the one Lyceum remembers.
+fn land_for(
+    app: &tauri::AppHandle,
+    world: Option<&Path>,
+    built: &dyn Fn(&Path) -> Option<PathBuf>,
+) -> Option<Option<PathBuf>> {
     use tauri_plugin_dialog::DialogExt;
     let Some(world) = world
         .map(world_file)
@@ -1917,7 +1930,7 @@ fn land_for(app: &tauri::AppHandle, world: Option<&Path>) -> Option<Option<PathB
     else {
         return Some(None);
     };
-    if let Some(land) = repository_land(&world) {
+    if let Some(land) = built(&world).or_else(|| repository_land(&world)) {
         return Some(Some(land));
     }
     app.dialog()
@@ -1953,6 +1966,38 @@ const REPOSITORY_LANDS: &str = "repository-lands.toml";
 pub fn repository_land(world: &Path) -> Option<PathBuf> {
     let text = std::fs::read_to_string(lyceum_settings()?.join(REPOSITORY_LANDS)).ok()?;
     repository_land_in(&text, world).filter(|l| l.is_dir())
+}
+
+/// Remember `land` as the land world repository `world` (its world file) is opened over, in
+/// Lyceum's lands file, as Lyceum remembers one it was opened over: Lyceum and a publish of the
+/// world take it from there.
+pub fn remember_repository_land(world: &Path, land: &Path) {
+    let Some(dir) = lyceum_settings() else {
+        return;
+    };
+    let file = dir.join(REPOSITORY_LANDS);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    // Keyed as the world is when Lyceum is opened on it.
+    let Some(text) = with_repository_land(&text, &world_file(world), land) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&file, text);
+}
+
+/// Lyceum's lands file `text` with `land` as world repository `world`'s, by the world file's whole
+/// path; `None` when a path has no whole form.
+fn with_repository_land(text: &str, world: &Path, land: &Path) -> Option<String> {
+    let mut lands: toml::Table = text.parse().unwrap_or_default();
+    let (world, land) = (
+        std::path::absolute(world).ok()?,
+        std::path::absolute(land).ok()?,
+    );
+    lands.insert(
+        world.to_string_lossy().into_owned(),
+        toml::Value::String(land.to_string_lossy().into_owned()),
+    );
+    toml::to_string(&lands).ok()
 }
 
 /// The land `text` (Lyceum's lands file) names for world repository `world`, by the world file's
@@ -2223,6 +2268,7 @@ pub fn plain_path(path: &Path) -> PathBuf {
 pub async fn choose_lyceum_world(
     app: tauri::AppHandle,
     shared: State<'_, Shared>,
+    backend: State<'_, crate::backend::Shared>,
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
 ) -> Result<(), String> {
@@ -2248,7 +2294,8 @@ pub async fn choose_lyceum_world(
         return Ok(());
     };
     let world = folder.into_path().map_err(|e| e.to_string())?;
-    let Some(land) = land_for(&app, Some(&world)) else {
+    let built = |w: &Path| crate::backend::lock(&backend).newdereth_land(w);
+    let Some(land) = land_for(&app, Some(&world), &built) else {
         return Ok(());
     };
     open_editor(&shared, Some(world), dats, classic, land)
@@ -2959,6 +3006,27 @@ mod tests {
         );
         assert!(!editor_args(&plain, Some(&dats), None, None).contains(&"--on".into()));
         assert_eq!(LYCEUM_SHOWS_ERRORS, "LYCEUM_STARTED_BY_SCREEN");
+    }
+
+    /// A land the launcher built for a world repository is written into Lyceum's lands file as
+    /// Lyceum writes one, so Lyceum and a publish of the world read it back; the other worlds'
+    /// lands are kept.
+    #[test]
+    fn a_land_built_for_a_world_repository_is_the_one_lyceum_remembers_for_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let world = temp.path().join("nd/world.toml");
+        let other = temp.path().join("x/world.toml");
+        let land = temp.path().join("set/overlay");
+        let theirs = temp.path().join("theirs");
+        let first = with_repository_land("", &other, &theirs).unwrap();
+        let text = with_repository_land(&first, &world, &land).unwrap();
+        assert_eq!(repository_land_in(&text, &world), Some(land.clone()));
+        assert_eq!(repository_land_in(&text, &other), Some(theirs));
+        let newer = temp.path().join("new");
+        let again = with_repository_land(&text, &world, &newer).unwrap();
+        assert_eq!(repository_land_in(&again, &world), Some(newer));
+        let mended = with_repository_land("not toml [", &world, &land).unwrap();
+        assert_eq!(repository_land_in(&mended, &world), Some(land));
     }
 
     #[test]

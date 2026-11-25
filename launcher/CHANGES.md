@@ -13,6 +13,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 - Lyceum opens a New Dereth world, asking once for the folder of its land.
 - A New Dereth world from Lyceum can be published to a world you host.
 - Lyceum: fetch New Dereth's world from the launcher, and update it later.
+- Library: build a New Dereth data set from your Asheron's Call 2 files.
+- Library: opens on your data sets, with clients and art packs folded.
 
 ## 0.5.10 (2026-11-23)
 

@@ -1168,9 +1168,10 @@ function settingsPage() {
   const running = isRunning(h);
   const plays = h.plays ?? {};
   // A world that plays a Lyceum world keeps the era and data files it was published for, and a
-  // published one sends its data to Dereth players.
-  const locked = !!plays.dat_overlay;
-  const published = !!plays.published;
+  // published one sends its data to Dereth players. One that plays the New Dereth data set is held
+  // to neither, and sends its land.
+  const locked = !!plays.dat_overlay && !plays.data_set;
+  const sends = !!plays.published || !!plays.data_set;
   const era = eraOf(s.era);
   const id = h.id;
   // The file the world keeps its settings in.
@@ -1242,11 +1243,12 @@ function settingsPage() {
 
   const patching = `<details class="notes" id="set-patching-${id}"><summary>Patching</summary>
       <div class="form long-labels" style="margin-top:8px">
-        ${checkRow("set-patch-on", "SEND TO DERETH CLIENTS", "patching.enabled", published || (s.patching?.enabled ?? true), { tip: "Sends the Lyceum world's data to a Dereth client that joins without it. Off, such a client is turned away.", locked: published, note: published ? "This is how players get the Lyceum world." : "" })}
+        ${checkRow("set-patch-on", "SEND TO DERETH CLIENTS", "patching.enabled", sends || (s.patching?.enabled ?? true), { tip: "Sends the Lyceum world's data to a Dereth client that joins without it. Off, such a client is turned away.", locked: sends, note: sends ? (plays.data_set ? "This is how players get New Dereth's land." : "This is how players get the Lyceum world.") : "" })}
         ${formRow("set-patch-records", "RECORDS A MINUTE", `<input id="set-patch-records" class="field narrow-field" type="number" min="0" data-srv-field="patching.records_per_minute" value="${esc(s.patching?.records_per_minute ?? 60000)}">`)}
         ${formRow("set-patch-bytes", "BYTES A SECOND", `<input id="set-patch-bytes" class="field narrow-field" type="number" min="1" data-srv-field="patching.bytes_per_second" value="${esc(s.patching?.bytes_per_second ?? 1048576)}">`)}
       </div></details>`;
   const lyceum = `${h.publication ? `<p class="small" title="${esc(h.publication.source)}">Plays the Lyceum world <b>${esc(h.publication.key)}</b>${h.publication.revision ? ` version ${h.publication.revision}` : ""}${plays.published ? `, published ${esc(dateOf(plays.published))}` : ""}.</p>`
+      : plays.data_set ? `<p class="small" title="${esc(plays.dat_overlay)}">Plays the New Dereth data set from your Library.</p>`
       : plays.dat_overlay ? `<p class="small">Plays the data overlay in <code>${esc(plays.dat_overlay)}</code>.</p>`
       : `<p class="small muted">Plays no Lyceum world. Publish one from the world's page, under Lyceum.</p>`}
     ${plays.content_overlay ? `<p class="small muted">Changes to its content made in the world are kept in <code>${esc(plays.content_overlay)}</code>.</p>` : ""}
@@ -2222,9 +2224,13 @@ function library() {
       : comp("dereth") ? programRow("dereth")
       : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
       + (host.libraryClientRows?.(ui.snap) ?? "");
+  // Dereth's Library opens on its data sets: its clients start folded, and Classic, New Dereth and
+  // the art packs too, unless the player left them open.
+  const folded = !ac2Realm;
   const clients = libFold("clients", "CLIENTS",
-    (retailHere() ? libFold("clients.retail", "RETAIL", `<div class="list">${retail}</div>`, { sub: true }) : "")
-    + libFold(ac2Realm ? "clients.auberean" : "clients.dereth", ac2Realm ? "AUBEREAN" : "DERETH", `<div class="list">${own}</div>`, { sub: true }));
+    (retailHere() ? libFold("clients.retail", "RETAIL", `<div class="list">${retail}</div>`, { sub: true, closed: folded }) : "")
+    + libFold(ac2Realm ? "clients.auberean" : "clients.dereth", ac2Realm ? "AUBEREAN" : "DERETH", `<div class="list">${own}</div>`, { sub: true, closed: folded }),
+    { closed: folded });
   const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + (f.size ?? 0), 0);
     const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
@@ -2244,7 +2250,8 @@ function library() {
   } else {
     sets = libFold("sets", "DATA SETS",
       libFold("sets.modern", "MODERN", `<p class="muted small">The data files from a modern, post-ToD install.</p>${kindBody("modern", s.dat_sets.filter((d) => d.kind === "modern"), say("library.no-modern", "No modern data files yet."))}`, { sub: true })
-      + libFold("sets.classic", "CLASSIC", `<p class="muted small">The data files from a pre-ToD install.</p>${kindBody("classic", s.dat_sets.filter((d) => d.kind === "classic"), say("library.no-classic", "No classic data files yet."))}`, { sub: true }));
+      + libFold("sets.classic", "CLASSIC", `<p class="muted small">The data files from a pre-ToD install.</p>${kindBody("classic", s.dat_sets.filter((d) => d.kind === "classic"), say("library.no-classic", "No classic data files yet."))}`, { sub: true, closed: true })
+      + (ui.snap.newdereth ? libFold("sets.newdereth", "NEW DERETH", newDereth(), { sub: true, closed: true }) : ""));
   }
 
   // The launcher's own settings: the interface every world starts in, its updates and Discord.
@@ -2253,7 +2260,7 @@ function library() {
 
   let pending = "";
   // A folder read for the other realm's Library waits for that one.
-  if (ui.addFind && (ui.addFind.find.game ?? "dereth") === realmGame()) {
+  if (ui.addFind && (ui.addFind.realm ?? ui.addFind.find.game ?? "dereth") === realmGame()) {
     const { purpose, find: f } = ui.addFind;
     // The retail client is its program with the data files beside it; data files are either kind.
     const ok = purpose === "retail" ? !!(f.retail && f.dats) : !!(f.dats || f.classic);
@@ -2328,13 +2335,62 @@ function ac2Look() {
     ${creatureFold}
     <div class="plugin-line add"><span class="muted small">${said}</span>
       <button class="btn" data-act="ac2-look-build" ${can ? "" : "disabled"}>${l.built ? "Rebuild" : "Build"}</button></div>
-    ${l.tool ? "" : `<p class="muted small">This Dereth has no art tool.</p>`}`, { sub: true });
+    ${l.tool ? "" : `<p class="muted small">This Dereth has no art tool.</p>`}`, { sub: true, closed: true });
 }
 
 // Choose the Asheron's Call 2 folder the art pack is built from; cancelling changes nothing.
 async function pickAc2LookFolder() {
   try {
     const said = await api("pick_ac2_look_folder");
+    if (said) toast(said);
+  } catch (e) {
+    toast(String(e), true);
+  }
+  await pull();
+  render();
+}
+
+// ----- the New Dereth data set ----------------------------------------------------------------------
+
+// The New Dereth data set: the data files a New Dereth world is played on, converted on this
+// computer from the player's own Asheron's Call 2 files. Those are Auberean's Library's, which Add
+// Folder or Download here fills as Auberean's own does; once they are there, Build makes the set,
+// and Rebuild makes it again when it is out of date.
+function newDereth() {
+  const n = ui.snap.newdereth;
+  const caption = `<p class="muted small">The data files for a New Dereth world, converted from Asheron's Call 2.</p>`;
+  if (!n.ac2) {
+    return `${caption}<div class="list"><p class="muted">No new dereth data files yet.</p></div>${setButtons("auberean", { game: "auberean", plain: true })}`;
+  }
+  const p = n.progress;
+  const said = p ? `${esc(p.doing)}…`
+    : n.stale ? "New Dereth's land has changed since this was built."
+    : n.built ? `Built, generation ${n.built.generation}.` : "Not built yet.";
+  const why = !n.tool ? "This Dereth has no art tool." : !n.ac1 ? "Add your Asheron's Call data files first." : "";
+  const label = !n.built ? "Build Data Set" : n.stale ? "Rebuild" : "";
+  const button = label ? `<button class="btn" data-act="newdereth-build" ${p || why || !n.ac2_ok ? "disabled" : ""}>${label}</button>` : "";
+  const bar = p ? `<div class="get-bar">${stepBar(p)}</div>` : "";
+  return `${caption}<div class="list">
+      <div class="row static"><div class="grow"><div class="name">Asheron's Call 2 data files</div>
+        <div class="sub muted small path" title="${esc(n.ac2)}">${esc(n.ac2)}</div>${n.ac2_ok ? "" : `<div class="sub bad">These files do not check.</div>`}</div></div>
+      <div class="row static"><div class="grow"><div class="name">New Dereth data set <span class="muted small">${said}</span></div>
+        ${n.built ? `<div class="sub muted small path" title="${esc(n.built.overlay)}">${esc(n.built.overlay)}</div>` : ""}
+        ${n.built?.converter ? `<div class="sub muted small">Converter ${esc(n.built.converter)}</div>` : ""}${bar}
+        ${why ? `<div class="sub warn">${why}</div>` : ""}</div>
+        <div class="btns">${button}</div></div></div>${setBelow("auberean")}`;
+}
+
+// How far a build has got: its steps against those a build takes, or a sweep when that is unknown.
+function stepBar(p) {
+  const frac = p.of ? Math.min(1, p.steps / p.of) : null;
+  return `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>
+    <div class="sub">Step ${p.steps}${p.of ? ` of about ${p.of}` : ""}</div>`;
+}
+
+// Build the New Dereth data set; how it went is said when it ends.
+async function buildNewDereth() {
+  try {
+    const said = await api("build_newdereth");
     if (said) toast(said);
   } catch (e) {
     toast(String(e), true);
@@ -2386,9 +2442,10 @@ function artPacks() {
   return libFold("art", "ART PACKS",
     `<div class="lib-explain"><p class="muted small">Art packs replace Dereth's visuals (only while Remaster is enabled). You can layer and combine packs as you see fit to dial in your perfect vision of Dereth.</p>${refresh}</div>`
     + ac2Look()
-    + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>${addFile}`, { sub: true })
+    + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>${addFile}`, { sub: true, closed: true })
     + libFold("art.available", `AVAILABLE<span class="muted small">${a.available.length}</span>`, `<div class="list">${available}</div>`, { sub: true, closed: true })
     + libFold("art.sources", `SOURCES<span class="muted small">${a.sources.length}</span>`, `<div class="list">${sources}</div>${add}`, { sub: true, closed: true }),
+    { closed: true },
   );
 }
 
@@ -2462,12 +2519,22 @@ function downloadSaid(s) {
 
 // A kind's buttons under its sets, right-aligned: Add Folder, and Download for each set on offer
 // of that kind. Under them, in line, the explainer a Download folds out, or how its download goes.
-function setButtons(kind) {
+// `game` is the Library Add Folder adds to, when it is not the realm's; `plain` says Download
+// alone, not which set.
+function setButtons(kind, { game = null, plain = false } = {}) {
   const offers = downloads().offers.filter((o) => o.kind === kind);
   const going = downloadGoing();
-  const buttons = `<div class="btns end set-btns"><button class="btn" data-act="add-dats">${say("library.add", "Add Folder")}</button>`
-    + offers.map((o) => `<button class="btn" data-get-ask="${esc(o.id)}" title="${esc(mb(o.download))}" ${going ? "disabled" : ""}>Download ${esc(o.label)}</button>`).join("")
+  const buttons = `<div class="btns end set-btns"><button class="btn" data-act="add-dats" ${game ? `data-game="${esc(game)}"` : ""}>${say("library.add", "Add Folder")}</button>`
+    + offers.map((o) => `<button class="btn" data-get-ask="${esc(o.id)}" title="${esc(mb(o.download))}" ${going ? "disabled" : ""}>Download${plain ? "" : ` ${esc(o.label)}`}</button>`).join("")
     + `</div>`;
+  return buttons + setBelow(kind);
+}
+
+// Under a kind's buttons: how the download of one of its sets goes, or the explainer a Download
+// folds out.
+function setBelow(kind) {
+  const offers = downloads().offers.filter((o) => o.kind === kind);
+  const going = downloadGoing();
   const s = downloads().status;
   const mine = s && offers.some((o) => o.id === s.id) ? s : null;
   const asked = offers.find((o) => o.id === ui.libGet);
@@ -2483,7 +2550,7 @@ function setButtons(kind) {
     below = `<div class="set-explain"><p class="muted">Dereth Network will try to fetch a community archive of the requested data files and verify them.</p>
       <div class="btns end"><button class="btn" data-get-start="${esc(asked.id)}" ${going ? "disabled" : ""}>Download</button><button class="btn" data-get-never>Nevermind</button></div></div>`;
   }
-  return buttons + below;
+  return below;
 }
 
 // The line of the download that is going, brought up to date in place: its words and its bar.
@@ -3198,10 +3265,10 @@ document.addEventListener("click", async (ev) => {
       render();
     // falls through
     case "add-dats": {
-      const game = realmGame();
+      const game = d.game ?? realmGame();
       const f = await act("pick_folder", { title: game === "auberean" ? "Choose a folder of Asheron's Call 2 data files: portal.dat, cell_1.dat and local_English.dat" : "Choose a folder of data files: the client_*.dat files, or portal.dat and cell.dat", game });
       // Files a backend kept as they were chosen leave nothing to confirm.
-      if (f && !f.kept) { ui.addFind = { purpose: "dats", find: f }; render(); }
+      if (f && !f.kept) { ui.addFind = { purpose: "dats", find: f, realm: realmGame() }; render(); }
       break;
     }
     case "add-cancel": ui.addFind = null; render(); break;
@@ -3223,6 +3290,7 @@ document.addEventListener("click", async (ev) => {
     case "art-file-add": await addArtFile(); break;
     case "ac2-look-build": await artFetch("build_ac2_look", {}); break;
     case "ac2-look-folder": await pickAc2LookFolder(); break;
+    case "newdereth-build": await buildNewDereth(); break;
     case "plugin-source-add": await addPluginSource(false); break;
     case "plugin-source-confirm": await addPluginSource(true); break;
     case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;

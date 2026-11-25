@@ -31,6 +31,7 @@ mod hosts;
 mod join;
 mod local;
 mod lyceum_world;
+mod newdereth;
 mod pad;
 mod places;
 // Only Linux registers a desktop entry; elsewhere the module is its tests and a no-op.
@@ -314,6 +315,49 @@ async fn build_ac2_look(b: State<'_, Shared>) -> Cmd<String> {
     let shared = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         Backend::build_ac2_look(&shared, &ac2_look::run_tool)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Build the New Dereth data set from the player's own Asheron's Call and Asheron's Call 2
+/// files, fetching the New Dereth world for Lyceum first when it is not there yet. Refused while a
+/// hosted world playing the set runs: it has its files open, and takes the new set when it next
+/// starts.
+#[tauri::command]
+async fn build_newdereth(
+    b: State<'_, Shared>,
+    c: State<'_, components::Shared>,
+    h: State<'_, hosts::Shared>,
+) -> Cmd<String> {
+    if let Some(running) = hosts::views(&h)
+        .iter()
+        .find(|v| v.plays.data_set && host_runtime::active(&v.folder))
+    {
+        return Err(format!(
+            "Stop {} first: it is playing the New Dereth data set.",
+            running.settings.name
+        ));
+    }
+    let shared = b.inner().clone();
+    let lyceum = c.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let fetch = |home: &Path| {
+            let offered = world_repos::NEW_DERETH;
+            let remote = world_repos::GitHub {
+                owner: offered.owner,
+                repo: offered.repo,
+            };
+            let world = world_repos::fetch(&remote, &offered, home)?;
+            components::list_fetched(&lyceum, &world);
+            Ok(world)
+        };
+        Backend::build_newdereth(
+            &shared,
+            &newdereth::run_tool,
+            &fetch,
+            &components::remember_repository_land,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1062,12 +1106,11 @@ fn main() {
                     .ok()
                     .map(|home| home.join("Documents"))
             });
-            components::set_worlds_home(
-                app.state::<components::Shared>().inner(),
-                documents
-                    .as_ref()
-                    .map(|d| d.join(components::WORLDS_FOLDER)),
-            );
+            let lyceum_home = documents
+                .as_ref()
+                .map(|d| d.join(components::WORLDS_FOLDER));
+            lock(app.state::<Shared>().inner()).set_worlds_home(lyceum_home.clone());
+            components::set_worlds_home(app.state::<components::Shared>().inner(), lyceum_home);
             auberean::set_worlds_home(
                 app.state::<auberean::Shared>().inner(),
                 documents.map(|d| d.join(auberean::WORLDS_FOLDER)),
@@ -1236,6 +1279,7 @@ fn main() {
             pick_art_file,
             add_art_file,
             build_ac2_look,
+            build_newdereth,
             set_ac2_look_part,
             set_ac2_look_creature,
             pick_ac2_look_folder,
@@ -1563,7 +1607,9 @@ mod tests {
             r#"const addFile = `<div class="plugin-line add"><button class="btn" data-act="art-file-add" ${busy ? "disabled" : ""}>Add a pack file…</button></div>`;"#
         ));
         assert!(
-            art.contains(r#"`<div class="list">${installed}</div>${addFile}`, { sub: true })"#),
+            art.contains(
+                r#"`<div class="list">${installed}</div>${addFile}`, { sub: true, closed: true })"#
+            ),
             "the button sits under Installed's list"
         );
         assert!(art.contains(r#"(p.missing ? `<div class="sub bad">File not found</div>` : "")"#));
@@ -1687,6 +1733,7 @@ mod tests {
             "\"sets\"",
             "\"sets.modern\"",
             "\"sets.classic\"",
+            "\"sets.newdereth\"",
             "\"art\"",
             "\"art.installed\"",
             "\"art.available\"",
@@ -1737,6 +1784,81 @@ mod tests {
         }
     }
 
+    /// Dereth's Library opens on its data sets for a player who has folded nothing: its clients
+    /// folded, Data Sets and Modern open, Classic and New Dereth folded, the art packs and every
+    /// part of them folded, and Settings open. Auberean's Library keeps its clients open.
+    #[test]
+    fn dereth_s_library_starts_on_its_data_sets_with_the_rest_folded() {
+        let library = page_function("library");
+        assert!(library.contains("const folded = !ac2Realm;"));
+        for (key, closed) in [
+            ("\"clients\"", "{ closed: folded }"),
+            ("\"clients.retail\"", "closed: folded }"),
+            (
+                "ac2Realm ? \"clients.auberean\" : \"clients.dereth\"",
+                "closed: folded }",
+            ),
+            ("\"sets.classic\"", "closed: true }"),
+            ("\"sets.newdereth\"", "closed: true }"),
+        ] {
+            let at = library.find(&format!("libFold({key}")).expect(key);
+            let call = &library[at..];
+            let next = call[1..].find("libFold(").map_or(call.len(), |n| n + 1);
+            let own = &call[..next];
+            // The group's own options follow its children's calls.
+            let own = if key == "\"clients\"" { call } else { own };
+            assert!(own.contains(closed), "{key} starts folded: {own}");
+        }
+        for open in ["\"sets\", \"DATA SETS\"", "\"sets.modern\"", "\"settings\""] {
+            let at = library.find(&format!("libFold({open}")).expect(open);
+            let call = &library[at..];
+            let line = &call[..call.find('\n').unwrap_or(call.len())];
+            assert!(!line.contains("closed:"), "{open} starts open: {line}");
+        }
+        let art = page_function("artPacks");
+        for key in ["\"art.installed\"", "\"art.available\"", "\"art.sources\""] {
+            let at = art.find(&format!("libFold({key}")).expect(key);
+            let line = &art[at..];
+            let line = &line[..line.find('\n').unwrap()];
+            assert!(line.contains("closed: true }"), "{key}: {line}");
+        }
+        assert!(
+            art.contains("{ closed: true },\n  );\n}"),
+            "Art Packs folded"
+        );
+        let look = page_function("ac2Look");
+        assert!(look.contains("{ sub: true, closed: true });"));
+        assert!(look.contains("libOpen(\"art.ac2look.creatures\", true)"));
+    }
+
+    /// New Dereth's fold says what its data set is; with no Asheron's Call 2 files it offers Add
+    /// Folder and Download into Auberean's library, and once they are there, Build Data Set, or
+    /// Rebuild when the set is out of date.
+    #[test]
+    fn new_dereth_s_fold_adds_or_downloads_ac2_files_then_builds_its_data_set() {
+        let fold = page_function("newDereth");
+        for line in [
+            "The data files for a New Dereth world, converted from Asheron's Call 2.",
+            "No new dereth data files yet.",
+            r#"setButtons("auberean", { game: "auberean", plain: true })"#,
+            r#"!n.built ? "Build Data Set" : n.stale ? "Rebuild""#,
+            r#"data-act="newdereth-build""#,
+            "stepBar(p)",
+        ] {
+            assert!(fold.contains(line), "{line}");
+        }
+        let buttons = page_function("setButtons");
+        assert!(buttons.contains(r#"data-game="${esc(game)}""#));
+        assert!(buttons.contains(r#"Download${plain ? "" : ` ${esc(o.label)}`}"#));
+        let page = include_str!("../ui/app.js");
+        assert!(page.contains("const game = d.game ?? realmGame();"));
+        assert!(page.contains(r#"case "newdereth-build": await buildNewDereth(); break;"#));
+        assert!(page_function("buildNewDereth").contains(r#"api("build_newdereth")"#));
+        // A hosted world playing the data set may change its era, and always sends the land.
+        assert!(page.contains("const locked = !!plays.dat_overlay && !plays.data_set;"));
+        assert!(page.contains("const sends = !!plays.published || !!plays.data_set;"));
+    }
+
     /// The launcher's window can be resized by its edges and minimized, and never maximized.
     #[test]
     fn the_window_resizes_and_does_not_maximize() {
@@ -1775,9 +1897,11 @@ mod tests {
         assert!(library.contains(r#"${ac2Realm ? "" : `<button class="btn" data-url="${GUIDE}">Open Community Guide</button>`}"#));
         let buttons = page_function("setButtons");
         assert!(buttons.contains(r#"say("library.add", "Add Folder")"#));
-        assert!(buttons.contains(">Download ${esc(o.label)}</button>"));
-        assert!(buttons.contains("Dereth Network will try to fetch a community archive of the requested data files and verify them."));
-        assert!(buttons
+        assert!(buttons.contains(r#">Download${plain ? "" : ` ${esc(o.label)}`}</button>"#));
+        assert!(buttons.contains("return buttons + setBelow(kind);"));
+        let below = page_function("setBelow");
+        assert!(below.contains("Dereth Network will try to fetch a community archive of the requested data files and verify them."));
+        assert!(below
             .contains(">Download</button><button class=\"btn\" data-get-never>Nevermind</button>"));
         // Every set the archive offers has its kind's place, in both realms.
         let offers = dereth_launch::downloads::offers(&dereth_datfetch::Catalogue::built_in());

@@ -357,6 +357,8 @@ pub struct Snapshot {
     pub art_progress: Option<ArtProgress>,
     /// The AC2 look the launcher builds from the player's own Asheron's Call 2 files.
     pub ac2_look: crate::ac2_look::View,
+    /// The New Dereth data set the launcher builds from the player's own Asheron's Call 2 files.
+    pub newdereth: crate::newdereth::View,
     /// The data sets the Library can download, and the last download's status.
     pub downloads: DownloadsView,
 }
@@ -767,6 +769,10 @@ pub struct Backend {
     ac2_look_versions: Option<dereth_launch::ac2_look::Versions>,
     /// The AC2 look being built, when it is.
     ac2_look_progress: Option<crate::ac2_look::Progress>,
+    /// The New Dereth data set being built, when it is.
+    newdereth_progress: Option<crate::newdereth::Progress>,
+    /// Lyceum's folder for worlds, where the New Dereth world is fetched to.
+    worlds_home: Option<PathBuf>,
     /// The last data set download's status, and the flag that stops one going.
     download: Option<crate::downloads::Status>,
     download_cancel: Arc<AtomicBool>,
@@ -900,6 +906,8 @@ impl Backend {
             art_progress: None,
             ac2_look_versions: None,
             ac2_look_progress: None,
+            newdereth_progress: None,
+            worlds_home: None,
             download: None,
             download_cancel: Arc::new(AtomicBool::new(false)),
             job_cancel: Arc::new(AtomicBool::new(false)),
@@ -1049,6 +1057,7 @@ impl Backend {
             art: self.art.view(),
             art_progress: self.art_progress.clone(),
             ac2_look: self.ac2_look_view(),
+            newdereth: self.newdereth_view(),
             downloads: DownloadsView {
                 offers: dereth_launch::downloads::offers(catalogue()),
                 status: self.download.clone(),
@@ -3053,6 +3062,197 @@ impl Backend {
         stale.then(|| Self::build_ac2_look(shared, run))
     }
 
+    // ----- the New Dereth data set ----------------------------------------------------------------
+
+    /// Lyceum's folder for worlds, where the New Dereth world is fetched to.
+    pub fn set_worlds_home(&mut self, home: Option<PathBuf>) {
+        self.worlds_home = home;
+    }
+
+    /// The New Dereth world's file, fetched into Lyceum's folder for worlds, when it is there.
+    pub fn newdereth_world(&self) -> Option<PathBuf> {
+        let world = self
+            .worlds_home
+            .as_ref()?
+            .join(crate::world_repos::NEW_DERETH.folder)
+            .join("world.toml");
+        world.is_file().then_some(world)
+    }
+
+    /// The data set built on this computer, while its data files are still there.
+    fn newdereth_built(&self) -> Option<&dereth_launch::newdereth::Built> {
+        self.state.newdereth.as_ref().filter(|b| b.overlay.is_dir())
+    }
+
+    /// The data set's folder of data files, when one is built: what a hosted New Dereth world
+    /// plays.
+    pub fn newdereth_overlay(&self) -> Option<PathBuf> {
+        self.newdereth_built().map(|b| b.overlay.clone())
+    }
+
+    /// The land world repository `world` (its world file) is opened over: the data set built here,
+    /// when it holds the content the world pins.
+    pub fn newdereth_land(&self, world: &Path) -> Option<PathBuf> {
+        let text = std::fs::read_to_string(world).ok()?;
+        self.newdereth_built()
+            .filter(|b| b.is_land_of(&text))
+            .map(|b| b.overlay.clone())
+    }
+
+    fn newdereth_view(&self) -> crate::newdereth::View {
+        let ac2 = self.state.auberean_default_set().map(|s| s.path.clone());
+        let world = self.newdereth_world();
+        let built = self.newdereth_built();
+        // Out of date when the world pins a land and the set is not it.
+        let stale = built
+            .zip(
+                world
+                    .as_deref()
+                    .and_then(|w| std::fs::read_to_string(w).ok()),
+            )
+            .is_some_and(|(b, text)| {
+                !dereth_launch::newdereth::pins(&text).is_empty() && !b.is_land_of(&text)
+            });
+        crate::newdereth::View {
+            tool: self.art_tool().is_some(),
+            ac2_ok: ac2
+                .as_deref()
+                .is_some_and(|d| dereth_launch::auberean::check_install(d).ok),
+            ac2: ac2.map(|d| d.display().to_string()),
+            ac1: self.state.shared_set().is_some(),
+            world: world.map(|w| w.display().to_string()),
+            stale,
+            built: built.map(|b| crate::newdereth::BuiltView {
+                generation: b.generation,
+                overlay: b.overlay.display().to_string(),
+                converter: b.converter.clone(),
+            }),
+            progress: self.newdereth_progress.clone(),
+        }
+    }
+
+    /// Build the New Dereth data set (a thread's work: it runs the art tool, showing how far it
+    /// has got) from the player's Asheron's Call files and Asheron's Call 2 files, for the New
+    /// Dereth world, fetched first by `fetch` (given Lyceum's folder for worlds, answering the
+    /// world's file) when it is not there yet. The set takes the place of the one there only once
+    /// it is whole, and `remember_land` is told it is that world's land. One at a time.
+    ///
+    /// # Errors
+    /// No tool, no files of either game, no world, the build, or a set that will not take the old
+    /// one's place.
+    pub fn build_newdereth(
+        shared: &Shared,
+        run: &crate::ac2_look::RunTool<'_>,
+        fetch: &dyn Fn(&Path) -> Result<PathBuf, String>,
+        remember_land: &dyn Fn(&Path, &Path),
+    ) -> Result<String, String> {
+        use dereth_launch::newdereth::{self as nd, Built};
+        let (tool, world, home, dats, ac2, library, of) = {
+            let mut b = lock(shared);
+            if b.newdereth_progress.is_some() {
+                return Err("The New Dereth data set is being built.".into());
+            }
+            let tool = b
+                .art_tool()
+                .ok_or("This Dereth has no art tool beside it.")?;
+            let dats = b
+                .state
+                .shared_set()
+                .map(|s| s.path.clone())
+                .ok_or("Add your Asheron's Call data files first.")?;
+            let ac2 = b
+                .state
+                .auberean_default_set()
+                .map(|s| s.path.clone())
+                .ok_or("Add your Asheron's Call 2 data files first.")?;
+            let check = dereth_launch::auberean::check_install(&ac2);
+            if !check.ok {
+                return Err(check.summary);
+            }
+            let world = b.newdereth_world();
+            let home = b.worlds_home.clone();
+            if world.is_none() && home.is_none() {
+                return Err("Lyceum has no folder for worlds on this computer.".into());
+            }
+            let of = b
+                .state
+                .newdereth
+                .as_ref()
+                .map(|n| n.steps)
+                .filter(|&n| n > 0)
+                .or(Some(dereth_launch::newdereth::STEPS.len()));
+            b.newdereth_progress = Some(crate::newdereth::Progress {
+                doing: if world.is_some() {
+                    "Starting".into()
+                } else {
+                    "Fetching the New Dereth world".into()
+                },
+                steps: 0,
+                of,
+            });
+            (tool, world, home, dats, ac2, b.library_dir(), of)
+        };
+        let staging = library.join(nd::BUILDING);
+        let set = library.join(nd::FOLDER);
+        let made = (|| -> Result<Built, String> {
+            let world = match world {
+                Some(world) => world,
+                None => fetch(home.as_deref().ok_or("Missing folder for worlds")?)?,
+            };
+            if staging.exists() {
+                std::fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
+            }
+            std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+            let args = nd::build_args(&world, &dats, &ac2, &staging.join(nd::OVERLAY));
+            let progress_to = shared.clone();
+            let said = crate::newdereth::build(run, &tool, &args, of, &mut |p| {
+                if let Some(at) = lock(&progress_to).newdereth_progress.as_mut() {
+                    *at = p;
+                }
+            })?;
+            let wrote = crate::newdereth::inside(&said.overlay, &staging).ok_or_else(|| {
+                format!(
+                    "The converter wrote {}, not into {}.",
+                    said.overlay.display(),
+                    staging.display()
+                )
+            })?;
+            let (content, generation) = nd::stats_file(&wrote, &staging)
+                .and_then(|f| std::fs::read_to_string(f).ok())
+                .and_then(|t| nd::content_of_stats(&t))
+                .ok_or("The converter's stats.txt names no content.")?;
+            let overlay = nd::placed(&wrote, &staging, &set).ok_or("Missing data set folder")?;
+            let built = Built {
+                overlay,
+                content,
+                generation,
+                files: crate::newdereth::land_files(&wrote)?,
+                converter: said.converter,
+                steps: said.steps,
+            };
+            let record = serde_json::to_vec_pretty(&built).map_err(|e| e.to_string())?;
+            std::fs::write(staging.join(nd::MARKER), record).map_err(|e| e.to_string())?;
+            crate::newdereth::place(&staging, &set, &library.join(nd::REPLACED))?;
+            remember_land(&world, &built.overlay);
+            Ok(built)
+        })();
+        let mut b = lock(shared);
+        b.newdereth_progress = None;
+        let built = match made {
+            Ok(built) => built,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(e);
+            }
+        };
+        let generation = built.generation;
+        b.state.newdereth = Some(built);
+        b.save();
+        Ok(format!(
+            "Built the New Dereth data set, generation {generation}."
+        ))
+    }
+
     /// Which plugins update without the player: `none`, `all` or `first_party`.
     ///
     /// # Errors
@@ -4086,6 +4286,219 @@ mod tests {
             .join(FOLDER)
             .join(FILE)
             .is_file());
+    }
+
+    /// The New Dereth data set builds through the art tool beside the client, from the Library's
+    /// Asheron's Call files and Auberean's library's Asheron's Call 2 files, for the New Dereth
+    /// world (fetched first when it is not there), following the tool's steps; it takes the place
+    /// of the set there only once whole, is what Lyceum opens that world over while it is the land
+    /// the world pins, and is to be built again when the world pins another land: other content, or
+    /// another of the land's files. A refused build leaves nothing behind.
+    #[test]
+    fn the_newdereth_set_builds_from_both_games_files_and_is_built_again_when_out_of_date() {
+        let (b, dir) = backend("newdereth");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let never: &crate::ac2_look::RunTool<'_> = &|_, _, _| Err("not run".into());
+        let no_fetch = |_: &Path| -> Result<PathBuf, String> { Err("not fetched".into()) };
+        let remembered = Mutex::new(Vec::<(PathBuf, PathBuf)>::new());
+        let remember = |w: &Path, l: &Path| {
+            remembered
+                .lock()
+                .unwrap()
+                .push((w.to_path_buf(), l.to_path_buf()));
+        };
+        let view = lock(&shared).snapshot().newdereth;
+        assert!(!view.tool && view.ac2.is_none() && view.built.is_none());
+        assert_eq!(
+            Backend::build_newdereth(&shared, never, &no_fetch, &remember),
+            Err("This Dereth has no art tool beside it.".into())
+        );
+        let tool = dir.join("client").join(format!(
+            "{}{}",
+            dereth_launch::newdereth::PROGRAM,
+            std::env::consts::EXE_SUFFIX
+        ));
+        std::fs::write(&tool, b"a stand-in").unwrap();
+        assert_eq!(
+            Backend::build_newdereth(&shared, never, &no_fetch, &remember),
+            Err("Add your Asheron's Call 2 data files first.".into())
+        );
+        // The Asheron's Call 2 files, added to Auberean's library as either Library adds them.
+        let ac2 = dir.join("ac2");
+        write_auberean_set(&ac2, dereth_launch::auberean::END_OF_RETAIL);
+        {
+            let mut b = lock(&shared);
+            let find = dereth_launch::auberean::read_folder(&ac2, &b.state);
+            library::add_find(&mut b.state, find);
+        }
+        let view = lock(&shared).snapshot().newdereth;
+        assert_eq!(
+            view.ac2.as_deref(),
+            Some(ac2.display().to_string().as_str())
+        );
+        assert!(view.ac2_ok && view.ac1 && view.tool);
+        assert_eq!(
+            Backend::build_newdereth(&shared, never, &no_fetch, &remember),
+            Err("Lyceum has no folder for worlds on this computer.".into())
+        );
+        // The world, fetched into Lyceum's folder by the build when it is not there yet.
+        let home = dir.join("Lyceum");
+        lock(&shared).set_worlds_home(Some(home.clone()));
+        let world = home.join("New Dereth").join("world.toml");
+        // The stand-in's cell file is "cell", which hashes to this.
+        const CELL: &str = "39d02b42938b2b75d027ebeb25c9d1fd0b71b6e0453e217a2e85cedc7e4637b4";
+        let pin_files = |content: &str, cell: &str| {
+            std::fs::write(
+                &world,
+                format!("lineage = []\n[land]\ncontent_sha256 = \"{content}\"\ncell_overlay_sha256 = \"{cell}\"\n"),
+            )
+            .unwrap();
+        };
+        let pin = |content: &str| pin_files(content, CELL);
+        let fetch = |at: &Path| -> Result<PathBuf, String> {
+            assert_eq!(at, home);
+            std::fs::create_dir_all(world.parent().unwrap()).unwrap();
+            pin("aa11");
+            Ok(world.clone())
+        };
+        // The stand-in: the protocol the converter prints, its data files and its stats.
+        let content = Mutex::new("aa11".to_owned());
+        let asked = Mutex::new(Vec::<Vec<String>>::new());
+        let seen = Mutex::new(Vec::new());
+        let run = |_: &Path, args: &[std::ffi::OsString], line: &mut dyn FnMut(&str)| {
+            let words: Vec<String> = args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            asked.lock().unwrap().push(words.clone());
+            let out = PathBuf::from(&words[words.iter().position(|w| w == "--out").unwrap() + 1]);
+            std::fs::create_dir_all(&out).unwrap();
+            std::fs::write(out.join("overlay_cell.dat"), b"cell").unwrap();
+            std::fs::write(out.join("overlay_portal.dat"), b"portal").unwrap();
+            let c = content.lock().unwrap().clone();
+            line("converter 0123456789abcdef");
+            std::fs::write(
+                out.parent().unwrap().join("stats.txt"),
+                format!(
+                    "overlay content {c} is generation 4 (generations.tsv): iterations 1..=4\n"
+                ),
+            )
+            .unwrap();
+            for step in ["step inputs", "step land", "step writing"] {
+                line(step);
+                seen.lock()
+                    .unwrap()
+                    .push(lock(&shared).snapshot().newdereth.progress);
+            }
+            line(&format!("built {} 4", out.display()));
+            Ok(())
+        };
+        assert_eq!(
+            Backend::build_newdereth(&shared, &run, &fetch, &remember),
+            Ok("Built the New Dereth data set, generation 4.".into())
+        );
+        let words = asked.lock().unwrap()[0].clone();
+        let library = lock(&shared).library_dir();
+        let staging = library.join(dereth_launch::newdereth::BUILDING);
+        let dats = lock(&shared).state.shared_set().unwrap().path.clone();
+        assert_eq!(
+            words,
+            dereth_launch::newdereth::build_args(&world, &dats, &ac2, &staging.join("overlay"))
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        );
+        let steps: Vec<_> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_ref().map(|p| (p.doing.clone(), p.steps, p.of)))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                Some(("Reading the files".into(), 1, Some(13))),
+                Some(("Land".into(), 2, Some(13))),
+                Some(("Writing".into(), 3, Some(13)))
+            ]
+        );
+        let overlay = library.join("newdereth").join("overlay");
+        assert_eq!(
+            std::fs::read(overlay.join("overlay_cell.dat")).unwrap(),
+            b"cell"
+        );
+        assert!(!staging.exists());
+        // Marked as the launcher's set, so a hosted world plays it without being held to it.
+        assert!(dereth_launch::newdereth::is_data_set(&overlay));
+        assert_eq!(
+            remembered.lock().unwrap().as_slice(),
+            [(world.clone(), overlay.clone())]
+        );
+        let view = lock(&shared).snapshot().newdereth;
+        assert_eq!(
+            view.built,
+            Some(crate::newdereth::BuiltView {
+                generation: 4,
+                overlay: overlay.display().to_string(),
+                converter: "0123456789abcdef".into()
+            })
+        );
+        assert!(!view.stale);
+        assert!(view.progress.is_none());
+        assert_eq!(lock(&shared).newdereth_land(&world), Some(overlay.clone()));
+        // Kept in the launcher's state, read again at the next start.
+        let saved = lock(&shared).state.newdereth.clone().unwrap();
+        assert_eq!((saved.content.as_str(), saved.steps), ("aa11", 3));
+        assert_eq!(
+            saved.files.get("cell_overlay_sha256").map(String::as_str),
+            Some(CELL)
+        );
+        // Another of the land's files pinned: Rebuild.
+        pin_files("aa11", "another");
+        assert!(lock(&shared).snapshot().newdereth.stale);
+        assert_eq!(lock(&shared).newdereth_land(&world), None);
+
+        // The world pins another land: Rebuild, and Lyceum no longer opens it over this set.
+        pin("bb22");
+        assert!(lock(&shared).snapshot().newdereth.stale);
+        assert_eq!(lock(&shared).newdereth_land(&world), None);
+        // A refused build leaves the set there as it was, nothing of its own (it made its folder
+        // and left it empty), and says why.
+        let failing = |_: &Path,
+                       args: &[std::ffi::OsString],
+                       line: &mut dyn FnMut(&str)|
+         -> Result<(), String> {
+            let out = args.iter().position(|a| a == "--out").unwrap() + 1;
+            std::fs::create_dir_all(&args[out]).unwrap();
+            line("converter 0123456789abcdef");
+            line("step inputs");
+            Err("The New Dereth data set could not be built: the content is not the one the world pins".into())
+        };
+        let refused = Backend::build_newdereth(&shared, &failing, &no_fetch, &remember);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|e| e.contains("not the one the world pins")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            std::fs::read(overlay.join("overlay_cell.dat")).unwrap(),
+            b"cell"
+        );
+        assert!(!staging.exists());
+        assert!(lock(&shared).snapshot().newdereth.progress.is_none());
+        // Rebuilt for the new land, measured against the last build's steps.
+        *content.lock().unwrap() = "bb22".into();
+        seen.lock().unwrap().clear();
+        assert!(Backend::build_newdereth(&shared, &run, &no_fetch, &remember).is_ok());
+        assert_eq!(
+            seen.lock().unwrap()[0].as_ref().map(|p| p.of),
+            Some(Some(3))
+        );
+        assert!(!lock(&shared).snapshot().newdereth.stale);
+        // A different converter binary is no reason to build again: only the pins are.
+        std::fs::write(&tool, b"a newer stand-in").unwrap();
+        assert!(!lock(&shared).snapshot().newdereth.stale);
     }
 
     #[test]

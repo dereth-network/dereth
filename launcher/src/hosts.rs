@@ -419,10 +419,18 @@ fn prepared(dir: &Path, game: Game) -> bool {
     }
 }
 
+/// The data files of the New Dereth data set the Library built, when one is.
+fn data_set(backend: &crate::backend::Shared) -> Option<PathBuf> {
+    crate::backend::lock(backend).newdereth_overlay()
+}
+
+/// A New Dereth world plays the data set the Library built: refused before anything is made
+/// while none is.
 #[tauri::command]
 pub async fn create_host(
     shared: State<'_, Shared>,
     components: State<'_, crate::components::Shared>,
+    backend: State<'_, crate::backend::Shared>,
     mut settings: Settings,
 ) -> Result<String, String> {
     settings.validate()?;
@@ -430,10 +438,16 @@ pub async fn create_host(
         return Err("The game data folder does not exist.".into());
     }
     crate::host_config::check_game_data(&settings.era, &settings.dats)?;
+    let land = data_set(&backend);
+    if settings.era == "newdereth" && land.is_none() {
+        return Err(crate::host_config::NO_DATA_SET.into());
+    }
     settings.status_port = free_status_port(&shared)?;
     let server = crate::components::server(&components)?;
     let write = move |program: &Path, dir: &Path| {
-        validate_config(program, dir, &settings.update_config("")?)
+        let text =
+            crate::host_config::with_data_set(&settings.update_config("")?, dir, land.as_deref())?;
+        validate_config(program, dir, &text)
     };
     create(shared.inner(), server, Game::Dereth, write).await
 }
@@ -689,12 +703,16 @@ fn refresh_supervisor(dir: &Path, wrapper: &Path, launcher: &Path) -> Result<boo
     Ok(true)
 }
 
+/// Start a world. A New Dereth world plays the data set the Library built, as it is now: it is
+/// not started while none is.
 #[tauri::command]
 pub fn start_host(
     shared: State<'_, Shared>,
     sharing: State<'_, crate::share::Shared>,
+    backend: State<'_, crate::backend::Shared>,
     id: String,
 ) -> Result<(), String> {
+    let land = data_set(&backend);
     let mut store = lock(&shared);
     let dir = host_dir(&store.root, &id)?;
     if store.closing || store.busy.contains_key(&id) || host_runtime::active(&dir) {
@@ -703,6 +721,14 @@ pub fn start_host(
     let definition = host_runtime::read_definition(&dir)?;
     if !prepared(&dir, definition.game) {
         return Err("Get the world database first.".into());
+    }
+    if definition.game == Game::Dereth {
+        let config = dir.join("empyrean.toml");
+        let text = std::fs::read_to_string(&config).map_err(|e| e.to_string())?;
+        let played = crate::host_config::with_data_set(&text, &dir, land.as_deref())?;
+        if played != text {
+            validate_config(&definition.program, &dir, &played)?;
+        }
     }
     // A Yalain world others may join is told the address they reach it at.
     if definition.game == Game::Auberean {
@@ -747,13 +773,17 @@ pub fn stop_host(shared: State<'_, Shared>, id: String) -> Result<(), String> {
     let dir = host_dir(&store.root, &id)?;
     host_runtime::request_stop(&dir)
 }
+/// Save a world's settings. A New Dereth world plays the data set the Library built, and is not
+/// saved as one while none is; a world moved off New Dereth no longer plays it.
 #[tauri::command]
 pub async fn save_host(
     shared: State<'_, Shared>,
+    backend: State<'_, crate::backend::Shared>,
     id: String,
     settings: Settings,
 ) -> Result<(), String> {
     settings.validate()?;
+    let land = data_set(&backend);
     let shared = shared.inner().clone();
     let dir = begin(&shared, &id, "Checking the settings...")?;
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -765,10 +795,11 @@ pub async fn save_host(
                 "Turn off running in the background before changing the game data folder.".into(),
             );
         }
+        let saved = crate::host_config::save_over(&text, &dir, &settings)?;
         validate_config(
             &definition.program,
             &dir,
-            &crate::host_config::save_over(&text, &dir, &settings)?,
+            &crate::host_config::with_data_set(&saved, &dir, land.as_deref())?,
         )
     })
     .await

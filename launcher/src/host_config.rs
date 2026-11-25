@@ -492,6 +492,9 @@ pub struct Plays {
     pub pack: String,
     /// The data overlay folder it plays, when it plays one.
     pub dat_overlay: Option<String>,
+    /// That folder is the New Dereth data set the launcher built, which a New Dereth world plays
+    /// without being held to its era or game data.
+    pub data_set: bool,
     /// The content overlay, where changes to content made in the world are kept, when it has one.
     pub content_overlay: Option<String>,
     /// When the Lyceum world it plays was published, in seconds since 1970.
@@ -569,6 +572,9 @@ pub fn plays(text: &str, dir: &Path) -> Plays {
             .filter_map(|(e, pack)| recorded_base(&pack).filter(|b| b.era == e))
             .collect(),
         pack,
+        data_set: dat_overlay
+            .as_deref()
+            .is_some_and(|o| dereth_launch::newdereth::is_data_set(&resolve(o))),
         dat_overlay,
         content_overlay: string(server, "world_overlay_path"),
         published,
@@ -579,16 +585,18 @@ pub fn plays(text: &str, dir: &Path) -> Plays {
 /// Whether `next` may replace the settings the configuration `text` of the world in `dir` holds.
 /// A world links to the Dereth Network only once its key is kept. A world that plays a data
 /// overlay, as a published Lyceum world does, keeps the era and game data the overlay was made
-/// for; any other world plays the game data its era is drawn from ([`check_game_data`]).
+/// for, unless the overlay is the New Dereth data set the launcher built; any other world plays
+/// the game data its era is drawn from ([`check_game_data`]).
 ///
 /// # Errors
 /// Why not, in words for a person.
 pub fn check_change(text: &str, dir: &Path, next: &Settings) -> Result<(), String> {
     let before = Settings::from_config(text)?;
-    if next.federation.enabled && !plays(text, dir).network_key {
+    let plays = plays(text, dir);
+    if next.federation.enabled && !plays.network_key {
         return Err("Save the world's key before linking it to the Dereth Network.".into());
     }
-    if dat_overlay(text).is_some() {
+    if plays.dat_overlay.is_some() && !plays.data_set {
         if before.era != next.era || before.dats != next.dats {
             return Err("The Lyceum world this world plays was built for its era and game data, so those stay as they are.".into());
         }
@@ -615,17 +623,52 @@ pub fn save_over(text: &str, dir: &Path, next: &Settings) -> Result<String, Stri
     next.update_config(text)
 }
 
-/// The data overlay folder `text` names, when it names one.
-fn dat_overlay(text: &str) -> Option<String> {
-    text.parse::<DocumentMut>()
-        .ok()?
-        .get("dat_overlay")?
-        .get("path")?
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
+/// What a New Dereth world is told when there is no New Dereth data set to play.
+pub const NO_DATA_SET: &str = "Build the New Dereth data set in Library first.";
+
+/// The configuration `text` of the world in `dir` made to play the New Dereth data set the
+/// launcher built, whose data files are `land` (`None` when none is built): a New Dereth world
+/// that plays no data overlay of its own, or plays the data set, plays `land`, sent to every
+/// Dereth player who joins; a world of another era that plays the data set no longer does.
+///
+/// # Errors
+/// A New Dereth world with no overlay of its own and no data set built ([`NO_DATA_SET`]), or a
+/// configuration that does not read.
+pub fn with_data_set(text: &str, dir: &Path, land: Option<&Path>) -> Result<String, String> {
+    let mut doc = text.parse::<DocumentMut>().map_err(|e| e.to_string())?;
+    let era = Settings::from_config(text)?.era;
+    let plays = plays(text, dir);
+    // An overlay of its own that is gone, as the data set is once deleted, is played no longer.
+    let own = !plays.data_set
+        && plays
+            .dat_overlay
+            .as_deref()
+            .is_some_and(|o| dir.join(o).is_dir());
+    if era == "newdereth" {
+        if own {
+            return Ok(text.to_owned());
+        }
+        let land = land.ok_or(NO_DATA_SET)?;
+        if !doc
+            .get("dat_overlay")
+            .is_some_and(toml_edit::Item::is_table)
+        {
+            doc["dat_overlay"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        doc["dat_overlay"]["path"] = value(land.to_string_lossy().as_ref());
+        // The land is sent to every Dereth player who joins: that is how they get it.
+        doc["dat_overlay"]["patching"] = value(true);
+    } else if plays.data_set {
+        if let Some(overlay) = doc
+            .get_mut("dat_overlay")
+            .and_then(toml_edit::Item::as_table_like_mut)
+        {
+            overlay.remove("path");
+        }
+    }
+    Ok(doc.to_string())
 }
+
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         self.validate_shared()?;
@@ -1544,6 +1587,72 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    /// A New Dereth world plays the data set the Library built, sent to every Dereth player who
+    /// joins, and is not held to New Dereth by it: moved to another era it no longer plays it. A
+    /// published Lyceum world's overlay still holds its world to its era and game data, and stays
+    /// what a New Dereth world plays. With no data set built, a New Dereth world is told to build
+    /// one.
+    #[test]
+    fn a_new_dereth_world_plays_the_data_set_without_being_held_to_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let modern = dir.join("modern");
+        dereth_launch::testing::write_dat_set(&modern, dereth_launch::Iterations::END_OF_RETAIL);
+        let set = dir.join("library").join(dereth_launch::newdereth::FOLDER);
+        let land = set.join("overlay");
+        std::fs::create_dir_all(&land).unwrap();
+        std::fs::write(set.join(dereth_launch::newdereth::MARKER), "{}").unwrap();
+        let nd = Settings {
+            era: "newdereth".into(),
+            dats: modern.clone(),
+            ..Settings::default()
+        };
+        let plain = nd.update_config("").unwrap();
+        assert_eq!(
+            with_data_set(&plain, dir, None).unwrap_err(),
+            NO_DATA_SET,
+            "nothing to play"
+        );
+        assert_eq!(
+            NO_DATA_SET,
+            "Build the New Dereth data set in Library first."
+        );
+        let text = with_data_set(&plain, dir, Some(&land)).unwrap();
+        let shown = plays(&text, dir);
+        assert_eq!(
+            shown.dat_overlay.as_deref(),
+            Some(land.to_string_lossy().as_ref())
+        );
+        assert!(shown.data_set && shown.published.is_none());
+        assert!(text.contains("patching = true"), "{text}");
+        assert_eq!(with_data_set(&text, dir, Some(&land)).unwrap(), text);
+        // Not held to New Dereth: another era may be saved, and then plays no data set.
+        let eor = Settings {
+            era: "eor".into(),
+            ..nd.clone()
+        };
+        check_change(&text, dir, &eor).unwrap();
+        let moved = with_data_set(&save_over(&text, dir, &eor).unwrap(), dir, Some(&land)).unwrap();
+        assert_eq!(plays(&moved, dir).dat_overlay, None);
+        assert_eq!(Settings::from_config(&moved).unwrap().era, "eor");
+        // A published world's overlay holds it, and a New Dereth world keeps playing it.
+        let published = format!(
+            "{}\n[dat_overlay]\npath = 'published/snapshot-0/overlay'\n",
+            plain.trim_end()
+        );
+        assert!(!plays(&published, dir).data_set);
+        let held = check_change(&published, dir, &eor).unwrap_err();
+        assert!(held.contains("stay as they are"), "{held}");
+        std::fs::create_dir_all(dir.join("published/snapshot-0/overlay")).unwrap();
+        assert_eq!(with_data_set(&published, dir, None).unwrap(), published);
+        // A data set deleted since: a New Dereth world is told to build it again.
+        std::fs::remove_dir_all(&set).unwrap();
+        assert_eq!(with_data_set(&text, dir, None).unwrap_err(), NO_DATA_SET);
+        // An end-of-retail world plays no data set.
+        let other = eor.update_config("").unwrap();
+        assert_eq!(with_data_set(&other, dir, None).unwrap(), other);
     }
 
     /// What a world plays: its era's world database, its own, or a published Lyceum world's, with

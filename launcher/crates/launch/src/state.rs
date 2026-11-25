@@ -532,6 +532,9 @@ pub struct LauncherState {
     /// added again takes its place in every choice saved with it ([`LauncherState::reclaim`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forgotten_sets: Vec<ForgottenSet>,
+    /// The New Dereth data set built on this computer, and what it was built from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newdereth: Option<crate::newdereth::Built>,
 }
 
 /// A set removed from the Library: its id, and what its files were.
@@ -603,6 +606,7 @@ impl Default for LauncherState {
             auberean: AubereanSettings::default(),
             hide_built_in_worlds: false,
             forgotten_sets: Vec::new(),
+            newdereth: None,
         }
     }
 }

@@ -32,14 +32,17 @@ pub struct Offered {
     pub branch: &'static str,
 }
 
-/// The world repositories offered.
-pub const OFFERED: [Offered; 1] = [Offered {
+/// New Dereth's world repository, which the Library's New Dereth data set is built for.
+pub const NEW_DERETH: Offered = Offered {
     name: "New Dereth",
     folder: "New Dereth",
     owner: "dereth-network",
     repo: "empyrean-world-newdereth",
     branch: "main",
-}];
+};
+
+/// The world repositories offered.
+pub const OFFERED: [Offered; 1] = [NEW_DERETH];
 
 /// The file beside a fetched repository's own that says what was fetched.
 pub const MARKER: &str = ".dereth-fetched.json";

@@ -88,6 +88,19 @@ pub fn run_tool(
     args: &[OsString],
     line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
+    run_tool_making(program, args, line, "The Asheron's Call 2 Art Pack")
+}
+
+/// [`run_tool`] for a build of `what` (its name, as a failure says it could not be built).
+///
+/// # Errors
+/// It will not start, or it fails.
+pub fn run_tool_making(
+    program: &Path,
+    args: &[OsString],
+    line: &mut dyn FnMut(&str),
+    what: &str,
+) -> Result<(), String> {
     // No console window over the launcher's, and outside its own mount.
     let mut cmd = crate::components::command(program);
     cmd.args(args)
@@ -121,12 +134,9 @@ pub fn run_tool(
     let last: Vec<&str> = said.lines().rev().take(3).collect();
     let last: Vec<&str> = last.into_iter().rev().collect();
     Err(if last.is_empty() {
-        "The Asheron's Call 2 Art Pack could not be built.".to_owned()
+        format!("{what} could not be built.")
     } else {
-        format!(
-            "The Asheron's Call 2 Art Pack could not be built: {}",
-            last.join(" ")
-        )
+        format!("{what} could not be built: {}", last.join(" "))
     })
 }
 

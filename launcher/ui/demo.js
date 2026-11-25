@@ -490,6 +490,16 @@
     ac2Sync();
   };
   const setsWith = (id) => (state.dat_sets.some((d) => d.id === id) ? state.dat_sets : state.auberean?.dat_sets ?? []);
+  // The New Dereth data set, as the backend's: built from Auberean's library's default set, not
+  // built until Build.
+  let newDerethBuilt = null;
+  const newDerethView = () => {
+    const set = (state.auberean?.dat_sets ?? []).find((d) => d.origin.kind === "shared");
+    return {
+      tool: true, ac2: set?.path ?? null, ac2_ok: !!set, ac1: state.dat_sets.some((d) => d.kind === "modern"),
+      world: "C:\\Users\\you\\Documents\\Lyceum\\New Dereth\\world.toml", built: newDerethBuilt, stale: false, progress: null,
+    };
+  };
   const hosts = [];
   const hostBy = (id) => hosts.find((h) => h.id === id);
   // The other worlds on this computer, once the page has looked: an ACE world a Windows service
@@ -740,9 +750,14 @@
       art: artView(),
       art_progress: null,
       ac2_look: structuredClone(ac2Look),
+      newdereth: newDerethView(),
       downloads: { offers: OFFERS, status: download && { ...download }, guide: "https://www.accpp.net/manual-installation" },
     }),
     get_dats: ({ id }) => { getDats(id); },
+    build_newdereth: () => {
+      newDerethBuilt = { generation: 4, converter: "0123456789abcdef", overlay: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library\\newdereth\\overlay" };
+      return "Built the New Dereth data set, generation 4.";
+    },
     cancel_get_dats: () => { if (download) download.stage = "cancelled"; },
     cancel_job: () => { job = null; },
     clear_get_dats: () => { if (download && ["done", "failed", "cancelled"].includes(download.stage)) download = null; },
