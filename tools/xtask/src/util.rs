@@ -584,7 +584,7 @@ mod tests {
     /// the environment so the test says the same thing on a machine with no retail install.
     #[test]
     fn the_shortfall_names_the_missing_files_and_is_empty_when_all_four_are_there() {
-        let base = std::env::temp_dir().join("dereth-shortfall");
+        let base = crate::scratch::Scratch::new("dereth-shortfall");
         let empty = base.join("empty");
         let full = base.join("full");
         std::fs::create_dir_all(&empty).expect("a temp directory");
@@ -604,6 +604,5 @@ mod tests {
         // And the discriminating middle case: the partial install that used to half-skip.
         std::fs::remove_file(ModernDat::HighRes.in_dir(&full)).expect("remove one");
         assert_eq!(retail_shortfall(&full), vec!["client_highres.dat"]);
-        std::fs::remove_dir_all(&base).ok();
     }
 }

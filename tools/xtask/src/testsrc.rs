@@ -1365,20 +1365,17 @@ mod tests {
     }
 
     fn walk_package(src: &str, target: &str, package: &str) -> Inventory {
-        let dir = std::env::temp_dir().join(format!("xtask-testsrc-{}", fnv(src)));
-        std::fs::create_dir_all(&dir).expect("temp dir");
+        let dir = crate::scratch::Scratch::new(&format!("xtask-testsrc-{}", fnv(src)));
         let root = dir.join("main.rs");
         std::fs::write(&root, src).expect("write");
-        let inv = read(
+        read(
             &dir,
             &[Target {
                 package: package.into(),
                 name: target.into(),
                 root,
             }],
-        );
-        std::fs::remove_dir_all(&dir).ok();
-        inv
+        )
     }
 
     #[test]
@@ -1440,8 +1437,7 @@ mod tests {
 
     #[test]
     fn declarations_follow_gated_module_files_and_included_helpers() {
-        let dir = std::env::temp_dir().join("xtask-testsrc-declarations");
-        std::fs::create_dir_all(&dir).expect("temp dir");
+        let dir = crate::scratch::Scratch::new("xtask-testsrc-declarations");
         let root = dir.join("lib.rs");
         std::fs::write(&root, "#[cfg(test)] #[path = \"checks.rs\"] mod checks;").expect("root");
         std::fs::write(
@@ -1462,7 +1458,6 @@ mod tests {
                 root,
             }],
         );
-        std::fs::remove_dir_all(&dir).expect("remove fixture");
         let names: Vec<_> = inv.declarations.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, ["checks", "helper", "LIMIT", "works"]);
         assert_eq!(inv.declarations[1].file, "helpers.rs");

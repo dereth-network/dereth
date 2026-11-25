@@ -955,8 +955,7 @@ mod tests {
 
     #[test]
     fn a_scenario_declaration_is_a_station() {
-        let dir = std::env::temp_dir().join("xtask-test-lint-scenarios");
-        std::fs::create_dir_all(&dir).expect("temp dir");
+        let dir = crate::scratch::Scratch::new("xtask-test-lint-scenarios");
         let root = dir.join("main.rs");
         std::fs::write(&root, "mod chat;\n").expect("write");
         std::fs::write(
@@ -975,7 +974,6 @@ mod tests {
                 root,
             }],
         );
-        std::fs::remove_dir_all(&dir).ok();
         let got = scenarios(&inv);
         assert!(got.contains_key("dereth-testkit::cpu::chat::a_line_is_drawn"));
         assert!(got.contains_key("dereth-testkit::cpu::chat::another"));
@@ -984,13 +982,11 @@ mod tests {
 
     #[test]
     fn the_registry_subjects_are_its_file_stems_without_mod() {
-        let dir = std::env::temp_dir().join("xtask-test-lint-subjects");
-        std::fs::create_dir_all(&dir).expect("temp dir");
+        let dir = crate::scratch::Scratch::new("xtask-test-lint-subjects");
         for f in ["mod.rs", "chat.rs", "rendering.rs", "notes.txt"] {
             std::fs::write(dir.join(f), "").expect("write");
         }
         let got = registry_subjects(&dir);
-        std::fs::remove_dir_all(&dir).ok();
         assert_eq!(
             got,
             BTreeSet::from(["chat".to_owned(), "rendering".to_owned()])
@@ -999,7 +995,7 @@ mod tests {
 
     #[test]
     fn subject_descendants_do_not_turn_other_root_modules_into_areas() {
-        let dir = std::env::temp_dir().join("xtask-test-lint-subject-descendants");
+        let dir = crate::scratch::Scratch::new("xtask-test-lint-subject-descendants");
         let subjects = dir.join(REGISTRY_DIR);
         let tier = dir.join("tests/cpu");
         std::fs::create_dir_all(&subjects).expect("registry directory");
@@ -1040,7 +1036,6 @@ mod tests {
         std::fs::write(subjects.join("chat.rs"), "").expect("restore subject registration");
         std::fs::write(dir.join("Cargo.toml"), manifest("ordinary-tests")).expect("other package");
         assert!(area_findings().contains(&"checks".to_owned()));
-        std::fs::remove_dir_all(&dir).expect("remove fixture");
     }
 
     #[test]

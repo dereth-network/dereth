@@ -1439,7 +1439,7 @@ mod tests {
 
     #[test]
     fn rooted_source_citations_fail_when_the_file_is_removed() {
-        let root = std::env::temp_dir().join("xtask-comment-source-citation");
+        let root = crate::scratch::Scratch::new("xtask-comment-source-citation");
         let file = root.join("core/sample/tests/cpu.rs");
         std::fs::create_dir_all(file.parent().expect("parent")).expect("fixture directory");
         std::fs::write(&file, "").expect("fixture source");
@@ -1450,12 +1450,11 @@ mod tests {
         assert!(stale_source_citations(&root, None, examples).is_empty());
         std::fs::remove_file(&file).expect("remove cited source");
         assert_eq!(stale_source_citations(&root, None, &text).len(), 2);
-        std::fs::remove_dir_all(&root).expect("remove fixture");
     }
 
     #[test]
     fn source_citations_resolve_docs_and_the_nearest_crate_without_guessing_other_paths() {
-        let root = std::env::temp_dir().join("xtask-comment-citation-owners");
+        let root = crate::scratch::Scratch::new("xtask-comment-citation-owners");
         let files = [
             "Cargo.toml",
             "docs/formats/sample.md",
@@ -1487,12 +1486,11 @@ mod tests {
                         `src/items.rs::Item` `/src/old.rs` `src/` `src/image.png`";
         assert!(stale_source_citations(&root, Some(&owner), excluded).is_empty());
         assert!(stale_source_citations(&root, None, "`src/unowned.rs`").is_empty());
-        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]
     fn both_scopes_check_source_citations_and_only_the_corrupt_punctuation_sequence() {
-        let root = std::env::temp_dir().join("xtask-comment-citation-scopes");
+        let root = crate::scratch::Scratch::new("xtask-comment-citation-scopes");
         let corrupt = "\u{00e2}\u{20ac}\u{201d}";
         let source = format!(
             "// `src/missing.rs` {corrupt}\n\
@@ -1535,7 +1533,6 @@ mod tests {
             1
         );
         assert!(scan_text("— – → × é â € ”", false).is_empty());
-        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]
@@ -1688,8 +1685,7 @@ fn after() { let _ = "after O-4"; }
     /// comment unread.
     #[test]
     fn every_comment_is_scanned_by_exactly_one_scope() {
-        let dir = std::env::temp_dir().join("xtask-comment-lint-scopes");
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = crate::scratch::Scratch::new("xtask-comment-lint-scopes");
         let files = [
             (
                 "c/src/lib.rs",
@@ -1716,7 +1712,6 @@ fn after() { let _ = "after O-4"; }
         };
         let production = labels(Scope::Production);
         let test = labels(Scope::Test);
-        std::fs::remove_dir_all(&dir).ok();
         let set = |xs: &[&str]| xs.iter().map(|x| (*x).to_owned()).collect::<BTreeSet<_>>();
         assert_eq!(production, set(&["O-1", "O-5", "O-7"]));
         assert_eq!(test, set(&["O-2", "O-3", "O-4", "O-6"]));
