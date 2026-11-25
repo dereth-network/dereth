@@ -483,9 +483,16 @@ impl Placements {
 
 /// What each scene type of terrain type `terrain` grows, by the region's scene table: for each
 /// scene value a vertex can hold, the models its scenes place, each once, in the scenes' order.
-/// A value past the terrain's list grows nothing and is not listed.
+/// A value past the terrain's list grows nothing and is not listed. Each scene is read by `read`
+/// (a world's own, its import's among them: [`crate::edit::Session::scenery`]) and decoded in the
+/// layout of `set`'s files.
 #[must_use]
-pub fn scenery_of(set: &DatSet, region: &Region, terrain: u16) -> Vec<Vec<DataId>> {
+pub fn scenery_of(
+    set: &DatSet,
+    read: &dyn Fn(DataId) -> Option<Vec<u8>>,
+    region: &Region,
+    terrain: u16,
+) -> Vec<Vec<DataId>> {
     let Some(t) = region.terrain_types.get(usize::from(terrain)) else {
         return Vec::new();
     };
@@ -500,8 +507,7 @@ pub fn scenery_of(set: &DatSet, region: &Region, terrain: u16) -> Vec<Vec<DataId
                 .map(|d| d.scenes.as_slice())
                 .unwrap_or_default();
             for scene in scenes {
-                let objects = set
-                    .read_portal(*scene)
+                let objects = read(*scene)
                     .and_then(|b| set.decode::<Scene>(*scene, &b).ok())
                     .map(|s| s.objects)
                     .unwrap_or_default();

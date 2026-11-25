@@ -2390,7 +2390,7 @@ impl Session {
                 let (i, j) = (s.vertex / 9, s.vertex % 9);
                 let terrain = land.terrain_type(i, j);
                 let value = *empty.entry(terrain).or_insert_with(|| {
-                    let list = crate::models::scenery_of(self.base(), region, terrain);
+                    let list = self.scenery(terrain);
                     list.iter()
                         .position(Vec::is_empty)
                         .or_else(|| (list.len() < 32).then_some(list.len()))

@@ -113,7 +113,7 @@ fn a_terrains_scenes_list_the_models_they_grow_and_each_is_that_terrains_scenery
     let region = s.region().unwrap();
     let names = ModelNames::read(s.base(), Some(region), &s.weenies_by_setup(), &town);
     // Grassland, terrain 1: as many scene values as its list holds, some growing nothing.
-    let scenes = lyceum_foundry::models::scenery_of(s.base(), region, 1);
+    let scenes = s.scenery(1);
     assert_eq!(scenes.len(), region.terrain_types[1].scene_types.len());
     assert!(scenes.iter().any(Vec::is_empty) && scenes.iter().any(|m| !m.is_empty()));
     for m in scenes.iter().flatten() {
@@ -122,5 +122,84 @@ fn a_terrains_scenes_list_the_models_they_grow_and_each_is_that_terrains_scenery
     }
     // Every tree that grows on grassland is in some scene of it.
     assert!(scenes.iter().flatten().any(|m| *m == DataId(0x0200_02D8)));
-    assert!(lyceum_foundry::models::scenery_of(s.base(), region, 999).is_empty());
+    assert!(s.scenery(999).is_empty());
+}
+
+/// A scene the world's import changes grows what the import says in the scene brush's list, not
+/// what the player's own files say: a converted land's own scenery is its import's.
+#[test]
+fn a_scene_the_import_changes_grows_the_imports_models() {
+    use dereth_assets::world::Scene;
+    use dereth_dat::ModernDat;
+    use lyceum_foundry::compile::{self, Records, Staged};
+
+    let (dir, world) = sample("import-scenes");
+    let dats = dereth_dat::testing::dat_dir();
+    let before = Session::open(&world, &dats, None).unwrap();
+    let base = before.base();
+    let region = before.region().unwrap();
+    let grassland = before.scenery(1);
+    let descs = region.scene_info.as_deref().unwrap_or_default();
+    let scenes_of = |st: i32| {
+        usize::try_from(st)
+            .ok()
+            .and_then(|i| descs.get(i))
+            .map(|d| d.scenes.clone())
+            .unwrap_or_default()
+    };
+    let (value, st) = region.terrain_types[1]
+        .scene_types
+        .iter()
+        .enumerate()
+        .find(|(v, st)| !grassland[*v].is_empty() && !scenes_of(**st).is_empty())
+        .map(|(v, st)| (v, *st))
+        .expect("a grassland scene that grows something");
+    let target = scenes_of(st)[0];
+    // Another scene, whose first model grassland's scene value doesn't grow.
+    let (donor, model) = descs
+        .iter()
+        .flat_map(|d| d.scenes.iter().copied())
+        .find_map(|id| {
+            let b = base.read_portal(id)?;
+            let first = base
+                .decode::<Scene>(id, &b)
+                .ok()?
+                .objects
+                .into_iter()
+                .map(|o| o.obj_id)
+                .find(|m| m.raw() != 0)?;
+            (!grassland[value].contains(&first)).then_some((id, first))
+        })
+        .expect("a scene growing something else");
+    let mut bytes = base.read_portal(donor).unwrap();
+    bytes[..4].copy_from_slice(&target.raw().to_le_bytes());
+    let mut records = Records::new();
+    records.entry(ModernDat::Portal).or_default().insert(
+        target.raw(),
+        Staged {
+            bytes: bytes.into(),
+            version: 3,
+        },
+    );
+    let overlay = dir.path().join("import");
+    compile::write_records(
+        &records,
+        &std::collections::BTreeMap::new(),
+        base,
+        "an-import",
+        &overlay,
+    )
+    .unwrap();
+    drop(before);
+    let text = std::fs::read_to_string(&world).unwrap();
+    let imports = format!(
+        "imports = [{:?}]\npacks",
+        overlay.display().to_string().replace('\\', "/")
+    );
+    std::fs::write(&world, text.replacen("packs", &imports, 1)).unwrap();
+
+    let s = Session::open(&world, &dats, None).unwrap();
+    let now = s.scenery(1);
+    assert!(now[value].contains(&model), "{model:?} in {:?}", now[value]);
+    assert!(!grassland[value].contains(&model));
 }

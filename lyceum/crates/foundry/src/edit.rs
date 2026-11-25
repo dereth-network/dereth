@@ -1563,6 +1563,19 @@ impl Session {
         &self.compiled
     }
 
+    /// What each scene value of terrain type `terrain` grows in the world as it stands: its own
+    /// scenes, its import's among them ([`crate::models::scenery_of`]); nothing without a region.
+    #[must_use]
+    pub fn scenery(&self, terrain: u16) -> Vec<Vec<dereth_primitives::DataId>> {
+        let Some(region) = &self.region else {
+            return Vec::new();
+        };
+        let read = |id: dereth_primitives::DataId| {
+            compile::read_compiled(&self.compiled, &self.base, ModernDat::Portal, id.raw())
+        };
+        crate::models::scenery_of(&self.base, &read, region, terrain)
+    }
+
     /// The region record: the height table and the terrain types.
     #[must_use]
     pub fn region(&self) -> Option<&Region> {

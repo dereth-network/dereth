@@ -93,7 +93,7 @@ impl EditorApp {
                     let place = dungeons
                         .get(&lb)
                         .cloned()
-                        .unwrap_or_else(|| crate::catalog::town_of(lb).unwrap_or_default());
+                        .unwrap_or_else(|| self.towns.town(lb).unwrap_or_default());
                     (place, 0)
                 })
                 .1 += 1;

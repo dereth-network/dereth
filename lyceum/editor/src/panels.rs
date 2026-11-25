@@ -1449,7 +1449,7 @@ impl EditorApp {
                 out.push(UiAction::MapZoom(if scroll > 0.0 { 1.25 } else { 0.8 }));
             }
             if let Some((lb, ..)) = landblock_of(Vec3::new(x, y, 0.0)) {
-                let town = crate::catalog::town_of(lb).unwrap_or_default();
+                let town = self.towns.town(lb).unwrap_or_default();
                 r.clone()
                     .on_hover_text(format!("{lb:04X} {town}\n{}", t.get("map.tip")));
             }

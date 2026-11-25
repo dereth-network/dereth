@@ -1348,7 +1348,11 @@ fn the_placements_gathered_once_are_read_from_the_cache_the_next_time() {
     let cache_arg = cache.to_str().unwrap().to_owned();
     let building = dereth_primitives::DataId(0x0100_0C1E);
     let set = lyceum_foundry::dats::DatSet::open(&dereth_dat::testing::dat_dir()).unwrap();
-    let file = lyceum_editor::catalog::placements_file(&cache, &set);
+    let file = lyceum_editor::catalog::placements_file(
+        &cache,
+        &set,
+        &lyceum_editor::catalog::Towns::default(),
+    );
     let town = {
         let mut ed = editor_with(&world, &["--thumbnails", &cache_arg]);
         ed.wait_for_names().unwrap();

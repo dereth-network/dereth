@@ -657,6 +657,8 @@ pub struct EditorApp {
     shown_around: Option<u16>,
     radius: u32,
     catalog: Option<crate::catalog::Catalog>,
+    /// What names the town a landblock is in: the world's own places, else the game's map's.
+    pub towns: crate::catalog::Towns,
     fetching: Option<crate::database::Fetch>,
     /// The tags the user gives models, kept beside the world.
     pub tags: Tags,
@@ -1097,6 +1099,7 @@ impl EditorApp {
             .region()
             .map(|r| terrain_colors(&base_store, r))
             .unwrap_or_default();
+        let towns = crate::catalog::Towns::of_imports(&session.world().imports);
         let catalog = crate::catalog::Catalog::start(
             world_files,
             session.region().cloned(),
@@ -1158,6 +1161,7 @@ impl EditorApp {
             shown_around: None,
             radius: args.radius,
             catalog: Some(catalog),
+            towns,
             browser_state,
             browser_path,
             saved_view: None,
@@ -4426,11 +4430,9 @@ impl EditorApp {
     /// What each scene value grows on terrain `terrain`: the models its scenes place.
     pub fn scenes_of(&mut self, terrain: u16) -> &[Vec<DataId>] {
         let session = &self.session;
-        self.scenes.entry(terrain).or_insert_with(|| {
-            session.region().map_or_else(Vec::new, |r| {
-                lyceum_foundry::models::scenery_of(session.base(), r, terrain)
-            })
-        })
+        self.scenes
+            .entry(terrain)
+            .or_insert_with(|| session.scenery(terrain))
     }
 
     /// A few words for what a scene grows: how many of each kind of thing, or nothing.

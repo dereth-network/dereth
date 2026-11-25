@@ -7,11 +7,16 @@
 //! with the doors that database stands at them ([`lyceum_foundry::buildings`]), kept beside the
 //! placements by the files' and the database's fingerprints; and the world's own dungeons, so the
 //! Dungeons tab opens at once.
+//!
+//! A model is labeled with the town it stands in ([`Towns`]): the world's own places, when its
+//! import names them (`places.tsv`), else the game's map's notes.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use dereth_assets::Region;
+use dereth_client_contract::panels::map::MapPlace;
+use dereth_client_runtime::map_places::{Naming, WORLD_PLACES_FILE};
 use dereth_primitives::EraId;
 use lyceum_foundry::buildings::Catalog as Buildings;
 use lyceum_foundry::dats::DatSet;
@@ -124,21 +129,26 @@ impl Catalog {
 
 /// The file the placements of `set` are kept in, under `cache`: a folder by the portal file's
 /// key (the pictures' own), named by the cell file's; each key the file's fingerprint and the
-/// overlay over it, if any ([`lyceum_foundry::dats::files_key`]).
+/// overlay over it, if any ([`lyceum_foundry::dats::files_key`]); and, for a world that names its
+/// own places, by those places ([`Towns::key`]), since they label the models.
 #[must_use]
-pub fn placements_file(cache: &Path, set: &DatSet) -> PathBuf {
+pub fn placements_file(cache: &Path, set: &DatSet, towns: &Towns) -> PathBuf {
     let hex = |fp: [u8; 32]| -> String { fp[..8].iter().map(|b| format!("{b:02x}")).collect() };
     let portal = hex(lyceum_foundry::dats::files_key(&set.portal));
     let cell = hex(lyceum_foundry::dats::files_key(&set.cell));
-    cache.join(portal).join(format!("placements-{cell}.tsv"))
+    let named = towns.key().map(|k| format!("-{k}")).unwrap_or_default();
+    cache
+        .join(portal)
+        .join(format!("placements-{cell}{named}.tsv"))
 }
 
 /// The file the map's picture of the files `set` is kept in, beside the placements.
 #[must_use]
 pub fn map_file(cache: &Path, set: &DatSet) -> PathBuf {
-    placements_file(cache, set).with_file_name(format!(
+    let placements = placements_file(cache, set, &Towns::default());
+    placements.with_file_name(format!(
         "map-{}.png",
-        placements_file(cache, set)
+        placements
             .file_stem()
             .and_then(|s| s.to_str())
             .and_then(|s| s.strip_prefix("placements-"))
@@ -147,10 +157,10 @@ pub fn map_file(cache: &Path, set: &DatSet) -> PathBuf {
 }
 
 /// The file the building catalog of `set` with the doors of the server database `doors` is kept
-/// in, beside the placements: named by the cell file's fingerprint and the database's (its name,
-/// length and time of change), or `none` without one.
+/// in, beside the placements: named as they are (by the cell file's fingerprint and the world's
+/// own places) and by the database's (its name, length and time of change), or `none` without one.
 #[must_use]
-pub fn buildings_file(cache: &Path, set: &DatSet, doors: Option<&Path>) -> PathBuf {
+pub fn buildings_file(cache: &Path, set: &DatSet, towns: &Towns, doors: Option<&Path>) -> PathBuf {
     use std::hash::{Hash, Hasher};
     let db = doors.and_then(|p| {
         let meta = std::fs::metadata(p).ok()?;
@@ -164,7 +174,7 @@ pub fn buildings_file(cache: &Path, set: &DatSet, doors: Option<&Path>) -> PathB
             .hash(&mut h);
         Some(format!("{:016x}", h.finish()))
     });
-    let placements = placements_file(cache, set);
+    let placements = placements_file(cache, set, towns);
     let cell = placements
         .file_stem()
         .and_then(|s| s.to_str())
@@ -187,6 +197,8 @@ fn gather(
     colors: &[[u8; 3]],
 ) -> Ready {
     let mut problem = None;
+    let towns = Towns::of_imports(imports);
+    let town = |lb: u16| towns.town(lb);
     let opened = DatSet::open_era(dats, era).map(|set| {
         set.with_imports(imports).unwrap_or_else(|e| {
             tracing::warn!("the model browser lists the files without the world's imports: {e}");
@@ -195,9 +207,9 @@ fn gather(
     });
     let (placements, map) = match &opened {
         Ok(set) => {
-            let file = placements_file(cache, set);
+            let file = placements_file(cache, set, &towns);
             let placements = Placements::load(&file).unwrap_or_else(|| {
-                let p = Placements::read(set, region, &town_of);
+                let p = Placements::read(set, region, &town);
                 if let Err(e) = p.save(&file) {
                     tracing::warn!("{}: {e}", file.display());
                 }
@@ -233,7 +245,7 @@ fn gather(
         .map(|set| lyceum_foundry::dungeons::retail(&|id| set.cell.read(id).ok(), set.era));
     let doors = doors.or(database.as_deref());
     let buildings = opened.ok().map(|set| {
-        let file = buildings_file(cache, &set, doors);
+        let file = buildings_file(cache, &set, &towns, doors);
         Buildings::load(&file).unwrap_or_else(|| {
             // The database the session was given on its command line, read here for its doors.
             let given = (doors.is_some() && database.as_deref() != doors)
@@ -241,7 +253,7 @@ fn gather(
                 .flatten()
                 .map(|b| sql_ids::server_content(&String::from_utf8_lossy(&b)));
             let content = given.as_ref().or((database.is_some()).then_some(&server));
-            let c = Buildings::read(&set, content, &town_of);
+            let c = Buildings::read(&set, content, &town);
             if let Err(e) = c.save(&file) {
                 tracing::warn!("{}: {e}", file.display());
             }
@@ -256,6 +268,73 @@ fn gather(
         dungeons,
         database,
         problem,
+    }
+}
+
+/// How far from a world's own town or landmark a landblock's middle is still in it, in map units
+/// (a landblock is 0.8).
+const OWN_REACH: f64 = 3.0;
+
+/// What names the town a landblock is in: the world's own towns and landmarks, when its import
+/// names them in a places document, else the game's map's notes ([`town_of`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Towns {
+    /// The world's own places, and a short key of the document that names them.
+    own: Option<(Vec<MapPlace>, String)>,
+}
+
+impl Towns {
+    /// The towns of a world whose imports are `imports`: the places document of the last that
+    /// holds one, as the build carries it into the world's overlay.
+    #[must_use]
+    pub fn of_imports(imports: &[PathBuf]) -> Self {
+        let document = imports
+            .iter()
+            .rev()
+            .find_map(|i| std::fs::read_to_string(i.join(WORLD_PLACES_FILE)).ok());
+        Self::of_document(document.as_deref())
+    }
+
+    /// The towns a places document `document` names (`None`, or text that is none: the notes').
+    #[must_use]
+    pub fn of_document(document: Option<&str>) -> Self {
+        let own = document.and_then(|text| match Naming::of(Some(text)) {
+            Naming::Own(places) => {
+                let digest = dereth_dat::generations::digest([(0, text.as_bytes())]);
+                Some((
+                    places,
+                    dereth_dat::generations::hex(&digest)[..16].to_owned(),
+                ))
+            }
+            Naming::Notes => None,
+        });
+        Self { own }
+    }
+
+    /// The key of the world's own places, which the caches of what they label are named by;
+    /// `None` for the notes.
+    #[must_use]
+    pub fn key(&self) -> Option<&str> {
+        self.own.as_ref().map(|(_, k)| k.as_str())
+    }
+
+    /// The town or landmark landblock `lb` is in: the world's own nearest its middle, within
+    /// [`OWN_REACH`]; else the notes'.
+    #[must_use]
+    pub fn town(&self, lb: u16) -> Option<String> {
+        let Some((places, _)) = &self.own else {
+            return town_of(lb);
+        };
+        // The places' own map coordinates: a landblock is 192 meters, a map step 240, and 0
+        // stands 101.95 steps in.
+        let unit = |block: u16| (f64::from(block) * 192.0 + 96.0) / 240.0 - 101.95;
+        let (ew, ns) = (unit(lb >> 8), unit(lb & 0xFF));
+        places
+            .iter()
+            .map(|p| ((p.ew - ew).powi(2) + (p.ns - ns).powi(2), p))
+            .filter(|(d2, _)| *d2 <= OWN_REACH * OWN_REACH)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, p)| p.name.clone())
     }
 }
 
@@ -305,5 +384,41 @@ mod tests {
         assert_eq!(town_of(0x7D64).as_deref(), Some("Yaraq"));
         assert_eq!(town_of(0xC98C).as_deref(), Some("Rithwic"));
         assert_eq!(town_of(0xFE01), None);
+    }
+
+    /// A world that names its own places labels a landblock with its own town or landmark nearest
+    /// the landblock's middle, never the game's map's, and open country with none; one whose
+    /// document names none, or that has none, has the notes. Its caches are named by its places.
+    #[test]
+    fn a_world_with_its_own_places_names_its_towns_by_them() {
+        let doc = "dereth-places-store\t1\nworld\tElsewhere\n\
+place\ttown\tpublished\t-\tKehan\t0xA9B40012 54.000 46.000 0.000\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0xA9B90031 150.000 10.000 0.000\t0\t0\t-\t-\n";
+        let own = Towns::of_document(Some(doc));
+        assert_eq!(own.town(0xA9B4).as_deref(), Some("Kehan"), "not Holtburg");
+        assert_eq!(own.town(0xAAB5).as_deref(), Some("Kehan"));
+        assert_eq!(own.town(0xA9B9).as_deref(), Some("Drudge Windmill"));
+        assert_eq!(own.town(0x7D64), None, "not Yaraq");
+        let key = own.key().expect("named by its places").to_owned();
+        assert_eq!(key.len(), 16);
+        assert_ne!(
+            Towns::of_document(Some(&doc.replace("Kehan", "Kehan Vale"))).key(),
+            Some(key.as_str())
+        );
+        for notes in [
+            Towns::of_document(None),
+            Towns::of_document(Some("not places")),
+        ] {
+            assert_eq!(notes.town(0xA9B4).as_deref(), Some("Holtburg"));
+            assert_eq!(notes.key(), None);
+        }
+        let dir = std::env::temp_dir().join(format!("lyceum-towns-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join(WORLD_PLACES_FILE), doc).unwrap();
+        assert_eq!(Towns::of_imports(&[a.clone(), b]), own);
+        assert_eq!(Towns::of_imports(&[a]), Towns::default());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
