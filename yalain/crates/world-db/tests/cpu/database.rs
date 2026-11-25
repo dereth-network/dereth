@@ -442,6 +442,31 @@ fn a_camp_regenerated_by_the_outdoor_rule_is_a_listed_derivation() {
     assert!(messages.is_empty(), "{messages:?}");
 }
 
+/// A camp made for land no recording reached is derived by its rule, the nearest recorded kin's or
+/// the zone's list, both listed rules; a rule the list lacks is refused.
+#[test]
+fn a_camp_made_for_unrecorded_land_is_derived_by_a_listed_rule() {
+    for rule in ["camp-nearest-kin", "camp-zone-list"] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/landblocks/77B7.toml",
+            "rule = \"camp-regen-median\"",
+            &format!("rule = \"{rule}\""),
+        );
+        let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+        assert!(messages.is_empty(), "{rule}: {messages:?}");
+    }
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "rule = \"camp-regen-median\"",
+        "rule = \"camp-nearest-anything\"",
+    );
+    assert!(!check(&files).is_empty(), "an unlisted rule");
+}
+
 #[test]
 fn references_and_provenance_are_checked() {
     let mut files = fixture();
