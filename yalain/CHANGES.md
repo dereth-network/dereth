@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- New: a list of where Yalain deliberately differs from retail.
 - Switching targets during an attack now moves your attacks to the new target.
 - Hiding Trade in every chat window now leaves the Trade channel.
 - Quest mines' pickaxe animation now ends on time.

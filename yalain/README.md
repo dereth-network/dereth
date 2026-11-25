@@ -101,3 +101,7 @@ its replay of recorded logins and world entries is Auberean's `auberean-corpus` 
 ci tier1`, or `ci tier1 --game auberean` alone; [Auberean's README](../auberean/README.md#testing) lists
 the variables it reads). The
 server's claims are rows of the same behaviour registry as the client's.
+
+Where Yalain deliberately differs from what the 2017 servers did, or chooses where their recordings
+are silent, is listed in [DIVERGENCES.md](DIVERGENCES.md), generated from the register in
+`auberean-testkit`.

@@ -9,6 +9,8 @@
 //!   id, a sentence, the build it was read off, an opaque evidence handle and the test that
 //!   asserts it.
 //! - [`divergences`]: the places this client deliberately differs from retail.
+//! - [`server_divergences`]: the places the server deliberately differs from the 2017 servers,
+//!   published as `yalain/DIVERGENCES.md`.
 //! - [`data`]: where the private test data is, the two sets of retail data files (through
 //!   `auberean_dat::testing`) and the capture index.
 //! - `captures` (feature `captures`): the recorded sessions' messages, read from the capture
@@ -26,3 +28,4 @@ pub mod data;
 pub mod divergences;
 #[cfg(feature = "double")]
 pub mod double;
+pub mod server_divergences;
