@@ -322,8 +322,8 @@ impl SceneDraw {
         }
     }
 
-    /// Whether the walk submits what it decides to draw: always, unless it only decides
-    /// ([`Self::set_decide_only`]).
+    /// Whether the walk submits what it decides to draw: always, unless it only decides (with
+    /// the `remaster` feature, `set_decide_only`).
     #[inline]
     pub(super) fn submits(&self) -> bool {
         #[cfg(feature = "remaster")]
