@@ -734,8 +734,8 @@ fn plain_world(root: &Path, base: &Path, name: &str) -> Session {
 }
 
 /// Started on ports another program holds (as a second editor or test may take them between the
-/// look and the start), the server says it cannot take them and ends, and is started again on the
-/// next free ones by itself.
+/// look and the start), the server says it cannot take them and ends, and is started again on
+/// free ones by itself, past the held ones, serving on the last it moved to.
 #[test]
 fn a_server_started_on_ports_another_program_holds_moves_on_to_free_ones() {
     let install = require_target_install();
@@ -765,14 +765,20 @@ fn a_server_started_on_ports_another_program_holds_moves_on_to_free_ones() {
     let seen = until(&mut live, &setup, "the server up on other ports", |e, _| {
         e.contains(&Event::Up).then(|| e.to_vec())
     });
-    let moved = seen
+    // Another program may take the next free ports too before the server binds them, and it
+    // moves on again: only the last move is where it serves.
+    let moves: Vec<u16> = seen
         .iter()
-        .find_map(|e| match e {
+        .filter_map(|e| match e {
             Event::Moved(q) => Some(*q),
             _ => None,
         })
-        .expect("moved on");
-    assert!(moved > p + 3 && moved.is_multiple_of(2), "{p} {moved}");
+        .collect();
+    let &moved = moves.last().expect("moved on");
+    assert!(
+        moves.iter().all(|&q| q > p + 3 && q.is_multiple_of(2)),
+        "{p} {moves:?}"
+    );
     assert_eq!(live.port(), Some(moved));
     let before = std::fs::read_to_string(setup.previous_log()).unwrap();
     assert!(live::ports_taken(None, &before), "{before}");
