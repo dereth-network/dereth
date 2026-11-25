@@ -20482,6 +20482,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.run-end-ends-the-special-asked-behind",
+        says: "A special asked of an attack run and not begun ends with the run. At a client's \
+               stop, one asked behind a special under way is over at once, alone, with no reason, \
+               first in the stop's tick, and never begins. When the run ends because its attacks \
+               failed, one asked behind the special just over, or waiting for the next swing, is \
+               checked as its start would check it: refused, it is over and why (naming its skill \
+               and its target) before the failure, not attacking and peace; one that would go \
+               begins from rest after the peace.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RUN-END-QUEUED-SPECIAL"),
+        station: "yalain-testkit::cpu::play::specials::a_special_asked_behind_one_under_way_is_over_alone_at_a_stop",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.run-end-waits-for-the-special",
+        says: "An attack run that ends while a special of it is under way and not cut waits for \
+               the special: nothing is lowered until it ends, then in one tick its skill \
+               information, why the run's attacks failed if they did (its target dead), not \
+               attacking, and peace. A run that ends with no special under way sends no skill \
+               information; one whose special is cut as it ends ends in that tick, after the \
+               special's information, the use over and why.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTACK-END-SKILL-INFO"),
+        station: "yalain-testkit::cpu::play::specials::a_stop_mid_special_waits_and_ends_with_the_specials_information_in_one_tick",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.turns-by-the-skills-flags",
         says: "A skill turns its user to the other it is used on only when its flags say so (the turn \
                flag, and not one used on its user alone); without the flag the use goes with no turn.",

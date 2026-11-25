@@ -252,7 +252,7 @@ pub fn begin<S: Store>(
     // A player attacking stops first: its attack state off and at peace, then the butchering
     // behavior, in the one tick (2017: 87 of 90 butcheries begun attacking).
     if s.players.get(&world).is_some_and(|p| p.attacking.is_some()) {
-        crate::combat::end(s, net, world);
+        crate::combat::end_at_once(s, net, world);
     }
     let knife = s.things.get(u.item).map_or(0, |t| t.template);
     s.next_context = s.next_context.wrapping_add(1);

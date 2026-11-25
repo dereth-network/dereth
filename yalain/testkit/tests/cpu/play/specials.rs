@@ -2688,3 +2688,478 @@ fn a_special_that_turned_its_user_stops_it_before_or_after_the_peace_by_its_move
         "walked, not on the move"
     );
 }
+
+/// A bow run at a practice target with Deadeye under way inside it, its story told; Deadeye used
+/// on the move when `on_the_move` (so a stop leaves it to finish), else not (so a stop cuts it).
+fn deadeye_under_way_in_a_run(on_the_move: bool) -> (Harness, usize, u64, u64) {
+    use yalain_world::skill_use::ui_flag;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("the skill is used");
+    if on_the_move {
+        u.ui_flags |= ui_flag::USE_WHILE_MOVING;
+    } else {
+        u.ui_flags &= !ui_flag::USE_WHILE_MOVING;
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(30);
+    use_skill(&mut h, b, 9, DEADEYE, beetle);
+    assert!(
+        h.run_until(200, |h| h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .and_then(|p| p.using.as_ref())
+            .is_some_and(|x| x.told)),
+        "Deadeye told inside the run"
+    );
+    (h, b, me, beetle)
+}
+
+/// What ends a run, named, of what a client was sent since `from`, in the order the server sent it.
+fn run_end_named(h: &Harness, b: usize, from: usize, me: u64) -> Vec<&'static str> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok());
+                match c.function.0 {
+                    SKILL_INFO => Some("information"),
+                    yalain_world::combat::function::BASIC_ATTACKS_FAILED => Some("failed"),
+                    ATTACK_STATE if v == Some(vec![Value::Int(0)]) => Some("lowered"),
+                    function::ENDED => Some("over"),
+                    function::REFUSED => Some("refused"),
+                    _ => None,
+                }
+            }
+            ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001 => {
+                Some("peace")
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Step one tick at a time, at most `steps`, until a tick tells what ends a run; returns each such
+/// tick's run end, named, in the order the server sent it.
+fn run_end_ticks(h: &mut Harness, b: usize, me: u64, steps: usize) -> Vec<Vec<&'static str>> {
+    let mut ticks = Vec::new();
+    for _ in 0..steps {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let tick = run_end_named(h, b, from, me);
+        if !tick.is_empty() {
+            ticks.push(tick);
+        }
+    }
+    ticks
+}
+
+/// A client's stop of a run while a special of it is under way and left to finish waits for the
+/// special: nothing is lowered until it ends, and then, in one tick, its skill's information, not
+/// attacking, then peace.
+/// Behaviour: server.specials.run-end-waits-for-the-special
+#[test]
+fn a_stop_mid_special_waits_and_ends_with_the_specials_information_in_one_tick() {
+    let (mut h, b, me, _beetle) = deadeye_under_way_in_a_run(true);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    let ticks = run_end_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks,
+        vec![vec!["information", "lowered", "peace"]],
+        "one tick ends the run, at the special's end"
+    );
+    assert!(!using(&h, me), "the special is over");
+}
+
+/// A run whose target dies while a special of it is under way ends as the special ends, in one
+/// tick: its skill's information, the run's attacks failed as the target is dead, not attacking,
+/// then peace.
+/// Behaviour: server.specials.run-end-waits-for-the-special
+#[test]
+fn a_target_dying_mid_special_ends_the_run_with_the_information_then_the_failure() {
+    let (mut h, b, me, beetle) = deadeye_under_way_in_a_run(true);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 1_000_000, clock);
+    assert!(
+        h.server.things.get(beetle).is_none_or(|t| !t.alive()),
+        "the target is dead"
+    );
+    let ticks = run_end_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks,
+        vec![vec!["information", "failed", "lowered", "peace"]],
+        "one tick ends the run, at the special's end"
+    );
+    assert!(h.calls(b, from).contains(&(
+        yalain_world::combat::function::BASIC_ATTACKS_FAILED,
+        vec![Value::Int(yalain_world::combat::error::TARGET_DEAD)]
+    )));
+}
+
+/// A run that ends with no special under way sends no skill information: a client's stop lowers
+/// the attack state and puts the player at peace at once; a target's death, the attacks failed
+/// first.
+/// Behaviour: server.specials.run-end-waits-for-the-special
+#[test]
+fn a_run_ending_with_no_special_under_way_sends_no_information() {
+    for dies in [false, true] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(30);
+        assert!(!using(&h, me), "no special under way");
+        if dies {
+            let clock = h.clock();
+            yalain_world::combat::hurt_creature(
+                &mut h.server,
+                &mut h.net,
+                beetle,
+                me,
+                1_000_000,
+                clock,
+            );
+        } else {
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+            );
+        }
+        let ticks = run_end_ticks(&mut h, b, me, 120);
+        let end = if dies {
+            vec!["failed", "lowered", "peace"]
+        } else {
+            vec!["lowered", "peace"]
+        };
+        assert_eq!(ticks, vec![end], "the target dies: {dies}");
+    }
+}
+
+/// A client's stop that cuts a special of its run short ends the run in the stop's own tick: the
+/// special's information, the use over, why (interrupted), then not attacking and peace.
+/// Behaviour: server.specials.run-end-waits-for-the-special
+#[test]
+fn a_stop_that_cuts_a_special_short_ends_the_run_at_once() {
+    let (mut h, b, me, _beetle) = deadeye_under_way_in_a_run(false);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    let ticks = run_end_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks,
+        vec![vec!["information", "over", "refused", "lowered", "peace"]],
+        "the stop's tick ends the run"
+    );
+    assert!(h.calls(b, from).iter().any(
+        |(f, v)| *f == function::REFUSED && v.last() == Some(&Value::Int(refusal::INTERRUPTED))
+    ));
+}
+
+/// The uses a client was told over since `from`, by their numbers, in the order the server sent them.
+fn over_ids(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == function::ENDED)
+        .filter_map(|(_, v)| match v.first() {
+            Some(Value::Int(id)) => Some(*id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Did a client's player tell a story for the use numbered `id` since `from`?
+fn told_story(h: &Harness, b: usize, from: usize, me: u64, id: u32) -> bool {
+    h.world_messages(b, from).iter().any(
+        |m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.attack_context == id),
+    )
+}
+
+/// Deadeye with no recovery to wait, so that a second use is not refused for it.
+fn deadeye_recovers_at_once(h: &mut Harness) {
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.recovery = 0.0;
+    }
+}
+
+/// A client's stop of a run while a special of it is under way ends a special asked behind it at
+/// once, alone, with no reason. Left to finish, the special under way ends the run later, in its
+/// own tick: its information, not attacking, then peace. Cut by the stop, it ends the run in the
+/// stop's tick, the one behind over first. The one behind never begins.
+/// Behaviour: server.specials.run-end-ends-the-special-asked-behind
+#[test]
+fn a_special_asked_behind_one_under_way_is_over_alone_at_a_stop() {
+    for left_to_finish in [true, false] {
+        let (mut h, b, me, beetle) = deadeye_under_way_in_a_run(left_to_finish);
+        let start = use_skill(&mut h, b, 10, DEADEYE, beetle);
+        h.run(2);
+        assert!(
+            run_end_named(&h, b, start, me).is_empty(),
+            "the one behind waits"
+        );
+        assert!(using(&h, me), "the special goes on");
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+        );
+        let ticks = run_end_ticks(&mut h, b, me, 120);
+        let (end, over) = if left_to_finish {
+            (
+                vec![vec!["over"], vec!["information", "lowered", "peace"]],
+                vec![10],
+            )
+        } else {
+            (
+                vec![vec![
+                    "over",
+                    "information",
+                    "over",
+                    "refused",
+                    "lowered",
+                    "peace",
+                ]],
+                vec![10, 9],
+            )
+        };
+        assert_eq!(ticks, end, "left to finish: {left_to_finish}");
+        assert_eq!(
+            over_ids(&h, b, from),
+            over,
+            "left to finish: {left_to_finish}"
+        );
+        h.run(60);
+        assert!(!using(&h, me), "nothing under way");
+        assert!(
+            !told_story(&h, b, start, me, 10),
+            "the one behind never begins"
+        );
+    }
+}
+
+/// A run whose target dies while a special of it is under way, with another asked behind it, ends
+/// as the special ends with the one behind refused in that tick, as its start would refuse it (its
+/// skill still recovering, or else its target dead): the information, the one behind over and why,
+/// naming its skill and its target, the run's attacks failed, not attacking, then peace. It never
+/// begins.
+/// Behaviour: server.specials.run-end-ends-the-special-asked-behind
+#[test]
+fn a_special_asked_behind_one_under_way_is_refused_in_a_failed_runs_end_tick() {
+    for recovering in [true, false] {
+        let (mut h, b, me, beetle) = deadeye_under_way_in_a_run(true);
+        if !recovering {
+            deadeye_recovers_at_once(&mut h);
+        }
+        let start = use_skill(&mut h, b, 10, DEADEYE, beetle);
+        h.run(2);
+        assert!(using(&h, me), "the special goes on");
+        let from = h.bots[b].inbox.len();
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            me,
+            1_000_000,
+            clock,
+        );
+        let ticks = run_end_ticks(&mut h, b, me, 120);
+        assert_eq!(
+            ticks,
+            vec![vec![
+                "information",
+                "over",
+                "refused",
+                "failed",
+                "lowered",
+                "peace"
+            ]],
+            "recovering: {recovering}"
+        );
+        let why = if recovering {
+            refusal::NOT_RESET
+        } else {
+            refusal::TARGET_DEAD
+        };
+        assert!(
+            calls_of(&h, b, from).contains(&(
+                function::REFUSED,
+                vec![Value::Int(DEADEYE), Value::Long(beetle), Value::Int(why)]
+            )),
+            "refused by its own check, recovering: {recovering}"
+        );
+        assert_eq!(over_ids(&h, b, from), [10]);
+        h.run(60);
+        assert!(!using(&h, me), "nothing under way");
+        assert!(
+            !told_story(&h, b, start, me, 10),
+            "the one behind never begins"
+        );
+    }
+}
+
+/// Inside a bow run at the camp's beetle with no special under way, its target killed and its next
+/// swing a second away; returns the client, the player and the beetle.
+fn a_run_at_a_dead_beetle(h: &mut Harness, b: usize, me: u64, beetle: u64) {
+    h.arm(b, me, BOW);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(30);
+    assert!(!using(h, me), "no special under way");
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 1_000_000, clock);
+    let now = h.clock().local.0;
+    if let Some(r) = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .and_then(|p| p.attacking.as_mut())
+    {
+        r.next_swing = now + 1.0;
+    }
+}
+
+/// A special waiting for a run's next swing when that swing finds the run must end as its target
+/// is dead is refused in the end's tick, as its start would refuse it: over and why, naming its
+/// skill and its target, before the run's attacks failed, not attacking and peace.
+/// Behaviour: server.specials.run-end-ends-the-special-asked-behind
+#[test]
+fn a_special_waiting_for_a_failed_runs_swing_is_refused_before_the_failure() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    a_run_at_a_dead_beetle(&mut h, b, me, beetle);
+    let from = use_skill(&mut h, b, 10, DEADEYE, beetle);
+    h.run(2);
+    assert!(
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .is_some_and(|p| p.in_run.is_some()),
+        "waiting for the run's next swing"
+    );
+    let ticks = run_end_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks,
+        vec![vec!["over", "refused", "failed", "lowered", "peace"]]
+    );
+    assert!(calls_of(&h, b, from).contains(&(
+        function::REFUSED,
+        vec![
+            Value::Int(DEADEYE),
+            Value::Long(beetle),
+            Value::Int(refusal::TARGET_DEAD)
+        ]
+    )));
+    assert!(!told_story(&h, b, from, me, 10), "it never begins");
+}
+
+/// A special waiting for a run's next swing when that swing finds the run must end, one its start
+/// would let go (aimed at another, living creature), begins from rest after the run's end: the
+/// attacks failed, not attacking and peace, then its attack state raised in the same tick, and its
+/// story after.
+/// Behaviour: server.specials.run-end-ends-the-special-asked-behind
+#[test]
+fn a_special_waiting_for_a_failed_runs_swing_that_would_go_begins_from_rest_after() {
+    let mut h = Harness::new();
+    h.add_creatures(2);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let beetles: Vec<u64> = h
+        .world_messages(b, 0)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+            _ => None,
+        })
+        .collect();
+    let [beetle, other] = beetles[..] else {
+        panic!("the camp's two creatures: {beetles:?}");
+    };
+    practice_target(&mut h, beetle);
+    practice_target(&mut h, other);
+    a_run_at_a_dead_beetle(&mut h, b, me, beetle);
+    let from = use_skill(&mut h, b, 10, DEADEYE, other);
+    h.run(2);
+    let mut end = None;
+    for _ in 0..120 {
+        let tick = h.bots[b].inbox.len();
+        h.step();
+        if !run_end_named(&h, b, tick, me).is_empty() {
+            end = Some(tick);
+            break;
+        }
+    }
+    let tick = end.expect("the run ends");
+    let named: Vec<&str> = h
+        .sent_messages(b, tick)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok());
+                match c.function.0 {
+                    yalain_world::combat::function::BASIC_ATTACKS_FAILED => Some("failed"),
+                    ATTACK_STATE if v == Some(vec![Value::Int(0)]) => Some("lowered"),
+                    ATTACK_STATE => Some("raised"),
+                    function::ENDED => Some("over"),
+                    function::REFUSED => Some("refused"),
+                    _ => None,
+                }
+            }
+            ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001 => {
+                Some("peace")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        named.iter().take(4).copied().collect::<Vec<_>>(),
+        ["failed", "lowered", "peace", "raised"],
+        "the end's tick: {named:?}"
+    );
+    assert!(
+        h.run_until(200, |h| told_story(h, b, from, me, 10)),
+        "it begins from rest"
+    );
+}

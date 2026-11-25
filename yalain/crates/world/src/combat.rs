@@ -622,7 +622,7 @@ pub fn begin<S: Store>(
     let (dead, away, was) = (
         p.dying.is_some() || is_dead(p),
         p.trip.is_some(),
-        p.attacking.is_some(),
+        attacking_still(p),
     );
     // A start refused is told as begun first: the attack state on, the refusal, then (a refusal at
     // the target) the state off (2017, by the order sent: the state on before the refusal 254 of 254
@@ -702,7 +702,7 @@ pub fn begin<S: Store>(
         .players
         .get(&world)
         .is_some_and(|p| p.play.items.iter().any(|h| h.location != 0));
-    let was = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
+    let was = s.players.get(&world).is_some_and(attacking_still);
     if !armed && !was {
         progress::private(net, world, &attack_state(true));
         progress::private(net, world, &failed(error::WRONG_IMPLEMENT));
@@ -720,7 +720,8 @@ pub fn begin<S: Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let mode_sent = p.attacking.is_some_and(|r| r.mode_sent) || in_range;
+    let held = p.attacking.is_none() && was;
+    let mode_sent = p.attacking.is_some_and(|r| r.mode_sent) || held || in_range;
     let next_swing = swing_when_asked(p, clock.local.0);
     p.attacking = Some(Run {
         target,
@@ -753,6 +754,12 @@ pub fn begin<S: Store>(
             }
         }
     }
+}
+
+/// Is a player attacking still: a run under way, or one ended whose end waits for its special? A
+/// run begun again meanwhile goes on from it, and the special's end swings on.
+fn attacking_still(p: &Player) -> bool {
+    p.attacking.is_some() || p.using.as_ref().is_some_and(|x| x.run_ended.is_some())
 }
 
 /// When a player asking to attack next swings: a moment after it asks, unless its next swing's time
@@ -877,7 +884,14 @@ fn aimed_amiss<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> Option<u3
     within.then_some(refusal::WITHIN_FELLOWSHIP)
 }
 
-/// A player's attack run ends: it is not attacking, and at peace.
+/// A player's attack run ends: it is not attacking, and at peace. A special of the run still under
+/// way is left to finish and the end waits for it, told as the special ends, after its skill's
+/// information (2017: of 1,080 run ends with a special under way, 985 told its information in the
+/// end's tick, and 83 more had it cut; the end came within 0.3 s of the special's own length in 357
+/// of 368 after a client's stop; of 5,395 run ends with none under way, 2 told any). A special asked
+/// behind it is over at once, alone, while it finishes (2017: of 107 client's stops with a special
+/// left to finish and one asked behind it, 89 ended that one so, 44 of them at once, none with a
+/// reason; 5 of 5 at a portal or a logoff).
 pub fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -889,8 +903,148 @@ pub fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if let Some(r) = p.in_run.take() {
         progress::private(net, world, &crate::skill_use::ended(r.id));
     }
+    if let Some(x) = p.using.as_mut().filter(|x| !x.alone) {
+        x.run_ended = Some(None);
+        if let Some(r) = p.queued.take() {
+            progress::private(net, world, &crate::skill_use::ended(r.id));
+        }
+        return;
+    }
+    lowered(s, net, world, None);
+}
+
+/// A player's attack run ends as [`end`], its attacks failed for a reason: the reason told before
+/// the attack state, and held with the end while a special of the run finishes (2017: 70 run ends
+/// after a client's stop with a special left to finish told its information, the failure, the
+/// attack state, then peace, in one tick). A special asked of the run and not begun is checked
+/// first ([`failed_told`]).
+fn end_failed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    err: u32,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if p.attacking.take().is_none() {
+        return;
+    }
+    if let Some(x) = p.using.as_mut().filter(|x| !x.alone) {
+        x.run_ended = Some(Some(err));
+        return;
+    }
+    failed_told(s, net, world, err, clock);
+}
+
+/// A run ended as its attacks failed is told now. A special asked of it and not begun (waiting for
+/// the run's next swing, or behind the special just over) is checked first, as its start would
+/// check it: refused, it is over and why (its own first failing check, naming its skill and its
+/// target) before the failure; one that would go begins from rest after the peace (2017: of the run
+/// ends that failed with a special asked before, 141 refused it in the end's tick, naming its skill
+/// in 141 and its target in 134, before the failure in each of the 137 whose order is known; 12 ran
+/// it from rest after the end).
+pub(crate) fn failed_told<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    err: u32,
+    clock: Clock,
+) {
+    let waiting = s
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.in_run.take().or_else(|| p.queued.take()));
+    let goes = waiting.filter(|r| !crate::skill_use::waiting_refused(s, net, world, *r, clock));
+    lowered(s, net, world, Some(err));
+    if let (Some(r), Some(p)) = (goes, s.players.get_mut(&world)) {
+        p.queued = Some(r);
+    }
+}
+
+/// A player's attack run ends at once, whatever of it is under way: a special of the run goes on by
+/// itself, and its information comes alone as it ends.
+pub fn end_at_once<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if p.attacking.take().is_none() {
+        return;
+    }
+    if let Some(r) = p.in_run.take() {
+        progress::private(net, world, &crate::skill_use::ended(r.id));
+    }
+    lowered(s, net, world, None);
+}
+
+/// A run's end told: why its attacks failed (if they did), not attacking, and at peace.
+pub(crate) fn lowered<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    err: Option<u32>,
+) {
+    if let Some(err) = err {
+        progress::private(net, world, &failed(err));
+    }
     progress::private(net, world, &attack_state(false));
     set_player_mode(s, net, world, mode::PEACE);
+}
+
+/// Why a run must end rather than swing, if it must: its player logs off; or, out of portal space,
+/// its target is one it may not swing at, or is dead or gone.
+fn must_end<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> Option<u32> {
+    let p = s.players.get(&world)?;
+    // A player logging off swings no more: its run ends, the attacks failed as its actions are
+    // locked (2017: 2 of 2 runs under way at a logoff request ended 0.5 and 1.8 s after it).
+    if p.logging_off {
+        return Some(error::ACTIONS_LOCKED);
+    }
+    // In portal space the run waits for its player to come out.
+    if p.trip.is_some() {
+        return None;
+    }
+    if let Some(err) = aimed_amiss(s, world, target) {
+        return Some(err);
+    }
+    // Another player or its pet: only while who may harm whom still allows it.
+    let other = player_target(s, world, target);
+    let allowed = other.map_or_else(
+        || may_attack_thing(s, world, target),
+        |o| may_attack_player(s, world, o),
+    );
+    if let Err(err) = allowed {
+        return Some(err);
+    }
+    let there = match other {
+        Some(o) => s.players.contains_key(&o),
+        None => s
+            .things
+            .get(target)
+            .is_some_and(|t| t.alive() && t.at.is_some()),
+    };
+    (!there).then_some(error::TARGET_DEAD)
+}
+
+/// A special of a run is over: the run swings on after a pause, or ends now, in the special's tick,
+/// when its next swing would find it must (2017: of 20 runs whose target died while a special was
+/// under way, 16 told the special's information, the failure, the attack state, then peace, in one
+/// tick).
+pub(crate) fn special_over<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) else {
+        return;
+    };
+    run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
+    let target = run.target;
+    if let Some(err) = must_end(s, world, target) {
+        end_failed(s, net, world, err, clock);
+    }
 }
 
 /// The client stops attacking (a target, or whatever it is attacking).
@@ -991,11 +1145,9 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(run) = s.players.get(&world).and_then(|p| p.attacking) else {
         return;
     };
-    // A player logging off swings no more: its run ends, the attacks failed as its actions are
-    // locked (2017: 2 of 2 runs under way at a logoff request ended 0.5 and 1.8 s after it).
-    if s.players.get(&world).is_some_and(|p| p.logging_off) {
-        progress::private(net, world, &failed(error::ACTIONS_LOCKED));
-        end(s, net, world);
+    if let Some(err) = must_end(s, world, run.target) {
+        end_failed(s, net, world, err, clock);
+        crate::skill_use::take_up_waiting(s, net, world, clock);
         return;
     }
     // In portal space the run waits for its player to come out.
@@ -1005,22 +1157,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         }
         return;
     }
-    if let Some(err) = aimed_amiss(s, world, run.target) {
-        progress::private(net, world, &failed(err));
-        end(s, net, world);
-        return;
-    }
-    // Another player or its pet: only while who may harm whom still allows it.
     let other = player_target(s, world, run.target);
-    let allowed = other.map_or_else(
-        || may_attack_thing(s, world, run.target),
-        |o| may_attack_player(s, world, o),
-    );
-    if let Err(err) = allowed {
-        progress::private(net, world, &failed(err));
-        end(s, net, world);
-        return;
-    }
     let target = match other {
         Some(o) => s
             .players
@@ -1035,8 +1172,8 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         }),
     };
     let Some((Some(at), level, armor)) = target else {
-        progress::private(net, world, &failed(error::TARGET_DEAD));
-        end(s, net, world);
+        end_failed(s, net, world, error::TARGET_DEAD, clock);
+        crate::skill_use::take_up_waiting(s, net, world, clock);
         return;
     };
     let autos = auto_attacks(s, world);

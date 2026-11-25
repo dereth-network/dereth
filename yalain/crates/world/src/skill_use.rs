@@ -484,6 +484,9 @@ pub struct Using {
     pub began: f64,
     /// It raised the attack state itself (not inside a run).
     pub alone: bool,
+    /// Its run has ended while it goes on, the run's attacks failed for this reason if they did: the
+    /// run's end waits for it and is told as it ends.
+    pub run_ended: Option<Option<u32>>,
     /// Its story has been told (its vigor paid).
     pub told: bool,
     pub time_scale: f32,
@@ -1718,6 +1721,7 @@ pub fn starts<S: Store>(
             usage: u,
             began,
             alone: true,
+            run_ended: None,
             told: false,
             time_scale: ts,
             outcome: None,
@@ -1894,6 +1898,7 @@ pub fn slot<S: Store>(
         usage: u,
         began,
         alone: false,
+        run_ended: None,
         told: false,
         time_scale: ts,
         outcome: None,
@@ -3395,8 +3400,8 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             crate::follow::told_stopped(net, world);
         }
         run_waits_no_more(s, world, clock);
-    } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
+    } else {
+        run_goes_on_or_ends(s, net, world, &x, clock);
     }
     for pet in summons {
         crate::pets::appear(s, net, pet);
@@ -3437,8 +3442,13 @@ fn recall_protects<S: Store>(
     to_all_seeing(s, net, me, &glow);
 }
 
-/// A request that waited is taken up as the use before it ends.
-fn take_up_waiting<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
+/// A request that waited is taken up as the use before it, or the run it waited on, ends.
+pub(crate) fn take_up_waiting<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
     if let Some(next) = s.players.get_mut(&world).and_then(|p| p.queued.take()) {
         let attacking = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
         if attacking {
@@ -3449,6 +3459,27 @@ fn take_up_waiting<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
             starts(s, net, world, next, clock);
         }
     }
+}
+
+/// A request that waited, checked now as its start would check it: refused, it is over and why
+/// (its own first failing check, naming its skill and its target). Returns whether it was refused.
+/// A toggled skill turned on is let go, to be turned off as it is taken up.
+pub(crate) fn waiting_refused<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    r: Request,
+    clock: Clock,
+) -> bool {
+    if toggled(s, r.skill) && !toggled_held(s, world, r.skill).is_empty() {
+        return false;
+    }
+    let Err(err) = check(s, net, world, r, clock) else {
+        return false;
+    };
+    progress::private(net, world, &ended(r.id));
+    progress::private(net, world, &refused(err, r.target, r.skill));
+    true
 }
 
 /// A toggled skill's use ends by turning it on (2017's order): its aura's first pulse and the aura's
@@ -3508,8 +3539,29 @@ fn turns_on<S: Store>(
             crate::follow::told_stopped(net, world);
         }
         run_waits_no_more(s, world, clock);
-    } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
+    } else {
+        run_goes_on_or_ends(s, net, world, x, clock);
+    }
+}
+
+/// A use inside a run is over: the run goes on ([`combat::special_over`]), or, ended while the use
+/// went on, its end is told now, after the skill's information (2017: 311 run ends after a client's
+/// stop that left a special to finish told the information, the attack state, then peace, in one
+/// tick).
+fn run_goes_on_or_ends<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    x: &Using,
+    clock: Clock,
+) {
+    let attacking = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
+    if attacking {
+        combat::special_over(s, net, world, clock);
+    } else if let Some(Some(err)) = x.run_ended {
+        combat::failed_told(s, net, world, err, clock);
+    } else if x.run_ended.is_some() {
+        combat::lowered(s, net, world, None);
     }
 }
 
@@ -3663,6 +3715,11 @@ pub fn interrupt<S: Store>(
     progress::private(net, world, &refused(err, named, x.req.skill));
     run_waits_no_more(s, world, clock);
     if !x.alone {
+        // A run that ended while it went on ends with it.
+        let attacking = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
+        if let (false, Some(err)) = (attacking, x.run_ended) {
+            combat::lowered(s, net, world, err);
+        }
         return;
     }
     progress::private(net, world, &combat::attack_state(false));
