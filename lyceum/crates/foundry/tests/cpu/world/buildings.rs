@@ -110,6 +110,7 @@ fn an_add_dungeon_row_reads_its_template_and_its_house() {
             name: "sample:villa-1-basement".into(),
             template: 0x0398,
             house: Some("sample:villa-1-basement-house".into()),
+            spawns: Vec::new(),
         }
     );
     assert_eq!((b.item.template, b.item.house.as_deref()), (0x0163, None));

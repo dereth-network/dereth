@@ -37,8 +37,8 @@
 //! (`int.ItemType`); every list, and every other field, is one field, replaced whole
 //! ([`crate::layers`]).
 //!
-//! A kind an editor shows as ACE's SQL (the weenie) also has `sql`, the tables and columns of the
-//! same rows, shaped as the description is:
+//! A kind an editor shows as ACE's SQL (the weenie, a quest, a death or wielded treasure, a house
+//! portal) also has `sql`, the tables and columns of the same rows, shaped as the description is:
 //!
 //! ```json
 //! "sql": { "table": "weenie", "columns": { "class": "class_Id", ... },
@@ -505,15 +505,14 @@ pub fn rows() -> Value {
         }
         kinds.insert(kind.into(), k);
     }
-    kinds.insert(
-        "house_portal".into(),
-        plain(
-            "house_portal/{house_id}.toml",
-            "house-portal {house_id} {obj_cell_id:#010X}",
-            &["house_id", "obj_cell_id"],
-            fields::<HousePortal>(&[]),
-        ),
+    let mut portal = plain(
+        "house_portal/{house_id}.toml",
+        "house-portal {house_id} {obj_cell_id:#010X}",
+        &["house_id", "obj_cell_id"],
+        fields::<HousePortal>(&[]),
     );
+    portal["sql"] = own::<HousePortal>(None);
+    kinds.insert("house_portal".into(), portal);
     let mut death = plain(
         "treasure_death/{type}.toml",
         "death-treasure {type}",

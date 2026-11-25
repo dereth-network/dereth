@@ -214,7 +214,7 @@ impl Mirror {
     }
 
     /// Row `row` of `kind` viewed as SQL.
-    fn render(&self, kind: &str, row: &toml::Table) -> Result<String, String> {
+    pub(crate) fn render(&self, kind: &str, row: &toml::Table) -> Result<String, String> {
         if kind == PLACEMENT {
             return crate::placement_sql::to_sql(
                 row,
@@ -253,7 +253,10 @@ impl Mirror {
     }
 
     /// The items of the kinds written as SQL that SQL `text` holds: each one's name, kind and row.
-    fn items(&self, text: Option<&str>) -> Result<Vec<(String, String, toml::Table)>, String> {
+    pub(crate) fn items(
+        &self,
+        text: Option<&str>,
+    ) -> Result<Vec<(String, String, toml::Table)>, String> {
         let Some(text) = text else {
             return Ok(Vec::new());
         };
@@ -386,6 +389,12 @@ impl Mirror {
         let mut row = toml::Table::new();
         row.insert("guid".into(), toml::Value::Integer(guid.into()));
         crate::repo::item_of(&self.vocabulary, PLACEMENT, &row)
+    }
+
+    /// Whether the mirror views rows of `kind` as SQL: the server's schema writes them so.
+    #[must_use]
+    pub fn views(&self, kind: &str) -> bool {
+        self.kinds.iter().any(|k| k == kind)
     }
 
     /// Whether the mirror views placements: the server's rows have them.

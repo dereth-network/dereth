@@ -70,6 +70,42 @@
     }
   },
   "rows": {
+    "house_portal": {
+      "fields": {
+        "angles_w": "float",
+        "angles_x": "float",
+        "angles_y": "float",
+        "angles_z": "float",
+        "house_id": "int",
+        "last_modified": "time",
+        "obj_cell_id": "hex",
+        "origin_x": "float",
+        "origin_y": "float",
+        "origin_z": "float"
+      },
+      "file": "house_portal/{house_id}.toml",
+      "item": "house-portal {house_id} {obj_cell_id:#010X}",
+      "key": [
+        "house_id",
+        "obj_cell_id"
+      ],
+      "sql": {
+        "columns": {
+          "angles_w": "angles_W",
+          "angles_x": "angles_X",
+          "angles_y": "angles_Y",
+          "angles_z": "angles_Z",
+          "house_id": "house_Id",
+          "last_modified": "last_Modified",
+          "obj_cell_id": "obj_Cell_Id",
+          "origin_x": "origin_X",
+          "origin_y": "origin_Y",
+          "origin_z": "origin_Z"
+        },
+        "nullable": [],
+        "table": "house_portal"
+      }
+    },
     "placement": {
       "fields": {
         "at": {

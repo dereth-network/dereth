@@ -25,6 +25,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Fixed the check calling a world repository's own weenies missing.
 - Generate a person's name from the world's name tables, by their heritage.
 - Worlds started from another tool's world keep their packs' spawns, in exports and in Play.
+- Buildings and houses dropped in a world repository now keep their doors and house objects.
 
 ## 0.2.8 (2026-11-23)
 

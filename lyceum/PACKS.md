@@ -268,11 +268,14 @@ at = [61.3, 79.8, 78.0]      # its origin; the height, or "ground"
 heading = 180.0
 furnished = "bare"           # or another copy's furniture, "3DC7/1"; left out, the template's
 house = "cottage-1-house"    # optional: a house players can buy, owned by this spawn
+spawns = ["cottage-1-door-0", "cottage-1-slumlord"]  # optional: in a world repository, the
+                             # spawns that go with it (see below)
 
 [[add-dungeon]]              # a copy of a retail dungeon, every cell of its landblock
 name = "villa-1-basement"
 template = 0x0398            # the retail dungeon's landblock
 house = "villa-1-basement-house"  # optional: its cells belong to this spawn
+spawns = ["villa-1-basement-hook-0"]  # optional: in a world repository, as for a building
 
 [[vertex]]                   # one vertex, or every vertex from at to to
 at = [4, 3]                  # 0 to 8 each; on a finer land, 0 to 8 times its steps a cell
@@ -282,6 +285,14 @@ terrain = 1                  # 0 to 31
 scene = 0                    # 0 to 31
 road = 0                     # 0 to 3
 ```
+
+In a world repository's layer, a dropped building's doors and its house's spawns (slumlord,
+storage, hooks, boot spot, house portals, and those in its basement) are the layer's
+`[[placement]]` rows, its house weenie one of the repository's own classes and its house portals
+`[[house_portal]]` rows. `spawns` names each of those placements by a bare symbol of the row's
+landblock, as `house` names a house; the lockfile numbers it, and the placement carries that
+number. Moving the building or taking it away moves or takes away the placements its row names.
+A row without `spawns` keeps its spawns as the pack's SQL.
 
 A dropped building is an exact copy of its template: the same rooms, ways and lists, moved to where
 it stands and numbered after the landblock's own cells. A building whose origin is outside its

@@ -174,6 +174,12 @@ pub enum Op {
     /// Write the target pack's SQL file `file` (under its `server/sql`) as `text`, or take it
     /// away: a weenie, a quest or a spawn as a form leaves it.
     WriteSql { file: PathBuf, text: Option<String> },
+    /// Write the target pack's SQL `files` that place a dropped building's spawns by their
+    /// symbols, with a house's weenie and house portals, as the rows of the world repository's
+    /// layer being edited: each instance and cell numbered as the lockfile numbers its symbol, and
+    /// a weenie class symbol given the class its placements have already, or the repository's
+    /// next own class. A placement keeps the links the layer gave it besides.
+    WriteSpawnRows { files: Vec<String> },
     /// Write the world repository's row file `file`, in the pack of the layer edits go into
     /// ([`Session::set_rows`]), as `text`, or take it away: an item's row as a form leaves it.
     WriteRows { file: PathBuf, text: Option<String> },
@@ -1064,6 +1070,67 @@ fn upright(q: Quat) -> Rotation {
     }
 }
 
+/// `text` with each `{{token}}` `replace` gives a value replaced by it; the rest left as written.
+fn replace_tokens(
+    text: &str,
+    replace: &dyn Fn(&str) -> Result<Option<String>, Error>,
+) -> Result<String, Error> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("{{") {
+        let Some(end) = rest[at..].find("}}") else {
+            break;
+        };
+        let token = &rest[at + 2..at + end];
+        out.push_str(&rest[..at]);
+        match replace(token)? {
+            Some(v) => out.push_str(&v),
+            None => out.push_str(&rest[at..at + end + 2]),
+        }
+        rest = &rest[at + end + 2..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// Placement `row`, with the links placement `was` (the same spawn, before) has to children
+/// `row` doesn't link, and marked a link's child where `was` is: what the layer linked to the
+/// spawn, or the spawn to another, stays linked.
+fn with_links_kept(mut row: toml::Table, was: Option<&toml::Table>) -> toml::Table {
+    if was
+        .and_then(|w| w.get("link_child"))
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+    {
+        row.insert("link_child".into(), toml::Value::Boolean(true));
+    }
+    let child = |v: &toml::Value| match v {
+        toml::Value::Integer(n) => Some(*n),
+        toml::Value::Table(t) => t.get("child").and_then(toml::Value::as_integer),
+        _ => None,
+    };
+    let old: Vec<toml::Value> = was
+        .and_then(|w| w.get("links"))
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if old.is_empty() {
+        return row;
+    }
+    let mut links: Vec<toml::Value> = row
+        .get("links")
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for o in old {
+        if !links.iter().any(|l| child(l) == child(&o)) {
+            links.push(o);
+        }
+    }
+    row.insert("links".into(), toml::Value::Array(links));
+    row
+}
+
 /// A dropped building's `[[add-building]]` row, in pack `pack`: a set's models and templates as
 /// lists, one building's as one value each.
 fn building_row(b: &source::AddBuilding, pack: &str) -> Table {
@@ -1118,7 +1185,20 @@ fn building_row(b: &source::AddBuilding, pack: &str) -> Table {
             )),
         );
     }
+    set_spawns(&mut t, &b.spawns, pack);
     t
+}
+
+/// A drop's `spawns`, its symbols bare in pack `pack`; none, left out.
+fn set_spawns(t: &mut Table, spawns: &[String], pack: &str) {
+    if spawns.is_empty() {
+        return;
+    }
+    let mut arr = toml_edit::Array::new();
+    for s in spawns {
+        arr.push(s.strip_prefix(&format!("{pack}:")).unwrap_or(s));
+    }
+    t.insert("spawns", Item::Value(Value::Array(arr)));
 }
 
 /// A copied dungeon's `[[add-dungeon]]` row, in pack `pack`.
@@ -1130,6 +1210,7 @@ fn dungeon_row(d: &source::AddDungeon, pack: &str) -> Table {
     if let Some(h) = &d.house {
         t.insert("house", Item::Value(Value::from(bare(h))));
     }
+    set_spawns(&mut t, &d.spawns, pack);
     t
 }
 
@@ -4240,6 +4321,7 @@ impl Session {
                 }
                 out.insert(file.clone(), text.clone());
             }
+            Op::WriteSpawnRows { files } => self.draft_spawn_rows(files, out)?,
             Op::WriteSql { file, text } => {
                 let dir = self.pack_dir().join("server").join("sql");
                 if !file.starts_with(&dir)
@@ -5940,7 +6022,7 @@ impl Session {
     }
 
     /// The layer of a world repository being edited, when its placements are the spawns.
-    fn placing(&self) -> Option<&crate::mirror::Mirror> {
+    pub(crate) fn placing(&self) -> Option<&crate::mirror::Mirror> {
         self.mirror.as_ref().filter(|m| m.places())
     }
 
@@ -6010,6 +6092,190 @@ impl Session {
         );
         let text = crate::placement_sql::to_sql(&row, &self.today).map_err(Error::Refused)?;
         Ok((m.file_of(crate::mirror::PLACEMENT, &item), text))
+    }
+
+    /// The class of the repository layer's placement `guid` as the session holds it, when it
+    /// has one.
+    pub(crate) fn placed_class(&mut self, guid: u32) -> Option<u32> {
+        let m = self.placing()?;
+        let file = m.file_of(crate::mirror::PLACEMENT, &m.spawn_item(guid)?);
+        let text = self.text(&file)?;
+        let rows = crate::placement_sql::rows(&text).ok()?;
+        u32::try_from(rows.first()?.get("class")?.as_integer()?).ok()
+    }
+
+    /// The repository layer's files of house class `class`: its weenie's, and its house
+    /// portals'.
+    pub(crate) fn house_rows(&self, class: u32) -> Vec<PathBuf> {
+        let Some(m) = self.placing() else {
+            return Vec::new();
+        };
+        let weenie = self
+            .weenie_file(&Weenie::Class(class))
+            .map(|(f, _)| f)
+            .filter(|f| m.holds(f));
+        let portals = m.dir.join("house_portal");
+        let mut out: Vec<PathBuf> = weenie.into_iter().collect();
+        for f in &self.packs[self.target].sql {
+            if !f.path.starts_with(&portals) {
+                continue;
+            }
+            let theirs = m.items(Some(&f.text)).unwrap_or_default();
+            if theirs.iter().any(|(_, _, r)| {
+                r.get("house_id").and_then(toml::Value::as_integer) == Some(i64::from(class))
+            }) {
+                out.push(f.path.clone());
+            }
+        }
+        out
+    }
+
+    /// The SQL `files` placing a drop's spawns by their symbols, as the repository's layer's rows
+    /// ([`Op::WriteSpawnRows`]), drafted into `out`.
+    fn draft_spawn_rows(
+        &mut self,
+        files: &[String],
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(), Error> {
+        let m = self
+            .placing()
+            .cloned()
+            .ok_or_else(|| Error::Refused("no world repository's layer is being edited".into()))?;
+        let pack = self.packs[self.target].name.clone();
+        let lock = &self.compiled.lock;
+        let full = |n: &str| {
+            if n.contains(':') {
+                n.to_owned()
+            } else {
+                format!("{pack}:{n}")
+            }
+        };
+        // The instances and cells, as the lockfile numbers their symbols.
+        let numbered = |token: &str| -> Result<Option<String>, Error> {
+            let Some((kind, body)) = token.split_once(':') else {
+                return Ok(None);
+            };
+            let kind = match kind {
+                "guid" => symbol::Kind::Guid,
+                "cell" => symbol::Kind::Cell,
+                _ => return Ok(None),
+            };
+            let (name, lb) = body
+                .rsplit_once('@')
+                .ok_or_else(|| Error::Refused(format!("{{{{{token}}}}} names no landblock")))?;
+            let lb = u16::from_str_radix(lb, 16)
+                .map_err(|_| Error::Refused(format!("{{{{{token}}}}} names no landblock")))?;
+            let symbol = crate::drops::instance_symbol(&full(name), lb);
+            let id = lock.get(kind, &symbol).ok_or_else(|| {
+                Error::Refused(format!("{symbol} was not numbered, so it has no row"))
+            })?;
+            Ok(Some(format!("0x{id:08X}")))
+        };
+        let mut texts = Vec::new();
+        for f in files {
+            texts.push(replace_tokens(f, &numbered)?);
+        }
+        // Each weenie class symbol: the class a placement of it has already, else the next own.
+        let mut classes: BTreeMap<String, u32> = BTreeMap::new();
+        let mut taken: BTreeSet<u32> = BTreeSet::new();
+        for t in &texts {
+            for i in sql_ids::instances(t) {
+                let Some(sym) = i
+                    .weenie
+                    .trim()
+                    .strip_prefix("{{wcid:")
+                    .and_then(|w| w.strip_suffix("}}"))
+                else {
+                    continue;
+                };
+                if classes.contains_key(sym) {
+                    continue;
+                }
+                let had = sql_ids::number(&i.guid)
+                    .and_then(|g| m.spawn_item(g))
+                    .and_then(|item| self.current(&m.file_of(crate::mirror::PLACEMENT, &item), out))
+                    .and_then(|text| crate::placement_sql::rows(&text).ok())
+                    .and_then(|rows| rows.first()?.get("class")?.as_integer())
+                    .and_then(|c| u32::try_from(c).ok());
+                let class = match had {
+                    Some(c) => c,
+                    None => m.free_class(&taken).ok_or_else(|| {
+                        Error::Refused(
+                            "the repository numbers no classes of its own ([ids] classes) for a house"
+                                .into(),
+                        )
+                    })?,
+                };
+                taken.insert(class);
+                classes.insert(sym.to_owned(), class);
+            }
+        }
+        let class_of = |token: &str| -> Result<Option<String>, Error> {
+            Ok(token
+                .strip_prefix("wcid:")
+                .and_then(|s| classes.get(s))
+                .map(u32::to_string))
+        };
+        let mut items = Vec::new();
+        for t in &texts {
+            let t = replace_tokens(t, &class_of)?;
+            if t.contains("{{") {
+                return Err(Error::Refused(format!(
+                    "a drop's spawns name a symbol a world repository's rows can't: {}",
+                    t.lines()
+                        .find(|l| l.contains("{{"))
+                        .unwrap_or_default()
+                        .trim()
+                )));
+            }
+            if t.contains("`house_portal`") && !m.views("house_portal") {
+                return Err(Error::Refused(
+                    "the server's schema has no house portal rows, which a house's need".into(),
+                ));
+            }
+            items.extend(m.items(Some(&t)).map_err(Error::Refused)?);
+        }
+        // A house's portals are written again whole.
+        let houses: BTreeSet<i64> = items
+            .iter()
+            .filter(|(_, k, _)| k == "house_portal")
+            .filter_map(|(_, _, r)| r.get("house_id")?.as_integer())
+            .collect();
+        if !houses.is_empty() {
+            let dir = m.dir.join("house_portal");
+            let held: Vec<(PathBuf, String)> = self.packs[self.target]
+                .sql
+                .iter()
+                .filter(|f| f.path.starts_with(&dir))
+                .map(|f| (f.path.clone(), f.text.clone()))
+                .collect();
+            for (path, text) in held {
+                let text = out.get(&path).cloned().unwrap_or(Some(text));
+                let theirs = m.items(text.as_deref()).map_err(Error::Refused)?;
+                if theirs.iter().any(|(_, _, r)| {
+                    r.get("house_id")
+                        .and_then(toml::Value::as_integer)
+                        .is_some_and(|h| houses.contains(&h))
+                }) {
+                    out.insert(path, None);
+                }
+            }
+        }
+        for (item, kind, row) in items {
+            let file = m.file_of(&kind, &item);
+            let row = if kind == crate::mirror::PLACEMENT {
+                let was = self
+                    .current(&file, out)
+                    .and_then(|t| crate::placement_sql::rows(&t).ok())
+                    .and_then(|mut r| r.pop());
+                with_links_kept(row, was.as_ref())
+            } else {
+                row
+            };
+            let text = m.render(&kind, &row).map_err(Error::Refused)?;
+            out.insert(file, Some(text));
+        }
+        Ok(())
     }
 
     /// Placement `guid` of the world below the repository's layer being edited taken away by the

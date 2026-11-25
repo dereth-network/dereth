@@ -398,6 +398,7 @@ fn the_row_and_sql_pair_an_editors_view_is_checked_against_is_the_worlds_own() {
         "quest",
         "treasure_death",
         "treasure_wielded",
+        "house_portal",
         "rules",
     ] {
         rows.insert(kind.into(), schema["rows"][kind].take());

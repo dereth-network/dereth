@@ -2276,6 +2276,464 @@ mod houses {
         s.compiled().dropped[&lb][before].0.clone()
     }
 
+    /// The server's schema of rows, as the fixture world's import writes it.
+    fn schema_text() -> String {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/cpu/world/row_sql_pair/schema.json"),
+        )
+        .unwrap()
+    }
+
+    /// A world repository with nothing in its base and an empty patch, `houses`, edited as
+    /// Lyceum opens it, with the catalog: its `world.toml` and the session.
+    fn repo_session(tag: &str) -> (dereth_dat::testing::ScratchDir, PathBuf, Session) {
+        repo_session_with(tag, &schema_text())
+    }
+
+    /// [`repo_session`] with the server's schema `schema`.
+    fn repo_session_with(
+        tag: &str,
+        schema: &str,
+    ) -> (dereth_dat::testing::ScratchDir, PathBuf, Session) {
+        use lyceum_foundry::repo::Repo;
+        dereth_dat::testing::require_dats();
+        let dir = dereth_dat::testing::ScratchDir::new(tag).unwrap();
+        let write = |rel: &str, text: &str| {
+            let p = dir.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        write(
+            "repo/base/library/pack.toml",
+            "name = \"library\"\nversion = \"1\"\n",
+        );
+        write(
+            "repo/patches/2027-01-houses/patch.toml",
+            "id = \"2027-01-houses\"\ntitle = \"Houses\"\ndate = \"2027-01-01\"\nafter = \"\"\npacks = [\"houses\"]\n",
+        );
+        write(
+            "repo/patches/2027-01-houses/packs/houses/pack.toml",
+            "name = \"houses\"\nversion = \"1\"\n",
+        );
+        write(
+            "repo/world.toml",
+            "format_version = 1\ngame = \"ac1\"\nkey = \"test-repo\"\nera = \"newdereth\"\npacks = [\"base/library\"]\nlineage = [\"2027-01-houses\"]\n[base]\nmonth = \"2026-12\"\n[land]\nledger = \"land/generations.tsv\"\n[ids]\nclasses = [2000000, 2999999]\n",
+        );
+        let world = dir.path().join("repo/world.toml");
+        let repo = Repo::open(&world).unwrap();
+        let layer = repo.shown_layers() - 1;
+        let w = lyceum_foundry::repo_world::world_of(&repo, layer, None, &dir.path().join("build"))
+            .unwrap();
+        let mut s = Session::open_world(w, &dereth_dat::testing::dat_dir(), None, None).unwrap();
+        s.set_schema(Some(lyceum_foundry::content::Schema::read(schema).unwrap()));
+        s.open_repository(&repo, layer).unwrap();
+        s.set_today("2026-10-22 00:00:00");
+        s.learn_buildings(catalog().clone());
+        (dir, world, s)
+    }
+
+    /// The server's import tool, as a test has it: its world pack is every item of the world at
+    /// the layer, folded from the repository's rows, one line each with its row.
+    struct Tool;
+
+    impl lyceum_foundry::export::Importer for Tool {
+        fn run(&self, args: &[std::ffi::OsString]) -> Result<String, String> {
+            use lyceum_foundry::repo::{Repo, RowSchema};
+            let arg = |name: &str| {
+                args.iter()
+                    .position(|a| a == name)
+                    .and_then(|i| args.get(i + 1))
+                    .ok_or(format!("no {name}"))
+            };
+            let repo = Repo::open(std::path::Path::new(arg("--world")?))?;
+            let layer = arg("--layer")?;
+            let at = repo
+                .layers
+                .iter()
+                .position(|l| l.id.as_str() == layer.to_string_lossy())
+                .ok_or("no such layer")?;
+            let rows = RowSchema::read(&schema_text())?.ok_or("no rows")?;
+            let world = repo.fold(&rows, at)?;
+            let mut pack = String::new();
+            for (name, item) in &world.items {
+                let row = item.row(&rows);
+                pack.push_str(&format!(
+                    "{name}\t{}\n",
+                    serde_json::to_string(&row).map_err(|e| e.to_string())?
+                ));
+            }
+            std::fs::write(arg("--out")?, pack).map_err(|e| e.to_string())?;
+            Ok("built".into())
+        }
+    }
+
+    /// The world the repository serves as saved, published: each item with its row, by name.
+    fn published(dir: &std::path::Path, world: &std::path::Path) -> BTreeMap<String, toml::Table> {
+        let out = dir.join("served");
+        let p = lyceum_foundry::publish::Publish {
+            layer: None,
+            land: None,
+            number: true,
+            importer: &Tool,
+        };
+        lyceum_foundry::publish::publish(world, &dereth_dat::testing::dat_dir(), &out, &p).unwrap();
+        std::fs::read_to_string(out.join("world.pack"))
+            .unwrap()
+            .lines()
+            .map(|l| {
+                let (name, row) = l.split_once('\t').unwrap();
+                let row: toml::Table = serde_json::from_str(row).unwrap();
+                (name.to_owned(), row)
+            })
+            .collect()
+    }
+
+    /// The placements of `served` in landblock `lb`: each one's guid, with its class and frame.
+    fn placements_in(
+        served: &BTreeMap<String, toml::Table>,
+        lb: u16,
+    ) -> BTreeMap<u32, (u32, Vec3)> {
+        let int = |r: &toml::Table, f: &str| u32::try_from(r[f].as_integer().unwrap()).unwrap();
+        served
+            .iter()
+            .filter(|(n, _)| n.starts_with("spawn "))
+            .filter(|(_, r)| int(r, "cell") >> 16 == u32::from(lb))
+            .map(|(_, r)| {
+                let at: Vec<f32> = r["at"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| {
+                        #[allow(clippy::cast_possible_truncation)] // meters in a landblock
+                        let m = v.as_float().unwrap() as f32;
+                        m
+                    })
+                    .collect();
+                (
+                    int(r, "guid"),
+                    (int(r, "class"), Vec3::new(at[0], at[1], at[2])),
+                )
+            })
+            .collect()
+    }
+
+    /// A house dropped in a world repository's layer is the layer's rows: its doors, its house,
+    /// slumlord, storage, hooks, boot spot and house portals placed, its house weenie one of the
+    /// repository's own classes, its house portals' rows; moving it moves them, taking it away
+    /// takes them away.
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn a_house_dropped_in_a_world_repository_is_its_layers_rows_moved_and_taken_away_with_it() {
+        let (dir, world, mut s) = repo_session("houses-repo");
+        let (lb, x, y, heading) = (0xA0A8, 84.0, 84.0, 90.0);
+        let name = drop_house(&mut s, VILLA, lb, x, y, heading);
+        let b = basement_landblock(&s, &name, lb);
+        let index = s.compiled().dropped[&lb][0].1;
+        s.save().unwrap();
+        // No SQL of its own: everything is a row.
+        let pack = dir.path().join("repo/patches/2027-01-houses/packs/houses");
+        assert!(!pack.join("server").exists(), "the pack holds SQL");
+        let served = published(dir.path(), &world);
+        let above = placements_in(&served, lb);
+        let below = placements_in(&served, b);
+        // The spawns a drop in a plain pack places, each of the same class: but its house, which
+        // is the repository's own class here, a copy of its template's.
+        let (_plain_dir, mut plain) = session("houses-repo-plain");
+        let plain_name = drop_house(&mut plain, VILLA, lb, x, y, heading);
+        let plain_b = basement_landblock(&plain, &plain_name, lb);
+        let classes = |spawns: &mut dyn Iterator<Item = u32>| {
+            let mut v: Vec<u32> = spawns
+                .map(|c| if c >= 2_000_000 { HOUSE } else { c })
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        // The plain pack's house is its own weenie, which the server's world lacks.
+        let plain_class = |w: u32| {
+            if content().weenies.contains_key(&w) {
+                w
+            } else {
+                HOUSE
+            }
+        };
+        assert_eq!(
+            classes(&mut above.values().map(|(c, _)| *c)),
+            classes(
+                &mut spawns_in(&plain, lb)
+                    .values()
+                    .map(|v| plain_class(v.weenie))
+            ),
+        );
+        assert_eq!(
+            classes(&mut below.values().map(|(c, _)| *c)),
+            classes(
+                &mut spawns_in(&plain, plain_b)
+                    .values()
+                    .map(|v| plain_class(v.weenie))
+            ),
+        );
+        let kinds: BTreeSet<u32> = above
+            .values()
+            .chain(below.values())
+            .map(|(c, _)| if *c >= 2_000_000 { HOUSE } else { kind(*c) })
+            .collect();
+        for want in [HOUSE, SLUMLORD, STORAGE, HOOK, BOOT_SPOT, PORTAL, 19] {
+            assert!(kinds.contains(&want), "no spawn of type {want}: {kinds:?}");
+        }
+        let house: Vec<u32> = above
+            .values()
+            .map(|(c, _)| *c)
+            .filter(|c| (2_000_000..=2_999_999).contains(c))
+            .collect();
+        assert!(
+            !house.is_empty(),
+            "the house is none of the repository's own classes"
+        );
+        let class = house[0];
+        assert!(
+            served.contains_key(&format!("weenie {class}")),
+            "{served:?}"
+        );
+        let portals: Vec<&String> = served
+            .keys()
+            .filter(|n| n.starts_with(&format!("house-portal {class} ")))
+            .collect();
+        assert!(!portals.is_empty(), "no house portal rows");
+        // Its row names the spawns that go with it, and the lockfile numbers them as placed.
+        let row: toml::Table = toml::from_str(
+            &std::fs::read_to_string(pack.join(format!("edits/landblocks/{lb:04X}.toml"))).unwrap(),
+        )
+        .unwrap();
+        let spawns: Vec<&str> = row["add-building"][0]["spawns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .collect();
+        let lock = lyceum_foundry::lock::Lock::read(&dir.path().join("repo/world.lock")).unwrap();
+        for n in &spawns {
+            let g = lock
+                .get(Sym::Guid, &format!("houses:{n}@{lb:04X}"))
+                .unwrap_or_else(|| panic!("{n} is not numbered"));
+            assert!(above.contains_key(&g), "{n} ({g:#010X}) is not placed");
+        }
+        assert!(spawns.iter().any(|n| n.contains("-door-")), "{spawns:?}");
+
+        // Moved two land cells west: the same spawns, carried.
+        let was = s.statics(lb).unwrap().buildings[index].frame;
+        let op = s
+            .move_building(
+                lb,
+                index,
+                [x - 48.0, y, was.origin.z],
+                Rotation::Heading(heading),
+            )
+            .unwrap();
+        s.apply(&op).unwrap();
+        s.save().unwrap();
+        let now = s.statics(lb).unwrap().buildings[index].frame;
+        let served_moved = published(dir.path(), &world);
+        let moved = placements_in(&served_moved, lb);
+        assert_eq!(
+            moved.keys().collect::<Vec<_>>(),
+            above.keys().collect::<Vec<_>>()
+        );
+        // Each carried with it, but the link spot of its house portal, which stands where the
+        // portal on the other side does.
+        let spots: BTreeSet<u32> = served_moved
+            .iter()
+            .filter(|(n, r)| {
+                n.starts_with("spawn ")
+                    && r["class"]
+                        .as_integer()
+                        .and_then(|c| u32::try_from(c).ok())
+                        .is_some_and(|c| kind(c) == PORTAL)
+            })
+            .flat_map(|(_, r)| {
+                r.get("links")
+                    .and_then(toml::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .filter_map(|l| l.as_integer().or_else(|| l.get("child")?.as_integer()))
+            .filter_map(|g| u32::try_from(g).ok())
+            .collect();
+        for (g, (_, at)) in &moved {
+            let then = Frame::new(above[g].1, Quat::new(1.0, 0.0, 0.0, 0.0));
+            let want = carried(&then, &was, &now).origin;
+            let here = (at.x - want.x).abs() < 2e-3 && (at.y - want.y).abs() < 2e-3;
+            assert!(
+                here || spots.contains(g),
+                "{g:#010X} at {at:?}, carried to {want:?}"
+            );
+        }
+        assert_eq!(
+            served_moved
+                .keys()
+                .filter(|n| n.starts_with(&format!("house-portal {class} ")))
+                .count(),
+            portals.len()
+        );
+        assert!(!pack.join("server").exists(), "the pack holds SQL");
+
+        // Taken away: none of its rows stay.
+        s.apply(&Op::RemoveBuilding {
+            landblock: lb,
+            index,
+        })
+        .unwrap();
+        s.save().unwrap();
+        let gone = published(dir.path(), &world);
+        assert!(
+            placements_in(&gone, lb).is_empty(),
+            "{:?}",
+            placements_in(&gone, lb)
+        );
+        assert!(
+            placements_in(&gone, b).is_empty(),
+            "{:?}",
+            placements_in(&gone, b)
+        );
+        assert!(!gone.contains_key(&format!("weenie {class}")));
+        assert!(!gone.keys().any(|n| n.starts_with("house-portal ")));
+    }
+
+    /// A house dropped in a world repository's layer, where the server's schema writes no house
+    /// portal as SQL, is refused, and nothing changes.
+    #[test]
+    fn a_house_dropped_in_a_world_repository_whose_server_has_no_house_portal_rows_is_refused() {
+        let mut schema: serde_json::Value = serde_json::from_str(&schema_text()).unwrap();
+        schema["rows"]["house_portal"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sql");
+        let (_dir, _world, mut s) = repo_session_with("houses-repo-old", &schema.to_string());
+        let lb = 0xA0A8;
+        let (op, _) = s
+            .drop_building_as(
+                DataId(VILLA),
+                0,
+                &lyceum_foundry::source::Furnished::Template,
+                true,
+                lb,
+                84.0,
+                84.0,
+                90.0,
+            )
+            .unwrap();
+        let why = s.apply(&op).unwrap_err().to_string();
+        assert!(why.contains("no house portal rows"), "{why}");
+        assert!(!s.compiled().dropped.contains_key(&lb));
+        assert!(s.spawns().iter().all(|x| x.landblock() != lb));
+    }
+
+    /// A house moved in a world repository's layer so that one of its hooks would stand outside
+    /// the landblock: that hook's placement is taken away, the rest stay; moved back, the hook is
+    /// placed again under its number.
+    #[test]
+    fn a_house_moved_so_a_hook_leaves_the_landblock_takes_its_placement_away_in_a_repository() {
+        let (dir, world, mut s) = repo_session("houses-repo-hook");
+        let (lb, x, y, heading) = (0xA0A8, 84.0, 84.0, 90.0);
+        drop_house(&mut s, VILLA, lb, x, y, heading);
+        let index = s.compiled().dropped[&lb][0].1;
+        let z = s.statics(lb).unwrap().buildings[index].frame.origin.z;
+        s.save().unwrap();
+        let before = placements_in(&published(dir.path(), &world), lb);
+        let lock = lyceum_foundry::lock::Lock::read(&dir.path().join("repo/world.lock")).unwrap();
+        let hook = lock
+            .get(Sym::Guid, &format!("houses:villa-1-hook-57@{lb:04X}"))
+            .unwrap();
+        assert!(before.contains_key(&hook));
+        // Near the landblock's south edge, facing north.
+        let op = s
+            .move_building(lb, index, [84.0, 11.5, z], Rotation::Heading(0.0))
+            .unwrap();
+        let applied = s.apply(&op).unwrap();
+        assert!(
+            applied
+                .warnings
+                .iter()
+                .any(|w| w.contains("villa-1-hook-57") && w.contains("not placed")),
+            "{:?}",
+            applied.warnings
+        );
+        s.save().unwrap();
+        let moved = placements_in(&published(dir.path(), &world), lb);
+        let mut want: Vec<u32> = before.keys().copied().filter(|g| *g != hook).collect();
+        want.sort_unstable();
+        assert_eq!(moved.keys().copied().collect::<Vec<_>>(), want);
+        // Back where it was: the hook again, under its number.
+        let op = s
+            .move_building(lb, index, [x, y, z], Rotation::Heading(heading))
+            .unwrap();
+        s.apply(&op).unwrap();
+        s.save().unwrap();
+        let back = placements_in(&published(dir.path(), &world), lb);
+        assert_eq!(
+            back.keys().collect::<Vec<_>>(),
+            before.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// A second drop in the landblock of a house dropped in a world repository's layer, its name
+    /// before the house's, leaves the house's spawns their numbers: each spawn a row names is
+    /// still the placement its number names, as saved.
+    #[test]
+    fn a_drop_beside_a_house_in_a_world_repository_leaves_its_spawns_their_numbers() {
+        let (dir, world, mut s) = repo_session("houses-repo-numbers");
+        let lb = 0xA0A8;
+        let house = drop_house(&mut s, VILLA, lb, 84.0, 84.0, 90.0);
+        let (op, _) = s
+            .drop_building_as(
+                DataId(COTTAGE),
+                0,
+                &lyceum_foundry::source::Furnished::Template,
+                false,
+                lb,
+                156.0,
+                36.0,
+                0.0,
+            )
+            .unwrap();
+        s.apply(&op).unwrap();
+        let names: Vec<String> = s.compiled().dropped[&lb]
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect();
+        assert!(names.iter().any(|n| *n < house), "{names:?} after {house}");
+        s.save().unwrap();
+        let served = published(dir.path(), &world);
+        let placed = placements_in(&served, lb);
+        let pack = dir.path().join("repo/patches/2027-01-houses/packs/houses");
+        let row: toml::Table = toml::from_str(
+            &std::fs::read_to_string(pack.join(format!("edits/landblocks/{lb:04X}.toml"))).unwrap(),
+        )
+        .unwrap();
+        let lock = lyceum_foundry::lock::Lock::read(&dir.path().join("repo/world.lock")).unwrap();
+        let mut named = 0;
+        for b in row["add-building"].as_array().unwrap() {
+            for n in b
+                .get("spawns")
+                .and_then(toml::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let n = n.as_str().unwrap();
+                let g = lock
+                    .get(Sym::Guid, &format!("houses:{n}@{lb:04X}"))
+                    .unwrap_or_else(|| panic!("{n} is not numbered"));
+                assert!(placed.contains_key(&g), "{n} ({g:#010X}) is not placed");
+                named += 1;
+            }
+        }
+        assert_eq!(
+            named,
+            placed.len() - 1,
+            "every placement but the house is named"
+        );
+    }
+
     /// The spawns the session's SQL places in landblock `lb`, by guid.
     fn spawns_in(s: &Session, lb: u16) -> BTreeMap<u32, Spawn> {
         let (by, _) = spawns_of(&placed(s).0);
@@ -2458,6 +2916,24 @@ mod houses {
             weenies: content().weenies.clone(),
             ..ServerContent::default()
         });
+        links_follow_the_house(s, true);
+    }
+
+    /// The same in a world repository's layer, where its spawns and the levers are placements.
+    #[test]
+    fn a_house_dropped_in_a_world_repository_keeps_its_links_through_its_move() {
+        let (_dir, _world, mut s) = repo_session("houses-repo-links");
+        s.learn_server_beside(ServerContent {
+            weenies: content().weenies.clone(),
+            ..ServerContent::default()
+        });
+        links_follow_the_house(s, false);
+    }
+
+    /// A house dropped in session `s`, its front door and two doors of its basement linked to
+    /// levers and each other, moved and taken away: the links follow it and let go; with
+    /// `rebuilt`, a world built from the saved files is the session's.
+    fn links_follow_the_house(mut s: Session, rebuilt: bool) {
         let (lb, x, y, heading) = (0xA0A8, 84.0, 84.0, 90.0);
         let name = drop_house(&mut s, VILLA, lb, x, y, heading);
         let index = s.compiled().dropped[&lb][0].1;
@@ -2474,7 +2950,10 @@ mod houses {
         let below = doors(&s, b);
         assert!(below.len() >= 2, "{below:?}");
         let (first, second) = (below[0].clone(), below[1].clone());
-        assert_eq!(first.file, second.file);
+        // In a plain pack, the one file of its basement's spawns; in a repository, a placement each.
+        if rebuilt {
+            assert_eq!(first.file, second.file);
+        }
         // A lever on the grass opens the front door; one in the basement opens its first door,
         // which opens the second.
         let outside = lever(&mut s, lb, None, Vec3::new(160.0, 160.0, was.origin.z));
@@ -2521,7 +3000,9 @@ mod houses {
         s.apply(&op).unwrap();
         assert!(!same_frame(&spawn_of(&s, &front).frame, &door_was));
         holds(&mut s);
-        assert_saved_builds_the_same(&mut s);
+        if rebuilt {
+            assert_saved_builds_the_same(&mut s);
+        }
         // Taken away, it lets go of what it linked: the lever on the grass stands alone, and the
         // one in its basement goes with it.
         let index = s.compiled().dropped[&lb][0].1;

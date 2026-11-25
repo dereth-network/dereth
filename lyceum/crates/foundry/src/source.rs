@@ -493,6 +493,11 @@ pub struct AddBuilding {
     /// For a house players can buy, the spawn each building's rooms and land cell belong to: its
     /// symbol in full, without the landblock (the row's own). Empty for a plain building.
     pub house: Vec<String>,
+    /// In a world repository's layer, the other spawns that go with it (its doors, its house's
+    /// slumlord, storage, hooks, boot spot and portals): each one's symbol in full, without the
+    /// landblock (the row's own). The lockfile numbers each, and the layer's placement of that
+    /// number is the spawn. Empty elsewhere: there its spawns are its pack's SQL.
+    pub spawns: Vec<String>,
     /// Whether its templates (and the copies it is furnished like) are read from the player's
     /// own files, not from the world's import over them (`from = "files"`).
     pub from_files: bool,
@@ -508,6 +513,9 @@ pub struct AddDungeon {
     /// The spawn its cells belong to, when it is a house's: its symbol in full, without the
     /// landblock.
     pub house: Option<String>,
+    /// In a world repository's layer, the spawns in its cells that go with it, as
+    /// [`AddBuilding::spawns`] names them.
+    pub spawns: Vec<String>,
 }
 
 /// The operations of one landblock's file.
@@ -723,6 +731,8 @@ struct AddDungeonRow {
     name: String,
     template: i64,
     house: Option<String>,
+    #[serde(default)]
+    spawns: Vec<String>,
     /// Where the row came from; left out, a person wrote it.
     #[serde(default)]
     prov: Option<Provenance>,
@@ -749,6 +759,8 @@ struct AddBuildingRow {
     rotation: Option<Vec<f32>>,
     furnished: Option<toml::Value>,
     house: Option<toml::Value>,
+    #[serde(default)]
+    spawns: Vec<String>,
     from: Option<String>,
     /// Where the row came from; left out, a person wrote it.
     #[serde(default)]
@@ -1824,10 +1836,15 @@ fn house_symbol(at: &Loc, pack: &str, s: &str) -> Result<String, Error> {
     if s.contains(':') || s.contains('@') {
         return Err(Error::source(
             at,
-            "a house is named by a bare symbol: a spawn of the row's landblock",
+            "a house or a spawn is named by a bare symbol: a spawn of the row's landblock",
         ));
     }
     symbol::qualify(pack, s).map_err(|why| Error::source(at, why))
+}
+
+/// The spawns a row says go with it, each a bare symbol of the pack, as its symbol in full.
+fn spawn_symbols(at: &Loc, pack: &str, names: &[String]) -> Result<Vec<String>, Error> {
+    names.iter().map(|n| house_symbol(at, pack, n)).collect()
 }
 
 fn add_dungeon(at: &Loc, pack: &str, r: &AddDungeonRow) -> Result<AddDungeon, Error> {
@@ -1858,6 +1875,7 @@ fn add_dungeon(at: &Loc, pack: &str, r: &AddDungeonRow) -> Result<AddDungeon, Er
             .as_deref()
             .map(|h| house_symbol(at, pack, h))
             .transpose()?,
+        spawns: spawn_symbols(at, pack, &r.spawns)?,
     })
 }
 
@@ -1983,6 +2001,7 @@ fn add_building(at: &Loc, pack: &str, r: &AddBuildingRow) -> Result<AddBuilding,
         rotation: rotation(at, r.heading, r.rotation.as_deref())?.unwrap_or(Rotation::Heading(0.0)),
         furnished,
         house,
+        spawns: spawn_symbols(at, pack, &r.spawns)?,
         from_files: match r.from.as_deref() {
             None => false,
             Some("files") => true,

@@ -55,6 +55,7 @@ use crate::edit::{Op, Session, VertexSet};
 use crate::error::{Error, Loc};
 use crate::lock::Lock;
 use crate::source::{AddBuilding, Furnished, Height, Located, Place, Rotation};
+use crate::sql_ids;
 use crate::symbol::Kind;
 
 /// The name of room `k` of dropped building `name`: its rooms are counted over the drop's
@@ -477,6 +478,13 @@ pub fn instance_symbol(name: &str, lb: u16) -> String {
     format!("{name}@{lb:04X}")
 }
 
+/// The bare name and landblock of an instance's `{{guid:name@XXYY}}` token, as written.
+fn spawn_symbol(guid: &str) -> Option<(String, u16)> {
+    let body = guid.trim().strip_prefix("{{guid:")?.strip_suffix("}}")?;
+    let (name, lb) = body.rsplit_once('@')?;
+    Some((name.to_owned(), u16::from_str_radix(lb, 16).ok()?))
+}
+
 /// The id lock `lock` holds for house spawn `name` (in full) of landblock `lb`.
 fn house_guid(lock: &Lock, name: &str, lb: u16) -> Option<u32> {
     lock.get(Kind::Guid, &instance_symbol(name, lb))
@@ -499,16 +507,17 @@ impl Prepared<'_> {
             .collect()
     }
 
-    /// Every symbol it numbers in landblock `lb`: its rooms' cells, and its houses' spawns.
+    /// Every symbol it numbers in landblock `lb`: its rooms' cells, and its houses' and other
+    /// spawns'.
     pub(crate) fn symbols(&self, lb: u16) -> Vec<(Kind, String)> {
+        let d = &self.row.item;
         self.room_symbols(lb)
             .into_iter()
             .map(|s| (Kind::Cell, s))
             .chain(
-                self.row
-                    .item
-                    .house
+                d.house
                     .iter()
+                    .chain(&d.spawns)
                     .map(|h| (Kind::Guid, instance_symbol(h, lb))),
             )
             .collect()
@@ -612,12 +621,17 @@ pub(crate) fn prepare_dungeon<'a>(
 }
 
 impl PreparedDungeon<'_> {
-    /// Every symbol it numbers in landblock `lb`: its cells, and its house's spawn.
+    /// Every symbol it numbers in landblock `lb`: its cells, and its house's and other spawns'.
     pub(crate) fn symbols(&self, lb: u16) -> Vec<(Kind, String)> {
         let d = &self.row.item;
         (0..self.cells.len())
             .map(|k| (Kind::Cell, compile::cell_symbol(&room_name(&d.name, k), lb)))
-            .chain(d.house.iter().map(|h| (Kind::Guid, instance_symbol(h, lb))))
+            .chain(
+                d.house
+                    .iter()
+                    .chain(&d.spawns)
+                    .map(|h| (Kind::Guid, instance_symbol(h, lb))),
+            )
             .collect()
     }
 
@@ -1634,6 +1648,7 @@ impl Session {
                 rotation: Rotation::Heading(heading),
                 furnished: w.furnished.clone(),
                 house: house_names,
+                spawns: Vec::new(),
                 from_files: w.from_files,
             },
         });
@@ -1752,7 +1767,97 @@ impl Session {
                 });
             }
         }
-        Ok((Op::Batch(ops), warnings))
+        Ok((Op::Batch(self.spawns_as_rows(ops, true)), warnings))
+    }
+
+    /// `ops` as a world repository's layer being edited takes them: the SQL files of the target
+    /// pack they write, which place a drop's doors and its house's spawns by their symbols, one
+    /// step of the layer's rows after the rest ([`Op::WriteSpawnRows`]); with `name`, each dropped
+    /// building's and copied dungeon's row naming the spawns of its landblock they place, but its
+    /// houses. Elsewhere, `ops` as they are.
+    fn spawns_as_rows(&self, ops: Vec<Op>, name: bool) -> Vec<Op> {
+        if self.placing().is_none() {
+            return ops;
+        }
+        let pack = &self.packs()[self.target()];
+        let dir = pack.dir.join("server").join("sql");
+        let mut files = Vec::new();
+        let mut kept = Vec::new();
+        for op in ops {
+            match op {
+                Op::WriteSql {
+                    file,
+                    text: Some(text),
+                } if file.starts_with(&dir) => files.push(text),
+                other => kept.push(other),
+            }
+        }
+        if files.is_empty() {
+            return kept;
+        }
+        if name {
+            let placed: Vec<(u16, String)> = files
+                .iter()
+                .flat_map(|t| sql_ids::instances(t))
+                .filter_map(|i| spawn_symbol(&i.guid))
+                .map(|(n, lb)| (lb, format!("{}:{n}", pack.name)))
+                .collect();
+            let of = |lb: u16, houses: &[&String]| -> Vec<String> {
+                let mut out: Vec<String> = Vec::new();
+                for (l, n) in &placed {
+                    if *l == lb && !houses.contains(&n) && !out.contains(n) {
+                        out.push(n.clone());
+                    }
+                }
+                out
+            };
+            for op in &mut kept {
+                match op {
+                    Op::AddBuilding {
+                        landblock,
+                        building,
+                    } => {
+                        building.spawns = of(*landblock, &building.house.iter().collect::<Vec<_>>())
+                    }
+                    Op::AddDungeon { landblock, dungeon } => {
+                        dungeon.spawns = of(*landblock, &dungeon.house.iter().collect::<Vec<_>>())
+                    }
+                    _ => {}
+                }
+            }
+        }
+        kept.push(Op::WriteSpawnRows { files });
+        kept
+    }
+
+    /// In a world repository's layer being edited, the guids the lockfile gives the spawns the
+    /// target pack's row of landblock `lb` named `name` (in full) names: a dropped building's or a
+    /// copied dungeon's houses and other spawns. Elsewhere none.
+    fn named_spawn_guids(&self, lb: u16, name: &str) -> BTreeSet<u32> {
+        if self.placing().is_none() {
+            return BTreeSet::new();
+        }
+        let mut names: Vec<&String> = Vec::new();
+        for e in self.packs()[self.target()]
+            .edits
+            .iter()
+            .filter(|e| e.landblock == lb)
+        {
+            for d in e.drops.iter().filter(|d| d.item.name == name) {
+                names.extend(d.item.house.iter().chain(&d.item.spawns));
+            }
+            for d in e.dungeon_copies.iter().filter(|d| d.item.name == name) {
+                names.extend(d.item.house.iter().chain(&d.item.spawns));
+            }
+        }
+        names
+            .into_iter()
+            .filter_map(|n| {
+                self.compiled()
+                    .lock
+                    .get(Kind::Guid, &instance_symbol(n, lb))
+            })
+            .collect()
     }
 
     /// The ground under the shells `shells` of landblock `lb` made level at height index
@@ -1883,6 +1988,8 @@ impl Session {
     ) -> Vec<crate::edit::Spawn> {
         let bare = name.split_once(':').map_or(name, |(_, b)| b);
         let door = format!("{{{{guid:{bare}-door-");
+        // In a world repository's layer, its spawns are placements numbered by their symbols.
+        let named = self.named_spawn_guids(lb, name);
         let mut out: Vec<crate::edit::Spawn> = Vec::new();
         let mut add = |s: crate::edit::Spawn| {
             if !out.iter().any(|o| o.file == s.file && o.guid == s.guid) {
@@ -1894,7 +2001,8 @@ impl Session {
                 continue;
             }
             let room = u16::try_from(s.cell & 0xFFFF).is_ok_and(|c| rooms.contains(&c));
-            if s.guid.starts_with(&door) || room {
+            let numbered = sql_ids::number(&s.guid).is_some_and(|g| named.contains(&g));
+            if s.guid.starts_with(&door) || room || numbered {
                 add(s);
             }
         }
@@ -2097,6 +2205,9 @@ impl Session {
                 _ => Vec::new(),
             };
             ops.extend(ground);
+            // The spawns its house's files place, which are written again whole, as its pack's
+            // SQL is: none of them carried, so one that would leave the landblock is left out.
+            let mut rewritten: BTreeSet<u32> = BTreeSet::new();
             if let Some((kind, h)) = &house {
                 let at = HouseAt {
                     lb,
@@ -2109,6 +2220,46 @@ impl Session {
                 };
                 let (files, _, more) = self.house_files(&at, h, *kind).map_err(Error::Refused)?;
                 applied.warnings.extend(more);
+                let pack = self.packs()[self.target()].name.clone();
+                for (_, text) in &files {
+                    for i in sql_ids::instances(text) {
+                        let Some((n, at)) = spawn_symbol(&i.guid) else {
+                            continue;
+                        };
+                        let symbol = instance_symbol(&format!("{pack}:{n}"), at);
+                        rewritten.extend(self.compiled().lock.get(Kind::Guid, &symbol));
+                    }
+                }
+                // In a world repository's layer, a placement of its house's the move leaves out
+                // (one it would carry off the landblock) is taken away, as a file written
+                // again whole leaves it out.
+                if !row.spawns.is_empty() {
+                    let root = h.root().map_or(0, |r| h.objects[r].member);
+                    let names = spawn_names(&bare, lb, h, root);
+                    let placed = self.spawns();
+                    for (o, n) in h.objects.iter().zip(&names) {
+                        let at = match (o.spot, basement) {
+                            (buildings::Spot::Basement(_), Some((b, _))) => b,
+                            _ => lb,
+                        };
+                        let symbol = instance_symbol(&format!("{pack}:{n}"), at);
+                        let Some(g) = self.compiled().lock.get(Kind::Guid, &symbol) else {
+                            continue;
+                        };
+                        if !rewritten.insert(g) {
+                            continue;
+                        }
+                        if let Some(s) = placed.iter().find(|s| {
+                            !s.server
+                                && s.pack == self.target()
+                                && sql_ids::number(&s.guid) == Some(g)
+                        }) {
+                            ops.push(Op::RemoveSpawn {
+                                file: s.file.clone(),
+                            });
+                        }
+                    }
+                }
                 for (file, text) in files {
                     // What was linked and marked in it stays so.
                     let text = match self.sql_text(&file) {
@@ -2148,6 +2299,9 @@ impl Session {
                 });
             }
             for s in &spawns {
+                if sql_ids::number(&s.guid).is_some_and(|g| rewritten.contains(&g)) {
+                    continue;
+                }
                 let g = carried(&s.frame, &frames[0], &to);
                 ops.push(Op::MoveSpawn {
                     file: s.file.clone(),
@@ -2156,6 +2310,13 @@ impl Session {
                     heading: crate::edit::heading_of(g.rotation).rem_euclid(360.0),
                 });
             }
+            // A drop whose row names no spawns keeps them as its pack's SQL (one written
+            // before a repository's layer took them as rows).
+            let ops = if row.spawns.is_empty() {
+                ops
+            } else {
+                self.spawns_as_rows(ops, false)
+            };
             let mut texts = BTreeMap::new();
             for op in &ops {
                 self.draft_into(op, &mut texts)?;
@@ -2288,6 +2449,23 @@ impl Session {
                 .into_iter()
                 .map(|file| Op::WriteSql { file, text: None }),
         );
+        // In a world repository's layer, its house's weenie and portals are rows too.
+        let house_class = row
+            .house
+            .first()
+            .and_then(|h| {
+                self.compiled()
+                    .lock
+                    .get(Kind::Guid, &instance_symbol(h, lb))
+            })
+            .and_then(|g| self.placed_class(g));
+        if let Some(class) = house_class {
+            ops.extend(
+                self.house_rows(class)
+                    .into_iter()
+                    .map(|file| Op::WriteSql { file, text: None }),
+            );
+        }
         let mut texts = BTreeMap::new();
         for s in &gone {
             self.draft_unlinked(s, &mut texts)?;
@@ -3163,6 +3341,7 @@ impl Session {
                     name: format!("{pack}:{below}"),
                     template,
                     house: house_spawn,
+                    spawns: Vec::new(),
                 },
             ));
             files.push((

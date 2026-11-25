@@ -1172,7 +1172,17 @@ fn a_kinds_sql_tables_name_a_column_for_every_field_its_rows_hold() {
     assert!(why.is_empty(), "{}", why.join("\n"));
     assert_eq!(
         seen,
-        ["quest", "treasure_death", "treasure_wielded", "weenie"]
+        [
+            "house_portal",
+            "quest",
+            "treasure_death",
+            "treasure_wielded",
+            "weenie"
+        ]
+    );
+    assert_eq!(
+        rows["house_portal"]["sql"]["columns"]["house_id"],
+        "house_Id"
     );
     let w = &rows["weenie"]["sql"];
     assert_eq!(w["maps"]["attribute"]["key"], "type");

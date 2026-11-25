@@ -2406,6 +2406,26 @@ fn cell_symbols(packs: &[Pack], only: Option<&BTreeSet<u16>>) -> BTreeSet<(Kind,
         .collect()
 }
 
+/// The instance symbols the packs' dropped buildings and copied dungeons number: their houses'
+/// and other spawns'.
+fn drop_spawn_symbols(packs: &[Pack]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for e in packs.iter().flat_map(|p| &p.edits) {
+        let lb = e.landblock;
+        for d in &e.drops {
+            for h in d.item.house.iter().chain(&d.item.spawns) {
+                out.insert(crate::drops::instance_symbol(h, lb));
+            }
+        }
+        for d in &e.dungeon_copies {
+            for h in d.item.house.iter().chain(&d.item.spawns) {
+                out.insert(crate::drops::instance_symbol(h, lb));
+            }
+        }
+    }
+    out
+}
+
 /// A new cell's symbol: its name (in full) and its landblock.
 #[must_use]
 pub fn cell_symbol(name: &str, landblock: u16) -> String {
@@ -2700,12 +2720,19 @@ pub fn refresh_sql(
     wanted.extend(cell_symbols(packs, None));
     let mut lock = lock.clone();
     // The cells keep the numbers their records were made with, and the loot tables the numbers
-    // they were first given, which the editor knows them by.
+    // they were first given, which the editor knows them by; so do the spawns a dropped
+    // building's or copied dungeon's row names, which a world repository's placements carry.
     for kind in [Kind::Cell, Kind::Treasure] {
         for (symbol, id) in c.lock.of(kind) {
             if lock.get(kind, symbol).is_none() {
                 lock.insert(kind, symbol, id);
             }
+        }
+    }
+    let dropped = drop_spawn_symbols(packs);
+    for (symbol, id) in c.lock.of(Kind::Guid) {
+        if dropped.contains(symbol) && lock.get(Kind::Guid, symbol).is_none() {
+            lock.insert(Kind::Guid, symbol, id);
         }
     }
     c.numbered = number(
