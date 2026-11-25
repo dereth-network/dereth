@@ -691,15 +691,8 @@ fn with_quest_mines(h: &mut Harness, quest: u32) -> (u64, u64) {
     (barium, ruby)
 }
 
-/// A mine a quest works refuses a player without its quest under way; with it, the work plays
-/// some seconds, then the quest moves on and the use is answered with the units extracted, the
-/// material in the pack, no experience; a mine its recipe works refuses every use.
-/// Behaviour: server.craft.quest-mines
-#[test]
-fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refuses() {
-    use yalain_world::quests::{self, status};
-    let quest = 0x8000_02E5;
-    let mut h = world();
+/// The quest a quest mine works, five phases, as the world's quests hold it.
+fn with_mine_quest(h: &mut Harness, quest: u32) {
     h.server
         .quests
         .quests
@@ -733,6 +726,35 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
             required: None,
             cancel_wait: None,
         });
+}
+
+/// A quest's player with it under way at its first phase.
+fn quest_under_way(h: &mut Harness, world: yalain_net::ConnId, quest: u32) {
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+}
+
+/// A mine a quest works refuses a player without its quest under way; with it, the work plays
+/// some seconds, then the quest moves on and the use is answered with the units extracted, the
+/// material in the pack, no experience; a mine its recipe works refuses every use.
+/// Behaviour: server.craft.quest-mines
+#[test]
+fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refuses() {
+    use yalain_world::quests;
+    let quest = 0x8000_02E5;
+    let mut h = world();
+    with_mine_quest(&mut h, quest);
     let (barium, ruby) = with_quest_mines(&mut h, quest);
     let (b, me, world) = in_world(&mut h, "Elara");
     let answers = |h: &Harness, from: usize| -> Vec<(u32, u32, u32)> {
@@ -777,19 +799,7 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
         )],
         "no quest under way"
     );
-    h.server
-        .players
-        .get_mut(&world)
-        .expect("in")
-        .play
-        .quests
-        .push(yalain_world::state::QuestState {
-            quest,
-            status: status::UNDERWAY,
-            phase: 1,
-            started: 0,
-            updated: 0,
-        });
+    quest_under_way(&mut h, world, quest);
     let from = send(&mut h, ruby, 1.0);
     assert_eq!(
         answers(&h, from),
@@ -820,6 +830,77 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
         .map(|i| i.quantity.max(1))
         .sum();
     assert_eq!(ore, 3);
+}
+
+/// A quest mine's behavior, held for its cycles, is let go about six seconds after it begins, with
+/// the context it began with, for the miner and for a player who sees it, and before the use is
+/// answered.
+/// Behaviour: server.craft.quest-mine-let-go
+#[test]
+fn a_quest_mines_behavior_is_let_go_after_its_cycles() {
+    let quest = 0x8000_02E5;
+    let mut h = world();
+    with_mine_quest(&mut h, quest);
+    let (barium, _) = with_quest_mines(&mut h, quest);
+    let (b, me, world) = in_world(&mut h, "Elara");
+    let (c, _, other_world) = in_world(&mut h, "Torvald");
+    let at = h.server.players[&world].position;
+    h.server
+        .players
+        .get_mut(&other_world)
+        .expect("there")
+        .position = at;
+    h.run(10);
+    quest_under_way(&mut h, world, quest);
+    let seen_from = h.bots[c].inbox.len();
+    let from = send_use(&mut h, b, me, barium, 0.0);
+    let played = |h: &Harness, bot: usize, from: usize| {
+        h.world_messages(bot, from).iter().find_map(|m| match m {
+            ServerMessage::PlayBehavior(e) if e.sender.id == me => {
+                Some((e.action.behavior, e.action.hold_cycles, e.action.context))
+            }
+            _ => None,
+        })
+    };
+    let let_go = |h: &Harness, bot: usize, from: usize| {
+        h.world_messages(bot, from).iter().find_map(|m| match m {
+            ServerMessage::LetGoBehavior(e) if e.sender.id == me => {
+                Some((e.action.behavior, e.action.params.context))
+            }
+            _ => None,
+        })
+    };
+    let (behavior, cycles, context) = played(&h, b, from).expect("the mine's behavior plays");
+    assert_eq!((behavior, cycles), (0x4100_014D, 3));
+    let began = h.now.0;
+    while let_go(&h, b, from).is_none() && h.now.0 - began < 10.0 {
+        h.step();
+    }
+    let after = h.now.0 - began;
+    assert!(
+        (5.8..=6.2).contains(&after),
+        "let go {after:.2} s after it began"
+    );
+    assert_eq!(let_go(&h, b, from), Some((behavior, context)));
+    assert!(
+        use_answers(&h, b, from).is_empty(),
+        "let go before the answer"
+    );
+    assert_eq!(
+        played(&h, c, seen_from),
+        Some((behavior, cycles, context)),
+        "the onlooker sees it play"
+    );
+    assert_eq!(
+        let_go(&h, c, seen_from),
+        Some((behavior, context)),
+        "the onlooker sees it let go"
+    );
+    let t = h.now.0 + 2.5;
+    while h.now.0 < t {
+        h.step();
+    }
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
 }
 
 /// A hoard's vein placed beside the start, of quantity 60 and three uses, anyone's; its id.

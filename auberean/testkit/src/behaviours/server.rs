@@ -2898,6 +2898,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.quest-mine-let-go",
+        says: "A quest mine's behavior, held for its cycles, is let go as the miner's body has \
+               played into the behavior's hold loop and through it the cycles, some six seconds \
+               for most bodies, with the context it began with, for the miner and everyone who \
+               sees it, and the use is answered one play of the clip from the loop's start after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-MINE-LET-GO"),
+        station: "yalain-testkit::cpu::play::mining::a_quest_mines_behavior_is_let_go_after_its_cycles",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.quest-mines",
         says: "A mine a quest works refuses a player without the quest under way; with it, the mine's \
                behavior plays some eight seconds, then the quest moves on and the use is answered \

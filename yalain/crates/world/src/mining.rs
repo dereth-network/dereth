@@ -766,10 +766,6 @@ pub struct QuestMine {
 /// The uses a quest mine's quest gives: the last one completes it (2017: the fifth, 2 of 2).
 pub const QUEST_MINE_USES: u32 = 5;
 
-/// How long after its behavior begins a quest mine's use gives its material, in seconds (2017:
-/// median 7.86 s, 10 uses).
-pub const QUEST_MINE_SECONDS: f64 = 7.86;
-
 /// Why a quest mine refuses: the player's quest is not under way (or done); the mine is worked by
 /// a recipe, not by a use. Both answer with these control flags.
 pub mod quest_refusal {
@@ -813,7 +809,12 @@ pub struct MineWork {
 }
 
 /// A player at a quest mine: refused (a recipe mines it; its quest is not under way), or the work
-/// begins: the mine's behavior held for its cycles, the material some seconds later.
+/// begins: the mine's behavior held for its cycles and let go after them, the material some
+/// seconds later, both timed as a craft's are, by the hold loop the player's body plays the
+/// behavior in ([`craft::timing_of`]) (2017: 10 uses of three cycles by a Tumerok, whose clip is
+/// 2 s long with its loop from 0.0075 to 0.9906 of it: let go 5.963 s after the behavior began,
+/// median, 5.897 to 6.017, where the clip gives 5.913; answered 7.86 s after, 7.800 to 7.935,
+/// where it gives 7.898).
 pub fn at_quest_mine<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -868,10 +869,23 @@ pub fn at_quest_mine<S: Store>(
     b.words[1] = 1;
     let plays = ServerMessage::PlayBehavior(crate::combat::player_event(p, b));
     crate::combat::to_all_seeing(s, net, me, &plays);
+    let (release, result) = craft::timing_of(
+        crate::timings::players_hold_loop(s, world, m.behavior),
+        m.cycles,
+    );
+    s.after(
+        clock,
+        release,
+        Timer::QuestMineLetGo {
+            world,
+            behavior: m.behavior,
+            context,
+        },
+    );
     let mine = u.item;
     s.after(
         clock,
-        QUEST_MINE_SECONDS,
+        result,
         Timer::QuestMine {
             world,
             work: Box::new(MineWork {
@@ -881,6 +895,30 @@ pub fn at_quest_mine<S: Store>(
             }),
         },
     );
+}
+
+/// A quest mine's behavior has run its cycles: it is let go for everyone who sees the player.
+pub fn quest_mine_let_go<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    behavior: u32,
+    context: u32,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let me = p.character;
+    let release = Release {
+        behavior,
+        params: BehaviorParams {
+            bits: BehaviorParams::CONTEXT,
+            context,
+            ..BehaviorParams::default()
+        },
+    };
+    let lets_go = ServerMessage::LetGoBehavior(crate::combat::player_event(p, release));
+    crate::combat::to_all_seeing(s, net, me, &lets_go);
 }
 
 /// A quest mine's work is done: the quest moves on (the last use completes it), the use is

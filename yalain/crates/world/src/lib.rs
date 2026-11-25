@@ -808,6 +808,12 @@ pub enum Timer {
         world: ConnId,
         work: Box<mining::MineWork>,
     },
+    /// A player's behavior at a quest mine has run its cycles.
+    QuestMineLetGo {
+        world: ConnId,
+        behavior: u32,
+        context: u32,
+    },
     /// A player's picking up of an item is through.
     PickUp { world: ConnId, item: u64 },
     /// A player's handing over of an item it gives is through.
@@ -1308,6 +1314,11 @@ impl<S: Store> Server<S> {
                 Timer::QuestMine { world, work } => {
                     mining::quest_mine_done(self, net, world, &work, clock);
                 }
+                Timer::QuestMineLetGo {
+                    world,
+                    behavior,
+                    context,
+                } => mining::quest_mine_let_go(self, net, world, behavior, context),
                 Timer::QuestRunsOut {
                     world,
                     quest,

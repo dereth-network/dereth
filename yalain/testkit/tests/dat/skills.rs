@@ -2503,6 +2503,125 @@ mod timings {
         assert!((release - 1.05).abs() < 0.01, "{release}");
     }
 
+    /// A quest mine's pickaxe, held three cycles, is let go and the use answered as the miner's
+    /// body plays the pickaxe's clip: a Tumerok's, 2 s long and nearly all loop, lets go about
+    /// 5.91 s after the behavior begins and answers about 7.90 s after (2017: 5.963 and 7.86 s,
+    /// the medians of 10 uses by a Tumerok); an Empyrean woman's, 1.6 s long, about 4.77 and
+    /// 6.36 s after.
+    /// Behaviour: server.craft.quest-mine-let-go
+    #[test]
+    fn a_quest_mines_let_go_and_answer_follow_the_miners_body() {
+        use auberean_protocol::types::VisualDesc;
+        use auberean_protocol::{queue, ClientMessage, ServerMessage};
+        use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Prop, Props};
+        use yalain_testkit::play::{server_call, use_of};
+        use yalain_testkit::{test_template, Harness};
+        const MINE: u32 = 0x4700_18F2;
+        const ORE: u32 = 0x4700_06C1;
+        const PICKAXE: u32 = 0x4100_014D;
+        const QUEST: u32 = 0x8000_02E5;
+        const USE: u32 = 0x8216_0016;
+        const USE_DONE: u32 = 0x8216_0021;
+        let p = Portal::open();
+        for (look, let_go, answered) in [
+            (TUMEROK_MALE, 5.913, 7.898),
+            (EMPYREAN_FEMALE, 4.767, 6.364),
+        ] {
+            let mut h = Harness::new();
+            h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+            h.server.catalog = yalain_testkit::test_catalog();
+            let mut props = Props::default();
+            props
+                .set("Mine_Object", Prop::Word(ORE))
+                .set("Mine_ObjectQuantity", Prop::Int(3))
+                .set("Usage_RequiredQuest", Prop::Word(QUEST))
+                .set("Usage_UserAnimation", Prop::Word(PICKAXE))
+                .set("Usage_UserAnimationRepeatCount", Prop::Int(3));
+            h.server.catalog.insert(test_template(MINE, 0x3A0, props));
+            h.server
+                .catalog
+                .insert(test_template(ORE, 0x3A1, Props::default()));
+            let mine = 0x4002_9900_0000_0091;
+            h.server.content = ContentPack {
+                objects: vec![ContentObject {
+                    object: Some(mine),
+                    template: MINE,
+                    description: Description {
+                        name_text: None,
+                        package: 0x3A0,
+                        look: 0x1F00_0001,
+                        enter_fx: 0,
+                        scale: None,
+                        name: Some((0x1C06_0003, 0x2500_0003)),
+                        numbers: [0; 6],
+                        source: "authored for a test".into(),
+                    },
+                    cell: 0x0299_0109,
+                    origin: [61.0, 241.0, -44.6],
+                    rotation: [1.0, 0.0, 0.0, 0.0],
+                    kind: Kind::Static,
+                    label: String::new(),
+                    placed: "authored for a test".into(),
+                    destination: None,
+                    facts: Facts::default(),
+                    walks: None,
+                    gate: None,
+                }],
+                ..ContentPack::default()
+            };
+            let (b, me) = h.player_in_world("one", "Elara");
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+            );
+            h.run(5);
+            let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+            {
+                let pl = h.server.players.get_mut(&world).expect("in");
+                pl.look = VisualDesc {
+                    bits: VisualDesc::PARENT,
+                    parent: look,
+                    ..VisualDesc::default()
+                };
+                pl.play.quests.push(yalain_world::state::QuestState {
+                    quest: QUEST,
+                    status: yalain_world::quests::status::UNDERWAY,
+                    phase: 1,
+                    started: 0,
+                    updated: 0,
+                });
+            }
+            let from = h.bots[b].inbox.len();
+            h.bots[b].send(true, queue::WEENIE, &server_call(USE, &[use_of(mine, me)]));
+            let seen = |h: &Harness, what: &dyn Fn(&ServerMessage) -> bool| {
+                h.world_messages(b, from).iter().any(what)
+            };
+            let plays = |m: &ServerMessage| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == PICKAXE);
+            let lets_go = |m: &ServerMessage| matches!(m, ServerMessage::LetGoBehavior(e) if e.sender.id == me && e.action.behavior == PICKAXE);
+            let answers = |m: &ServerMessage| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == USE_DONE);
+            let fine = |h: &mut Harness, what: &dyn Fn(&ServerMessage) -> bool| {
+                let began = h.now.0;
+                while !seen(h, what) && h.now.0 - began < 12.0 {
+                    h.step_by(0.005);
+                }
+                assert!(seen(h, what), "{look:08X}: it came");
+                h.now.0
+            };
+            let began = fine(&mut h, &plays);
+            let released = fine(&mut h, &lets_go) - began;
+            assert!(
+                (released - let_go).abs() < 0.02,
+                "{look:08X}: let go {released:.3} s in"
+            );
+            let done = fine(&mut h, &answers) - began;
+            assert!(
+                (done - answered).abs() < 0.02,
+                "{look:08X}: answered {done:.3} s in"
+            );
+        }
+    }
+
     /// A one-handed swing lands at its clip's first story hook, which differs by race: a human's
     /// 0.520 s into its 1.417 s cycle (it has three), a Lugian's 0.670, a Tumerok's 0.704. Its blow is
     /// told 0.041 s after the hook over the time scale (2017: the medians of 6,583 basic swings were
