@@ -2281,6 +2281,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.butchery-ends-an-attack-first",
+        says: "A butchery begun while the player attacks ends the attack first, in the one tick: \
+               its attack state off, its mode peace, then the butchering behavior.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-ENDS-ATTACK"),
+        station: "yalain-testkit::cpu::play::butchery::a_butchery_begun_while_attacking_ends_the_attack_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.butchery-expert-by-skill",
         says: "An expert cut's chance goes by the butcher's level alone, a six hundredth of it, 25% \
                at level 150.",

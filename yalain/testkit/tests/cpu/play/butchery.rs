@@ -20,6 +20,8 @@ const CRUDE_KNIFE: u32 = 0x4700_0CBD;
 const KNIVES: u32 = 0x1C07;
 const USE_DONE: u32 = 0x8216_0021;
 const SHOW_TEXT: u32 = 0x8205_0011;
+/// The call that tells the player its attack state.
+const ATTACK_STATE: u32 = 0x8204_001B;
 
 /// A use of a held item on an object, as the client asks for it.
 fn use_on(item: u64, target: u64, me: u64) -> Arg {
@@ -254,6 +256,76 @@ fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
     assert_eq!(
         use_answers(&h, b, again).first().map(|a| a.0),
         Some(refusal::BUTCHERED)
+    );
+}
+
+/// A player attacking when its butchery begins stops first, in the one tick and in this order: its
+/// attack state off, its mode peace, then the butchering behavior; its attack run is over.
+/// Behaviour: server.craft.butchery-ends-an-attack-first
+#[test]
+fn a_butchery_begun_while_attacking_ends_the_attack_first() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.attacking = Some(yalain_world::combat::Run {
+            walking: false,
+            target: 1,
+            next_swing: f64::INFINITY,
+            context: 0,
+            mode_sent: true,
+            next_target: None,
+        });
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(knife, corpse, me)]),
+    );
+    // Step until the behavior comes; what came in that step, in the order sent.
+    let mut tick = Vec::new();
+    for _ in 0..20 {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let mut sent: Vec<(u64, ServerMessage)> = h.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| r.world)
+            .filter_map(|r| Some((r.blob_id & 0xFFFF_FFFF, r.message()?)))
+            .collect();
+        sent.sort_by_key(|(n, _)| *n);
+        if sent.iter().any(|(_, m)| {
+            matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == butchery::BEHAVIOR)
+        }) {
+            tick = sent.into_iter().map(|(_, m)| m).collect();
+            break;
+        }
+    }
+    let kinds: Vec<&str> = tick
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == ATTACK_STATE => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok());
+                match v.as_deref() {
+                    Some([Value::Int(0)]) => Some("attack state off"),
+                    _ => Some("attack state other"),
+                }
+            }
+            ServerMessage::DoMode(e) if e.sender.id == me => {
+                Some(if e.action.0 == yalain_world::combat::mode::PEACE {
+                    "peace"
+                } else {
+                    "another mode"
+                })
+            }
+            ServerMessage::PlayBehavior(e) if e.action.behavior == butchery::BEHAVIOR => {
+                Some("butchering")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, ["attack state off", "peace", "butchering"]);
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "not attacking"
     );
 }
 

@@ -108,12 +108,15 @@ pub static DIVERGENCES: &[Divergence] = &[
         retail: "Of 18 butcheries refused as not possible in the player's mode, 17 had begun while \
                  the player attacked, 13 of them just after a walk to the corpse; each played the \
                  butchering animation first and never let it go, so the butcher's animation hung.",
-        yalain: "A butchery is never refused for the player's mode: the butchering animation is let \
-                 go as it plays, and the corpse is butchered.",
+        yalain: "A butchery is never refused for the player's mode: an attack under way ends first, \
+                 the butchering animation is let go as it plays, and the corpse is butchered.",
         why: "The hung animation is a defect; of the 90 butcheries begun mid-attack that went \
               through, the 2017 servers ended the attack first and butchered cleanly in 87.",
         evidence: "AC2-EVID-SRV-BUTCHERY-REFUSED-84",
-        rows: &["server.craft.butchery-gathers-a-material"],
+        rows: &[
+            "server.craft.butchery-ends-an-attack-first",
+            "server.craft.butchery-gathers-a-material",
+        ],
     },
     Divergence {
         id: "YD-calls-past-a-limit-are-dropped",

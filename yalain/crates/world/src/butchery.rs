@@ -5,11 +5,12 @@
 //! there the use is refused with its answer alone when another player is on its way to open the
 //! corpse, when the creature's killer was 9 or more levels above it (the corpse is too damaged),
 //! when the corpse has been butchered, or when the creature had nothing to butcher. Else the player
-//! plays its butchering behavior and lets it go, and about two seconds later the result: the
-//! butchery skill's experience (its amount for the level, less as the day's grows), the craft
-//! effect (the expert one for an expert cut), the material put on the player's stack of it (or a
-//! new stack made), and the use answered with "You butcher %1 units of %3 from %2." ("You expertly
-//! butcher %2, collecting %1 units of %3." for an expert cut).
+//! (attacking, it stops first: its attack state off and at peace) plays its butchering behavior and
+//! lets it go, and about two seconds later the result: the butchery skill's experience (its amount
+//! for the level, less as the day's grows), the craft effect (the expert one for an expert cut), the
+//! material put on the player's stack of it (or a new stack made), and the use answered with "You
+//! butcher %1 units of %3 from %2." ("You expertly butcher %2, collecting %1 units of %3." for an
+//! expert cut).
 //!
 //! **The yield** is one of the creature's butchery profile's materials, by their shares; so many
 //! units by the knife, ten above the yield its recipe's item level gave it (a crude one's 1 gives
@@ -247,6 +248,11 @@ pub fn begin<S: Store>(
         let m = crate::places::use_answer_to(&u, me, 0, TARGET_KIND, 0.0, why);
         progress::private(net, world, &m);
         return;
+    }
+    // A player attacking stops first: its attack state off and at peace, then the butchering
+    // behavior, in the one tick (2017: 87 of 90 butcheries begun attacking).
+    if s.players.get(&world).is_some_and(|p| p.attacking.is_some()) {
+        crate::combat::end(s, net, world);
     }
     let knife = s.things.get(u.item).map_or(0, |t| t.template);
     s.next_context = s.next_context.wrapping_add(1);
