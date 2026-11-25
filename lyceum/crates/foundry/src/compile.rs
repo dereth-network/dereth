@@ -145,9 +145,6 @@ pub struct Compiled {
     pub ac2_pieces: Vec<crate::ac2_kit::Ac2Piece>,
     /// Those kits' lights, made from the same install.
     pub ac2_lights: Vec<crate::ac2_kit::Ac2Light>,
-    /// Warnings about the world as a whole, not one landblock: they stand however much of it is
-    /// compiled again.
-    pub world_warnings: Vec<String>,
 }
 
 /// A part of a world a compile settles conflicts in, so that compiling a part again replaces
@@ -565,30 +562,100 @@ fn imports_own_placements(world: &World) -> bool {
     })
 }
 
-/// A warning for each pack that places spawns through the world database when an import's world
-/// places its own things: a server running the world shows none of them.
-#[must_use]
-pub fn hidden_spawns(world: &World, packs: &[Pack]) -> Vec<String> {
+/// The world's own placements file in overlay folder `dir`, with the packs' spawns (`sql`, the
+/// build's filled SQL) written into it when an import's world places its own things: a server
+/// running such a world places nothing of the world database's, so the packs' spawns are among
+/// the world's own. An instance the import places too is the pack's as written, and one a pack
+/// takes away is gone. Answers whether it wrote the file.
+///
+/// # Errors
+/// A placements file that will not read or write.
+pub fn write_own_spawns(
+    world: &World,
+    sql: &BTreeMap<PathBuf, String>,
+    dir: &Path,
+) -> Result<bool, Error> {
+    use crate::sql_ids;
     if !imports_own_placements(world) {
-        return Vec::new();
+        return Ok(false);
     }
-    packs
-        .iter()
-        .filter(|p| {
-            p.sql.iter().any(|f| {
-                f.text
-                    .to_ascii_lowercase()
-                    .contains("insert into `landblock_instance`")
-            })
-        })
-        .map(|p| {
-            format!(
-                "this world's imported base places its own things, so the world database's \
-                 spawns in {} won't appear",
-                p.name
-            )
-        })
-        .collect()
+    // Each spawn's line by its guid, a later file's over an earlier's.
+    let mut lines: BTreeMap<u32, (sql_ids::Instance, Vec<u32>)> = BTreeMap::new();
+    let mut links: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut gone: BTreeSet<u32> = BTreeSet::new();
+    for (rel, text) in sql {
+        // A world repository's layer, mirrored in the pack being edited, is never the world's.
+        if rel
+            .components()
+            .any(|c| c.as_os_str() == crate::mirror::MIRROR)
+        {
+            continue;
+        }
+        for g in sql_ids::deleted_instances(text) {
+            if let Some(g) = sql_ids::number(&g) {
+                gone.insert(g);
+                lines.remove(&g);
+            }
+        }
+        for i in sql_ids::instances(text) {
+            if let Some(g) = sql_ids::number(&i.guid) {
+                gone.remove(&g);
+                lines.insert(g, (i, Vec::new()));
+            }
+        }
+        sql_ids::rows(text, |row| {
+            if row.table == "landblock_instance_link" {
+                let n = |c: &str| row.get(c).and_then(sql_ids::number);
+                if let (Some(p), Some(c)) = (n("parent_GUID"), n("child_GUID")) {
+                    links.entry(p).or_default().push(c);
+                }
+            }
+        });
+    }
+    if lines.is_empty() && gone.is_empty() {
+        return Ok(false);
+    }
+    for (p, kids) in links {
+        if let Some((_, l)) = lines.get_mut(&p) {
+            l.extend(kids);
+        }
+    }
+    let path = dir.join(WORLD_FILES[2]);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(Error::io(&path, e)),
+    };
+    let mut out = String::new();
+    for line in text.lines() {
+        let guid = (!line.starts_with('#'))
+            .then(|| line.split('\t').next().and_then(sql_ids::number))
+            .flatten();
+        if guid.is_some_and(|g| gone.contains(&g) || lines.contains_key(&g)) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if out.trim().is_empty() {
+        out = "guid\twcid\tcell\tx\ty\tz\tqw\tqx\tqy\tqz\tlinks\n".to_owned();
+    }
+    for (g, (i, kids)) in &lines {
+        let Some(w) = sql_ids::number(&i.weenie) else {
+            continue;
+        };
+        let kids: Vec<String> = kids.iter().map(|c| format!("0x{c:08X}")).collect();
+        let [x, y, z] = i.origin;
+        let [qw, qx, qy, qz] = i.angles;
+        out.push_str(&format!(
+            "0x{g:08X}\t{w}\t0x{:08X}\t{x}\t{y}\t{z}\t{qw}\t{qx}\t{qy}\t{qz}\t{}\n",
+            i.cell,
+            kids.join(",")
+        ));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
+    std::fs::write(&path, out).map_err(|e| Error::io(&path, e))?;
+    Ok(true)
 }
 
 /// The files beside an overlay that a server reads as the world's own: its rules, the places it
@@ -2438,7 +2505,6 @@ pub fn compile_with(
         ..Compiled::default()
     };
     read_imports(world, base, &mut c)?;
-    c.world_warnings = hidden_spawns(world, packs);
     land_layer(world, base, &mut c)?;
     check_vertices(packs, &c.grid)?;
     let defs = defined_records(packs, &c.overrides);
@@ -2912,6 +2978,7 @@ fn build_inner(
             None
         };
         carry_world_files(&world, &staging.join("overlay"))?;
+        write_own_spawns(&world, &c.sql, &staging.join("overlay"))?;
         write_sql(&c, &staging.join("sql"))?;
         // The checks, over the overlay as it was written; its files are closed again before it
         // is moved into place.
@@ -2921,7 +2988,6 @@ fn build_inner(
             report
                 .warnings
                 .extend(c.warnings.values().flatten().cloned());
-            report.warnings.extend(c.world_warnings.iter().cloned());
             report
                 .problems
                 .extend(crate::sql_ids::check(&layered, &sql_named(&packs, &c)));

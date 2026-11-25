@@ -118,13 +118,7 @@ fn a_world_lays_an_import_under_its_packs_into_one_overlay() {
         .unwrap()
         .contains("Home"));
     assert!(!overlay.join("placements.tsv").exists());
-    // The pack places nothing through the world database, so nothing is hidden.
-    let built = compile::build(&world_file, &base, None, false).unwrap();
-    assert!(!built
-        .warnings
-        .iter()
-        .any(|w| w.contains("places its own things")));
-    // A spawn in the pack: the import's rule hides it, and the build says so.
+    // A spawn in the pack: the import's world places its own things, so the spawn is one of them.
     f.write(
         "sample/server/sql/landblocks/0202 guide.sql",
         "INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`) \
@@ -132,14 +126,12 @@ fn a_world_lays_an_import_under_its_packs_into_one_overlay() {
     );
     let built = compile::build(&world_file, &base, None, false).unwrap();
     assert!(
-        built.warnings.contains(
-            &"this world's imported base places its own things, so the world database's \
-              spawns in sample won't appear"
-                .to_owned()
-        ),
+        !built.warnings.iter().any(|w| w.contains("won't appear")),
         "{:?}",
         built.warnings
     );
+    let own = std::fs::read_to_string(overlay.join("placements.tsv")).unwrap();
+    assert!(own.contains("0x70202001\t1\t0x02020001\t"), "{own}");
     // The import's terrain, with the pack's statics record flagged on it.
     let t = terrain_through(&base, &overlay, 0x0202);
     assert_eq!((t.height[40], t.lbi_exists), (123, 1));
@@ -156,4 +148,108 @@ fn a_world_lays_an_import_under_its_packs_into_one_overlay() {
         "the import's deletion"
     );
     assert_eq!(set.portal.read(DataId(GFXOBJ)).unwrap(), [9; 24]);
+}
+
+/// The server's import tool, as a test has it: it writes a world pack where it is told.
+struct Tool;
+
+impl lyceum_foundry::export::Importer for Tool {
+    fn run(&self, args: &[std::ffi::OsString]) -> Result<String, String> {
+        if args.first().is_some_and(|a| a == "--version") {
+            return Ok("empyrean-import 9.9.9".into());
+        }
+        let out = args
+            .iter()
+            .position(|a| a == "--out")
+            .and_then(|i| args.get(i + 1))
+            .ok_or("no --out")?;
+        std::fs::write(out, b"pack").map_err(|e| e.to_string())?;
+        Ok("wrote".into())
+    }
+}
+
+/// A world built on an imported world that places its own things: a server running it places
+/// nothing of the world database's, so an export writes the packs' spawns into the world's own
+/// placements, beside the import's. A spawn the pack writes again replaces the import's, one it
+/// takes away is gone, and the others stay as the import has them.
+#[test]
+fn an_export_over_a_world_that_places_its_own_things_carries_the_packs_spawns_as_its_own() {
+    use lyceum_foundry::export::{self, Era, Options, Target};
+    let f = Fixture::new("pack-import-own-spawns");
+    let (base, world) = base_and_world(&f);
+    import::import(
+        &base,
+        &world,
+        &f.path().join("imported"),
+        "x",
+        Iterations::Revision,
+        false,
+    )
+    .unwrap();
+    f.world();
+    f.write(
+        "imported/world.toml",
+        "dungeons_by_cells = true\nown_placements = true\n",
+    );
+    f.write(
+        "imported/placements.tsv",
+        "guid\twcid\tcell\tx\ty\tz\tqw\tqx\tqy\tqz\tlinks\n\
+         0x7020F000\t509\t0x02020009\t30\t40\t5\t1\t0\t0\t0\t\n\
+         0x7020F001\t509\t0x02020009\t31\t40\t5\t1\t0\t0\t0\t\n\
+         0x7020F002\t509\t0x02020009\t32\t40\t5\t1\t0\t0\t0\t\n",
+    );
+    let world_file = f.write(
+        "world.toml",
+        "key = \"test-world\"\npacks = [\"sample\"]\nimports = [\"imported\"]\nout = \"build\"\n",
+    );
+    f.write(
+        "sample/server/sql/landblocks/0202 guide.sql",
+        "DELETE FROM `landblock_instance` WHERE `guid` = 0x70202001;\n\n\
+         INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, \
+         `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, \
+         `last_Modified`)\n\
+         VALUES (0x70202001, 1, 0x02020001, 12.5, 7, 3, 1, 0, 0, 0, False, '2026-11-25 00:00:00');\n",
+    );
+    f.write(
+        "sample/server/sql/landblocks/0202 overrides.sql",
+        "DELETE FROM `landblock_instance` WHERE `guid` = 0x7020F001;\n\n\
+         DELETE FROM `landblock_instance` WHERE `guid` = 0x7020F002;\n\n\
+         INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, \
+         `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, \
+         `last_Modified`)\n\
+         VALUES (0x7020F002, 509, 0x02020011, 50, 60, 5, 1, 0, 0, 0, False, '2026-11-25 00:00:00');\n",
+    );
+    let dump = f.path().join("ACE-World-Database-v0.9.295.sql");
+    std::fs::write(&dump, "-- the world database").unwrap();
+    let out = f.path().join("for-empyrean");
+    let done = export::export(
+        &world_file,
+        &base,
+        &Options {
+            target: Target::Empyrean,
+            out: &out,
+            era: Era::Eor,
+            world_sql: Some(&dump),
+            importer: Some(&Tool),
+            gdle_quests: None,
+        },
+    )
+    .unwrap();
+    assert!(
+        !done.warnings.iter().any(|w| w.contains("won't appear")),
+        "{:?}",
+        done.warnings
+    );
+    let own = std::fs::read_to_string(out.join("overlay").join("placements.tsv")).unwrap();
+    let lines: Vec<&str> = own.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "guid\twcid\tcell\tx\ty\tz\tqw\tqx\tqy\tqz\tlinks",
+            "0x7020F000\t509\t0x02020009\t30\t40\t5\t1\t0\t0\t0\t",
+            "0x70202001\t1\t0x02020001\t12.5\t7\t3\t1\t0\t0\t0\t",
+            "0x7020F002\t509\t0x02020011\t50\t60\t5\t1\t0\t0\t0\t",
+        ],
+        "{own}"
+    );
 }

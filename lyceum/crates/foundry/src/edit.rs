@@ -6289,9 +6289,6 @@ impl Session {
         report
             .warnings
             .extend(self.compiled.warnings.values().flatten().cloned());
-        report
-            .warnings
-            .extend(compile::hidden_spawns(&self.world, &self.packs));
         report.problems.extend(sql_ids::check(
             &layered,
             &compile::sql_named(&self.packs, &self.compiled),
