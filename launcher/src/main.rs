@@ -43,6 +43,7 @@ mod shortcut;
 mod update;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 mod vault_keyring;
+mod world_repos;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -1176,6 +1177,8 @@ fn main() {
             components::upgrade_lyceum_world,
             components::delete_lyceum_world,
             components::export_lyceum_world,
+            components::fetch_world_repository,
+            components::update_world_repository,
             hosts::check_host_update,
             hosts::set_host_automatic_updates,
             hosts::publish_host_world,

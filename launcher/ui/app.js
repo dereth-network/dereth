@@ -64,6 +64,7 @@ const ui = {
   folds: {},               // each folding section's state, by its id, once the person has opened or shut it
   confirmDelete: null,     // the world whose Delete world asks to be confirmed
   lyceumDraft: null,       // { name, parent, era }: a new Lyceum world's form, until it is made
+  lyFetching: null,        // the server world being fetched, until it is
   publishPick: {},         // per hosted world: the Lyceum (or Athenaeum) world chosen to publish to it ("" for another)
   athOpen: null,           // the Athenaeum world whose row is open
   athPublish: {},          // per Athenaeum world: the Yalain world chosen to publish it to
@@ -1371,9 +1372,11 @@ function lyceumRow(w, on, busy) {
   // A Lyceum world is published to the Empyrean worlds you host.
   const hosts = (ui.snap.hosts ?? []).filter((h) => (h.game ?? "dereth") === "dereth");
   const btns = `<button class="btn" data-lyceum-world="${esc(w.path)}" ${on && !busy ? "" : "disabled"}>Open</button>
+    ${w.fetched ? `<button class="btn" data-ly-update="${esc(w.path)}" ${!busy && !c?.running ? "" : "disabled"} title="Bring it up to its repository's newest. Refused while you have changed its files.">Update</button>` : ""}
     ${w.outdated ? `<button class="btn" data-lyceum-upgrade="${esc(w.path)}" ${on && !busy && !c.running ? "" : "disabled"} title="Bring the world's files up to this Lyceum's format, keeping a backup">Upgrade</button>` : ""}`;
   const row = `<div class="row ly-row" data-ly-row="${esc(w.path)}"><span class="fold-mark">${open ? "▾" : "▸"}</span>
       <div class="grow"><div class="name">${esc(worldName(w.path))}</div><div class="sub" title="${esc(w.path)}">${esc(parentOf(w.path))}</div>
+      ${w.fetched ? `<div class="sub">Fetched, at ${esc(w.fetched.slice(0, 10))}</div>` : ""}
       ${w.outdated ? `<div class="sub warn">Its files are from an older Lyceum.</div>` : ""}</div>
       <div class="btns">${btns}</div></div>`;
   if (!open) return row;
@@ -1417,6 +1420,12 @@ function makePage() {
     || `<p class="muted">${on ? "No worlds." : "Download Lyceum to build a world."}</p>`;
   const others = elsewhere.length
     ? `<h2>OTHER WORLDS</h2><div class="list">${elsewhere.map((w) => lyceumRow(w, on, busy)).join("")}</div>` : "";
+  // The server worlds to fetch (New Dereth's): those not in the folder for worlds yet.
+  const toFetch = (c?.offered ?? []).filter((o) => !mine.some((w) => worldName(w.path) === o.folder));
+  const fetchRows = toFetch.map((o) => `<div class="row"><div class="grow"><div class="name">${esc(o.name)}</div>
+      <div class="sub">The server world's own rows, to open and edit in Lyceum. Update brings it up to date later.</div></div>
+      <div class="btns"><button class="btn" data-ly-fetch="${esc(o.name)}" ${on && !busy && c?.home && ui.lyFetching !== o.name ? "" : "disabled"}>${ui.lyFetching === o.name ? "Fetching…" : "Fetch"}</button></div></div>`).join("");
+  const fetchable = fetchRows ? `<h2>SERVER WORLDS</h2><div class="list">${fetchRows}</div>` : "";
   let pending = "";
   const d = ui.lyceumDraft;
   if (d) {
@@ -1445,7 +1454,7 @@ function makePage() {
         <div class="scroll">
           ${programLine("lyceum")}${said}
           <div class="h2-row"><h2>YOUR WORLDS</h2>${c?.home ? `<button class="btn mini-btn" data-act="lyceum-folder" title="${esc(c.home)}">Open Folder</button>` : ""}</div>
-          <div class="list">${rows}</div>${others}</div>
+          <div class="list">${rows}</div>${others}${fetchable}</div>
       </section>
     </div>`;
 }
@@ -2920,7 +2929,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-get-ask],[data-get-never],[data-get-start],[data-get-cancel],[data-get-clear],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-lib-fold],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-ly-fetch],[data-ly-update],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-get-ask],[data-get-never],[data-get-start],[data-get-cancel],[data-get-clear],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-lib-fold],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   // A form's own submit button submits it (below).
@@ -3035,6 +3044,14 @@ document.addEventListener("click", async (ev) => {
   if (d.srvRepublish) { await act("publish_host_world", { id: d.srvRepublish, world: serverBy(d.srvRepublish)?.publication?.source ?? null }); return; }
   // Build a world.
   if (d.lyceumWorld) { await act("open_lyceum", { world: d.lyceumWorld, dats: defaultDats(), classic: defaultClassicDats() }); return; }
+  if (d.lyFetch) {
+    ui.lyFetching = d.lyFetch; render();
+    const world = await act("fetch_world_repository", { name: d.lyFetch });
+    ui.lyFetching = null; render();
+    if (world) await act("open_lyceum", { world, dats: defaultDats(), classic: defaultClassicDats() });
+    return;
+  }
+  if (d.lyUpdate) { const said = await act("update_world_repository", { world: d.lyUpdate }); if (said) toast(said); return; }
   if (d.lyceumUpgrade) { await act("upgrade_lyceum_world", { world: d.lyceumUpgrade }); return; }
   if (d.get) { await act("get_component", { product: d.get }); return; }
   if (d.remove) { await act("remove_component", { product: d.remove }); return; }

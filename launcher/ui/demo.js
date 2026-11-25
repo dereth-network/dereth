@@ -439,9 +439,10 @@
     latest: null, latest_notes: "", latest_size: null,
     offer: { kind: "none" }, checking: false, busy: false, progress: null, message: null, error: false, running: false, auto: null, worlds: [],
     home: product === "lyceum" ? "C:\\Users\\you\\Documents\\Lyceum" : null,
+    offered: product === "lyceum" ? [{ name: "New Dereth", folder: "New Dereth", owner: "dereth-network", repo: "empyrean-world-newdereth", branch: "main" }] : [],
   }));
   // A Lyceum world as the backend lists it.
-  const lyWorld = (path, home, extra = {}) => ({ path, home, key: path.split("\\").slice(-2, -1)[0], era: "eor", saved: Math.floor(Date.now() / 1000) - 3 * 86400, outdated: false, facts: null, ...extra });
+  const lyWorld = (path, home, extra = {}) => ({ path, home, key: path.split("\\").slice(-2, -1)[0], era: "eor", saved: Math.floor(Date.now() / 1000) - 3 * 86400, outdated: false, facts: null, fetched: null, ...extra });
   // The ACE world each era's world database is made from, as Get world database records it.
   const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" }, launch: { era: "launch", version: "v0.1.0" } };
   const offerOf = (c) => c.checkout || !c.latest ? { kind: "none" } : !c.installed ? { kind: "download", version: c.latest } : c.installed.version !== c.latest ? { kind: "update", version: c.latest } : { kind: "none" };
@@ -703,6 +704,8 @@
     open_worlds_folder: () => {},
     choose_lyceum_world: () => {},
     upgrade_lyceum_world: ({ world }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds.find((w) => w.path === world).outdated = false; c.message = "2 source file(s) upgraded; world.lock is unchanged."; },
+    fetch_world_repository: ({ name }) => { const c = components.find((c) => c.product === "lyceum"); const path = `${c.home}\\${name}\\world.toml`; c.worlds.unshift(lyWorld(path, true, { era: "newdereth", fetched: "6283f6d0a1b2c3d4e5f60718293a4b5c6d7e8f90" })); return path; },
+    update_world_repository: ({ world }) => `${world.split("\\").slice(-2, -1)[0]} is up to date.`,
     delete_lyceum_world: ({ world }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds = c.worlds.filter((w) => w.path !== world); },
     export_lyceum_world: ({ world, target }) => {
       const c = components.find((c) => c.product === "lyceum");

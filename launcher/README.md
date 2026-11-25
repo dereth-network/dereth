@@ -392,6 +392,13 @@ statics, buildings, dungeons, rooms, spawns, weenies, textures and models). Then
 **New World** asks for a name, a folder and an era (End of Retail or Infiltration), makes an empty
 world and opens the editor on it. **Open World** opens any world by its folder.
 
+**Server Worlds** lists the server worlds you can fetch, such as New Dereth. **Fetch** downloads the
+world's newest version from its public repository into your Lyceum folder and opens it, with no
+git needed. A fetched world gets **Update**, which brings it to the newest version. It refuses,
+naming the files, while you have changed any, so an update never throws away your own edits.
+For now both take the repository's main branch; once a world's repository publishes releases, they
+will take its newest release, as Yalain fetches its world.
+
 Publishing builds the saved world with the `lyceum` command into the hosted world, which must be
 stopped and plays it from then on. Close Lyceum first. Each publish that changes something gets
 the next version number, and the world keeps the three newest. Players need the Dereth client,

@@ -107,6 +107,8 @@ pub struct View {
     pub worlds: Vec<LyceumWorld>,
     /// Lyceum's folder for new worlds.
     pub home: Option<PathBuf>,
+    /// The world repositories Lyceum's page offers to fetch ([`crate::world_repos::OFFERED`]).
+    pub offered: Vec<crate::world_repos::Offered>,
     /// Where an update the launcher is making on its own stands, for the corner of the page.
     pub auto: Option<Auto>,
 }
@@ -143,6 +145,9 @@ pub struct LyceumWorld {
     /// What it changes, counted, as `lyceum facts` says; none until Lyceum has said, or from a
     /// Lyceum without the command.
     pub facts: Option<serde_json::Value>,
+    /// For a world repository the launcher fetched ([`crate::world_repos`]): the commit it is at,
+    /// which Update brings up to its branch's newest.
+    pub fetched: Option<String>,
 }
 
 struct Entry {
@@ -358,6 +363,11 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
                 bundled: false,
                 worlds: Vec::new(),
                 home: None,
+                offered: if product == Product::Lyceum {
+                    crate::world_repos::OFFERED.to_vec()
+                } else {
+                    Vec::new()
+                },
                 auto: None,
             },
             children: Vec::new(),
@@ -491,6 +501,11 @@ pub fn views(shared: &Shared) -> Vec<View> {
                         saved: crate::lyceum_world::saved(&l.stamp),
                         outdated: outdated.contains(&l.world),
                         facts: known.get(&l.world).cloned().flatten(),
+                        fetched: l
+                            .world
+                            .parent()
+                            .and_then(crate::world_repos::fetched)
+                            .map(|f| f.commit),
                     }
                 })
                 .collect();
@@ -1804,6 +1819,92 @@ pub async fn open_lyceum(
         return Ok(());
     };
     open_editor(&shared, world, dats, classic, land)
+}
+
+/// Fetch the world repository the page offers by `name` into Lyceum's folder for worlds
+/// ([`crate::world_repos::fetch`]): its world file, for the page to open.
+///
+/// # Errors
+/// No such repository offered, no folder for worlds, a folder of its name there already, and the
+/// fetch's errors.
+#[tauri::command]
+pub async fn fetch_world_repository(
+    shared: State<'_, Shared>,
+    name: String,
+) -> Result<PathBuf, String> {
+    use crate::world_repos::{self, GitHub};
+    let offered = *world_repos::OFFERED
+        .iter()
+        .find(|o| o.name == name)
+        .ok_or_else(|| format!("{name} is not a world the launcher fetches."))?;
+    let home = {
+        let mut store = lock(&shared);
+        entry(&mut store, Product::Lyceum).view.home.clone()
+    }
+    .ok_or("Lyceum has no folder for worlds on this computer.")?;
+    let world = tauri::async_runtime::spawn_blocking(move || {
+        let remote = GitHub {
+            owner: offered.owner,
+            repo: offered.repo,
+        };
+        world_repos::fetch(&remote, &offered, &home)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    remember_opened(&lock(&shared).root, &world);
+    look_again(&shared);
+    Ok(world)
+}
+
+/// Bring fetched world repository `world` (its world file) up to its branch's newest commit
+/// ([`crate::world_repos::update`]): what was done, in words.
+///
+/// # Errors
+/// A world the launcher didn't fetch, local changes, and the fetch's errors.
+#[tauri::command]
+pub async fn update_world_repository(
+    shared: State<'_, Shared>,
+    world: PathBuf,
+) -> Result<String, String> {
+    use crate::world_repos::{self, GitHub, Updated};
+    let dir = world
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or("That is no world file.")?;
+    let f = world_repos::fetched(&dir).ok_or("The launcher didn't fetch this world.")?;
+    let offered = world_repos::OFFERED
+        .iter()
+        .find(|o| {
+            crate::world_repos::GitHub {
+                owner: o.owner,
+                repo: o.repo,
+            }
+            .source_is(&f.source)
+        })
+        .copied()
+        .ok_or_else(|| format!("{} is no longer a world the launcher fetches.", f.source))?;
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        world_repos::update(
+            &GitHub {
+                owner: offered.owner,
+                repo: offered.repo,
+            },
+            &dir,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    look_again(&shared);
+    Ok(match done {
+        Updated::Current { .. } => format!("{} is up to date.", offered.name),
+        Updated::Moved { to, .. } => {
+            format!(
+                "{} is updated to {}.",
+                offered.name,
+                &to[..to.len().min(10)]
+            )
+        }
+    })
 }
 
 /// The land world `world` is opened over: `Some(None)` for a world that takes none, `None` when
