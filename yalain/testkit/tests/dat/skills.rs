@@ -2333,6 +2333,176 @@ mod timings {
             .expect("the behavior plays there")
     }
 
+    /// A recipe made with the athame, three cycles, is let go and made as the maker's body plays
+    /// the athame's clip at peace, not in its weapon's stance: a human's, 2.5 s long with a short
+    /// loop late in it, lets go about 2.34 s after the animation begins and makes about 2.56 s
+    /// after (2017: 2.314 and 2.689 s, 11 makings); a Lugian's, 1.333 s long, about 1.05 and
+    /// 1.36 s after.
+    /// Behaviour: server.craft.timed-by-the-hold-loop
+    #[test]
+    fn a_makings_let_go_and_result_follow_the_makers_body_at_peace() {
+        use auberean_protocol::types::VisualDesc;
+        use auberean_protocol::{queue, ClientMessage, ServerMessage};
+        use auberean_script::args::Arg;
+        use auberean_script::library::Elem;
+        use auberean_script::native_object::Item;
+        use yalain_testkit::play::server_call;
+        use yalain_testkit::{Harness, GRANT_MINES_RECIPE, IRON, MINES_RECIPE, MINES_SWORD};
+        use yalain_world::craft::function;
+        const ATHAME: u32 = 0x4100_0156;
+        let p = Portal::open();
+        for (look, released, made) in [(HUMAN_MALE, 2.335, 2.556), (LUGIAN_MALE, 1.050, 1.356)] {
+            let mut h = Harness::new();
+            h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+            for t in [IRON, MINES_SWORD] {
+                if h.server.catalog.get(t).is_none() {
+                    h.server.catalog.insert(yalain_testkit::test_template(
+                        t,
+                        0x200,
+                        yalain_content::Props::default(),
+                    ));
+                }
+            }
+            let recipe = h
+                .server
+                .crafting
+                .recipes
+                .get_mut(&MINES_RECIPE)
+                .expect("the recipe");
+            recipe.animation = ATHAME;
+            recipe.cycles = 3;
+            let (b, me) = h.player_in_world("one", "Elara");
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+            );
+            h.run(5);
+            let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+            h.server.players.get_mut(&world).expect("in").look = VisualDesc {
+                bits: VisualDesc::PARENT,
+                parent: look,
+                ..VisualDesc::default()
+            };
+            let clock = h.clock();
+            let cast = yalain_world::effects::Cast {
+                caster: me,
+                spellcraft: 1.0,
+                ..yalain_world::effects::Cast::default()
+            };
+            yalain_world::effects::apply(
+                &mut h.server,
+                &mut h.net,
+                world,
+                GRANT_MINES_RECIPE,
+                cast,
+                clock,
+            );
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 20);
+            h.run(2);
+            let iron = h.server.players[&world]
+                .play
+                .items
+                .iter()
+                .find(|i| i.template == IRON)
+                .map(|i| i.id)
+                .expect("the iron");
+            let mut g = yalain_world::graph::Builder::new();
+            g.native(
+                8,
+                yalain_world::graph::hash(
+                    Elem::Word,
+                    Elem::Long,
+                    0,
+                    &[(Item::Word(1), Item::Long(iron))],
+                ),
+            );
+            let from = h.bots[b].inbox.len();
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(
+                    function::EXECUTE,
+                    &[
+                        Arg::LongInt(0),
+                        Arg::Object(g.graph()),
+                        Arg::Int(0),
+                        Arg::Int(MINES_RECIPE),
+                    ],
+                ),
+            );
+            let seen = |h: &Harness, what: &dyn Fn(&ServerMessage) -> bool| {
+                h.world_messages(b, from).iter().any(what)
+            };
+            let plays = |m: &ServerMessage| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == ATHAME);
+            let lets_go = |m: &ServerMessage| matches!(m, ServerMessage::LetGoBehavior(e) if e.sender.id == me && e.action.behavior == ATHAME);
+            let answers = |m: &ServerMessage| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::EXECUTED);
+            let fine = |h: &mut Harness, what: &dyn Fn(&ServerMessage) -> bool| {
+                let began = h.now.0;
+                while !seen(h, what) && h.now.0 - began < 12.0 {
+                    h.step_by(0.005);
+                }
+                assert!(seen(h, what), "{look:08X}: it came");
+                h.now.0
+            };
+            let began = fine(&mut h, &plays);
+            let release = fine(&mut h, &lets_go) - began;
+            assert!(
+                (release - released).abs() < 0.02,
+                "{look:08X}: let go {release:.3} s in"
+            );
+            let result = fine(&mut h, &answers) - began;
+            assert!(
+                (result - made).abs() < 0.02,
+                "{look:08X}: made {result:.3} s in"
+            );
+        }
+    }
+
+    /// The hold loops the crafts' animations play in, as the install's clips hold them at peace: a
+    /// human's athame 2.5 s long with a short loop late in it, a Lugian's 1.333 s, a human's
+    /// default craft 2.375 s with its loop from 0.21 to 0.61 of it, a human's armor work nearly all
+    /// loop; so an athame recipe of three cycles is let go about 2.3 s in and made about 2.6 s in
+    /// (2017: 2.314 and 2.689 s for the human's clip, 11 makings; 1.089 s let go for the Lugian's).
+    /// Behaviour: server.craft.timed-by-the-hold-loop
+    #[test]
+    fn the_crafts_animations_hold_loops_are_the_install_clips() {
+        const PEACE: u32 = 0x4000_0001;
+        const ATHAME: u32 = 0x4100_0156;
+        const DEFAULT: u32 = 0x4100_00A4;
+        const ARMOR: u32 = 0x4100_0148;
+        let t = timings();
+        let held = |look: u32, behavior: u32| {
+            let plays = t.plays_of_record(look).expect("the look plays");
+            t.hold_loop(&plays, PEACE, behavior)
+                .expect("the behavior holds")
+        };
+        let athame = held(HUMAN_MALE, ATHAME);
+        assert!(close(athame.period, 2.5), "{athame:?}");
+        assert!(
+            close(athame.start, 0.911_5) && close(athame.end, 0.919),
+            "{athame:?}"
+        );
+        assert_eq!(held(HUMAN_FEMALE, ATHAME), athame);
+        let lugian = held(LUGIAN_MALE, ATHAME);
+        assert!(close(lugian.period, 1.333_33), "{lugian:?}");
+        let default = held(HUMAN_MALE, DEFAULT);
+        assert!(close(default.period, 2.375), "{default:?}");
+        assert!(
+            close(default.start, 0.21) && close(default.end, 0.61),
+            "{default:?}"
+        );
+        let armor = held(HUMAN_MALE, ARMOR);
+        assert!(
+            close(armor.period, 2.0) && armor.length() > 1.97,
+            "{armor:?}"
+        );
+        let (release, made) = yalain_world::craft::timing_of(Some(athame), 3);
+        assert!((release - 2.335).abs() < 0.01 && (made - 2.556).abs() < 0.01);
+        let (release, _) = yalain_world::craft::timing_of(Some(lugian), 3);
+        assert!((release - 1.05).abs() < 0.01, "{release}");
+    }
+
     /// A one-handed swing lands at its clip's first story hook, which differs by race: a human's
     /// 0.520 s into its 1.417 s cycle (it has three), a Lugian's 0.670, a Tumerok's 0.704. Its blow is
     /// told 0.041 s after the hook over the time scale (2017: the medians of 6,583 basic swings were

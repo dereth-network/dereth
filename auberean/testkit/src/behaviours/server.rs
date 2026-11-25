@@ -2417,6 +2417,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.cut-short-stops-before-it-answers",
+        says: "A making cut short stops its animation for everyone who sees the player, then \
+               answers that it was interrupted, before its animation is let go and after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-CUT-SHORT-STOP-FIRST"),
+        station: "yalain-testkit::cpu::play::crafting::a_craft_cut_short_stops_its_animation_before_it_answers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.day-starts-over",
         says: "When a player's day of craft experience is over, every craft skill earns nothing today \
                again, the client is told all its craft skills, and the next day ends 22 hours later.",
@@ -3191,6 +3200,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-TARGET-2017"),
         station: "yalain-testkit::cpu::play::crafting::a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.timed-by-the-hold-loop",
+        says: "A making's animation is let go as the player's body has played into the animation's \
+               hold loop and through it the recipe's cycles, and its result comes one play of the \
+               clip from the loop's start after, so an athame's recipes, whose loop is short, are \
+               let go and made at about the same time whatever their cycles; a body the install \
+               says nothing of goes by the cycles alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-HOLD-LOOP-TIMING"),
+        station: "yalain-testkit::cpu::play::crafting::a_makings_let_go_and_result_follow_its_bodys_hold_loop",
         tier: Tier::Cpu,
     },
     behaviour! {

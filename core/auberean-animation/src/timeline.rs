@@ -95,6 +95,23 @@ impl Timeline {
     }
 }
 
+/// A behavior's hold loop on a body, at time scale 1: the clip's length, and where the loop it
+/// holds in starts and ends, as shares of the clip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoldLoop {
+    pub period: f32,
+    pub start: f32,
+    pub end: f32,
+}
+
+impl HoldLoop {
+    /// How long the loop takes once, in seconds.
+    #[must_use]
+    pub fn length(&self) -> f32 {
+        self.period * (self.end - self.start)
+    }
+}
+
 fn state(sliders: &Sliders, element: u32, mode: u32) -> GraphState<'_> {
     GraphState {
         sliders,
@@ -181,6 +198,47 @@ fn key_timeline<R: PlayRecords>(
     }
     out.hooks.sort_by(f32::total_cmp);
     found.then_some(out)
+}
+
+/// The hold loop `behavior` plays in on a body in `element` and `mode`: the body's group's clip's
+/// when it has one, else the first other group's; none when the table has no such combination or
+/// no clip of it holds.
+#[must_use]
+pub fn hold_loop<R: PlayRecords>(
+    records: &R,
+    plays: &Plays,
+    element: u32,
+    mode: u32,
+    behavior: u32,
+) -> Option<HoldLoop> {
+    let table = records.behavior_table(plays.table)?;
+    let combo = table.combo(&BehaviorKey {
+        element,
+        mode,
+        behavior,
+    });
+    if !combo.is_valid() {
+        return None;
+    }
+    let sliders = Sliders::new();
+    let st = state(&sliders, element, mode);
+    std::iter::once(plays.body)
+        .chain(plays.maps.iter().copied())
+        .filter(|map| !map.is_none())
+        .find_map(|map| {
+            let m = records.anim_map(map)?;
+            let id = m
+                .entries
+                .iter()
+                .find(|(k, _)| *k == combo.anim_key)
+                .map(|(_, id)| *id)?;
+            let (start, end) = graph::hold_loop(records, id, &st)?;
+            Some(HoldLoop {
+                period: graph::period(records, id, &st),
+                start,
+                end,
+            })
+        })
 }
 
 /// How long a body takes to go from one mode to another, at time scale 1: each step along the

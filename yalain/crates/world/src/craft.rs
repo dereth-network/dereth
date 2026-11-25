@@ -23,8 +23,8 @@
 //! workshop puts on a player nearby, [`crate::workshops`]), the spinner is outside the recipe's
 //! range, the slots filled are not the ones the spinner asks for, an item does not fit, or its money
 //! is short of the recipe's cost. Else the player
-//! plays the recipe's animation for its cycles, lets it go, and some seconds after the request the
-//! result: the check rolled against the recipe's difficulty and the player's craft skill, and the
+//! plays the recipe's animation for its cycles, lets it go, and some seconds later the result, all
+//! as long as the player's body takes to play the animation ([`timing_of`]): the check rolled against the recipe's difficulty and the player's craft skill, and the
 //! outcome's actions (items made in the pack, an effect on the player such as a quest moved on),
 //! its ingredients used up, the craft's effect played, its texts, the craft experience, the cost
 //! paid, the recipe's wait and charges told, then the answer. What it asked is asked again as the result comes:
@@ -33,9 +33,9 @@
 //! **A making is cut short** when its maker moves or jumps (a report with an asked motion or a
 //! jump; 2017: 8 of 8 makings with one; of 47 with only standing reports, turning in place among
 //! them, none but an attack's and a death's), uses a skill such as an attack (2 of 2) or dies (1 of
-//! 1). The answer says it was interrupted, then its animation stops: in the craft's word before its
+//! 1). Its animation stops, then the answer says it was interrupted: in the craft's word before its
 //! animation is let go, in the animation's after (2017: 10 and 3, each on its side of the let-go,
-//! whatever cut it). Nothing is made, used up or paid, and no experience comes (4 of 4 recipes with
+//! whatever cut it; the stop sent before the answer 10 of 10 with one). Nothing is made, used up or paid, and no experience comes (4 of 4 recipes with
 //! a cost charged nothing).
 //!
 //! **Refining** turns two materials into a third, in a workshop. The recipe holds what it takes
@@ -109,6 +109,7 @@ use crate::calls::{Node, Value};
 use crate::graph::{hash, tag, Builder, Slot, NULL};
 use crate::start::Nav;
 use crate::state::{CraftSkillState, RecipeState};
+use crate::timings::HoldLoop;
 use crate::{presence, progress, quals, session, Clock, Server, Timer};
 
 /// The calls of crafting.
@@ -2151,9 +2152,10 @@ pub struct Making {
     pub released: bool,
 }
 
-/// From the request to the animation, from it to its release, and from the request to the
-/// result, by the animation's cycles (2017: two cycles 0.275, 2.57, 4.28 s; three 0.14, 6.1, 8.1;
-/// four 0.48, 8.48, 10.39).
+/// From the animation to its release and to the result, in seconds, by the animation's cycles
+/// alone, as 2017 timed the usual recipes, for a body the install says nothing of (2017: from the
+/// request, the animation, its release and the result; two cycles 0.275, 2.57, 4.28 s; three
+/// 0.14, 6.1, 8.1; four 0.48, 8.48, 10.39).
 #[must_use]
 pub fn timing(cycles: u32) -> (f64, f64) {
     match cycles {
@@ -2161,6 +2163,24 @@ pub fn timing(cycles: u32) -> (f64, f64) {
         3 => (5.96, 8.10),
         _ => (8.00, 10.39),
     }
+}
+
+/// From the animation to its release and to the result, in seconds, by the hold loop the player's
+/// body plays the recipe's animation in: the release as the clip has played into its loop and
+/// through it the recipe's cycles, the result one play of the clip from the loop's start after
+/// that; by [`timing`] when the install does not say (2017: 3,967 releases of the crafts' and
+/// gathering's animations so timed, by each body's clip, 3,870 within 0.15 s; an athame's loop
+/// is short, so its recipes let go about 2.3 s in and are made about 2.6 s in whatever their
+/// cycles, a Lugian's about 1.1 s in).
+#[must_use]
+pub fn timing_of(hold: Option<HoldLoop>, cycles: u32) -> (f64, f64) {
+    let Some(h) = hold else {
+        return timing(cycles);
+    };
+    let (period, start) = (f64::from(h.period), f64::from(h.start));
+    let looped = f64::from(cycles) * f64::from(h.length());
+    let release = period * start + looped;
+    (release, release + period * (1.0 - start))
 }
 
 /// The answer to a craft request: always shown, why it failed (0: it went), the recipe.
@@ -2324,7 +2344,10 @@ pub fn execute<S: Store>(
     b.words[1] = 1;
     let plays = ServerMessage::PlayBehavior(crate::combat::player_event(p, b));
     crate::combat::to_all_seeing(s, net, me, &plays);
-    let (release, result) = timing(def.cycles);
+    let (release, result) = timing_of(
+        crate::timings::players_hold_loop(s, world, def.animation),
+        def.cycles,
+    );
     s.after(
         clock,
         release,
@@ -2390,9 +2413,9 @@ pub fn step<S: Store>(
     }
 }
 
-/// A craft under way is cut short: the answer that it was interrupted (the craft's word before
-/// its animation is let go, the animation's after), then its animation stopped for everyone who
-/// sees the player. Nothing is made, used up or paid.
+/// A craft under way is cut short: its animation stopped for everyone who sees the player, then
+/// the answer that it was interrupted (the craft's word before its animation is let go, the
+/// animation's after). Nothing is made, used up or paid.
 pub fn interrupt<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -2405,16 +2428,14 @@ pub fn interrupt<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     } else {
         error::INTERRUPTED
     };
+    if let Some(animation) = s.crafting.recipes.get(&m.recipe).map(|d| d.animation) {
+        if let Some(p) = s.players.get_mut(&world) {
+            let me = p.character;
+            let stop = ServerMessage::StopBehavior(crate::combat::player_event(p, Word(animation)));
+            crate::combat::to_all_seeing(s, net, me, &stop);
+        }
+    }
     progress::private(net, world, &executed(err, m.recipe));
-    let Some(animation) = s.crafting.recipes.get(&m.recipe).map(|d| d.animation) else {
-        return;
-    };
-    let Some(p) = s.players.get_mut(&world) else {
-        return;
-    };
-    let me = p.character;
-    let stop = ServerMessage::StopBehavior(crate::combat::player_event(p, Word(animation)));
-    crate::combat::to_all_seeing(s, net, me, &stop);
 }
 
 /// The player reported a place: moving or jumping cuts a craft under way short (2017: 8 of 8

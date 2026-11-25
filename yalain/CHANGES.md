@@ -8,6 +8,8 @@ what they see, not how it was done.
 ## Unreleased
 - Switching targets during an attack now moves your attacks to the new target.
 - Hiding Trade in every chat window now leaves the Trade channel.
+- Quest mines' pickaxe animation now ends on time.
+- Athame recipes now finish as quickly as in retail.
 - Skills now wind up as long as your race takes to play them.
 - An expired fellowship invitation now says it was declined.
 - Fellowship names now follow the server's banned words.

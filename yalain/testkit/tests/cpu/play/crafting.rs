@@ -5165,9 +5165,21 @@ fn animation_stopped(h: &Harness, b: usize, from: usize, me: u64, behavior: u32)
     )
 }
 
-/// Moving or jumping while a recipe is made cuts it short: answered as interrupted, in the craft's
-/// word before its animation is let go and the animation's after, the animation stopped, nothing
-/// made or used up and nothing more at the making's end. Turning in place cuts nothing, and a
+/// Was the player's animation stopped since `from` before the making's answer came?
+fn stopped_before_the_answer(h: &Harness, b: usize, from: usize, me: u64, behavior: u32) -> bool {
+    let msgs = h.world_messages(b, from);
+    let stop = msgs.iter().position(
+        |m| matches!(m, ServerMessage::StopBehavior(e) if e.sender.id == me && e.action.0 == behavior),
+    );
+    let answer = msgs.iter().position(
+        |m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::EXECUTED),
+    );
+    matches!((stop, answer), (Some(s), Some(a)) if s < a)
+}
+
+/// Moving or jumping while a recipe is made cuts it short: the animation stopped, then answered
+/// as interrupted, in the craft's word before its animation is let go and the animation's after,
+/// nothing made or used up and nothing more at the making's end. Turning in place cuts nothing, and a
 /// making begun again at once keeps to its own steps.
 /// Behaviour: server.craft.interrupted-by-moving
 #[test]
@@ -5195,6 +5207,7 @@ fn moving_or_jumping_cuts_a_making_short_and_it_makes_nothing() {
     wait(&mut h, 0.2);
     assert_eq!(craft_answers(&h, b, from), [error::INTERRUPTED]);
     assert!(animation_stopped(&h, b, from, me, ANIMATION));
+    assert!(stopped_before_the_answer(&h, b, from, me, ANIMATION));
     report_here(&mut h, b, world, 64, idle, false);
     wait(&mut h, 0.2);
     // Begun again at once: the first making's let-go, due in this one's, is not this one's.
@@ -5216,8 +5229,69 @@ fn moving_or_jumping_cuts_a_making_short_and_it_makes_nothing() {
     wait(&mut h, 6.0);
     assert_eq!(craft_answers(&h, b, from), [error::BEHAVIOR_INTERRUPTED]);
     assert!(animation_stopped(&h, b, from, me, ANIMATION));
+    assert!(stopped_before_the_answer(&h, b, from, me, ANIMATION));
     assert_eq!(held(&h, world, MINES_SWORD), 0, "nothing made");
     assert_eq!(held(&h, world, IRON), 20, "nothing used up");
+}
+
+/// A making cut short stops its animation before it answers: before the let-go, the stop, then
+/// the craft's word; after it, the stop, then the animation's.
+/// Behaviour: server.craft.cut-short-stops-before-it-answers
+#[test]
+fn a_craft_cut_short_stops_its_animation_before_it_answers() {
+    const ANIMATION: u32 = 0x4100_00A4;
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let idle = yalain_world::world::IDLE_MOTION;
+    for (after, word) in [
+        (0.5, error::INTERRUPTED),
+        (3.0, error::BEHAVIOR_INTERRUPTED),
+    ] {
+        let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+        wait(&mut h, after);
+        report_here(&mut h, b, world, 64, idle, true);
+        wait(&mut h, 0.3);
+        assert_eq!(craft_answers(&h, b, from), [word]);
+        assert!(
+            stopped_before_the_answer(&h, b, from, me, ANIMATION),
+            "stopped, then answered {word}"
+        );
+        report_here(&mut h, b, world, 64, idle, false);
+        wait(&mut h, 0.3);
+    }
+}
+
+/// A making's animation is let go as the player's body has played into the animation's hold loop
+/// and through it the recipe's cycles, and its result comes one play of the clip from the loop's
+/// start after: a short loop late in its clip (an athame's) lets go and makes at about the same
+/// time whatever the cycles; a long one adds a loop's length for each. A body the install says
+/// nothing of goes by the cycles alone.
+/// Behaviour: server.craft.timed-by-the-hold-loop
+#[test]
+fn a_makings_let_go_and_result_follow_its_bodys_hold_loop() {
+    use yalain_world::craft::{timing, timing_of};
+    use yalain_world::timings::HoldLoop;
+    let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01;
+    let athame = HoldLoop {
+        period: 2.5,
+        start: 0.911_5,
+        end: 0.919,
+    };
+    assert!(near(timing_of(Some(athame), 3), (2.335, 2.556)));
+    assert!(near(timing_of(Some(athame), 4), (2.354, 2.575)));
+    let default = HoldLoop {
+        period: 2.375,
+        start: 0.307,
+        end: 0.618,
+    };
+    assert!(near(timing_of(Some(default), 2), (2.206, 3.852)));
+    let armor = HoldLoop {
+        period: 2.0,
+        start: 0.001_9,
+        end: 0.990_6,
+    };
+    assert!(near(timing_of(Some(armor), 3), (5.936, 7.932)));
+    assert_eq!(timing_of(None, 3), timing(3));
 }
 
 /// A skill's use asked while a recipe is made cuts the making short after the use's own answer,

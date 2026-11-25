@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use auberean_animation::queries::TableQueries;
 use auberean_animation::timeline::{self, PlayRecords, TimelineRecords};
-pub use auberean_animation::timeline::{Plays, Timeline};
+pub use auberean_animation::timeline::{HoldLoop, Plays, Timeline};
 use auberean_assets::animation::BehaviorKey;
 use auberean_assets::Context;
 use auberean_dat::DatFile;
@@ -142,6 +142,12 @@ impl Timings {
         t
     }
 
+    /// The hold loop a body plays a behavior in, in a mode, on the ground.
+    #[must_use]
+    pub fn hold_loop(&self, plays: &Plays, mode: u32, behavior: u32) -> Option<HoldLoop> {
+        timeline::hold_loop(&self.records, plays, EARTH, mode, behavior)
+    }
+
     /// Does a body's behavior table name a behavior in a combat mode, on the ground? Whether its
     /// look has a clip for it is not asked.
     #[must_use]
@@ -220,6 +226,26 @@ pub fn of_player<S: Store>(s: &Server<S>, world: ConnId, behavior: u32) -> Timel
         .as_ref()
         .and_then(|t| t.timeline(&t.plays_of(&p.look)?, mode, behavior))
         .unwrap_or_else(unknown)
+}
+
+/// The hold loop a player's body plays a behavior in, in the mode it is in now: its weapon's once
+/// an attack has sent it, else at peace, where the crafts' and the mines' animations are held:
+/// none when the install does not say.
+#[must_use]
+pub fn players_hold_loop<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    behavior: u32,
+) -> Option<HoldLoop> {
+    let p = s.players.get(&world)?;
+    let mode = if p.attacking.as_ref().is_some_and(|r| r.mode_sent) {
+        crate::skill_use::player_mode(s, p.character)
+    } else {
+        crate::combat::mode::PEACE
+    };
+    let t = s.timings.as_ref()?;
+    t.hold_loop(&t.plays_of(&p.look)?, mode, behavior)
+        .filter(|h| h.period > 0.0 && h.end > h.start)
 }
 
 /// What a player's body itself plays for a behavior, in its combat mode now (not what it holds):
