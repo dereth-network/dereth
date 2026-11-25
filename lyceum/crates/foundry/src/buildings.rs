@@ -267,6 +267,10 @@ pub struct Entry {
     pub layouts: Vec<Layout>,
     /// The models that stand with it wherever it stands, by id.
     pub set: Vec<Partner>,
+    /// Whether its copies are the player's own files', which the world's import over them takes
+    /// away (AC1's buildings on a converted land): its templates are read from those files
+    /// ([`Catalog::with_files`]).
+    pub from_files: bool,
 }
 
 impl Entry {
@@ -1294,6 +1298,7 @@ impl Catalog {
                     reach: all.iter().map(|c| c.reach).fold(0.0, f32::max),
                     layouts,
                     set: partners,
+                    from_files: false,
                 },
             );
         }
@@ -1301,6 +1306,40 @@ impl Catalog {
             entries,
             doors_known: server.is_some(),
         }
+    }
+
+    /// The catalog of the world `world` (the files with its imports over them), with every
+    /// building of the player's own files `files` the world takes away added from them
+    /// ([`Entry::from_files`]): on a converted land, AC1's buildings beside the world's own.
+    /// `server` and `town` as [`Self::read`].
+    #[must_use]
+    pub fn of_world(
+        files: &DatSet,
+        world: Option<&DatSet>,
+        server: Option<&ServerContent>,
+        town: &dyn Fn(u16) -> Option<String>,
+    ) -> Self {
+        let own = Self::read(files, server, town);
+        match world {
+            None => own,
+            Some(w) => Self::read(w, server, town).with_files(own),
+        }
+    }
+
+    /// The catalog with each of `files`' entries it lacks added, marked as read from the player's
+    /// own files: a set is added whole or not at all.
+    #[must_use]
+    pub fn with_files(mut self, files: Self) -> Self {
+        for (id, mut e) in files.entries {
+            let whole = std::iter::once(id)
+                .chain(e.set.iter().map(|p| p.model.raw()))
+                .all(|m| !self.entries.contains_key(&m));
+            if whole {
+                e.from_files = true;
+                self.entries.insert(id, e);
+            }
+        }
+        self
     }
 
     /// Model `model`'s entry.
@@ -1314,11 +1353,12 @@ impl Catalog {
         self.entries.values()
     }
 
-    /// The models a gallery shows, the most placed first: a set by its lead alone.
+    /// The models a gallery shows, the world's own before those of the player's files, each the
+    /// most placed first: a set by its lead alone.
     #[must_use]
     pub fn gallery(&self) -> Vec<&Entry> {
         let mut out: Vec<&Entry> = self.entries.values().filter(|e| e.is_lead()).collect();
-        out.sort_by_key(|e| (std::cmp::Reverse(e.count), e.model.raw()));
+        out.sort_by_key(|e| (e.from_files, std::cmp::Reverse(e.count), e.model.raw()));
         out
     }
 
@@ -1345,7 +1385,7 @@ fn entry(c: &mut Catalog, model: Option<u32>) -> Option<&mut Entry> {
 }
 
 /// The first line of a catalog file, which names its layout.
-const HEADER: &str = "# building catalog 2";
+const HEADER: &str = "# building catalog 3";
 
 fn spot_text(s: Spot) -> String {
     match s {
@@ -1396,12 +1436,13 @@ impl Catalog {
         for e in self.entries.values() {
             let _ = writeln!(
                 out,
-                "model\t{:08X}\t{}\t{}\t{}\t{}",
+                "model\t{:08X}\t{}\t{}\t{}\t{}\t{}",
                 e.model.raw(),
                 e.count,
                 e.kind.name(),
                 e.num_leaves,
-                e.reach
+                e.reach,
+                if e.from_files { "files" } else { "world" }
             );
             for p in &e.set {
                 let _ = writeln!(
@@ -1492,7 +1533,7 @@ impl Catalog {
             let f: Vec<&str> = line.split('\t').collect();
             match f[..] {
                 ["doors", d] => out.doors_known = d == "1",
-                ["model", id, count, kind, leaves, reach] => {
+                ["model", id, count, kind, leaves, reach, from] => {
                     let id = hex(id)?;
                     out.entries.insert(
                         id,
@@ -1504,6 +1545,11 @@ impl Catalog {
                             reach: reach.parse().ok()?,
                             layouts: Vec::new(),
                             set: Vec::new(),
+                            from_files: match from {
+                                "files" => true,
+                                "world" => false,
+                                _ => return None,
+                            },
                         },
                     );
                     model = Some(id);

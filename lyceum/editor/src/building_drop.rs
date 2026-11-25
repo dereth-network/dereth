@@ -58,12 +58,19 @@ const GHOST: egui::Color32 = egui::Color32::from_rgba_premultiplied(0xD8, 0xD8, 
 const ALLOWED: egui::Color32 = egui::Color32::from_rgb(0x50, 0xE0, 0x60);
 const REFUSED: egui::Color32 = egui::Color32::from_rgb(0xF0, 0x40, 0x38);
 
-/// What a gallery calls a building: a house by its kind, any other by its kind or its place.
+/// What a gallery calls a building: a house by its kind, any other by its kind or its place; one
+/// of the player's files that the world's import takes away (AC1's on a converted land) is marked
+/// AC1's.
 #[must_use]
 pub fn building_name(e: &Entry, label: Option<String>) -> String {
-    match e.kind {
+    let name = match e.kind {
         Kind::Cottage | Kind::Villa | Kind::Mansion => e.kind.name().to_owned(),
         _ => label.unwrap_or_else(|| e.kind.name().to_owned()),
+    };
+    if e.from_files {
+        format!("{name} (AC1)")
+    } else {
+        name
     }
 }
 

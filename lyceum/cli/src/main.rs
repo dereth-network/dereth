@@ -607,8 +607,22 @@ fn run_edit(args: &Args) -> ExitCode {
         .iter()
         .any(|a| matches!(a, lyceum_foundry::script::Action::AddBuilding { .. }))
     {
-        let catalog =
-            lyceum_foundry::buildings::Catalog::read(session.base(), server.as_ref(), &|_| None);
+        // The world's own (its import's over the files), and the files' the import takes away.
+        let imports = &session.world().imports;
+        let world = if imports.is_empty() {
+            None
+        } else {
+            match session.base().with_imports(imports) {
+                Ok(w) => Some(w),
+                Err(e) => return fail(&e),
+            }
+        };
+        let catalog = lyceum_foundry::buildings::Catalog::of_world(
+            session.base(),
+            world.as_ref(),
+            server.as_ref(),
+            &|_| None,
+        );
         session.learn_buildings(catalog);
     }
     if let Some(content) = server {

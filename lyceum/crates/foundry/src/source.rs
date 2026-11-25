@@ -103,6 +103,8 @@
 //! house = "cottage-1-house"      # optional, a house players can buy: its rooms and its land
 //!                                # cell belong to this spawn of the landblock (a set lists one
 //!                                # for each building)
+//! from = "files"                 # optional: the templates are the player's own files', not the
+//!                                # world's imported one (whose land holds none of AC1's buildings)
 //!
 //! [[add-dungeon]]                # a copy of a retail dungeon: every cell of its landblock, in
 //! name = "villa-1-basement"      # the same place; its cells are villa-1-basement-room-000 on
@@ -491,6 +493,9 @@ pub struct AddBuilding {
     /// For a house players can buy, the spawn each building's rooms and land cell belong to: its
     /// symbol in full, without the landblock (the row's own). Empty for a plain building.
     pub house: Vec<String>,
+    /// Whether its templates (and the copies it is furnished like) are read from the player's
+    /// own files, not from the world's import over them (`from = "files"`).
+    pub from_files: bool,
 }
 
 /// A copy of a retail dungeon: every cell of its landblock, each where it stands there.
@@ -744,6 +749,7 @@ struct AddBuildingRow {
     rotation: Option<Vec<f32>>,
     furnished: Option<toml::Value>,
     house: Option<toml::Value>,
+    from: Option<String>,
     /// Where the row came from; left out, a person wrote it.
     #[serde(default)]
     prov: Option<Provenance>,
@@ -1977,6 +1983,16 @@ fn add_building(at: &Loc, pack: &str, r: &AddBuildingRow) -> Result<AddBuilding,
         rotation: rotation(at, r.heading, r.rotation.as_deref())?.unwrap_or(Rotation::Heading(0.0)),
         furnished,
         house,
+        from_files: match r.from.as_deref() {
+            None => false,
+            Some("files") => true,
+            Some(other) => {
+                return Err(Error::source(
+                    at,
+                    format!("from is \"files\" or left out, not {other:?}"),
+                ))
+            }
+        },
     })
 }
 

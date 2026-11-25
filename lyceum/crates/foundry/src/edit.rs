@@ -1106,6 +1106,9 @@ fn building_row(b: &source::AddBuilding, pack: &str) -> Table {
             );
         }
     }
+    if b.from_files {
+        t.insert("from", Item::Value(Value::from("files")));
+    }
     if !b.house.is_empty() {
         let bare = |h: &String| h.strip_prefix(&format!("{pack}:")).unwrap_or(h).to_owned();
         t.insert(

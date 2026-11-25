@@ -253,7 +253,15 @@ fn gather(
                 .flatten()
                 .map(|b| sql_ids::server_content(&String::from_utf8_lossy(&b)));
             let content = given.as_ref().or((database.is_some()).then_some(&server));
-            let c = Buildings::read(&set, content, &town);
+            // Over an import, the player's own files' buildings it takes away too (AC1's on a
+            // converted land).
+            let files = (!imports.is_empty())
+                .then(|| DatSet::open_era(dats, era).ok())
+                .flatten();
+            let c = match &files {
+                Some(f) => Buildings::of_world(f, Some(&set), content, &town),
+                None => Buildings::read(&set, content, &town),
+            };
             if let Err(e) = c.save(&file) {
                 tracing::warn!("{}: {e}", file.display());
             }

@@ -907,6 +907,8 @@ pub struct Plan {
 struct Worked {
     templates: Vec<Template>,
     furnished: Furnished,
+    /// Whether its templates are the player's own files' ([`buildings::Entry::from_files`]).
+    from_files: bool,
     /// Its name, bare, and the pack it is written in.
     name: String,
     pack: String,
@@ -1082,15 +1084,34 @@ impl Session {
         Ok(level)
     }
 
-    /// The retail building at each of `sites`, as the files under the packs hold it.
-    fn templates_at(&self, sites: &[Site]) -> Result<Vec<Template>, Error> {
-        let c = self.compiled();
-        let read = |id: u32| compile::read_under(c, self.base(), ModernDat::Cell, id);
+    /// The cell-file records templates are read from: the player's own files (`from_files`), else
+    /// the files under the packs, the world's imports over them.
+    fn template_read(&self, from_files: bool) -> impl Fn(u32) -> Option<Vec<u8>> + '_ {
+        let (c, base) = (self.compiled(), self.base());
+        move |id| {
+            if from_files {
+                base.file(ModernDat::Cell)?.read(DataId(id)).ok()
+            } else {
+                compile::read_under(c, base, ModernDat::Cell, id)
+            }
+        }
+    }
+
+    /// The retail building at each of `sites`, as the files under the packs hold it, or the
+    /// player's own files (`from_files`).
+    fn templates_at(&self, sites: &[Site], from_files: bool) -> Result<Vec<Template>, Error> {
+        let read = self.template_read(from_files);
+        let own = from_files
+            .then(|| compile::files_region(self.base()))
+            .flatten();
+        let region = if from_files {
+            own.as_ref()
+        } else {
+            self.region()
+        };
         sites
             .iter()
-            .map(|s| {
-                Template::read(&read, *s, self.region(), self.base().era).map_err(Error::Refused)
-            })
+            .map(|s| Template::read(&read, *s, region, self.base().era).map_err(Error::Refused))
             .collect()
     }
 
@@ -1131,9 +1152,19 @@ impl Session {
         })?;
         let region = self.region();
         let c = self.compiled();
-        let read = |id: u32| compile::read_under(c, self.base(), ModernDat::Cell, id);
+        let read = self.template_read(entry.from_files);
         let era = self.base().era;
-        let read_t = |site: Site| Template::read(&read, site, region, era).map_err(refuse);
+        // A template of the player's own files stands on their land, made with their region.
+        let own = entry
+            .from_files
+            .then(|| compile::files_region(self.base()))
+            .flatten();
+        let template_region = if entry.from_files {
+            own.as_ref()
+        } else {
+            region
+        };
+        let read_t = |site: Site| Template::read(&read, site, template_region, era).map_err(refuse);
         // The set's sites: its partners stand in the example's landblock, each in its place.
         let lead = read_t(chosen.example)?;
         let find_partner = |lb: u16, from: &Frame, p: &buildings::Partner| -> Option<Site> {
@@ -1251,6 +1282,7 @@ impl Session {
             .collect();
         Ok(Worked {
             furnished,
+            from_files: entry.from_files,
             name,
             pack,
             to,
@@ -1470,7 +1502,12 @@ impl Session {
             entry = catalog.get(entry.set.iter().map(|p| p.model).min()?)?;
         }
         let example = entry.layouts.get(layout)?.example;
-        let f = self.templates_at(&[example]).ok()?.first()?.building.frame;
+        let f = self
+            .templates_at(&[example], entry.from_files)
+            .ok()?
+            .first()?
+            .building
+            .frame;
         let middle = |px: f32, py: f32| {
             let (cx, cy) = buildings::land_cell(px, py);
             #[allow(clippy::cast_precision_loss)] // a land cell's index
@@ -1597,6 +1634,7 @@ impl Session {
                 rotation: Rotation::Heading(heading),
                 furnished: w.furnished.clone(),
                 house: house_names,
+                from_files: w.from_files,
             },
         });
         // The model's outdoor statics, carried with it, each named after it.
@@ -1991,7 +2029,7 @@ impl Session {
                 }
             }));
         }
-        let templates = self.templates_at(&row.templates)?;
+        let templates = self.templates_at(&row.templates, row.from_files)?;
         let rooms = self.drop_rooms(lb, &name);
         let statics = self.drop_statics(lb, &name);
         // A house's spawns are written again whole where it stands now; the rest are carried.

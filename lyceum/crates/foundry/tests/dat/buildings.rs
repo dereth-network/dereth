@@ -528,7 +528,7 @@ fn the_catalog_kept_in_a_file_reads_back_as_it_was() {
     c.save(&file).unwrap();
     assert_eq!(Catalog::load(&file).as_ref(), Some(&c));
     assert_eq!(
-        Catalog::from_text(&text.replacen("catalog 2", "catalog 0", 1)),
+        Catalog::from_text(&text.replacen("catalog 3", "catalog 2", 1)),
         None
     );
 }
@@ -3024,4 +3024,128 @@ fn a_february_2005_building_drops_whole_in_its_own_layout() {
     assert!(!cells.is_empty(), "the building's rooms");
     assert_eq!(u32::try_from(cells.len()).unwrap(), info.num_cells);
     super::pretod::check(&s);
+}
+
+/// An empty world made from the sample on a land `spacing` meters apart, open with the catalog.
+fn land_world(tag: &str, spacing: u32) -> (dereth_dat::testing::ScratchDir, std::path::PathBuf) {
+    dereth_dat::testing::require_dats();
+    let dir = dereth_dat::testing::ScratchDir::new(tag).unwrap();
+    let w = lyceum_foundry::sample::make(
+        &dir.path().join("w"),
+        true,
+        dereth_primitives::EraId::Eor,
+        spacing,
+    )
+    .unwrap();
+    (dir, w)
+}
+
+/// A retail cottage drops on a land of any detail, 24, 12 or 8 meters, with its rooms, and the
+/// world builds with it.
+#[test]
+fn a_cottage_drops_and_builds_on_every_land_detail() {
+    let dats = dereth_dat::testing::dat_dir();
+    for spacing in [24, 12, 8] {
+        let (_dir, world) = land_world(&format!("buildings-land-{spacing}"), spacing);
+        let mut s = Session::open(&world, &dats, None).unwrap();
+        s.set_today("2026-11-25 00:00:00");
+        s.learn_buildings(bare_catalog().clone());
+        let (op, _) = s
+            .drop_building(
+                DataId(COTTAGE),
+                0,
+                &Furnished::Template,
+                0xA0A8,
+                84.0,
+                84.0,
+                0.0,
+            )
+            .unwrap_or_else(|e| panic!("{spacing} m: {e}"));
+        s.apply(&op).unwrap();
+        s.save().unwrap();
+        let statics = s.statics(0xA0A8).unwrap();
+        assert!(
+            statics.buildings.iter().any(|b| b.id == DataId(COTTAGE)),
+            "{spacing} m: the cottage stands"
+        );
+        assert!(!s.cells(0xA0A8).is_empty(), "{spacing} m: with its rooms");
+        compile::build(&world, &dats, None, false).unwrap_or_else(|e| panic!("{spacing} m: {e}"));
+    }
+}
+
+/// A world whose import takes away every copy of a building (as a converted land takes away
+/// AC1's) still drops it, from the player's own files: the catalog of the world lacks it, the one
+/// with the files beside it has it marked so (and keeps the world's own as they are), the row
+/// says `from = "files"`, and the world builds with it, its rooms copied.
+#[test]
+fn a_building_an_import_takes_away_drops_from_the_players_own_files() {
+    use dereth_assets::world::LandblockInfo;
+    use lyceum_foundry::compile::{Records, Staged};
+    let dats = dereth_dat::testing::dat_dir();
+    // A building of one copy, alone and no house, with rooms.
+    let e = bare_catalog()
+        .gallery()
+        .into_iter()
+        .find(|e| {
+            e.count == 1
+                && e.set.is_empty()
+                && !matches!(e.kind, Kind::Cottage | Kind::Villa | Kind::Mansion)
+                && e.layouts[0].rooms > 0
+        })
+        .expect("a building of one copy")
+        .clone();
+    let site = e.layouts[0].example;
+    // An import whose statics record of that landblock places every building but it.
+    let lid = (u32::from(site.landblock) << 16) | 0xFFFE;
+    let mut info = LandblockInfo::decode_payload(DataId(lid), &read(lid).unwrap()).unwrap();
+    info.buildings.remove(site.index);
+    let (dir, world) = land_world("buildings-from-files", 24);
+    let overlay = dir.path().join("import");
+    let mut records = Records::new();
+    records
+        .entry(dereth_dat::ModernDat::Cell)
+        .or_default()
+        .insert(
+            lid,
+            Staged {
+                bytes: info.encode().into(),
+                version: 3,
+            },
+        );
+    compile::write_records(&records, &BTreeMap::new(), files(), "an-import", &overlay).unwrap();
+    let text = std::fs::read_to_string(&world).unwrap();
+    let imports = format!(
+        "imports = [{:?}]\npacks",
+        overlay.display().to_string().replace('\\', "/")
+    );
+    std::fs::write(&world, text.replacen("packs", &imports, 1)).unwrap();
+
+    let mut s = Session::open(&world, &dats, None).unwrap();
+    s.set_today("2026-11-25 00:00:00");
+    let over = s.base().with_imports(&s.world().imports).unwrap();
+    assert!(
+        Catalog::read(&over, None, &town).get(e.model).is_none(),
+        "the world's own buildings lack it"
+    );
+    let c = Catalog::of_world(s.base(), Some(&over), None, &town);
+    assert!(c.get(e.model).unwrap().from_files, "the files' have it");
+    assert!(
+        !c.get(DataId(COTTAGE)).unwrap().from_files,
+        "the world's own"
+    );
+    assert_eq!(Catalog::from_text(&c.to_text()).as_ref(), Some(&c));
+    s.learn_buildings(c);
+    let (op, _) = s
+        .drop_building(e.model, 0, &Furnished::Template, 0xA0A8, 84.0, 84.0, 0.0)
+        .unwrap();
+    s.apply(&op).unwrap();
+    s.save().unwrap();
+    let row = std::fs::read_to_string(dir.path().join("w/w/edits/landblocks/A0A8.toml")).unwrap();
+    assert!(row.contains("from = \"files\""), "{row}");
+    assert_eq!(
+        s.cells(0xA0A8).len(),
+        e.layouts[0].rooms as usize,
+        "its rooms copied"
+    );
+    compile::build(&world, &dats, None, false).unwrap();
 }

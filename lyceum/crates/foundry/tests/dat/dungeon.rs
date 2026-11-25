@@ -2346,6 +2346,98 @@ fn the_ac2_tomb_stands_on_fifteen_meter_squares_and_its_room_laid_through_an_ent
     assert!(found.is_empty(), "{found:#?}");
 }
 
+/// A dungeon's rooms stand apart from the land's grid: on a land 8 meters apart, two of the world's
+/// own pieces and two of AC2's tomb halls, each pair joined in a landblock of the open sea floor,
+/// walk, and the world builds with them.
+#[test]
+fn dungeons_of_either_kit_build_and_walk_on_a_finer_land() {
+    use lyceum_foundry::ac2_kit::Kit;
+    dereth_dat::testing::require_dats();
+    let dir = dereth_dat::testing::ScratchDir::new("dungeon-finer-land").unwrap();
+    let world = lyceum_foundry::sample::make(
+        &dir.path().join("w"),
+        true,
+        dereth_primitives::EraId::Eor,
+        8,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("w/w/records")).unwrap();
+    std::fs::write(
+        dir.path().join("w/w/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"tomb\"\n",
+    )
+    .unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+    let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    s.set_today("2026-11-25 00:00:00");
+    assert!(!s.grid().is_default(), "a finer land");
+    let store = dereth_dat::testing::open_store_or_fail();
+    let mut free = empty_landblocks(&store);
+    let (own, tomb) = (free.next().unwrap(), free.next().unwrap());
+    // The world's own: a corridor, and a second snapped to its portal 0 by its own portal 1.
+    let piece = corridor(&catalog(s.base()).pieces);
+    let env = s.environment(piece.environment).unwrap();
+    s.apply(&Op::PlaceCell {
+        landblock: own,
+        environment: piece.environment,
+        piece: piece.piece,
+        surfaces: piece.surfaces.clone(),
+        at: [96.0, 96.0, -40.0],
+        rotation: Rotation::Heading(0.0),
+        links: vec![Link::Shut, Link::Shut],
+    })
+    .unwrap();
+    let first = Frame::new(Vec3::new(96.0, 96.0, -40.0), Quat::IDENTITY);
+    let (frame, _) = snap(
+        &env,
+        piece.piece,
+        1,
+        &opening(&env, piece.piece, 0, &first).unwrap(),
+        0.0,
+        90.0,
+    )
+    .unwrap();
+    let q = frame.rotation;
+    let pack = s.packs()[s.target()].name.clone();
+    s.apply(&Op::PlaceCell {
+        landblock: own,
+        environment: piece.environment,
+        piece: piece.piece,
+        surfaces: piece.surfaces.clone(),
+        at: [frame.origin.x, frame.origin.y, frame.origin.z],
+        rotation: Rotation::Quat([q.w, q.x, q.y, q.z]),
+        links: vec![
+            Link::Shut,
+            Link::Cell {
+                cell: format!("{pack}:cell-1"),
+                portal: 0,
+            },
+        ],
+    })
+    .unwrap();
+    assert_eq!(s.cells(own).len(), 2);
+    // AC2's tomb: two halls, north and south of each other.
+    for y in [105.0, 120.0] {
+        place_ac2(
+            &mut s,
+            tomb,
+            "straight",
+            "own",
+            Vec3::new(105.0, y, -40.0),
+            "NS",
+        );
+    }
+    assert_eq!(s.cells(tomb).len(), 2);
+    assert!(s.ac2_pieces().iter().all(|p| p.kit == Kit::Tomb));
+    for lb in [own, tomb] {
+        let found = s.walk(lb);
+        assert!(found.is_empty(), "{lb:04X}: {found:#?}");
+    }
+    s.save().unwrap();
+    let ac2 = ac2_install();
+    lyceum_foundry::compile::build_with(&world, &dats, None, false, Some(&ac2)).unwrap();
+}
+
 /// AC2's mine on its 20 m grid: its tunnels read as their kinds, join one another and, through
 /// its piece for the purpose, one of basic's halls, and walk; it has no room tiles to lay.
 #[test]

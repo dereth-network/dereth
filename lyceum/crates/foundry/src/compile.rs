@@ -54,6 +54,14 @@ pub const NEW_RECORD_VERSION: u16 = 3;
 /// The region record, whose height table turns a vertex's index into meters.
 pub const REGION: DataId = DataId(0x1300_0000);
 
+/// The region of the player's own files `base`, under no import: the ground a template of theirs
+/// stands on is made with it (a converted land's region lays its land on another grid).
+#[must_use]
+pub fn files_region(base: &DatSet) -> Option<Region> {
+    let bytes = base.file(ModernDat::Portal)?.read(REGION).ok()?;
+    base.decode::<Region>(REGION, &bytes).ok()
+}
+
 /// One record of the overlay: its bytes and its version.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Staged {
@@ -674,9 +682,13 @@ pub fn number(
             | Kind::SurfaceTexture
             | Kind::Surface => {
                 let (lo, hi) = kind.span().unwrap_or((0, 0));
+                // The portal files' records only: a cell file's (a landblock's land, `0xXXYYFFFF`)
+                // shares these spans' numbers, and a finer or imported land stages one for every
+                // landblock.
                 let staged_in_span = staged
-                    .values()
-                    .flat_map(BTreeMap::keys)
+                    .iter()
+                    .filter(|(t, _)| matches!(t, ModernDat::Portal | ModernDat::HighRes))
+                    .flat_map(|(_, r)| r.keys())
                     .copied()
                     .filter(|id| (lo..=hi).contains(id))
                     .max();
@@ -1606,7 +1618,8 @@ fn building_says(m: &MoveBuilding) -> String {
 }
 
 /// The buildings landblock `lb`'s files drop and the dungeons they copy, copied from their
-/// templates (read under the packs) with their rooms numbered: a room's number is the
+/// templates (read under the packs, or from the player's own files for a row that says so) with
+/// their rooms numbered: a room's number is the
 /// lockfile's, given here the first time, and so is a house's spawn's when no SQL names it.
 fn drop_buildings(
     edits: &BlockEdits<'_>,
@@ -1632,9 +1645,25 @@ fn drop_buildings(
     let (prepared, copied) = {
         let view = View { base, c };
         let read = |id: u32| view.get(ModernDat::Cell, id).map(|(b, _)| b);
+        // A row whose templates are the player's own files' reads them there, under no import,
+        // their ground made with their own region.
+        let files = |id: u32| base.file(ModernDat::Cell)?.read(DataId(id)).ok();
+        let own = rows
+            .iter()
+            .any(|r| r.item.from_files)
+            .then(|| files_region(base))
+            .flatten();
         (
             rows.iter()
-                .map(|r| crate::drops::prepare(r, &read, region, base.era))
+                .map(|r| {
+                    let (from, region): (&dyn Fn(u32) -> Option<Vec<u8>>, _) = if r.item.from_files
+                    {
+                        (&files, own.as_ref())
+                    } else {
+                        (&read, region)
+                    };
+                    crate::drops::prepare(r, from, region, base.era)
+                })
                 .collect::<Result<Vec<_>, _>>()?,
             dungeons
                 .iter()
