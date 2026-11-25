@@ -20396,6 +20396,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.held-use-goes-before-the-special-asked-behind",
+        says: "A special asked behind one from rest that holds a use is never cut as that one \
+               ends. It is checked then as its start would check it: refused, it is over and why \
+               (naming its skill and its target) before the attack state is lowered; one that \
+               would go waits for the held use and begins after it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HELD-USE-QUEUED-SPECIAL"),
+        station: "yalain-testkit::cpu::play::specials::a_special_asked_behind_a_held_use_begins_after_the_use_uncut",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.hook-adds-by-rating",
         says: "A hook with points adds to its hit by the player's rating in the skill, along the \
                lines between its points, rounded down.",
@@ -20525,6 +20536,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-TURN-FLAG"),
         station: "yalain-testkit::cpu::play::specials::a_skill_turns_its_user_to_the_target_only_when_its_flags_say_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.use-held-for-a-special",
+        says: "A use of an object asked while a special from rest is under way past its story is \
+               held, nothing sent, and goes ahead as the special ends, in that tick after its \
+               skill information, not attacking and peace. A second use asked while one is held \
+               is refused at once as the player's actions are locked. With no special under way a \
+               use goes ahead at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-HELD-FOR-SPECIAL"),
+        station: "yalain-testkit::cpu::play::specials::a_butchery_asked_mid_special_goes_ahead_in_its_end_tick_after_the_peace",
         tier: Tier::Cpu,
     },
     behaviour! {

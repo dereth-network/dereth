@@ -3163,3 +3163,493 @@ fn a_special_waiting_for_a_failed_runs_swing_that_would_go_begins_from_rest_afte
         "it begins from rest"
     );
 }
+
+/// The butchery fixture's knife template, its package and the material its corpse yields.
+const CRUDE_KNIFE: u32 = 0x4700_0CBD;
+const KNIVES: u32 = 0x1C07;
+const BONE: u32 = 0x4700_06C8;
+const BUTCHERY_PROFILE: u32 = 0x6F00_12DD;
+
+/// Beside the camp's beetle with a bow, a crude knife in the pack and another beetle's corpse
+/// 1.5 m away; returns the client, the player, the beetle, the knife and the corpse.
+fn armed_beside_a_corpse() -> (Harness, usize, u64, u64, u64, u64) {
+    use yalain_content::{Prop, Props};
+    use yalain_world::things::{Corpse, Kind, Thing};
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let mut template = h
+        .server
+        .catalog
+        .get(TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    template
+        .props
+        .set("ButcheryProfile", Prop::Word(BUTCHERY_PROFILE));
+    h.server.catalog.insert(template.clone());
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BONE, 0x3A1, Props::default()));
+    let mut knife = Props::default();
+    knife.set("Item_Durability_MaxLevel", Prop::Int(50));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(CRUDE_KNIFE, KNIVES, knife));
+    h.server.knife_packages.insert(KNIVES);
+    h.server.crafting.butchery.insert(
+        BUTCHERY_PROFILE,
+        vec![yalain_world::butchery::Yield {
+            template: BONE,
+            weight: 1,
+        }],
+    );
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, CRUDE_KNIFE, 1);
+    h.run(3);
+    let knife = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == CRUDE_KNIFE)
+        .expect("the knife")
+        .id;
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 1.5;
+    let corpse = h.server.things.new_id();
+    let mut c = Thing::of(corpse, &template, Kind::Corpse);
+    c.at = Some(at);
+    c.corpse = Some(Corpse {
+        killer: me,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: TEST_CREATURE,
+        ..Default::default()
+    });
+    h.server.things.insert(c);
+    (h, b, me, beetle, knife, corpse)
+}
+
+/// Deadeye from rest at the beetle, stepped until its story is told.
+fn deadeye_told(h: &mut Harness, b: usize, me: u64, beetle: u64) {
+    use_skill(h, b, 6, DEADEYE, beetle);
+    assert!(
+        h.run_until(200, |h| h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .and_then(|p| p.using.as_ref())
+            .is_some_and(|x| x.told)),
+        "Deadeye told"
+    );
+}
+
+/// A use of an object with a knife, or (`knife` 0) of the object alone, as the client asks.
+fn ask_use(h: &mut Harness, b: usize, me: u64, knife: u64, object: u64) {
+    use yalain_world::graph::{Builder, Slot};
+    let (item, target) = if knife == 0 {
+        (object, 0)
+    } else {
+        (knife, object)
+    };
+    let mut g = Builder::new();
+    g.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(target),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::requests::function::USE,
+            &[Arg::Object(g.graph())],
+        ),
+    );
+}
+
+/// What a held use's tick tells, named, of what a client was sent since `from`, in the order the
+/// server sent it: the special's end or cut, the use's answer by its status, the butchering, an
+/// attack state raised.
+fn held_use_named(h: &Harness, b: usize, from: usize, me: u64) -> Vec<String> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok());
+                match c.function.0 {
+                    SKILL_INFO => Some("information".to_owned()),
+                    ATTACK_STATE if v == Some(vec![Value::Int(0)]) => Some("lowered".to_owned()),
+                    ATTACK_STATE => Some("raised".to_owned()),
+                    function::ENDED => Some("over".to_owned()),
+                    function::REFUSED => Some("refused".to_owned()),
+                    yalain_world::places::function::USE_DONE => {
+                        let status = v.as_ref().and_then(|v| match v.first() {
+                            Some(Value::Graph(g)) => g.iter().find_map(|(_, n)| match n {
+                                calls::Node::Script { slots, .. } => Some(slots[11].1),
+                                _ => None,
+                            }),
+                            _ => None,
+                        });
+                        Some(format!("done {}", status.unwrap_or(u32::MAX)))
+                    }
+                    _ => None,
+                }
+            }
+            ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001 => {
+                Some("peace".to_owned())
+            }
+            ServerMessage::PlayBehavior(e)
+                if e.action.behavior == yalain_world::butchery::BEHAVIOR =>
+            {
+                Some("butchering".to_owned())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Step one tick at a time, `steps` of them; returns each tick's named messages
+/// ([`held_use_named`]), for the ticks that told any.
+fn held_use_ticks(h: &mut Harness, b: usize, me: u64, steps: usize) -> Vec<Vec<String>> {
+    let mut ticks = Vec::new();
+    for _ in 0..steps {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let tick = held_use_named(h, b, from, me);
+        if !tick.is_empty() {
+            ticks.push(tick);
+        }
+    }
+    ticks
+}
+
+/// A knife used on a corpse while Deadeye from rest is under way, past its story, waits for it:
+/// nothing of the butchery is sent until Deadeye ends, and then, in that one tick and in this
+/// order, the skill's information, not attacking, peace, and the butchering.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_butchery_asked_mid_special_goes_ahead_in_its_end_tick_after_the_peace() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks.first().map(Vec::as_slice),
+        Some(&["information", "lowered", "peace", "butchering"].map(String::from)[..]),
+        "held to the special's end: {ticks:?}"
+    );
+    assert!(!using(&h, me), "the special is over");
+}
+
+/// A creature used while Deadeye from rest is under way, past its story, waits for it: nothing is
+/// answered until Deadeye ends, and then, in that one tick and in this order, the skill's
+/// information, not attacking, peace, the use answered, and the attack it begins.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_creature_used_mid_special_is_answered_in_its_end_tick_after_the_peace() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, 0, beetle);
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks
+            .first()
+            .map(|t| t.iter().take(5).cloned().collect::<Vec<_>>()),
+        Some(
+            ["information", "lowered", "peace", "done 0", "raised"]
+                .map(String::from)
+                .to_vec()
+        ),
+        "held to the special's end: {ticks:?}"
+    );
+    assert!(
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .is_some_and(|p| p.attacking.is_some_and(|r| r.target == beetle)),
+        "attacking the creature used"
+    );
+}
+
+/// A second use asked while one is held for a special is refused at once as the player's actions
+/// are locked; the first goes ahead as the special ends.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_second_use_while_one_is_held_is_refused_actions_locked() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    h.run(2);
+    assert!(using(&h, me), "the special goes on");
+    let from = h.bots[b].inbox.len();
+    ask_use(&mut h, b, me, 0, beetle);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    assert_eq!(
+        held_use_named(&h, b, from, me),
+        [format!("done {}", yalain_world::places::ACTIONS_LOCKED)],
+        "refused at once"
+    );
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks.first().map(Vec::as_slice),
+        Some(&["information", "lowered", "peace", "butchering"].map(String::from)[..]),
+        "the first goes ahead: {ticks:?}"
+    );
+}
+
+/// A use asked with no special under way (before any, or after one has ended) is carried out at
+/// once: the butchering in the request's own tick, with no skill information.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_use_with_no_special_under_way_goes_ahead_at_once() {
+    for special_first in [false, true] {
+        let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+        if special_first {
+            deadeye_told(&mut h, b, me, beetle);
+            assert!(h.run_until(200, |h| !using(h, me)), "Deadeye over");
+            h.run(2);
+        }
+        ask_use(&mut h, b, me, knife, corpse);
+        let ticks = held_use_ticks(&mut h, b, me, 4);
+        assert_eq!(
+            ticks.first().map(Vec::as_slice),
+            Some(&["butchering".to_owned()][..]),
+            "a special first: {special_first}: {ticks:?}"
+        );
+    }
+}
+
+/// A use held for a special that is cut short goes ahead in the cut's tick: the special's
+/// information, the use over and why, not attacking and peace, then the butchering.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_use_held_for_a_special_cut_short_goes_ahead_in_the_cuts_tick() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks.first().map(Vec::as_slice),
+        Some(
+            &[
+                "information",
+                "over",
+                "refused",
+                "lowered",
+                "peace",
+                "butchering"
+            ]
+            .map(String::from)[..]
+        ),
+        "the cut's tick: {ticks:?}"
+    );
+}
+
+/// A use held for a special goes with it when the player dies: the special is cut short and the
+/// use never goes ahead.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_use_held_for_a_special_is_dropped_at_a_death() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+    h.run(120);
+    let told = held_use_named(&h, b, from, me);
+    assert!(told.contains(&"refused".to_owned()), "cut short: {told:?}");
+    assert!(
+        !told
+            .iter()
+            .any(|t| t == "butchering" || t.starts_with("done")),
+        "the use never goes ahead: {told:?}"
+    );
+}
+
+/// A special asked behind one from rest that holds a use, one its start would let go, is never cut:
+/// in the end's tick the skill's information, not attacking, peace, the held use goes ahead, and
+/// then the special asked behind it begins from rest, its story after.
+/// Behaviour: server.specials.held-use-goes-before-the-special-asked-behind
+#[test]
+fn a_special_asked_behind_a_held_use_begins_after_the_use_uncut() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_recovers_at_once(&mut h);
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    let start = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks
+            .first()
+            .map(|t| t.iter().take(5).cloned().collect::<Vec<_>>()),
+        Some(
+            ["information", "lowered", "peace", "butchering", "raised"]
+                .map(String::from)
+                .to_vec()
+        ),
+        "the end's tick: {ticks:?}"
+    );
+    assert!(
+        !ticks.iter().flatten().any(|t| t == "refused"),
+        "nothing refused or cut: {ticks:?}"
+    );
+    assert!(told_story(&h, b, start, me, 7), "the one behind begins");
+}
+
+/// A special asked behind one from rest that holds a use, one its start would refuse (its skill
+/// still recovering), is refused in the end's tick before the lowering: the skill's information,
+/// the one behind over and why, naming its skill and its target, not attacking, peace, then the
+/// held use goes ahead. It never begins.
+/// Behaviour: server.specials.held-use-goes-before-the-special-asked-behind
+#[test]
+fn a_special_asked_behind_a_held_use_refused_by_its_own_check_is_refused_before_the_lowering() {
+    let (mut h, b, me, beetle, knife, corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, knife, corpse);
+    let start = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    let from = h.bots[b].inbox.len();
+    let ticks = held_use_ticks(&mut h, b, me, 120);
+    assert_eq!(
+        ticks.first().map(Vec::as_slice),
+        Some(
+            &[
+                "information",
+                "over",
+                "refused",
+                "lowered",
+                "peace",
+                "butchering"
+            ]
+            .map(String::from)[..]
+        ),
+        "the end's tick: {ticks:?}"
+    );
+    assert!(calls_of(&h, b, from).contains(&(
+        function::REFUSED,
+        vec![
+            Value::Int(DEADEYE),
+            Value::Long(beetle),
+            Value::Int(refusal::NOT_RESET)
+        ]
+    )));
+    assert_eq!(over_ids(&h, b, from), [7]);
+    assert!(!using(&h, me), "the one behind never begins");
+    assert!(
+        !told_story(&h, b, start, me, 7),
+        "the one behind never begins"
+    );
+}
+
+/// A move about the pack asked while a use is held for a special goes ahead at once: only a
+/// further use waits on the held one.
+/// Behaviour: server.specials.use-held-for-a-special
+#[test]
+fn a_pack_move_while_a_use_is_held_goes_ahead_at_once() {
+    use yalain_world::inventory::{move_graph, Move};
+    let (mut h, b, me, beetle, knife, _corpse) = armed_beside_a_corpse();
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, 0, beetle);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    let slot = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .and_then(|p| p.play.items.iter().find(|i| i.id == knife))
+        .map(|i| i32::try_from(i.slot).unwrap_or(0))
+        .expect("the knife in the pack");
+    let from = h.bots[b].inbox.len();
+    let to = 54;
+    h.ask(
+        b,
+        yalain_world::pack::function::REORGANIZE,
+        &[move_graph(&Move {
+            merge: true,
+            actual_from_slot: slot,
+            target: me,
+            actual_target: me,
+            unlock: true,
+            target_slot: to,
+            check_take: true,
+            from: me,
+            all_taken: true,
+            actual_target_slot: to,
+            quantity_left: 1,
+            quantity: 1,
+            split_item: knife,
+            merge_container: me,
+            grab: true,
+            actual_from: me,
+            from_slot: slot,
+            item: knife,
+            contain: true,
+            auto_merge: true,
+            merge_slot: to,
+            ..Move::default()
+        })],
+        4,
+    );
+    assert!(using(&h, me), "the special goes on");
+    let status: Vec<u32> = h
+        .calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::pack::function::REORGANIZE_DONE)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(calls::Node::Script { slots, .. }) => Some(slots[40].1),
+                _ => None,
+            })
+        })
+        .collect();
+    assert_eq!(status, [0], "answered at once, not refused");
+}

@@ -487,6 +487,9 @@ pub struct Using {
     /// Its run has ended while it goes on, the run's attacks failed for this reason if they did: the
     /// run's end waits for it and is told as it ends.
     pub run_ended: Option<Option<u32>>,
+    /// A use of an object asked while it goes on from rest, past its story: held, and asked as it
+    /// ends.
+    pub held_use: Option<Vec<Value>>,
     /// Its story has been told (its vigor paid).
     pub told: bool,
     pub time_scale: f32,
@@ -1722,6 +1725,7 @@ pub fn starts<S: Store>(
             began,
             alone: true,
             run_ended: None,
+            held_use: None,
             told: false,
             time_scale: ts,
             outcome: None,
@@ -1899,6 +1903,7 @@ pub fn slot<S: Store>(
         began,
         alone: false,
         run_ended: None,
+        held_use: None,
         told: false,
         time_scale: ts,
         outcome: None,
@@ -3279,7 +3284,7 @@ fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
 /// or never, for a summoning that set no pet down of a skill whose definition says it is then
 /// unused; a recall's start of the wait every skill shares), and, used from rest, the player not
 /// attacking and at peace, stopped where the use turned or walked it ([`stops_before_lowering`]);
-/// inside a run, the run's next swing. A request waiting is taken up.
+/// inside a run, the run's next swing. A held use goes ahead, then a request waiting is taken up.
 fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let now_game = net.game_time(clock.local);
     let Some(p) = s.players.get_mut(&world) else {
@@ -3293,6 +3298,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     if toggled(s, x.req.skill) {
         turns_on(s, net, world, &x, now_game, clock);
         crate::world::keep_player(s, world);
+        held_use_asked(s, net, world, x.held_use, clock);
         take_up_waiting(s, net, world, clock);
         return;
     }
@@ -3379,6 +3385,9 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     }
     let me = p.character;
     if x.alone {
+        if x.held_use.is_some() {
+            queued_checked_for_held_use(s, net, world, clock);
+        }
         // A use that gave the player no order ends a follow as it is over, the follow's stop in
         // place of the player's own: the stop sent before the attack state is lowered, the player
         // told after the peace (2017: of 156 such uses inside a follow, 129 ended it in the tick of
@@ -3407,6 +3416,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
         crate::pets::appear(s, net, pet);
     }
     crate::world::keep_player(s, world);
+    held_use_asked(s, net, world, x.held_use, clock);
     take_up_waiting(s, net, world, clock);
 }
 
@@ -3518,6 +3528,9 @@ fn turns_on<S: Store>(
     let followed = x.alone && crate::follow::order_stopped(s, net, world);
     progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
     skill_info(s, net, world, x, now_game, TOGGLED_ON);
+    if x.alone && x.held_use.is_some() {
+        queued_checked_for_held_use(s, net, world, clock);
+    }
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -3541,6 +3554,88 @@ fn turns_on<S: Store>(
         run_waits_no_more(s, world, clock);
     } else {
         run_goes_on_or_ends(s, net, world, x, clock);
+    }
+}
+
+/// A use of an object asked while a special from rest goes on past its story is held, nothing sent,
+/// and asked as the special ends or is cut (2017: of 1,992 uses asked so, 1,966 were held to the
+/// special's end and none went ahead during it, whatever was used: a creature, a corpse to butcher
+/// or open, a portal, food or drink; the client asked once). Returns whether it was held.
+pub fn holds_use<S: Store>(s: &mut Server<S>, world: ConnId, v: &[Value]) -> bool {
+    if crate::places::actions_locked(s, world) || use_held(s, world) {
+        return false;
+    }
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    if crate::places::read_use(v, p.position).is_none() {
+        return false;
+    }
+    let Some(x) = p.using.as_mut().filter(|x| x.alone && x.told) else {
+        return false;
+    };
+    x.held_use = Some(v.to_vec());
+    true
+}
+
+/// Does a player hold a use for a special under way, so that a further use is refused as its
+/// actions are locked (2017: the 25 uses answered during a special from rest were all refused so,
+/// 16 of them asked while another was held)? Only a use waits on it.
+#[must_use]
+pub fn use_held<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players
+        .get(&world)
+        .and_then(|p| p.using.as_ref())
+        .is_some_and(|x| x.held_use.is_some())
+}
+
+/// A use held for a special is dropped: its player dies or goes into portal space.
+pub fn held_use_dropped<S: Store>(s: &mut Server<S>, world: ConnId) {
+    if let Some(x) = s.players.get_mut(&world).and_then(|p| p.using.as_mut()) {
+        x.held_use = None;
+    }
+}
+
+/// A use held for a special is asked as the special's end or cut has been told, in the same tick
+/// (2017: 1,866 of 1,966 held uses went ahead right after the skill's information, not attacking
+/// and peace, a median 0.06 s after the information); dropped if its player is by then dying or
+/// dead, in portal space or logging off.
+fn held_use_asked<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    held: Option<Vec<Value>>,
+    clock: Clock,
+) {
+    let Some(v) = held else {
+        return;
+    };
+    let gone = s.players.get(&world).is_none_or(|p| {
+        p.logging_off || p.trip.is_some() || p.dying.is_some() || combat::is_dead(p)
+    });
+    if !gone {
+        crate::places::use_request(s, net, world, &v, clock);
+    }
+}
+
+/// A special asked behind one from rest that holds a use is checked as that one ends, as its start
+/// would check it: refused, it is over and why before the attack state is lowered; one that would
+/// go waits for the held use and is taken up after it (2017: of 176 such specials, none was cut;
+/// 8 were refused in the end's tick, each before the lowering, and 147 ran, 141 of them after the
+/// use's answer).
+fn queued_checked_for_held_use<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let Some(r) = s.players.get_mut(&world).and_then(|p| p.queued.take()) else {
+        return;
+    };
+    if !waiting_refused(s, net, world, r, clock) {
+        if let Some(p) = s.players.get_mut(&world) {
+            p.queued = Some(r);
+        }
     }
 }
 
@@ -3734,6 +3829,7 @@ pub fn interrupt<S: Store>(
     if followed {
         crate::follow::told_stopped(net, world);
     }
+    held_use_asked(s, net, world, x.held_use, clock);
 }
 
 /// The player reported a place: moving cuts short a use that is not used on the move (2017: 803

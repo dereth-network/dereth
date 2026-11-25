@@ -881,6 +881,25 @@ pub fn pack_spoken_for<S: Store>(s: &Server<S>, world: ConnId) -> bool {
             .any(|(_, t)| matches!(t, Timer::Butcher { world: w, .. } if *w == world))
 }
 
+/// A player asks to use an object: held while a special from rest goes on
+/// ([`crate::skill_use::holds_use`]); otherwise a follow ends unless the use keeps it, and the use
+/// is carried out or refused.
+pub fn use_request<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) {
+    if crate::skill_use::holds_use(s, world, v) {
+        return;
+    }
+    if !use_keeps_follow(s, world, v, clock) {
+        crate::follow::stop(s, net, world);
+    }
+    use_object(s, net, world, v, clock);
+}
+
 /// A player asks to use an object.
 pub fn use_object<S: Store>(
     s: &mut Server<S>,
@@ -896,7 +915,7 @@ pub fn use_object<S: Store>(
         s.unhandled.note("a use that does not read");
         return;
     };
-    if actions_locked(s, world) {
+    if actions_locked(s, world) || crate::skill_use::use_held(s, world) {
         // Refused with no effective target and no distance, the request's flags kept, or a player's
         // corpse's own (2017: 759 of 759 such answers; 15 of 15 on a player's corpse flagged 800).
         let players_corpse = s
@@ -2146,6 +2165,7 @@ fn through_door<S: Store>(
         &crate::chat::show_text(8, teleporting),
     );
     crate::effects::teleported(s, net, world);
+    crate::skill_use::held_use_dropped(s, world);
     send(net, world, BlobKind::PRIVATE, &animation_frozen(true));
     send(
         net,
@@ -2196,6 +2216,7 @@ pub(crate) fn shard_portal_space<S: Store>(s: &mut Server<S>, net: &mut ServerNe
         &crate::chat::show_text(8, teleporting),
     );
     crate::effects::teleported(s, net, world);
+    crate::skill_use::held_use_dropped(s, world);
     send(net, world, BlobKind::PRIVATE, &animation_frozen(true));
     send(
         net,
@@ -2251,6 +2272,7 @@ fn goes_into_portal_space<S: Store>(
 ) {
     walk_cut_short(s, net, world);
     crate::effects::teleported(s, net, world);
+    crate::skill_use::held_use_dropped(s, world);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };

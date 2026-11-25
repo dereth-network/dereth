@@ -1714,6 +1714,8 @@ pub fn player_dies<S: Store>(
     // use over, then why, 46 of 57), and a run of basic attacks ends: failed as interrupted, then
     // not attacking (79 of 85).
     crate::follow::died(s, net, world);
+    // A use held for the special goes with it.
+    crate::skill_use::held_use_dropped(s, world);
     crate::skill_use::interrupt(s, net, world, crate::skill_use::refusal::INTERRUPTED, clock);
     if s.players
         .get_mut(&world)

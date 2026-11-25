@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Stopping an attack mid-special now waits for the special to finish, as in retail.
+- Using something while a special is under way now waits for it to finish.
 - New: a list of where Yalain deliberately differs from retail.
 - Switching targets during an attack now moves your attacks to the new target.
 - Hiding Trade in every chat window now leaves the Trade channel.

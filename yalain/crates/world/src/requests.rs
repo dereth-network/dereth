@@ -121,12 +121,7 @@ pub fn call<S: Store>(
         crate::personal::function::LIST_SKILLS => crate::personal::list_skills(s, net, world),
         crate::personal::function::RENAME => crate::personal::rename(net, world),
         crate::quests::CANCEL_QUEST => crate::quests::cancel(s, net, world, &values, clock),
-        function::USE => {
-            if !crate::places::use_keeps_follow(s, world, &values, clock) {
-                crate::follow::stop(s, net, world);
-            }
-            crate::places::use_object(s, net, world, &values, clock);
-        }
+        function::USE => crate::places::use_request(s, net, world, &values, clock),
         function::ATTACK => {
             // An attack cuts a transmute or a take-all under way short: carried out first.
             crate::inventory::transmute_cut_short(s, net, world);
