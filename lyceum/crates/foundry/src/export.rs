@@ -10,6 +10,10 @@
 //! retail client reads only plain files: its players need the baked files, or a server that patches
 //! theirs.
 //!
+//! The overlay is numbered by its content, from a ledger beside the world file
+//! ([`crate::publish::ledger_path`]): a changed overlay is the next generation, so a client
+//! holding the last one patches again, and an unchanged one keeps its number.
+//!
 //! The export folder is new, empty, or an earlier export, which it replaces; never the data files'
 //! own folder. The world database the content goes over is a dump named by the caller, else the
 //! era's newest in the import tool's per-user cache, downloaded by the tool when there is none.
@@ -272,10 +276,15 @@ pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported,
     let staging = opts.out.join(STAGING);
     let result = (|| {
         let key = w.key.clone();
-        let built = crate::compile::build(world, dats, Some(&staging), false)?;
+        let built = crate::compile::build_numbered(world, dats, Some(&staging))?;
         let sql = read_sql(&staging.join("sql"))?;
         let mut done = write(&staging.join("overlay"), &sql, &key, dats, opts)?;
         done.warnings = built.warnings;
+        done.wrote.push(format!(
+            "overlay: generation {} in {}",
+            built.generation,
+            crate::publish::ledger_path(world).display()
+        ));
         Ok(done)
     })();
     let _ = std::fs::remove_dir_all(&staging);

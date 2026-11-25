@@ -101,6 +101,86 @@ pub fn served_digest(
     generations::digest(items.iter().map(|(id, b)| (*id, b.as_slice())))
 }
 
+/// The ledger numbering what the world file `world_toml` serves: a repository's own (`[land]
+/// ledger`, else [`LEDGER`]); for a world with no repository, one beside its world file and named
+/// for it (`world.toml`'s is `world.generations.tsv`).
+#[must_use]
+pub fn ledger_path(world_toml: &Path) -> PathBuf {
+    let root = world_toml.parent().unwrap_or_else(|| Path::new("."));
+    if repo_world::is_repository(world_toml) {
+        return root.join(
+            std::fs::read_to_string(world_toml)
+                .ok()
+                .and_then(|t| toml::from_str::<toml::Table>(&t).ok())
+                .and_then(|t| t.get("land")?.get("ledger")?.as_str().map(str::to_owned))
+                .unwrap_or_else(|| LEDGER.to_owned()),
+        );
+    }
+    let stem = world_toml
+        .file_stem()
+        .map_or_else(|| "world".into(), |s| s.to_string_lossy());
+    root.join(format!("{stem}.generations.tsv"))
+}
+
+/// An overlay's generation in its world's ledger ([`ledger_path`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Numbered {
+    pub generation: u32,
+    /// Its content's digest ([`served_digest`]), in hex.
+    pub digest: String,
+    pub ledger: PathBuf,
+    /// The ledger with this content's new line, when it had none: [`Numbered::record`] writes it.
+    added: Option<String>,
+}
+
+impl Numbered {
+    /// The generation of `records` and the deletions `tombstones` in the ledger of the world file
+    /// `world_toml`: the one it has, or the next when it has none.
+    ///
+    /// # Errors
+    /// A ledger that doesn't read.
+    pub fn of(
+        world_toml: &Path,
+        records: &Records,
+        tombstones: &std::collections::BTreeMap<ModernDat, std::collections::BTreeSet<(u32, u32)>>,
+    ) -> Result<Self, Error> {
+        let ledger = ledger_path(world_toml);
+        let digest = served_digest(records, tombstones);
+        let mut l = match std::fs::read_to_string(&ledger) {
+            Ok(text) => Ledger::parse(&text)
+                .map_err(|e| Error::Refused(format!("{}: {e}", ledger.display())))?,
+            Err(_) => Ledger::default(),
+        };
+        let (generation, new) = l.generation(&digest);
+        Ok(Self {
+            generation,
+            digest: generations::hex(&digest),
+            ledger,
+            added: new.then(|| l.text()),
+        })
+    }
+
+    /// Whether the ledger lacked this content.
+    #[must_use]
+    pub fn is_new(&self) -> bool {
+        self.added.is_some()
+    }
+
+    /// Write the ledger's new line, if it lacked this content.
+    ///
+    /// # Errors
+    /// A ledger that won't write.
+    pub fn record(&self) -> Result<(), Error> {
+        let Some(text) = &self.added else {
+            return Ok(());
+        };
+        if let Some(d) = self.ledger.parent() {
+            std::fs::create_dir_all(d).map_err(|e| Error::io(d, e))?;
+        }
+        std::fs::write(&self.ledger, text).map_err(|e| Error::io(&self.ledger, e))
+    }
+}
+
 fn sha256(path: &Path) -> Result<String, Error> {
     let bytes = std::fs::read(path).map_err(|e| Error::io(path, e))?;
     Ok(Sha256::digest(&bytes)
@@ -156,33 +236,16 @@ pub fn publish(
     // The served overlay, numbered from the repository's ledger.
     let s = crate::edit::Session::open_world(world, dats, None, None)?;
     let c = s.compiled();
-    let digest = served_digest(&c.records, &c.tombstones);
-    let hex = generations::hex(&digest);
-    let root = world_toml.parent().unwrap_or_else(|| Path::new("."));
-    let ledger_path = root.join(
-        std::fs::read_to_string(world_toml)
-            .ok()
-            .and_then(|t| toml::from_str::<toml::Table>(&t).ok())
-            .and_then(|t| t.get("land")?.get("ledger")?.as_str().map(str::to_owned))
-            .unwrap_or_else(|| LEDGER.to_owned()),
-    );
-    let mut ledger = match std::fs::read_to_string(&ledger_path) {
-        Ok(text) => Ledger::parse(&text).map_err(refused)?,
-        Err(_) => Ledger::default(),
-    };
-    let (generation, new) = ledger.generation(&digest);
+    let n = Numbered::of(world_toml, &c.records, &c.tombstones)?;
+    let (generation, new, ledger_path) = (n.generation, n.is_new(), n.ledger.clone());
     if new && !p.number {
         return Err(refused(format!(
-            "the world served at {layer} (content {hex}) has no generation in {}: its author publishes it with --number and commits the ledger's new line; an operator never numbers one",
+            "the world served at {layer} (content {}) has no generation in {}: its author publishes it with --number and commits the ledger's new line; an operator never numbers one",
+            n.digest,
             ledger_path.display()
         )));
     }
-    if new {
-        if let Some(d) = ledger_path.parent() {
-            std::fs::create_dir_all(d).map_err(|e| Error::io(d, e))?;
-        }
-        std::fs::write(&ledger_path, ledger.text()).map_err(|e| Error::io(&ledger_path, e))?;
-    }
+    n.record()?;
     let overlay = out.join("overlay");
     crate::compile::write_records_at(
         &c.records,
@@ -274,6 +337,7 @@ pub fn publish(
         "{MARK}\n\nWorld: {key}, at layer {layer}, from {}.\nServed overlay: generation {generation} in {} (content {hex}).\n\nFiles, by SHA-256:\n",
         world_toml.display(),
         ledger_path.display(),
+        hex = n.digest,
     );
     for (f, h) in &files {
         text.push_str(&format!(
@@ -287,7 +351,7 @@ pub fn publish(
         out: out.to_path_buf(),
         layer,
         generation,
-        digest: hex,
+        digest: n.digest,
         numbered: new,
         files,
     })

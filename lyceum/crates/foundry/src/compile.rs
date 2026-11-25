@@ -2617,6 +2617,30 @@ pub fn write_overlay(c: &Compiled, base: &DatSet, key: &str, dir: &Path) -> Resu
     write_records(&c.records, &c.tombstones, base, key, dir)
 }
 
+/// [`write_overlay`] for `world`, numbered by its content in the world's ledger as
+/// [`build_numbered`] numbers it, the ledger's new line written with it. Answers its generation.
+///
+/// # Errors
+/// The writer's errors, and a ledger that doesn't read or write.
+pub fn write_overlay_numbered(
+    c: &Compiled,
+    base: &DatSet,
+    world: &World,
+    dir: &Path,
+) -> Result<u32, Error> {
+    let n = crate::publish::Numbered::of(&world.path, &c.records, &c.tombstones)?;
+    write_records_at(
+        &c.records,
+        &c.tombstones,
+        base,
+        &world.key,
+        dir,
+        n.generation,
+    )?;
+    n.record()?;
+    Ok(n.generation)
+}
+
 /// Write `records` and the deletions `tombstones` as an overlay folder at `dir` (made fresh)
 /// over `base`, for the world `key`, as [`write_overlay`] writes a compiled world.
 ///
@@ -2700,6 +2724,8 @@ pub struct Built {
     pub current: bool,
     /// Where two packs disagreed and the world's overrides said which wins.
     pub overridden: Vec<conflict::Overridden>,
+    /// The overlay's generation ([`build_numbered`]); 1 when not numbered.
+    pub generation: u32,
 }
 
 /// Every data id the compiled SQL names, placed at its pack's source file and line (filling a
@@ -2789,6 +2815,28 @@ pub fn build_with(
     check: bool,
     ac2: Option<&dereth_ac2_convert::source::Ac2>,
 ) -> Result<Built, Error> {
+    build_inner(world_path, dats, out, check, ac2, false)
+}
+
+/// [`build`], its overlay numbered by its content in the world's ledger
+/// ([`crate::publish::Numbered`]), as an export serves it: a changed overlay gets the next
+/// generation, so a client that holds the last one patches again, and an unchanged one keeps its
+/// own. The ledger's new line is written with the build.
+///
+/// # Errors
+/// As [`build`], and a ledger that doesn't read or write.
+pub fn build_numbered(world_path: &Path, dats: &Path, out: Option<&Path>) -> Result<Built, Error> {
+    build_inner(world_path, dats, out, false, None, true)
+}
+
+fn build_inner(
+    world_path: &Path,
+    dats: &Path,
+    out: Option<&Path>,
+    check: bool,
+    ac2: Option<&dereth_ac2_convert::source::Ac2>,
+    numbered: bool,
+) -> Result<Built, Error> {
     let world = World::read(world_path)?;
     let packs = world
         .packs
@@ -2819,7 +2867,21 @@ pub fn build_with(
         std::fs::remove_dir_all(&staging).map_err(|e| Error::io(&staging, e))?;
     }
     let result = (|| {
-        write_overlay(&c, &base, &world.key, &staging.join("overlay"))?;
+        let numbered = if numbered {
+            let n = crate::publish::Numbered::of(&world.path, &c.records, &c.tombstones)?;
+            write_records_at(
+                &c.records,
+                &c.tombstones,
+                &base,
+                &world.key,
+                &staging.join("overlay"),
+                n.generation,
+            )?;
+            Some(n)
+        } else {
+            write_overlay(&c, &base, &world.key, &staging.join("overlay"))?;
+            None
+        };
         carry_world_files(&world, &staging.join("overlay"))?;
         write_sql(&c, &staging.join("sql"))?;
         // The checks, over the overlay as it was written; its files are closed again before it
@@ -2873,6 +2935,9 @@ pub fn build_with(
             if std::fs::read_to_string(&lock_path).ok().as_deref() != Some(lock_text.as_str()) {
                 std::fs::write(&lock_path, &lock_text).map_err(|e| Error::io(&lock_path, e))?;
             }
+            if let Some(n) = &numbered {
+                n.record()?;
+            }
         }
         Ok(Built {
             out: out.clone(),
@@ -2883,6 +2948,7 @@ pub fn build_with(
             warnings: report.warnings,
             current,
             overridden: c.overridden().into_iter().cloned().collect(),
+            generation: numbered.map_or(1, |n| n.generation),
         })
     })();
     let _ = std::fs::remove_dir_all(&staging);

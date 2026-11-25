@@ -165,3 +165,57 @@ fn a_published_worlds_overlay_is_numbered_from_its_repositorys_ledger() {
     std::fs::write(other.join("mine.txt"), "mine").unwrap();
     assert!(publish(&world, &f.dats(), &other, &author).is_err());
 }
+
+/// A world with no repository is exported with its overlay numbered by its content, from a ledger
+/// beside its world file that the export keeps: the first export is generation 1; an unchanged
+/// export keeps it, so a client holding it doesn't patch again; a changed record is the next
+/// generation, one iteration on, so a client holding the last one patches.
+#[test]
+fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
+    use lyceum_foundry::export::{export, Era, Options, Target};
+    let f = Fixture::new("export-numbered");
+    let world = f.world();
+    let textures = |names: &[&str]| {
+        let rows: String = names
+            .iter()
+            .map(|n| format!("[[surface-texture]]\nname = \"{n}\"\nlevels = [0x{PICTURE:08X}]\n"))
+            .collect();
+        f.write("sample/records/stone.toml", &rows);
+    };
+    let dump = f.write("ACE-World-Database-v0.9.295.sql", "-- the world database");
+    let tool = Tool::default();
+    let out = f.path().join("for-empyrean");
+    let opts = Options {
+        target: Target::Empyrean,
+        out: &out,
+        era: Era::Eor,
+        world_sql: Some(&dump),
+        importer: Some(&tool),
+        gdle_quests: None,
+    };
+    let ledger = f.path().join("world.generations.tsv");
+
+    textures(&["stone"]);
+    export(&world, &f.dats(), &opts).unwrap();
+    let once = iterations(&f, &out);
+    assert_eq!(once.len(), 1, "generation 1");
+    let lines = std::fs::read_to_string(&ledger).expect("the ledger beside the world");
+    assert!(lines.contains("\t1"), "{lines}");
+
+    export(&world, &f.dats(), &opts).unwrap();
+    assert_eq!(iterations(&f, &out), once, "unchanged: the same iteration");
+    assert_eq!(std::fs::read_to_string(&ledger).unwrap(), lines);
+
+    textures(&["stone", "slate"]);
+    export(&world, &f.dats(), &opts).unwrap();
+    assert_eq!(
+        iterations(&f, &out),
+        [once[0], once[0] + 1],
+        "changed: one iteration more"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&ledger).unwrap().lines().count(),
+        lines.lines().count() + 1,
+        "the ledger's new line"
+    );
+}

@@ -468,10 +468,10 @@ impl EditorApp {
             std::process::id(),
             target.word()
         ));
-        lyceum_foundry::compile::write_overlay(
+        lyceum_foundry::compile::write_overlay_numbered(
             self.session.compiled(),
             self.session.base(),
-            &key,
+            world,
             &staging,
         )
         .map_err(|e| e.to_string())?;
