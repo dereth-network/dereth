@@ -601,6 +601,8 @@ impl HostCalls for Call<'_> {
                 Ok(Value::Nil)
             }
             "task.timer" => self.timer(args),
+            // Long work between its pieces: here it goes on in the next frame.
+            "task.soon" => self.timer(&[Value::Num(0.0)]),
             "task.cancel" => {
                 if let Some(id) = args.first().and_then(Value::as_i64) {
                     self.slot.timers.remove(&id);

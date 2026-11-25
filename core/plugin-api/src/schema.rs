@@ -99,6 +99,8 @@ pub const OPS: &[Op] = &[
          doc: "Give up a claimed `/verb`." },
     Op { name: "task.timer", lua: None, params: &[p("ms", Ty::Num), p("repeat", Ty::Bool)], result: Some(Ty::Int),
          doc: "Start a timer; each time it is due a `task.timer` event with its id arrives." },
+    Op { name: "task.soon", lua: None, params: &[], result: Some(Ty::Int),
+         doc: "Start a timer due at once, for long work waiting between its pieces: its `task.timer` event may arrive in this same frame, while the plugin has time left there for long work, else in the next." },
     Op { name: "task.cancel", lua: Some("task.cancel"), params: &[p("timer", Ty::Int)], result: None,
          doc: "Cancel a timer." },
     Op { name: "task.error", lua: None, params: &[p("message", Ty::Str)], result: None,

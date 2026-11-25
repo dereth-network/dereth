@@ -2000,6 +2000,23 @@ const LARGE_META_RULES: usize = 300;
 /// budget with its VMs on a [`WorkClock`] (held still until it has loaded) until it prints `done`
 /// or a thousand frames pass. Answers what else it printed.
 fn large_meta_run(then: &str) -> Vec<String> {
+    large_meta_frames(then, 0.05, false).0
+}
+
+/// The host's clock read from a [`WorkClock`] the VMs share.
+#[derive(Debug)]
+struct SharedWork(Rc<WorkClock>);
+
+impl VmClock for SharedWork {
+    fn now(&self) -> std::time::Duration {
+        self.0.now.get()
+    }
+}
+
+/// [`large_meta_run`] with frames `step` seconds apart, the host reading the plugins' share of
+/// a frame from the same work clock when `shared` (else from one that stands still); answers what
+/// the plugin printed and the frames from its first line to `done`.
+fn large_meta_frames(then: &str, step: f64, shared: bool) -> (Vec<String>, u32) {
     let main = format!(
         r#"
 local meta = require("dereth.meta")
@@ -2068,12 +2085,16 @@ print("ready")
         }),
         Box::new(MemoryStorage::default()),
     )
-    .with_vm_clock(Box::new(StillClock));
+    .with_vm_clock(if shared {
+        Box::new(SharedWork(clock.clone()))
+    } else {
+        Box::new(StillClock)
+    });
     host.load_all();
     let (view, world, table) = (View::default(), World::new(), CommandInterp::new());
-    let mut time = 0.0;
+    let (mut time, mut frames) = (0.0, 0);
     for _ in 0..1000 {
-        time += 0.05;
+        time += step;
         let mut frame = HookFrame::new(&view, &world, &table, time, time, &[], &[]);
         host.step(&mut frame);
         let lines = host.console("test.bigmeta").unwrap_or_default();
@@ -2081,13 +2102,16 @@ print("ready")
         if lines.iter().any(|l| l == "ready") {
             clock.still.set(false);
         }
+        if lines.len() > 1 {
+            frames += 1;
+        }
         if lines.iter().any(|l| l.starts_with("done")) {
             break;
         }
     }
     let mut lines = host.console("test.bigmeta").unwrap_or_default();
     lines.retain(|l| l != "ready");
-    lines
+    (lines, frames)
 }
 
 /// Whether a plugin's printed lines tell of an entry past its time budget.
@@ -2121,6 +2145,37 @@ fn a_large_meta_loads_and_reads_over_a_tasks_entries_within_the_budget() {
             "loaded\t17\t0".to_owned(),
             format!("done\t{LARGE_META_RULES}"),
         ]
+    );
+}
+
+/// Long work goes on in the frame it slept in while the plugin has time there: in a client held
+/// to 30 frames a second a large meta reads and loads in a small share of the frames it takes at
+/// 240, where a frame's quarter is about the one entry's piece it always had; and no entry is
+/// past its budget.
+///
+/// Behaviour: plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries
+#[test]
+fn a_large_meta_loads_in_fewer_frames_where_frames_come_far_apart() {
+    let then = r#"
+	task.spawn(function()
+		print("begun")
+		local m = meta.load_met(text)
+		print("done", states(m))
+	end)
+"#;
+    let (slow, slow_frames) = large_meta_frames(then, 1.0 / 30.0, true);
+    let (fast, fast_frames) = large_meta_frames(then, 1.0 / 240.0, true);
+    for lines in [&slow, &fast] {
+        assert!(!over_budget(lines), "{lines:?}");
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("done	17"),
+            "{lines:?}"
+        );
+    }
+    assert!(
+        slow_frames * 3 <= fast_frames,
+        "at 30 frames a second {slow_frames} frames, at 240 {fast_frames}"
     );
 }
 
@@ -2251,6 +2306,133 @@ fn a_large_meta_with_line_feeds_alone_reads_in_a_task_as_its_crlf_file() {
             "line ends\ttrue\ttrue".to_owned(),
             format!("done\t{LARGE_META_RULES}\t{}\ttrue", LARGE_META_RULES / 3),
         ]
+    );
+}
+
+/// A synthetic VTank meta the size of a large hunting one, written as VTank writes it: `rules`
+/// rules over seventeen states, each a condition of an expression and a chat match and an
+/// expression for its action, and one in eight walking an embedded route of `points` points.
+fn synthetic_meta(rules: usize, points: usize) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::from(
+        "1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n",
+    );
+    let _ = write!(out, "{rules}\r\n");
+    let fields = |out: &mut String, pairs: &[(&str, &str)]| {
+        let _ = write!(out, "TABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n{}\r\n", pairs.len());
+        for (k, v) in pairs {
+            let _ = write!(out, "s\r\n{k}\r\ns\r\n{v}\r\n");
+        }
+    };
+    for i in 0..rules {
+        // The condition: all of an expression and a chat match.
+        let _ = write!(out, "i\r\n2\r\n");
+        let act = if i % 8 == 0 { 3 } else { 7 };
+        let _ = write!(out, "i\r\n{act}\r\n");
+        let _ = write!(out, "TABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n2\r\ni\r\n26\r\n");
+        fields(&mut out, &[("e", &format!("getvar[n]=={i}"))]);
+        let _ = write!(out, "i\r\n4\r\ns\r\nYou say, \"go {i}\"\r\n");
+        let expr = format!("setvar[n,{}]", i + 1);
+        if act == 3 {
+            // Several actions: the expression, then a walk along an embedded route.
+            let _ = write!(out, "TABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n2\r\ni\r\n7\r\n");
+            fields(&mut out, &[("e", &expr)]);
+            let mut nav = format!("uTank2 NAV 1.2\r\n4\r\n{points}\r\n");
+            for p in 0..points {
+                #[allow(clippy::cast_precision_loss)]
+                let (ew, ns) = (33.8 + p as f64 / 997.0, 42.2 - i as f64 / 991.0);
+                let _ = write!(nav, "0\r\n{ew:.6}\r\n{ns:.6}\r\n0.0125\r\n0\r\n");
+            }
+            let block = format!("route {i}\r\n1\r\n{nav}");
+            let _ = write!(out, "i\r\n4\r\nba\r\n{}\r\n{block}", block.len());
+        } else {
+            fields(&mut out, &[("e", &expr)]);
+        }
+        let _ = write!(out, "s\r\nState{}\r\n", i % 17);
+    }
+    out
+}
+
+/// The machine time and the frames a large meta takes to read and to load in a task, back to
+/// back and at a 30-frame cap. A measure for whoever tunes the reading, not a claim; it prints
+/// what it found.
+#[test]
+#[ignore = "a measure of a large meta's read and load against the machine's clock; prints it"]
+fn a_large_meta_read_and_loaded_in_a_task_measured() {
+    let text = synthetic_meta(320, 1000);
+    assert!(!text.contains("]==]"));
+    let main = format!(
+        r#"
+local meta = require("dereth.meta")
+local text = [==[{text}]==]
+commands.add("go", "read and load the meta", function()
+	task.spawn(function()
+		local f = meta.read_met(text)
+		print("read", #f.rules)
+		local m = meta.load_met(f)
+		print("loaded", #m.unsupported)
+	end)
+end)
+"#
+    );
+    let mut config = HostConfig::new("dereth-test", vec![HostCapability::Core]);
+    config.limits = Limits {
+        memory_bytes: 256 << 20,
+        call_budget_ms: 4.0,
+        profile: false,
+    };
+    let mut host = PluginHost::new(
+        config,
+        Box::new(LuauEngine::dereth()),
+        Box::new(StaticSource {
+            packages: vec![package("test.measure", &main, "")],
+        }),
+        Box::new(MemoryStorage::default()),
+    );
+    host.load_all();
+    let (view, world, table) = (View::default(), World::new(), CommandInterp::new());
+    let typed = [typed("go", "")];
+    let (mut time, mut frames) = (0.0, 0_u32);
+    let (mut read, mut loaded) = (None, None);
+    let mut spent = std::time::Duration::ZERO;
+    for f in 0..100_000 {
+        time += 1.0 / 30.0;
+        let mut frame = HookFrame::new(
+            &view,
+            &world,
+            &table,
+            time,
+            time,
+            &[],
+            &typed[..usize::from(f == 1)],
+        );
+        let begun = std::time::Instant::now();
+        host.step(&mut frame);
+        if f >= 1 {
+            spent += begun.elapsed();
+            frames += 1;
+        }
+        let lines = host.console("test.measure").unwrap_or_default();
+        if read.is_none() && lines.iter().any(|l| l.starts_with("read")) {
+            read = Some((frames, spent));
+        }
+        if lines.iter().any(|l| l.starts_with("loaded")) {
+            loaded = Some((frames, spent));
+            break;
+        }
+    }
+    let (Some((read_frames, read_spent)), Some((load_frames, load_spent))) = (read, loaded) else {
+        panic!("never loaded: {:?}", host.console("test.measure"));
+    };
+    println!(
+        "meta: {} bytes; read {read_frames} frames, {:.0} ms back to back, {:.1} s at 30 fps; \
+         read and loaded {load_frames} frames, {:.0} ms back to back, {:.1} s at 30 fps; {:?}",
+        text.len(),
+        read_spent.as_secs_f64() * 1000.0,
+        f64::from(read_frames) / 30.0,
+        load_spent.as_secs_f64() * 1000.0,
+        f64::from(load_frames) / 30.0,
+        host.console("test.measure"),
     );
 }
 

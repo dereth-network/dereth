@@ -25,7 +25,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `events` | `events.subscribe`, `events.unsubscribe` |
 | `chat` | `chat.print`, `chat.hide`, `chat.send` |
 | `commands` | `commands.add`, `commands.remove` |
-| `task` | `task.timer`, `task.cancel`, `task.error` |
+| `task` | `task.timer`, `task.soon`, `task.cancel`, `task.error` |
 | `store` | `store.get`, `store.set` |
 | `player` | `player.get`, `player.int` |
 | `object` | `object.exists`, `object.get`, `object.distance`, `object.int`, `object.float`, `object.string`, `object.bool`, `object.int64`, `object.did`, `object.iid`, `object.health`, `object.appraisal`, `object.properties` |
@@ -53,7 +53,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `host` | `host.info`, `host.has` |
 | `time` | `time.clock`, `time.unix` |
 
-91 operations in 31 namespaces.
+92 operations in 31 namespaces.
 
 ## `console`
 
@@ -126,6 +126,13 @@ Give up a claimed `/verb`.
 Start a timer; each time it is due a `task.timer` event with its id arrives.
 
 - WIT: `task-timer: func(ms: f64, repeat: bool) -> result<s64, string>`
+- Lua: through the Lua API ([api.md](../api.md))
+
+### `task.soon`
+
+Start a timer due at once, for long work waiting between its pieces: its `task.timer` event may arrive in this same frame, while the plugin has time left there for long work, else in the next.
+
+- WIT: `task-soon: func() -> result<s64, string>`
 - Lua: through the Lua API ([api.md](../api.md))
 
 ### `task.cancel`

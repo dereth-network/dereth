@@ -149,7 +149,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "plugins.automation.a-large-vtank-meta-loads-over-a-tasks-entries",
         says: "A VTank meta too large to read or compile in one entry's time budget is read and \
                compiled over as many of a task's entries as it takes, when it is loaded inside \
-               task.spawn; anywhere else it is one entry's work.",
+               task.spawn, several of them in a frame while the plugin has spent less than a \
+               quarter of the time since the last frame; anywhere else it is one entry's work.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-MET-BUDGET"),

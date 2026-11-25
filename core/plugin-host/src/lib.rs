@@ -173,6 +173,13 @@ const MAX_OVERRUNS: usize = 3;
 pub const PLUGIN_FRAME_BUDGETS: f64 = 2.0;
 /// All plugins' share of one frame together, in entries' budgets.
 pub const FRAME_BUDGETS: f64 = 3.0;
+/// The share of the time from one frame to the next that a plugin's long work, carried on between
+/// its pieces (a `task.soon` timer, as a library's `checkpoint` sets one), may take in one
+/// frame, up to the plugin's share of the frame. A client held to a low frame rate spends its
+/// spare time on it; a fast one, little.
+pub const LONG_WORK_SHARE: f64 = 0.25;
+/// The most rounds of long work carried on in one frame, each plugin's piece in turn.
+pub const LONG_WORK_ROUNDS: usize = 256;
 /// Frames past its share within the window that suspend a plugin: a plugin that is heavy now and
 /// then only has its events wait; one that takes more than its share frame after frame is stopped.
 const MAX_FRAME_OVERRUNS: usize = 30;
@@ -525,6 +532,12 @@ pub struct PluginHost {
     vm_clock: Box<dyn VmClock>,
     /// A plugin is being loaded: its entry is not held to its share of the frame.
     loading: bool,
+    /// Long work is being carried on: an entry that takes the plugin past its share of the frame
+    /// is the host's own doing, not counted against it.
+    continuing: bool,
+    /// The frame clock at the last frame, and the time since the one before.
+    last_frame: Option<f64>,
+    frame_gap: f64,
     /// A plugin's entry chunk is running: a failure there is told as its failure to load.
     entry_chunk: bool,
     /// The toasts the chat has been told of, while the interface shown draws none.
@@ -606,6 +619,9 @@ impl PluginHost {
             frame_spent: web_time::Duration::ZERO,
             vm_clock: Box::new(MachineClock::default()),
             loading: false,
+            continuing: false,
+            last_frame: None,
+            frame_gap: 0.0,
             entry_chunk: false,
         }
     }
@@ -1941,6 +1957,10 @@ impl PluginHost {
     /// One frame (see the crate documentation).
     pub fn step(&mut self, frame: &mut HookFrame<'_>) {
         self.now = frame.local_time;
+        self.frame_gap = self
+            .last_frame
+            .replace(frame.local_time)
+            .map_or(0.0, |t| (frame.local_time - t).max(0.0));
         self.frame_spent = web_time::Duration::ZERO;
         // The places a plugin searches, kept up with the client's stores here, outside every
         // plugin's share of the frame.
@@ -2222,6 +2242,7 @@ impl PluginHost {
         for (target, e) in &events {
             self.dispatch(*target, e, frame);
         }
+        self.carry_on_long_work(frame);
         let attacking = {
             let c = &frame.world.combat;
             c.repeat_attacking
@@ -3153,6 +3174,47 @@ impl PluginHost {
         }
     }
 
+    /// Carry the plugins' long work on in this frame ([`LONG_WORK_SHARE`]): while a plugin has
+    /// time left for it, and the plugins together have time left in the frame, its long work
+    /// waiting between pieces goes on, a piece an entry, each plugin's in turn.
+    fn carry_on_long_work(&mut self, frame: &HookFrame<'_>) {
+        let (mine, all) = self.frame_budgets();
+        let share = web_time::Duration::from_secs_f64(LONG_WORK_SHARE * self.frame_gap).min(mine);
+        self.continuing = true;
+        for _ in 0..LONG_WORK_ROUNDS {
+            let mut carried = false;
+            for i in 0..self.plugins.len() {
+                let st = &self.plugins[i].state;
+                if st.status != Status::Running
+                    || !st.active
+                    || !st.backlog.is_empty()
+                    || st.frame_spent >= share
+                    || self.frame_spent >= all
+                {
+                    continue;
+                }
+                let now = self.now;
+                let Some(id) = st
+                    .timers
+                    .iter()
+                    .filter(|(_, t)| t.soon && t.due <= now)
+                    .map(|(id, _)| *id)
+                    .min()
+                else {
+                    continue;
+                };
+                self.plugins[i].state.timers.remove(&id);
+                let e = Event::new("task.timer", Value::map().with("id", id));
+                self.dispatch(Target::One(i), &e, frame);
+                carried = true;
+            }
+            if !carried {
+                break;
+            }
+        }
+        self.continuing = false;
+    }
+
     /// Run one entry into plugin `i`'s VM, and account for a failure.
     fn enter<R>(
         &mut self,
@@ -3172,6 +3234,7 @@ impl PluginHost {
                 frame_spent,
                 vm_clock,
                 loading,
+                continuing,
                 entry_chunk,
                 ..
             } = self;
@@ -3201,7 +3264,7 @@ impl PluginHost {
             let before = st.frame_spent;
             st.frame_spent += took;
             *frame_spent += took;
-            if before < mine && st.frame_spent >= mine && !*loading {
+            if before < mine && st.frame_spent >= mine && !*loading && !*continuing {
                 st.frame_overruns.push_back(*now);
                 tracing::debug!(target: "dereth::plugin", "{}: over its share of a frame ({:.1} ms); what is still due waits for the next",
                     st.manifest.id, mine.as_secs_f64() * 1000.0);

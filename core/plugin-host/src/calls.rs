@@ -1378,6 +1378,25 @@ impl HostCalls for Call<'_, '_> {
                     Timer {
                         due: self.now() + ms / 1000.0,
                         every: repeat.then_some(ms / 1000.0),
+                        soon: false,
+                    },
+                );
+                Ok(Value::Int(id))
+            }
+            "task.soon" => {
+                if self.slot.timers.len() >= MAX_TIMERS {
+                    return Err(CallError::Failed(format!(
+                        "a plugin may have at most {MAX_TIMERS} timers at once"
+                    )));
+                }
+                self.shared.next_timer += 1;
+                let id = self.shared.next_timer;
+                self.slot.timers.insert(
+                    id,
+                    Timer {
+                        due: self.now(),
+                        every: None,
+                        soon: true,
                     },
                 );
                 Ok(Value::Int(id))

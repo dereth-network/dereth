@@ -124,7 +124,9 @@ file's top level) has twenty-five entries' budgets, and so has the entry telling
 plugin's share of the frame, and compiling its own source is not counted.
 A plugin's entries in one frame together have a share of the frame, two entries' budgets, and all
 plugins' together three: past either, the events still due for a plugin wait, in order, for the
-next frame. Ten failures within a minute, three entries stopped by the budget within a minute, or
+next frame. Long work the host's libraries carry on between their pieces (see
+[api.md](api.md)) may take a quarter of the time since the last frame, up to that share; an
+entry of it that ends past the share is not counted against the plugin. Ten failures within a minute, three entries stopped by the budget within a minute, or
 thirty frames past its share within a minute, suspend the plugin and the player is told. A value a plugin hands the host is copied
 within bounds (at most 262,144 values and 16 MiB, a table that appears twice counted twice, and
 one that holds itself refused), and the host keeps at most 200 lines and 256 KiB of what a plugin

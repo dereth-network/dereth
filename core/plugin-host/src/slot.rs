@@ -30,10 +30,13 @@ impl Status {
 }
 
 /// A timer: when it next fires, on the host's local clock in seconds, and its period if it repeats.
+/// A `soon` timer (`task.soon`) is long work waiting between its pieces: due at once, it may fire
+/// in the frame it was set in, while the plugin has time left for long work there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timer {
     pub due: f64,
     pub every: Option<f64>,
+    pub soon: bool,
 }
 
 /// One declared window.

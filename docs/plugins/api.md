@@ -59,8 +59,11 @@ Timers run on the host's frame clock, so a replay fires them on the same frames 
 
 Inside a task, the host's libraries split their long work (reading a large VTank meta, for one)
 over the task's entries: once an entry has spent a quarter of its budget, the work sleeps and
-carries on in the next. Anywhere else, a plugin's own coroutine inside a task included, it is the
-one entry's work.
+carries on in the next. That next entry may come in the same frame: after the frame's events, the
+host carries long work on while the plugin has spent less than a quarter of the time since the
+last frame (and no more than its share of the frame), so a client held to a low frame rate does
+not wait a frame for each piece. Anywhere else, a plugin's own coroutine inside a task included,
+it is the one entry's work.
 
 A repeating timer that falls behind fires once and resumes its period from then: it does not burst.
 A plugin holds at most 256 timers at once (a sleeping task holds one); past that, starting another

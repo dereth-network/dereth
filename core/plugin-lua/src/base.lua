@@ -636,10 +636,14 @@ local kit = {
 	in_task = in_task,
 	-- `checkpoint()`, between the pieces of a library's long work: in a task, once the entry has
 	-- spent a quarter of its budget, the work sleeps and goes on in the next entry, leaving the
-	-- rest for a piece that runs long; elsewhere it does nothing, and the work is the entry's.
+	-- rest for a piece that runs long; elsewhere it does nothing, and the work is the entry's. The
+	-- next entry may come in the same frame, while the host has time there for long work.
 	checkpoint = function()
 		if in_task() and budget_spent() >= 0.25 then
-			api.task.sleep(0)
+			local co = coroutine.running()
+			local id = hostcall("task.soon")
+			timers[id] = { co = co }
+			coroutine.yield()
 		end
 	end,
 }
