@@ -19183,6 +19183,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.regen.a-request-answered-within-one-tick-is-not-combat",
+        says: "A request answered within one tick, a refused use or a toggled skill turned off, \
+               raises and lowers the attack state in that tick and does not put the next \
+               regeneration step at the combat rates.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REGEN-SAME-TICK-NOT-COMBAT"),
+        station: "yalain-testkit::cpu::play::regeneration::a_request_answered_within_one_tick_leaves_the_next_step_at_rest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.regen.combat-rate-read-from-templates",
         says: "A creature template's combat rate of health regeneration reads as its data sets it, \
                and a template that sets none has none.",
@@ -19203,8 +19213,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.regen.combat-when-a-skill-is-in-use",
-        says: "A skill in use at any moment since the last step puts a player's regeneration step at \
-               its combat rates, as an attack run does.",
+        says: "A skill in use at any world step since the last regeneration step puts a player's \
+               next step at its combat rates, as an attack run does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REGEN-SKILL-IN-USE"),
         station: "yalain-testkit::cpu::play::regeneration::a_skill_in_use_since_the_last_step_puts_it_at_the_combat_rates",
@@ -19212,9 +19222,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.regen.combat-when-fighting-hurt-or-moving",
-        says: "A player regains at its combat rates for a step when it fought or was hurt at any \
-               moment since the last step, or is moving at the step itself; a walk that stopped \
-               before the step leaves it at rest.",
+        says: "A player regains at its combat rates for a step when it was fighting at any world \
+               step or was hurt since the last step, or is moving at the step itself; a walk that \
+               stopped before the step leaves it at rest.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REGEN-COMBAT-STATE"),
         station: "yalain-testkit::cpu::play::regeneration::a_hurt_or_a_walk_under_way_at_the_step_puts_it_at_the_combat_rates_a_walk_that_stopped_does_not",

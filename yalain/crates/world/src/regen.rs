@@ -8,11 +8,17 @@
 //! change of health does ([`crate::combat::wounded`]).
 //!
 //! **Rates.** At rest the peace rates apply, in combat the combat rates. A player is in combat for
-//! a step when it attacked, used a skill or was hurt at any moment since the last step, or is
-//! moving at the step itself: a skill's use raises the attack state as an attack run does (2017:
-//! of 24 steps of players with a combat rate, standing and unhurt, whose only acts since the last
-//! were skill uses with no basic attack, 22 came at the combat rate, the attack state raised in
-//! all 24; 15 of 16 with a harmful use among them, 7 of 8 with helpful ones alone). Each rate is a float quality as the player's effects make it (the quality plus
+//! a step when an attack or a skill's use was under way at some world step since the last
+//! regeneration step, or it was hurt since then, or is moving at the step itself: a skill's use
+//! raises the attack state as an attack run does (2017: of 24 steps of players with a combat rate,
+//! standing and unhurt, whose only acts since the last were skill uses with no basic attack, 22
+//! came at the combat rate, the attack state raised in all 24; 15 of 16 with a harmful use among
+//! them, 7 of 8 with helpful ones alone). A request answered within one tick, a refused use or a
+//! toggled skill turned off, raises and lowers the attack state in that tick and does not count
+//! (2017: the step after a refused use's tick sent a rise in 26 of 26, at the peace rate in the 10
+//! of 10 that could be measured, and a toggle-off's tick has the same shape; attacks over before
+//! the step put it at a combat rate in 18 of 20).
+//! Each rate is a float quality as the player's effects make it (the quality plus
 //! what they add, times what they multiply): the peace rates are 1 unless something changes them
 //! (health then fills in a minute, vigor in half of one), the combat rates nothing unless an effect
 //! gives them (a buff, a worn item's), so a player without one regains nothing in combat.
@@ -265,8 +271,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
             p.regen_health = health;
             continue;
         }
-        // Fighting, a skill in use or being hurt at any moment puts the whole step at the combat
-        // rates.
+        // Fighting or a skill in use at any world step, or being hurt, puts the whole step at the
+        // combat rates; a request answered within one tick is never under way at a world step.
         if p.attacking.is_some() || p.using.is_some() || health < p.regen_health {
             p.regen_active = true;
         }

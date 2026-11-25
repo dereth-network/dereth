@@ -9,15 +9,21 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_net::ConnId;
 use yalain_testkit::play::server_call;
-use yalain_testkit::{Harness, COURAGE_EFFECT, DASH, ROBUSTIFY_EFFECT, WORN_HEALTH_RATE_EFFECT};
+use yalain_testkit::{
+    Harness, COURAGE_EFFECT, DASH, LUMBERING_MIGHT, ROBUSTIFY_EFFECT, WORN_HEALTH_RATE_EFFECT,
+};
+use yalain_world::calls::{self, Value};
 use yalain_world::player::quality;
 use yalain_world::regen::{gain, rate, HEALTH_FILLS_IN, PLAYER_STEP};
 use yalain_world::skill_use::function;
+use yalain_world::state::SkillState;
 use yalain_world::world::IDLE_MOTION;
 use yalain_world::{effects, quals};
 
 /// A sword, for a skill that needs something in the right hand.
 const SWORD: u32 = 0x4700_051C;
+/// The call raising or lowering the attack state.
+const ATTACK_STATE: u32 = 0x8204_001B;
 
 /// A player in the world with health 100 of 600 and vigor 50 of 300.
 fn hurt_player() -> (Harness, usize, ConnId) {
@@ -306,6 +312,107 @@ fn a_skill_in_use_since_the_last_step_puts_it_at_the_combat_rates() {
     assert!(health(&used).is_empty(), "a skill in use: {used:?}");
     let after = to_next_step(&mut h, b, world, |_| {});
     assert_eq!(health(&after).len(), 1, "back at rest: {after:?}");
+}
+
+/// The calls a client received since `from`, in the order the server sent them: each function and
+/// its first number.
+fn calls_since(h: &Harness, b: usize, from: usize) -> Vec<(u32, Option<u32>)> {
+    h.sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) => Some((
+                c.function.0,
+                c.args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())
+                    .and_then(|v| match v.first() {
+                        Some(Value::Int(n)) => Some(*n),
+                        _ => None,
+                    }),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A request answered within one tick is not combat: a use refused, or a toggled skill turned off,
+/// raises the attack state and lowers it in that one tick, and the next step regains at rest for a
+/// player with no combat rates, as one with nothing asked of it does.
+/// Behaviour: server.regen.a-request-answered-within-one-tick-is-not-combat
+#[test]
+fn a_request_answered_within_one_tick_leaves_the_next_step_at_rest() {
+    let (mut h, b, world) = hurt_player();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let me = h.server.players[&world].character;
+    // Vigor at its greatest, so only health comes back.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        quals::set_int(&mut p.qualities, quality::VIGOR, 300);
+    }
+    let use_of = |h: &mut Harness, id: u32, skill: u32| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[Arg::Int(id), Arg::Int(skill), Arg::LongInt(me)],
+            ),
+        );
+    };
+    let rest = to_next_step(&mut h, b, world, |_| {});
+    assert_eq!(health(&rest).len(), 1, "at rest it regains: {rest:?}");
+
+    // Dash with nothing in hand: refused at once.
+    let from = h.bots[b].inbox.len();
+    let refused = to_next_step(&mut h, b, world, |h| use_of(h, 5, DASH));
+    let got: Vec<u32> = calls_since(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        got,
+        [
+            ATTACK_STATE,
+            function::ENDED,
+            function::REFUSED,
+            ATTACK_STATE
+        ],
+        "refused in one tick"
+    );
+    assert_eq!(health(&refused).len(), 1, "after a refusal: {refused:?}");
+
+    // Lumbering Might turned on, then off at once.
+    h.arm(b, me, SWORD);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills.push(SkillState {
+            skill: LUMBERING_MIGHT,
+            granted: 0,
+            mask: 0x1,
+            cost: 5,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    use_of(&mut h, 6, LUMBERING_MIGHT);
+    h.run(80);
+    to_next_step(&mut h, b, world, |_| {});
+    if let Some(p) = h.server.players.get_mut(&world) {
+        quals::set_int(&mut p.qualities, quality::VIGOR, 300);
+    }
+    let rest = to_next_step(&mut h, b, world, |_| {});
+    assert_eq!(health(&rest).len(), 1, "at rest again: {rest:?}");
+    let from = h.bots[b].inbox.len();
+    let off = to_next_step(&mut h, b, world, |h| use_of(h, 7, LUMBERING_MIGHT));
+    let got = calls_since(&h, b, from);
+    assert_eq!(got.first(), Some(&(ATTACK_STATE, Some(1))), "{got:?}");
+    assert!(
+        got.contains(&(effects::function::TOGGLE, Some(0))),
+        "turned off: {got:?}"
+    );
+    assert_eq!(got.last(), Some(&(ATTACK_STATE, Some(0))), "{got:?}");
+    assert_eq!(health(&off).len(), 1, "after a toggle-off: {off:?}");
 }
 
 /// Each step's gain is a share of the vital's greatest with the player's effects: with Courage's

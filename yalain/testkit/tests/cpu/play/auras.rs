@@ -1013,9 +1013,21 @@ fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them
     }
 
     h.run(200);
+    // Asked just after a regeneration step, so the next, 3.5 s or more away, cannot fall between
+    // the two readings of vigor.
+    let last = player(&mut h, me).last_regen;
+    for _ in 0..200 {
+        if player(&mut h, me).last_regen != last {
+            break;
+        }
+        h.step();
+    }
+    let stepped = player(&mut h, me).last_regen;
+    assert_ne!(stepped, last, "a regeneration step");
     let vigor = quals::int(&player(&mut h, me).qualities, quality::VIGOR);
     let from = use_skill(&mut h, b, 2, LUMBERING_MIGHT, 0);
     h.run(5);
+    assert_eq!(player(&mut h, me).last_regen, stepped, "no step since");
     let got = calls_of(&h, b, from);
     let names: Vec<u32> = got.iter().map(|(f, _)| *f).collect();
     assert_eq!(
