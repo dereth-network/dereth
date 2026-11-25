@@ -2059,6 +2059,68 @@ fn holders_told(h: &Harness, b: usize, from: usize, item: u64) -> Vec<(usize, u6
         .collect()
 }
 
+/// An item taken from a corpse into a place of its own in the pack is told it has no holder only as
+/// its taking ends: nothing of its holder while the player plays its taking, then, in the order
+/// sent, its holder cleared, it contained, its holder the player, the move answered.
+/// Behaviour: server.inventory.take-cleared-as-it-is-contained
+#[test]
+fn an_item_taken_into_its_own_place_is_cleared_just_before_it_is_contained() {
+    let (mut h, b, me, world) = player();
+    let (_, items) = opened_corpse(&mut h, world, me, 1);
+    let item = items[0];
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(item, me)],
+        0,
+    );
+    // When each first arrives: the holder cleared, and the item contained.
+    let (mut cleared, mut contained) = (None, None);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    for _ in 0..((inventory::TAKING_SECONDS + 1.0) / STEP).ceil() as usize {
+        h.step();
+        if cleared.is_none() && holders_told(&h, b, from, item).iter().any(|(_, v)| *v == 0) {
+            cleared = Some(h.now.0);
+        }
+        if contained.is_none()
+            && h.world_messages(b, from)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::Contain(c) if c.0.id == item))
+        {
+            contained = Some(h.now.0);
+        }
+    }
+    assert_eq!(
+        cleared, contained,
+        "cleared as it is contained, not as its taking begins"
+    );
+    assert!(contained.is_some(), "taken");
+    let order: Vec<&str> = h
+        .sent_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInstanceIdVisual(q)
+                if q.object.id == item && q.quality == CONTAINER =>
+            {
+                Some(if q.value == 0 {
+                    "cleared"
+                } else if q.value == me {
+                    "held"
+                } else {
+                    "other"
+                })
+            }
+            ServerMessage::Contain(c) if c.0.id == item => Some("contained"),
+            ServerMessage::PlayerCall(c) if c.function.0 == inventory::function::MOVE_DONE => {
+                Some("answered")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, ["cleared", "contained", "held", "answered"]);
+}
+
 /// An item that stacks, taken out of a corpse by taking everything onto a stack the player holds,
 /// is told to have no holder once, before its move's answer.
 /// Behaviour: server.inventory.holder-cleared-once-ours

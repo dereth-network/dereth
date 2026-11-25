@@ -2062,12 +2062,21 @@ pub fn take<S: Store>(
     });
     let id = p.character;
     crate::combat::to_all_seeing(s, net, id, &behave);
-    holder_cleared(s, net, world, item);
+    // An item that will take a place of its own in the pack is told no holder as it is contained;
+    // any other (one joining a stack, one with no room for it) as its taking begins (2017: 2,039 of
+    // 2,039 taken into a place of their own told it just before the item was contained; 113 of 153
+    // takes joining a stack told it within half a second of the request).
+    let quantity = s.things.get(item).map_or(1, |t| t.quantity.max(1));
+    let own_place = stack_for(s, world, item, quantity).is_none() && !pack_full_of(s, world);
+    if !own_place {
+        holder_cleared(s, net, world, item);
+    }
     s.after(clock, TAKING_SECONDS, Timer::Take { world, item, from });
 }
 
-/// A player's client is told an item in a container has no holder, once: at the first take that
-/// names it, or else before the answer of a take that joins it to a stack in the pack; never again
+/// A player's client is told an item in a container has no holder, once: as a take of it that
+/// joins a stack in the pack begins, or else before the answer of such a take, or just before a
+/// take brings it into a place of its own in the pack; never again
 /// to that client (2017, takes joining a stack: 247 of 283 so, against 176 for never; the other
 /// 34, 32 of them in taking everything, told none, and no reading of their items set them apart).
 /// An item turned into money is told no second holder, the player's: 2017 told one for 327 of
@@ -2140,6 +2149,7 @@ pub fn taken<S: Store>(
     let Some(slot) = hold(s, world, item, from) else {
         return;
     };
+    holder_cleared(s, net, world, item);
     let stamp = contain_stamp(s, item);
     net.send(
         world,
@@ -2211,6 +2221,8 @@ fn joined_stack<S: Store>(
         return;
     };
     let (look, appearance) = hand_look(s, item);
+    // One whose taking began with no stack to join was told no holder then: it is now.
+    holder_cleared(s, net, world, item);
     // Out of the corpse and the world before the stack grows by it.
     if holding::destroy_item(s, item, Place::Contents(from)).is_err() {
         return;

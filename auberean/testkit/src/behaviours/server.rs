@@ -8966,6 +8966,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.take-cleared-as-it-is-contained",
+        says: "An item taken from a corpse into a place of its own in the pack is told it has no \
+               holder as its taking ends, just before it is contained, then its holder the player \
+               and the move's answer; nothing of its holder as the taking begins.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-CLEARED-AT-END"),
+        station: "yalain-testkit::cpu::play::pack::an_item_taken_into_its_own_place_is_cleared_just_before_it_is_contained",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.the-bags-perk-grows-the-last-bag",
         says: "The bags' perk gives the last bag more places: of its ranks held, the value of the one \
                with the highest priority (Pack Rat 1 to 6: one to six places), not their sum; an item \
