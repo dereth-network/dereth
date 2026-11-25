@@ -82,6 +82,27 @@ fn flat(a: &StoredPosition, b: &StoredPosition) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
+/// Have a creature at rest think of wandering, again whenever its walk ends where it began, until
+/// it has gone from `from`: a walk drawn shorter than the distance it counts as there ends at once.
+fn sets_out(h: &mut Harness, id: u64, from: &StoredPosition) -> bool {
+    for _ in 0..20 {
+        let now = h.now.0;
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .filter(|c| c.wander_to.is_none())
+        {
+            c.next_wander = now;
+        }
+        if h.run_until(40, |h| flat(&place_of(h, id), from) > 0.1) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Outdoors, a creature at rest walks to a point within its wandering range of home, and when it
 /// gets there it stands.
 /// Behaviour: server.creatures.wander-and-stop-standing
@@ -90,10 +111,7 @@ fn a_creature_at_rest_outdoors_walks_within_its_range_and_stands_where_it_ends()
     let (mut h, _, beetle) = resting(&[]);
     let home = outdoors();
     home_at(&mut h, beetle, home, 10.0);
-    assert!(
-        h.run_until(40, |h| flat(&place_of(h, beetle), &home) > 0.1),
-        "it walks"
-    );
+    assert!(sets_out(&mut h, beetle, &home), "it walks");
     let walking = h.server.things.get(beetle).expect("beetle").heading_motion & 0x00FF_FFFF;
     assert_eq!(walking, ai::WALKING, "walking");
     assert!(
@@ -250,10 +268,7 @@ fn indoors_a_creature_at_rest_stays_where_it_is() {
     }
     assert_eq!(place_of(&h, beetle), home, "never moved indoors");
     home_at(&mut h, beetle, outdoors(), 10.0);
-    assert!(
-        h.run_until(40, |h| flat(&place_of(h, beetle), &outdoors()) > 0.1),
-        "it walks outdoors"
-    );
+    assert!(sets_out(&mut h, beetle, &outdoors()), "it walks outdoors");
 }
 
 /// A creature running home that gets there is told standing at home: its last place carries no

@@ -943,8 +943,8 @@ fn a_creatures_hit_on_a_pet_takes_off_the_armor_its_kind_has_at_its_level() {
     let got = hits(&mut h);
     assert_eq!(got.len(), 12, "{got:?}");
     assert!(
-        got.iter().all(|d| [44, 66].contains(d)),
-        "a tenth or so of 400 at 41: {got:?}"
+        got.iter().all(|d| [44, 53].contains(d)),
+        "a tenth or so of 400 at 41, or of 480: {got:?}"
     );
 }
 

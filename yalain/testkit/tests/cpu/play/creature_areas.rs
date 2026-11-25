@@ -11,6 +11,7 @@ use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::missiles::{AttackSkill, Flight, CREATURE_ATTACKS};
 use yalain_world::player::quality;
 use yalain_world::quals;
+use yalain_world::regen::rate::PEACE_HEALTH;
 
 const HIT: u32 = 0x4000_0008;
 const CRITICAL: u32 = 0x4000_0009;
@@ -28,8 +29,8 @@ struct Field {
 }
 
 /// The target with the scene drawn, another player 5 m from it and a third 20 m off, a pet of the
-/// second player 3 m from the target, and the creature 2 m away; none fights on its own, and all
-/// have health to spare.
+/// second player 3 m from the target, and the creature 2 m away; none fights on its own, all have
+/// health to spare, and the players regain none of it.
 fn field() -> Field {
     let mut h = Harness::new();
     h.add_creatures(2);
@@ -110,6 +111,7 @@ fn field() -> Field {
     for p in h.server.players.values_mut() {
         quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
         quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+        quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
     }
     Field {
         target: (conn(&h, me), me),
@@ -184,27 +186,39 @@ fn a_creatures_area_special_strikes_every_player_and_pet_within_its_radius() {
         (f.near, health(&f, f.near)),
         (f.far, health(&f, f.far)),
     ];
-    let from = f.h.bots[f.b].inbox.len();
-    let clock = f.h.clock();
-    yalain_world::combat::creature_strike_with(
-        &mut f.h.server,
-        &mut f.h.net,
-        f.creature,
-        f.target.0,
-        blast,
-        true,
-        clock,
-    );
-    f.h.run(100);
-    let told = hooks(&f, from, strong.skill);
-    let mut named: Vec<u64> = told.iter().map(|k| k.target).collect();
-    named.sort_unstable();
     let mut want = vec![f.target.1, f.near.1, f.pet];
     want.sort_unstable();
-    assert_eq!(
-        named, want,
-        "the target, the player and the pet within the radius"
-    );
+    // Struck until one lands on someone, each naming the three, whatever the rolls.
+    let from = f.h.bots[f.b].inbox.len();
+    let mut told = Vec::new();
+    for _ in 0..20 {
+        let at = f.h.bots[f.b].inbox.len();
+        let clock = f.h.clock();
+        yalain_world::combat::creature_strike_with(
+            &mut f.h.server,
+            &mut f.h.net,
+            f.creature,
+            f.target.0,
+            blast,
+            true,
+            clock,
+        );
+        f.h.run(100);
+        let this = hooks(&f, at, strong.skill);
+        let mut named: Vec<u64> = this.iter().map(|k| k.target).collect();
+        named.sort_unstable();
+        assert_eq!(
+            named, want,
+            "the target, the player and the pet within the radius"
+        );
+        told = hooks(&f, from, strong.skill);
+        if this
+            .iter()
+            .any(|k| [HIT, CRITICAL].contains(&k.numbers[0].cast_unsigned()))
+        {
+            break;
+        }
+    }
     each_landed_hook_took_its_health(&f, &told, &before);
     assert_eq!(
         health(&f, f.far),

@@ -18,6 +18,9 @@ fn times(untouched: f32, items_left: f32, empty: f32) -> CorpseRot {
 fn corpse_of(rot: CorpseRot, holds: bool) -> (Harness, (usize, u64), u64) {
     let mut h = Harness::new();
     h.add_creatures(1);
+    // One spot, within the player's reach: the camp's other spot is farther than a player may
+    // stand from a corpse it has open.
+    h.server.spawns.camps[0].spots = vec![(0x0299_0109, [62.0, 240.0, -44.6])];
     let me = h.player_in_world("one", "Killer");
     h.run(10);
     let beetle = h

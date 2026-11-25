@@ -122,16 +122,18 @@ fn an_arrow_that_would_land_on_a_moved_creature_is_often_missed() {
 }
 
 /// A skill's arrow is missed far more often by a creature that moved while it flew than by one
-/// that stood: the same rule as a basic arrow's.
+/// that stood: the same rule as a basic arrow's. Enough are thrown that the gap holds whatever the
+/// dice.
 /// Behaviour: server.combat.thrown-misses-by-moved
 #[test]
 fn a_skills_arrow_misses_a_creature_that_moved_while_it_flew_more_often() {
     use yalain_world::skill_use::function::USE;
+    const USES: u32 = 1_000;
     let misses = |shift: f32| {
         let (mut h, b, me, id) = bow_beside_a_creature();
         let mut n = 0;
         let mut missed = 0;
-        for use_no in 1..=60 {
+        for use_no in 1..=USES {
             for p in h.server.players.values_mut() {
                 quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 10_000);
                 quals::set_int(&mut p.qualities, quality::VIGOR, 10_000);
@@ -189,12 +191,13 @@ fn a_skills_arrow_misses_a_creature_that_moved_while_it_flew_more_often() {
     };
     let (n_still, still) = misses(0.0);
     let (n_moved, moved) = misses(5.0);
+    let half = usize::try_from(USES / 2).expect("a count");
     assert!(
-        n_still >= 30 && n_moved >= 30,
+        n_still >= half && n_moved >= half,
         "{n_still} and {n_moved} arrived"
     );
     assert!(
-        moved >= still + 6,
+        moved >= still + half / 5,
         "moved off {moved} of {n_moved}, where it stood {still} of {n_still}"
     );
 }

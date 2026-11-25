@@ -764,12 +764,17 @@ fn a_rider_walked_indoors_is_put_off_at_its_next_look() {
     );
     let first = next_look(&h, world).expect("a look due");
     // Outdoors, look after look: the ride goes on, the gaps spread over their whole span.
+    // Each gap runs from the step its look ran in, the one whose clock first reaches the look's
+    // time, not from that time.
     let mut gaps = Vec::new();
     let mut due = first;
     for _ in 0..40 {
-        step_to(&mut h, due + yalain_testkit::STEP);
+        step_to(&mut h, due);
+        let looked = h.now.0;
+        h.step();
         let next = next_look(&h, world).expect("looked at again");
-        gaps.push(next - due);
+        assert!(next > due, "looked at in the step its clock reached");
+        gaps.push(next - looked);
         due = next;
     }
     assert!(

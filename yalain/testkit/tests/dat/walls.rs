@@ -1872,7 +1872,11 @@ fn drudge_outcasts_in_the_arwic_mines_attack_only_a_player_they_see() {
     }
     assert!(!told.is_empty(), "it attacks the player in sight");
 
-    // Beyond the rock.
+    // Beyond the rock, the Outcast back at its home, where the rock stands between them: the
+    // attack it drew may have taken it a few steps on, where it sees past the rock.
+    if let Some(t) = h.server.things.get_mut(outcast) {
+        t.at = Some(outcast_home());
+    }
     stand(&mut h, me, beyond_the_rock());
     let from = h.bots[b].inbox.len();
     let mut told = Vec::new();

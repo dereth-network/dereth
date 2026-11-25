@@ -1952,24 +1952,34 @@ fn immolation_turns_an_alchemists_basic_attacks_fiery() {
             10_000_000,
         );
     }
-    let told = |h: &mut Harness| {
+    // The skills of the player's stories in a run, swung until each of `want` has come up (each
+    // swing draws one, so a short run may miss one).
+    let told = |h: &mut Harness, want: &[u32]| {
+        // What the server sent before now (a swing chosen before an effect went on) reaches the
+        // client first.
+        h.run(1);
         let from = h.bots[b].inbox.len();
         h.bots[b].send(
             true,
             queue::WEENIE,
             &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
         );
+        let seen = |h: &Harness| {
+            let mut seen: Vec<u32> = h
+                .world_messages(b, from)
+                .iter()
+                .filter_map(|m| match m {
+                    ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
+                    _ => None,
+                })
+                .collect();
+            seen.sort_unstable();
+            seen.dedup();
+            seen
+        };
         h.run(400);
-        let mut seen: Vec<u32> = h
-            .world_messages(b, from)
-            .iter()
-            .filter_map(|m| match m {
-                ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
-                _ => None,
-            })
-            .collect();
-        seen.sort_unstable();
-        seen.dedup();
+        h.run_until(4000, |h| want.iter().all(|w| seen(h).contains(w)));
+        let seen = seen(h);
         h.run(20);
         seen
     };
@@ -1988,15 +1998,15 @@ fn immolation_turns_an_alchemists_basic_attacks_fiery() {
         ));
     };
     let rating = |h: &Harness| yalain_world::skill_use::rating_of_for_test(&h.server, world, 1371);
-    assert_eq!(told(&mut h), [804, 805, 806]);
+    assert_eq!(told(&mut h, &[804, 805, 806]), [804, 805, 806]);
     let plain = rating(&h);
     for state in [0x7000_1F51, 0x7000_1F52] {
         apply(&mut h, state);
     }
-    assert_eq!(told(&mut h), [1371, 1372, 1373]);
+    assert_eq!(told(&mut h, &[1371, 1372, 1373]), [1371, 1372, 1373]);
     assert!(rating(&h) >= plain + 40.0, "{plain} to {}", rating(&h));
     apply(&mut h, DARK_SIDE);
-    assert_eq!(told(&mut h), [1374, 1375, 1376]);
+    assert_eq!(told(&mut h, &[1374, 1375, 1376]), [1374, 1375, 1376]);
 }
 
 /// The Illuminated Drudge's curse as the install says: it lasts four hours and moves no quest; the
@@ -3959,6 +3969,8 @@ fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
             yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
             h.run(1);
         }
+        // The last death's victory reaches the client too, and none is left for the next batch.
+        h.run(5);
         victories(h, b, from, beetle)
     };
     assert_eq!(deaths(&mut h, 20), 0, "its own look has none");

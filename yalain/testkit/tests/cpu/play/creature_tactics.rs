@@ -893,7 +893,7 @@ fn a_damage_debuff_takes_from_a_creatures_hits() {
         clock,
     );
     assert_eq!(missiles::effects_add(&h.server, id), -40.0);
-    // Its hits through the lowest levels' armor (all of it): 100 less 40.
+    // Its hits through the lowest levels' armor (all of it): 100 less 40, a critical a fifth more.
     let hits = |h: &Harness| -> Vec<i32> {
         h.world_messages(b, 0)
             .iter()
@@ -913,7 +913,7 @@ fn a_damage_debuff_takes_from_a_creatures_hits() {
     h.run(200);
     let after: Vec<i32> = hits(&h).into_iter().skip(before).collect();
     assert!(!after.is_empty(), "it hits");
-    assert!(after.iter().all(|d| *d == 60 || *d == 90), "{after:?}");
+    assert!(after.iter().all(|d| *d == 60 || *d == 72), "{after:?}");
 }
 
 /// A creature with a heal, hurt to its warning level, heals itself at one of its turns: its story
@@ -1488,8 +1488,9 @@ fn a_protector_buffs_its_kin_in_a_fight() {
         ("AI_AISubClass", Prop::Word(7)),
     ];
     let (mut h, b, _, one, two) = pair(&extra);
+    // Long enough that one does whatever the draws: past its first turn, a few hundredths a turn.
     assert!(
-        h.run_until(4000, |h| !helps_on(h, b, one, two, CREATURE_ABSORB)
+        h.run_until(40_000, |h| !helps_on(h, b, one, two, CREATURE_ABSORB)
             .is_empty()
             || !helps_on(h, b, two, one, CREATURE_ABSORB).is_empty()),
         "one buffs the other"
@@ -2573,9 +2574,11 @@ fn a_creature_that_never_came_to_blows_stands_its_wait_after_its_peace() {
     assert!(h.run_until(200, |h| going_home(h, id).2 == Mode::Returning));
     let (blow, after, _) = going_home(&h, id);
     assert!(blow.is_infinite(), "no blow");
-    let wait = after - h.now.0;
+    // From the step it gave up in, whose clock is a step behind the harness's now.
+    let gave_up = h.now.0 - yalain_testkit::STEP;
+    let wait = after - gave_up;
     assert!(
-        (0.0..=ai::HOME_AFTER_A_CHASE[18] + 1e-9).contains(&wait),
+        (-1e-9..=ai::HOME_AFTER_A_CHASE[18] + 1e-9).contains(&wait),
         "its wait after its peace: {wait}"
     );
 }

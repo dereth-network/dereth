@@ -1079,9 +1079,15 @@ fn a_players_hit_on_another_takes_a_third_of_what_its_armor_leaves() {
     assert_eq!(yalain_world::pvp::hit(&h.server, wa, wb, 120), 30);
     on(&mut h, WALL);
     assert_eq!(yalain_world::pvp::hit(&h.server, wa, wb, 120), 1);
+    // The target regains none of it, so what it lost is what the hits took.
     with_player(&mut h, idb, |p| {
         quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
         quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+        quals::set_float(
+            &mut p.qualities,
+            yalain_world::regen::rate::PEACE_HEALTH,
+            0.0,
+        );
     });
     let from = h.bots[b].inbox.len();
     attack(&mut h, a, idb);
