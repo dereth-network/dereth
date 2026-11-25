@@ -1,5 +1,5 @@
 //! The Tables tab: the game's tables as the world has them, changed as the pack being edited's
-//! rows of them in its `records/` ([`lyceum_foundry::table_views`]). Three pages:
+//! rows of them in its `records/` ([`lyceum_foundry::table_views`]). Four pages:
 //!
 //! - **Skills:** each skill's trained and specialized cost and its formula; a new skill, copied
 //!   from another.
@@ -8,18 +8,20 @@
 //! - **Experience:** the level cap, each level's experience and skill credits, and the raise costs.
 //!   A level's experience that would make the curve fall is refused as it is typed, before
 //!   anything is written; a higher cap gives each level it adds its experience.
+//! - **Creature types:** the names the game shows for creature types, each renamed or taken out;
+//!   a new type, numbered past the highest.
 //!
 //! A number is typed and written when its field is left. What the pack changes is marked, and
 //! "Below" takes the pack's change of it away.
 
-use dereth_assets::tables::{CharGen, SkillTable, XpTable};
+use dereth_assets::tables::{CharGen, EnumMapper, SkillTable, XpTable};
 use dereth_assets::Decode;
 use dereth_dat::ModernDat;
 use dereth_primitives::DataId;
 use lyceum_foundry::edit::Op;
 use lyceum_foundry::table_edit;
 use lyceum_foundry::table_views::{self, ShownSkill};
-use lyceum_foundry::tables::{CHARGEN, EXPERIENCE, SKILLS};
+use lyceum_foundry::tables::{CHARGEN, CREATURE_TYPES, EXPERIENCE, SKILLS};
 use toml::Value as T;
 
 use super::{EditorApp, Tab};
@@ -31,6 +33,7 @@ pub enum Page {
     Skills,
     Heritages,
     Experience,
+    CreatureTypes,
 }
 
 /// The Tables tab's state.
@@ -43,6 +46,8 @@ pub struct TablesView {
     pub typing: Option<(String, String)>,
     /// A new skill's name and the skill it starts as a copy of.
     pub new_skill: (String, String),
+    /// A new creature type's name.
+    pub new_creature_type: String,
     /// Why the last value typed was refused, by its field.
     pub refused: Option<(String, String)>,
 }
@@ -199,6 +204,7 @@ impl EditorApp {
                 (Page::Skills, "tables.skills"),
                 (Page::Heritages, "tables.heritages"),
                 (Page::Experience, "tables.experience"),
+                (Page::CreatureTypes, "tables.creature_types"),
             ] {
                 ui.selectable_value(&mut self.tables.page, p, t.get(key));
             }
@@ -220,6 +226,7 @@ impl EditorApp {
             Page::Skills => self.skills_page(ui, &t, &skills, &pack, &mut change),
             Page::Heritages => self.heritages_page(ui, &t, &skills, &pack, &mut change),
             Page::Experience => self.experience_page(ui, &t, &pack, &mut change),
+            Page::CreatureTypes => self.creature_types_page(ui, &t, &pack, &mut change),
         }
         if let Some(c) = change {
             match self.table_change(&c) {
@@ -415,6 +422,119 @@ impl EditorApp {
                 }
             }
         });
+    }
+
+    fn creature_types_page(
+        &mut self,
+        ui: &mut egui::Ui,
+        t: &crate::text::Table,
+        pack: &str,
+        change: &mut Option<Vec<RowChange>>,
+    ) {
+        const FILE: &str = table_views::CREATURE_TYPES_FILE;
+        let Some(m) = self.table_now::<EnumMapper>(CREATURE_TYPES) else {
+            ui.label(t.get("tables.no_table"));
+            return;
+        };
+        let text = self.session.rows_text(&self.records_file(FILE));
+        let all = table_views::creature_types(&m);
+        ui.horizontal(|ui| {
+            ui.label(t.get("tables.new_creature_type"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.tables.new_creature_type).desired_width(160.0),
+            );
+            let name = self.tables.new_creature_type.trim().to_owned();
+            let taken = all.iter().any(|(_, n)| table_views::same_name(n, &name));
+            if ui
+                .add_enabled(
+                    !name.is_empty() && !taken,
+                    egui::Button::new(t.get("tables.add")),
+                )
+                .clicked()
+            {
+                let id = table_views::free_creature_type(&m);
+                *change = Some(vec![(
+                    FILE,
+                    "creature-type",
+                    vec![("id", int(i64::from(id)))],
+                    vec![("name", Some(txt(&name)))],
+                )]);
+                self.tables.new_creature_type.clear();
+            }
+        });
+        let removed = table_views::removed_creature_types(text.as_deref());
+        if !removed.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(t.fill("tables.taken_out", &[("pack", &pack)]));
+                for id in removed {
+                    if ui
+                        .small_button(id.to_string())
+                        .on_hover_text(t.get("tables.below_tip"))
+                        .clicked()
+                    {
+                        *change = Some(vec![(
+                            FILE,
+                            "creature-type",
+                            vec![("id", int(i64::from(id)))],
+                            vec![("remove", None)],
+                        )]);
+                    }
+                }
+            });
+        }
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .id_salt("tables-creature-types")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("tables-creature-types-grid")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for h in ["tables.number", "tables.name", "", ""] {
+                            ui.strong(if h.is_empty() {
+                                String::new()
+                            } else {
+                                t.get(h).to_owned()
+                            });
+                        }
+                        ui.end_row();
+                        let shown: Vec<&(u32, String)> =
+                            all.iter().filter(|(_, n)| self.shown(n)).collect();
+                        for (id, name) in shown {
+                            let key = table_views::creature_type_key(text.as_deref(), *id, name);
+                            let mine = table_edit::row(text.as_deref(), "creature-type", &key)
+                                .ok()
+                                .flatten();
+                            let set = |fields: Vec<(&'static str, Option<T>)>| {
+                                Some(vec![(FILE, "creature-type", key.clone(), fields)])
+                            };
+                            ui.label(id.to_string());
+                            if let Some(v) =
+                                self.words(ui, &format!("creature-type {id} name"), name, 200.0)
+                            {
+                                if !v.is_empty() {
+                                    *change = set(vec![("name", Some(txt(&v)))]);
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                if mine.is_some() {
+                                    ui.weak(t.fill("tables.changed_in", &[("pack", &pack)]));
+                                    if ui
+                                        .small_button(t.get("tables.below"))
+                                        .on_hover_text(t.get("tables.below_tip"))
+                                        .clicked()
+                                    {
+                                        *change = set(vec![("name", None), ("remove", None)]);
+                                    }
+                                }
+                            });
+                            if ui.small_button(t.get("tables.take_out")).clicked() {
+                                *change = set(vec![("remove", Some(T::Boolean(true)))]);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
     }
 
     fn heritages_page(

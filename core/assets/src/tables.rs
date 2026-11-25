@@ -1872,6 +1872,9 @@ fn read_quality_attribute_lists(c: &mut Cursor<'_>) -> Result<[Vec<u32>; 3], Ass
 pub struct EnumMapper {
     pub id: DataId,
     pub base_emp_did: DataId,
+    /// The names' table's bucket-size index, kept so the record writes back as it was stored.
+    pub bucket_index: u8,
+    /// Each id's name, in the stored order.
     pub id_to_string: Vec<(u32, String)>,
 }
 
@@ -1883,10 +1886,11 @@ impl Decode for EnumMapper {
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let base_emp_did = c.data_id()?;
-        let (_, id_to_string) = hash_table(c, |c| Ok(c.archive_string()?))?;
+        let (bucket_index, id_to_string) = hash_table(c, |c| Ok(c.archive_string()?))?;
         Ok(Self {
             id,
             base_emp_did,
+            bucket_index,
             id_to_string,
         })
     }

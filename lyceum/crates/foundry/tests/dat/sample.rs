@@ -366,14 +366,14 @@ mod tables {
     //! Behaviour: none (tooling: a world's changes to the game's own tables compiled into its overlay, over the retail files)
 
     use super::sample;
-    use dereth_assets::tables::{CharGen, SkillTable, SpellTable, XpTable};
+    use dereth_assets::tables::{CharGen, EnumMapper, SkillTable, SpellTable, XpTable};
     use dereth_assets::world::CellLandblock;
     use dereth_assets::{Decode, Region};
     use dereth_dat::ModernDat;
     use dereth_primitives::DataId;
     use lyceum_foundry::compile::{self, Compiled};
     use lyceum_foundry::dats::DatSet;
-    use lyceum_foundry::tables::{CHARGEN, EXPERIENCE, SKILLS, SPELLS};
+    use lyceum_foundry::tables::{CHARGEN, CREATURE_TYPES, EXPERIENCE, SKILLS, SPELLS};
     use lyceum_foundry::world::World;
 
     /// The sample world with `rows` as the sample pack's `records/rules.toml`, and `rival` (when given)
@@ -695,5 +695,61 @@ mod tables {
             .collect();
         let e = compiled("tables-heritage-none", &all, None, "").expect_err("none left");
         assert!(e.contains("at least one heritage"), "{e}");
+    }
+
+    /// A pack's creature-type rows change the names the client shows for creature types: a type
+    /// renamed by its name, one taken out by its number, a new one past the files' highest, written
+    /// with its spaces as the files write them. Retail's other types keep their numbers, names and
+    /// order, and the new type follows them. Rows the names can't take are refused at the row.
+    #[test]
+    fn a_packs_creature_types_extend_the_files_names() {
+        let was: EnumMapper = retail(CREATURE_TYPES);
+        let (first, first_name) = was.id_to_string[0].clone();
+        let (gone, _) = was.id_to_string[1].clone();
+        let next = was.id_to_string.iter().map(|(k, _)| *k).max().unwrap() + 1;
+        let rows = format!(
+            "[[creature-type]]\ncreature-type = {:?}\nname = \"Old Ones\"\n\n[[creature-type]]\nid = {gone}\nremove = true\n\n[[creature-type]]\nid = {next}\nname = \"Tusker Kin\"\n",
+            first_name.replace('_', " ").to_uppercase()
+        );
+        let c = compiled("tables-creature-types", &rows, None, "").unwrap();
+        let m: EnumMapper = table(&c, CREATURE_TYPES).expect("the names");
+        assert_eq!(m.bucket_index, was.bucket_index);
+        let mut want: Vec<(u32, String)> = was
+            .id_to_string
+            .iter()
+            .filter(|(k, _)| *k != gone)
+            .map(|(k, n)| {
+                (
+                    *k,
+                    if *k == first {
+                        "Old_Ones".into()
+                    } else {
+                        n.clone()
+                    },
+                )
+            })
+            .collect();
+        want.push((next, "Tusker_Kin".into()));
+        assert_eq!(m.id_to_string, want);
+
+        let refused = |tag: &str, rows: &str, says: &str| {
+            let e = compiled(tag, rows, None, "").expect_err(rows);
+            assert!(e.contains("rules.toml") && e.contains(says), "{e}");
+        };
+        refused(
+            "creature-type-unknown",
+            "[[creature-type]]\ncreature-type = \"Basket Weavers\"\nname = \"x\"\n",
+            "no creature type \"Basket Weavers\"",
+        );
+        refused(
+            "creature-type-nameless",
+            &format!("[[creature-type]]\nid = {next}\n"),
+            "needs a name",
+        );
+        refused(
+            "creature-type-both",
+            &format!("[[creature-type]]\nid = {first}\ncreature-type = \"x\"\n"),
+            "and not both",
+        );
     }
 }

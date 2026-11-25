@@ -1,13 +1,13 @@
 //! The game's tables as the Tables tab shows and changes them ([`crate::tables`]): the skills with
-//! their costs and formulas, the heritages with their credits, skill costs and templates, and the
-//! experience curve with its raise costs. Each is shown as the world has it; a change is the pack
+//! their costs and formulas, the heritages with their credits, skill costs and templates, the
+//! experience curve with its raise costs, and the creature types' names. Each is shown as the world has it; a change is the pack
 //! being edited's row of it, in its `records/` ([`crate::table_edit`]).
 //!
 //! The experience curve never falls, which the tables' build refuses; the tab refuses such a value
 //! as it is typed ([`curve_refuses`]), before anything is written. A higher level cap adds levels,
 //! and each added level is given its experience ([`raised`]): the curve's last step, continued.
 
-use dereth_assets::tables::{CharGen, SkillFormula, SkillTable, XpTable};
+use dereth_assets::tables::{CharGen, EnumMapper, SkillFormula, SkillTable, XpTable};
 use toml::Value as T;
 
 use crate::table_edit::key_of;
@@ -16,6 +16,7 @@ use crate::table_edit::key_of;
 pub const SKILLS_FILE: &str = "skills.toml";
 pub const HERITAGES_FILE: &str = crate::starter_areas::FILE;
 pub const EXPERIENCE_FILE: &str = "experience.toml";
+pub const CREATURE_TYPES_FILE: &str = "creature-types.toml";
 
 /// The attributes as formulas number them.
 pub const ATTRIBUTES: [(u32, &str); 6] = [
@@ -253,6 +254,62 @@ pub fn curve(t: &XpTable) -> Vec<(u64, u32)> {
         .collect()
 }
 
+/// The creature types of `m`, by number, each with the name a player reads.
+#[must_use]
+pub fn creature_types(m: &EnumMapper) -> Vec<(u32, String)> {
+    let mut v: Vec<(u32, String)> = m
+        .id_to_string
+        .iter()
+        .map(|(id, n)| (*id, crate::tables::creature_type_shown(n)))
+        .collect();
+    v.sort_by_key(|(id, _)| *id);
+    v
+}
+
+/// The number of a new creature type: one past the highest of `m`.
+#[must_use]
+pub fn free_creature_type(m: &EnumMapper) -> u32 {
+    m.id_to_string
+        .iter()
+        .map(|(id, _)| id.saturating_add(1))
+        .max()
+        .unwrap_or(1)
+}
+
+/// The key of creature type `id`'s row in records file `text`: by its name (`name`, as a player
+/// reads it), when the file's row names it so, else by its number.
+#[must_use]
+pub fn creature_type_key(text: Option<&str>, id: u32, name: &str) -> Vec<(&'static str, T)> {
+    for n in [name.to_owned(), crate::tables::creature_type_stored(name)] {
+        let by_name = vec![("creature-type", T::String(n))];
+        if crate::table_edit::row(text, "creature-type", &by_name)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return by_name;
+        }
+    }
+    vec![("id", T::Integer(i64::from(id)))]
+}
+
+/// The creature types records file `text`'s rows take out by number.
+#[must_use]
+pub fn removed_creature_types(text: Option<&str>) -> Vec<u32> {
+    let Some(all) = text.and_then(|t| toml::from_str::<toml::Table>(t).ok()) else {
+        return Vec::new();
+    };
+    all.get("creature-type")
+        .and_then(T::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(T::as_table)
+        .filter(|r| r.get("remove").and_then(T::as_bool) == Some(true))
+        .filter_map(|r| r.get("id")?.as_integer())
+        .filter_map(|id| u32::try_from(id).ok())
+        .collect()
+}
+
 /// Whether `a` names the same thing as `b`, spaces and case aside.
 #[must_use]
 pub fn same_name(a: &str, b: &str) -> bool {
@@ -284,6 +341,35 @@ mod tests {
         assert_eq!(raised(&c, 5), [(4, 4000), (5, 5500)]);
         assert!(raised(&c, 3).is_empty());
         assert!(raised(&c, 2).is_empty());
+    }
+
+    /// Creature types are shown by number with their underscores as spaces; a new type takes the
+    /// number past the highest; a row keeps the key it was written with, by name or by number; the
+    /// types a file takes out are those it removes by number.
+    #[test]
+    fn creature_types_are_shown_numbered_and_keyed_as_written() {
+        let m = EnumMapper {
+            id: dereth_primitives::DataId(0x2200_000E),
+            base_emp_did: dereth_primitives::DataId(0),
+            bucket_index: 3,
+            id_to_string: vec![(7, "Fire_Elemental".into()), (2, "Olthoi".into())],
+        };
+        assert_eq!(
+            creature_types(&m),
+            [(2, "Olthoi".to_owned()), (7, "Fire Elemental".to_owned())]
+        );
+        assert_eq!(free_creature_type(&m), 8);
+        let text = "[[creature-type]]\ncreature-type = \"Fire_Elemental\"\nname = \"Flame\"\n\n[[creature-type]]\nid = 2\nremove = true\n";
+        assert_eq!(
+            creature_type_key(Some(text), 7, "Fire Elemental"),
+            [("creature-type", T::String("Fire_Elemental".into()))]
+        );
+        assert_eq!(
+            creature_type_key(Some(text), 2, "Olthoi"),
+            [("id", T::Integer(2))]
+        );
+        assert_eq!(removed_creature_types(Some(text)), [2]);
+        assert!(removed_creature_types(None).is_empty());
     }
 
     /// A formula reads as its sum over its divisor, its attributes by name.

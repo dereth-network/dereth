@@ -602,6 +602,8 @@ struct RecordsFile {
     heritage_skill: Vec<Spanned<crate::tables::HeritageSkillRow>>,
     #[serde(default, rename = "heritage-template")]
     heritage_template: Vec<Spanned<crate::tables::HeritageTemplateRow>>,
+    #[serde(default, rename = "creature-type")]
+    creature_type: Vec<Spanned<crate::tables::CreatureTypeRow>>,
 }
 
 #[derive(Deserialize)]
@@ -996,7 +998,7 @@ fn target(at: &Loc, pack: &str, name: Option<&str>, replace: Option<i64>) -> Res
 }
 
 /// The kinds of row of the game's tables a records file may hold ([`crate::tables`]).
-pub const TABLE_KINDS: [&str; 8] = [
+pub const TABLE_KINDS: [&str; 9] = [
     "skill",
     "experience",
     "level",
@@ -1005,6 +1007,7 @@ pub const TABLE_KINDS: [&str; 8] = [
     "heritage",
     "heritage-skill",
     "heritage-template",
+    "creature-type",
 ];
 
 /// The tables' rows of a records file, in the file's order, each with where it starts.
@@ -1026,6 +1029,7 @@ fn table_rows_of(file: &RecordsFile) -> Vec<(usize, crate::tables::TableRow)> {
     table!(heritage, Heritage);
     table!(heritage_skill, HeritageSkill);
     table!(heritage_template, HeritageTemplate);
+    table!(creature_type, CreatureType);
     table_rows.sort_by_key(|(start, _)| *start);
     table_rows
 }

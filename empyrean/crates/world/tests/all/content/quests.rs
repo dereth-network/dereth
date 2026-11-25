@@ -229,6 +229,7 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
     let titles = EnumMapper {
         id: DataId(pc::ENUM_MAPPER_CHARACTER_TITLE_FILE_ID),
         base_emp_did: DataId(0),
+        bucket_index: 0,
         id_to_string: vec![(1, "ID_CharacterTitle_Adventurer".into())],
     };
     let entry = StringTableEntry {

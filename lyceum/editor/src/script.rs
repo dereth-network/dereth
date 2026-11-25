@@ -23,7 +23,8 @@
 //! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`,
 //! `characters`, `quests`, `loot`, `rows`, `rules`, `areas` or `tables`); `rows_item` (the Rows tab's item found by its name
 //! and chosen); `add_area` (a starting area of that name given a place where the camera is);
-//! `tables_page` (the Tables tab's page: `skills`, `heritages` or `experience`); `tables_find` (what
+//! `tables_page` (the Tables tab's page: `skills`, `heritages`, `experience` or
+//! `creature-types`); `tables_find` (what
 //! its list is narrowed to); `edit_weenie` (the weenie editor opened on that class);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the

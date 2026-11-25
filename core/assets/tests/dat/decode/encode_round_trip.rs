@@ -309,6 +309,44 @@ fn the_spell_table_encodes_back_to_its_own_bytes() {
     });
 }
 
+/// The creature types' names, and every other name mapper the portal file holds, encode back to
+/// their own bytes: the bucket-size index and the stored order kept.
+#[test]
+fn the_name_mappers_encode_back_to_their_own_bytes() {
+    use dereth_assets::tables::EnumMapper;
+    let s = store();
+    let ids: Vec<DataId> = s
+        .portal()
+        .iter_ids()
+        .filter(|id| id.raw() >> 24 == 0x22)
+        .collect();
+    assert!(ids.contains(&DataId(0x2200_000E)), "the creature types");
+    let n = round_trip(
+        &ids,
+        |id| s.read_portal(id).unwrap(),
+        |id, b| EnumMapper::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, ids.len());
+}
+
+/// A creature type a world adds reads back after retail's, which keep their ids and names.
+#[test]
+fn a_name_mapper_with_a_type_added_reads_back_with_it() {
+    use dereth_assets::tables::EnumMapper;
+    let s = store();
+    let id = DataId(0x2200_000E);
+    let mut m = EnumMapper::decode_payload(id, &s.read_portal(id).unwrap()).unwrap();
+    let retail = m.id_to_string.clone();
+    let next = retail.iter().map(|(k, _)| *k).max().unwrap() + 1;
+    m.id_to_string.push((next, "Test Family".into()));
+    let back = EnumMapper::decode_payload(id, &m.encode()).unwrap();
+    assert_eq!(back.id_to_string[..retail.len()], retail[..]);
+    assert_eq!(
+        back.id_to_string[retail.len()..],
+        [(next, "Test Family".to_owned())]
+    );
+}
+
 /// A skill table a world changes reads back as changed: a skill's costs, a skill added, a skill
 /// gone; the skills it keeps stay in their stored order and the added one follows them.
 #[test]

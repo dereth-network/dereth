@@ -37,8 +37,8 @@ use crate::region::{
     GameTime, LandDefs, LandSurf, Region, RegionMisc, SkyInfo, LAND_HEIGHT_TABLE_LEN,
 };
 use crate::tables::{
-    spell_component_key, CharGen, CombatManeuverTable, GearItem, ObjDesc, SexCg, SkillFormula,
-    SkillTable, SpellBase, SpellTable, XpTable,
+    spell_component_key, CharGen, CombatManeuverTable, EnumMapper, GearItem, ObjDesc, SexCg,
+    SkillFormula, SkillTable, SpellBase, SpellTable, XpTable,
 };
 use crate::world::{
     BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
@@ -1887,6 +1887,35 @@ fn launch_unsupported() -> AssetError {
     AssetError::Unsupported {
         what: "Launch asset encoding",
         value: 0,
+    }
+}
+
+impl EnumMapper {
+    /// The `0x22` record: the id, the base mapper's id, then the names' table (its bucket-size
+    /// index, its compressed count, then each id and its name in the stored order).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(16 + 32 * self.id_to_string.len()));
+        o.id(self.id);
+        o.id(self.base_emp_did);
+        o.u8(self.bucket_index);
+        o.compressed(self.id_to_string.len());
+        for (k, name) in &self.id_to_string {
+            o.u32(*k);
+            o.archive_string(name);
+        }
+        o.0
+    }
+
+    /// The record in the layout of the files of `era`: the same in every era an encoder writes.
+    ///
+    /// # Errors
+    /// Launch's files, which no encoder writes yet.
+    pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
+        match era {
+            EraId::Launch => Err(launch_unsupported()),
+            EraId::Infiltration | EraId::Eor | EraId::NewDereth => Ok(self.encode()),
+        }
     }
 }
 

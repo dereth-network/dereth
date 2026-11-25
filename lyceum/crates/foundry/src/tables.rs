@@ -1,5 +1,5 @@
 //! The game's own tables a world changes field by field: the skill table, the experience table, the
-//! spell table and character creation. The client reads them, so a world that changes them changes
+//! spell table, character creation and the creature types' names. The client reads them, so a world that changes them changes
 //! them in its overlay, where the client and the server both read them.
 //!
 //! A pack's `records/*.toml` may hold rows for them beside its new records. Each row sets only the
@@ -62,10 +62,17 @@
 //! strength = 100               # also endurance, coordination, quickness, focus, self (10 when new)
 //! trained = ["Axe", "Melee Defense", "Healing"]
 //! specialized = ["Axe"]        # also icon, title; remove = true takes it out
+//!
+//! [[creature-type]]
+//! id = 103                     # a type by its number; a number the files lack is a new type
+//! name = "Fire Elemental"      # the name a player reads (the files write its spaces as `_`)
+//! # or creature-type = "Olthoi" for a type by its name; remove = true takes a type out
 //! ```
 //!
 //! Skills are named as the data files name them, spaces and case aside, after the pack's own skill
-//! rows (so a heritage can offer a skill a row adds). Heritages and starter areas are named likewise.
+//! rows (so a heritage can offer a skill a row adds). Heritages, starter areas and creature types
+//! are named likewise. A creature's type is a number its weenie holds (`CreatureType`); the names
+//! are what the client shows for it.
 //!
 //! **Conflicts:** each field of each row is one thing packs can both set (`skill 6 trained-cost`,
 //! `level 20 xp`, `starter-area arwic at`, `heritage-template aluvian axeman strength`), settled as
@@ -77,7 +84,8 @@
 use std::collections::BTreeMap;
 
 use dereth_assets::tables::{
-    CharGen, CharGenTemplate, SkillBase, SkillFormula, SkillTable, SpellTable, StarterArea, XpTable,
+    CharGen, CharGenTemplate, EnumMapper, SkillBase, SkillFormula, SkillTable, SpellTable,
+    StarterArea, XpTable,
 };
 use dereth_assets::Decode;
 use dereth_pack::provenance::Provenance;
@@ -89,7 +97,7 @@ use crate::error::{Error, Loc};
 use crate::source::{Located, Pack};
 
 /// The tables the rows change, by id.
-pub const ALL: [u32; 4] = [CHARGEN, SKILLS, SPELLS, EXPERIENCE];
+pub const ALL: [u32; 5] = [CHARGEN, SKILLS, SPELLS, EXPERIENCE, CREATURE_TYPES];
 
 /// The character-creation table.
 pub const CHARGEN: u32 = 0x0E00_0002;
@@ -99,6 +107,8 @@ pub const SKILLS: u32 = 0x0E00_0004;
 pub const SPELLS: u32 = 0x0E00_000E;
 /// The experience table.
 pub const EXPERIENCE: u32 = 0x0E00_0018;
+/// The creature types' names.
+pub const CREATURE_TYPES: u32 = 0x2200_000E;
 
 /// A row of one of the tables.
 #[derive(Clone, Debug)]
@@ -111,6 +121,7 @@ pub enum TableRow {
     Heritage(HeritageRow),
     HeritageSkill(HeritageSkillRow),
     HeritageTemplate(HeritageTemplateRow),
+    CreatureType(CreatureTypeRow),
 }
 
 impl TableRow {
@@ -126,6 +137,7 @@ impl TableRow {
             Self::Heritage(r) => r.prov.as_ref(),
             Self::HeritageSkill(r) => r.prov.as_ref(),
             Self::HeritageTemplate(r) => r.prov.as_ref(),
+            Self::CreatureType(r) => r.prov.as_ref(),
         }
     }
 }
@@ -296,6 +308,20 @@ pub struct HeritageTemplateRow {
     pub prov: Option<Provenance>,
 }
 
+/// `[[creature-type]]`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreatureTypeRow {
+    #[serde(rename = "creature-type")]
+    pub creature_type: Option<String>,
+    pub id: Option<u32>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub remove: bool,
+    #[serde(default)]
+    pub prov: Option<Provenance>,
+}
+
 /// The tables as the world below the packs holds them, and the ground under an outdoor place.
 pub(crate) trait Below {
     /// A portal-file record and its version.
@@ -386,6 +412,7 @@ pub(crate) fn compile(
     let skills = skills(packs, overrides, era, below, settled, &mut out)?;
     experience(packs, overrides, era, below, settled, &mut out)?;
     spells(packs, overrides, era, below, settled, &mut out)?;
+    creature_types(packs, overrides, era, below, settled, &mut out)?;
     chargen(
         packs,
         overrides,
@@ -958,6 +985,137 @@ fn spells(
         bytes,
         version,
         summary: format!("spell table: {changed} field(s) set"),
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// creature types
+// ---------------------------------------------------------------------------------------------
+
+/// A creature type's name as the files write it: its spaces as underscores.
+#[must_use]
+pub fn creature_type_stored(name: &str) -> String {
+    name.trim().replace(' ', "_")
+}
+
+/// A creature type's name as a player reads it: its underscores as spaces.
+#[must_use]
+pub fn creature_type_shown(stored: &str) -> String {
+    stored.replace('_', " ")
+}
+
+/// The type `m` names `name`, spaces, underscores and case aside.
+fn creature_type_named(m: &EnumMapper, name: &str) -> Option<u32> {
+    let want = key_of(&creature_type_shown(name));
+    m.id_to_string
+        .iter()
+        .find(|(_, n)| key_of(&creature_type_shown(n)) == want)
+        .map(|(id, _)| *id)
+}
+
+fn creature_types(
+    packs: &[Pack],
+    overrides: &[Override],
+    era: EraId,
+    below: &dyn Below,
+    settled: &mut Settled,
+    out: &mut Vec<Written>,
+) -> Result<(), Error> {
+    let rows = rows_of(packs, |r| match r {
+        TableRow::CreatureType(s) => Some(s),
+        _ => None,
+    });
+    let Some(first) = rows.first().map(|(_, at, _)| *at) else {
+        return Ok(());
+    };
+    let (mut m, version): (EnumMapper, u16) =
+        read(below, era, CREATURE_TYPES, "creature types' names", first)?;
+    let mut sets = Vec::new();
+    for (pack, at, r) in &rows {
+        let id = match (r.id, r.creature_type.as_deref()) {
+            (Some(id), None) => id,
+            (None, Some(name)) => creature_type_named(&m, name).ok_or_else(|| {
+                Error::source(
+                    at,
+                    format!("the files have no creature type {name:?}; a new type is added by its number (id = …)"),
+                )
+            })?,
+            _ => {
+                return Err(Error::source(
+                    at,
+                    "a creature-type row names its type by its number (id) or its name (creature-type), and not both",
+                ))
+            }
+        };
+        let known = m.id_to_string.iter().any(|(k, _)| *k == id);
+        if !known && r.remove {
+            return Err(Error::source(
+                at,
+                format!("the files have no creature type {id} to take out"),
+            ));
+        }
+        if !known && !r.remove && r.name.is_none() {
+            return Err(Error::source(
+                at,
+                format!("creature type {id} is new: it needs a name"),
+            ));
+        }
+        if r.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
+            return Err(Error::source(at, "a creature type's name is empty"));
+        }
+        if let Some(n) = &r.name {
+            sets.push(Set {
+                item: format!("creature-type {id} name"),
+                at,
+                pack,
+                value: format!("{:?}", creature_type_stored(n)),
+                row: (id, *r),
+            });
+        }
+        if r.remove {
+            sets.push(Set {
+                item: format!("creature-type {id} remove"),
+                at,
+                pack,
+                value: "true".into(),
+                row: (id, *r),
+            });
+        }
+    }
+    let won = winners(overrides, sets, settled);
+    let changed = won.len();
+    let gone: Vec<u32> = won
+        .iter()
+        .filter(|(item, _, _)| item.ends_with(" remove"))
+        .map(|(_, (id, _), _)| *id)
+        .collect();
+    let mut added: BTreeMap<u32, String> = BTreeMap::new();
+    for (item, (id, r), _) in &won {
+        if !item.ends_with(" name") || gone.contains(id) {
+            continue;
+        }
+        let name = creature_type_stored(r.name.as_deref().expect("set"));
+        match m.id_to_string.iter_mut().find(|(k, _)| k == id) {
+            Some((_, n)) => *n = name,
+            None => {
+                added.insert(*id, name);
+            }
+        }
+    }
+    m.id_to_string.retain(|(k, _)| !gone.contains(k));
+    m.id_to_string.extend(added);
+    let bytes = written(
+        first,
+        CREATURE_TYPES,
+        "creature types' names",
+        m.encode_for(era),
+    )?;
+    out.push(Written {
+        id: CREATURE_TYPES,
+        bytes,
+        version,
+        summary: format!("creature types: {changed} field(s) set"),
     });
     Ok(())
 }

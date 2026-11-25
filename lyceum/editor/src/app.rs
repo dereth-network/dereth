@@ -4693,6 +4693,7 @@ impl EditorApp {
                 "skills" => tables_tab::Page::Skills,
                 "heritages" => tables_tab::Page::Heritages,
                 "experience" => tables_tab::Page::Experience,
+                "creature-types" => tables_tab::Page::CreatureTypes,
                 other => return Err(format!("{other:?} is not a page of the Tables tab")),
             };
         }

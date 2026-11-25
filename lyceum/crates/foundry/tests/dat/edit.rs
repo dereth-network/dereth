@@ -808,3 +808,82 @@ fn the_table_tabs_rows_compile_as_a_build_does() {
         "the last step continued"
     );
 }
+
+/// The creature types the Tables tab writes compile as a full build compiles them: a type added
+/// past the highest, one renamed, one taken out; taking the pack's removal away again brings the
+/// type back as the files have it.
+#[test]
+fn the_table_tabs_creature_types_compile_as_a_build_does() {
+    use dereth_assets::tables::EnumMapper;
+    use dereth_assets::Decode;
+    use lyceum_foundry::edit::Op;
+    use lyceum_foundry::table_edit::set_fields;
+    use lyceum_foundry::table_views::{self as v, CREATURE_TYPES_FILE};
+    use lyceum_foundry::tables::CREATURE_TYPES;
+    use toml::Value as T;
+
+    let (_dir, mut s) = session("table-tab-creature-types");
+    let read = |s: &Session| {
+        let bytes = s
+            .compiled()
+            .records
+            .get(&ModernDat::Portal)
+            .and_then(|r| r.get(&CREATURE_TYPES))
+            .map(|r| r.bytes.to_vec())
+            .unwrap_or_else(|| s.base().read_portal(DataId(CREATURE_TYPES)).unwrap());
+        EnumMapper::decode_payload(DataId(CREATURE_TYPES), &bytes).unwrap()
+    };
+    let was = read(&s);
+    let types = v::creature_types(&was);
+    let (renamed, old_name) = types[1].clone();
+    let (gone, gone_name) = types[2].clone();
+    let new = v::free_creature_type(&was);
+    let file = s.packs()[s.target()]
+        .dir
+        .join("records")
+        .join(CREATURE_TYPES_FILE);
+    let id = |n: u32| vec![("id", T::Integer(i64::from(n)))];
+    let mut text = set_fields(
+        None,
+        "creature-type",
+        &id(new),
+        &[("name", Some(T::String("Tusker Kin".into())))],
+    )
+    .unwrap();
+    text = set_fields(
+        text.as_deref(),
+        "creature-type",
+        &v::creature_type_key(text.as_deref(), renamed, &old_name),
+        &[("name", Some(T::String("Old Ones".into())))],
+    )
+    .unwrap();
+    text = set_fields(
+        text.as_deref(),
+        "creature-type",
+        &id(gone),
+        &[("remove", Some(T::Boolean(true)))],
+    )
+    .unwrap();
+    s.apply(&Op::WriteTables {
+        file: file.clone(),
+        text: text.clone(),
+    })
+    .unwrap();
+    assert_eq!(s.compiled().records, full(&s).records);
+    let now = v::creature_types(&read(&s));
+    assert!(now.contains(&(new, "Tusker Kin".into())), "{now:?}");
+    assert!(now.contains(&(renamed, "Old Ones".into())));
+    assert!(!now.iter().any(|(k, _)| *k == gone));
+    assert_eq!(now.len(), types.len());
+    assert_eq!(v::removed_creature_types(text.as_deref()), [gone]);
+
+    let back = set_fields(
+        text.as_deref(),
+        "creature-type",
+        &id(gone),
+        &[("remove", None)],
+    )
+    .unwrap();
+    s.apply(&Op::WriteTables { file, text: back }).unwrap();
+    assert!(v::creature_types(&read(&s)).contains(&(gone, gone_name)));
+}
