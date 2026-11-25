@@ -1,6 +1,7 @@
 //! Attacks and skills aimed at people: a placed person or object the player talks to is refused as
-//! one a skill or a basic attack is not used on (22014), after the checks before; a creature that
-//! holds a person's table (a barrel) is fought as any creature; a target gone is refused as gone.
+//! one a skill or a basic attack is not used on (22014), after the checks before, and so is a run
+//! moved on to one; a creature that holds a person's table (a barrel) is fought as any creature; a
+//! target gone is refused as gone.
 //! Fixture: the test world's camp beside the start, with a person placed beside the player here.
 
 use auberean_protocol::{queue, ServerMessage};
@@ -205,5 +206,33 @@ fn a_creature_with_a_persons_table_is_fought_and_a_gone_target_is_refused_as_gon
     assert_eq!(
         run_at(&mut h, b, 0x7FFF_0000_0000_0001),
         vec![error::TARGET_GONE]
+    );
+}
+
+/// A run under way moved on to a person (the client naming it as the next target) is refused as
+/// one a basic attack is not used on, and ends.
+/// Behaviour: server.player-fights.a-run-moved-onto-a-person-is-refused
+#[test]
+fn a_run_moved_onto_a_person_is_refused_as_not_used_on_one() {
+    const SET_NEXT_TARGET: u32 = 0x8204_0001;
+    let (mut h, b, _, person, beetle) = beside_a_person(SWORD, PERSON, true);
+    assert!(run_at(&mut h, b, beetle).is_empty(), "the run begins");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(SET_NEXT_TARGET, &[Arg::LongInt(person)]),
+    );
+    h.run(80);
+    let told: Vec<(u32, Vec<u32>)> = calls_since(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == BASIC_ATTACKS_FAILED || *f == 0x8204_001B)
+        .collect();
+    assert_eq!(
+        told,
+        [
+            (BASIC_ATTACKS_FAILED, vec![error::CANNOT_USE_ON_NPC]),
+            (0x8204_001B, vec![0])
+        ]
     );
 }

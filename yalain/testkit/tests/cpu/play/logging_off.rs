@@ -131,6 +131,7 @@ fn an_attack_under_way_ends_when_its_player_asks_to_log_off() {
             context: 0,
             mode_sent: true,
             walking: false,
+            next_target: None,
         });
     }
     let from = h.bots[b].inbox.len();

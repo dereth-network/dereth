@@ -25,6 +25,13 @@
 //! **Who swings.** A dead player, or one in portal space, is refused a run. One already under way
 //! ends at a death and waits out a trip.
 //!
+//! **Another target.** While a run is under way the client may name the target it goes on to
+//! (as its player picks another): the run's next swing aims at it, or the one after when the next
+//! swing's turn to its target has been sent already; the server answers nothing. A run that has
+//! ended is not begun again by it, and a selection alone moves no run. A swing aimed at the player
+//! itself, at a monster's corpse, at one a player talks to, or within its fellowship (a fellow, its
+//! own pet or a fellow's) is refused with the reason and the run ends.
+//!
 //! **On another player.** A run may target another player where who may harm whom allows it
 //! ([`crate::kingdoms::may_harm`]): it begins, and each swing goes on, only while it does, else the
 //! basic attacks fail with the reason and the run ends. Its stories are a run's on a creature, each
@@ -227,6 +234,8 @@ pub struct Run {
     pub mode_sent: bool,
     /// It has been ordered to walk to its target and has not arrived.
     pub walking: bool,
+    /// The target the client named to go on to, kept until the swing under way has gone.
+    pub next_target: Option<u64>,
 }
 
 /// Why a standing run cannot swing (the client writes the text): moving.
@@ -719,6 +728,7 @@ pub fn begin<S: Store>(
         context,
         mode_sent,
         walking: false,
+        next_target: None,
     });
     if !was {
         progress::private(net, world, &attack_state(true));
@@ -784,14 +794,87 @@ fn swing_when_asked(p: &mut Player, now: f64) -> f64 {
     at
 }
 
-/// A player has swung: its run's next swing, the time asking again goes by.
+/// A player has swung: its run's next swing, the time asking again goes by; the target the client
+/// named meanwhile is the run's from now.
 fn swung<S: Store>(s: &mut Server<S>, world: ConnId, next: f64) {
     if let Some(p) = s.players.get_mut(&world) {
         p.swing_ready = next;
         if let Some(r) = p.attacking.as_mut() {
             r.next_swing = next;
+            take_next_target(r);
         }
     }
+}
+
+/// A run's target becomes the one the client named to go on to, if any; a walking run walks anew.
+fn take_next_target(r: &mut Run) {
+    if let Some(t) = r.next_target.take() {
+        r.target = t;
+        r.walking = false;
+    }
+}
+
+/// The client names the target its run is to go on to (2017: it sends one with each pick of
+/// another target while attacking). Nothing answers it. With a run under way the run's next swing
+/// aims at it, or the one after when that swing's turn to the old target has been sent already
+/// (2017: of 46 runs that next swung at the target named, 23 did so at once, 22 after one swing at
+/// the old target, 1 after two). With no run it is kept nowhere: a run the client stopped is not
+/// begun again (2017: of 2,400 named with a stop while attacking, the run ended in 2,236).
+pub fn set_next_target<S: Store>(s: &mut Server<S>, world: ConnId, v: &[Value]) {
+    let Some(target) = v.iter().find_map(|x| match x {
+        Value::Long(l) => Some(*l),
+        _ => None,
+    }) else {
+        s.unhandled.note("a next target that does not read");
+        return;
+    };
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let turned = p.turned_for;
+    let Some(r) = p.attacking.as_mut() else {
+        return;
+    };
+    if target == 0 || target == r.target {
+        r.next_target = None;
+    } else if turned == r.next_swing && !r.walking {
+        r.next_target = Some(target);
+    } else {
+        r.next_target = Some(target);
+        take_next_target(r);
+    }
+}
+
+/// Why a run's swing may not go at its target whatever who may harm whom says: the player itself,
+/// a monster's corpse, one a player talks to, or one within its fellowship: a fellow, or a pet of
+/// its own or of a fellow (2017, a run moved on to the target named and refused: 3 of 3 at the
+/// player itself as on itself, 11 of 11 at a corpse as on monster corpses, 4 of 4 at a person as
+/// not used on one, and 143 of 143 within the fellowship at a fellow, 139, or a pet, 4; no run
+/// moved on to a fellow swung at it).
+fn aimed_amiss<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> Option<u32> {
+    use crate::skill_use::refusal;
+    let me = s.players.get(&world)?.character;
+    if target == me {
+        return Some(refusal::ON_YOURSELF);
+    }
+    let corpse = s.things.get(target).and_then(|t| t.corpse.as_ref());
+    if corpse.is_some_and(|c| c.creature != 0) {
+        return Some(refusal::ON_MONSTER_CORPSES);
+    }
+    if talks_not_fights(s, target) {
+        return Some(error::CANNOT_USE_ON_NPC);
+    }
+    let in_fellowship = |id: u64| {
+        id == me
+            || s.fellowships
+                .of(me)
+                .is_some_and(|f| s.fellowships.list[f].has(id))
+    };
+    let within = match s.pets.by_id.get(&target) {
+        Some(pet) => in_fellowship(pet.owner),
+        None => in_fellowship(target),
+    };
+    within.then_some(refusal::WITHIN_FELLOWSHIP)
 }
 
 /// A player's attack run ends: it is not attacking, and at peace.
@@ -863,6 +946,9 @@ fn turn_before<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    if let Some(r) = p.attacking.as_mut() {
+        take_next_target(r);
+    }
     let Some(run) = p.attacking else {
         return;
     };
@@ -917,6 +1003,11 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
             r.next_swing = now + WALKING_CHECK;
         }
+        return;
+    }
+    if let Some(err) = aimed_amiss(s, world, run.target) {
+        progress::private(net, world, &failed(err));
+        end(s, net, world);
         return;
     }
     // Another player or its pet: only while who may harm whom still allows it.

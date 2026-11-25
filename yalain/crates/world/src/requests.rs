@@ -160,8 +160,10 @@ pub fn call<S: Store>(
         }
         crate::craft::function::EXECUTE => crate::craft::execute(s, net, world, &values, clock),
         crate::craft::function::RAISE => crate::craft::raise(s, net, world, &values),
-        // The 2017 servers did not answer it (nor carry a run on to the next target).
-        crate::combat::function::SET_NEXT_TARGET => {}
+        // Unanswered; a run under way goes on to the target it names.
+        crate::combat::function::SET_NEXT_TARGET => {
+            crate::combat::set_next_target(s, world, &values)
+        }
         crate::inventory::function::CLOSE => {
             // A chest closes as it plays its closing; a corpse after its own short closing.
             match values.iter().find_map(|v| match v {

@@ -85,6 +85,7 @@ mod master_camps;
 mod mining;
 mod missiles;
 mod mounts;
+mod next_target;
 mod offerings;
 mod own_requests;
 mod pack;

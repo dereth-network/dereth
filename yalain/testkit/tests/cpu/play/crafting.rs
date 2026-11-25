@@ -600,6 +600,7 @@ fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
             next_swing: f64::INFINITY,
             context: 0,
             mode_sent: true,
+            next_target: None,
         });
     }
     let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);

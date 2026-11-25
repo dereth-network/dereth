@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Switching targets during an attack now moves your attacks to the new target.
 - Hiding Trade in every chat window now leaves the Trade channel.
 - Skills now wind up as long as your race takes to play them.
 - An expired fellowship invitation now says it was declined.

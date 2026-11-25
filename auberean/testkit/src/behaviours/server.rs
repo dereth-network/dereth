@@ -15964,6 +15964,68 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.a-run-goes-on-to-the-target-named",
+        says: "A SetNextTarget while a basic-attack run is under way is answered with nothing and moves \
+               the run: its next swing aims at the target named, or the one after when that swing's \
+               turn has been sent already.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-RUN"),
+        station: "yalain-testkit::cpu::play::next_target::a_run_goes_on_to_the_target_the_client_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-run-moved-onto-a-corpse-is-refused",
+        says: "A run moved on to a monster's corpse is refused as on monster corpses, and ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-CORPSE"),
+        station: "yalain-testkit::cpu::play::next_target::a_run_moved_onto_a_monsters_corpse_is_refused_as_on_monster_corpses",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-run-moved-onto-a-person-is-refused",
+        says: "A run moved on to a person a player talks to is refused as one a basic attack is not used \
+               on, and ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-PERSON"),
+        station: "yalain-testkit::cpu::play::attacks_on_people::a_run_moved_onto_a_person_is_refused_as_not_used_on_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-run-moved-onto-the-player-itself-is-refused",
+        says: "A run moved on to the player itself is refused as on yourself, and ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-SELF"),
+        station: "yalain-testkit::cpu::play::next_target::a_run_moved_onto_the_player_itself_is_refused_as_on_yourself",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-run-moved-within-the-fellowship-is-refused",
+        says: "A run moved on to a fellow, or to a pet of the player's own or of a fellow, is refused as \
+               within the fellowship, and ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-FELLOWSHIP"),
+        station: "yalain-testkit::cpu::play::next_target::a_run_moved_onto_a_fellow_or_its_own_pet_is_refused_as_within_the_fellowship",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-selection-alone-moves-no-run",
+        says: "A selection of another target with no next target named moves no run: its swings go on at \
+               the target it had.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-SELECTION"),
+        station: "yalain-testkit::cpu::play::next_target::a_selection_alone_moves_no_run",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.a-stopped-run-is-not-begun-again-by-a-next-target",
+        says: "A run the client stops is not begun again by a next target named with the stop: it ends, and \
+               no swing goes at the target named.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEXT-TARGET-UNANSWERED"),
+        station: "yalain-testkit::cpu::play::next_target::a_stopped_run_is_not_begun_again_by_the_next_target_named_with_the_stop",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.a-third-after-armor",
         says: "A player's hit on another is reckoned against the target's armor at its full value, and a \
                third of what is left comes off; harm and vigor another player's effects take come to a \
