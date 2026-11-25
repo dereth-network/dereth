@@ -3968,12 +3968,103 @@ mod pull {
         root.join("world.toml")
     }
 
+    /// A land that takes a dungeon's landblock away (a deletion of its every record, its ground and
+    /// an empty statics record written again) leaves no cells there: a dungeon copied back from the
+    /// player's own files is numbered from the first cell, as its template is, so its cells are
+    /// the template's, number for number and byte for byte. Read through the land, the template is
+    /// gone, and the copy is refused.
+    #[test]
+    fn a_dungeon_copied_from_the_files_where_the_land_takes_its_cells_away_keeps_their_numbers() {
+        use dereth_assets::{world::LandblockInfo, Decode as _};
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+        use lyceum_foundry::compile::{self, Deletions, Records, Staged};
+        use lyceum_foundry::edit::Session;
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let (dir, world) = sample("copy-over-a-land");
+        let dats = dereth_dat::testing::dat_dir();
+        let base = lyceum_foundry::dats::DatSet::open(&dats).unwrap();
+        let block = u32::from(DUNGEON) << 16;
+        let read = |id: u32| {
+            base.file(ModernDat::Cell)
+                .unwrap()
+                .read(DataId(id))
+                .unwrap()
+        };
+        let mut info =
+            LandblockInfo::decode_payload(DataId(block | 0xFFFE), &read(block | 0xFFFE)).unwrap();
+        let count = info.num_cells;
+        assert!(count > 0);
+        info.num_cells = 0;
+        info.objects.clear();
+        let mut records = Records::new();
+        let cells = records.entry(ModernDat::Cell).or_default();
+        for (id, bytes) in [
+            (block | 0xFFFF, read(block | 0xFFFF)),
+            (block | 0xFFFE, info.encode()),
+        ] {
+            cells.insert(
+                id,
+                Staged {
+                    bytes: bytes.into(),
+                    version: 1,
+                },
+            );
+        }
+        let gone: Deletions =
+            BTreeMap::from([(ModernDat::Cell, BTreeSet::from([(block, 0xFFFF_0000)]))]);
+        let land = dir.path().join("land");
+        compile::write_records(&records, &gone, &base, "a-land", &land).unwrap();
+        let text = std::fs::read_to_string(&world).unwrap();
+        let imports = format!(
+            "imports = [{:?}]\npacks",
+            land.display().to_string().replace('\\', "/")
+        );
+        std::fs::write(&world, text.replacen("packs", &imports, 1)).unwrap();
+        let edits = dir
+            .path()
+            .join(format!("holtburg/edits/landblocks/{DUNGEON:04X}.toml"));
+        std::fs::create_dir_all(edits.parent().unwrap()).unwrap();
+        let row = |from: &str| {
+            format!("[[add-dungeon]]\nname = \"back\"\ntemplate = 0x{DUNGEON:04X}\n{from}")
+        };
+
+        // Read through the land, the template has no cells.
+        std::fs::write(&edits, row("")).unwrap();
+        let why = Session::open(&world, &dats, None).unwrap_err().to_string();
+        assert!(why.contains("no cells to copy"), "{why}");
+
+        std::fs::write(&edits, row("from = \"files\"\n")).unwrap();
+        let s = Session::open(&world, &dats, None).unwrap();
+        for k in 0..count {
+            let symbol = compile::cell_symbol(
+                &lyceum_foundry::drops::room_name("holtburg:back", k as usize),
+                DUNGEON,
+            );
+            assert_eq!(
+                s.compiled()
+                    .lock
+                    .get(lyceum_foundry::symbol::Kind::Cell, &symbol),
+                Some(block | (0x0100 + k)),
+                "{symbol}"
+            );
+            let id = block | (0x0100 + k);
+            assert_eq!(
+                compile::read_compiled(s.compiled(), s.base(), ModernDat::Cell, id),
+                Some(read(id)),
+                "{id:#010X} as the files hold it"
+            );
+        }
+    }
+
     /// A retail dungeon pulled from a world over the retail files into a repository whose world holds
     /// its cells alike: what the database places in it as the pack's rows, linked as it links them; a
     /// portal into it where asked, of the class that leads there; its exit onto the land, and every
-    /// class the repository lacks, reported. Pulled again, it is refused for what is there now; a
-    /// repository whose world holds the dungeon's cells otherwise, or a landblock with no dungeon, are
-    /// refused before anything is written.
+    /// class the repository lacks, reported. Pulled again, it is refused for what is there now. Into
+    /// a repository whose world holds other cells in its landblock, it is copied under the nearest
+    /// that holds none, every row renumbered there, as the world's build numbers it; with its cells
+    /// alone, nothing is placed. A landblock with no dungeon is refused.
     #[test]
     fn a_retail_dungeon_is_pulled_into_a_repository_as_its_rows() {
         let (dir, world) = sample("pull-dungeon");
@@ -3982,11 +4073,19 @@ mod pull {
         std::fs::write(&database, DATABASE).unwrap();
         let vocabulary = schema();
         let target = repository(&dir.path().join("repo"), None);
-        let run = |target: &Path, lb: u16, entrance: Option<Entrance>, alongside: bool| {
+        let run_as = |target: &Path,
+                      lb: u16,
+                      entrance: Option<Entrance>,
+                      alongside: bool,
+                      cells_only: bool| {
             pull(
                 &Request {
                     source: &world,
-                    database: &database,
+                    database: if cells_only {
+                        Path::new("no-database.sql")
+                    } else {
+                        &database
+                    },
                     landblock: lb,
                     target,
                     schema: &vocabulary,
@@ -3997,9 +4096,13 @@ mod pull {
                     alongside,
                     dry_run: false,
                     library: true,
+                    cells_only,
                 },
                 &dats,
             )
+        };
+        let run = |target: &Path, lb: u16, entrance: Option<Entrance>, alongside: bool| {
+            run_as(target, lb, entrance, alongside, false)
         };
         let at_holtburg = Entrance {
             cell: 0xA9B4_0031,
@@ -4007,6 +4110,10 @@ mod pull {
             heading: 90.0,
         };
         let done = run(&target, DUNGEON, Some(at_holtburg), false).unwrap();
+        assert_eq!(
+            done.copied, None,
+            "the repository's world holds its cells alike"
+        );
         assert_eq!(done.plan.rows.len(), 3);
         assert_eq!(done.already, 0);
         assert_eq!(
@@ -4049,20 +4156,82 @@ mod pull {
         let beside = run(&target, DUNGEON, None, true).unwrap_err().to_string();
         assert!(beside.contains("already uses 3 of the guids"), "{beside}");
 
-        // A repository whose world copies another dungeon into this one holds its cells otherwise.
-        let copied = repository(
-            &dir.path().join("copied"),
-            Some((
-                DUNGEON,
-                &format!("[[add-dungeon]]\nname = \"copy\"\ntemplate = 0x{OTHER:04X}\n"),
-            )),
+        // A repository whose world copies another dungeon into this one holds other cells there:
+        // the dungeon is copied under the nearest landblock that holds none, and every row names
+        // its copy's cells and takes a guid there.
+        let other_text = format!("[[add-dungeon]]\nname = \"copy\"\ntemplate = 0x{OTHER:04X}\n");
+        let copied = repository(&dir.path().join("copied"), Some((DUNGEON, &other_text)));
+        let moved = run(&copied, DUNGEON, None, false).unwrap();
+        let c = moved.copied.clone().expect("copied in");
+        assert_ne!(c.landblock, DUNGEON, "its own landblock is taken");
+        assert!(!c.in_place());
+        let to = u32::from(c.landblock);
+        assert!(c.cells.keys().all(|k| k >> 16 == u32::from(DUNGEON)));
+        assert!(c
+            .cells
+            .values()
+            .all(|v| v >> 16 == to && v & 0xFFFF >= 0x0100));
+        assert_eq!(
+            c.reaim,
+            [(3630, 0x01F6_0100, c.cells[&0x01F6_0100])],
+            "the portal that leads in, to re-aim"
         );
-        let differ = run(&copied, DUNGEON, None, false).unwrap_err().to_string();
-        assert!(differ.contains("otherwise than"), "{differ}");
+        let pack = dir.path().join("copied/base/emergence");
+        let row =
+            std::fs::read_to_string(pack.join(format!("edits/landblocks/{to:04X}.toml"))).unwrap();
+        for part in [
+            "[[add-dungeon]]",
+            "name = \"dungeon-01f6\"",
+            "template = 0x01F6",
+            "from = \"files\"",
+        ] {
+            assert!(row.contains(part), "{part}: {row}");
+        }
+        let rows = std::fs::read_to_string(pack.join(format!("landblock/{to:04X}.toml"))).unwrap();
+        let generator = c.cells[&0x01F6_0100];
         assert!(
-            !dir.path().join("copied/base/emergence/landblock").exists(),
-            "nothing written"
+            rows.contains(&format!("cell = {generator:#010X}")),
+            "{rows}"
         );
+        assert!(
+            rows.contains(&format!("guid = {:#010X}", 0x7000_0800 | (to << 12))),
+            "a guid of its own landblock: {rows}"
+        );
+        assert!(
+            !rows.contains("0x701F6"),
+            "nothing of the old landblock: {rows}"
+        );
+        // The world built from the repository numbers the copy's cells as the pull did.
+        let w = lyceum_foundry::repo_world::world_of(
+            &lyceum_foundry::repo::Repo::open(&copied).unwrap(),
+            0,
+            None,
+            &dir.path().join("copied-build"),
+        )
+        .unwrap();
+        let s = lyceum_foundry::edit::Session::open_world(w, &dats, None, None).unwrap();
+        let built = s.cells(c.landblock);
+        assert_eq!(built.len(), c.cells.len(), "every cell copied");
+        for (k, n) in c.cells.values().enumerate() {
+            let symbol = lyceum_foundry::compile::cell_symbol(
+                &lyceum_foundry::drops::room_name("emergence:dungeon-01f6", k),
+                c.landblock,
+            );
+            assert_eq!(
+                s.compiled()
+                    .lock
+                    .get(lyceum_foundry::symbol::Kind::Cell, &symbol),
+                Some(*n),
+                "{symbol}"
+            );
+        }
+
+        // Its cells alone: copied, nothing placed, no database read.
+        let alone = repository(&dir.path().join("alone"), Some((DUNGEON, &other_text)));
+        let cells = run_as(&alone, DUNGEON, None, false, true).unwrap();
+        assert!(cells.plan.rows.is_empty() && cells.entrance.is_none());
+        assert_eq!(cells.copied.map(|c| c.cells.len()), Some(c.cells.len()));
+        assert!(!dir.path().join("alone/base/emergence/landblock").exists());
 
         // Holtburg's landblock holds buildings' rooms, not a dungeon.
         let town = run(&target, 0xA9B4, None, false).unwrap_err().to_string();

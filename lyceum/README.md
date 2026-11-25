@@ -325,7 +325,7 @@ lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterat
 lyceum facts <world.toml>
 lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json>
             [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library]
-            [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
+            [--cells-only] [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]
 lyceum --version
@@ -357,7 +357,11 @@ and 2 for a usage or input error.
 - **`facts`** prints what a world changes as one line of JSON, from its sources alone: its key,
   era and packs, the landblocks with terrain edits, the statics, buildings, dungeons and rooms, the
   spawns and weenies, and the new pictures and models.
-- **`pull-dungeon`** pulls a dungeon into a world repository, as the editor's Dungeons tab does.
+- **`pull-dungeon`** pulls a dungeon into a world repository, as the editor's Dungeons tab does:
+  its cells, copied from the source's files under its own landblock (or, when the repository's
+  world holds cells there, the nearest that holds none, every row it writes renumbered to match),
+  and what the source places in it. A world that holds the same cells already keeps them.
+  `--cells-only` copies the cells and places nothing.
   `--database` is the source world's server database (the newest cached one by default),
   `--schema` what `empyrean-import schema` writes, `--on` the repository's land. `--entrance`
   places a portal into the dungeon (the source's commonest, or `--portal`). `--alongside` adds to

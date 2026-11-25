@@ -52,7 +52,7 @@
 //!                                               first publish, all of it once)
 //! lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json>
 //!               [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run]
-//!               [--no-library]
+//!               [--no-library] [--cells-only]
 //!               [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 //!                                               a dungeon of another world pulled into a world
 //!                                               repository: what that world places in it as
@@ -96,7 +96,7 @@ lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sq
 lyceum lock <world.toml> --dats <dir> [--on <overlay>]
 lyceum name <world.toml> --heritage <name> --seed <text> [--count <n>]
 lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>] [--number] [--empyrean <dir>]
-lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json> [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library] [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
+lyceum pull-dungeon <from-world.toml> <landblock> --into <world.toml> --dats <dir> --schema <json> [--database <dump>] [--on <overlay>] [--pack <name>] [--alongside] [--dry-run] [--no-library] [--cells-only] [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 lyceum layer <manifest> [--out <container>] [--check]
 lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
@@ -903,7 +903,7 @@ fn run_pull(args: &Args) -> ExitCode {
         || args
             .switches
             .iter()
-            .any(|s| !["alongside", "dry-run", "no-library"].contains(&s.as_str()))
+            .any(|s| !["alongside", "dry-run", "no-library", "cells-only"].contains(&s.as_str()))
     {
         return usage(
             "pull-dungeon takes the source world file and a landblock, --into, --dats and --schema",
@@ -921,8 +921,11 @@ fn run_pull(args: &Args) -> ExitCode {
         ));
     };
     let source = Path::new(&args.words[0]);
+    let cells_only = args.switch("cells-only");
     let database = match args.path("database") {
         Some(d) => d,
+        // Only the cells: no database is read.
+        None if cells_only => PathBuf::new(),
         None => {
             let era = match lyceum_foundry::world::World::read(source) {
                 Ok(w) => export::Era::of(w.era),
@@ -978,10 +981,37 @@ fn run_pull(args: &Args) -> ExitCode {
         alongside: args.switch("alongside"),
         dry_run: args.switch("dry-run"),
         library: !args.switch("no-library"),
+        cells_only,
     };
     match pull(&r, &dats) {
         Ok(done) => {
             let p = &done.plan;
+            if let Some(c) = &done.copied {
+                println!(
+                    "{landblock:04X}: {} cell(s) copied from {}{}",
+                    c.cells.len(),
+                    source.display(),
+                    if c.landblock == landblock {
+                        String::new()
+                    } else {
+                        format!(
+                            ", under {:04X}: the repository's world holds cells in {landblock:04X}",
+                            c.landblock
+                        )
+                    }
+                );
+                if !c.in_place() {
+                    let (first, last) = (c.cells.values().min(), c.cells.values().max());
+                    if let (Some(a), Some(b)) = (first, last) {
+                        println!("its cells are {a:#010X} to {b:#010X}");
+                    }
+                }
+                for (class, from, to) in &c.reaim {
+                    println!(
+                        "way in to re-aim: class {class} leads to {from:#010X}, its copy's cell is {to:#010X}"
+                    );
+                }
+            }
             println!(
                 "{landblock:04X}: {} thing(s) placed from {}{}",
                 p.rows.len(),
@@ -1415,6 +1445,7 @@ fn main() -> ExitCode {
         "number",
         "alongside",
         "no-library",
+        "cells-only",
     ];
     let parsed = |a: &[String]| parse(a, &switches);
     match first.as_str() {

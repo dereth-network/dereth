@@ -1957,6 +1957,35 @@ mod houses {
             .0
     }
 
+    /// A house dropped from the player's own files copies its basement from them too: a land that
+    /// takes AC1's buildings away takes AC1's dungeons with them, the basement's template among
+    /// them. Its rows say so, and the world builds with the basement copied.
+    #[test]
+    fn a_house_from_the_players_own_files_copies_its_basement_from_them_too() {
+        let (dir, mut s) = session("house-basement-from-files");
+        let mut files = Catalog::default().with_files(catalog().clone());
+        files.doors_known = true;
+        s.learn_buildings(files);
+        let (_, lb, x, y, heading) = HOUSES[1];
+        let name = drop_house(&mut s, VILLA, lb, x, y, heading);
+        s.save().unwrap();
+        let below = basement_landblock(&s, &name, lb);
+        let edits = |b: u16| {
+            std::fs::read_to_string(
+                dir.path()
+                    .join(format!("holtburg/edits/landblocks/{b:04X}.toml")),
+            )
+            .unwrap()
+        };
+        assert!(edits(lb).contains("from = \"files\""), "{}", edits(lb));
+        let row = edits(below);
+        assert!(
+            row.contains("[[add-dungeon]]") && row.contains("from = \"files\""),
+            "{row}"
+        );
+        assert!(!s.cells(below).is_empty(), "its basement copied");
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn a_dropped_cottage_villa_and_mansion_are_houses_as_their_retail_copies_are() {

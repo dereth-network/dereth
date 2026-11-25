@@ -1211,7 +1211,47 @@ fn dungeon_row(d: &source::AddDungeon, pack: &str) -> Table {
         t.insert("house", Item::Value(Value::from(bare(h))));
     }
     set_spawns(&mut t, &d.spawns, pack);
+    if d.from_files {
+        t.insert("from", Item::Value(Value::from("files")));
+    }
     t
+}
+
+/// `doc` (a landblock's edits) with dungeon copy `d`'s row in pack `pack`: in place of the row of
+/// its name, else the last.
+fn set_dungeon_row(doc: &mut DocumentMut, d: &source::AddDungeon, pack: &str) {
+    let row = dungeon_row(d, pack);
+    let bare = string(&row, "name").unwrap_or_default().to_owned();
+    let found = tables(doc, "add-dungeon")
+        .iter()
+        .position(|t| string(t, "name") == Some(bare.as_str()));
+    match found {
+        Some(k) => {
+            let t = tables(doc, "add-dungeon").get_mut(k).expect("found above");
+            let decor = t.decor().clone();
+            *t = row;
+            *t.decor_mut() = decor;
+        }
+        None => push(doc, "add-dungeon", row),
+    }
+}
+
+/// A landblock's edits file `text` (none: a new file) with dungeon copy `d`'s row in pack
+/// `pack`, as [`Op::AddDungeon`] writes it.
+///
+/// # Errors
+/// A file that isn't TOML.
+pub(crate) fn with_dungeon_row(
+    text: Option<&str>,
+    d: &source::AddDungeon,
+    pack: &str,
+) -> Result<String, String> {
+    let mut doc = text
+        .unwrap_or_default()
+        .parse::<DocumentMut>()
+        .map_err(|e| e.to_string())?;
+    set_dungeon_row(&mut doc, d, pack);
+    Ok(render(&doc))
 }
 
 /// A cell's number as the session writes it: `0x0105`.
@@ -4712,22 +4752,7 @@ impl Session {
                 let path = self.edits_file(*landblock);
                 let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
-                let row = dungeon_row(dungeon, &pack);
-                let bare = string(&row, "name").unwrap_or_default().to_owned();
-                let found = tables(&mut doc, "add-dungeon")
-                    .iter()
-                    .position(|t| string(t, "name") == Some(bare.as_str()));
-                match found {
-                    Some(k) => {
-                        let t = tables(&mut doc, "add-dungeon")
-                            .get_mut(k)
-                            .expect("found above");
-                        let decor = t.decor().clone();
-                        *t = row;
-                        *t.decor_mut() = decor;
-                    }
-                    None => push(&mut doc, "add-dungeon", row),
-                }
+                set_dungeon_row(&mut doc, dungeon, &pack);
                 out.insert(path, Some(render(&doc)));
             }
             Op::UnsetVertices(list) => {

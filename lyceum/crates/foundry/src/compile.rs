@@ -86,6 +86,29 @@ pub enum StaticOrigin {
 /// The records of each file, by id.
 pub type Records = BTreeMap<ModernDat, BTreeMap<u32, Staged>>;
 
+/// Each file's deletions, `(id, mask)`: an id alone when the mask is 0, else every id whose bits
+/// under the mask are the id's.
+pub type Deletions = BTreeMap<ModernDat, BTreeSet<(u32, u32)>>;
+
+/// Whether one of file `t`'s deletions in `gone` covers an id, its ids and families gathered once.
+fn covered(gone: &Deletions, t: ModernDat) -> impl Fn(u32) -> bool {
+    let mut single = std::collections::HashSet::new();
+    let mut families: BTreeMap<u32, std::collections::HashSet<u32>> = BTreeMap::new();
+    for &(id, mask) in gone.get(&t).into_iter().flatten() {
+        if mask == 0 {
+            single.insert(id);
+        } else {
+            families.entry(mask).or_default().insert(id & mask);
+        }
+    }
+    move |id| {
+        single.contains(&id)
+            || families
+                .iter()
+                .any(|(mask, ids)| ids.contains(&(id & mask)))
+    }
+}
+
 /// The mark of a cell's static a pack adds, in [`Compiled::cell_statics`].
 pub const ADDED: usize = 1 << 30;
 
@@ -101,7 +124,7 @@ pub struct Compiled {
     /// statics record came from, in the record's order.
     pub statics: BTreeMap<u16, Vec<StaticOrigin>>,
     /// Each file's deletions, `(id, mask)`, from the imports.
-    pub tombstones: BTreeMap<ModernDat, BTreeSet<(u32, u32)>>,
+    pub tombstones: Deletions,
     /// The SQL files, by their path under the output's `sql` folder, with the ids filled in.
     pub sql: BTreeMap<PathBuf, String>,
     /// For each landblock with new cells, the cell each new cell's symbol was given.
@@ -349,7 +372,14 @@ impl dereth_ac2_convert::records::NewIds for LockIds<'_> {
             return DataId(id);
         }
         let wanted = BTreeSet::from([(kind, symbol)]);
-        match number(self.lock, &wanted, self.base, self.staged, 0) {
+        match number(
+            self.lock,
+            &wanted,
+            self.base,
+            self.staged,
+            &Deletions::new(),
+            0,
+        ) {
             Ok(mut n) => match n.pop() {
                 Some(row) => {
                     let id = row.2;
@@ -724,8 +754,9 @@ fn highest_in(base: &DatSet, lo: u32, hi: u32) -> u32 {
 /// - A loot table's id is the lowest from [`crate::loot::NEW_ID`] the lockfile does not hold.
 /// - An instance's id is `0x7XXYYnnn` in its landblock, from `nnn = 0xFFF` down, that the lockfile
 ///   does not hold.
-/// - A new cell's id is `0xXXYYnnnn` in its landblock, the next after the base's cells there and
-///   every cell number the lockfile holds there: a number is never handed to another cell.
+/// - A new cell's id is `0xXXYYnnnn` in its landblock, the next after the base's cells there (but
+///   those an import deletes, `gone`) and every cell number the lockfile holds there: a number is
+///   never handed to another cell.
 ///
 /// # Errors
 /// A span with no id left.
@@ -734,9 +765,11 @@ pub fn number(
     wanted: &BTreeSet<(Kind, String)>,
     base: &DatSet,
     staged: &Records,
+    gone: &Deletions,
     wcid_start: u32,
 ) -> Result<Vec<(Kind, String, u32)>, Error> {
     let mut out = Vec::new();
+    let deleted = covered(gone, ModernDat::Cell);
     for (kind, symbol) in wanted {
         if lock.get(*kind, symbol).is_some() {
             continue;
@@ -833,9 +866,10 @@ pub fn number(
                     staged
                         .get(&ModernDat::Cell)
                         .is_some_and(|r| r.contains_key(&(first | n)))
-                        || base
+                        || (base
                             .file(ModernDat::Cell)
                             .is_some_and(|f| f.base_entry(DataId(first | n)).is_some())
+                            && !deleted(first | n))
                 };
                 let mut after_base = u32::from(crate::cells::FIRST_CELL);
                 while after_base < 0xFFFE && held_by_files(after_base) {
@@ -1750,7 +1784,11 @@ fn drop_buildings(
                 .collect::<Result<Vec<_>, _>>()?,
             dungeons
                 .iter()
-                .map(|r| crate::drops::prepare_dungeon(r, &read, base.era))
+                .map(|r| {
+                    let from: &dyn Fn(u32) -> Option<Vec<u8>> =
+                        if r.item.from_files { &files } else { &read };
+                    crate::drops::prepare_dungeon(r, from, base.era)
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         )
     };
@@ -1760,7 +1798,7 @@ fn drop_buildings(
         .chain(copied.iter().flat_map(|d| d.symbols(lb)))
         .collect();
     let mut lock = c.lock.clone();
-    let numbered = number(&mut lock, &wanted, base, &c.imported, 0)?;
+    let numbered = number(&mut lock, &wanted, base, &c.imported, &c.tombstones, 0)?;
     c.lock = lock;
     c.numbered.extend(numbered);
     let out: Vec<crate::drops::Dropped> = prepared
@@ -2433,16 +2471,19 @@ pub fn cell_symbol(name: &str, landblock: u16) -> String {
 }
 
 /// Leave to the base every record (of the landblocks in `only`, or every record) that came out
-/// as the base holds it.
+/// as the base holds it, but one an import deletes: the base's copy is hidden, so the world holds
+/// it only as its own.
 fn leave_to_base(c: &mut Compiled, base: &DatSet, only: Option<&BTreeSet<u16>>) {
     for (t, records) in &mut c.records {
         let Some(f) = base.file(*t) else { continue };
+        let deleted = covered(&c.tombstones, *t);
         #[allow(clippy::cast_possible_truncation)] // a cell id's top half is its landblock
         records.retain(|id, s| {
             if only.is_some_and(|o| *t != ModernDat::Cell || !o.contains(&((id >> 16) as u16))) {
                 return true;
             }
             f.base_entry(DataId(*id)).is_none()
+                || deleted(*id)
                 || f.read(DataId(*id)).ok().as_deref() != Some(&*s.bytes)
         });
     }
@@ -2553,6 +2594,7 @@ pub fn compile_with(
         &wanted,
         base,
         &c.imported,
+        &c.tombstones,
         world.id_start(Kind::Wcid),
     )?;
     c.lock = lock;
@@ -2692,6 +2734,7 @@ pub fn recompile_landblocks(
         &cell_symbols(packs, Some(touched)),
         base,
         &c.imported,
+        &c.tombstones,
         0,
     )?;
     c.lock = lock;
@@ -2740,6 +2783,7 @@ pub fn refresh_sql(
         &wanted,
         base,
         &c.imported,
+        &c.tombstones,
         world.id_start(Kind::Wcid),
     )?;
     c.lock = lock;

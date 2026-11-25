@@ -91,13 +91,13 @@ fn a_set_s_house_names_each_building_s_spawn() {
 }
 
 #[test]
-fn an_add_dungeon_row_reads_its_template_and_its_house() {
+fn an_add_dungeon_row_reads_its_template_its_house_and_where_its_template_is_read() {
     let f = Fixture::new("dungeon-row");
     let e = read(
         &f,
         "[[add-dungeon]]\nname = \"villa-1-basement\"\ntemplate = 0x0398\n\
          house = \"villa-1-basement-house\"\n\n\
-         [[add-dungeon]]\nname = \"crypt\"\ntemplate = 0x0163\n",
+         [[add-dungeon]]\nname = \"crypt\"\ntemplate = 0x0163\nfrom = \"files\"\n",
     )
     .unwrap();
     assert!(e.touches_statics());
@@ -111,10 +111,16 @@ fn an_add_dungeon_row_reads_its_template_and_its_house() {
             template: 0x0398,
             house: Some("sample:villa-1-basement-house".into()),
             spawns: Vec::new(),
+            from_files: false,
         }
     );
     assert_eq!((b.item.template, b.item.house.as_deref()), (0x0163, None));
+    assert!(b.item.from_files, "its template is the player's own files'");
     for (text, says) in [
+        (
+            "[[add-dungeon]]\nname = \"d\"\ntemplate = 0x0398\nfrom = \"pack\"\n",
+            "from is \"files\" or left out",
+        ),
         (
             "[[add-dungeon]]\nname = \"d\"\ntemplate = 0x1FF00\n",
             "is not a landblock",

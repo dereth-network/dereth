@@ -1,17 +1,23 @@
-//! A dungeon pulled from one world into a world repository: the things the source world places in
-//! the dungeon's landblock (its spawns, their generators' links), written as the repository's
-//! `[[placement]]` rows in the pack being edited, with a portal into it where the author stands.
+//! A dungeon pulled from one world into a world repository: its cells, and the things the source
+//! world places in the dungeon's landblock (its spawns, their generators' links), written as the
+//! repository's `[[placement]]` rows in the pack being edited, with a portal into it where the
+//! author stands.
 //!
-//! The dungeon's cells are not copied: the AC2-in-AC1 land keeps AC1's dungeons under it, so the
-//! repository's world holds the same cells at the same numbers. They are checked instead, byte for
-//! byte ([`cells_differ`]), and a dungeon whose cells differ is refused.
+//! **The cells:** a repository's world that holds the dungeon's cells already, byte for byte
+//! ([`cells_differ`]), keeps them. Otherwise they are copied in from the source's files, as a
+//! dungeon copy (`[[add-dungeon]]`) the lockfile numbers: under the dungeon's own landblock when
+//! the repository's world holds no cells there, else under the nearest landblock that holds none
+//! ([`free_block`]). Every row the pull writes names the copy's cells, and a copy moved to
+//! another landblock takes guids of its own there.
 //!
 //! What it can't settle it reports:
 //! - **the exits:** the portals in the dungeon whose destinations lie outside it. One onto the land
 //!   leads where AC1's land was, so it is listed for its author to re-aim; one into another
 //!   dungeon leads there still, if the repository's world has that dungeon's things too;
 //! - **the classes the repository lacks:** each class a placement names that no row of the
-//!   repository's world defines, to be copied into its library.
+//!   repository's world defines, to be copied into its library;
+//! - **the ways in to re-aim:** the portals whose destination is in the dungeon, when its copy's
+//!   cells are not the source's: each class, where it leads, and the copy's cell there.
 //!
 //! The source world's things are its server database's, with its packs' SQL over them: a pack's
 //! spawn of a guid the database places too stands for it.
@@ -47,6 +53,53 @@ impl Exit {
     pub fn outdoors(&self) -> bool {
         self.to & 0xFFFF < 0x100
     }
+}
+
+/// The dungeon's cells copied into the repository's world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Copied {
+    /// The dungeon copy's row, and the landblock it is copied under and the file its row is in.
+    pub dungeon: crate::source::AddDungeon,
+    pub landblock: u16,
+    pub file: PathBuf,
+    /// Each of the source's cells, and the cell its copy is.
+    pub cells: BTreeMap<u32, u32>,
+    /// The portals that lead into the dungeon, when its copy's cells are not the source's: each
+    /// class, the cell it leads to, and the copy's cell.
+    pub reaim: Vec<(u32, u32, u32)>,
+}
+
+impl Copied {
+    /// Whether the copy's cells are numbered as the source's.
+    #[must_use]
+    pub fn in_place(&self) -> bool {
+        self.cells.iter().all(|(a, b)| a == b)
+    }
+}
+
+/// The landblock nearest `lb` whose cells `held` says none are held, ring by ring outward, each
+/// ring west to east and south to north: where a dungeon copy goes when its own landblock is
+/// taken. `None` when every landblock holds cells.
+#[must_use]
+pub fn free_block(lb: u16, held: &dyn Fn(u16) -> bool) -> Option<u16> {
+    let (x0, y0) = (i32::from(lb >> 8), i32::from(lb & 0xFF));
+    for r in 1..=0xFEi32 {
+        for x in x0 - r..=x0 + r {
+            for y in y0 - r..=y0 + r {
+                if (x - x0).abs().max((y - y0).abs()) != r
+                    || !(0..=0xFE).contains(&x)
+                    || !(0..=0xFE).contains(&y)
+                {
+                    continue;
+                }
+                let b = u16::try_from((x << 8) | y).ok()?;
+                if !held(b) {
+                    return Some(b);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// What a pull writes and reports, before anything is written.
@@ -349,6 +402,9 @@ pub struct Request<'a> {
     /// Whether the classes the repository lacks are added to its library list
     /// ([`library_list`]), for its library to copy them.
     pub library: bool,
+    /// Whether only the dungeon's cells are pulled, none of the things the source places (the
+    /// database is then not read).
+    pub cells_only: bool,
 }
 
 /// What a pull wrote.
@@ -366,6 +422,8 @@ pub struct Pulled {
     /// The library list the missing classes were added to, and those added (none it named
     /// already); `None` when none was written, or the repository has no list.
     pub library: Option<(PathBuf, Vec<u32>)>,
+    /// The dungeon's cells copied in; `None` when the repository's world holds them already.
+    pub copied: Option<Copied>,
 }
 
 /// What a pull would write: what it reports (no files yet), the rows, and the pack folder they go
@@ -375,6 +433,7 @@ pub struct Prepared {
     pub pulled: Pulled,
     pub rows: Vec<toml::Table>,
     pub pack: PathBuf,
+    pub pack_name: String,
     /// The library list's new text, when it gains classes.
     pub library_text: Option<String>,
 }
@@ -390,10 +449,23 @@ pub fn pull(r: &Request<'_>, dats: &Path) -> Result<Pulled, crate::error::Error>
         mut pulled,
         rows,
         pack,
+        pack_name,
         library_text,
     } = prepare(r, dats, None)?;
     if let (Some((path, _)), Some(text), false) = (&pulled.library, &library_text, r.dry_run) {
         std::fs::write(path, text).map_err(|e| Error::io(path, e))?;
+    }
+    if let Some(c) = &pulled.copied {
+        let now = std::fs::read_to_string(&c.file).ok();
+        let text = crate::edit::with_dungeon_row(now.as_deref(), &c.dungeon, &pack_name)
+            .map_err(|e| Error::Refused(format!("{}: {e}", c.file.display())))?;
+        if !r.dry_run {
+            if let Some(d) = c.file.parent() {
+                std::fs::create_dir_all(d).map_err(|e| Error::io(d, e))?;
+            }
+            std::fs::write(&c.file, text).map_err(|e| Error::io(&c.file, e))?;
+        }
+        pulled.files.push(c.file.clone());
     }
     let texts = write_rows(r.schema, &pack, &rows, &mut |p| {
         std::fs::read_to_string(p).ok()
@@ -491,33 +563,43 @@ pub fn prepare(
         }
     };
     let target = target.or(opened.as_ref()).expect("one or the other");
-    let differ = cells_differ(&source, target, lb);
-    if !differ.is_empty() {
-        let list: Vec<String> = differ
-            .iter()
-            .take(8)
-            .map(|n| format!("{lb:04X}{n:04X}"))
-            .collect();
-        return Err(refused(format!(
-            "the repository's world holds {} of landblock {lb:04X}'s cells otherwise than {} ({}{}): \
-             only a dungeon both hold alike is pulled",
-            differ.len(),
-            r.source.display(),
-            list.join(", "),
-            if differ.len() > list.len() { ", ..." } else { "" }
-        )));
-    }
 
-    // The source's things: its database's, its packs' over them.
-    let dump = std::fs::read(r.database).map_err(|e| Error::io(r.database, e))?;
+    // The dungeon's cells: kept where the repository's world holds them alike, else copied in.
+    let held = !target.cells(lb).is_empty();
+    let copied = if held && cells_differ(&source, target, lb).is_empty() {
+        None
+    } else {
+        let to = if held {
+            free_block(lb, &|b| !target.cells(b).is_empty()).ok_or_else(|| {
+                refused(format!(
+                    "no landblock is free of cells for dungeon {lb:04X}'s copy"
+                ))
+            })?
+        } else {
+            lb
+        };
+        Some(copy_into(target, &pack.name, &pack.dir, &cells, lb, to)?)
+    };
+
+    // The source's things: its database's, its packs' over them (none when only its cells are
+    // pulled).
+    let dump = if r.cells_only {
+        Vec::new()
+    } else {
+        std::fs::read(r.database).map_err(|e| Error::io(r.database, e))?
+    };
     let server = sql_ids::server_content(&String::from_utf8_lossy(&dump));
-    let pack_sql: String = source
-        .compiled()
-        .sql
-        .values()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let pack_sql: String = if r.cells_only {
+        String::new()
+    } else {
+        source
+            .compiled()
+            .sql
+            .values()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let packs = sql_ids::server_content(&pack_sql);
     let key = source.world().key.clone();
     let plan = plan(
@@ -527,7 +609,9 @@ pub fn prepare(
         &database_prov(r.database),
         &pack_prov(&key),
     );
-    if already > 0 && !r.alongside {
+    // A copy moved to another landblock takes guids of its own there, beside nothing.
+    let moving = copied.as_ref().is_some_and(|c| c.landblock != lb);
+    if already > 0 && !r.alongside && !r.cells_only && !moving {
         return Err(refused(format!(
             "the repository already places {already} thing(s) in {lb:04X}: pull with alongside to add the source's beside them"
         )));
@@ -535,7 +619,7 @@ pub fn prepare(
     let clash: Vec<String> = plan
         .rows
         .keys()
-        .filter(|g| taken.contains(g))
+        .filter(|g| !moving && taken.contains(g))
         .map(|g| format!("{g:#010X}"))
         .collect();
     if !clash.is_empty() {
@@ -547,6 +631,45 @@ pub fn prepare(
         )));
     }
     let mut rows: Vec<toml::Table> = plan.rows.values().cloned().collect();
+    // The rows name the copy's cells; a copy moved to another landblock takes guids there.
+    let mut copied = copied;
+    if let Some(c) = copied.as_mut() {
+        if c.landblock != lb {
+            let mut guids: BTreeMap<u32, u32> = BTreeMap::new();
+            for g in plan.rows.keys() {
+                let n = free_guid(c.landblock, &taken).ok_or_else(|| {
+                    refused(format!(
+                        "landblock {:04X} has no free guid left",
+                        c.landblock
+                    ))
+                })?;
+                taken.insert(n);
+                guids.insert(*g, n);
+            }
+            for row in &mut rows {
+                renumber_guids(row, &guids);
+            }
+        }
+        for row in &mut rows {
+            if let Some(T::Integer(cell)) = row.get_mut("cell") {
+                if let Some(to) = u32::try_from(*cell).ok().and_then(|v| c.cells.get(&v)) {
+                    *cell = i64::from(*to);
+                }
+            }
+        }
+        if !c.in_place() {
+            for content in [&server, &packs] {
+                for (class, f) in &content.weenies {
+                    if let Some(to) = f.destination.and_then(|d| c.cells.get(&d).map(|t| (d, *t))) {
+                        if !c.reaim.iter().any(|(k, _, _)| k == class) {
+                            c.reaim.push((*class, to.0, to.1));
+                        }
+                    }
+                }
+            }
+            c.reaim.sort_unstable();
+        }
+    }
 
     // The way in, where the author stands.
     let mut entrance = None;
@@ -627,10 +750,93 @@ pub fn prepare(
             missing,
             already,
             library,
+            copied,
         },
         rows,
         pack: pack.dir.clone(),
+        pack_name: pack.name.clone(),
         library_text,
+    })
+}
+
+/// Row `row`'s guid and the guids it links, renumbered as `guids` has them.
+fn renumber_guids(row: &mut toml::Table, guids: &BTreeMap<u32, u32>) {
+    let to = |v: &mut T| {
+        if let T::Integer(g) = v {
+            if let Some(n) = u32::try_from(*g).ok().and_then(|g| guids.get(&g)) {
+                *g = i64::from(*n);
+            }
+        }
+    };
+    if let Some(g) = row.get_mut("guid") {
+        to(g);
+    }
+    if let Some(T::Array(links)) = row.get_mut("links") {
+        links.iter_mut().for_each(to);
+    }
+}
+
+/// Dungeon `lb`'s cells (`cells`, as its source holds them) copied under landblock `to` of the
+/// repository's world `target`, as a dungeon copy in pack `pack` (folder `dir`): its row, the
+/// file it goes in, and each cell's copy, numbered as a build of the world numbers them.
+///
+/// # Errors
+/// No cell number left in `to`.
+fn copy_into(
+    target: &Session,
+    pack: &str,
+    dir: &Path,
+    cells: &BTreeMap<u16, dereth_assets::world::EnvCell>,
+    lb: u16,
+    to: u16,
+) -> Result<Copied, crate::error::Error> {
+    use crate::symbol::Kind;
+    let name = format!("{pack}:dungeon-{lb:04x}");
+    let symbol = |k: usize| crate::compile::cell_symbol(&crate::drops::room_name(&name, k), to);
+    let wanted: BTreeSet<(Kind, String)> =
+        (0..cells.len()).map(|k| (Kind::Cell, symbol(k))).collect();
+    let c = target.compiled();
+    let mut lock = c.lock.clone();
+    crate::compile::number(
+        &mut lock,
+        &wanted,
+        target.base(),
+        &c.imported,
+        &c.tombstones,
+        0,
+    )?;
+    let mut copied = BTreeMap::new();
+    for (k, low) in cells.keys().enumerate() {
+        let n = lock.get(Kind::Cell, &symbol(k)).ok_or_else(|| {
+            crate::error::Error::Refused(format!("dungeon {lb:04X}: its cell {k} was not numbered"))
+        })?;
+        copied.insert((u32::from(lb) << 16) | u32::from(*low), n);
+    }
+    let file = target
+        .packs()
+        .iter()
+        .find(|p| p.name == pack)
+        .and_then(|p| p.edits.iter().find(|e| e.landblock == to))
+        .map_or_else(
+            || {
+                dir.join("edits")
+                    .join("landblocks")
+                    .join(format!("{to:04X}.toml"))
+            },
+            |e| e.file.clone(),
+        );
+    Ok(Copied {
+        dungeon: crate::source::AddDungeon {
+            name,
+            template: lb,
+            house: None,
+            spawns: Vec::new(),
+            from_files: true,
+        },
+        landblock: to,
+        file,
+        cells: copied,
+        reaim: Vec::new(),
     })
 }
 

@@ -88,18 +88,27 @@ impl EditorApp {
             alongside,
             dry_run: false,
             library: true,
+            cells_only: false,
         };
         let prepared = pull::prepare(&r, &dats, Some(&self.session)).map_err(|e| e.to_string())?;
         let session = &mut self.session;
         let texts = pull::write_rows(&schema, &prepared.pack, &prepared.rows, &mut |p| {
             session.rows_text(p)
         })?;
-        let ops: Vec<Op> = texts
-            .into_iter()
-            .map(|(file, text)| Op::WriteRows {
+        // The dungeon's cells first, copied in where the repository's world doesn't hold them, so
+        // the rows after name cells the world has.
+        let ops: Vec<Op> = prepared
+            .pulled
+            .copied
+            .iter()
+            .map(|c| Op::AddDungeon {
+                landblock: c.landblock,
+                dungeon: c.dungeon.clone(),
+            })
+            .chain(texts.into_iter().map(|(file, text)| Op::WriteRows {
                 file,
                 text: Some(text),
-            })
+            }))
             .collect();
         if !ops.is_empty() {
             self.apply(&Op::Batch(ops), false)?;

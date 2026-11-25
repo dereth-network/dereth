@@ -276,6 +276,8 @@ name = "villa-1-basement"
 template = 0x0398            # the retail dungeon's landblock
 house = "villa-1-basement-house"  # optional: its cells belong to this spawn
 spawns = ["villa-1-basement-hook-0"]  # optional: in a world repository, as for a building
+from = "files"               # optional: the template read from the player's own files, under no
+                             # import (a land that takes that dungeon's cells away)
 
 [[vertex]]                   # one vertex, or every vertex from at to to
 at = [4, 3]                  # 0 to 8 each; on a finer land, 0 to 8 times its steps a cell

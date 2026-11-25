@@ -516,6 +516,9 @@ pub struct AddDungeon {
     /// In a world repository's layer, the spawns in its cells that go with it, as
     /// [`AddBuilding::spawns`] names them.
     pub spawns: Vec<String>,
+    /// Whether its template is read from the player's own files, under no import (`from =
+    /// "files"`): a world whose land takes that dungeon's cells away still copies it.
+    pub from_files: bool,
 }
 
 /// The operations of one landblock's file.
@@ -733,6 +736,8 @@ struct AddDungeonRow {
     house: Option<String>,
     #[serde(default)]
     spawns: Vec<String>,
+    /// `"files"`: its template is read from the player's own files.
+    from: Option<String>,
     /// Where the row came from; left out, a person wrote it.
     #[serde(default)]
     prov: Option<Provenance>,
@@ -1876,6 +1881,16 @@ fn add_dungeon(at: &Loc, pack: &str, r: &AddDungeonRow) -> Result<AddDungeon, Er
             .map(|h| house_symbol(at, pack, h))
             .transpose()?,
         spawns: spawn_symbols(at, pack, &r.spawns)?,
+        from_files: match r.from.as_deref() {
+            None => false,
+            Some("files") => true,
+            Some(other) => {
+                return Err(Error::source(
+                    at,
+                    format!("from is \"files\" or left out, not {other:?}"),
+                ))
+            }
+        },
     })
 }
 

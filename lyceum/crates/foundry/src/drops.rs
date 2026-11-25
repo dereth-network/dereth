@@ -1750,6 +1750,7 @@ impl Session {
                 hulls: &w.hulls,
                 leveled: &leveled,
                 basement,
+                from_files: w.from_files,
             };
             let (files, basement_row, more) =
                 self.house_files(&at, h, w.kind).map_err(Error::Refused)?;
@@ -2217,6 +2218,7 @@ impl Session {
                     hulls: &hulls,
                     leveled: &leveled,
                     basement,
+                    from_files: row.from_files,
                 };
                 let (files, _, more) = self.house_files(&at, h, *kind).map_err(Error::Refused)?;
                 applied.warnings.extend(more);
@@ -2692,7 +2694,8 @@ fn house_paths(dir: &Path, lb: u16, name: &str, basement: Option<u16>) -> Vec<Pa
 }
 
 /// Where a drop's house is placed: the drop's landblock and bare name, its buildings' templates,
-/// frames and hulls, the ground its drop levels, and its basement's landblock and template.
+/// frames and hulls, the ground its drop levels, its basement's landblock and template, and
+/// whether its templates (its basement's among them) are the player's own files'.
 struct HouseAt<'a> {
     lb: u16,
     name: &'a str,
@@ -2701,6 +2704,7 @@ struct HouseAt<'a> {
     hulls: &'a [buildings::Hull],
     leveled: &'a [VertexSet],
     basement: Option<(u16, u16)>,
+    from_files: bool,
 }
 
 /// One spawn of a house as its file writes it: its symbol (bare), weenie and cell as written,
@@ -3342,6 +3346,9 @@ impl Session {
                     template,
                     house: house_spawn,
                     spawns: Vec::new(),
+                    // A basement of a house copied from the player's files is read there too: a
+                    // land that takes AC1's dungeons away takes its template with them.
+                    from_files: at.from_files,
                 },
             ));
             files.push((

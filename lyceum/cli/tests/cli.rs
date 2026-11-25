@@ -235,6 +235,43 @@ fn facts_refuses_a_missing_world_and_a_wrong_command_line() {
     }
 }
 
+/// `pull-dungeon --cells-only` takes no value and reads no server database: its command line is
+/// whole, and it goes on to its schema (missing here); an option it doesn't know is refused.
+#[test]
+fn pull_dungeon_takes_cells_only_as_a_switch_and_reads_no_database_for_it() {
+    let out = lyceum(&[
+        "pull-dungeon",
+        "a/world.toml",
+        "018F",
+        "--into",
+        "b/world.toml",
+        "--dats",
+        "absent",
+        "--schema",
+        "missing-schema.json",
+        "--cells-only",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let error = String::from_utf8_lossy(&out.stderr);
+    assert!(error.contains("missing-schema.json"), "{error}");
+    assert!(!error.contains("takes a value"), "{error}");
+    assert!(!error.contains("server database"), "{error}");
+    let other = lyceum(&[
+        "pull-dungeon",
+        "a/world.toml",
+        "018F",
+        "--into",
+        "b/world.toml",
+        "--dats",
+        "absent",
+        "--schema",
+        "missing-schema.json",
+        "--cells-alone",
+    ]);
+    assert_eq!(other.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&other.stderr).contains("--cells-alone takes a value"));
+}
+
 /// `name` draws people's names from a world's name table of a heritage: the same seed gives the
 /// same names, `--count` draws more after the first, and a heritage without a table is refused
 /// with the ones there are.
