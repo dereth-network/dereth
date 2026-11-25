@@ -403,8 +403,10 @@ impl SceneDraw {
         let viewport = self.effective_viewport(ws, w, h);
         gpu.set_viewport(viewport);
         let started = web_time::Instant::now();
+        let draws_before = gpu.draw_calls();
         let r = self.draw_in_viewport(ws, gpu);
         let walked = web_time::Instant::now();
+        let draws = gpu.draw_calls().saturating_sub(draws_before);
         // The remaster is handed the frame's changes and state at the same point, after the
         // walk, from shared reads; then, at the world's end, a renderer hooked into the device
         // draws the world. With none hooked, nothing happens.
@@ -414,9 +416,23 @@ impl SceneDraw {
             super::remaster_view::deliver(self, gpu);
             gpu.world_end(viewport);
         }
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         self.frame_costs.set(FrameCosts {
             walk: walked.duration_since(started).as_secs_f32() * 1000.0,
             remaster: walked.elapsed().as_secs_f32() * 1000.0,
+            draws: u32::try_from(draws).unwrap_or(u32::MAX),
+            cells: count(
+                self.frame_drawn_cells
+                    .borrow()
+                    .as_ref()
+                    .map_or(0, |c| c.len()),
+            ),
+            objects: count(
+                self.frame_pick_candidates
+                    .borrow()
+                    .as_ref()
+                    .map_or(0, |o| o.len()),
+            ),
         });
         gpu.reset_viewport();
         r

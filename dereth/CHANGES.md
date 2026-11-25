@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Plugins: nav.follow now steers while running and keeps pace with its leader.
 - Plugins: large metas load faster.
+- /perfcapture now also records GPU times and how much each frame draws.
 - dereth-art can build the AC2-in-AC1 world from your own installs.
 - A world can color its sky by the hour, as the AC2-in-AC1 world now does.
 - Plugins can find a spell by its name, icon included.

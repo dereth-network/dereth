@@ -265,16 +265,28 @@ mod imp {
             r
         }
 
-        /// What the scene's and the remaster's parts of the last frame took, for
+        /// What the scene's and the remaster's parts of the last frame took and drew, for
         /// `@perfcapture`. `None` while no world is drawn.
         #[must_use]
-        pub fn present_costs(&self) -> Option<dereth_client_runtime::report::PresentCosts> {
-            let c = self.world.as_ref()?.frame_costs();
-            Some(dereth_client_runtime::report::PresentCosts {
+        pub fn present_costs(&mut self) -> Option<dereth_client_runtime::report::PresentCosts> {
+            let world = self.world.as_ref()?;
+            let c = world.frame_costs();
+            #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
+            let mut costs = dereth_client_runtime::report::PresentCosts {
                 walk: c.walk,
                 remaster: c.remaster,
+                draws: c.draws,
+                cells: c.cells,
+                objects: c.objects,
                 ..Default::default()
-            })
+            };
+            #[cfg(feature = "remaster")]
+            if let Some(r) = world.remaster_frame_costs(&mut self.gpu) {
+                costs.gpu = r.passes;
+                costs.items = Some(r.items);
+                costs.forward = Some(r.forward);
+            }
+            Some(costs)
         }
 
         /// The render device configuration as this client fills it, preferring the software

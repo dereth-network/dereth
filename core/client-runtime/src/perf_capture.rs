@@ -1,7 +1,7 @@
 //! The performance capture (`@perfcapture`, CD-report-commands): every frame's time for a few
-//! seconds, where it went on the processor, step by step and in the presentation's own parts, and
-//! each pass's time on the GPU where the device times them, saved to a file with what `@report`
-//! says about the frame.
+//! seconds, where it went on the processor, step by step and in the presentation's own parts,
+//! each pass's time on the GPU where the device times them, and how much the frame drew, saved to
+//! a file with what `@report` says about the frame.
 //!
 //! Nothing is kept while no capture runs. While one does, a frame costs one row of text.
 //!
@@ -14,6 +14,10 @@
 //!   `pace`, [`STEP_COLUMNS`](crate::perf_capture::STEP_COLUMNS));
 //! - the presentation's parts: `walk` (the walk that records the frame's draws) and `remaster`
 //!   (the remaster's time on the processor);
+//! - what the frame drew: `draws` (the draws the walk issued on the device, next to none while the
+//!   remaster draws the world), `cells` (the cells the walk drew), `objects` (the objects whose
+//!   parts reached the draw), and the remaster's draw items, `items` in its G-buffer and
+//!   `forward` in its forward pass, empty while it is off;
 //! - `gpu_total`, the sum of the passes' GPU times;
 //! - `gpu_passes`: each pass's GPU time, as `name=ms` a space between.
 //!
@@ -50,7 +54,7 @@ pub fn header() -> String {
         h.push(',');
         h.push_str(c);
     }
-    h.push_str(",walk,remaster,gpu_total,gpu_passes");
+    h.push_str(",walk,remaster,draws,cells,objects,items,forward,gpu_total,gpu_passes");
     h
 }
 
@@ -175,15 +179,21 @@ impl PerfCapture {
         match costs {
             Some(c) => {
                 let gpu: f32 = c.gpu.iter().map(|(_, ms)| ms).sum();
+                let some = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
                 let _ = write!(
                     self.rows,
-                    ",{:.3},{:.3},{gpu:.3},\"{}\"",
+                    ",{:.3},{:.3},{},{},{},{},{},{gpu:.3},\"{}\"",
                     c.walk,
                     c.remaster,
+                    c.draws,
+                    c.cells,
+                    c.objects,
+                    some(c.items),
+                    some(c.forward),
                     pairs(&c.gpu),
                 );
             }
-            None => self.rows.push_str(",,,,\"\""),
+            None => self.rows.push_str(",,,,,,,,,\"\""),
         }
         self.rows.push('\n');
         self.frame_ms.push(ms);
@@ -288,6 +298,7 @@ mod tests {
                 walk: 1.0,
                 gpu: vec![("sky", 0.25), ("lighting", 1.5)],
                 remaster: 0.5,
+                ..PresentCosts::default()
             }),
         );
         let text = c.file_text(&[("gpu", "a card".into())]);
@@ -310,6 +321,72 @@ mod tests {
             table[2]
         );
         assert!(text.contains("# gpu: a card\n"));
+    }
+
+    #[test]
+    fn each_row_names_what_the_frame_drew_and_its_steps_under_their_columns() {
+        let mut c = PerfCapture::new(1, 1, "dereth report 1".into());
+        let mut steps = [0.0; STEPS];
+        steps[FrameStep::DrawWorld.index()] = 0.020;
+        steps[FrameStep::PresentFrame.index()] = 0.004;
+        // A frame from the classic look, then one from the remaster; the clock steps a thirtieth.
+        let mut now = 0.0;
+        let mut frames = [
+            PresentCosts {
+                walk: 3.0,
+                draws: 2900,
+                cells: 41,
+                objects: 120,
+                ..PresentCosts::default()
+            },
+            PresentCosts {
+                walk: 1.5,
+                remaster: 18.0,
+                gpu: vec![("cull", 0.5), ("g-buffer", 4.0)],
+                draws: 2,
+                cells: 41,
+                objects: 118,
+                items: Some(3100),
+                forward: Some(240),
+            },
+        ]
+        .into_iter();
+        assert!(!c.frame(now, |_| {}));
+        let mut done = false;
+        while !done {
+            now += 1.0 / 30.0;
+            let costs = frames.next();
+            done = c.frame(now, |c| c.record(1.0 / 30.0, &steps, costs.as_ref()));
+        }
+        let text = c.file_text(&[]);
+        let mut table = text.lines().filter(|l| !l.starts_with('#'));
+        let names: Vec<&str> = table.next().unwrap_or_default().split(',').collect();
+        let rows: Vec<Vec<&str>> = table.map(|r| r.split(',').collect()).collect();
+        assert_eq!(rows.len(), 30, "a second of thirtieths");
+        let field = |row: usize, name: &str| {
+            let at = names.iter().position(|n| *n == name).unwrap_or(usize::MAX);
+            rows[row].get(at).copied().unwrap_or("missing")
+        };
+        assert_eq!(field(0, "draw_world"), "20.000");
+        assert_eq!(field(0, "present_frame"), "4.000");
+        assert_eq!(field(0, "draws"), "2900");
+        assert_eq!(field(0, "cells"), "41");
+        assert_eq!(field(0, "objects"), "120");
+        assert_eq!(
+            field(0, "items"),
+            "",
+            "the classic look has no remaster items"
+        );
+        assert_eq!(field(1, "remaster"), "18.000");
+        assert_eq!(field(1, "items"), "3100");
+        assert_eq!(field(1, "forward"), "240");
+        assert_eq!(field(1, "gpu_total"), "4.500");
+        assert_eq!(field(1, "gpu_passes"), "\"cull=0.500 g-buffer=4.000\"");
+        assert_eq!(
+            field(2, "draws"),
+            "",
+            "a frame with nothing timed leaves the counts empty"
+        );
     }
 
     #[test]

@@ -309,6 +309,26 @@ impl SceneDraw {
         remaster(gpu).map_or_else(Vec::new, |r| r.renderer().pass_timings())
     }
 
+    /// What the remaster's last frame cost the device and drew, for a performance capture; `None`
+    /// while it is off.
+    #[must_use]
+    pub fn remaster_frame_costs(&self, gpu: &mut Gpu) -> Option<RemasterFrameCosts> {
+        let renderer = remaster(gpu)?.renderer();
+        let stats = renderer.stats();
+        // LINT-OK: a pass's milliseconds.
+        #[allow(clippy::cast_possible_truncation)]
+        let passes = renderer
+            .pass_timings()
+            .into_iter()
+            .map(|(name, ms)| (name, ms as f32))
+            .collect();
+        Some(RemasterFrameCosts {
+            passes,
+            items: stats.last_items,
+            forward: stats.last_forward,
+        })
+    }
+
     /// The height the remaster's last frame drew its ground's mesh at, at render-space `points`,
     /// without the fine relief; `None` where it drew no patch over a point. Empty while the
     /// remaster is off.
@@ -579,6 +599,17 @@ fn oct_decoded(e: [f32; 2]) -> [f32; 3] {
     };
     let l = (x * x + y * y + z * z).sqrt().max(1e-9);
     [x / l, y / l, z / l]
+}
+
+/// What the remaster's last frame cost the device and drew ([`SceneDraw::remaster_frame_costs`]).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RemasterFrameCosts {
+    /// Each pass's time on the device, milliseconds, a few frames late; empty where the device
+    /// writes no timestamps.
+    pub passes: Vec<(&'static str, f32)>,
+    /// Its draw items: in the G-buffer, and in the forward pass.
+    pub items: u32,
+    pub forward: u32,
 }
 
 /// What the remaster has counted.

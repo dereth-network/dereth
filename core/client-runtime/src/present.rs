@@ -371,9 +371,9 @@ pub trait Presentation: std::fmt::Debug {
         let _ = world;
         crate::report::RenderContext::default()
     }
-    /// What the presentation's own parts of the last frame took, for `@perfcapture`: asked only
-    /// while a capture records. `None` from a presentation that does not time them.
-    fn frame_costs(&self) -> Option<crate::report::PresentCosts> {
+    /// What the presentation's own parts of the last frame took and drew, for `@perfcapture`:
+    /// asked only while a capture records. `None` from a presentation that does not time them.
+    fn frame_costs(&mut self) -> Option<crate::report::PresentCosts> {
         None
     }
 

@@ -1048,7 +1048,7 @@ mod imp {
             SceneRenderer::render_context(self, world)
         }
 
-        fn frame_costs(&self) -> Option<dereth_client_runtime::report::PresentCosts> {
+        fn frame_costs(&mut self) -> Option<dereth_client_runtime::report::PresentCosts> {
             SceneRenderer::present_costs(self)
         }
 

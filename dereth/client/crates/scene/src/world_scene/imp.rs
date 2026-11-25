@@ -143,10 +143,10 @@ pub use remaster_lamps::RemasterLamps;
 pub use remaster_lamps::{RemasterHaloSeen, RemasterLampCapture};
 #[cfg(feature = "remaster")]
 pub use remaster_view::{
-    Casters as RemasterShadowCasters, RemasterCapture, RemasterCounts, RemasterLight,
-    RemasterRefused, Settings as RemasterSettings, ShadowSettings as RemasterShadows,
-    ShadowStats as RemasterShadowStats, SkySettings as RemasterSky,
-    TerrainSettings as RemasterTerrain,
+    Casters as RemasterShadowCasters, RemasterCapture, RemasterCounts, RemasterFrameCosts,
+    RemasterLight, RemasterRefused, Settings as RemasterSettings,
+    ShadowSettings as RemasterShadows, ShadowStats as RemasterShadowStats,
+    SkySettings as RemasterSky, TerrainSettings as RemasterTerrain,
 };
 
 use std::cell::RefCell;
@@ -863,14 +863,21 @@ pub struct CellStaticDrawStats {
     pub cells_reached_again: u32,
 }
 
-/// What the scene's own parts of the last frame took on the processor, milliseconds. See
-/// [`SceneDraw::frame_costs`].
+/// What the scene's own parts of the last frame took on the processor, milliseconds, and how
+/// much the walk drew. See [`SceneDraw::frame_costs`].
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FrameCosts {
     /// The walk of the world that records the frame's draws.
     pub walk: f32,
     /// What follows the walk: the remaster's changes handed over and its draw at the world's end.
     pub remaster: f32,
+    /// The draws the walk issued on the device. While the remaster draws the world the walk
+    /// only decides, and issues next to none.
+    pub draws: u32,
+    /// The cells the walk drew.
+    pub cells: u32,
+    /// The objects whose parts reached the draw.
+    pub objects: u32,
 }
 
 /// Which submission of a cell's static batch a [`CellStaticRunDraw`] was.

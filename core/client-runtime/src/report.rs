@@ -65,7 +65,7 @@ pub struct RenderContext {
 }
 
 /// What the presentation's own parts of the last frame took, for a performance capture
-/// ([`crate::present::Presentation::frame_costs`]). Milliseconds.
+/// ([`crate::present::Presentation::frame_costs`]), milliseconds, and how much they drew.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PresentCosts {
     /// The walk of the world that records the frame's draws.
@@ -74,6 +74,16 @@ pub struct PresentCosts {
     pub remaster: f32,
     /// Each pass's time on the GPU, where the device has timestamps; a few frames late.
     pub gpu: Vec<(&'static str, f32)>,
+    /// The draws the walk issued on the device: the classic look's world. While the remaster
+    /// draws the world the walk only decides, and issues next to none.
+    pub draws: u32,
+    /// The cells the walk drew, and the objects whose parts reached the draw.
+    pub cells: u32,
+    pub objects: u32,
+    /// The remaster's draw items, in its G-buffer and in its forward pass; `None` while it is
+    /// off.
+    pub items: Option<u32>,
+    pub forward: Option<u32>,
 }
 
 /// A short hash of some content: the first eight bytes of its BLAKE3 hash, in hex.
