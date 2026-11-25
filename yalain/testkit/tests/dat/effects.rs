@@ -4471,3 +4471,60 @@ fn a_drudge_noticing_a_player_with_an_idle_goes_after_it_when_its_clip_is_throug
     );
     assert_eq!(creature(&h).2, Some(me));
 }
+
+/// The creatures' health and vigor regeneration debuffs, whose data gives their 10 s a random
+/// spread of 20 s, run their duration and a part of the spread drawn anew for each record, from 10
+/// to 30 s; Wingfoot, whose data gives none, runs exactly its duration at its spellcraft.
+/// Behaviour: server.effects.duration-spread
+#[test]
+fn a_debuffs_records_run_their_duration_and_a_random_part_of_its_spread() {
+    use yalain_world::effects::{self, Cast};
+    const HEALTH_REGEN_DOWN: u32 = 0x6F00_01A5;
+    const VIGOR_REGEN_DOWN: u32 = 0x6F00_01A7;
+    const WINGFOOT: u32 = 0x7000_08DB;
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.effect_table = p.effects(&[HEALTH_REGEN_DOWN, VIGOR_REGEN_DOWN, WINGFOOT]);
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let timeouts = |h: &mut yalain_testkit::Harness, state: u32, n: usize| -> Vec<f32> {
+        (0..n)
+            .map(|i| {
+                let cast = Cast {
+                    caster: me + 1 + u64::try_from(i).unwrap_or(0),
+                    spellcraft: 50.0,
+                    ..Cast::default()
+                };
+                let clock = h.clock();
+                assert!(effects::apply(
+                    &mut h.server,
+                    &mut h.net,
+                    world,
+                    state,
+                    cast,
+                    clock
+                ));
+                let p = &h.server.players[&world].play;
+                p.effects
+                    .iter()
+                    .max_by_key(|e| e.eid)
+                    .map(|e| e.timeout)
+                    .expect("its record")
+            })
+            .collect()
+    };
+    for state in [HEALTH_REGEN_DOWN, VIGOR_REGEN_DOWN] {
+        let t = timeouts(&mut h, state, 60);
+        assert!(
+            t.iter().all(|t| (10.0..30.0).contains(t)),
+            "{state:08X}: {t:?}"
+        );
+        assert!(t.iter().any(|t| *t < 15.0), "{state:08X} some short: {t:?}");
+        assert!(t.iter().any(|t| *t > 25.0), "{state:08X} some long: {t:?}");
+    }
+    let t = timeouts(&mut h, WINGFOOT, 10);
+    assert!(
+        t.iter().all(|t| (*t - 120.0).abs() < 1e-3),
+        "Wingfoot: {t:?}"
+    );
+}

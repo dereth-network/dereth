@@ -696,6 +696,19 @@ impl EffectDef {
         (!change.is_empty() && vital != 0).then_some(Force { change, vital })
     }
 
+    /// How much longer than its duration a record of a saved state's effect may run: its data's
+    /// random spread, a record lasting its duration and a part of the spread drawn evenly; none
+    /// when the spread is 0 (2017: the two effects whose data gives one, the creatures' health and
+    /// vigor regeneration debuffs, a spread of 20 s over a duration of 10 s, ran 10.15 to 29.89 s,
+    /// 134 records; every other effect ran its duration at its spellcraft).
+    #[must_use]
+    pub fn duration_spread_of(lib: &Library, g: &Graph) -> Option<f32> {
+        let nav = Nav::new(lib, g);
+        let root = nav.object(g.root()?).ok()?;
+        let spread = nav.number(root, "m_fVariance").ok()?;
+        (spread.is_finite() && spread > 0.0).then_some(spread)
+    }
+
     /// The effect enumeration's value a saved state's graph holds, when it holds one.
     #[must_use]
     pub fn enum_value_of(lib: &Library, g: &Graph) -> Option<u32> {
@@ -1103,6 +1116,9 @@ pub struct EffectTable {
     /// The detaunts' chances of making a creature drop all its threat on their caster, by saved
     /// state (the world's rules).
     pub drops_threat: HashMap<u32, f32>,
+    /// How much longer than its duration a record of an effect may run, by saved state, where its
+    /// data gives a random spread ([`EffectDef::duration_spread_of`]).
+    pub duration_spreads: HashMap<u32, f32>,
 }
 
 impl EffectTable {
@@ -1182,6 +1198,9 @@ impl EffectTable {
                 }
                 if let Some(force) = EffectDef::force_of(lib, &g) {
                     t.forces.insert(s, force);
+                }
+                if let Some(spread) = EffectDef::duration_spread_of(lib, &g) {
+                    t.duration_spreads.insert(s, spread);
                 }
                 todo.extend(d.adds());
                 todo.extend(d.chained_states());

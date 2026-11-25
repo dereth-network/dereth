@@ -5589,6 +5589,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.duration-spread",
+        says: "An effect whose data gives its duration a random spread runs a record its duration \
+               and a part of the spread drawn anew for each; any other runs its duration at its \
+               spellcraft.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-DURATION-SPREAD"),
+        station: "yalain-testkit::dat::effects::a_debuffs_records_run_their_duration_and_a_random_part_of_its_spread",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.ends-at-logout",
         says: "A record of an effect whose definition says it ends at logout is told so, is taken \
                off as its holder logs off and is not in its next session start; a record of any \

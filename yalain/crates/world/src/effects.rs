@@ -13,10 +13,12 @@
 //! player's greatest of that vital for good, with no record; any other effect that lasts is added
 //! as a record. A player's ids count on from the last one it was given, across its sessions.
 //!
-//! **A record** stays on its own clock: a new one never replaces or refreshes an older one, each
-//! running out at its cast time plus its timeout, when its client is told it is gone, up to the
-//! most one target holds ([`MOST_OF_ONE_EFFECT`], [`MOST_FROM_OTHERS`]). Records of a
-//! class compete: the one of highest priority (then spellcraft, then the later) is the class's top
+//! **A record** stays on its own clock: its timeout is its effect's duration at its spellcraft,
+//! longer by a part of its spread drawn evenly where its data gives one
+//! ([`crate::effect_defs::EffectDef::duration_spread_of`]); a new one never replaces or refreshes
+//! an older one, each running out at its cast time plus its timeout, when its client is told it is
+//! gone, up to the most one target holds ([`MOST_OF_ONE_EFFECT`], [`MOST_FROM_OTHERS`]). Records of
+//! a class compete: the one of highest priority (then spellcraft, then the later) is the class's top
 //! effect, and only top effects change the qualities. A player's client changes its qualities
 //! itself from the records; the server sends no quality for it, except its speed (velocity and
 //! acceleration, each as it changes). An effect's appearance shows from the first record holding
@@ -2233,9 +2235,19 @@ pub(crate) fn add_quietly<S: Store>(
         On::Player(_) => net.game_time(clock.local),
         On::Creature(_) => clock.local.0,
     };
-    let timeout = shape
-        .timeout
-        .unwrap_or_else(|| def.duration.at(cast.spellcraft).unwrap_or(f32::MAX));
+    // A duration with a random spread runs a part of it longer, drawn anew for each record.
+    let spread = s
+        .effect_table
+        .duration_spreads
+        .get(&def.state)
+        .copied()
+        .unwrap_or(0.0);
+    let timeout = match (shape.timeout, def.duration.at(cast.spellcraft)) {
+        (Some(t), _) => t,
+        (None, Some(d)) if spread > 0.0 => d + spread * s.rng.unit(),
+        (None, Some(d)) => d,
+        (None, None) => f32::MAX,
+    };
     let flags = record_flags(def, shape.flags, timeout);
     let speed_before = speeds_on(s, on);
     let over_time = matches!(def.kind, Kind::VitalOverTime { .. });
