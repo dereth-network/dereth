@@ -901,8 +901,8 @@ journal.
 
 ## Serving a converted world
 
-A converted world is a data overlay built from your own installs: `dereth-art ac2-world` builds
-the AC2-in-AC1 world, Asheron's Call 2's landmass in Asheron's Call's formats
+A converted world is a data overlay built from your own installs: `dereth-art newdereth-world`
+builds New Dereth's land, Asheron's Call 2's landmass in Asheron's Call's formats
 ([tools/art/AC2-WORLD.md](../tools/art/AC2-WORLD.md) says how). Serve it by naming its folder:
 
 ```toml

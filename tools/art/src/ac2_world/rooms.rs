@@ -6,8 +6,9 @@
 //! A building here is a placed static whose
 //! origin stands on a room seen from outside; its rooms are that room and every room joined to
 //! it. A group of rooms that another shell also stands on is left as statics (a castle's passage
-//! runs under several), as is a shell AC2 scales, and one joined to more than eight rooms (a
-//! dungeon under its entrance, the dungeon kit's to take).
+//! runs under several), as is a shell AC2 scales. A shell joined to more than eight rooms stands
+//! over a dungeon: the dungeon is its interior, each room seeing the rooms AC2 has it see and lit
+//! by AC2's lights in it, as a dungeon on its own is ([`super::vaults`]).
 //!
 //! **A room** is AC2's cell mesh as one AC1 cell shape: its most detailed level's triangles, each
 //! material drawn as the statics draw theirs ([`super::steep::surface_of`]); its doorways, each the
@@ -46,9 +47,9 @@ const OUT_FLAGS: u16 = 1 | 4;
 const DOORWAY_FLAGS: u16 = 3;
 /// How near a shell's origin stands to its room's.
 const ON_ROOM: f32 = 0.5;
-/// The most rooms a building takes: more joined to a shell's room are a dungeon under an entrance,
-/// which are written as a dungeon of their own ([`super::vaults`]).
-const MOST_ROOMS: usize = 8;
+/// The most rooms a building of rooms that all see each other takes: more joined to a shell's room
+/// are a dungeon under its entrance, whose rooms see as AC2 has them see.
+pub(crate) const MOST_ROOMS: usize = 8;
 
 /// The shells AC2's rooms belong to: AC2's block and the entity's index there, with its rooms by
 /// their numbers in that block.
@@ -57,6 +58,8 @@ pub struct Found {
     pub rooms: BTreeMap<(usize, usize, usize), Vec<u16>>,
     /// Groups of rooms passed over, by why.
     pub passed: BTreeMap<&'static str, usize>,
+    /// The rooms of the groups passed over: each one's AC2 block, its rooms' numbers, and why.
+    pub left: Vec<((usize, usize), Vec<u16>, &'static str)>,
 }
 
 impl Found {
@@ -126,17 +129,11 @@ pub fn find(wr: &WorldRecords) -> Found {
                 let shells: BTreeSet<usize> =
                     group.iter().filter_map(|r| on.get(r)).copied().collect();
                 if shells.len() > 1 {
-                    *found
-                        .passed
-                        .entry("rooms under more than one shell")
-                        .or_default() += 1;
-                    continue;
-                }
-                if group.len() > MOST_ROOMS {
-                    *found
-                        .passed
-                        .entry("a dungeon under an entrance")
-                        .or_default() += 1;
+                    let why = "rooms under more than one shell";
+                    *found.passed.entry(why).or_default() += 1;
+                    found
+                        .left
+                        .push(((bx, by), group.into_iter().collect(), why));
                     continue;
                 }
                 found
@@ -152,9 +149,13 @@ pub fn find(wr: &WorldRecords) -> Found {
 /// entry, their portals and their lists (renumbered when it is added, [`add`]).
 #[derive(Clone, Debug)]
 pub struct Building {
+    /// The shell's AC2 block and entity.
+    pub ac2: (usize, usize, usize),
     pub block: (usize, usize),
     pub info: BuildInfo,
     pub rooms: Vec<EnvCell>,
+    /// Its first doorway's middle, and the middle of the room it leads into, landblock meters.
+    pub doorway: Option<(Vec3, Vec3)>,
 }
 
 /// The buildings `found` names, from the statics `shells` made of their shells; each shell's
@@ -198,6 +199,25 @@ pub fn make(
             .enumerate()
             .map(|(k, &low)| (low, u16::try_from(k).unwrap_or(u16::MAX)))
             .collect();
+        // A dungeon under its entrance: its rooms see as AC2 has them see, lit by AC2's lights.
+        let dungeon = rooms.len() > MOST_ROOMS;
+        let moved = |o: Vec3| {
+            let (wx, wy) = (
+                shell.ac2.0 as f64 * 160.0 + f64::from(o.x),
+                shell.ac2.1 as f64 * 160.0 + f64::from(o.y),
+            );
+            #[allow(clippy::cast_possible_truncation)]
+            Vec3::new(
+                shell.frame.origin.x + (wx - shell.ac2_at.0) as f32,
+                shell.frame.origin.y + (wy - shell.ac2_at.1) as f32,
+                shell.frame.origin.z + (f64::from(o.z) - shell.ac2_at.2) as f32,
+            )
+        };
+        let mut lit = if dungeon {
+            super::vaults::lights_in(wr, (x, y), &number, &moved, ids, out)?.0
+        } else {
+            BTreeMap::new()
+        };
         let mut cells = Vec::with_capacity(rooms.len());
         let mut doorways = Vec::new();
         // Each doorway's corners in the shell's frame, and the middle of the room it leads into.
@@ -252,16 +272,7 @@ pub fn make(
             }
             // Where it stands: moved with its shell, its height over the shell's kept.
             let o = c.frame.origin;
-            let (wx, wy) = (
-                shell.ac2.0 as f64 * 160.0 + f64::from(o.x),
-                shell.ac2.1 as f64 * 160.0 + f64::from(o.y),
-            );
-            #[allow(clippy::cast_possible_truncation)]
-            let at = Vec3::new(
-                shell.frame.origin.x + (wx - shell.ac2_at.0) as f32,
-                shell.frame.origin.y + (wy - shell.ac2_at.1) as f32,
-                shell.frame.origin.z + (f64::from(o.z) - shell.ac2_at.2) as f32,
-            );
+            let at = moved(Vec3::new(o.x, o.y, o.z));
             let r = c.frame.rotation;
             let r = Quat {
                 w: r.w,
@@ -281,21 +292,35 @@ pub fn make(
                 ));
             }
             let k16 = u16::try_from(k).unwrap_or(u16::MAX);
+            let statics = lit.remove(&low).unwrap_or_default();
             cells.push(EnvCell {
                 id: DataId(u32::from(k16)),
-                flags: c.flags & SEEN_OUTSIDE,
+                flags: c.flags & SEEN_OUTSIDE
+                    | if statics.is_empty() {
+                        0
+                    } else {
+                        super::vaults::WITH_STATICS
+                    },
                 cell_id_repeat: u32::from(k16),
                 surfaces: cell_surfaces,
                 environment: env,
                 cell_struct: 0,
                 frame: Frame::new(at, r),
                 portals,
-                // A building's room seen from outside sees every other room of its building.
-                visible_cells: (0..rooms.len())
-                    .filter(|&j| j != k)
-                    .map(|j| u16::try_from(j).unwrap_or(u16::MAX))
-                    .collect(),
-                static_objects: Vec::new(),
+                // A building's room seen from outside sees every other room of its building; a
+                // dungeon's sees what AC2 has it see.
+                visible_cells: if dungeon {
+                    c.visible
+                        .iter()
+                        .filter_map(|v| number.get(v).copied())
+                        .collect()
+                } else {
+                    (0..rooms.len())
+                        .filter(|&j| j != k)
+                        .map(|j| u16::try_from(j).unwrap_or(u16::MAX))
+                        .collect()
+                },
+                static_objects: statics,
                 restriction_obj: None,
             });
         }
@@ -315,6 +340,17 @@ pub fn make(
         let all: Vec<u16> = (0..rooms.len())
             .map(|j| u16::try_from(j).unwrap_or(u16::MAX))
             .collect();
+        // What a doorway sees: every room, or a dungeon's room and what it sees.
+        let stab = |room: usize| -> Vec<u16> {
+            if !dungeon {
+                return all.clone();
+            }
+            let mut v = vec![u16::try_from(room).unwrap_or(u16::MAX)];
+            v.extend(cells[room].visible_cells.iter().copied());
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
         let info = BuildInfo {
             id: model,
             frame: shell.frame,
@@ -325,11 +361,23 @@ pub fn make(
                     flags: DOORWAY_FLAGS,
                     other_cell_id: u16::try_from(room).unwrap_or(u16::MAX),
                     other_portal_id: i16::try_from(way).unwrap_or(-1),
-                    stab_list: all.clone(),
+                    stab_list: stab(room),
                 })
                 .collect(),
         };
+        let in_block = |p: Vec3| shell.frame.origin.add(turn(shell.frame.rotation, p));
+        let doorway = doorway_shapes.first().map(|(corners, room)| {
+            #[allow(clippy::cast_precision_loss)]
+            let n = corners.len().max(1) as f32;
+            let mid = corners
+                .iter()
+                .fold(Vec3::ZERO, |a, c| a.add(*c))
+                .mul(1.0 / n);
+            (in_block(mid), in_block(*room))
+        });
         made.push(Building {
+            doorway,
+            ac2: shell.ac2,
             block: shell.block,
             info,
             rooms: cells,

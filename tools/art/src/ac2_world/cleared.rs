@@ -1,16 +1,13 @@
 //! AC1's own content taken off a converted block: the converted land holds no AC1 retail content,
-//! so a block's landblock info is written without AC1's buildings, the rooms they lead into, its
-//! static objects and its house restrictions. AC2's statics, its buildings with rooms and AC1
-//! buildings copied in on purpose (`--ac1-buildings`) are added to what is left.
+//! so a block's landblock info is written without AC1's buildings, its cells, its static objects
+//! and its house restrictions. AC2's statics, its buildings with rooms and its dungeons are added
+//! to what is left.
 //!
-//! **Rooms** are the indoor cells reached from a building's doorways, through the cells' own ways
-//! from one to another (a dungeon under an entrance among them); the converter deletes them from
-//! the cell file through the overlay. A block's cells are numbered from `0x0100` up to its cell
-//! count, so the count is cut back to the last cell kept: the cells no building reaches (an AC1
-//! dungeon under the land) keep their numbers, and a room numbered below one of them stays inside
-//! the count ([`Cleared::rooms_left_in_count`]). Every cell the count names is there, as whatever
-//! walks the count reads it: such a room is written hollow ([`hollow`]), the room's place and shape
-//! with no way in or out and nothing in it, which nothing reaches and nothing draws.
+//! **Cells:** every one of the block's cells goes, the rooms a building's doorways lead into (a
+//! dungeon under an entrance among them) and the cells no building reaches (an AC1 dungeon under
+//! the land) alike; the converter deletes all of AC1's records of the block through the overlay
+//! with one deletion, and writes the block's own over it, its cell count starting again from
+//! none.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -23,6 +20,8 @@ pub struct Removed {
     pub buildings: usize,
     /// The cells the buildings reach.
     pub rooms: usize,
+    /// The cells no building reaches: AC1's dungeons.
+    pub cells: usize,
     /// The block's static objects (AC1's statics standing on the land).
     pub objects: usize,
     /// Entries of the house restriction table (cell to owning house).
@@ -33,6 +32,7 @@ impl Removed {
     pub fn add(&mut self, o: &Self) {
         self.buildings += o.buildings;
         self.rooms += o.rooms;
+        self.cells += o.cells;
         self.objects += o.objects;
         self.restrictions += o.restrictions;
     }
@@ -48,13 +48,8 @@ impl Removed {
 pub struct Cleared {
     pub info: LandblockInfo,
     pub removed: Removed,
-    /// The cells kept: those no building reaches.
-    pub cells_kept: usize,
-    /// Rooms numbered below a kept cell, so still inside the cell count (written hollow, reached
-    /// by nothing).
-    pub rooms_left_in_count: usize,
-    /// The rooms' numbers (`0x0100` up).
-    pub room_numbers: Vec<u32>,
+    /// The numbers of the cells taken off (`0x0100` up): every one the block had.
+    pub cell_numbers: Vec<u32>,
 }
 
 /// `info` without AC1's content; `cell` reads one of the block's cells by its full id.
@@ -81,15 +76,10 @@ pub fn clear(info: &LandblockInfo, cell: &dyn Fn(u32) -> Option<EnvCell>) -> Cle
             }
         }
     }
-    let kept: Vec<u32> = (0x0100..0x0100 + count)
-        .filter(|k| !rooms.contains(k))
-        .collect();
-    let num_cells = kept.last().map_or(0, |&k| k + 1 - 0x0100);
-    let rooms_left_in_count = rooms.iter().filter(|&&k| k < 0x0100 + num_cells).count();
     Cleared {
         info: LandblockInfo {
             id: info.id,
-            num_cells,
+            num_cells: 0,
             objects: Vec::new(),
             pack_mask: info.pack_mask & !1,
             buildings: Vec::new(),
@@ -98,27 +88,11 @@ pub fn clear(info: &LandblockInfo, cell: &dyn Fn(u32) -> Option<EnvCell>) -> Cle
         removed: Removed {
             buildings: info.buildings.len(),
             rooms: rooms.len(),
+            cells: (count as usize).saturating_sub(rooms.len()),
             objects: info.objects.len(),
             restrictions: info.restrictions.as_ref().map_or(0, |r| r.entries.len()),
         },
-        cells_kept: kept.len(),
-        rooms_left_in_count,
-        room_numbers: rooms.into_iter().collect(),
-    }
-}
-
-/// AC1's room `cell` hollow: its number, place and shape kept, so a cell count that names it finds
-/// it, with no way in or out, nothing seen from it, no statics and no house restriction. Nothing
-/// reaches it, so nothing draws it or stands in it.
-#[must_use]
-pub fn hollow(cell: &EnvCell) -> EnvCell {
-    EnvCell {
-        flags: 0,
-        portals: Vec::new(),
-        visible_cells: Vec::new(),
-        static_objects: Vec::new(),
-        restriction_obj: None,
-        ..cell.clone()
+        cell_numbers: (0x0100..0x0100 + count).collect(),
     }
 }
 
@@ -226,10 +200,12 @@ mod tests {
             Removed {
                 buildings: 1,
                 rooms: 2,
+                cells: 0,
                 objects: 1,
                 restrictions: 2
             }
         );
+        assert_eq!(c.cell_numbers, [0x0100, 0x0101]);
         // AC2's static added to what is left, and an AC2 building numbered from the first cell.
         let mut info = c.info;
         let ac2 = ObjectEntry {
@@ -244,51 +220,26 @@ mod tests {
     }
 
     #[test]
-    fn a_dungeon_no_building_reaches_keeps_its_cells() {
+    fn a_dungeon_no_building_reaches_goes_with_the_rooms() {
         let (info, cells) = ac1_block(true);
         let c = clear(&info, &reader(&cells));
-        assert_eq!(c.removed.rooms, 2);
-        assert_eq!(
-            (c.info.num_cells, c.cells_kept, c.rooms_left_in_count),
-            (3, 1, 2)
-        );
-        // The cottage's rooms stay in the count, below the dungeon cell: written hollow.
-        let hollowed = hollow(&cells[1]);
-        assert_eq!(
-            (hollowed.id, hollowed.environment, hollowed.frame),
-            (cells[1].id, cells[1].environment, cells[1].frame)
-        );
-        assert!(hollowed.portals.is_empty() && hollowed.visible_cells.is_empty());
-        assert_eq!(hollowed.flags, 0);
-        use dereth_assets::Decode as _;
-        let back = EnvCell::decode_payload(hollowed.id, &hollowed.encode()).unwrap();
-        assert_eq!(back, hollowed);
-        // The dungeon alone: nothing to take but the static.
+        assert_eq!((c.removed.rooms, c.removed.cells), (2, 1));
+        assert_eq!(c.info.num_cells, 0, "no cell of AC1's left in the count");
+        assert_eq!(c.cell_numbers, [0x0100, 0x0101, 0x0102]);
+        // An AC1 dungeon alone: its cells go all the same.
         let mut alone = info.clone();
         alone.buildings.clear();
         alone.restrictions = None;
         alone.pack_mask = 0;
+        alone.objects.clear();
         let c = clear(&alone, &reader(&cells));
-        assert_eq!(c.info.num_cells, 3, "AC1's dungeon kept whole");
-        assert_eq!(c.removed.rooms, 0);
-    }
-
-    #[test]
-    fn rooms_numbered_last_are_cut_from_the_count() {
-        // The dungeon first, then the cottage's two rooms.
-        let cells = vec![
-            room(0x0100, &[]),
-            room(0x0101, &[None, Some(0x0102)]),
-            room(0x0102, &[Some(0x0101)]),
-        ];
-        let (mut info, _) = ac1_block(false);
-        info.num_cells = 3;
-        info.buildings[0].portals[0].other_cell_id = 0x0101;
-        info.buildings[0].portals[0].stab_list = vec![0x0101];
-        let c = clear(&info, &reader(&cells));
         assert_eq!(
-            (c.info.num_cells, c.removed.rooms, c.rooms_left_in_count),
-            (1, 2, 0)
+            (c.info.num_cells, c.removed.rooms, c.removed.cells),
+            (0, 0, 3)
+        );
+        assert!(
+            c.removed.any(),
+            "a block with nothing but a dungeon is written"
         );
     }
 }

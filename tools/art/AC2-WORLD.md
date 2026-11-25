@@ -1,10 +1,17 @@
-# The AC2-in-AC1 world
+# New Dereth's land
 
-Asheron's Call 2's landmass, rebuilt in Asheron's Call's own formats: AC2's ground, water and roads
-at their true size, its trees, plants, rocks and grass, its placed objects and buildings, its map
-names, and one starting area by Cragstone. Asheron's Call's own landblocks are replaced; its
-dungeons stay under the new land. The world is a **data overlay**: a set of records laid over the
-game's own files, which an Empyrean server serves and patches into every Dereth client that joins.
+New Dereth's land is Asheron's Call 2's landmass, rebuilt in Asheron's Call's own formats: AC2's
+ground, water and roads at their true size, its trees, plants, rocks and grass, its placed objects
+and buildings, every one of its dungeons, its map names, and one starting area by Cragstone.
+Asheron's Call's own landblocks are replaced, its dungeons with them: a world that wants one of
+AC1's copies it in from your AC1 files (Lyceum's `pull-dungeon`). The world is a **data overlay**:
+a set of records laid over the game's own files, which an Empyrean server serves and patches into
+every Dereth client that joins.
+
+AC2's dungeons under an entrance are that building's inside. Every other lies under a block of its
+own beyond AC2's landmass, whether or not a portal leads there; `dungeons-ac2.tsv` beside the
+overlay folder says which block each went under, and `dungeon-cells.tsv` gives each AC2 dungeon
+cell's new cell, for the world to aim its portals.
 
 Nothing of either game is distributed. `dereth-art` builds the world on your machine from your own
 installs, and it stays with you and the players of your server.
@@ -16,19 +23,26 @@ installs, and it stays with you and the players of your server.
 - **Asheron's Call 2**, its end-of-retail files: `cell_1.dat`, `portal.dat`, `local_English.dat`
   and `highres.dat`, as the AC Community Preservation Project archives them and Dereth's launcher
   fetches them.
-- `dereth-art`, built from this repository (`cargo build --release -p dereth-art`). A build takes
-  about ten minutes.
+- **New Dereth's world repository**, checked out. Its `world.toml` says how its land is built
+  (`[land]`): the converter's options, the ledger, and the land it pins by its content.
+- `dereth-art`, built from this repository at the commit `[land]` names (`converter_commit`):
+  `cargo build --release -p dereth-art`. A build takes a few minutes.
 
-The tool checks each file by its SHA-256 and refuses any other version, so a world built anywhere
-from the same files is the same world, byte for byte. `--any-install` builds from other files
-anyway; the world it makes may then match no one else's, and a player who built it from the
-expected files would hold a different one.
+The tool checks each file by its SHA-256 (AC1's English strings come in two layouts, the
+launcher's and another, and either is taken), and an AC1 file laid out otherwise by the records it
+holds, and refuses any other version, so a world built anywhere from the same files is the same
+world, byte for byte.
 
 ## Build it
 
 ```text
-dereth-art ac2-world --ac1 <your AC1 install> --ac2 <your AC2 install> --out ac2-world/overlay
+dereth-art newdereth-world --world <checkout>/world.toml --dats <your AC1 install> --ac2-dats <your AC2 install> --out ac2-world/overlay
 ```
+
+It reads its options, the ledger and the files they name from the repository, and refuses a land
+that isn't the one the repository pins. On its standard output it says first which converter it
+is, `converter <version>` (`--version` says only that), then what it is doing a line at a time,
+`step <what>`, and last `built <folder> <generation>`.
 
 It writes the overlay folder `ac2-world/overlay`:
 
@@ -43,7 +57,7 @@ made, `stats.txt` and a set of reports in tab-separated text: how the ground was
 placed objects were left out and why, where ledges were made climbable, and more. The reports are
 the same bytes on every build from the same files.
 
-Options:
+The repository's `converter_args` choose these options:
 
 - `--names off` leaves out `places.tsv`.
 - `--frills off` grows the cover without AC2's small grass and plants.
@@ -52,18 +66,22 @@ Options:
   draws). `--sky-day 1` to `7` keeps one of AC2's days alone.
 - `--levels 2` or `3` gives placed objects more levels of detail (one by default).
 - `--table ac2` keeps AC2's own height table instead of one fitted to the converted land.
-- `--vaults tools/art/ac2-world/arwic-vault.txt --placements tools/art/ac2-world/arwic-vault-placements.tsv`
-  adds Arwic's vault: AC2's dungeon under its entrance, with a portal down from the entrance hall
-  and one back up. The placements are written as `placements.tsv`, which the server places.
+- `--vaults <list>` puts the AC2 dungeons the list names under the AC1 blocks it says (Arwic's
+  vault under its entrance), and `--placements <file>` writes the things the world places itself
+  as `placements.tsv`, which the server places.
+- `--start <file>` puts the starting area near the point the file gives.
+- `--any-install` builds from other files than the expected ones; the world it makes may then
+  match no one else's.
 
-### Rebuilding: keep the ledger
+### A new land: the ledger
 
 A client keeps a world's records and is sent them again only when the world holds newer ones. So
-every build that changes the world's content must be numbered past the last. `generations.tsv` (or
-the file `--ledger` names) lists each content built so far with its number. Keep it beside the
-overlay folder and every later build uses it: the same content keeps its number, and new content
-takes the next. Lose it and a changed world can't reach the clients that hold the old one; they
-must clear their kept copy.
+every build that changes the world's content must be numbered past the last. The repository's
+ledger (`[land] ledger`) lists each content built so far with its number. A build of other content
+than the one the repository pins is refused unless `--new-land` says it is a new land: the ledger
+then numbers it the next generation. Commit the ledger with the new pins, so every later build
+numbers it alike; a changed world numbered from an older ledger can't reach the clients that hold
+the old one.
 
 ## Serve it
 

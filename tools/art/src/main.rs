@@ -8,9 +8,9 @@
 //! dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
 //! dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
 //! dereth-art ac2-look --versions
-//! dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3]
-//!                      [--names on|off] [--frills on|off] [--vaults <file> --placements <file>]
-//!                      [--ledger <file>] [--any-install]
+//! dereth-art newdereth-world --world <world.toml> --dats <dir> --ac2-dats <dir> --out <dir>
+//!                            [--new-land]
+//! dereth-art newdereth-world --version
 //! dereth-art ac2-creature --ac1 <dir> --ac2 <dir> --table <file> --out <dir> [--ids <hex>]
 //!                         [--world <key>] [--replace] [--weenies <dir>]
 //! dereth-art ac2-creature-probe --ac2 <dir> (--entity <hex> | --setup <hex> | --looks <hex>)
@@ -39,14 +39,19 @@
 //! `--keep-folder` the pack's folder stays beside the file. `--versions` prints the look's version
 //! and each part's and creature's table version, `<part> <version>` a line, and builds nothing.
 //!
-//! `ac2-world`: Asheron's Call 2's landmass in Asheron's Call's formats, built from the Asheron's
-//! Call install in `--ac1` and the Asheron's Call 2 install in `--ac2`, as a world overlay in the
-//! folder `--out` that a server serves as its data overlay ([`dereth_art::ac2_world`]). Its
-//! reports go beside that folder. `--ledger` (default `generations.tsv` beside it) is the list of
-//! the worlds built so far: keep it, so a rebuilt world that changed is numbered past the one
-//! players hold. The installs' files are checked by their SHA-256 and others refused, so every
-//! build from the same files is the same world; `--any-install` builds from others anyway, and
-//! the world may then match no one else's.
+//! `newdereth-world`: New Dereth's land, Asheron's Call 2's landmass in Asheron's Call's formats,
+//! built from the Asheron's Call install in `--dats` and the Asheron's Call 2 install in
+//! `--ac2-dats`, as a world overlay in the folder `--out` that a server serves as its data overlay
+//! ([`dereth_art::ac2_world`]). Its reports go beside that folder. The world repository's
+//! `world.toml` (`--world`) gives the rest in its `[land]`: the converter's arguments
+//! (`converter_args`, whose files are read from the repository's folder), the ledger of the lands
+//! built so far (`ledger`), and the land it pins (`content_sha256`, `generation`). A build that is
+//! not that land is refused, before the ledger changes, unless `--new-land` says it is a new one;
+//! the ledger then numbers it the next generation. The installs' files are checked by their
+//! SHA-256 and others refused, so every build from the same files is the same land. It says first
+//! which converter it is, `converter <version>` (a hash of its own code and tables; `--version`
+//! says it alone), then what it is doing a line at a time on the standard output, `step <what>`,
+//! and last `built <folder> <generation>`.
 //!
 //! `ac2-creature`: an Asheron's Call 2 creature as Asheron's Call's own records (its body, its
 //! animations, its motion table and its combat table), made from the Asheron's Call 2 install in
@@ -70,7 +75,8 @@ const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns
        dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
        dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
        dereth-art ac2-look --versions
-       dereth-art ac2-world --ac1 <dir> --ac2 <dir> --out <dir> [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--vaults <file> --placements <file>] [--ledger <file>] [--any-install]
+       dereth-art newdereth-world --world <world.toml> --dats <dir> --ac2-dats <dir> --out <dir> [--new-land]
+       dereth-art newdereth-world --version
        dereth-art ac2-creature --ac1 <dir> --ac2 <dir> --table <file> --out <dir> [--ids <hex>] [--world <key>] [--replace] [--weenies <dir>]
        dereth-art ac2-creature-probe --ac2 <dir> (--entity <hex> | --setup <hex> | --looks <hex>)";
 
@@ -227,17 +233,21 @@ usage: {USAGE}"
                 ExitCode::from(2)
             }
         },
-        Some("ac2-world") => match dereth_art::ac2_world::Args::parse(&args[1..]) {
+        Some("newdereth-world") if args[1..] == ["--version"] => {
+            println!("converter {}", dereth_art::ac2_world::CONVERTER);
+            ExitCode::SUCCESS
+        }
+        Some("newdereth-world") => match dereth_art::ac2_world::Args::parse_world(&args[1..]) {
             Ok(a) => match dereth_art::ac2_world::build(&a) {
-                Ok(()) => ExitCode::SUCCESS,
+                Ok(_) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("dereth-art ac2-world: {e}");
+                    eprintln!("dereth-art newdereth-world: {e}");
                     ExitCode::FAILURE
                 }
             },
             Err(e) => {
                 eprintln!(
-                    "dereth-art ac2-world: {e}
+                    "dereth-art newdereth-world: {e}
 usage: {USAGE}"
                 );
                 ExitCode::from(2)

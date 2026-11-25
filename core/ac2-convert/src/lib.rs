@@ -7,7 +7,7 @@
 //! **Depends on** the AC2 records and their reader (`auberean-assets`, `auberean-dat`,
 //! `auberean-world`, `auberean-primitives`), the AC1 records it writes (`dereth-assets`, `dereth-dat`), the cell trees a
 //! new shape needs (`dereth-builder`), the pictures' decoder (`dereth-render-cpu`) and
-//! `dereth-primitives`. **Used by** `dereth-art`'s `ac2-world` and Lyceum's Foundry.
+//! `dereth-primitives`. **Used by** `dereth-art`'s `newdereth-world` and Lyceum's Foundry.
 //!
 //! - [`source`]: the player's AC2 files, open, and what is read from them.
 //! - [`records`]: the ids handed out, the records made, and AC2's pictures as AC1 images.

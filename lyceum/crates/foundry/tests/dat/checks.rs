@@ -229,3 +229,57 @@ fn every_wielded_treasure_of_both_eras_is_written_back_so_it_draws_the_same() {
         }
     });
 }
+
+mod repo_inputs {
+    //! Behaviour: none (tooling: a world repository's AC1 files known by their records, on the retail files)
+
+    use dereth_dat::ModernDat;
+    use lyceum_foundry::repo::Repo;
+    use lyceum_foundry::repo_world::check_inputs;
+
+    /// A repository of one pack whose `[land]` pins the English strings file by `pins`.
+    fn repository(root: &std::path::Path, pins: &str) -> Repo {
+        std::fs::create_dir_all(root.join("base/emergence")).unwrap();
+        std::fs::write(
+            root.join("base/emergence/pack.toml"),
+            "name = \"emergence\"\nversion = \"1\"\n",
+        )
+        .unwrap();
+        let world = root.join("world.toml");
+        std::fs::write(
+            &world,
+            format!(
+                "format_version = 1\ngame = \"ac1\"\nkey = \"test-repo\"\nera = \"newdereth\"\npacks = [\"base/emergence\"]\nlineage = []\n[base]\nmonth = \"2026-12\"\n[land]\n{pins}"
+            ),
+        )
+        .unwrap();
+        Repo::open(&world).unwrap()
+    }
+
+    /// A copy of an AC1 file laid out otherwise holds the same records: `[land]` names those records
+    /// (`ac1_*_records`), and a file whose SHA-256 is none of the pinned copies' but whose records are
+    /// those is the land's file. One holding other records is refused, naming both what it pins.
+    #[test]
+    fn an_ac1_file_laid_out_otherwise_is_known_by_its_records() {
+        let dats = dereth_dat::testing::dat_dir();
+        let scratch = dereth_dat::testing::ScratchDir::new("repo-inputs").unwrap();
+        let file = dereth_dat::DatFile::open(&ModernDat::Local.in_dir(&dats)).unwrap();
+        let records =
+            dereth_dat::overlay::hex(&dereth_dat::overlay::records_digest(&file).unwrap());
+        let other = "0".repeat(64);
+        let same = repository(
+            &scratch.path().join("same"),
+            &format!("ac1_local_sha256 = \"{other}\"\nac1_local_records = \"{records}\"\n"),
+        );
+        check_inputs(&same, &dats).unwrap();
+        let wrong = repository(
+            &scratch.path().join("wrong"),
+            &format!("ac1_local_sha256 = \"{other}\"\nac1_local_records = \"{other}\"\n"),
+        );
+        let why = check_inputs(&wrong, &dats).unwrap_err();
+        assert!(
+            why.contains("client_local_English.dat: expected") && why.contains("(or the records"),
+            "{why}"
+        );
+    }
+}

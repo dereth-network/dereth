@@ -25,13 +25,14 @@
 //!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]), or
 //!   near the point a world's own `start.toml` gives (`--start FILE`, a world repository's
 //!   `land/start.toml`);
-//! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's land lies
-//!   over AC1's dungeons; `own_placements`, since the world is built from AC2's content, not a
+//! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's dungeons
+//!   lie under its land; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
 //! - unless `--names off`, `places.tsv`: AC2's towns and landmarks where AC2's map names them,
 //!   which Dereth's map shows in place of AC1's notes ([`names`]);
-//! - with `--vaults LIST`, AC2's dungeons the list names written under AC1 blocks ([`vaults`]),
-//!   and with `--placements LIST`, `placements.tsv`: the things the world places itself (a
+//! - every AC2 dungeon written under an AC1 block, those `--vaults LIST` names where it puts
+//!   them and the rest under free blocks beyond AC2's landmass ([`vaults`]), and with
+//!   `--placements LIST`, `placements.tsv`: the things the world places itself (a
 //!   dungeon's portals and the spots they lead to), Empyrean's own placements table, each row's
 //!   cell checked to be one the world has.
 //!
@@ -40,8 +41,14 @@
 //! players already hold, and the same content always takes the same numbers.
 //!
 //! Beside the overlay folder, the build's reports: `README.txt` (how it was made, and its inputs'
-//! and outputs' SHA-256), `stats.txt`, `dungeons.tsv` (AC1's dungeon blocks and what lies over
-//! them now), `ac1-removed.tsv` (each block's AC1 buildings, their rooms, its statics and its
+//! and outputs' SHA-256), `stats.txt`, `dungeons.tsv` (AC1's dungeon blocks, their cells taken
+//! off, and what lies over them now), `dungeons-ac2.tsv` (each AC2 dungeon, the AC1 block it lies
+//! under and where its corner stands), `dungeon-cells.tsv` (each AC2 dungeon cell, `XXYYLLLL`, and
+//! the AC1 cell it is now), `dungeons-left.tsv` (AC2's cells written nowhere, by block, and why:
+//! rooms under more than one shell, a building's passed over, a mesh that makes no cell, or a
+//! cell its block's count names that its file doesn't hold), `buildings-ac2.tsv` (each of AC2's
+//! buildings with rooms: where it stands, its rooms and those standing beyond its block, its first
+//! doorway and the room it leads into), `ac1-removed.tsv` (each block's AC1 buildings, their rooms, its statics and its
 //! house restrictions left off the converted block), `worst-loss.tsv` (the AC2 vertices the
 //! conversion moves most), `kinds.tsv` (each AC2 kind's AC1 slot and variant), `map-picture.png`
 //! (the map window's new picture), `ground.tsv` (each terrain slot's AC2 picture),
@@ -120,6 +127,8 @@ const MAP_ID: u32 = 0x0600_127D;
 const CHARGEN_ID: u32 = 0x0E00_0002;
 /// The overlay's deletions record (its id in the overlay's own range), for the content digest.
 const TOMBSTONES_ID: u32 = 0xFFFF_0002;
+/// A deletion's mask covering a block's every record, its cells among them.
+const BLOCK_FAMILY: u32 = 0xFFFF_0000;
 /// The map picture's pixel format: three bytes a pixel, blue, green, red.
 const PFID_R8G8B8: u32 = 20;
 /// Vertex steps a 24 m cell.
@@ -129,52 +138,90 @@ const MAX_ROUNDING: f64 = 2.0;
 /// How far round a placed static AC1's scenery is kept off, meters.
 const SCENERY_MARGIN: f64 = 4.0;
 
-/// The files read, and their SHA-256: acclient 00.00.11.6096's, and Asheron's Call 2's at the end
-/// of retail as the AC Community Preservation Project archives them and the launcher fetches them,
-/// the files players have. Each one the land is drawn from counts, the English strings and the high-resolution
+/// The files read: acclient 00.00.11.6096's, and Asheron's Call 2's at the end of retail as the AC
+/// Community Preservation Project archives them and the launcher fetches them, the files players
+/// have. Each one the land is drawn from counts, the English strings and the high-resolution
 /// pictures as much as the cells and the portal file.
-const INPUTS: [(Side, &str, &str); 8] = [
-    (
-        Side::Ac1,
-        "client_cell_1.dat",
-        "6db0abf00fbceed62c3f1ee842ee7c1f423d732bed77a5b7c102ee89a52ab99e",
-    ),
-    (
-        Side::Ac1,
-        "client_portal.dat",
-        "dc6e500ba22e6b186db7171e3f3345238b6444c85d798adc85e550973b8d12e4",
-    ),
-    (
-        Side::Ac2,
-        "cell_1.dat",
-        "49aa87ab218153b38acd763cf8beea5adef171db2836a1a5623c1f32331bf5fa",
-    ),
-    (
-        Side::Ac2,
-        "portal.dat",
-        "d2161c83e662f8009a1733ebb9cb5004f4079dc4feeec0211963178eb6999c7c",
-    ),
-    (
-        Side::Ac1,
-        "client_local_English.dat",
-        "667c8119238b6a586c061d1730b2453aedb3de499affb9ef10df30d639e108ba",
-    ),
-    (
-        Side::Ac1,
-        "client_highres.dat",
-        "503e0828d14f2f9ccbc31431e1055ac188464bf4b499de37f4c3d5b2d9f3e727",
-    ),
-    (
-        Side::Ac2,
-        "local_English.dat",
-        "821851e8995a046780b7eab1b9b212fe774a51ade0a4d1fcc23d69a5f607b2b3",
-    ),
-    (
-        Side::Ac2,
-        "highres.dat",
-        "ff74aab435bed14e746fe133f0a1efdd571834aa1deb04c0e3e84c5a446bec42",
-    ),
+///
+/// Each is known by the SHA-256 of the copies players hold, and AC1's also by its records digest
+/// ([`dereth_dat::overlay::records_digest`]): the same records in another layout (the launcher's
+/// copy of the English strings is one) are the same file to the land.
+const INPUTS: [Input; 8] = [
+    Input {
+        side: Side::Ac1,
+        name: "client_cell_1.dat",
+        sha256: &["6db0abf00fbceed62c3f1ee842ee7c1f423d732bed77a5b7c102ee89a52ab99e"],
+        records: Some("91c96e7cea652377df72b200b0ef4d0427de1fead9202d7aa5e6344b5bfe5364"),
+    },
+    Input {
+        side: Side::Ac1,
+        name: "client_portal.dat",
+        sha256: &["dc6e500ba22e6b186db7171e3f3345238b6444c85d798adc85e550973b8d12e4"],
+        records: Some("2a92f1f908191dcef2b21c68fbda891179feb902db5749b770f9bf3a9cd6f062"),
+    },
+    Input {
+        side: Side::Ac2,
+        name: "cell_1.dat",
+        sha256: &["49aa87ab218153b38acd763cf8beea5adef171db2836a1a5623c1f32331bf5fa"],
+        records: None,
+    },
+    Input {
+        side: Side::Ac2,
+        name: "portal.dat",
+        sha256: &["d2161c83e662f8009a1733ebb9cb5004f4079dc4feeec0211963178eb6999c7c"],
+        records: None,
+    },
+    Input {
+        side: Side::Ac1,
+        name: "client_local_English.dat",
+        sha256: &[
+            "667c8119238b6a586c061d1730b2453aedb3de499affb9ef10df30d639e108ba",
+            "e85c820280c88fac7df6c8043f5e24596e9c8774193af4123d756546f78fb2bb",
+        ],
+        records: Some("5c4f4aeb9e59a51455296c7ec0e520f2b1c26e7f1b1cf7af632516dacb061851"),
+    },
+    Input {
+        side: Side::Ac1,
+        name: "client_highres.dat",
+        sha256: &["503e0828d14f2f9ccbc31431e1055ac188464bf4b499de37f4c3d5b2d9f3e727"],
+        records: Some("5a0cb5f97babb9ff710e3f710432222c74bc53e94a060caba67aa773b920b4cc"),
+    },
+    Input {
+        side: Side::Ac2,
+        name: "local_English.dat",
+        sha256: &["821851e8995a046780b7eab1b9b212fe774a51ade0a4d1fcc23d69a5f607b2b3"],
+        records: None,
+    },
+    Input {
+        side: Side::Ac2,
+        name: "highres.dat",
+        sha256: &["ff74aab435bed14e746fe133f0a1efdd571834aa1deb04c0e3e84c5a446bec42"],
+        records: None,
+    },
 ];
+
+/// A file the land is read from: whose it is, its name, the SHA-256 of each copy players hold,
+/// and its records digest, the same in every layout of it (AC1's files).
+struct Input {
+    side: Side,
+    name: &'static str,
+    sha256: &'static [&'static str],
+    records: Option<&'static str>,
+}
+
+impl Input {
+    /// Whether the file at `path`, of SHA-256 `got`, is this one: a copy players hold, or one
+    /// holding the same records.
+    fn holds(&self, path: &Path, got: &str) -> bool {
+        self.sha256.contains(&got)
+            || self.records.is_some_and(|want| {
+                DatFile::open(path)
+                    .ok()
+                    .and_then(|f| dereth_dat::overlay::records_digest(&f).ok())
+                    .is_some_and(|d| crate::ac2_world::iteration::hex(&d) == want)
+            })
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Side {
@@ -216,18 +263,151 @@ pub struct Args {
     /// Whether to build from installs whose files are not the expected ones (`--any-install`),
     /// which may give a world that matches no one else's.
     pub any_install: bool,
+    /// The land the world repository pins (`[land]`), which the build must be unless it is a new
+    /// land.
+    pub pin: Option<Pin>,
+    /// Whether the build is a new land (`--new-land`): content the repository does not pin yet,
+    /// numbered in its ledger as the next generation.
+    pub new_land: bool,
     /// The command line, for the build's notes.
     pub command: String,
 }
 
-/// The usage line of `dereth-art ac2-world`.
-pub const USAGE: &str = "dereth-art ac2-world --ac1 DIR --ac2 DIR --out DIR [--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--start FILE] [--ledger FILE] [--any-install]";
+/// The land a world repository pins in its `[land]`: its content digest and generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pin {
+    pub content: String,
+    pub generation: u32,
+}
+
+/// The converter's version: a hash of its own code and tables, which decide what land it makes
+/// from the same installs (the build script's). `newdereth-world` says it first, and alone with
+/// `--version`.
+pub const CONVERTER: &str = env!("DERETH_ART_CONVERTER");
+
+/// The usage line of `dereth-art newdereth-world`.
+pub const WORLD_USAGE: &str =
+    "dereth-art newdereth-world --world FILE --dats DIR --ac2-dats DIR --out DIR [--new-land]";
+
+/// The options a world repository's `converter_args` may not give: the command line gives them,
+/// or `[land]` does.
+const NOT_IN_CONVERTER_ARGS: [&str; 4] = ["--ac1", "--ac2", "--out", "--ledger"];
+
+/// The options whose value is a file, read from the world repository's folder.
+const FILE_OPTIONS: [&str; 3] = ["--vaults", "--placements", "--start"];
+
+/// The options a world repository's `converter_args` may give.
+pub const CONVERTER_ARGS: &str = "[--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--start FILE] [--any-install]";
 
 impl Args {
-    /// The arguments after `ac2-world`.
+    /// The arguments after `newdereth-world`: the world repository's `world.toml` (`--world`),
+    /// whose `[land]` gives the converter's arguments, the ledger and the land it pins; the AC1
+    /// install (`--dats`), the AC2 install (`--ac2-dats`) and the overlay folder (`--out`); and
+    /// `--new-land` to build land the repository does not pin yet. The files `[land]` names are
+    /// read from the repository's folder.
     ///
     /// # Errors
-    /// An argument that is not one of [`USAGE`]'s, or a required one missing.
+    /// An argument missing or unknown, or a `world.toml` that does not read or has no `[land]`.
+    pub fn parse_world(args: &[String]) -> Result<Self, String> {
+        let (mut world, mut dats, mut ac2, mut out, mut new_land) = (None, None, None, None, false);
+        let mut a = args.iter();
+        while let Some(k) = a.next() {
+            if k == "--new-land" {
+                new_land = true;
+                continue;
+            }
+            let v = a
+                .next()
+                .ok_or_else(|| format!("{k} needs a value"))?
+                .clone();
+            match k.as_str() {
+                "--world" => world = Some(PathBuf::from(v)),
+                "--dats" => dats = Some(v),
+                "--ac2-dats" => ac2 = Some(v),
+                "--out" => out = Some(v),
+                _ => return Err(format!("unknown argument {k} {v}")),
+            }
+        }
+        let world: PathBuf = world.ok_or("--world")?;
+        let text =
+            std::fs::read_to_string(&world).map_err(|e| format!("{}: {e}", world.display()))?;
+        let doc: toml::Table =
+            toml::from_str(&text).map_err(|e| format!("{}: {e}", world.display()))?;
+        let land = doc
+            .get("land")
+            .and_then(toml::Value::as_table)
+            .ok_or_else(|| format!("{}: no [land]", world.display()))?;
+        let folder = world.parent().unwrap_or(Path::new("."));
+        let from_folder = |v: &str| folder.join(v).to_string_lossy().into_owned();
+        let mut flags: Vec<String> = vec![
+            "--ac1".into(),
+            dats.ok_or("--dats")?,
+            "--ac2".into(),
+            ac2.ok_or("--ac2-dats")?,
+            "--out".into(),
+            out.ok_or("--out")?,
+        ];
+        let ledger = land
+            .get("ledger")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| format!("{}: [land] names no ledger", world.display()))?;
+        flags.extend(["--ledger".into(), from_folder(ledger)]);
+        let given = land.get("converter_args").map_or(Ok(Vec::new()), |v| {
+            v.as_array()
+                .and_then(|a| {
+                    a.iter()
+                        .map(|x| x.as_str().map(str::to_owned))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "{}: [land] converter_args is not a list of words",
+                        world.display()
+                    )
+                })
+        })?;
+        let mut given = given.into_iter();
+        while let Some(k) = given.next() {
+            if NOT_IN_CONVERTER_ARGS.contains(&k.as_str()) {
+                return Err(format!(
+                    "{}: [land] converter_args gives {k}, which the command line or [land] gives",
+                    world.display()
+                ));
+            }
+            let file = FILE_OPTIONS.contains(&k.as_str());
+            flags.push(k);
+            if file {
+                if let Some(v) = given.next() {
+                    flags.push(from_folder(&v));
+                }
+            }
+        }
+        let mut parsed = Self::parse(&flags)?;
+        parsed.pin = match (
+            land.get("content_sha256").and_then(toml::Value::as_str),
+            land.get("generation").and_then(toml::Value::as_integer),
+        ) {
+            (Some(c), Some(g)) => Some(Pin {
+                content: c.to_owned(),
+                generation: u32::try_from(g)
+                    .map_err(|_| format!("{}: [land] generation {g}", world.display()))?,
+            }),
+            _ => None,
+        };
+        parsed.new_land = new_land;
+        parsed.command = std::iter::once("dereth-art newdereth-world".to_owned())
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(parsed)
+    }
+
+    /// The converter's own options, as a world repository's `converter_args` gives them, with
+    /// the installs, the overlay folder and the ledger.
+    ///
+    /// # Errors
+    /// An argument that is not one of [`CONVERTER_ARGS`] or the installs, the folder and the
+    /// ledger, or a required one missing.
     pub fn parse(args: &[String]) -> Result<Self, String> {
         let (mut ac1, mut ac2, mut out, mut tab) = (None, None, None, "fitted".to_owned());
         let mut levels = 1;
@@ -296,7 +476,9 @@ impl Args {
             sky_day,
             ledger,
             any_install,
-            command: std::iter::once("dereth-art ac2-world".to_owned())
+            pin: None,
+            new_land: false,
+            command: std::iter::once("dereth-art newdereth-world".to_owned())
                 .chain(args.iter().cloned())
                 .collect::<Vec<_>>()
                 .join(" "),
@@ -320,22 +502,67 @@ fn sha256(path: &Path) -> Result<String, String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Refuses a build that is not the land the world repository pins, before its ledger is
+/// touched, unless it is a new land: other content, or the pinned content numbered another
+/// generation (the ledger is not the repository's own, or is older than it).
+fn check_pin(args: &Args, content: &str, generation: u32, new_content: bool) -> Result<(), String> {
+    if args.new_land {
+        return Ok(());
+    }
+    let Some(pin) = &args.pin else {
+        return Err(format!(
+            "the world pins no land yet (content {content}): --new-land builds it as a new land"
+        ));
+    };
+    if pin.content != content {
+        return Err(format!(
+            "this isn't the land the world pins: its content is {content}, the world pins {}; --new-land builds it as a new land",
+            pin.content
+        ));
+    }
+    if new_content {
+        return Err(format!(
+            "the ledger {} doesn't hold the land the world pins (generation {}): it isn't the world's own ledger, or is older than it",
+            args.ledger.display(),
+            pin.generation
+        ));
+    }
+    if pin.generation != generation {
+        return Err(format!(
+            "the ledger {} numbers the pinned land generation {generation}, the world pins generation {}: it isn't the world's own ledger",
+            args.ledger.display(),
+            pin.generation
+        ));
+    }
+    Ok(())
+}
+
 /// Every input's SHA-256, refusing a file that is not the expected one.
 fn check_inputs(args: &Args) -> Result<Vec<String>, String> {
     let lines = std::thread::scope(|s| {
         let jobs: Vec<_> = INPUTS
             .iter()
-            .map(|&(side, name, want)| {
-                let dir = if side == Side::Ac1 {
+            .map(|input| {
+                let dir = if input.side == Side::Ac1 {
                     &args.ac1
                 } else {
                     &args.ac2
                 };
-                let path = dir.join(name);
+                let path = dir.join(input.name);
                 let any = args.any_install;
                 s.spawn(move || -> Result<String, String> {
                     let got = sha256(&path)?;
-                    if got != want && any {
+                    let want = input.sha256.join(" or ");
+                    if input.sha256.contains(&got.as_str()) {
+                        return Ok(format!("{got}  {}", path.display()));
+                    }
+                    if input.holds(&path, &got) {
+                        return Ok(format!(
+                            "{got}  {} (another layout of the expected file's records)",
+                            path.display()
+                        ));
+                    }
+                    if any {
                         eprintln!(
                             "{} is not the expected file (SHA-256 {got}, expected {want}): built from it anyway, so this world may not match anyone else's",
                             path.display()
@@ -345,13 +572,10 @@ fn check_inputs(args: &Args) -> Result<Vec<String>, String> {
                             path.display()
                         ));
                     }
-                    if got != want {
-                        return Err(format!(
-                            "{} is not the expected file (SHA-256 {got}, expected {want}); --any-install builds from it anyway",
-                            path.display()
-                        ));
-                    }
-                    Ok(format!("{got}  {}", path.display()))
+                    Err(format!(
+                        "{} is not the expected file (SHA-256 {got}, expected {want}); --any-install builds from it anyway",
+                        path.display()
+                    ))
                 })
             })
             .collect();
@@ -512,13 +736,21 @@ fn rounding_errors(w: &DenseWorld, t: &[f32; 256]) -> Vec<f32> {
 #[allow(clippy::too_many_lines)]
 /// Build the world: read both installs and write the overlay folder and the reports beside it.
 ///
+/// Says first which converter it is (`converter <version>`, [`CONVERTER`]), then what it is doing
+/// a line at a time on the standard output, `step <what>` ([`step`]), and last
+/// `built <overlay folder> <generation>`; returns the generation.
+///
 /// # Errors
-/// An input that is not the expected file, or one that will not read or write.
-pub fn build(args: &Args) -> Result<(), String> {
+/// An input that is not the expected file, a build that is not the land the world pins
+/// ([`Args::pin`]), or a file that will not read or write.
+pub fn build(args: &Args) -> Result<u32, String> {
+    println!("converter {CONVERTER}");
     let t0 = std::time::Instant::now();
     eprintln!("checking the inputs' SHA-256");
+    step("inputs");
     let fingerprints = check_inputs(args)?;
     eprintln!("reading AC2");
+    step("ac2");
     let (mut g, ac2_table, ac2_road, steep) = read_ac2(&args.ac2)?;
     // AC2's placeholder land (the copied islands in the far north, the flat specks) left out as
     // sea; the ground as it was kept to show what that changed.
@@ -558,6 +790,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     };
 
     eprintln!("sampling {} x {} vertices", grid.side(), grid.side());
+    step("land");
     let land_before = land_blocks(&DenseWorld::sample(&whole, grid));
     drop(whole);
     let mut w = DenseWorld::sample(&g, grid);
@@ -620,6 +853,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     // AC2's placed statics, made as AC1 models and placed at AC2's places, standing on the
     // converted ground as they stood on AC2's.
     eprintln!("placing AC2's statics");
+    step("statics");
     let ac2_art = crate::ac2_look::source::Ac2::open(&args.ac2)?;
     let (mut ids, mut pictures, mut art_records) = (
         art::Ids::default(),
@@ -688,42 +922,185 @@ pub fn build(args: &Args) -> Result<(), String> {
     )? {
         ac2_buildings.entry(b.block).or_default().push(b);
     }
+    // AC2's dungeons: every AC2 block's cells no building takes as its rooms, those the list names
+    // where it puts them, the rest each under a free AC1 block beyond AC2's landmass.
+    eprintln!("making AC2's dungeons");
+    step("dungeons");
+    let listed = match &args.vaults {
+        Some(p) => vaults::parse_list(
+            &std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?,
+        )?,
+        None => Vec::new(),
+    };
+    // The rooms a shell stands on are no dungeon: a building's, or left out with the building
+    // passed over (dungeons-left.tsv).
+    let made: std::collections::BTreeSet<(usize, usize, usize)> =
+        ac2_buildings.values().flatten().map(|b| b.ac2).collect();
+    let mut left: Vec<((usize, usize), usize, &str)> = rooms_found
+        .left
+        .iter()
+        .map(|(b, lows, why)| (*b, lows.len(), *why))
+        .chain(
+            rooms_found
+                .rooms
+                .iter()
+                .filter(|(k, _)| !made.contains(k))
+                .map(|(k, lows)| ((k.0, k.1), lows.len(), "rooms of a building passed over")),
+        )
+        .collect();
+    let mut taken: BTreeMap<(i32, i32), std::collections::BTreeSet<u16>> = BTreeMap::new();
+    for (b, lows) in rooms_found
+        .rooms
+        .iter()
+        .map(|(k, lows)| ((k.0, k.1), lows))
+        .chain(rooms_found.left.iter().map(|(b, lows, _)| (*b, lows)))
+    {
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        // LINT-OK: an AC2 block index, 0 to 254.
+        let at = (b.0 as i32, b.1 as i32);
+        taken.entry(at).or_default().extend(lows.iter().copied());
+    }
+    let dungeons = {
+        let (bs, wside) = (w.grid.block_squares(), w.grid.side());
+        let beyond = |(bx, by): (usize, usize)| {
+            (0..=bs)
+                .all(|i| (0..=bs).all(|j| w.vertex[(bx * bs + i) * wside + by * bs + j].no_ground))
+        };
+        let mut free = (0..255usize)
+            .rev()
+            .flat_map(|x| (0..255usize).map(move |y| (x, y)))
+            .filter(|&b| {
+                !ac2_buildings.contains_key(&b)
+                    && !statics.by_block.contains_key(&b)
+                    && !listed.iter().any(|v| v.block == b)
+                    && beyond(b)
+            });
+        vaults::every(&ac2_world, &taken, &listed, &mut free)?
+    };
     let mut vault_cells: std::collections::BTreeMap<(usize, usize), Vec<vaults::Made>> =
         std::collections::BTreeMap::new();
-    if let Some(p) = &args.vaults {
-        let list = vaults::parse_list(
-            &std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?,
+    let (mut dungeon_cells, mut dungeon_closed, mut dungeon_lights, mut dungeon_lights_left) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut shared = vaults::Shared::default();
+    shared.make_environments(
+        &dungeons,
+        &ac2_world,
+        &ac2_art,
+        &mut pictures,
+        &mut ids,
+        &mut art_records,
+    )?;
+    for (v, lows) in &dungeons {
+        let m = vaults::make(
+            v,
+            lows,
+            &ac2_world,
+            &ac2_art,
+            &mut pictures,
+            &mut ids,
+            &mut art_records,
+            &mut shared,
         )?;
-        for v in &list {
-            let m = vaults::make(
-                v,
-                &ac2_world,
-                &ac2_art,
-                &mut pictures,
-                &mut ids,
-                &mut art_records,
-            )?;
-            eprintln!(
-                "AC2 dungeon {:02X}{:02X}: {} cells made, {} portals left closed, {} lights placed, {} left out",
-                v.ac2.0,
-                v.ac2.1,
-                m.cells.len(),
-                m.closed,
-                m.lights,
-                m.lights_left
-            );
-            vault_cells.entry(m.block).or_default().push(m);
+        dungeon_cells += m.cells.len();
+        dungeon_closed += m.closed;
+        dungeon_lights += m.lights;
+        dungeon_lights_left += m.lights_left;
+        if m.cells_left > 0 {
+            #[allow(clippy::cast_sign_loss)]
+            // LINT-OK: an AC2 block index, 0 to 254.
+            left.push((
+                (m.ac2.0 as usize, m.ac2.1 as usize),
+                m.cells_left,
+                "a mesh that makes no cell",
+            ));
+        }
+        vault_cells.entry(m.block).or_default().push(m);
+    }
+    let dungeons_line = format!(
+        "AC2's dungeons: {} written under AC1 blocks ({} where the list puts them), {dungeon_cells} cells, {dungeon_closed} portals left closed, {dungeon_lights} lights placed, {dungeon_lights_left} left out (dungeons-ac2.tsv, dungeon-cells.tsv)",
+        dungeons.len(),
+        dungeons.iter().filter(|(v, _)| listed.contains(v)).count(),
+    );
+    for x in 0..255usize {
+        for y in 0..255usize {
+            #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+            // LINT-OK: an AC2 block index, 0 to 254.
+            let n = vaults::missing(&ac2_world, (x as i32, y as i32));
+            if n > 0 {
+                left.push(((x, y), n, "named by its block's count, not in its file"));
+            }
         }
     }
-    eprintln!(
-        "AC2's buildings with rooms: {} made, {} rooms; passed over {rooms_passed:?}",
+    left.sort_unstable();
+    let mut dungeons_left_tsv = String::from("ac2_block\tcells\twhy\n");
+    let mut left_by: BTreeMap<&str, usize> = BTreeMap::new();
+    for ((x, y), n, why) in &left {
+        let _ = writeln!(dungeons_left_tsv, "{x:02X}{y:02X}\t{n}\t{why}");
+        *left_by.entry(why).or_default() += n;
+    }
+    let dungeons_line = format!(
+        "{dungeons_line}; AC2 cells left out: {} {left_by:?} (dungeons-left.tsv)",
+        left_by.values().sum::<usize>()
+    );
+    eprintln!("{dungeons_line}");
+    let rooms_line = format!(
+        "AC2's buildings with rooms: {} made, {} rooms ({} over a dungeon, its interior; {} rooms stand outside their block); passed over {rooms_passed:?}",
         ac2_buildings.values().map(Vec::len).sum::<usize>(),
         ac2_buildings
             .values()
             .flatten()
             .map(|b| b.rooms.len())
-            .sum::<usize>()
+            .sum::<usize>(),
+        ac2_buildings
+            .values()
+            .flatten()
+            .filter(|b| b.rooms.len() > rooms::MOST_ROOMS)
+            .count(),
+        ac2_buildings
+            .values()
+            .flatten()
+            .flat_map(|b| &b.rooms)
+            .filter(|r| {
+                let o = r.frame.origin;
+                !(0.0..192.0).contains(&o.x) || !(0.0..192.0).contains(&o.y)
+            })
+            .count()
     );
+    eprintln!("{rooms_line}");
+    let mut buildings_tsv = String::from(
+        "ac2_shell\tac1_block\tx\ty\tz\trooms\trooms_outside_block\tdoorway_x\tdoorway_y\tdoorway_z\tinside_x\tinside_y\tinside_z\n",
+    );
+    for b in ac2_buildings.values().flatten() {
+        let o = b.info.frame.origin;
+        let outside = b
+            .rooms
+            .iter()
+            .filter(|r| {
+                let p = r.frame.origin;
+                !(0.0..192.0).contains(&p.x) || !(0.0..192.0).contains(&p.y)
+            })
+            .count();
+        let (d, i) = b.doorway.unwrap_or_default();
+        let _ = writeln!(
+            buildings_tsv,
+            "{:02X}{:02X}/{}\t{:02X}{:02X}\t{:.2}\t{:.2}\t{:.2}\t{}\t{outside}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.2}",
+            b.ac2.0,
+            b.ac2.1,
+            b.ac2.2,
+            b.block.0,
+            b.block.1,
+            o.x,
+            o.y,
+            o.z,
+            b.rooms.len(),
+            d.x,
+            d.y,
+            d.z,
+            i.x,
+            i.y,
+            i.z
+        );
+    }
     // The land raised to cover what AC2 sets into its ground and the converted ground leaves
     // showing, on dry squares and within the cap.
     let wants =
@@ -752,6 +1129,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     // AC2's ledges AC1's bodies do not climb: the land raised where they drop to the terrain, a
     // collision-only ramp where they drop to another static.
     eprintln!("making AC2's ledges climbable");
+    step("ledges");
     let check = climb::Check {
         ac1: &args.ac1,
         cell: &cell,
@@ -799,6 +1177,7 @@ pub fn build(args: &Args) -> Result<(), String> {
         .and_then(|k| i32::try_from(k).ok())
         .ok_or("AC1's region has no empty scene description")?;
     eprintln!("growing AC2's cover over AC2's world");
+    step("cover");
     let ac2_region = ac2_world
         .region()
         .map_err(|e| format!("AC2 region: {e:?}"))?;
@@ -1027,6 +1406,7 @@ pub fn build(args: &Args) -> Result<(), String> {
 
     // Per AC1 block.
     eprintln!("reading AC1's landblocks");
+    step("blocks");
     let s = grid.block_squares();
     let side = grid.side();
     let mut land_blocks = 0;
@@ -1055,13 +1435,17 @@ pub fn build(args: &Args) -> Result<(), String> {
     // AC1's content taken off the converted blocks, by block and in all; the rooms' numbers, by
     // block, deleted through the overlay where it writes no cell of its own in their place.
     let mut removed = cleared::Removed::default();
-    let (mut removed_blocks, mut mixed_blocks, mut rooms_left_in_count) = (0usize, 0usize, 0usize);
-    let mut removed_tsv = String::from(
-        "block\tbuildings\trooms\tobjects\trestrictions\tcells_kept\trooms_left_in_count\n",
-    );
+    let mut removed_blocks = 0usize;
+    let mut removed_tsv =
+        String::from("block\tbuildings\trooms\tdungeon_cells\tobjects\trestrictions\n");
     let mut removed_rooms: std::collections::BTreeMap<u32, Vec<u32>> =
         std::collections::BTreeMap::new();
     let mut versions = Vec::with_capacity(255 * 255);
+    // Each AC2 dungeon, where it went, and each of its cells' new number.
+    let mut dungeons_tsv = String::from(
+        "ac2_block\tac1_block\tcorner_x\tcorner_y\tcorner_z\tcells\tfirst_cell\tlast_cell\tportals_closed\tlights\tlights_left\n",
+    );
+    let mut dungeon_cells_tsv = String::from("ac2_cell\tac1_cell\n");
     // Each block written and how many cells it has, for the placements' cells.
     let mut written_cells: std::collections::BTreeMap<(usize, usize), u32> =
         std::collections::BTreeMap::new();
@@ -1076,9 +1460,9 @@ pub fn build(args: &Args) -> Result<(), String> {
             let placed = statics.by_block.get(&(bx, by));
             let with_rooms = ac2_buildings.get(&(bx, by));
             let vaults_here = vault_cells.get(&(bx, by));
-            // AC1's landblock info, with its buildings, their rooms and its statics taken off: the
+            // AC1's landblock info, with its buildings, its cells and its statics taken off: the
             // block's info is written whenever that takes something, so AC1's own is read through
-            // only where it is what the converted block holds (an AC1 dungeon alone).
+            // only where it held nothing.
             let lid = DataId(id.raw() & 0xFFFF_0000 | 0xFFFE);
             let ac1_cleared = cell
                 .read(lid)
@@ -1094,40 +1478,17 @@ pub fn build(args: &Args) -> Result<(), String> {
             if let Some(c) = ac1_cleared.as_ref().filter(|c| c.removed.any()) {
                 removed.add(&c.removed);
                 removed_blocks += 1;
-                rooms_left_in_count += c.rooms_left_in_count;
-                mixed_blocks += usize::from(c.removed.rooms > 0 && c.cells_kept > 0);
                 let _ = writeln!(
                     removed_tsv,
-                    "{bx:02X}{by:02X}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    "{bx:02X}{by:02X}\t{}\t{}\t{}\t{}\t{}",
                     c.removed.buildings,
                     c.removed.rooms,
+                    c.removed.cells,
                     c.removed.objects,
                     c.removed.restrictions,
-                    c.cells_kept,
-                    c.rooms_left_in_count
                 );
-                if !c.room_numbers.is_empty() {
-                    removed_rooms.insert(lid.raw() & 0xFFFF_0000, c.room_numbers.clone());
-                }
-                // A room still inside the count, written hollow: whatever walks the count finds
-                // every cell it names.
-                let block = lid.raw() & 0xFFFF_0000;
-                for &k in c
-                    .room_numbers
-                    .iter()
-                    .filter(|&&k| k < 0x0100 + c.info.num_cells)
-                {
-                    let rid = DataId(block | k);
-                    let room = cell
-                        .read(rid)
-                        .ok()
-                        .and_then(|b| dereth_assets::EnvCell::decode_payload(rid, &b).ok())
-                        .ok_or_else(|| format!("{rid:?}: a room in the count does not read"))?;
-                    let version = cell
-                        .base_entry(rid)
-                        .map_or(1, |e| u16::try_from(e.bits >> 16).unwrap_or(1).max(1));
-                    versions.push(version);
-                    records.push((rid, cleared::hollow(&room).encode()));
+                if !c.cell_numbers.is_empty() {
+                    removed_rooms.insert(lid.raw() & 0xFFFF_0000, c.cell_numbers.clone());
                 }
             }
             let write_info = ac1_cleared.as_ref().is_some_and(|c| c.removed.any())
@@ -1214,13 +1575,29 @@ pub fn build(args: &Args) -> Result<(), String> {
                 }
                 for m in vaults_here.into_iter().flatten() {
                     let first = 0x0100 + info.num_cells;
-                    let at = |low: u16| m.numbers.get(&low).map(|&k| first + u32::from(k));
-                    eprintln!(
-                        "AC2 dungeon in {bx:02X}{by:02X}: cells {first:04X}..{:04X}; AC2's 0100 is {:04X?}, 017B is {:04X?}",
-                        first + u32::try_from(m.cells.len()).unwrap_or(0) - 1,
-                        at(0x0100),
-                        at(0x017B)
+                    let _ = writeln!(
+                        dungeons_tsv,
+                        "{:02X}{:02X}\t{bx:02X}{by:02X}\t{:.2}\t{:.2}\t{:.2}\t{}\t{first:04X}\t{:04X}\t{}\t{}\t{}",
+                        m.ac2.0,
+                        m.ac2.1,
+                        m.at.x,
+                        m.at.y,
+                        m.at.z,
+                        m.cells.len(),
+                        first + u32::try_from(m.cells.len()).unwrap_or(1) - 1,
+                        m.closed,
+                        m.lights,
+                        m.lights_left
                     );
+                    for (&low, &k) in &m.numbers {
+                        let _ = writeln!(
+                            dungeon_cells_tsv,
+                            "{:02X}{:02X}{low:04X}\t{bx:02X}{by:02X}{:04X}",
+                            m.ac2.0,
+                            m.ac2.1,
+                            first + u32::from(k)
+                        );
+                    }
                     for (rid, bytes) in rooms::add_cells(&mut info, &m.cells) {
                         versions.push(1);
                         records.push((rid, bytes));
@@ -1256,6 +1633,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     // AC2's ground pictures as the land slots' terrain textures, each slot by its own kind and
     // each other kind of the slot on the land by an entry of its own.
     eprintln!("taking AC2's ground pictures");
+    step("pictures");
     let mut slot_counts = std::collections::BTreeMap::new();
     for v in w.vertex.iter().filter(|v| !v.water && !v.no_ground) {
         *slot_counts
@@ -1337,6 +1715,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     // The world's starting area: AC1's creation table with the one area, the dry land nearest the
     // start point on the converted land, named for the nearest of AC2's towns.
     eprintln!("placing the starting area");
+    step("start");
     let labels = names::read_labels(&args.ac2)?;
     let block_records: std::collections::HashMap<u32, &[u8]> = records
         .iter()
@@ -1393,11 +1772,11 @@ pub fn build(args: &Args) -> Result<(), String> {
             .chain(std::iter::once((
                 TOMBSTONES_ID,
                 dereth_dat::overlay::encode_tombstones(
-                    &deleted_rooms
-                        .iter()
-                        .map(|id| dereth_dat::overlay::Tombstone {
-                            id: id.raw(),
-                            mask: 0,
+                    &removed_rooms
+                        .keys()
+                        .map(|&block| dereth_dat::overlay::Tombstone {
+                            id: block,
+                            mask: BLOCK_FAMILY,
                             iteration: 0,
                         })
                         .collect::<Vec<_>>(),
@@ -1415,6 +1794,12 @@ pub fn build(args: &Args) -> Result<(), String> {
     };
     let mut ledger = crate::ac2_world::iteration::Ledger::parse(&ledger_text)?;
     let (generation, new_content) = ledger.generation(&content);
+    check_pin(
+        args,
+        &crate::ac2_world::iteration::hex(&content),
+        generation,
+        new_content,
+    )?;
     if new_content {
         std::fs::write(ledger_path, ledger.text())
             .map_err(|e| format!("{}: {e}", ledger_path.display()))?;
@@ -1430,6 +1815,7 @@ pub fn build(args: &Args) -> Result<(), String> {
     eprintln!(
         "generation {generation}: iterations to cell {cell_iteration}, portal {portal_iteration}"
     );
+    step("writing");
     let mut cw = OverlayWriter::open_or_create(
         &args.out.join(container_name(ModernDat::Cell)),
         &cell,
@@ -1438,9 +1824,11 @@ pub fn build(args: &Args) -> Result<(), String> {
         0,
     )
     .map_err(|e| format!("cell overlay: {e:?}"))?;
-    for id in &deleted_rooms {
-        cw.tombstone(*id, 0, cell_iteration)
-            .map_err(|e| format!("{id:?}: {e:?}"))?;
+    // AC1's cells go by their blocks, before the blocks' own records are written: a block's
+    // deletion covers all of AC1's records of it, and the overlay's own are read over it.
+    for &block in removed_rooms.keys() {
+        cw.tombstone(DataId(block), BLOCK_FAMILY, cell_iteration)
+            .map_err(|e| format!("{block:08X}: {e:?}"))?;
     }
     for ((id, bytes), version) in records.iter().zip(&versions) {
         cw.put(*id, bytes, *version, cell_iteration, 0)
@@ -1484,6 +1872,7 @@ pub fn build(args: &Args) -> Result<(), String> {
 
     // The map window's picture, drawn from the land as the overlay now holds it.
     eprintln!("drawing the map");
+    step("map");
     let (map_record, map_rgb, map_size) = map_picture(&args.ac1, &args.out, &portal)?;
     let mut pw = OverlayWriter::open_or_create(
         &args.out.join(container_name(ModernDat::Portal)),
@@ -1505,8 +1894,8 @@ pub fn build(args: &Args) -> Result<(), String> {
         &map_rgb,
         map_size,
     )?;
-    // The world's own rules, which Empyrean reads from the overlay folder: AC2's land lies over
-    // AC1's dungeons, so a position is in a dungeon by its cell (Empyrean's V563).
+    // The world's own rules, which Empyrean reads from the overlay folder: AC2's dungeons lie
+    // under its land, so a position is in a dungeon by its cell (Empyrean's V563).
     let rules = args.out.join(WORLD_RULES);
     std::fs::write(&rules, WORLD_RULES_TEXT).map_err(|e| format!("{}: {e}", rules.display()))?;
     // The things the world places itself, which Empyrean reads from the overlay folder (V565).
@@ -1539,6 +1928,7 @@ pub fn build(args: &Args) -> Result<(), String> {
 
     // Read it all back through the overlay over AC1's own files.
     eprintln!("verifying");
+    step("verifying");
     let od = OverlayDir::new(&args.out).map_err(|e| format!("{e:?}"))?;
     let cl = od
         .layer_over(ModernDat::Cell, &cell, Some(WORLD_KEY))
@@ -1877,18 +2267,14 @@ pub fn build(args: &Args) -> Result<(), String> {
     );
     let _ = writeln!(
         stats,
-        "AC1's content left off the converted blocks, in {removed_blocks} blocks (ac1-removed.tsv): {} buildings, {} rooms, {} statics, {} house restriction entries",
-        removed.buildings, removed.rooms, removed.objects, removed.restrictions
+        "AC1's content left off the converted blocks, in {removed_blocks} blocks (ac1-removed.tsv): {} buildings, {} rooms, {} dungeon cells, {} statics, {} house restriction entries",
+        removed.buildings, removed.rooms, removed.cells, removed.objects, removed.restrictions
     );
     let _ = writeln!(
         stats,
-        "  blocks with rooms taken and AC1 cells kept (a dungeon no building reaches): {mixed_blocks}; rooms numbered below a kept cell (inside its block's cell count, written hollow): {rooms_left_in_count}"
-    );
-    let _ = writeln!(
-        stats,
-        "  rooms deleted from the cell file through the overlay: {}; written anew as AC2's or copied rooms, or hollow: {}",
+        "  cells deleted from the cell file through the overlay: {}; written anew as AC2's: {}",
         deleted_rooms.len(),
-        removed.rooms - deleted_rooms.len()
+        (removed.rooms + removed.cells) - deleted_rooms.len()
     );
     let _ = writeln!(
         stats,
@@ -1952,6 +2338,8 @@ pub fn build(args: &Args) -> Result<(), String> {
         "  of them, {} draw nothing but an effect, made AC1 objects that play its particles, and {} draw and play effects too (statics-effects.tsv)",
         statics.effects, statics.mesh_effects
     );
+    let _ = writeln!(stats, "{rooms_line}");
+    let _ = writeln!(stats, "{dungeons_line}");
     let _ = writeln!(stats, "{buried_line}");
     let _ = writeln!(stats, "{joined_line}");
     let _ = writeln!(stats, "{}", climb.line);
@@ -2072,14 +2460,14 @@ pub fn build(args: &Args) -> Result<(), String> {
         readme,
         "AC2's placeholder land (the copied islands in the far north, the flat specks) is left out as sea: see stats.txt."
     );
-    let _ = writeln!(readme, "overlay/world.toml: the world's own rules for Empyrean (dungeons_by_cells: AC2's land lies over AC1's dungeons, so a position is in a dungeon by its cell; own_placements: none of ACE's world database is placed in it).");
+    let _ = writeln!(readme, "overlay/world.toml: the world's own rules for Empyrean (dungeons_by_cells: AC2's dungeons lie under its land, so a position is in a dungeon by its cell; own_placements: none of ACE's world database is placed in it).");
     if let Some(p) = &args.placements {
         let _ = writeln!(readme, "overlay/placements.tsv: the things the world places itself, from {} (Empyrean's own placements; a portal leads where the portaldestination it links to stands).", p.display());
     }
     let _ = writeln!(readme, "The portal overlay's character-creation table (0x0E000002) offers one starting area: see stats.txt.");
     let _ = writeln!(readme, "overlay/places.tsv: AC2's towns and landmarks where AC2's map names them, which Dereth's map shows in place of AC1's notes (on by default; --names off leaves it out).");
-    let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, their rooms, its statics or its house restrictions (ac1-removed.tsv; AC1's dungeons under the land keep their cells).");
-    let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv, ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
+    let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, its cells (its dungeons' among them), its statics or its house restrictions (ac1-removed.tsv).");
+    let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv (AC1's dungeon blocks, their cells taken off), dungeons-ac2.tsv (each AC2 dungeon and the AC1 block it lies under), dungeon-cells.tsv (each AC2 dungeon cell's AC1 cell), dungeons-left.tsv (AC2's cells left out, and why), buildings-ac2.tsv (each AC2 building with rooms: where it stands, its rooms, those beyond its block, its first doorway), ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
     for (name, body) in [
         ("README.txt", &readme),
         ("stats.txt", &stats),
@@ -2102,6 +2490,10 @@ pub fn build(args: &Args) -> Result<(), String> {
         ("statics-effects.tsv", &statics.effects_tsv),
         ("ledges.tsv", &climb.tsv),
         ("ramps.tsv", &climb.ramps_tsv),
+        ("dungeons-ac2.tsv", &dungeons_tsv),
+        ("dungeons-left.tsv", &dungeons_left_tsv),
+        ("buildings-ac2.tsv", &buildings_tsv),
+        ("dungeon-cells.tsv", &dungeon_cells_tsv),
         (
             "sky.tsv",
             &sky.as_ref().map(|s| s.tsv.clone()).unwrap_or_default(),
@@ -2110,9 +2502,17 @@ pub fn build(args: &Args) -> Result<(), String> {
         let p = beside.join(name);
         std::fs::write(&p, body).map_err(|e| format!("{}: {e}", p.display()))?;
     }
-    print!("{stats}");
+    eprint!("{stats}");
     eprintln!("done in {:.0} s", t0.elapsed().as_secs_f64());
-    Ok(())
+    println!("built {} {generation}", args.out.display());
+    Ok(generation)
+}
+
+/// What the build is doing now, a line on the standard output (`step <what>`), as the art tool
+/// says it for whoever drives it: `inputs`, `ac2`, `land`, `statics`, `dungeons`, `ledges`, `cover`,
+/// `blocks`, `pictures`, `start`, `writing`, `map`, `verifying`.
+fn step(what: &str) {
+    println!("step {what}");
 }
 
 /// Refuses a new record's id that AC1's portal file or the client's own records already hold.
@@ -2276,11 +2676,11 @@ fn check_placements(
     Ok(n)
 }
 
-/// The world's own rules: AC2's land lies over AC1's dungeons, so Empyrean tells a dungeon by its
+/// The world's own rules: AC2's dungeons lie under its land, so Empyrean tells a dungeon by its
 /// cells rather than by flat land; and the world is AC2's, so none of AC1's people, creatures,
 /// doors, portals or houses from ACE's world database are placed in it.
 const WORLD_RULES_TEXT: &str = "# This world's own rules, read by Empyrean.
-# AC2's land lies over AC1's dungeons: a position is in a dungeon by its cell.
+# The dungeons lie under the land: a position is in a dungeon by its cell.
 dungeons_by_cells = true
 # The world places its own things: nothing from the world database is placed in it.
 own_placements = true
@@ -2320,6 +2720,140 @@ mod tests {
         );
     }
     use crate::ac2_world::*;
+
+    /// A world repository's `world.toml` in a fresh folder, its `[land]` holding `land`.
+    fn world_toml(name: &str, land: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dereth-art-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("folder");
+        let p = dir.join("world.toml");
+        std::fs::write(&p, format!("[world]\nname = \"w\"\n\n[land]\n{land}")).expect("writes");
+        p
+    }
+
+    fn world_args(world: &Path, extra: &[&str]) -> Result<Args, String> {
+        let mut a: Vec<String> = vec![
+            "--world".into(),
+            world.to_string_lossy().into_owned(),
+            "--dats".into(),
+            "ac1".into(),
+            "--ac2-dats".into(),
+            "ac2".into(),
+            "--out".into(),
+            "built/overlay".into(),
+        ];
+        a.extend(extra.iter().map(|s| (*s).to_owned()));
+        Args::parse_world(&a)
+    }
+
+    /// A world repository's `[land]` gives the converter its arguments, the ledger and the land it
+    /// pins; the files it names are read from the repository's folder, and the command line gives
+    /// only the installs and the folder.
+    #[test]
+    fn a_world_repositorys_land_gives_the_converter_its_arguments_ledger_and_pin() {
+        let w = world_toml(
+            "land-args",
+            "converter_args = [\"--vaults\", \"land/vaults.txt\", \"--start\", \"land/start.toml\", \"--names\", \"off\"]\nledger = \"land/generations.tsv\"\ncontent_sha256 = \"ab12\"\ngeneration = 4\n",
+        );
+        let folder = w.parent().expect("folder");
+        let a = world_args(&w, &[]).expect("reads");
+        assert_eq!((a.ac1, a.ac2), (PathBuf::from("ac1"), PathBuf::from("ac2")));
+        assert_eq!(a.out, PathBuf::from("built/overlay"));
+        assert_eq!(a.ledger, folder.join("land/generations.tsv"));
+        assert_eq!(a.vaults, Some(folder.join("land/vaults.txt")));
+        assert_eq!(a.start, Some(folder.join("land/start.toml")));
+        assert!(!a.names);
+        assert_eq!(
+            a.pin,
+            Some(Pin {
+                content: "ab12".into(),
+                generation: 4
+            })
+        );
+        assert!(!a.new_land);
+        assert!(world_args(&w, &["--new-land"]).expect("reads").new_land);
+        // The command line gives the installs and the folder, and nothing else.
+        assert!(world_args(&w, &["--ledger", "x.tsv"]).is_err());
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    /// `converter_args` can't give what the command line or `[land]` gives, a world repository
+    /// names its ledger, and a land not pinned yet reads with no pin.
+    #[test]
+    fn a_world_repositorys_land_is_refused_where_it_gives_the_command_lines_part_or_no_ledger() {
+        for (name, land) in [
+            (
+                "land-out",
+                "converter_args = [\"--out\", \"x\"]\nledger = \"l.tsv\"\n",
+            ),
+            (
+                "land-ledger",
+                "converter_args = [\"--ledger\", \"x\"]\nledger = \"l.tsv\"\n",
+            ),
+            ("land-none", "converter_args = []\n"),
+        ] {
+            let w = world_toml(name, land);
+            assert!(world_args(&w, &[]).is_err(), "{name}");
+            let _ = std::fs::remove_dir_all(w.parent().expect("folder"));
+        }
+        let w = world_toml("land-new", "ledger = \"l.tsv\"\n");
+        assert_eq!(world_args(&w, &[]).expect("reads").pin, None);
+        let _ = std::fs::remove_dir_all(w.parent().expect("folder"));
+    }
+
+    /// A build is taken only as the land the world pins, numbered as it pins it: other content,
+    /// a ledger that numbers it otherwise (one older than the repository's), or no pin at all are
+    /// refused unless the build is a new land.
+    #[test]
+    fn a_build_is_refused_unless_it_is_the_pinned_land_or_a_new_one() {
+        let mut a = Args::parse(&["--ac1", "a", "--ac2", "b", "--out", "o"].map(str::to_owned))
+            .expect("reads");
+        a.pin = Some(Pin {
+            content: "ab12".into(),
+            generation: 4,
+        });
+        assert!(check_pin(&a, "ab12", 4, false).is_ok());
+        let other = check_pin(&a, "cd34", 5, true).unwrap_err();
+        assert!(
+            other.contains("cd34") && other.contains("--new-land"),
+            "{other}"
+        );
+        let stale = check_pin(&a, "ab12", 2, false).unwrap_err();
+        assert!(
+            stale.contains("generation 2") && stale.contains("generation 4"),
+            "{stale}"
+        );
+        let missing = check_pin(&a, "ab12", 4, true).unwrap_err();
+        assert!(missing.contains("doesn't hold"), "{missing}");
+        a.new_land = true;
+        assert!(check_pin(&a, "cd34", 5, true).is_ok());
+        a.new_land = false;
+        a.pin = None;
+        assert!(check_pin(&a, "ab12", 1, true)
+            .unwrap_err()
+            .contains("--new-land"));
+    }
+
+    /// Each AC1 input is known by any of the copies players hold, and by its records in another
+    /// layout; a file that is none of them, and holds no records, is not it.
+    #[test]
+    fn an_input_is_any_copy_players_hold_or_one_of_its_records() {
+        let local = INPUTS
+            .iter()
+            .find(|i| i.name == "client_local_English.dat")
+            .expect("the English strings");
+        assert_eq!(local.sha256.len(), 2, "research's copy and the launcher's");
+        assert!(local.records.is_some());
+        let dir = std::env::temp_dir().join(format!("dereth-art-inputs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("folder");
+        let path = dereth_dat::ModernDat::Local.in_dir(&dir);
+        std::fs::write(&path, "not a data file").expect("writes");
+        for copy in local.sha256 {
+            assert!(local.holds(&path, copy), "{copy}");
+        }
+        assert!(!local.holds(&path, &"0".repeat(64)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn placements_must_stand_in_cells_the_world_has() {

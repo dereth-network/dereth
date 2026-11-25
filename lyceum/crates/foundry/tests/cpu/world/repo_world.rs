@@ -54,7 +54,7 @@ fn repo(f: &Fixture, land: Option<&str>) -> PathBuf {
 fn land(f: &Fixture) -> (PathBuf, String) {
     let dir = f.path().join("land");
     let mut pins = String::from(
-        "[land]\nconverter = \"dereth-art ac2-world\"\nconverter_commit = \"abc123\"\nconverter_args = [\"--vaults\", \"land/vaults.txt\"]\nledger = \"land/generations.tsv\"\n",
+        "[land]\nconverter = \"dereth-art newdereth-world\"\nconverter_commit = \"abc123\"\nconverter_args = [\"--vaults\", \"land/vaults.txt\"]\nledger = \"land/generations.tsv\"\n",
     );
     for (file, key) in lyceum_foundry::repo_world::LAND_FILES {
         let bytes = format!("{file} of the land");
@@ -80,17 +80,19 @@ fn a_repositorys_land_is_taken_only_as_its_pins_name_it() {
     assert!(why.contains(&sha(b"another place")), "{why}");
     assert!(
         why.contains("dereth commit abc123")
-            && why.contains(
-                "dereth-art ac2-world --ac1 <AC1 install> --ac2 <AC2 install> --out <folder> --ledger land/generations.tsv --vaults land/vaults.txt"
-            ),
+            && why.contains(&format!(
+                "dereth-art newdereth-world --world {} --dats <AC1 install> --ac2-dats <AC2 install> --out <folder>",
+                repo.path.display()
+            )),
         "{why}"
     );
     assert!(!why.contains("overlay_cell.dat"), "{why}");
 }
 
 /// A land lies over the AC1 files it was built over, so a player's own files are taken only as
-/// `[land]` pins them, each by SHA-256: one that differs, or isn't there, is refused by name with
-/// what was expected and found, and the others aren't named. Files it doesn't pin aren't asked for.
+/// `[land]` pins them, each by SHA-256 (one of a list, where it names several copies): one that
+/// differs, or isn't there, is refused by name with what was expected and found, and the others
+/// aren't named. Files it doesn't pin aren't asked for.
 #[test]
 fn a_land_is_refused_over_ac1_files_other_than_the_ones_it_was_built_over() {
     let f = Fixture::new("repo-land-inputs");
@@ -113,6 +115,35 @@ fn a_land_is_refused_over_ac1_files_other_than_the_ones_it_was_built_over() {
     assert!(why.contains("found no file"), "{why}");
     assert!(why.contains("00.00.11.6096"), "{why}");
     assert!(!why.contains("client_portal.dat"), "{why}");
+
+    // A file pinned as one of several copies is taken as any of them.
+    let highres = ModernDat::HighRes.in_dir(&install);
+    std::fs::write(&highres, "client_highres.dat of the install").unwrap();
+    std::fs::write(
+        ModernDat::Local.in_dir(&install),
+        "client_local_English.dat laid out otherwise",
+    )
+    .unwrap();
+    let listed = pins.replace(
+        &format!(
+            "ac1_local_sha256 = \"{}\"",
+            sha(b"client_local_English.dat of the install")
+        ),
+        &format!(
+            "ac1_local_sha256 = [\"{}\", \"{}\"]",
+            sha(b"client_local_English.dat of the install"),
+            sha(b"client_local_English.dat laid out otherwise")
+        ),
+    );
+    assert_ne!(listed, pins, "the pin is a list");
+    check_inputs(&Repo::open(&repo(&f, Some(&listed))).unwrap(), &install).unwrap();
+    // Pinned as the one copy, it is refused.
+    let one = Repo::open(&repo(&f, Some(&pins))).unwrap();
+    let why = check_inputs(&one, &install).unwrap_err();
+    assert!(
+        why.contains("client_local_English.dat: expected") && !why.contains("highres"),
+        "{why}"
+    );
 
     // A world pinning its land's files alone asks nothing of the install.
     let (_, only_land) = land(&f);

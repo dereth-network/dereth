@@ -54,6 +54,23 @@ pub const INPUT_FILES: [(ModernDat, &str); 4] = [
     (ModernDat::HighRes, "ac1_highres_sha256"),
 ];
 
+/// Each AC1 file's records digest in `[land]` ([`dereth_dat::overlay::records_digest`]): the same
+/// in every layout of the same records, so a copy laid out otherwise than those the SHA-256 name
+/// is the same file to the land.
+pub const INPUT_RECORDS: [(ModernDat, &str); 4] = [
+    (ModernDat::Cell, "ac1_cell_records"),
+    (ModernDat::Portal, "ac1_portal_records"),
+    (ModernDat::Local, "ac1_local_records"),
+    (ModernDat::HighRes, "ac1_highres_records"),
+];
+
+/// The records digest of the data file at `path`, in hex; `None` for one that doesn't read.
+fn records_of(path: &Path) -> Option<String> {
+    let f = dereth_dat::DatFile::open(path).ok()?;
+    let d = dereth_dat::overlay::records_digest(&f).ok()?;
+    Some(dereth_dat::overlay::hex(&d))
+}
+
 /// Where the SHA-256 of files already hashed is kept, by each file's path, length and time of
 /// change, so a land and its inputs (more than a gigabyte) are hashed again only when they change.
 fn hash_cache() -> PathBuf {
@@ -97,8 +114,10 @@ fn sha256_of(path: &Path) -> Option<String> {
 }
 
 /// Refused unless the player's own AC1 files in `dats` are those the repository's land is built
-/// over (`[land]`'s `ac1_*_sha256`), naming each that isn't, with its expected and found SHA-256.
-/// A repository that pins none of them (or no land) checks nothing.
+/// over: each one of the copies `[land]`'s `ac1_*_sha256` names (a SHA-256, or a list of them),
+/// or one holding the records `ac1_*_records` names, however laid out. Each that isn't is named,
+/// with what was expected and found. A repository that pins none of them (or no land) checks
+/// nothing.
 ///
 /// # Errors
 /// Any pinned file that isn't the one named.
@@ -108,15 +127,23 @@ pub fn check_inputs(repo: &Repo, dats: &Path) -> Result<(), String> {
         return Ok(());
     };
     let mut wrong = Vec::new();
-    for (role, key) in INPUT_FILES {
-        let Some(expected) = land.get(key).and_then(toml::Value::as_str) else {
-            continue;
+    for ((role, key), (_, records_key)) in INPUT_FILES.into_iter().zip(INPUT_RECORDS) {
+        let expected: Vec<&str> = match land.get(key) {
+            Some(toml::Value::String(s)) => vec![s.as_str()],
+            Some(toml::Value::Array(a)) => a.iter().filter_map(toml::Value::as_str).collect(),
+            _ => continue,
         };
-        let found = sha256_of(&role.in_dir(dats));
-        if found.as_deref() != Some(expected) {
+        let records = land.get(records_key).and_then(toml::Value::as_str);
+        let path = role.in_dir(dats);
+        let found = sha256_of(&path);
+        let same = found.as_deref().is_some_and(|f| expected.contains(&f))
+            || records.is_some_and(|r| records_of(&path).as_deref() == Some(r));
+        if !same {
             wrong.push(format!(
-                "  {}: expected {expected}, found {}",
+                "  {}: expected {}{}, found {}",
                 role.file_name(),
+                expected.join(" or "),
+                records.map_or_else(String::new, |r| format!(" (or the records {r})")),
                 found.as_deref().unwrap_or("no file")
             ));
         }
@@ -176,26 +203,16 @@ pub fn check_land(repo: &Repo, overlay: Option<&Path>) -> Result<(), String> {
     if wrong.is_empty() {
         return Ok(());
     }
+    // The converter reads the rest of what it needs from the repository's `[land]`.
     let s = |k: &str| land.get(k).and_then(toml::Value::as_str).unwrap_or("");
-    let args: Vec<&str> = land
-        .get("converter_args")
-        .and_then(toml::Value::as_array)
-        .map(|a| a.iter().filter_map(toml::Value::as_str).collect())
-        .unwrap_or_default();
-    let ledger = s("ledger");
     Err(format!(
-        "{} isn't the land {} pins:\n{}\nBuild it from the pins, with the converter at dereth commit {}, in the repository's folder:\n  {} --ac1 <AC1 install> --ac2 <AC2 install> --out <folder>{}{}",
+        "{} isn't the land {} pins:\n{}\nBuild it from the pins, with the converter at dereth commit {}:\n  {} --world {} --dats <AC1 install> --ac2-dats <AC2 install> --out <folder>",
         overlay.display(),
         repo.path.display(),
         wrong.join("\n"),
         s("converter_commit"),
         s("converter"),
-        if ledger.is_empty() {
-            String::new()
-        } else {
-            format!(" --ledger {ledger}")
-        },
-        args.iter().map(|a| format!(" {a}")).collect::<String>(),
+        repo.path.display(),
     ))
 }
 

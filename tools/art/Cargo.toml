@@ -14,6 +14,10 @@ autotests = false
 # Asheron's Call 2 install under $AUBEREAN_TEST_DAT_DIR.
 retail-dats = []
 
+[build-dependencies]
+# The land converter's version, from its own files.
+sha2.workspace = true
+
 [dependencies]
 dereth-primitives.workspace = true
 # The retail files and their records.

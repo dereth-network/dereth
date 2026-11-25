@@ -122,7 +122,101 @@ pub fn look_surfaces(
     Ok(Some(surfaces))
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+/// An [`environment`] made but for its cells' trees, the slow part: [`Pending::build`] makes them
+/// from nothing but what it holds, so many can be built at once, and [`Built::store`] numbers and
+/// writes the environment after. Made, built and stored in turn, environments take the same ids as
+/// [`environment`] gives them one by one: their own kind's, in the order they are stored.
+#[derive(Debug)]
+pub struct Pending {
+    mesh: u32,
+    slots: Slots,
+    va: VertexArray,
+    polygons: Vec<Polygon>,
+    portal_polygons: Vec<u16>,
+    physics: Vec<Polygon>,
+    cell_bsp: dereth_assets::BspTree,
+    surfaces: Vec<DataId>,
+    portal_points: Vec<Vec<Vec3>>,
+}
+
+/// A [`Pending`] environment with its trees built, to be stored.
+#[derive(Debug)]
+pub struct Built {
+    mesh: u32,
+    slots: Slots,
+    shape: CellStruct,
+    surfaces: Vec<DataId>,
+    portal_polygons: Vec<u16>,
+    portal_points: Vec<Vec<Vec3>>,
+}
+
+/// [`environment`] but for its cells' trees: `None` for a mesh that makes no cell.
+///
+/// # Errors
+/// A picture that will not read.
+pub fn pending(
+    wr: &WorldRecords,
+    ac2: &Ac2,
+    mesh: u32,
+    pictures: &mut Pictures,
+    ids: &mut dyn NewIds,
+    out: &mut Records,
+    made: &mut BTreeMap<statics::MadeKey, statics::Made>,
+) -> Result<Option<Pending>, String> {
+    prepare(
+        wr,
+        ac2,
+        mesh,
+        Slots::BySurface,
+        true,
+        pictures,
+        ids,
+        out,
+        made,
+    )
+}
+
+impl Pending {
+    /// Its cells' trees.
+    ///
+    /// # Errors
+    /// A shape the tree builder can't cut.
+    pub fn build(self) -> Result<Built, String> {
+        let shape = dereth_builder::bsp::cell_struct(
+            self.va,
+            self.polygons,
+            self.portal_polygons.clone(),
+            self.physics,
+            self.cell_bsp,
+        )?;
+        Ok(Built {
+            mesh: self.mesh,
+            slots: self.slots,
+            shape,
+            surfaces: self.surfaces,
+            portal_polygons: self.portal_polygons,
+            portal_points: self.portal_points,
+        })
+    }
+}
+
+impl Built {
+    /// Numbered and written: the environment, as [`environment`] answers it.
+    pub fn store(self, ids: &mut dyn NewIds, out: &mut Records) -> Room {
+        let id = ids.next_for(
+            0x0D,
+            &format!("environment {:08X} {:?}", self.mesh, self.slots),
+        );
+        let env = Environment {
+            id,
+            cells: vec![self.shape],
+        };
+        out.add(id, env.encode());
+        (id, self.surfaces, self.portal_polygons, self.portal_points)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn shape(
     wr: &WorldRecords,
     ac2: &Ac2,
@@ -134,6 +228,35 @@ fn shape(
     out: &mut Records,
     made: &mut BTreeMap<statics::MadeKey, statics::Made>,
 ) -> Result<Option<Room>, String> {
+    let Some(p) = prepare(
+        wr,
+        ac2,
+        mesh,
+        slots,
+        cut_at_doorways,
+        pictures,
+        ids,
+        out,
+        made,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(p.build()?.store(ids, out)))
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn prepare(
+    wr: &WorldRecords,
+    ac2: &Ac2,
+    mesh: u32,
+    slots: Slots,
+    cut_at_doorways: bool,
+    pictures: &mut Pictures,
+    ids: &mut dyn NewIds,
+    out: &mut Records,
+    made: &mut BTreeMap<statics::MadeKey, statics::Made>,
+) -> Result<Option<Pending>, String> {
     let Some(cm) = wr.get::<CellMesh>(mesh) else {
         return Ok(None);
     };
@@ -288,15 +411,17 @@ fn shape(
     } else {
         box_tree(&va)
     };
-    let shape: CellStruct =
-        dereth_builder::bsp::cell_struct(va, polygons, portal_polygons.clone(), physics, cell_bsp)?;
-    let id = ids.next_for(0x0D, &format!("environment {mesh:08X} {slots:?}"));
-    let env = Environment {
-        id,
-        cells: vec![shape],
-    };
-    out.add(id, env.encode());
-    Ok(Some((id, surfaces, portal_polygons, portal_points)))
+    Ok(Some(Pending {
+        mesh,
+        slots,
+        va,
+        polygons,
+        portal_polygons,
+        physics,
+        cell_bsp,
+        surfaces,
+        portal_points,
+    }))
 }
 
 /// How far past its own doorway a cell's tree reaches: a point on the doorway is in both cells.

@@ -17,7 +17,10 @@
 //! **No way cut:** each ramp is walked along its foot in AC1's physics over the world as the
 //! client reads it ([`crate::ac2_world::passage`]), each way and a little to either side, once without the
 //! ramps and once with them; a ramp that cuts any of those walks ([`ledges::cuts_passage`]) is
-//! left out, and the rest walked again until none does.
+//! left out, and the rest walked again until none does. A walk goes as far as the land and the
+//! statics round it let it, so after the first round only the walks that pass near a placement
+//! whose ramps the round before changed, or near land it put back, are walked again; the others
+//! went as they will go again.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
@@ -137,6 +140,7 @@ pub fn make(
         &st.by_block,
         out,
         &Records::default(),
+        None,
     )?;
     let pre = w.height.clone();
     let mut raised = w.raise_to(g, &sw.wants);
@@ -176,33 +180,62 @@ pub fn make(
     let mut alive = vec![true; rp.made.len()];
     let mut stage = vec![0u8; walks.len()];
     let (mut cut, mut beside, mut lowered, mut rounds) = (0usize, 0usize, 0usize, 0usize);
-    let mut with: Vec<f32>;
+    // How far each walk got with the ramps, as of the round it was last walked; the walks this
+    // round takes: every one first, then those near what the round before changed.
+    let mut with = vec![0f32; walks.len()];
+    let mut todo: Vec<usize> = (0..walks.len()).collect();
+    // Where each placement's ramps are.
+    let mut owner_area: BTreeMap<usize, Area> = BTreeMap::new();
+    for r in &rp.made {
+        let a = owner_area
+            .entry(r.owner)
+            .or_insert([f64::MAX, f64::MAX, f64::MIN, f64::MIN]);
+        for p in r.faces.iter().flatten() {
+            *a = [
+                a[0].min(p[0]),
+                a[1].min(p[1]),
+                a[2].max(p[0]),
+                a[3].max(p[1]),
+            ];
+        }
+    }
     loop {
         rounds += 1;
-        let kept: Vec<ledges::Ramp> = rp
-            .made
-            .iter()
-            .zip(&alive)
-            .filter(|(_, &a)| a)
-            .map(|(r, _)| r.clone())
-            .collect();
-        let mut trial_ids = ids.clone();
-        let mut trial = Records::default();
-        let mut by_block = st.by_block.clone();
-        place(&kept, st, &mut by_block, &mut trial_ids, &mut trial)?;
-        write_check(check, &after_dir, w, &by_block, out, &trial)?;
-        with = crate::ac2_world::passage::walks(check.ac1, &after_dir, check.world_key, &walks)?;
+        if !todo.is_empty() {
+            let kept: Vec<ledges::Ramp> = rp
+                .made
+                .iter()
+                .zip(&alive)
+                .filter(|(_, &a)| a)
+                .map(|(r, _)| r.clone())
+                .collect();
+            let mut trial_ids = ids.clone();
+            let mut trial = Records::default();
+            let mut by_block = st.by_block.clone();
+            place(&kept, st, &mut by_block, &mut trial_ids, &mut trial)?;
+            let walked: BTreeSet<(usize, usize)> = todo.iter().map(|&i| walks[i].block).collect();
+            write_check(check, &after_dir, w, &by_block, out, &trial, Some(&walked))?;
+            let list: Vec<crate::ac2_world::passage::Walk> =
+                todo.iter().map(|&i| walks[i]).collect();
+            let got =
+                crate::ac2_world::passage::walks(check.ac1, &after_dir, check.world_key, &list)?;
+            for (&i, g) in todo.iter().zip(got) {
+                with[i] = g;
+            }
+        }
         let bad: Vec<usize> = (0..walks.len())
             .filter(|&i| ledges::cuts_passage(&[(before[i], with[i])]))
             .collect();
         eprintln!(
-            "walks along the ramps' feet, round {rounds}: {} of {} cut",
+            "walks along the ramps' feet, round {rounds}: {} of {} cut ({} walked)",
             bad.len(),
-            walks.len()
+            walks.len(),
+            todo.len()
         );
         if bad.is_empty() || rounds == 8 {
             break;
         }
+        let was = alive.clone();
         let mut back = std::collections::BTreeSet::new();
         for &i in &bad {
             let r = i / FOOT_WALKS;
@@ -228,6 +261,29 @@ pub fn make(
             stage[i] = stage[i].max(1);
         }
         lowered += w.restore(g, &pre, &back);
+        // What this round changed: each placement a ramp was left out of (its ramps are one
+        // static), and the land put back (a square's corners, and the cuts of the squares round
+        // them).
+        let mut changed: Vec<Area> = (0..alive.len())
+            .filter(|&r| alive[r] != was[r])
+            .map(|r| rp.made[r].owner)
+            .collect::<BTreeSet<usize>>()
+            .into_iter()
+            .map(|o| owner_area[&o])
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        changed.extend(back.iter().map(|&(i, j)| {
+            [
+                (i as f64 - 1.0) * spacing,
+                (j as f64 - 1.0) * spacing,
+                (i as f64 + 2.0) * spacing,
+                (j as f64 + 2.0) * spacing,
+            ]
+        }));
+        let changed = Areas::new(changed);
+        todo = (0..walks.len())
+            .filter(|&i| changed.near(&walks[i]))
+            .collect();
     }
     raised -= lowered.min(raised);
     let walked: Vec<(crate::ac2_world::passage::Walk, (f32, f32))> = (0..rp.made.len())
@@ -464,9 +520,87 @@ fn foot_walks(
     out
 }
 
+/// How far round its block a walk reads the world, blocks: the land two blocks round, the
+/// statics one ([`crate::ac2_world::passage`]).
+const WALK_READS: usize = 2;
+
+/// How near a walk a change has to come to be walked again, meters: an outdoor cell, the
+/// least a body's physics looks round it for the land and the statics it may meet.
+const WALK_NEAR: f64 = 24.0;
+
+/// A box on the map, world meters: west, south, east, north.
+type Area = [f64; 4];
+
+/// The areas a round changed, by the blocks they reach.
+struct Areas {
+    areas: Vec<Area>,
+    by_block: BTreeMap<(i64, i64), Vec<usize>>,
+}
+
+impl Areas {
+    fn new(areas: Vec<Area>) -> Self {
+        let mut by_block: BTreeMap<(i64, i64), Vec<usize>> = BTreeMap::new();
+        for (k, a) in areas.iter().enumerate() {
+            let [x0, y0, x1, y1] = blocks_of(*a);
+            for x in x0..=x1 {
+                for y in y0..=y1 {
+                    by_block.entry((x, y)).or_default().push(k);
+                }
+            }
+        }
+        Self { areas, by_block }
+    }
+
+    /// Whether any area comes within [`WALK_NEAR`] of `walk`'s line.
+    fn near(&self, walk: &crate::ac2_world::passage::Walk) -> bool {
+        #[allow(clippy::cast_precision_loss)]
+        let (sx, sy) = (
+            walk.block.0 as f64 * 192.0 + f64::from(walk.start[0]),
+            walk.block.1 as f64 * 192.0 + f64::from(walk.start[1]),
+        );
+        let (ex, ey) = (
+            sx + f64::from(walk.along[0] * walk.dist),
+            sy + f64::from(walk.along[1] * walk.dist),
+        );
+        let reach = [
+            sx.min(ex) - WALK_NEAR,
+            sy.min(ey) - WALK_NEAR,
+            sx.max(ex) + WALK_NEAR,
+            sy.max(ey) + WALK_NEAR,
+        ];
+        let [x0, y0, x1, y1] = blocks_of(reach);
+        (x0..=x1).any(|x| {
+            (y0..=y1).any(|y| {
+                self.by_block.get(&(x, y)).is_some_and(|ks| {
+                    ks.iter().any(|&k| {
+                        let a = &self.areas[k];
+                        a[0] <= reach[2] && reach[0] <= a[2] && a[1] <= reach[3] && reach[1] <= a[3]
+                    })
+                })
+            })
+        })
+    }
+}
+
+/// The blocks an area reaches: west, south, east, north.
+fn blocks_of(a: Area) -> [i64; 4] {
+    // LINT-OK: world meters, well inside an i64.
+    #[allow(clippy::cast_possible_truncation)]
+    let b = |v: f64| (v / 192.0).floor() as i64;
+    [b(a[0]), b(a[1]), b(a[2]), b(a[3])]
+}
+
+/// Whether a walk in `block` reads any block of `changed` ([`WALK_READS`]).
+fn near_changed(block: (usize, usize), changed: &BTreeSet<(usize, usize)>) -> bool {
+    changed
+        .iter()
+        .any(|&(x, y)| x.abs_diff(block.0) <= WALK_READS && y.abs_diff(block.1) <= WALK_READS)
+}
+
 /// The world as far as the walks need it, written as the world's overlay into `dir`: the
 /// land and the statics (the ramps on trial among them) of the blocks round every block in
-/// `blocks`, the region, and the models.
+/// `blocks`, the region, and the models. With `walked`, only the blocks the walks in those
+/// blocks read ([`WALK_READS`]) are written; they read nothing else.
 fn write_check(
     check: &Check,
     dir: &Path,
@@ -474,6 +608,7 @@ fn write_check(
     blocks: &BTreeMap<(usize, usize), Vec<ObjectEntry>>,
     out: &Records,
     trial: &Records,
+    walked: Option<&BTreeSet<(usize, usize)>>,
 ) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -487,6 +622,9 @@ fn write_check(
                 }
             }
         }
+    }
+    if let Some(walked) = walked {
+        near.retain(|&b| near_changed(b, walked));
     }
     let version = |f: &DatFile, id: DataId| {
         f.base_entry(id)
@@ -661,6 +799,25 @@ mod tests {
         let scene = Scene::new(vec![step]);
         let found = ledges::band_ledges(&scene, &land, which);
         ledges::ramps(&found, &scene, &land).made.len()
+    }
+
+    #[test]
+    fn only_walks_passing_near_what_a_round_changed_are_walked_again() {
+        // A walk 10 m east along block (2, 3)'s south edge, from 20 m in.
+        let walk = crate::ac2_world::passage::Walk {
+            block: (2, 3),
+            start: [20.0, 1.0, 0.0],
+            along: [1.0, 0.0],
+            dist: 10.0,
+        };
+        let (x, y) = (2.0 * 192.0 + 20.0, 3.0 * 192.0 + 1.0);
+        // A change beside its line, and one just within reach of its end in the block south.
+        assert!(Areas::new(vec![[x + 4.0, y + 2.0, x + 5.0, y + 3.0]]).near(&walk));
+        assert!(Areas::new(vec![[x + 30.0, y - 20.0, x + 33.0, y - 22.0 + 1.0]]).near(&walk));
+        // A change farther off than a cell, and none.
+        assert!(!Areas::new(vec![[x + 40.0, y, x + 41.0, y + 1.0]]).near(&walk));
+        assert!(!Areas::new(vec![[x, y + 30.0, x + 5.0, y + 31.0]]).near(&walk));
+        assert!(!Areas::new(Vec::new()).near(&walk));
     }
 
     #[test]
