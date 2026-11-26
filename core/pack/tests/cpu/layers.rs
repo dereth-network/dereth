@@ -84,6 +84,7 @@ fn ack(n: u32, field: Option<&str>, take: Take) -> Ack {
     Ack {
         item: format!("class {n}"),
         field: field.map(str::to_owned),
+        layer: None,
         take,
         note: None,
         at: at("drift.toml", 1),
@@ -188,6 +189,81 @@ fn a_lineage_folds_each_layer_on_the_one_before_and_a_checkpoint_takes_only_what
         by_at: None,
     };
     assert_eq!(shadowed, [&shadow(1, "radius", 9), &shadow(2, "name", 1)]);
+}
+
+/// A layer's acknowledgement gives the snapshot every drift that layer made: the field it set, the
+/// item it made that the snapshot lacks, and the item it took away that the snapshot keeps; an
+/// item's own acknowledgement still comes first, a drift another layer made is still a finding,
+/// and a layer that made none is a stale acknowledgement.
+#[test]
+fn a_layers_acknowledgement_gives_the_snapshot_every_drift_that_layer_made() {
+    let layer = |id: &str| Ack {
+        item: format!("layer {id}"),
+        field: None,
+        layer: Some(id.to_owned()),
+        take: Take::Snapshot,
+        note: None,
+        at: at("drift.toml", 3),
+    };
+    let lineage = |acks: Vec<Ack>| {
+        let launch = snapshot(
+            "r1",
+            &[
+                (1, &[("name", "stone"), ("use", "old")]),
+                (2, &[("name", "cow")]),
+                (3, &[("name", "bowl")]),
+            ],
+        );
+        let fixes = merged(&[row(1, "fixes", 1, &[("use", "fixed")])], &[]);
+        let herd = merged(
+            &[
+                row(2, "herd", 1, &[("name", "bull")]),
+                row(4, "herd", 5, &[("name", "arrow")]),
+            ],
+            &[removal(3, "herd", 12)],
+        );
+        // The later release kept the base's cow, bowl and old use, and made no arrow.
+        let later = snapshot(
+            "r2",
+            &[
+                (1, &[("name", "stone"), ("use", "old")]),
+                (2, &[("name", "cow")]),
+                (3, &[("name", "bowl")]),
+            ],
+        );
+        vec![
+            Input::checkpoint("base", launch, Vec::new(), fixes),
+            Input::delta("1999-12-herd", herd),
+            Input::checkpoint("2005-02-later", later, acks, merged(&[], &[])),
+        ]
+    };
+    // The layer's acknowledgement alone: the base's fix is still drift, nobody's but the base's.
+    let f = fold(lineage(vec![layer("1999-12-herd")]));
+    let errors: Vec<String> = f.errors().map(|(_, e)| e.to_string()).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("class 1 use"), "{errors:?}");
+    // With the item's own acknowledgement first, clean: everything the herd did is the snapshot's.
+    let f = fold(lineage(vec![
+        ack(1, Some("use"), Take::Keep),
+        layer("1999-12-herd"),
+    ]));
+    assert!(f.is_clean(), "{:?}", f.errors().collect::<Vec<_>>());
+    assert_eq!(value(&f, 1, "use"), Some("fixed"));
+    assert_eq!(value(&f, 2, "name"), Some("cow"));
+    assert_eq!(value(&f, 3, "name"), Some("bowl"));
+    assert_eq!(names(&f), ["class 1", "class 2", "class 3"]);
+    // A layer that made no drift: its acknowledgement is stale.
+    let f = fold(lineage(vec![
+        ack(1, Some("use"), Take::Keep),
+        layer("1999-12-herd"),
+        layer("base"),
+    ]));
+    let stale: Vec<&Finding> = f.layers[2]
+        .findings
+        .iter()
+        .filter(|x| matches!(x, Finding::StaleAck { .. }))
+        .collect();
+    assert_eq!(stale.len(), 1, "{stale:?}");
 }
 
 /// The values of a folded world, item by item and field by field.
@@ -751,6 +827,22 @@ fn a_patch_is_named_by_its_month_comes_after_the_one_before_it_and_is_dated_in_i
         "patches/2005-02-later/drift.toml",
         "[[drift]]\nitem = \"thing 1\"\ntake = \"keep\"\n",
         "is not an item",
+    );
+    // A layer's acknowledgement names a layer before the checkpoint, and no item or field.
+    bad(
+        "patches/2005-02-later/drift.toml",
+        "[[drift]]\nlayer = \"2005-02-later\"\ntake = \"snapshot\"\n",
+        "is no layer before this checkpoint",
+    );
+    bad(
+        "patches/2005-02-later/drift.toml",
+        "[[drift]]\nlayer = \"1999-12-thaw\"\nfield = \"use\"\ntake = \"snapshot\"\n",
+        "names no field",
+    );
+    bad(
+        "patches/2005-02-later/drift.toml",
+        "[[drift]]\nitem = \"class 1\"\nlayer = \"1999-12-thaw\"\ntake = \"snapshot\"\n",
+        "an item or a layer",
     );
     bad(
         "patches/2005-02-later/checkpoint.toml",

@@ -18,8 +18,9 @@
 //! agree, the layers below stand, and where its source changed a field, the snapshot's value
 //! takes it. Then the folded world and the snapshot are compared, and every field (or item) where
 //! they disagree is **drift**: acknowledged in the checkpoint's `drift.toml` to keep the folded
-//! world's or take the snapshot's ([`crate::lineage::Ack`]), or an error. Last, the checkpoint's
-//! own packs apply, its corrections, as a delta's do.
+//! world's or take the snapshot's ([`crate::lineage::Ack`]), item by item or for every drift one
+//! earlier layer made (the layer that set the folded field, or unset it or took the item away), or
+//! an error. Last, the checkpoint's own packs apply, its corrections, as a delta's do.
 //!
 //! **What a fold holds.** While nothing has changed the world since the last checkpoint, the
 //! world is that checkpoint's snapshot, value for value, and stands in for it: the next
@@ -1001,6 +1002,16 @@ struct Folding<V> {
     world: Resolved<V>,
     ids: Vec<String>,
     reports: Vec<LayerReport>,
+    /// What a layer's rows took away and nothing has set since, by item: the layer that took the
+    /// item away, and each field's that unset it; the cause of a drift where the world has none.
+    gone: HashMap<String, Gone>,
+}
+
+/// What layers' rows took away of one item ([`Folding::gone`]).
+#[derive(Default)]
+struct Gone {
+    item: Option<usize>,
+    fields: BTreeMap<String, usize>,
 }
 
 impl<V: Value> Folding<V> {
@@ -1024,6 +1035,13 @@ impl<V: Value> Folding<V> {
 
     /// Set `field` of the item `item` at layer `n`, the entry made when the world has none.
     fn set(&mut self, item: &Item, field: &str, s: Setting<V>, n: usize) {
+        if let Some(g) = self.gone.get_mut(item.name.as_str()) {
+            g.item = None;
+            g.fields.remove(field);
+            if g.fields.is_empty() {
+                self.gone.remove(item.name.as_str());
+            }
+        }
         let old = self.world.entry(item).fields.remove(field);
         if let Some(old) = &old {
             if old.value == s.value {
@@ -1056,7 +1074,16 @@ impl<V: Value> Folding<V> {
             return;
         };
         match entry.fields.remove(field) {
-            Some(old) => self.shadow(name, Some(field), &old, n, origin),
+            Some(old) => {
+                if matches!(origin, Origin::Pack(_)) {
+                    self.gone
+                        .entry(name.to_owned())
+                        .or_default()
+                        .fields
+                        .insert(field.to_owned(), n);
+                }
+                self.shadow(name, Some(field), &old, n, origin);
+            }
             None => {
                 if let Some(at) = origin.at() {
                     self.reports[n].findings.push(Finding::NoOp {
@@ -1074,6 +1101,9 @@ impl<V: Value> Folding<V> {
         let Some(old) = self.world.remove(name) else {
             return false;
         };
+        if matches!(by, Origin::Pack(_)) {
+            self.gone.entry(name.to_owned()).or_default().item = Some(n);
+        }
         // One report for each layer below whose edits the removal takes away.
         let mut seen = BTreeSet::new();
         for f in old.fields.values() {
@@ -1193,14 +1223,25 @@ impl<V: Value> Folding<V> {
             });
         }
         let drifted = !drifts.is_empty();
+        // Each drift's causes, the layers whose rows made it, while the world is as they left it.
+        let causes: Vec<BTreeSet<usize>> = drifts.iter().map(|d| self.causes(d)).collect();
         let mut used = vec![false; acks.len()];
-        for d in drifts {
+        for (d, causes) in drifts.into_iter().zip(causes) {
             let ack = acks
                 .iter()
-                .position(|a| a.item == d.item && a.field.is_some() && a.field == d.field)
+                .position(|a| {
+                    a.layer.is_none() && a.item == d.item && a.field.is_some() && a.field == d.field
+                })
                 .or_else(|| {
                     acks.iter()
-                        .position(|a| a.item == d.item && a.field.is_none())
+                        .position(|a| a.layer.is_none() && a.item == d.item && a.field.is_none())
+                })
+                .or_else(|| {
+                    acks.iter().position(|a| {
+                        a.layer
+                            .as_ref()
+                            .is_some_and(|l| causes.iter().any(|&c| self.ids[c] == *l))
+                    })
                 });
             let Some(i) = ack else {
                 self.reports[n].findings.push(Finding::Drift(d));
@@ -1237,6 +1278,34 @@ impl<V: Value> Folding<V> {
             }
         }
         drifted
+    }
+
+    /// The layers whose rows made drift `d`: the one that set the world's field, or that unset it
+    /// or took the item away where the world has none; for an item the snapshot lacks, every
+    /// layer that set a field of it.
+    fn causes(&self, d: &Drift) -> BTreeSet<usize> {
+        let by_rows = |f: &Field<V>| matches!(f.origin, Origin::Pack(_)).then_some(f.layer);
+        let gone = self.gone.get(d.item.as_str());
+        match (&d.field, d.folded.is_some()) {
+            (Some(field), true) => self
+                .world
+                .get(&d.item)
+                .and_then(|e| e.fields.get(field.as_str()))
+                .and_then(by_rows)
+                .into_iter()
+                .collect(),
+            (Some(field), false) => gone
+                .and_then(|g| g.fields.get(field))
+                .copied()
+                .into_iter()
+                .collect(),
+            (None, true) => self
+                .world
+                .get(&d.item)
+                .map(|e| e.fields.values().filter_map(by_rows).collect())
+                .unwrap_or_default(),
+            (None, false) => gone.and_then(|g| g.item).into_iter().collect(),
+        }
     }
 
     /// `snapshot` taken in at layer `n` over a world that is still the previous snapshot, value
@@ -1340,6 +1409,7 @@ pub fn fold_each<V: Value>(
         world: Resolved::default(),
         ids: Vec::new(),
         reports: Vec::new(),
+        gone: HashMap::new(),
     };
     // The previous checkpoint's snapshot, kept only once the world has come to differ from it;
     // while nothing has changed the world since, the world itself is that snapshot.

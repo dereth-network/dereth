@@ -57,7 +57,15 @@
 //! field = "use"                  # one of its fields; left out, the whole item
 //! take = "keep"                  # keep: the folded world stands; snapshot: the snapshot's wins
 //! note = "the snapshot never had this fix"
+//!
+//! [[drift]]
+//! layer = "1999-11-launch"       # in place of an item: every drift an earlier layer made
+//! take = "snapshot"
 //! ```
+//!
+//! A layer's acknowledgement covers each drift that layer is the cause of: a field it set, a field it
+//! unset or an item it took away, and an item it set a field of that the snapshot doesn't have. An
+//! item's own acknowledgement comes before it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -155,13 +163,16 @@ pub enum Take {
     Snapshot,
 }
 
-/// One acknowledged drift of a checkpoint: an item, or one field of it, and which side stands.
+/// One acknowledged drift of a checkpoint: an item, or one field of it, or every drift an earlier
+/// layer made, and which side stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
-    /// The item, in the one form reports name it.
+    /// The item, in the one form reports name it; for a layer's acknowledgement, `layer <id>`.
     pub item: String,
     /// One field; `None` for the whole item, every field of it.
     pub field: Option<String>,
+    /// The layer whose every drift this acknowledges, in place of an item.
+    pub layer: Option<String>,
     pub take: Take,
     pub note: Option<String>,
     /// Where `drift.toml` says it.
@@ -223,7 +234,8 @@ struct DriftFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DriftRow {
-    item: String,
+    item: Option<String>,
+    layer: Option<String>,
     field: Option<String>,
     take: Take,
     note: Option<String>,
@@ -467,7 +479,20 @@ impl Lineage {
                         "drift is acknowledged only at a checkpoint: this patch has no checkpoint.toml",
                     ));
                 }
-                read_drift::<D>(store, &drift_path)?
+                let drift = read_drift::<D>(store, &drift_path)?;
+                for a in &drift {
+                    if let Some(l) = a
+                        .layer
+                        .as_ref()
+                        .filter(|l| !layers.iter().any(|d| d.id == **l))
+                    {
+                        return Err(Error::source(
+                            &a.at,
+                            format!("layer {l:?} is no layer before this checkpoint"),
+                        ));
+                    }
+                }
+                drift
             } else {
                 Vec::new()
             };
@@ -531,12 +556,26 @@ fn read_drift<D: Dialect>(store: &dyn SourceStore, path: &Path) -> Result<Vec<Ac
     for row in file.drift {
         let at = Loc::at(path, &text, row.span().start);
         let r = row.into_inner();
-        let item = match Scope::parse::<D>(&r.item).map_err(|why| Error::source(&at, why))? {
-            Scope::Item(name) => name,
-            Scope::Landblock(_) => {
+        let item = match (&r.item, &r.layer) {
+            (Some(item), None) => {
+                match Scope::parse::<D>(item).map_err(|why| Error::source(&at, why))? {
+                    Scope::Item(name) => name,
+                    Scope::Landblock(_) => {
+                        return Err(Error::source(
+                            &at,
+                            "a drift names one item, not a landblock",
+                        ));
+                    }
+                }
+            }
+            (None, Some(layer)) if r.field.is_none() => format!("layer {layer}"),
+            (None, Some(_)) => {
+                return Err(Error::source(&at, "a layer's drift names no field"));
+            }
+            _ => {
                 return Err(Error::source(
                     &at,
-                    "a drift names one item, not a landblock",
+                    "a drift names an item or a layer, one of them",
                 ));
             }
         };
@@ -549,6 +588,7 @@ fn read_drift<D: Dialect>(store: &dyn SourceStore, path: &Path) -> Result<Vec<Ac
         out.push(Ack {
             item,
             field: r.field,
+            layer: r.layer,
             take: r.take,
             note: r.note,
             at,

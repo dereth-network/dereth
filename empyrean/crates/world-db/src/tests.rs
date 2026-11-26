@@ -795,6 +795,7 @@ message = "A fixed flag"
     let keep = Ack {
         item: "quest pickup/drop: skull".into(),
         field: Some("message".into()),
+        layer: None,
         take: Take::Keep,
         note: None,
         at: dereth_pack::Loc::new(std::path::Path::new("drift.toml"), 1),

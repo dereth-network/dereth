@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - New era: New Dereth, on AC2's land from Leafcull 1, 498 P.Y.
 - A world can carry its own rules in its pack; your [era] settings still win.
 - World checks now catch chests and creatures whose loot type is missing.
+- A world's drift can be settled for everything one layer changed, in one line.
 - Reloading a running world's overlay now moves the things it places itself too.
 - Infiltration and Launch worlds name their own era's towns on the map.
 - Each later heritage is now an era setting, and Dereth clients are told which a world allows.
