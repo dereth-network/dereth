@@ -17,6 +17,7 @@ pub(crate) mod world_watch;
 use crate::content::emotes;
 use crate::inventory::containers;
 pub(crate) mod build_information;
+pub(crate) mod encounter_slots;
 #[cfg(feature = "launch-content")]
 mod launch_content;
 pub(crate) mod object_lifetime;

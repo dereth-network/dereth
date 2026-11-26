@@ -386,6 +386,50 @@ fn finer_grid_scenes(
         .collect()
 }
 
+/// Not ACE (V577): the live scene slots of a landblock, the places its scenes leave for the
+/// server to fill ([`dereth_terrain::scenery::scene_slots`]). It is the client's own scene pass
+/// over the client's own mesh of the block, with each building in the land cell ACE's
+/// `init_buildings` gives it. Empty for a block the dats do not have.
+#[must_use]
+pub fn scene_slots(w: &World, block: LandblockId) -> Vec<dereth_terrain::scenery::SceneSlot> {
+    let Some(region) = w.dats.portal_dat().try_region_desc() else {
+        return Vec::new();
+    };
+    let cells = w.dats.cell_dat();
+    let Some(land) =
+        cells.read_from_dat::<empyrean_dat::file_types::CellLandblock>(block.terrain_id().0)
+    else {
+        return Vec::new();
+    };
+    let info = cells.read_from_dat::<empyrean_dat::file_types::LandblockInfo>(block.info_id().0);
+    let buildings = building_cells(block, info.as_deref());
+    let (bx, by) = (i32::from(block.x()), i32::from(block.y()));
+    let table = dereth_terrain::land::mesh::height_table(region);
+    let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
+        &land,
+        region,
+        &table,
+        bx,
+        by,
+        1,
+        dereth_landscape::Direction::InViewerBlock,
+    );
+    let portal = w.dats.portal_dat();
+    dereth_terrain::scenery::scene_slots(
+        &land,
+        &mesh,
+        region,
+        bx,
+        by,
+        &|id| {
+            portal
+                .read_from_dat::<empyrean_dat::file_types::Scene>(id.0)
+                .map(|s| (*s).clone())
+        },
+        &|cell| buildings.contains(&cell),
+    )
+}
+
 fn placed(cell: CellId, id: DataId, frame: Frame) -> CellStatic {
     CellStatic {
         cell,

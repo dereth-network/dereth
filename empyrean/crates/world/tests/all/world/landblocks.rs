@@ -371,11 +371,17 @@ fn loading_a_landblock_creates_its_instances_in_ace_order_then_its_encounters() 
             id: 3,
             landblock: 0xA9B4,
             weenie_class_id: 10,
-            cell_x: 9,
-            cell_y: 0,
+            cell_x: 4,
+            cell_y: 4,
             ..Encounter::default()
         });
-    let mut h = H::new(content, FakeDats::new().build().unwrap());
+    let mut h = H::new(
+        content,
+        FakeDats::new()
+            .with_encounter_slots(&[0xA9B4])
+            .build()
+            .unwrap(),
+    );
     let id = LandblockId::new(LB | 0xFFFF);
 
     not_ported::take_local();
@@ -444,7 +450,7 @@ fn loading_a_landblock_creates_its_instances_in_ace_order_then_its_encounters() 
         ),
         (LB | 0x0002, 20.0, 30.0, 5.0)
     );
-    // Encounter at cell (9, 0): x clamped to 191.5; y 0 clamped to 0.5.
+    // Each encounter stands on its vertex's slot, here the vertex itself.
     let enc =
         h.w.objects
             .get(ObjectGuid::new(0x8000_0001))
@@ -453,7 +459,7 @@ fn loading_a_landblock_creates_its_instances_in_ace_order_then_its_encounters() 
             .unwrap();
     assert_eq!(
         (enc.landblock_id().landblock(), enc.pos().x, enc.pos().y),
-        (0xA9B4, 191.5, 0.5)
+        (0xA9B4, 96.0, 96.0)
     );
     let enc =
         h.w.objects
@@ -497,7 +503,13 @@ fn placing_world(own: bool) -> H {
     if own {
         empyrean_content::WorldDatabase::hide_placements(&content);
     }
-    let mut h = H::new(content, FakeDats::new().build().unwrap());
+    let mut h = H::new(
+        content,
+        FakeDats::new()
+            .with_encounter_slots(&[0xA9B4])
+            .build()
+            .unwrap(),
+    );
     lm::get_landblock(&mut h.w, LandblockId::new(LB | 0xFFFF), false, false);
     h.tick();
     h

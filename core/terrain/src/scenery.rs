@@ -443,30 +443,37 @@ fn on_road_in(lb: &CellLandblock, region: &Region, x: f32, y: f32) -> bool {
     )
 }
 
-/// The landblock's scene fetch, with the static-object initialisation's full-detail guard
-/// in front of it. Contracts 3.4-3.6.
-///
-/// Iterates all **81 vertices** `(i, j)` — not the 64 cells — of the full-detail grid, and applies
-/// all five filters in the client's order: strict bounds, `on_road`, no building in the cell,
-/// [`check_slope`], within-block. Entries with `weenie_obj != 0` are skipped before any of
-/// that, because the server owns those.
-#[must_use]
-pub fn generate_scenery(
+/// One server-placed spot in a landblock's scenes: an object of the vertex's scene marked as the
+/// server's (`weenie_obj` set), which the client never grows, kept where the scene pass would
+/// have kept it. Retail's server stood an outdoor encounter on such a spot, and only there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SceneSlot {
+    /// The grid vertex whose scene holds the slot, as an index into the landblock's terrain words
+    /// (`i * 9 + j`). An edge vertex is shared with the neighboring block, and the slot belongs to
+    /// whichever block its placed point lands in.
+    pub vertex: usize,
+    /// The slot's index in its scene's object list. A scene can hold more than one slot, and the
+    /// draws may keep several at one vertex, in this order.
+    pub index: usize,
+    /// Block-local frame: the placed point in `[0, 192)²` with z dropped onto the terrain plane,
+    /// turned as the scene pass turns an object.
+    pub frame: Frame,
+    /// The outdoor cell the placed point is in.
+    pub cell: CellId,
+}
+
+/// The scene pass's selection, shared by the scenery the client grows and the slots the server
+/// fills: each of the full-detail grid's 81 vertices picks its scene, and `f` receives every
+/// object of it that its frequency draw keeps, with the vertex `(i, j)`, its global vertex
+/// `(gx, gy)` and the object's index in the scene.
+fn for_each_drawn_object(
     lb: &CellLandblock,
-    mesh: &LandblockMesh,
     region: &Region,
     block_x: i32,
     block_y: i32,
-    env: &SceneryEnv<'_>,
-) -> Vec<PlacedScenery> {
-    let mut out = Vec::new();
-    // init_static_objs returns immediately unless side_cell_count == 8.
-    if mesh.side_cell_count != 8 {
-        return out;
-    }
-    // LINT-OK: a landblock id is two bytes, one per axis, each 0..=0xFE.
-    let block_id = LandblockId((u16_of_i32(block_x & 0xFF) << 8) | u16_of_i32(block_y & 0xFF));
-
+    scenes: &dyn Fn(DataId) -> Option<Scene>,
+    mut f: impl FnMut(Drawn, &ObjectDesc),
+) {
     for i in 0..SIDE_VERTEX_COUNT {
         for j in 0..SIDE_VERTEX_COUNT {
             let w = lb.terrain[i * SIDE_VERTEX_COUNT + j];
@@ -487,7 +494,7 @@ pub fn generate_scenery(
                 // ACE clamps to 0 here, which invents trees the client never places.
                 continue;
             };
-            let Some(scene) = (env.scenes)(scene_id) else {
+            let Some(scene) = scenes(scene_id) else {
                 continue;
             };
 
@@ -498,61 +505,175 @@ pub fn generate_scenery(
                 // obj.freq`. The two differ on NaN, and the negated form is what shipped.
                 #[allow(clippy::neg_cmp_op_on_partial_ord)]
                 let rejected = !(noise < obj.freq);
-                if rejected || obj.weenie_obj != 0 {
+                if rejected {
                     continue;
                 }
-                let p = place(obj, gx, gy, k);
-                #[allow(clippy::cast_precision_loss)] // i, j <= 8
-                let mut p = Vec3::new(p.x + i as f32 * CELL_SIZE, p.y + j as f32 * CELL_SIZE, p.z);
-                // Filter 1: strict bounds, `0 <= x < 192` on both axes, as ACE has them too.
-                if !(0.0..BLOCK_LENGTH).contains(&p.x) || !(0.0..BLOCK_LENGTH).contains(&p.y) {
-                    continue;
-                }
-                // Filter 2: roads.
-                if on_road_in(lb, region, p.x, p.y) {
-                    continue;
-                }
-                // Filter 3: no scenery in a cell that owns a building.
-                let cell_index = outside_cell_index(p.x, p.y);
-                if (env.has_building)(cell_index) {
-                    continue;
-                }
-                let Some(plane) = find_terrain_poly(mesh, cell_index, p.x, p.y) else {
-                    continue;
-                };
-                // Filter 4: slope, with inclusive bounds (ACE's slope test is the same).
-                if !check_slope(obj, plane.normal.z) {
-                    continue;
-                }
-                let Some(z) = plane_set_height(plane, p.x, p.y) else {
-                    continue;
-                };
-                p.z = z;
-
-                let frame = if obj.align == 0 {
-                    get_obj_frame(obj, gx, gy, k, p)
-                } else {
-                    obj_align(obj, plane, p)
-                };
-                // Filter 5: the object is made, then must stay within the block on the unscaled
-                // frame (the scale is applied only to an object that passes). ACE runs the same
-                // four-way test.
-                let Some(shape) = (env.shape)(obj.obj_id) else {
-                    continue;
-                };
-                if !shape.within_block(&frame) {
-                    continue;
-                }
-                out.push(PlacedScenery {
-                    gfxobj: obj.obj_id,
-                    frame,
-                    scale: scale_obj(obj, gx, gy, k),
-                    cell: block_id.cell(cell_index),
-                    vertex: i * SIDE_VERTEX_COUNT + j,
-                });
+                f(Drawn { i, j, gx, gy, k }, obj);
             }
         }
     }
+}
+
+/// A scene object its frequency draw kept: the grid vertex `(i, j)`, the global vertex
+/// `(gx, gy)` and the object's index `k` in the scene.
+#[derive(Clone, Copy)]
+struct Drawn {
+    i: usize,
+    j: usize,
+    gx: i32,
+    gy: i32,
+    k: usize,
+}
+
+/// Where a drawn object stands, or `None` when the scene pass drops it: its placed point must be
+/// inside the block, off the road when `roads` asks, in a cell with no building, over a terrain
+/// polygon whose slope the object allows. Returns the point on the ground, the polygon's plane
+/// and the outdoor cell index.
+fn ground_point<'m>(
+    lb: &CellLandblock,
+    mesh: &'m LandblockMesh,
+    region: &Region,
+    has_building: &dyn Fn(u16) -> bool,
+    obj: &ObjectDesc,
+    d: Drawn,
+    roads: bool,
+) -> Option<(Vec3, &'m Plane, u16)> {
+    let p = place(obj, d.gx, d.gy, d.k);
+    #[allow(clippy::cast_precision_loss)] // i, j <= 8
+    let mut p = Vec3::new(
+        p.x + d.i as f32 * CELL_SIZE,
+        p.y + d.j as f32 * CELL_SIZE,
+        p.z,
+    );
+    // Filter 1: strict bounds, `0 <= x < 192` on both axes, as ACE has them too.
+    if !(0.0..BLOCK_LENGTH).contains(&p.x) || !(0.0..BLOCK_LENGTH).contains(&p.y) {
+        return None;
+    }
+    // Filter 2: roads.
+    if roads && on_road_in(lb, region, p.x, p.y) {
+        return None;
+    }
+    // Filter 3: no scenery in a cell that owns a building.
+    let cell_index = outside_cell_index(p.x, p.y);
+    if has_building(cell_index) {
+        return None;
+    }
+    let plane = find_terrain_poly(mesh, cell_index, p.x, p.y)?;
+    // Filter 4: slope, with inclusive bounds (ACE's slope test is the same).
+    if !check_slope(obj, plane.normal.z) {
+        return None;
+    }
+    p.z = plane_set_height(plane, p.x, p.y)?;
+    Some((p, plane, cell_index))
+}
+
+/// The placed frame of a drawn object standing at `p` on `plane`: turned to face downhill when
+/// the object aligns to the slope, else by its rotation draw.
+fn drawn_frame(obj: &ObjectDesc, d: Drawn, plane: &Plane, p: Vec3) -> Frame {
+    if obj.align == 0 {
+        get_obj_frame(obj, d.gx, d.gy, d.k, p)
+    } else {
+        obj_align(obj, plane, p)
+    }
+}
+
+/// The id of block `(block_x, block_y)`.
+fn block_id_of(block_x: i32, block_y: i32) -> LandblockId {
+    // LINT-OK: a landblock id is two bytes, one per axis, each 0..=0xFE.
+    LandblockId((u16_of_i32(block_x & 0xFF) << 8) | u16_of_i32(block_y & 0xFF))
+}
+
+/// The landblock's scene fetch, with the static-object initialisation's full-detail guard
+/// in front of it. Contracts 3.4-3.6.
+///
+/// Iterates all **81 vertices** `(i, j)` — not the 64 cells — of the full-detail grid, and applies
+/// all five filters in the client's order: strict bounds, `on_road`, no building in the cell,
+/// [`check_slope`], within-block. Entries with `weenie_obj != 0` are skipped before any of
+/// that, because the server owns those ([`scene_slots`]).
+#[must_use]
+pub fn generate_scenery(
+    lb: &CellLandblock,
+    mesh: &LandblockMesh,
+    region: &Region,
+    block_x: i32,
+    block_y: i32,
+    env: &SceneryEnv<'_>,
+) -> Vec<PlacedScenery> {
+    let mut out = Vec::new();
+    // init_static_objs returns immediately unless side_cell_count == 8.
+    if mesh.side_cell_count != 8 {
+        return out;
+    }
+    let block_id = block_id_of(block_x, block_y);
+    for_each_drawn_object(lb, region, block_x, block_y, env.scenes, |d, obj| {
+        if obj.weenie_obj != 0 {
+            return;
+        }
+        let Some((p, plane, cell_index)) =
+            ground_point(lb, mesh, region, env.has_building, obj, d, true)
+        else {
+            return;
+        };
+        let frame = drawn_frame(obj, d, plane, p);
+        // Filter 5: the object is made, then must stay within the block on the unscaled
+        // frame (the scale is applied only to an object that passes). ACE runs the same
+        // four-way test.
+        let Some(shape) = (env.shape)(obj.obj_id) else {
+            return;
+        };
+        if !shape.within_block(&frame) {
+            return;
+        }
+        out.push(PlacedScenery {
+            gfxobj: obj.obj_id,
+            frame,
+            scale: scale_obj(obj, d.gx, d.gy, d.k),
+            cell: block_id.cell(cell_index),
+            vertex: d.i * SIDE_VERTEX_COUNT + d.j,
+        });
+    });
+    out
+}
+
+/// The landblock's live scene slots: the objects [`generate_scenery`] skips as the server's, put
+/// through the same selection (scene pick and frequency draw) and kept by the same placement
+/// filters (strict block bounds, no building in the cell, the slope check) except the road test,
+/// which is the client's filter for what it grows. A slot carries no model, so the within-block
+/// test reduces to the bounds.
+///
+/// An edge vertex is shared with the neighboring block, which draws the same object at the same
+/// world point; the strict bounds keep it in exactly one of the two.
+#[must_use]
+pub fn scene_slots(
+    lb: &CellLandblock,
+    mesh: &LandblockMesh,
+    region: &Region,
+    block_x: i32,
+    block_y: i32,
+    scenes: &dyn Fn(DataId) -> Option<Scene>,
+    has_building: &dyn Fn(u16) -> bool,
+) -> Vec<SceneSlot> {
+    let mut out = Vec::new();
+    if mesh.side_cell_count != 8 {
+        return out;
+    }
+    let block_id = block_id_of(block_x, block_y);
+    for_each_drawn_object(lb, region, block_x, block_y, scenes, |d, obj| {
+        if obj.weenie_obj == 0 {
+            return;
+        }
+        let Some((p, plane, cell_index)) =
+            ground_point(lb, mesh, region, has_building, obj, d, false)
+        else {
+            return;
+        };
+        out.push(SceneSlot {
+            vertex: d.i * SIDE_VERTEX_COUNT + d.j,
+            index: d.k,
+            frame: drawn_frame(obj, d, plane, p),
+            cell: block_id.cell(cell_index),
+        });
+    });
     out
 }
 
@@ -953,40 +1074,19 @@ mod tests {
         }
     }
 
-    /// A world whose land cells are cut into three steps, 25 x 25 vertices 8 m apart, with every
-    /// vertex `road` says carrying road 1, a flat ground and one scene of one object `offset`
-    /// meters east of each land cell corner. The objects the block grows.
-    fn grown_on_a_finer_grid(road: &dyn Fn(usize, usize) -> bool, offset: f32) -> Vec<Vec3> {
-        const SIDE: usize = 25;
-        let mut terrain = vec![4u16; SIDE * SIDE];
-        for i in 0..SIDE {
-            for j in 0..SIDE {
-                if road(i, j) {
-                    terrain[i * SIDE + j] |= 1;
-                }
-            }
-        }
-        let lb = CellLandblock::from_dense(
-            DataId(0x2020_FFFF),
-            0,
-            dereth_assets::world::DenseLand {
-                steps: 3,
-                terrain: terrain.into(),
-                height: vec![10u8; SIDE * SIDE].into(),
-                split: vec![0u8; (24 * 24usize).div_ceil(8)].into(),
-            },
-        );
-        let mut table = [0.0f32; crate::consts::LAND_HEIGHT_TABLE_LEN];
-        for (i, v) in table.iter_mut().enumerate() {
-            *v = 2.0 * i as f32;
-        }
-        let scene_id = DataId(0x1200_0001);
+    /// A region whose every terrain type's one scene type holds the one scene `scene_id`, on a
+    /// land grid of `vertex_per_cell` steps, with heights from `table`.
+    fn one_scene_region(
+        vertex_per_cell: u32,
+        scene_id: DataId,
+        table: &[f32; crate::consts::LAND_HEIGHT_TABLE_LEN],
+    ) -> Region {
         let kind = dereth_assets::region::TerrainType {
             terrain_name: String::new(),
             terrain_color: 0,
             scene_types: vec![0],
         };
-        let region = Region {
+        Region {
             id: DataId(0x1300_0000),
             region_number: 1,
             version: 0,
@@ -996,7 +1096,7 @@ mod tests {
                 num_block_width: 255,
                 square_length: 24.0,
                 lblock_length: 8,
-                vertex_per_cell: 3,
+                vertex_per_cell,
                 max_obj_height: 200.0,
                 sky_height: 1000.0,
                 road_width: 3.0,
@@ -1026,7 +1126,38 @@ mod tests {
                 pal_shift: None,
             },
             region_misc: None,
-        };
+        }
+    }
+
+    /// A world whose land cells are cut into three steps, 25 x 25 vertices 8 m apart, with every
+    /// vertex `road` says carrying road 1, a flat ground and one scene of one object `offset`
+    /// meters east of each land cell corner. The objects the block grows.
+    fn grown_on_a_finer_grid(road: &dyn Fn(usize, usize) -> bool, offset: f32) -> Vec<Vec3> {
+        const SIDE: usize = 25;
+        let mut terrain = vec![4u16; SIDE * SIDE];
+        for i in 0..SIDE {
+            for j in 0..SIDE {
+                if road(i, j) {
+                    terrain[i * SIDE + j] |= 1;
+                }
+            }
+        }
+        let lb = CellLandblock::from_dense(
+            DataId(0x2020_FFFF),
+            0,
+            dereth_assets::world::DenseLand {
+                steps: 3,
+                terrain: terrain.into(),
+                height: vec![10u8; SIDE * SIDE].into(),
+                split: vec![0u8; (24 * 24usize).div_ceil(8)].into(),
+            },
+        );
+        let mut table = [0.0f32; crate::consts::LAND_HEIGHT_TABLE_LEN];
+        for (i, v) in table.iter_mut().enumerate() {
+            *v = 2.0 * i as f32;
+        }
+        let scene_id = DataId(0x1200_0001);
+        let region = one_scene_region(3, scene_id, &table);
         let mesh = crate::land::mesh::generate_landblock_with_table(
             &lb,
             &region,
@@ -1051,6 +1182,111 @@ mod tests {
             .into_iter()
             .map(|p| p.frame.origin)
             .collect()
+    }
+
+    /// The scenery and the server slots of block `(bx, by)` on the default grid, on flat ground,
+    /// whose every vertex picks one scene of `objects`, with road on every vertex when `road`.
+    fn grown_and_slots(
+        bx: i32,
+        by: i32,
+        objects: &[ObjectDesc],
+        road: bool,
+    ) -> (Vec<PlacedScenery>, Vec<SceneSlot>) {
+        let lb = CellLandblock {
+            id: DataId((u32::from(block_id_of(bx, by).0) << 16) | 0xFFFF),
+            lbi_exists: 0,
+            terrain: [if road { 5 } else { 4 }; 81],
+            height: [10; 81],
+            dense: None,
+        };
+        let mut table = [0.0f32; crate::consts::LAND_HEIGHT_TABLE_LEN];
+        for (i, v) in table.iter_mut().enumerate() {
+            *v = 2.0 * i as f32;
+        }
+        let scene_id = DataId(0x1200_0001);
+        let region = one_scene_region(1, scene_id, &table);
+        let mesh = crate::land::mesh::generate_landblock_with_table(
+            &lb,
+            &region,
+            &table,
+            bx,
+            by,
+            1,
+            dereth_landscape::Direction::InViewerBlock,
+        );
+        let scene = Scene {
+            id: scene_id,
+            objects: objects.to_vec(),
+        };
+        let scenes = |id: DataId| (id == scene_id).then(|| scene.clone());
+        let env = SceneryEnv {
+            scenes: &scenes,
+            has_building: &|_| false,
+            shape: &|_| Some(WithinBlockShape::default()),
+        };
+        (
+            generate_scenery(&lb, &mesh, &region, bx, by, &env),
+            scene_slots(&lb, &mesh, &region, bx, by, &scenes, &|_| false),
+        )
+    }
+
+    /// A scene object at `origin` from its vertex; a server slot when `server`.
+    fn object_at(origin: Vec3, server: bool) -> ObjectDesc {
+        let mut o = default_object_desc(DataId(if server { 0 } else { 0x0100_0001 }));
+        o.base_loc.origin = origin;
+        o.weenie_obj = i32::from(server);
+        o
+    }
+
+    /// Behaviour: world.scenery.a-server-slot-is-a-scene-object-the-client-never-grows
+    #[test]
+    fn a_server_slot_is_a_scene_object_the_client_never_grows() {
+        let offset = Vec3::new(6.0, 2.0, 0.0);
+        let objects = [object_at(offset, false), object_at(offset, true)];
+        let (grown, slots) = grown_and_slots(0x20, 0x20, &objects, false);
+        assert!(!slots.is_empty());
+        assert!(grown.iter().all(|p| p.gfxobj == DataId(0x0100_0001)));
+        assert!(slots.iter().all(|s| s.index == 1));
+        // The slot is placed as the tree beside it in the scene is, and kept where it is kept.
+        let points = |v: Vec<(usize, Vec3)>| {
+            v.into_iter()
+                .map(|(vertex, p)| (vertex, p.x.to_bits(), p.y.to_bits(), p.z.to_bits()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            points(slots.iter().map(|s| (s.vertex, s.frame.origin)).collect()),
+            points(grown.iter().map(|p| (p.vertex, p.frame.origin)).collect()),
+        );
+        // A road keeps scenery off it, but not the server's slots.
+        let (grown, on_road) = grown_and_slots(0x20, 0x20, &objects, true);
+        assert!(grown.is_empty(), "{grown:?}");
+        assert_eq!(on_road, slots);
+    }
+
+    /// Behaviour: world.scenery.a-slot-on-a-shared-edge-belongs-to-the-landblock-its-point-lands-in
+    #[test]
+    fn a_slot_on_a_shared_edge_belongs_to_the_landblock_its_point_lands_in() {
+        let objects = [object_at(Vec3::new(3.0, 0.0, 0.0), true)];
+        let (_, west) = grown_and_slots(0x20, 0x20, &objects, false);
+        let (_, east) = grown_and_slots(0x21, 0x20, &objects, false);
+        for j in 1..8 {
+            let in_west = west.iter().filter(|s| s.vertex == 8 * 9 + j).count();
+            let in_east = east.iter().filter(|s| s.vertex == j).count();
+            assert_eq!(in_west + in_east, 1, "the slot of edge vertex {j}");
+            // The slot the west block keeps on its edge is short of the line; the east block's
+            // is on or past it.
+            for s in west.iter().filter(|s| s.vertex == 8 * 9 + j) {
+                assert!(s.frame.origin.x < 192.0, "{s:?}");
+            }
+        }
+        assert!(
+            west.iter().any(|s| s.vertex / 9 == 8),
+            "some edge slots are the west block's"
+        );
+        assert!(
+            east.iter().any(|s| s.vertex / 9 == 0),
+            "some are the east block's"
+        );
     }
 
     /// On a grid finer than the land cells, a road that runs between the cell corners keeps the

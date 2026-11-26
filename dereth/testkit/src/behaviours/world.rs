@@ -2032,6 +2032,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.scenery.a-server-slot-is-a-scene-object-the-client-never-grows",
+        says: "A scene object marked as the server's is never grown as scenery; it is a slot,                drawn and placed as the objects beside it are and kept by the same tests of                block bounds, buildings and slope, but not kept off roads. An outdoor encounter                fires only on such a slot, and stands at its placed point.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ENCOUNTER-SLOT-RULE"),
+        station: "dereth-terrain::lib::scenery::tests::a_server_slot_is_a_scene_object_the_client_never_grows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.scenery.a-slope-aligned-piece-faces-downhill-and-stays-upright",
         says: "Generated scenery that follows the slope is turned to face downhill and stands \
                upright, not tipped over onto the slope; on level ground it faces north.",
@@ -2039,6 +2047,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-SCENERY-SLOPE-ALIGN"),
         station: "dereth-client::dat::world::scenery_within_block::a_slope_aligned_piece_faces_downhill_and_stays_upright",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.a-slot-on-a-shared-edge-belongs-to-the-landblock-its-point-lands-in",
+        says: "Two landblocks share the vertices of their common edge and draw the same slot                there, but the slot belongs only to the landblock its placed point lands in, so                an outdoor encounter on an edge vertex appears once, in that landblock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ENCOUNTER-SLOT-CAPTURES"),
+        station: "dereth-terrain::lib::scenery::tests::a_slot_on_a_shared_edge_belongs_to_the_landblock_its_point_lands_in",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "world.scenery.a-tree-near-the-block-line-grows-while-its-trunk-is-inside",

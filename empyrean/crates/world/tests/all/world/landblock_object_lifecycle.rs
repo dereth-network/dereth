@@ -61,9 +61,11 @@ impl H {
         let now = ClockSnapshot::take(&clock, timers.portal_year_ticks);
         let mut w = World::new(
             now,
-            empyrean_testkit::dats::with_stat_tables(FakeDats::new())
-                .build()
-                .unwrap(),
+            empyrean_testkit::dats::with_stat_tables(
+                FakeDats::new().with_encounter_slots(&[0xA9B4, 0x3030]),
+            )
+            .build()
+            .unwrap(),
         );
         w.timers = timers;
         w.content = Arc::new(content);

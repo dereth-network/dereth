@@ -77,7 +77,7 @@ use crate::physics::weenie_object::WeenieObject;
 use crate::World;
 
 mod dat_statics;
-pub use dat_statics::{rotate_obj, DatStatic, DatStaticKind, DatStatics};
+pub use dat_statics::{rotate_obj, scene_slots, DatStatic, DatStaticKind, DatStatics};
 
 /// `PhysicsObj.CollisionTable`'s value: when the other object was last touched, and whether it
 /// was ethereal then.

@@ -203,6 +203,7 @@ fn load_and_tick(w: &mut World, clock: &VirtualClock) -> Vec<ObjectGuid> {
         .collect()
 }
 
+/// Divergence: V577
 #[test]
 fn encounters_stand_on_the_terrain() {
     let content = MemContent::new()
@@ -210,14 +211,16 @@ fn encounters_stand_on_the_terrain() {
         .encounter(encounter(1, 2, 3))
         .encounter(encounter(2, 8, 0));
     let (mut w, clock) = world(
-        empyrean_testkit::dats::with_stat_tables(FakeDats::new())
+        empyrean_testkit::dats::with_stat_tables(FakeDats::new().with_encounter_slots(&[LB]))
             .build()
             .unwrap(),
         content,
         ramp(),
     );
     let placed = load_and_tick(&mut w, &clock);
-    assert_eq!(placed.len(), 2);
+    // (8, 0) is on the east edge: its slot (x = 192) is the east neighbor's, so this landblock
+    // places only (2, 3) (V577).
+    assert_eq!(placed.len(), 1);
 
     // (2, 3): origin (48, 72); z = 20 + 48 / 4 = 32. (The cell is the physics world's once the
     // body has entered it: the origin is on a cell corner.)
@@ -228,17 +231,6 @@ fn encounters_stand_on_the_terrain() {
         "{at:?}"
     );
     assert!((at.position_z - 32.0).abs() < 0.01, "{at:?}");
-
-    // (8, 0): x = 192 clamps to 191.5; z = 20 + 191.5 / 4.
-    let at = w.objects.get(placed[1]).unwrap().location().unwrap();
-    assert!(
-        close(at.position_x, 191.5) && close(at.position_y, 0.5),
-        "{at:?}"
-    );
-    assert!(
-        (at.position_z - (20.0 + 191.5 / 4.0)).abs() < 0.01,
-        "{at:?}"
-    );
 }
 
 #[test]
@@ -274,10 +266,12 @@ fn adjust_to_outside_names_the_land_cell_under_the_origin() {
     );
 }
 
+/// Divergence: V577
 #[test]
 fn an_encounter_in_a_cell_with_a_building_is_destroyed() {
-    // A building whose frame origin (60, 84) is in cell (2, 3); the encounter at (2, 3) lands in
-    // the same land cell and is destroyed; the one at (4, 4) stays.
+    // A building whose frame origin (60, 84) is in cell (2, 3); the slot of the encounter at
+    // (2, 3) lands in the same land cell and is dropped, so the encounter never fires; the one at
+    // (4, 4) stays.
     let info = LandblockInfo {
         id: DataId(u32::from(LB) << 16 | 0xFFFE),
         num_cells: 0,
@@ -292,6 +286,7 @@ fn an_encounter_in_a_cell_with_a_building_is_destroyed() {
         restrictions: None,
     };
     let dats = empyrean_testkit::dats::with_stat_tables(FakeDats::new())
+        .with_encounter_slots(&[LB])
         .with_cell(u32::from(LB) << 16 | 0xFFFE, info)
         .build()
         .unwrap();
@@ -445,6 +440,7 @@ mod real_content {
         })
     }
 
+    /// Divergence: V577
     #[test]
     fn encounters_on_a_real_landblock_stand_on_the_shared_crates_terrain() {
         let clock = VirtualClock::default();
@@ -464,8 +460,12 @@ mod real_content {
             "0x45F6 has encounters in world.pack: {}",
             encounters.len()
         );
-        let encounter_count = u32::try_from(encounters.len()).unwrap();
         w.content = Arc::new(content);
+        // Each fires on its vertex's live scene slot (V577).
+        let encounter_count =
+            u32::try_from(landblock::encounter_placements(&w, (REAL_LB >> 16) as u16).len())
+                .unwrap();
+        assert!(encounter_count > 0, "some fire on 0x45F6");
         gm::initialize(&mut w, &mut EmptyShard);
 
         let lb = LandblockId::new(REAL_LB);
@@ -510,7 +510,7 @@ mod real_content {
         }
         assert_eq!(
             checked, encounter_count,
-            "every encounter is placed (no building cells on 0x45F6)"
+            "every encounter that fires is placed"
         );
         assert_eq!(
             above_zero, checked,

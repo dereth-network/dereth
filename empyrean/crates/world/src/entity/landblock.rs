@@ -36,7 +36,7 @@ use empyrean_common::dotnet::cast::CsCast;
 use empyrean_common::dotnet::datetime::{DotNetDateTime, TimeSpan};
 use empyrean_common::dotnet::DotNetDict;
 use empyrean_common::performance::rate_monitor::RateMonitor;
-use empyrean_content::models::world::LandblockInstance;
+use empyrean_content::models::world::{Encounter, LandblockInstance};
 use empyrean_dat::file_types::{CellLandblock, LandblockInfo};
 use empyrean_entity::enums::{
     EnvironChangeType, HouseType, PropertyString, RegenerationType, WeenieType,
@@ -747,11 +747,17 @@ fn spawn_dynamic_shard_objects(w: &mut World, id: LandblockId) {
 
 // ACE: Landblock.SpawnEncounters
 /// Spawns the semi-randomized monsters scattered around the outdoors.
+///
+/// Not ACE (V577): ACE stands every row at its vertex (`cell * 24`, clamped to 0.5–191.5) and
+/// destroys it in a land cell with a building. Here each one stands where
+/// [`encounter_placements`] puts it, on a live scene slot (whose cell has no building), at the
+/// slot's placed point.
 fn spawn_encounters(w: &mut World, id: LandblockId) {
     // get the encounter spawns for this landblock
-    let encounters = w.content.get_cached_encounters_by_landblock(id.landblock());
+    let encounters = encounter_placements(w, id.landblock());
 
-    for encounter in encounters.iter().cloned() {
+    for placement in encounters {
+        let EncounterPlacement { encounter, origin } = placement;
         let Some(wo) = world_object_factory_create_new_world_object(w, encounter.weenie_class_id)
         else {
             continue;
@@ -761,11 +767,8 @@ fn spawn_encounters(w: &mut World, id: LandblockId) {
             let guid = wo.guid;
             insert_into_store(w, wo);
 
-            let x_pos = (encounter.cell_x as f32 * 24.0).clamp(0.5, 191.5);
-            let y_pos = (encounter.cell_y as f32 * 24.0).clamp(0.5, 191.5);
-
             let obj_cell_id = u32::from(id.landblock()) << 16 | 1;
-            let mut origin = Vector3::new(x_pos, y_pos, 0.0);
+            let mut origin = Vector3::new(origin.x, origin.y, 0.0);
             let obj_cell_id = physics_position_adjust_to_outside(obj_cell_id, &mut origin);
 
             origin.z = physics_landblock_get_z(w, id, origin);
@@ -773,11 +776,6 @@ fn spawn_encounters(w: &mut World, id: LandblockId) {
             let location = Position::from_vectors(obj_cell_id, origin, Quaternion::IDENTITY);
             if let Some(o) = w.objects.get_mut(guid) {
                 o.set_location(Some(location));
-            }
-
-            if lscape_get_landcell_has_building(w, id, obj_cell_id) {
-                world_object_destroy(w, guid);
-                return;
             }
 
             if property_manager_get_bool_override_encounter_spawn_rates(w) {
@@ -805,6 +803,131 @@ fn spawn_encounters(w: &mut World, id: LandblockId) {
             }
         }));
     }
+}
+
+/// Not ACE (V577): one outdoor encounter as it stands on a landblock.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncounterPlacement {
+    /// The row that fires: the landblock's own, or a neighbor's at the shared vertex.
+    pub encounter: Encounter,
+    /// The slot's placed point, landblock-relative, on the terrain.
+    pub origin: Vec3,
+}
+
+/// Not ACE (V577): where a landblock's outdoor encounters stand. A row fires only on a live
+/// scene slot of its vertex ([`phys_ext::scene_slots`]), and stands at the slot's placed point.
+///
+/// A vertex fires once, on its first live slot in scene order. A slot belongs to the landblock
+/// its point lands in, so the row of an edge vertex fires in that landblock, whichever of the
+/// landblocks sharing the vertex holds it. When more than one holds a row there, the slot's own
+/// landblock's wins, then the neighbor's across the vertex's west or east edge, then across its
+/// south or north edge, then the diagonal one. A second row of one landblock at the same vertex
+/// never fires, and a row whose vertex has no live slot fires nowhere. The landblock's own rows
+/// come first, in their order, then the neighbors'.
+#[must_use]
+pub fn encounter_placements(w: &World, landblock: u16) -> Vec<EncounterPlacement> {
+    let (x, y) = (i32::from(landblock >> 8), i32::from(landblock & 0xFF));
+    let neighbor = |dx: i32, dy: i32| {
+        let (Ok(nx), Ok(ny)) = (u8::try_from(x + dx), u8::try_from(y + dy)) else {
+            return None;
+        };
+        Some(u16::from_be_bytes([nx, ny]))
+    };
+    // The landblock's rows and those of each neighbor that shares a vertex with it, at
+    // `(dx + 1) * 3 + dy + 1` for offset (dx, dy).
+    let at_offset = |dx: i32, dy: i32| usize::try_from((dx + 1) * 3 + dy + 1).unwrap_or(4);
+    let rows: [Arc<Vec<Encounter>>; 9] = std::array::from_fn(|k| {
+        let k = i32::try_from(k).unwrap_or(4);
+        neighbor(k / 3 - 1, k % 3 - 1).map_or_else(
+            || Arc::new(Vec::new()),
+            |b| w.content.get_cached_encounters_by_landblock(b),
+        )
+    });
+    if rows.iter().all(|r| r.is_empty()) {
+        return Vec::new();
+    }
+    let rows_of = |dx: i32, dy: i32| &rows[at_offset(dx, dy)][..];
+    let row_at = |rows: &[Encounter], i: i32, j: i32| {
+        rows.iter().position(|e| e.cell_x == i && e.cell_y == j)
+    };
+    // The neighbors sharing grid vertex (i, j), by offset, in the order their rows are preferred.
+    let across = |i: i32, j: i32| {
+        let edge = |c: i32| match c {
+            0 => Some(-1),
+            8 => Some(1),
+            _ => None,
+        };
+        let (ex, ey) = (edge(i), edge(j));
+        let mut out = Vec::with_capacity(3);
+        if let Some(dx) = ex {
+            out.push((dx, 0));
+        }
+        if let Some(dy) = ey {
+            out.push((0, dy));
+        }
+        if let (Some(dx), Some(dy)) = (ex, ey) {
+            out.push((dx, dy));
+        }
+        out
+    };
+    // A neighbor's live slots, read only for a vertex on the shared edge.
+    let mut theirs: Vec<((i32, i32), Vec<dereth_terrain::scenery::SceneSlot>)> = Vec::new();
+
+    let slots = phys_ext::scene_slots(w, dereth_primitives::LandblockId(landblock));
+    let mut placed: Vec<((bool, usize), EncounterPlacement)> = Vec::new();
+    for (n, slot) in slots.iter().enumerate() {
+        // One encounter per vertex, on its first live slot.
+        if slots[..n].iter().any(|s| s.vertex == slot.vertex) {
+            continue;
+        }
+        let (i, j) = (
+            i32::try_from(slot.vertex / 9).unwrap_or(-1),
+            i32::try_from(slot.vertex % 9).unwrap_or(-1),
+        );
+        let own = rows_of(0, 0);
+        let Some((key, encounter)) = (if let Some(k) = row_at(own, i, j) {
+            Some(((false, k), own[k].clone()))
+        } else {
+            across(i, j).into_iter().find_map(|(dx, dy)| {
+                let held = rows_of(dx, dy);
+                row_at(held, i - 8 * dx, j - 8 * dy).map(|k| ((true, n), held[k].clone()))
+            })
+        }) else {
+            continue;
+        };
+        // An edge vertex's first live slot may be in a neighbor.
+        let earlier_there = across(i, j).into_iter().any(|(dx, dy)| {
+            let Some(b) = neighbor(dx, dy) else {
+                return false;
+            };
+            let k = if let Some(k) = theirs.iter().position(|(o, _)| *o == (dx, dy)) {
+                k
+            } else {
+                theirs.push((
+                    (dx, dy),
+                    phys_ext::scene_slots(w, dereth_primitives::LandblockId(b)),
+                ));
+                theirs.len() - 1
+            };
+            let vertex = usize::try_from((i - 8 * dx) * 9 + (j - 8 * dy)).unwrap_or(usize::MAX);
+            theirs[k]
+                .1
+                .iter()
+                .any(|s| s.vertex == vertex && (s.index, b) < (slot.index, landblock))
+        });
+        if earlier_there {
+            continue;
+        }
+        placed.push((
+            key,
+            EncounterPlacement {
+                encounter,
+                origin: slot.frame.origin,
+            },
+        ));
+    }
+    placed.sort_by_key(|(key, _)| *key);
+    placed.into_iter().map(|(_, p)| p).collect()
 }
 
 // ACE: Landblock.LoadMeshes

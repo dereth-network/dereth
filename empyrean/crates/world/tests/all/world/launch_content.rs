@@ -36,6 +36,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 mod effects;
+mod encounters;
 mod play;
 mod spell_fixes;
 mod spell_ranges;

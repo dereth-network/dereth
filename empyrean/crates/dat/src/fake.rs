@@ -153,6 +153,33 @@ impl FakeDats {
         self.with_cell(id.terrain_id().0, sample::flat_landblock(id, height_index))
     }
 
+    /// What an outdoor encounter needs to fire: a region whose every terrain vertex picks
+    /// [`sample::SLOT_SCENE`], a scene of one server slot on its vertex, kept on ground of any
+    /// slope, and a flat landblock at height-table index 0 for each of `landblocks`. An encounter
+    /// fires at its own vertex, except on a block's east and north edges, whose points belong to
+    /// the neighbors.
+    #[must_use]
+    pub fn with_encounter_slots(self, landblocks: &[u16]) -> Self {
+        self.with_encounter_slots_offset(landblocks, dereth_primitives::Vec3::ZERO)
+    }
+
+    /// [`Self::with_encounter_slots`], with each slot `offset` meters from its vertex, turned by
+    /// the vertex's quadrant draw as every scene object is.
+    #[must_use]
+    pub fn with_encounter_slots_offset(
+        self,
+        landblocks: &[u16],
+        offset: dereth_primitives::Vec3,
+    ) -> Self {
+        let mut dats = self
+            .with_portal(file_id::REGION_DESC, sample::slot_region())
+            .with_portal(sample::SLOT_SCENE, sample::slot_scene(offset));
+        for &b in landblocks {
+            dats = dats.with_flat_landblock(LandblockId(b), 0);
+        }
+        dats
+    }
+
     /// Build the `DatManager` over these files.
     ///
     /// # Errors
@@ -218,7 +245,8 @@ pub mod sample {
     use crate::dat_manager::file_id;
     use crate::file_types::spell_table::compute_hash;
     use crate::file_types::{
-        CellLandblock, CharGen, SkillTable, SpellComponentsTable, SpellTable, XpTable,
+        CellLandblock, CharGen, RegionDesc, Scene, SkillTable, SpellComponentsTable, SpellTable,
+        XpTable,
     };
 
     /// A four-level XP table: level 2 at 1,000 XP, level 3 at 2,500.
@@ -427,6 +455,88 @@ pub mod sample {
             spellset_bucket_index: 1,
             spellsets: BTreeMap::new(),
             spellset_order: Vec::new(),
+        }
+    }
+
+    /// The id of the one scene [`slot_region`] gives every terrain vertex.
+    pub const SLOT_SCENE: u32 = 0x1200_0001;
+
+    /// A region on the linear height table (`2 * i` meters) whose every terrain vertex picks the
+    /// one scene [`SLOT_SCENE`].
+    #[must_use]
+    pub fn slot_region() -> RegionDesc {
+        use dereth_assets::region::{GameTime, LandDefs, LandSurf, SceneDesc, TerrainType};
+        let kind = TerrainType {
+            terrain_name: String::new(),
+            terrain_color: 0,
+            scene_types: vec![0],
+        };
+        #[allow(clippy::cast_precision_loss)] // 256 entries
+        let heights = (0..256).map(|i| 2.0 * i as f32).collect();
+        RegionDesc {
+            id: DataId(file_id::REGION_DESC),
+            region_number: 1,
+            version: 0,
+            region_name: String::new(),
+            land_defs: LandDefs {
+                num_block_length: 255,
+                num_block_width: 255,
+                square_length: 24.0,
+                lblock_length: 8,
+                vertex_per_cell: 1,
+                max_obj_height: 200.0,
+                sky_height: 1000.0,
+                road_width: 5.0,
+                land_height_table: heights,
+            },
+            game_time: GameTime {
+                zero_time_of_year: 0.0,
+                zero_year: 0,
+                day_length: 1.0,
+                days_per_year: 1,
+                year_spec: String::new(),
+                times_of_day: Vec::new(),
+                days_of_the_week: Vec::new(),
+                seasons: Vec::new(),
+            },
+            parts_mask: 0,
+            sky_info: None,
+            sound_info: None,
+            scene_info: Some(vec![SceneDesc {
+                stb_index: 0,
+                scenes: vec![DataId(SLOT_SCENE)],
+            }]),
+            terrain_types: vec![kind; 32],
+            land_surf: LandSurf {
+                surf_type: 0,
+                tex_merge: None,
+                pal_shift: None,
+            },
+            region_misc: None,
+        }
+    }
+
+    /// The scene [`SLOT_SCENE`]: one server slot `offset` meters from its vertex, kept on ground
+    /// of any slope.
+    #[must_use]
+    pub fn slot_scene(offset: Vec3) -> Scene {
+        Scene {
+            id: DataId(SLOT_SCENE),
+            objects: vec![dereth_assets::world::ObjectDesc {
+                obj_id: DataId(0),
+                base_loc: Frame::new(offset, Quat::IDENTITY),
+                freq: 1.0,
+                displace_x: 0.0,
+                displace_y: 0.0,
+                min_scale: 1.0,
+                max_scale: 1.0,
+                max_rot: 0.0,
+                min_slope: 0.0,
+                max_slope: 1.0,
+                align: 0,
+                orient: 0,
+                weenie_obj: 1,
+            }],
         }
     }
 

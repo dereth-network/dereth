@@ -53,6 +53,7 @@ fn stat_dats() -> Arc<empyrean_dat::DatManager> {
         .to_vec();
     vital_table.resize(4 + 3 * 6 * 4, 0); // three (w, x, y, z, attr1, attr2) formulas, X = 0
     FakeDats::new()
+        .with_encounter_slots(&[0xA9B4])
         .with_spell_table(empyrean_dat::fake::sample::spell_table())
         .with_raw(
             empyrean_dat::DatDatabaseType::Portal,
