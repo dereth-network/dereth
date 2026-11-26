@@ -513,13 +513,8 @@ impl<S: Shell> App<S> {
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
         if draw {
-            // A minimized window is paced as a background one, whether or not it is still the
-            // active one.
-            crate::platform::clock::pace_frame(
-                self.pacer.as_mut(),
-                self.pump.state.is_active_app && !self.window_has_no_extent,
-                self.window_has_no_extent || self.present.window_hidden(),
-            );
+            let (active, hidden) = self.pacing();
+            crate::platform::clock::pace_frame(self.pacer.as_mut(), active, hidden);
         }
         self.perf_steps = spans.times();
 
@@ -546,6 +541,25 @@ impl<S: Shell> App<S> {
             return false;
         }
         true
+    }
+
+    /// Whether the frame is paced as the active window's, and whether nobody can see the window.
+    /// A minimized window is paced as a background one, whether or not it is still the active
+    /// one.
+    fn pacing(&self) -> (bool, bool) {
+        (
+            self.pump.state.is_active_app && !self.window_has_no_extent,
+            self.window_has_no_extent || self.present.window_hidden(),
+        )
+    }
+
+    /// How far apart, at the least, the starts of two frames come as the window is now.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn frame_spacing(&self) -> std::time::Duration {
+        let (active, hidden) = self.pacing();
+        std::time::Duration::from_micros(
+            dereth_client_contract::options::frame_rate::frame_spacing_us(active, hidden),
+        )
     }
 }
 

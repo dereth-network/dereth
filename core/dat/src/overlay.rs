@@ -975,8 +975,30 @@ impl OverlayDir {
 pub struct OverlayWriter {
     writer: DatWriter,
     tombstones: Vec<Tombstone>,
+    /// The deletions by mask, as the masked ids each deletes: a save asks whether one covers its
+    /// record without walking them all.
+    deleted: BTreeMap<u32, BTreeSet<u32>>,
     manifest: ContainerManifest,
     dirty: bool,
+}
+
+/// `id` as a deletion under `mask` names it: whole for a deletion of one record (a mask of 0),
+/// else its bits under the mask.
+const fn masked(id: u32, mask: u32) -> u32 {
+    if mask == 0 {
+        id
+    } else {
+        id & mask
+    }
+}
+
+/// The deletions `tombstones` make, by mask, as the masked ids each deletes.
+fn deletions_by_mask(tombstones: &[Tombstone]) -> BTreeMap<u32, BTreeSet<u32>> {
+    let mut out: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    for t in tombstones {
+        out.entry(t.mask).or_default().insert(masked(t.id, t.mask));
+    }
+    out
 }
 
 impl OverlayWriter {
@@ -1065,6 +1087,7 @@ impl OverlayWriter {
             };
             return Ok(Self {
                 writer,
+                deleted: deletions_by_mask(&tombstones),
                 tombstones,
                 manifest,
                 dirty,
@@ -1094,6 +1117,7 @@ impl OverlayWriter {
         let mut me = Self {
             writer,
             tombstones: Vec::new(),
+            deleted: BTreeMap::new(),
             manifest,
             dirty: true,
         };
@@ -1124,6 +1148,13 @@ impl OverlayWriter {
         }
     }
 
+    /// Whether one of the overlay's deletions covers `id`.
+    fn hides(&self, id: u32) -> bool {
+        self.deleted
+            .iter()
+            .any(|(mask, ids)| ids.contains(&masked(id, *mask)))
+    }
+
     /// The SHA-256 of the overlay's record `id`, as it was written.
     #[must_use]
     pub fn hash_of(&self, id: DataId) -> Option<[u8; 32]> {
@@ -1148,7 +1179,7 @@ impl OverlayWriter {
         if is_reserved(id) {
             return Err(DatError::NotFound(id));
         }
-        let hidden = self.tombstones.iter().any(|t| t.covers(id.raw()));
+        let hidden = self.hides(id.raw());
         if iteration != 0 && self.writer.entry(id)?.is_none() && !hidden {
             if let Some(e) = base.base_entry(id) {
                 if iteration < e.iteration {
@@ -1237,6 +1268,9 @@ impl OverlayWriter {
         let before = self.tombstones.len();
         self.tombstones.retain(|t| !(t.id == id && t.mask == mask));
         let lifted = self.tombstones.len() != before;
+        if lifted {
+            self.deleted = deletions_by_mask(&self.tombstones);
+        }
         self.dirty |= lifted;
         lifted
     }
@@ -1287,25 +1321,37 @@ impl OverlayWriter {
             }
             n
         };
-        self.manifest.hashes.retain(|k, _| {
-            if mask == 0 {
-                *k != id.raw()
+        if mask == 0 {
+            self.manifest.hashes.remove(&id.raw());
+        } else {
+            let target = id.raw() & mask;
+            let contiguous = mask.leading_ones() + mask.trailing_zeros() == 32;
+            let gone: Vec<u32> = if contiguous {
+                self.manifest
+                    .hashes
+                    .range(target..=target | !mask)
+                    .map(|(k, _)| *k)
+                    .collect()
             } else {
-                *k & mask != id.raw() & mask
+                self.manifest
+                    .hashes
+                    .keys()
+                    .copied()
+                    .filter(|k| k & mask == target)
+                    .collect()
+            };
+            for k in gone {
+                self.manifest.hashes.remove(&k);
             }
-        });
+        }
         let t = Tombstone {
-            id: if mask == 0 { id.raw() } else { id.raw() & mask },
+            id: masked(id.raw(), mask),
             mask,
             iteration,
         };
-        if !self
-            .tombstones
-            .iter()
-            .any(|x| x.id == t.id && x.mask == t.mask)
-        {
-            self.tombstones.push(t);
-            self.tombstones.sort_unstable();
+        if self.deleted.entry(t.mask).or_default().insert(t.id) {
+            let at = self.tombstones.partition_point(|x| *x < t);
+            self.tombstones.insert(at, t);
         }
         self.dirty = true;
         Ok(removed)
@@ -1397,5 +1443,62 @@ mod tests {
         assert_eq!(plain.len() + 32, named.len());
         assert_eq!(ContainerManifest::decode(&plain).unwrap(), m);
         assert!(ContainerManifest::decode(b"not a manifest at all").is_err());
+    }
+
+    /// Behaviour: none (the overlay writer's save rule under its own deletions)
+    /// A base record of a later iteration refuses an older one, until the overlay deletes it,
+    /// alone or with its family: the record saved then is the world's own, added rather than
+    /// replacing the base's.
+    #[test]
+    fn a_record_the_overlay_deleted_alone_or_with_its_family_is_saved_whatever_its_iteration() {
+        use crate::folder::MemoryFolder;
+        const ALONE: DataId = DataId(0x0600_0001);
+        const KIN: DataId = DataId(0x0700_0001);
+        let folder = MemoryFolder::new(Path::new("memory"));
+        let name = "client_portal.dat";
+        {
+            let mut w = DatWriter::create_in(
+                folder.path().join(name),
+                folder.create(name).unwrap(),
+                0x400,
+                crate::container::PORTAL_DATFILE,
+                0,
+                0x400 + 0x400 * 64,
+            )
+            .unwrap();
+            w.save(ITERATION_LIST, &crate::iteration::encode(&[1]), 1, 0, 1)
+                .unwrap();
+            w.save(ALONE, b"base", 1, 5, 1).unwrap();
+            w.save(KIN, b"base", 1, 5, 1).unwrap();
+        }
+        let base =
+            DatFile::from_storage(folder.path().join(name), folder.open(name).unwrap()).unwrap();
+        let mut o =
+            OverlayWriter::open_or_create_in(&folder, "overlay_portal.dat", &base, name, "w", 1)
+                .unwrap();
+        for id in [ALONE, KIN] {
+            assert_eq!(
+                o.save(&base, id, b"world", 1, 3, 1).unwrap(),
+                SaveOutcome::RefusedOlderIteration
+            );
+        }
+        o.tombstone(ALONE, 0, 6).unwrap();
+        o.tombstone(DataId(0x0700_1234), 0xFFFF_0000, 6).unwrap();
+        for id in [ALONE, KIN] {
+            assert_eq!(
+                o.save(&base, id, b"world", 1, 3, 1).unwrap(),
+                SaveOutcome::Added,
+                "{id:?}"
+            );
+        }
+        assert_eq!(o.tombstones().len(), 2);
+        assert!(o.lift_tombstone(0x0700_0000, 0xFFFF_0000));
+        assert_eq!(
+            o.save(&base, DataId(0x0700_0002), b"world", 1, 3, 1)
+                .unwrap(),
+            SaveOutcome::Added,
+            "not in the base"
+        );
+        assert!(!o.hides(KIN.raw()) && o.hides(ALONE.raw()));
     }
 }

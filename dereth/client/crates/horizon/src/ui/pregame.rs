@@ -922,21 +922,33 @@ fn full_screen_switch(
     }
 }
 
-/// Where getting in stands while character select cannot yet be used, centred in the lower band:
-/// "Connecting..." or "Updating..." breathing in and out, and while the server sends the data
-/// files, a bar of how much has come.
-fn connect_status(p: &mut Painter<'_>, ctx: &Ctx<'_>, state: &GameState) {
+/// What the lower band says while character select cannot yet be used: "Connecting...",
+/// "Updating...", or once the data update has all arrived and is still being written, "Applying
+/// data" and how much of it is written. `None` once character select can be used.
+fn connect_words(state: &GameState) -> Option<String> {
     use crate::ui::game::ConnectPhase;
+    Some(match state.connect_phase {
+        ConnectPhase::Connecting => "Connecting...".into(),
+        ConnectPhase::Updating => match state.patch_applying.filter(|(_, all)| *all > 0) {
+            Some((done, all)) => format!("Applying data {}%", done.saturating_mul(100) / all),
+            None => "Updating...".into(),
+        },
+        ConnectPhase::Ready => return None,
+    })
+}
+
+/// Where getting in stands while character select cannot yet be used, centred in the lower band:
+/// [`connect_words`] breathing in and out, and while the server sends the data files, a bar of
+/// how much has come.
+fn connect_status(p: &mut Painter<'_>, ctx: &Ctx<'_>, state: &GameState) {
     if state.host.is_empty() {
         return;
     }
     let k = p.scale;
     let (sw, sh) = p.screen;
     let band = sh - 110.0 * k;
-    let word = match state.connect_phase {
-        ConnectPhase::Connecting => "Connecting...",
-        ConnectPhase::Updating => "Updating...",
-        ConnectPhase::Ready => return,
+    let Some(word) = connect_words(state) else {
+        return;
     };
     let breath = 0.55 + 0.45 * crate::ui::wave(ctx.time, std::f64::consts::TAU / 1.6);
     let style = TextStyle::new(Family::Heading, 20.0, with_alpha(0xFFF0_E6CC, breath))
@@ -945,9 +957,10 @@ fn connect_status(p: &mut Painter<'_>, ctx: &Ctx<'_>, state: &GameState) {
         &style,
         Rect::new(0.0, band + 16.0 * k, sw, 26.0 * k),
         Align::Centre,
-        word,
+        &word,
     );
-    if let Some((got, all)) = state.patch_progress.filter(|(_, all)| *all > 0) {
+    let progress = state.patch_applying.or(state.patch_progress);
+    if let Some((got, all)) = progress.filter(|(_, all)| *all > 0) {
         #[allow(clippy::cast_precision_loss)]
         let fill = (got as f32 / all as f32).clamp(0.0, 1.0);
         let w = 360.0 * k;
@@ -1132,6 +1145,23 @@ mod tests {
         };
         assert_eq!(version_line(true, &state), "9.8.7");
         assert_eq!(version_line(false, &state), "Dereth 9.8.7");
+    }
+
+    /// While the data update is still arriving the band says "Updating..."; once it has all
+    /// arrived and is still being written it says "Applying data" and how much of it is written.
+    #[test]
+    fn an_update_that_has_all_arrived_shows_how_much_of_it_is_applied() {
+        use crate::ui::game::ConnectPhase;
+        let mut state = GameState {
+            connect_phase: ConnectPhase::Updating,
+            patch_progress: Some((300, 1000)),
+            ..GameState::default()
+        };
+        assert_eq!(connect_words(&state).as_deref(), Some("Updating..."));
+        state.patch_applying = Some((430, 1000));
+        assert_eq!(connect_words(&state).as_deref(), Some("Applying data 43%"));
+        state.connect_phase = ConnectPhase::Ready;
+        assert_eq!(connect_words(&state), None);
     }
 
     /// A scripted entry asked to make a character: what it sends over 600 frames from the

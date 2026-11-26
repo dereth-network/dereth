@@ -26,6 +26,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Objects the server makes see-through, such as ghostly creatures, now draw see-through.
 - Tank: crafting now uses heads and shafts picked up after it starts.
 - Navigator: routes now go around the barriers of houses you can't enter.
+- Large data patches apply much faster, and show their progress.
 
 ## 0.4.23 (2026-11-23)
 - Horizon: fixed plugin windows over a moved party list not taking clicks or drags.

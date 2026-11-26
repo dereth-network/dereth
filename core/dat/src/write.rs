@@ -101,6 +101,8 @@ const TRANSACT_MAGIC: u32 = 0x0000_4C50;
 pub(crate) const ROOM_RESERVE: u32 = 0x33;
 /// The room check grows an expandable file by 1 MB at a time.
 const EXPAND_BYTES: u32 = 0x0010_0000;
+/// The most bytes of consecutive writes held to go to the storage as one.
+const HELD_MOST: usize = 4 << 20;
 
 /// A point at which a caller can make the writer stop, to show what an interrupted write leaves
 /// behind. Test-only: nothing in the client asks for one.
@@ -298,6 +300,21 @@ pub struct DatWriter {
     raw_header: Vec<u8>,
     header: DiskFileInfo,
     fault: Option<Fault>,
+    /// Writes not yet handed to the storage: a run of bytes from `held_at`, each write having
+    /// taken up where the one before it left off. They go out in the order they were made, as
+    /// one write, before any write elsewhere, any read of their bytes, and the end of every
+    /// public operation, so what the storage sees is what it would have seen of each write on
+    /// its own, in fewer and larger writes.
+    held: Vec<u8>,
+    held_at: u64,
+    /// How many writes the storage has been handed.
+    writes: u64,
+}
+
+impl Drop for DatWriter {
+    fn drop(&mut self) {
+        let _ = self.settle();
+    }
 }
 
 impl DatWriter {
@@ -357,6 +374,9 @@ impl DatWriter {
             raw_header: vec![0u8; layout.header.bytes],
             header: blank_header(),
             fault: None,
+            held: Vec::new(),
+            held_at: 0,
+            writes: 0,
         };
         let mut hdr = vec![0u8; layout.header.bytes];
         me.read_at(layout.header.at, &mut hdr)?;
@@ -470,26 +490,33 @@ impl DatWriter {
             header: DiskFileInfo::parse_as(&raw_header, &layout.header)?.0,
             raw_header,
             fault: None,
+            held: Vec::new(),
+            held_at: 0,
+            writes: 0,
         };
-        let (block_size, file_size) = (info.block_size, info.file_size);
+        let made = me.lay_out_new(info.block_size, info.file_size);
+        me.settled(made)?;
+        Ok(me)
+    }
 
+    /// A new container's prologue, free list and empty tree.
+    fn lay_out_new(&mut self, block_size: u32, file_size: u32) -> Result<(), DatError> {
         // The 0x400-byte prologue: banner area, journal slot, header, tail padding.
-        me.write_at(0, &[0u8; FIRST_BLOCK as usize])?;
-        me.clear_transaction()?;
+        self.write_at(0, &[0u8; FIRST_BLOCK as usize])?;
+        self.clear_transaction()?;
 
         // File creation: one free block per block size, each linked to the next with bit 31,
         // the last terminated with `0x80000000`.
         let blocks = (file_size - FIRST_BLOCK) / block_size;
-        self_create_free_list(&mut me, block_size, blocks)?;
-        me.save_file_info()?;
+        self_create_free_list(self, block_size, blocks)?;
+        self.save_file_info()?;
 
         // Tree creation: the root node takes the first free block.
-        let root = me.header.free_head;
-        me.header.btree_root = root;
-        let empty = RawNode::empty(&me.layout);
-        me.store_data(&empty.bytes, root)?;
-        me.save_file_info()?;
-        Ok(me)
+        let root = self.header.free_head;
+        self.header.btree_root = root;
+        let empty = RawNode::empty(&self.layout);
+        self.store_data(&empty.bytes, root)?;
+        self.save_file_info()
     }
 
     /// Make the next [`DatWriter::save`] stop at `fault` and report
@@ -508,6 +535,12 @@ impl DatWriter {
         &self.path
     }
 
+    /// How many writes the storage has been handed since the container was opened or made.
+    #[must_use]
+    pub fn storage_writes(&self) -> u64 {
+        self.writes
+    }
+
     /// Stop here if this is the point the caller asked to be interrupted at.
     ///
     /// Peeks rather than takes: a `save` passes several fault points and only the matching one may
@@ -522,17 +555,52 @@ impl DatWriter {
 
     // ---------------------------------------------------------------------------------------
     // Raw I/O. The client's synchronous write is `SetFilePointer` + `WriteFile` with no flush,
-    // which is what `seek` + `write_all` on an unbuffered `File` is.
+    // which is what `seek` + `write_all` on an unbuffered `File` is. Writes that follow on from
+    // one another (a chain's blocks, a growth's new blocks) are joined into one before they go,
+    // in the order they were made, and every public operation hands over all of its writes
+    // before it returns.
     // ---------------------------------------------------------------------------------------
 
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), DatError> {
+        let held_end = self.held_at + self.held.len() as u64;
+        if !self.held.is_empty() && offset < held_end && offset + buf.len() as u64 > self.held_at {
+            self.settle()?;
+        }
         self.file.read_exact_at(offset, buf)?;
         Ok(())
     }
 
+    /// Write `buf` at `offset`: held with the writes before it when it takes up where they left
+    /// off, else after they have gone to the storage.
     fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), DatError> {
-        self.file.write_all_at(offset, buf)?;
+        let follows = offset == self.held_at + self.held.len() as u64;
+        if self.held.is_empty() || !follows || self.held.len() + buf.len() > HELD_MOST {
+            self.settle()?;
+            self.held_at = offset;
+        }
+        self.held.extend_from_slice(buf);
         Ok(())
+    }
+
+    /// Hand the held writes to the storage.
+    fn settle(&mut self) -> Result<(), DatError> {
+        if self.held.is_empty() {
+            return Ok(());
+        }
+        self.writes += 1;
+        let out = self.file.write_all_at(self.held_at, &self.held);
+        self.held.clear();
+        out?;
+        Ok(())
+    }
+
+    /// A public operation's outcome once its writes have gone to the storage, whether it finished
+    /// or stopped part way: its own error first.
+    fn settled<T>(&mut self, out: Result<T, DatError>) -> Result<T, DatError> {
+        let settled = self.settle();
+        let out = out?;
+        settled?;
+        Ok(out)
     }
 
     fn link_at(&mut self, block: u32) -> Result<u32, DatError> {
@@ -1077,6 +1145,19 @@ impl DatWriter {
         iteration: u32,
         date: u32,
     ) -> Result<SaveOutcome, DatError> {
+        let out = self.save_held(id, payload, version, iteration, date);
+        self.settled(out)
+    }
+
+    /// [`Self::save`], its writes still held.
+    fn save_held(
+        &mut self,
+        id: DataId,
+        payload: &[u8],
+        version: u16,
+        iteration: u32,
+        date: u32,
+    ) -> Result<SaveOutcome, DatError> {
         if id.raw() == 0 {
             return Err(DatError::NotFound(id));
         }
@@ -1322,6 +1403,12 @@ impl DatWriter {
     ///
     /// Whatever the directory walk and the block writes return.
     pub fn delete_data(&mut self, id: DataId, iteration_limit: u32) -> Result<bool, DatError> {
+        let out = self.delete_held(id, iteration_limit);
+        self.settled(out)
+    }
+
+    /// [`Self::delete_data`], its writes still held.
+    fn delete_held(&mut self, id: DataId, iteration_limit: u32) -> Result<bool, DatError> {
         if id.raw() == 0 {
             return Ok(false);
         }

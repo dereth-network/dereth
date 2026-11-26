@@ -759,6 +759,10 @@ impl HorizonFrontEnd {
             .patch
             .shown()
             .filter(|_| state.connect_phase == crate::ui::game::ConnectPhase::Updating);
+        state.patch_applying = cx
+            .pregame()
+            .patch_applying
+            .filter(|_| state.connect_phase == crate::ui::game::ConnectPhase::Updating);
         state.chat_entry = cx.take_chat_entry_updates();
         self.chat_titles.extend(cx.take_chat_window_titles());
         let (labels, titles) = self.chat_words(cx).clone();

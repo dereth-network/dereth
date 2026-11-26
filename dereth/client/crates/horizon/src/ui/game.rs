@@ -410,6 +410,9 @@ pub struct GameState {
     /// While the data files are being updated: the bytes received so far and the bytes expected,
     /// once the server has said how many.
     pub patch_progress: Option<(u64, u64)>,
+    /// While the data update has all arrived and is still being written: the bytes written and
+    /// the bytes it brought.
+    pub patch_applying: Option<(u64, u64)>,
     /// The session's state, in words.
     pub session: String,
     /// The account.

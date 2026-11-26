@@ -267,3 +267,34 @@ fn a_stream_dropped_by_the_client_stops_its_reader_and_closes_the_connection() {
         "{kind:?}"
     );
 }
+
+/// Behaviour: none (the patch screen's applying stage: what the stream has brought and applied)
+/// While a stream is still arriving there is no applying stage; once every record has arrived,
+/// the stage is the bytes applied of the bytes brought, until the last is applied.
+#[test]
+fn a_stream_that_has_all_arrived_reports_what_is_applied_until_the_last_record() {
+    let (addr, _hello) = serve(|mut s| {
+        for id in 1..=4 {
+            s.write_all(&framed(&record(id, 100))).unwrap();
+        }
+        s.write_all(&0u32.to_le_bytes()).unwrap();
+    });
+    let mut d = open(addr, Limits::default()).expecting(400);
+    assert!(d.wait(GUARD), "the stream brought a record");
+    let first = d.next_record().expect("a record");
+    assert_eq!(first.resource_id, 1);
+    // The thread marks the stream whole before it sends its end, which comes after the records.
+    let started = std::time::Instant::now();
+    while !d.arrived().1 {
+        assert!(started.elapsed() < GUARD, "the stream never ended");
+        std::thread::yield_now();
+    }
+    assert_eq!(d.arrived(), (400, true));
+    assert_eq!(d.applying(), Some((100, 400)));
+    d.note_progress();
+    let rest = d.drain(usize::MAX);
+    assert_eq!(rest.len(), 3);
+    assert_eq!(d.applying(), None, "every record is applied");
+    d.note_progress();
+    assert_eq!(d.ended(), Some(&Ok(())));
+}

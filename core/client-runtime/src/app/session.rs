@@ -134,6 +134,13 @@ impl<S: Shell> App<S> {
         // Drained into the screen once per frame; `HostState` is cloned into `UiShell::frame`, so
         // the queue must be emptied here or every event would be delivered again next frame.
         self.host_state.ddd = std::mem::take(&mut self.pending_ddd);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.host_state.patch_applying = self
+                .bulk
+                .as_ref()
+                .and_then(crate::bulk_patch::BulkDownload::applying);
+        }
         let phase = self.game_phase();
         if phase != self.host_state.phase {
             tracing::debug!("game phase {:?} -> {phase:?}", self.host_state.phase);
@@ -1039,7 +1046,8 @@ impl<S: Shell> App<S> {
     }
 
     /// CD-bulk-patch: apply the records the patch stream has brought, as the `0xF7E2`s they stand
-    /// for, for as long as this frame's share of them lasts ([`App::patch_share`], by
+    /// for, for as long as this frame's share of them lasts (three quarters of the frame's
+    /// spacing, at least [`App::patch_share`]: [`crate::bulk_patch::frame_share`], by
     /// [`App::patch_clock`]), so the screens go on drawing the patch's progress while it is
     /// written. They wait for the world's manifest and its `0xF7E7`: the server sends both ahead of
     /// its offer, but the manifest is large and can come after the stream has begun, and a record
@@ -1049,6 +1057,7 @@ impl<S: Shell> App<S> {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn apply_bulk_records(&mut self) {
         use dereth_client_contract::pregame::DddEvent as UiDdd;
+        let frame_spacing = self.frame_spacing();
         let Some(download) = self.bulk.as_mut() else {
             return;
         };
@@ -1057,6 +1066,7 @@ impl<S: Shell> App<S> {
         if !ready {
             return;
         }
+        let share = crate::bulk_patch::frame_share(self.patch_share, frame_spacing);
         let began = self.patch_clock.now();
         while let Some(m) = download.next_record() {
             let (outcome, action) = self.ddd.on_data(&m);
@@ -1069,10 +1079,12 @@ impl<S: Shell> App<S> {
             self.pending_ddd.push(UiDdd::DataDownloaded {
                 bytes: m.data.len() as u64,
             });
-            if self.patch_clock.now().saturating_sub(began) >= self.patch_share {
+            if self.patch_clock.now().saturating_sub(began) >= share {
+                download.note_progress();
                 return;
             }
         }
+        download.note_progress();
         let Some(end) = download.ended().cloned() else {
             return;
         };
@@ -1158,6 +1170,7 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
+        let reopening = web_time::Instant::now();
         let (fresh, refused) = self.reopen_store_noting();
         if let Some(refusal) = refused {
             // What the patch left will not lie over the files: the world is not played without
@@ -1168,7 +1181,8 @@ impl<S: Shell> App<S> {
         self.adopt_store(std::sync::Arc::new(fresh));
         self.rebuild_world_after_patch();
         tracing::info!(
-            "DDD reopened the dat files; {} changed",
+            "DDD reopened the dat files in {:.1} s; {} changed",
+            reopening.elapsed().as_secs_f64(),
             summary
                 .changed
                 .iter()
@@ -1770,7 +1784,11 @@ fn on_bulk_offer(
                     .handshake_addr()
                     .zip(u16::try_from(offer.port).ok().filter(|&p| p != 0))
                     .map(|(a, port)| std::net::SocketAddr::new(a.ip(), port));
-                match at.map(|at| (at, crate::bulk_patch::BulkDownload::start(at, offer.token))) {
+                let start = |at| {
+                    crate::bulk_patch::BulkDownload::start(at, offer.token)
+                        .map(|d| d.expecting(offer.bytes))
+                };
+                match at.map(|at| (at, start(at))) {
                     Some((at, Ok(download))) => {
                         tracing::info!(
                             "the patch comes as a stream from {at}: {} records, {} kB",

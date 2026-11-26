@@ -107,6 +107,9 @@ pub struct PregameView {
     /// lifetime the plugin registration gives, because a screen that is not the data-patch screen
     /// ignores them.
     pub ddd: Vec<DddEvent>,
+    /// While the data patch has all arrived and is still being written: the bytes of it written,
+    /// and the bytes it brought. `None` while it is still arriving, and when there is none.
+    pub patch_applying: Option<(u64, u64)>,
     /// The independent client and C-runtime random seeds from which the opening character is
     /// drawn, decided once when the host brings the UI up.
     ///

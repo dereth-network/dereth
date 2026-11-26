@@ -16,6 +16,18 @@
 /// one.
 pub const FRAME_SHARE: std::time::Duration = std::time::Duration::from_millis(8);
 
+/// How long a frame may spend applying the stream's records when frames are `spacing` apart at
+/// the least: three quarters of the spacing, and never less than `floor`. A window paced to ten
+/// frames a second (one in the background) gives the patch most of each frame rather than a
+/// sliver of it; one with no limit gives it `floor`.
+#[must_use]
+pub fn frame_share(
+    floor: std::time::Duration,
+    spacing: std::time::Duration,
+) -> std::time::Duration {
+    floor.max(spacing * 3 / 4)
+}
+
 /// The clock a frame's share of the stream is measured by: the time since some fixed moment.
 /// The client's reads the machine's clock; a test's moves as the test says.
 pub struct WorkClock(Box<dyn FnMut() -> std::time::Duration + Send>);
@@ -78,6 +90,7 @@ pub use stream::{BulkDownload, Limits};
 mod stream {
     use std::io::{BufReader, Error, ErrorKind, Read, Write};
     use std::net::{SocketAddr, TcpStream};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, TryRecvError};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
@@ -165,6 +178,15 @@ mod stream {
         }
     }
 
+    /// What the stream's thread has read: its records and their bytes, and whether the stream
+    /// has ended with every record it carries.
+    #[derive(Debug, Default)]
+    struct Arrived {
+        records: AtomicU64,
+        bytes: AtomicU64,
+        all: AtomicBool,
+    }
+
     /// A patch stream being read.
     #[derive(Debug)]
     pub struct BulkDownload {
@@ -172,10 +194,17 @@ mod stream {
         /// A message [`Self::wait`] took off the channel, which [`Self::drain`] hands out first.
         next: Option<Msg>,
         budget: Arc<Budget>,
+        arrived: Arc<Arrived>,
         end: Option<Result<(), String>>,
         started: Instant,
         records: u64,
         bytes: u64,
+        /// The record bytes the offer said the stream carries, 0 when it said none.
+        expected: u64,
+        /// Whether every record's arrival has been reported, and the tenths of the patch
+        /// reported applied.
+        all_noted: bool,
+        tenths: u64,
     }
 
     impl BulkDownload {
@@ -203,15 +232,27 @@ mod stream {
         ) -> std::io::Result<Self> {
             let (tx, rx) = channel();
             let budget = Arc::new(Budget::default());
+            let arrived = Arc::new(Arrived::default());
             let theirs = Arc::clone(&budget);
+            let counted = Arc::clone(&arrived);
             std::thread::Builder::new()
                 .name("patch stream".to_owned())
                 .spawn(move || {
                     let take = |d: Box<DddData>| {
-                        theirs.take(d.data.len(), limits.queued) && tx.send(Msg::Record(d)).is_ok()
+                        let n = d.data.len() as u64;
+                        let taken = theirs.take(d.data.len(), limits.queued)
+                            && tx.send(Msg::Record(d)).is_ok();
+                        if taken {
+                            counted.records.fetch_add(1, Ordering::Relaxed);
+                            counted.bytes.fetch_add(n, Ordering::Relaxed);
+                        }
+                        taken
                     };
                     let end = match dial().and_then(|s| read(s, token, &limits, take)) {
-                        Ok(()) => Msg::Done,
+                        Ok(()) => {
+                            counted.all.store(true, Ordering::Release);
+                            Msg::Done
+                        }
                         Err(e) => Msg::Failed(e.to_string()),
                     };
                     let _ = tx.send(end);
@@ -220,11 +261,76 @@ mod stream {
                 rx,
                 next: None,
                 budget,
+                arrived,
                 end: None,
                 started: Instant::now(),
                 records: 0,
                 bytes: 0,
+                expected: 0,
+                all_noted: false,
+                tenths: 0,
             })
+        }
+
+        /// This stream, whose offer said it carries `bytes` of records: what its progress is
+        /// counted against until every record has arrived.
+        #[must_use]
+        pub fn expecting(mut self, bytes: u64) -> Self {
+            self.expected = bytes;
+            self
+        }
+
+        /// The record bytes read off the stream so far, and whether it has ended with every
+        /// record it carries.
+        #[must_use]
+        pub fn arrived(&self) -> (u64, bool) {
+            let all = self.arrived.all.load(Ordering::Acquire);
+            (self.arrived.bytes.load(Ordering::Relaxed), all)
+        }
+
+        /// While every record has arrived and some are still to be applied: the record bytes
+        /// applied, and the bytes the stream brought.
+        #[must_use]
+        pub fn applying(&self) -> Option<(u64, u64)> {
+            let (brought, all) = self.arrived();
+            (all && self.bytes < brought).then_some((self.bytes, brought))
+        }
+
+        /// The stream's stages as log lines, each once: every record arrived, with what is left
+        /// to apply, and each further tenth of the patch applied.
+        pub fn note_progress(&mut self) {
+            #[allow(clippy::cast_precision_loss)] // Megabytes for a log line.
+            let mib = |b: u64| b as f64 / 1_048_576.0;
+            let (brought, all) = self.arrived();
+            if all && !self.all_noted {
+                self.all_noted = true;
+                tracing::info!(
+                    "the patch stream has brought every record: {} records, {:.1} MiB in {:.1} s; \
+                     {:.1} MiB of them are still to be applied",
+                    self.arrived.records.load(Ordering::Relaxed),
+                    mib(brought),
+                    self.started.elapsed().as_secs_f64(),
+                    mib(brought.saturating_sub(self.bytes))
+                );
+            }
+            let total = if all {
+                brought
+            } else {
+                self.expected.max(brought)
+            };
+            if total == 0 {
+                return;
+            }
+            let tenths = (self.bytes.saturating_mul(10) / total).min(10);
+            if tenths > self.tenths {
+                self.tenths = tenths;
+                tracing::info!(
+                    "the patch is {}% applied: {:.1} of {:.1} MiB",
+                    tenths * 10,
+                    mib(self.bytes),
+                    mib(total)
+                );
+            }
         }
 
         fn take(&mut self, m: Msg) {
@@ -382,4 +488,27 @@ mod stream {
 
     #[cfg(test)]
     mod tests;
+}
+
+#[cfg(test)]
+mod share_tests {
+    use std::time::Duration;
+
+    use super::{frame_share, FRAME_SHARE};
+
+    /// Behaviour: none (how much of a frame the patch stream may take)
+    /// A frame paced to ten a second, as a window in the background is, gives the patch three
+    /// quarters of its 99 ms; one with no limit gives it the floor, and so does one paced so fast
+    /// that three quarters of its spacing is less.
+    #[test]
+    fn a_frame_gives_the_patch_three_quarters_of_its_spacing_and_never_less_than_the_floor() {
+        let spacing = |us| Duration::from_micros(us);
+        assert_eq!(
+            frame_share(FRAME_SHARE, spacing(99_000)),
+            spacing(74_250),
+            "ten frames a second"
+        );
+        assert_eq!(frame_share(FRAME_SHARE, Duration::ZERO), FRAME_SHARE);
+        assert_eq!(frame_share(FRAME_SHARE, spacing(6_944)), FRAME_SHARE);
+    }
 }

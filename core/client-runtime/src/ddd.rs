@@ -1166,11 +1166,19 @@ impl DddPatcher {
     /// as retail's end-of-DDD handler gates it); this half only closes the books.
     pub fn on_end(&mut self) -> DddSummary {
         let date = entry_date(crate::platform::clock::system_unix_time());
+        let writing = web_time::Instant::now();
         let mut failed = Vec::new();
         for w in self.writers.values_mut() {
             if let Err(e) = w.flush(date) {
                 failed.push(format!("{}: {e}", w.path().display()));
             }
+        }
+        if !self.writers.is_empty() {
+            tracing::info!(
+                "DDD the overlay's deletions and manifests are written: {} file(s) in {:.1} s",
+                self.writers.len(),
+                writing.elapsed().as_secs_f64()
+            );
         }
         for line in failed {
             self.note(format!("the overlay could not be written: {line}"));
