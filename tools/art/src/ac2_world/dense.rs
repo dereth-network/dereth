@@ -199,6 +199,19 @@ pub fn pack_split(cuts: &[bool]) -> Vec<u8> {
     out
 }
 
+/// A point the land is lowered under ([`DenseWorld::lower_under`]): where it is (world meters),
+/// the height the ground there may reach, and a line through `at` facing `inward` (a level unit
+/// vector) whose near side, the side it faces, is where the land may be lowered to that height
+/// at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Under {
+    pub x: f64,
+    pub y: f64,
+    pub top: f64,
+    pub at: [f64; 2],
+    pub inward: [f64; 2],
+}
+
 /// The whole converted world, vertex by vertex, x major over the world's `grid.side()²`.
 pub struct DenseWorld {
     pub grid: Grid,
@@ -470,6 +483,133 @@ impl DenseWorld {
             u - i as f64,
             v - j as f64,
         )
+    }
+
+    /// Lower the land so it stands no higher than each of `under`'s points. The corners of a
+    /// point's square on the near side of its line ([`Under`]) standing over the point's height
+    /// are taken down to the highest height of the table not over it; then, while the point
+    /// still stands over it, the corner over it whose next height down lowers the point most is
+    /// taken down a step. The cuts of the squares the corners touch are chosen again, which can
+    /// lift a point met before, so the points are gone over again until none moves. A water
+    /// corner is never lowered, nor one that would go down more than `cap` meters. Returns how
+    /// many vertices were lowered, and the points left too high.
+    pub fn lower_under(&mut self, g: &Ac2Ground, under: &[Under], cap: f64) -> (usize, Vec<usize>) {
+        const ROUNDS: usize = 8;
+        let side = self.grid.side();
+        let n = side - 1;
+        let step = self.grid.spacing();
+        let was = self.height.clone();
+        let mut lowered = std::collections::BTreeSet::new();
+        // Each point's square and where on it.
+        type On = Option<((usize, usize), f64, f64)>;
+        let on: Vec<On> = under
+            .iter()
+            .map(|p| {
+                let (u, v) = (p.x / step, p.y / step);
+                if u < 0.0 || v < 0.0 {
+                    return None;
+                }
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // LINT-OK: square indices of a world a few thousand squares wide.
+                let (i, j) = (u.floor() as usize, v.floor() as usize);
+                #[allow(clippy::cast_precision_loss)]
+                (i < n && j < n).then_some(((i, j), u - i as f64, v - j as f64))
+            })
+            .collect();
+        for _ in 0..ROUNDS {
+            let mut moved = false;
+            for (p, at) in under.iter().zip(&on) {
+                let Some(((i, j), fu, fv)) = *at else {
+                    continue;
+                };
+                let corners =
+                    [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)].map(|(a, b)| a * side + b);
+                let rounded = |w: &Self, k: usize| f64::from(w.table[usize::from(w.height[k])]);
+                let point =
+                    |w: &Self| on_square(w.cut[i * n + j], corners.map(|k| rounded(w, k)), fu, fv);
+                if point(self) <= p.top {
+                    continue;
+                }
+                // May corner `k` go down to `to`?
+                let may = |w: &Self, k: usize, to: u8| {
+                    !w.vertex[k].water
+                        && f64::from(w.table[usize::from(was[k])])
+                            - f64::from(w.table[usize::from(to)])
+                            <= cap
+                };
+                // The near corners, down to the point's height.
+                let to = u8::try_from(
+                    self.table
+                        .partition_point(|&t| f64::from(t) <= p.top)
+                        .saturating_sub(1),
+                )
+                .unwrap_or(u8::MAX);
+                for &k in &corners {
+                    #[allow(clippy::cast_precision_loss)]
+                    let (cx, cy) = ((k / side) as f64 * step, (k % side) as f64 * step);
+                    let near = (cx - p.at[0]) * p.inward[0] + (cy - p.at[1]) * p.inward[1] >= 0.0;
+                    if near && self.height[k] > to && may(self, k, to) {
+                        self.height[k] = to;
+                        lowered.insert(k);
+                        moved = true;
+                    }
+                }
+                self.cut_again(g, &corners);
+                // Then a step at a time, the corner over the point that lowers it most.
+                while point(self) > p.top {
+                    let cut = self.cut[i * n + j];
+                    let mut best: Option<(f64, usize)> = None;
+                    for (c, &k) in corners.iter().enumerate() {
+                        let h = self.height[k];
+                        if h == 0 || rounded(self, k) <= p.top || !may(self, k, h - 1) {
+                            continue;
+                        }
+                        let mut unit = [0.0; 4];
+                        unit[c] = 1.0;
+                        let gain = on_square(cut, unit, fu, fv)
+                            * (rounded(self, k) - f64::from(self.table[usize::from(h - 1)]));
+                        if gain > 1e-9 && best.is_none_or(|(b, _)| gain > b) {
+                            best = Some((gain, k));
+                        }
+                    }
+                    let Some((_, k)) = best else {
+                        break;
+                    };
+                    self.height[k] -= 1;
+                    lowered.insert(k);
+                    moved = true;
+                    self.cut_again(g, &[k]);
+                }
+            }
+            if !moved {
+                break;
+            }
+        }
+        let left = (0..under.len())
+            .filter(|&p| {
+                on[p].is_some() && self.height_at(under[p].x, under[p].y, true) > under[p].top
+            })
+            .collect();
+        (lowered.len(), left)
+    }
+
+    /// The cuts of the squares the vertices `ks` touch chosen again.
+    fn cut_again(&mut self, g: &Ac2Ground, ks: &[usize]) {
+        let side = self.grid.side();
+        let n = side - 1;
+        for &k in ks {
+            let (a, b) = (k / side, k % side);
+            for (si, sj) in [
+                (a, b),
+                (a.wrapping_sub(1), b),
+                (a, b.wrapping_sub(1)),
+                (a.wrapping_sub(1), b.wrapping_sub(1)),
+            ] {
+                if si < n && sj < n {
+                    self.cut[si * n + sj] = self.cut_of(g, si, sj);
+                }
+            }
+        }
     }
 
     /// Block `(bx, by)`'s vertices (terrain words, heights) and split bits, as the dense record

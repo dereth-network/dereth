@@ -22,7 +22,9 @@
 //! its origin, and AC2's vault entrances stand on plinths reaching out of that cell, so a body
 //! walked in from the cell beside it passes under the plinth's steps and is caught inside them.
 //! So the shell's collision is placed again beside it as a collision-only static, which AC1 meets
-//! from every cell it reaches into.
+//! from every cell it reaches into. AC1 likewise enters a building's rooms only from the land
+//! cell holding its origin, and a shell's origin can stand a cell from its doorway, so the
+//! building stands at its doorway, its model moved to match.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -45,6 +47,10 @@ const NO_OTHER_CELL: u16 = 2;
 /// doorway, as retail's cottages have them.
 const OUT_FLAGS: u16 = 1 | 4;
 const DOORWAY_FLAGS: u16 = 3;
+/// The farthest a building's origin stands into its block, meters: short of the 192 m edge.
+const IN_BLOCK: f32 = 191.99;
+/// The least slope of a polygon a body stands on: its normal's height at least this.
+const FLOOR_Z: f32 = 0.664_174;
 /// How near a shell's origin stands to its room's.
 const ON_ROOM: f32 = 0.5;
 /// The most rooms a building of rooms that all see each other takes: more joined to a shell's room
@@ -156,7 +162,21 @@ pub struct Building {
     pub rooms: Vec<EnvCell>,
     /// Its first doorway's middle, and the middle of the room it leads into, landblock meters.
     pub doorway: Option<(Vec3, Vec3)>,
+    /// Its doorways out to the land (those AC2 leads outside, not into a cell left out).
+    pub to_land: Vec<ToLand>,
 }
+
+/// A doorway out to the land, landblock meters: its corners, the middle of its room's points, and
+/// the room's floor near it (the triangles of its collision a body stands on).
+#[derive(Clone, Debug, Default)]
+pub struct ToLand {
+    pub corners: Vec<Vec3>,
+    pub inside: Vec3,
+    pub floor: Vec<[Vec3; 3]>,
+}
+
+/// How near a doorway's middle a room's floor is kept with it, meters.
+const NEAR_DOORWAY: f32 = 6.0;
 
 /// The buildings `found` names, from the statics `shells` made of their shells; each shell's
 /// collision is added to `solids`, its block's statics, as a collision-only static. Each AC2 cell
@@ -222,6 +242,9 @@ pub fn make(
         let mut doorways = Vec::new();
         // Each doorway's corners in the shell's frame, and the middle of the room it leads into.
         let mut doorway_shapes: Vec<(Vec<Vec3>, Vec3)> = Vec::new();
+        // The doorways out to the land, in the shell's frame: corners, and the room's points'
+        // middle.
+        let mut to_land: Vec<ToLand> = Vec::new();
         let mut whole = true;
         for (k, &low) in rooms.iter().enumerate() {
             let Some(c) = wr.cell(x, y, low) else {
@@ -247,6 +270,7 @@ pub fn make(
             };
             let mut portals = Vec::with_capacity(c.portals.len());
             let mut ways_out = Vec::new();
+            let mut land_ways = Vec::new();
             for p in &c.portals {
                 let Some(&polygon_id) = portal_polygons.get(usize::from(p.portal)) else {
                     continue;
@@ -255,6 +279,9 @@ pub fn make(
                 if out_of {
                     doorways.push((k, portals.len()));
                     ways_out.push(usize::from(p.portal));
+                    if p.flags & NO_OTHER_CELL != 0 {
+                        land_ways.push(usize::from(p.portal));
+                    }
                     portals.push(CellPortal {
                         flags: OUT_FLAGS,
                         polygon_id,
@@ -290,6 +317,39 @@ pub fn make(
                     corners.into_iter().map(to_shell).collect(),
                     to_shell(Vec3::ZERO),
                 ));
+            }
+            if !land_ways.is_empty() {
+                let (points, floor) = wr
+                    .get::<auberean_assets::mesh::CellMesh>(c.mesh.0)
+                    .map(|cm| floor_of(&cm))
+                    .unwrap_or_default();
+                // The room's origin can stand outside it (a hall whose doorway is its edge): the
+                // middle of its points is inside.
+                #[allow(clippy::cast_precision_loss)]
+                let middle = points
+                    .iter()
+                    .fold(Vec3::ZERO, |m, p| m.add(*p))
+                    .mul(1.0 / points.len().max(1) as f32);
+                for &w in &land_ways {
+                    let corners = portal_points.get(w).cloned().unwrap_or_default();
+                    #[allow(clippy::cast_precision_loss)]
+                    let mid = corners
+                        .iter()
+                        .fold(Vec3::ZERO, |m, p| m.add(*p))
+                        .mul(1.0 / corners.len().max(1) as f32);
+                    let near = |p: &Vec3| {
+                        (p.x - mid.x).powi(2) + (p.y - mid.y).powi(2) <= NEAR_DOORWAY * NEAR_DOORWAY
+                    };
+                    to_land.push(ToLand {
+                        corners: corners.into_iter().map(to_shell).collect(),
+                        inside: to_shell(middle),
+                        floor: floor
+                            .iter()
+                            .filter(|t| t.iter().any(near))
+                            .map(|t| t.map(to_shell))
+                            .collect(),
+                    });
+                }
             }
             let k16 = u16::try_from(k).unwrap_or(u16::MAX);
             let statics = lit.remove(&low).unwrap_or_default();
@@ -330,7 +390,26 @@ pub fn make(
                 .or_default() += 1;
             continue;
         }
-        let Some(model) = shell_model(shell, &doorway_shapes, ids, out)? else {
+        // AC1 meets a building's doorways only from the land cell holding its origin, and a
+        // shell's origin can stand a cell or more from its doorway (a hall whose shell stands over
+        // its far end): the building stands at the middle of its first doorway out to the land
+        // (kept in its own block), level with the shell, its model moved to match, so it is
+        // entered from the cell its doorway is in.
+        let at = to_land.first().map_or(Vec3::ZERO, |d| {
+            #[allow(clippy::cast_precision_loss)]
+            let mid = d
+                .corners
+                .iter()
+                .fold(Vec3::ZERO, |m, p| m.add(*p))
+                .mul(1.0 / d.corners.len().max(1) as f32);
+            let o = shell.frame.origin;
+            let mut to = o.add(turn(shell.frame.rotation, mid));
+            to.x = to.x.clamp(0.0, IN_BLOCK);
+            to.y = to.y.clamp(0.0, IN_BLOCK);
+            to.z = o.z;
+            turn(back(shell.frame.rotation), to.sub(o))
+        });
+        let Some(model) = shell_model(shell, &doorway_shapes, at, ids, out)? else {
             *passed.entry("a shell of more than one model").or_default() += 1;
             continue;
         };
@@ -353,7 +432,10 @@ pub fn make(
         };
         let info = BuildInfo {
             id: model,
-            frame: shell.frame,
+            frame: Frame::new(
+                shell.frame.origin.add(turn(shell.frame.rotation, at)),
+                shell.frame.rotation,
+            ),
             num_leaves: 0,
             portals: doorways
                 .iter()
@@ -375,8 +457,17 @@ pub fn make(
                 .mul(1.0 / n);
             (in_block(mid), in_block(*room))
         });
+        let to_land = to_land
+            .into_iter()
+            .map(|d| ToLand {
+                corners: d.corners.into_iter().map(in_block).collect(),
+                inside: in_block(d.inside),
+                floor: d.floor.into_iter().map(|t| t.map(in_block)).collect(),
+            })
+            .collect();
         made.push(Building {
             doorway,
+            to_land,
             ac2: shell.ac2,
             block: shell.block,
             info,
@@ -384,6 +475,43 @@ pub fn make(
         });
     }
     Ok(made)
+}
+
+/// A room's points, and its floor: the polygons of its collision facing up or down no steeper
+/// than a body stands on, in triangles; in the room's frame.
+pub(crate) fn floor_of(cm: &auberean_assets::mesh::CellMesh) -> (Vec<Vec3>, Vec<[Vec3; 3]>) {
+    let points: Vec<Vec3> = cm
+        .mesh
+        .vertices
+        .attributes()
+        .map(|a| {
+            a.iter()
+                .map(|v| Vec3::new(v.position.x, v.position.y, v.position.z))
+                .collect()
+        })
+        .unwrap_or_default();
+    let doors: BTreeSet<u16> = cm.portals.iter().map(|p| p.polygon).collect();
+    let mut floor: Vec<[Vec3; 3]> = Vec::new();
+    for (n, poly) in cm.mesh.physics_polygons.iter().enumerate() {
+        if doors.contains(&u16::try_from(n).unwrap_or(u16::MAX)) {
+            continue;
+        }
+        let ring: Vec<Vec3> = poly
+            .vertices
+            .iter()
+            .filter_map(|&i| points.get(usize::from(i)).copied())
+            .collect();
+        if ring.len() < 3 {
+            continue;
+        }
+        let normal = ring[1].sub(ring[0]).cross(ring[2].sub(ring[0]));
+        let len = normal.dot(normal).sqrt();
+        if len < 1e-6 || normal.z.abs() < FLOOR_Z * len {
+            continue;
+        }
+        floor.extend((1..ring.len() - 1).map(|k| [ring[0], ring[k], ring[k + 1]]));
+    }
+    (points, floor)
 }
 
 /// The shell's collision again, as a collision-only static where the shell stands, met from every
@@ -409,11 +537,13 @@ pub(crate) fn shell_solid(
 
 /// The shell's model with its collision in it, and its doorways (corners in its frame, and the
 /// middle of the room each leads into) as clear polygons facing in, the portal nodes of its
-/// drawing tree, through which its rooms are drawn from outside: `None` for a shell of more than
+/// drawing tree, through which its rooms are drawn from outside; every point of it moved by
+/// `-at`, for a building standing at `at` in the shell's frame: `None` for a shell of more than
 /// one model.
 fn shell_model(
     shell: &Shell,
     doorways: &[(Vec<Vec3>, Vec3)],
+    at: Vec3,
     ids: &mut Ids,
     out: &mut Records,
 ) -> Result<Option<DataId>, String> {
@@ -425,12 +555,17 @@ fn shell_model(
         .get(part)
         .ok_or_else(|| format!("{part:?} is not made"))?;
     let mut g = GfxObj::decode_payload(*part, bytes).map_err(|e| format!("{part:?}: {e:?}"))?;
+    let moved = at != Vec3::ZERO;
+    for v in &mut g.vertex_array.vertices {
+        v.position = v.position.sub(at);
+    }
+    g.sort_center = g.sort_center.sub(at);
     if let Some(c) = &shell.collision {
         let first = g.vertex_array.vertices.len();
         for (k, p) in c.points.iter().enumerate() {
             g.vertex_array.vertices.push(SwVertex {
                 id: i16::try_from(first + k).unwrap_or(i16::MAX),
-                position: *p,
+                position: p.sub(at),
                 normal: Vec3::new(0.0, 0.0, 1.0),
                 uvs: Vec::new(),
             });
@@ -460,6 +595,15 @@ fn shell_model(
             true,
         ));
         g.flags |= 1;
+    } else if moved && g.physics_bsp.is_some() {
+        g.physics_bsp = Some(dereth_builder::bsp::physics(
+            &g.vertex_array,
+            &g.physics_polygons,
+            true,
+        ));
+    }
+    if doorways.is_empty() && moved && g.drawing_bsp.is_some() {
+        g.drawing_bsp = Some(dereth_builder::bsp::drawing(&g.vertex_array, &g.polygons));
     }
     if !doorways.is_empty() {
         let clear = clear_surface(ids, out);
@@ -484,7 +628,7 @@ fn shell_model(
             for p in &corners {
                 g.vertex_array.vertices.push(SwVertex {
                     id: i16::try_from(g.vertex_array.vertices.len()).unwrap_or(i16::MAX),
-                    position: *p,
+                    position: p.sub(at),
                     normal: Vec3::new(0.0, 0.0, 1.0),
                     uvs: Vec::new(),
                 });
@@ -571,7 +715,7 @@ pub fn add_cells(info: &mut LandblockInfo, cells: &[EnvCell]) -> Vec<(DataId, Ve
 }
 
 /// `v` turned by `q`.
-fn turn(q: Quat, v: Vec3) -> Vec3 {
+pub(crate) fn turn(q: Quat, v: Vec3) -> Vec3 {
     let (w, x, y, z) = (q.w, q.x, q.y, q.z);
     let t = Vec3::new(
         2.0 * (y * v.z - z * v.y),
@@ -688,5 +832,94 @@ mod tests {
         assert!(shell_solid(&plinth_shell(None), &mut ids, &mut out)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn a_building_stood_at_its_doorway_keeps_its_model_and_doorway_where_they_were() {
+        // A part of one triangle, drawn.
+        let va = dereth_assets::VertexArray {
+            vertex_type: 1,
+            vertices: [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 3.0)]
+                .iter()
+                .enumerate()
+                .map(|(k, &(x, y, z))| SwVertex {
+                    id: i16::try_from(k).unwrap(),
+                    position: Vec3::new(x, y, z),
+                    normal: Vec3::new(0.0, 0.0, 1.0),
+                    uvs: vec![(0.0, 0.0)],
+                })
+                .collect(),
+        };
+        let triangle = Polygon {
+            poly_id: 0,
+            num_pts: 3,
+            stippling: 0,
+            sides_type: 0,
+            pos_surface: 0,
+            neg_surface: u16::MAX,
+            vertex_ids: vec![0, 1, 2],
+            pos_uv_indices: Some(vec![0; 3]),
+            neg_uv_indices: None,
+        };
+        let part = GfxObj {
+            id: DataId(0x0100_0001),
+            flags: 2,
+            surfaces: vec![DataId(0x0800_0001)],
+            drawing_bsp: Some(dereth_builder::bsp::drawing(
+                &va,
+                std::slice::from_ref(&triangle),
+            )),
+            vertex_array: va,
+            physics_polygons: Vec::new(),
+            physics_bsp: None,
+            sort_center: Vec3::new(1.0, 1.0, 1.0),
+            polygons: vec![triangle],
+            did_degrade: None,
+        };
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        out.add(part.id, part.encode_for(EraId::Eor).unwrap());
+        let mut shell = plinth_shell(Some(Collision {
+            points: vec![
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+            ],
+            rings: vec![vec![0, 1, 2]],
+        }));
+        shell.parts = vec![part.id];
+        // A doorway 6 m east of the shell's origin, facing the room west of it.
+        let doorway = vec![
+            Vec3::new(6.0, -2.0, 0.0),
+            Vec3::new(6.0, 2.0, 0.0),
+            Vec3::new(6.0, 2.0, 3.0),
+            Vec3::new(6.0, -2.0, 3.0),
+        ];
+        let at = Vec3::new(6.0, 0.0, 0.0);
+        let id = shell_model(&shell, &[(doorway, Vec3::ZERO)], at, &mut ids, &mut out)
+            .unwrap()
+            .expect("a model");
+        let g = GfxObj::decode_payload(id, &out.0[&id]).unwrap();
+        let p = |k: usize| g.vertex_array.vertices[k].position;
+        // Every point moved by the building's place: the part's, the collision's, the doorway's.
+        assert_eq!(p(1), Vec3::new(-2.0, 0.0, 0.0));
+        assert_eq!(p(3), Vec3::new(-7.0, -1.0, 0.0));
+        assert_eq!(g.sort_center, Vec3::new(-5.0, 1.0, 1.0));
+        let door = g.polygons.last().expect("the doorway");
+        for &k in &door.vertex_ids {
+            assert!(
+                p(usize::from(k)).x.abs() < 1e-6,
+                "the doorway at the origin"
+            );
+        }
+        // Nothing moved for a building standing where its shell does.
+        let id = shell_model(&shell, &[], Vec3::ZERO, &mut ids, &mut out)
+            .unwrap()
+            .expect("a model");
+        let g = GfxObj::decode_payload(id, &out.0[&id]).unwrap();
+        assert_eq!(
+            g.vertex_array.vertices[1].position,
+            Vec3::new(4.0, 0.0, 0.0)
+        );
+        assert_eq!(g.sort_center, Vec3::new(1.0, 1.0, 1.0));
     }
 }

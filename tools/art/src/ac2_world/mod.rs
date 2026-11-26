@@ -18,7 +18,8 @@
 //!   every model AC2's, so the land names none of AC1's scenery ([`grown`], [`scenes`]); AC2's
 //!   placed objects as AC1 statics ([`statics`]), set into the ground as AC2 sets them
 //!   ([`buried`]), its ledges an AC1 body does not climb made climbable ([`ledges`], [`climb`]),
-//!   its shells standing over rooms of their own made buildings you walk into ([`rooms`]);
+//!   its shells standing over rooms of their own made buildings you walk into ([`rooms`]), the
+//!   ground filling AC2's holes at their doorways kept under the doorways' floors ([`sills`]);
 //!   unless `--sky ac1`, AC2's sky as the region's sky, its models among the new records, with
 //!   the world's sky tints beside the region (`0x13000001`), which color it by the hour
 //!   ([`sky`]); and AC1's character-creation table (`0x0E000002`) with the world's one starting
@@ -52,7 +53,9 @@
 //! rooms under more than one shell, a building's passed over, a mesh that makes no cell, or a
 //! cell its block's count names that its file doesn't hold), `buildings-ac2.tsv` (each of AC2's
 //! buildings with rooms: where it stands, its rooms and those standing beyond its block, its first
-//! doorway and the room it leads into), `ac1-removed.tsv` (each block's AC1 buildings, their rooms, its statics and its
+//! doorway and the room it leads into), `doorways-ac2.tsv` (each of their doorways out to the
+//! land, its floor, and how far its ground stood over the floor before and after it was lowered),
+//! `ac1-removed.tsv` (each block's AC1 buildings, their rooms, its statics and its
 //! house restrictions left off the converted block), `worst-loss.tsv` (the AC2 vertices the
 //! conversion moves most), `kinds.tsv` (each AC2 kind's AC1 slot and variant), `map-picture.png`
 //! (the map window's new picture), `ground.tsv` (each terrain slot's AC2 picture),
@@ -103,6 +106,7 @@ mod region;
 mod roads;
 mod rooms;
 mod scenes;
+mod sills;
 mod sky;
 mod start;
 mod statics;
@@ -120,7 +124,7 @@ use auberean_world::records::WorldRecords;
 use dereth_assets::{CellLandblock, Decode, DenseLand, LandblockInfo, Region, RenderSurface};
 use dereth_dat::overlay::{container_name, OverlayDir, OverlayWriter};
 use dereth_dat::{DatFile, ModernDat};
-use dereth_primitives::DataId;
+use dereth_primitives::{DataId, Vec3};
 use sha2::{Digest, Sha256};
 
 /// The world key the overlay is written for.
@@ -1125,6 +1129,80 @@ pub fn build(args: &Args) -> Result<u32, String> {
         crate::ac2_world::joined::WIDEST,
     );
     eprintln!("{joined_line}");
+    // The ground filling AC2's holes kept under the floors of the doorways into them, before the
+    // ledges are found, so a step this leaves at a doorway is ramped as any other.
+    let block_len = grid.spacing() * grid.block_squares() as f64;
+    let to_world = |b: (usize, usize), p: Vec3| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        Vec3::new(
+            (b.0 as f64 * block_len + f64::from(p.x)) as f32,
+            (b.1 as f64 * block_len + f64::from(p.y)) as f32,
+            p.z,
+        )
+    };
+    let land_doorways: Vec<(&rooms::Building, sills::Doorway)> = ac2_buildings
+        .values()
+        .flatten()
+        .flat_map(|b| {
+            b.to_land.iter().map(move |d| {
+                (
+                    b,
+                    sills::Doorway {
+                        corners: d.corners.iter().map(|&c| to_world(b.block, c)).collect(),
+                        inside: to_world(b.block, d.inside),
+                        floor: d
+                            .floor
+                            .iter()
+                            .map(|t| t.map(|c| to_world(b.block, c)))
+                            .collect(),
+                    },
+                )
+            })
+        })
+        .collect();
+    let sills = sills::lower(
+        &mut w,
+        &g,
+        &land_doorways
+            .iter()
+            .map(|(_, d)| d.clone())
+            .collect::<Vec<_>>(),
+    );
+    let (over_before, over_after) = sills.counts();
+    let sills_line = format!(
+        "doorways out to the land: {}; their ground over their floor by more than {} m: {over_before} before, {over_after} after, {} vertices lowered (doorways-ac2.tsv)",
+        land_doorways.len(),
+        sills::TOLERANCE,
+        sills.vertices
+    );
+    eprintln!("{sills_line}");
+    let mut doorways_tsv = String::from(
+        "ac2_shell\tac1_block\tx\ty\tfloor_z\tinward_x\tinward_y\twidth\tover_before\tover_after\n",
+    );
+    for ((b, d), (before, after)) in land_doorways.iter().zip(&sills.over) {
+        let Some(a) = sills::across(d) else {
+            continue;
+        };
+        let o = |v: &Option<f64>| v.map_or_else(|| "-".to_owned(), |v| format!("{v:.2}"));
+        #[allow(clippy::cast_precision_loss)]
+        let _ = writeln!(
+            doorways_tsv,
+            "{:02X}{:02X}/{}\t{:02X}{:02X}\t{:.2}\t{:.2}\t{:.2}\t{:.3}\t{:.3}\t{:.2}\t{}\t{}",
+            b.ac2.0,
+            b.ac2.1,
+            b.ac2.2,
+            b.block.0,
+            b.block.1,
+            a.middle[0] - b.block.0 as f64 * block_len,
+            a.middle[1] - b.block.1 as f64 * block_len,
+            a.floor,
+            a.inward[0],
+            a.inward[1],
+            a.to - a.from,
+            o(before),
+            o(after)
+        );
+    }
     // AC2's ledges AC1's bodies do not climb: the land raised where they drop to the terrain, a
     // collision-only ramp where they drop to another static.
     eprintln!("making AC2's ledges climbable");
@@ -2355,6 +2433,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let _ = writeln!(stats, "{buried_line}");
     let _ = writeln!(stats, "{joined_line}");
     let _ = writeln!(stats, "{}", climb.line);
+    let _ = writeln!(stats, "{sills_line}");
     let _ = writeln!(
         stats,
         "{}",
@@ -2481,7 +2560,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let _ = writeln!(readme, "overlay/environments.tsv: each AC2 cell mesh, whether a building's rooms or the dungeons are drawn with it, the environment made of it and the surfaces its cells name.");
     let _ = writeln!(readme, "overlay/creatures.tsv: AC2's creatures, every look of each family, and the setup, motion table, combat table and texture swaps a world's weenie names for each.");
     let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, its cells (its dungeons' among them), its statics or its house restrictions (ac1-removed.tsv).");
-    let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv (AC1's dungeon blocks, their cells taken off), dungeons-ac2.tsv (each AC2 dungeon and the AC1 block it lies under), dungeon-cells.tsv (each AC2 dungeon cell's AC1 cell), dungeons-left.tsv (AC2's cells left out, and why), buildings-ac2.tsv (each AC2 building with rooms: where it stands, its rooms, those beyond its block, its first doorway), ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
+    let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv (AC1's dungeon blocks, their cells taken off), dungeons-ac2.tsv (each AC2 dungeon and the AC1 block it lies under), dungeon-cells.tsv (each AC2 dungeon cell's AC1 cell), dungeons-left.tsv (AC2's cells left out, and why), buildings-ac2.tsv (each AC2 building with rooms: where it stands, its rooms, those beyond its block, its first doorway), doorways-ac2.tsv (each doorway out to the land: where it stands, its floor, and how far its ground stood over the floor before and after it was lowered), ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
     for (name, body) in [
         ("README.txt", &readme),
         ("stats.txt", &stats),
@@ -2507,6 +2586,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         ("dungeons-ac2.tsv", &dungeons_tsv),
         ("dungeons-left.tsv", &dungeons_left_tsv),
         ("buildings-ac2.tsv", &buildings_tsv),
+        ("doorways-ac2.tsv", &doorways_tsv),
         ("dungeon-cells.tsv", &dungeon_cells_tsv),
         (
             "sky.tsv",
@@ -3047,6 +3127,104 @@ mod tests {
         assert!(
             after.abs() < before.abs(),
             "{before:.3} m off before, {after:.3} m after"
+        );
+    }
+
+    /// AC2's building at 66A9 (AC1's 558D) has its hall reach into a hillside, and AC2's ground
+    /// a hole there. The converted ground filling the hole stood well over the floor of its
+    /// doorway, and held a body walked in up on it, short of the hall; lowered at the doorway, it
+    /// stands under the floor.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_ground_filling_the_hole_at_a_doorway_into_a_hill_is_lowered_under_its_floor() {
+        use auberean_assets::mesh::CellMesh;
+        use dereth_primitives::frame::V3 as _;
+        let dir = auberean_dat::testing::require_target_install();
+        // AC2's block 66A8 and AC1's 558C share a south-west corner, so the area's meters are
+        // block 558C's own.
+        let (g, ..) = read_ac2_area(&dir, (0x66, 0xA8), 3).expect("AC2's ground");
+        let grid = Grid {
+            blocks: 2,
+            cells: 8,
+            cell_len: 24.0,
+            steps: STEPS,
+        };
+        let mut w = DenseWorld::sample(&g, grid);
+        let heights: Vec<f32> = w
+            .vertex
+            .iter()
+            .filter(|v| !v.water)
+            .map(|v| v.exact)
+            .collect();
+        let (t, _) = table::fitted(&heights, MAX_ROUNDING);
+        w.finish(&g, t);
+        // The hall's doorway out to the land, in the area's meters, its heights lowered as the
+        // land's are; and the middle of the hall's points.
+        let wr = statics::world_records(&dir).expect("AC2's records");
+        let hall = wr.cell(0x66, 0xA9, 0x0100).expect("the hall");
+        let mesh = wr.get::<CellMesh>(hall.mesh.0).expect("its mesh");
+        let (points, floor) = rooms::floor_of(&mesh);
+        let place = |v: Vec3| {
+            let r = hall.frame.rotation;
+            let r = dereth_primitives::Quat {
+                w: r.w,
+                x: r.x,
+                y: r.y,
+                z: r.z,
+            };
+            let v = rooms::turn(r, v);
+            let o = hall.frame.origin;
+            // The hall's block is one north of the area's corner.
+            #[allow(clippy::cast_possible_truncation)]
+            Vec3::new(
+                o.x + v.x,
+                o.y + v.y + 160.0,
+                table::lower(f64::from(o.z + v.z)) as f32,
+            )
+        };
+        let way = hall
+            .portals
+            .iter()
+            .find(|p| p.flags & 2 != 0)
+            .expect("a way out");
+        let polygon =
+            &mesh.mesh.physics_polygons[usize::from(mesh.portals[usize::from(way.portal)].polygon)];
+        #[allow(clippy::cast_precision_loss)]
+        let n = points.len() as f32;
+        let d = sills::Doorway {
+            corners: polygon
+                .vertices
+                .iter()
+                .map(|&i| place(points[usize::from(i)]))
+                .collect(),
+            inside: points
+                .iter()
+                .map(|&p| place(p))
+                .fold(Vec3::ZERO, |a, p| a.add(p))
+                .mul(1.0 / n),
+            floor: floor.iter().map(|t| t.map(place)).collect(),
+        };
+        // The hall's floor just inside stands over the doorway's lowest corner.
+        let a = sills::across(&d).expect("an upright doorway");
+        let bottom = d.corners.iter().map(|c| c.z).fold(f32::INFINITY, f32::min);
+        assert!(
+            a.floor > f64::from(bottom) + 0.2,
+            "the floor at {:.2} m, the doorway's foot at {bottom:.2} m",
+            a.floor
+        );
+        let before = sills::over(&w, &d).expect("an upright doorway");
+        assert!(
+            before > 1.0,
+            "the ground stood {before:.2} m over the doorway's floor"
+        );
+        sills::lower(&mut w, &g, std::slice::from_ref(&d));
+        let after = sills::over(&w, &d).expect("an upright doorway");
+        assert!(
+            after <= sills::TOLERANCE,
+            "the ground stands {after:.2} m over the doorway's floor"
         );
     }
 }
