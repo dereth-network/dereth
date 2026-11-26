@@ -423,6 +423,26 @@ pub fn point_in_poly2d(v: &[Vec3], point: Vec3) -> bool {
     true
 }
 
+/// Whether block-local point `(x, y)` is on a road. A block whose land cells are cut into finer
+/// squares lays its roads along its own vertices, at its region's road width, so the test reads
+/// that grid; a 9 x 9 block reads its cell corners at the default width.
+fn on_road_in(lb: &CellLandblock, region: &Region, x: f32, y: f32) -> bool {
+    let steps = lb.vertex_steps();
+    if steps <= 1 {
+        return on_road(&lb.terrain, x, y);
+    }
+    #[allow(clippy::cast_precision_loss)] // a handful of steps
+    let square = CELL_SIZE / steps as f32;
+    dereth_primitives::land_grid::on_road(
+        lb.grid_terrain(),
+        8 * steps + 1,
+        square,
+        region.land_defs.land_grid().road_width,
+        x,
+        y,
+    )
+}
+
 /// The landblock's scene fetch, with the static-object initialisation's full-detail guard
 /// in front of it. Contracts 3.4-3.6.
 ///
@@ -489,7 +509,7 @@ pub fn generate_scenery(
                     continue;
                 }
                 // Filter 2: roads.
-                if on_road(&lb.terrain, p.x, p.y) {
+                if on_road_in(lb, region, p.x, p.y) {
                     continue;
                 }
                 // Filter 3: no scenery in a cell that owns a building.
@@ -931,6 +951,127 @@ mod tests {
             }
             assert_eq!(covered, 23 * 23);
         }
+    }
+
+    /// A world whose land cells are cut into three steps, 25 x 25 vertices 8 m apart, with every
+    /// vertex `road` says carrying road 1, a flat ground and one scene of one object `offset`
+    /// meters east of each land cell corner. The objects the block grows.
+    fn grown_on_a_finer_grid(road: &dyn Fn(usize, usize) -> bool, offset: f32) -> Vec<Vec3> {
+        const SIDE: usize = 25;
+        let mut terrain = vec![4u16; SIDE * SIDE];
+        for i in 0..SIDE {
+            for j in 0..SIDE {
+                if road(i, j) {
+                    terrain[i * SIDE + j] |= 1;
+                }
+            }
+        }
+        let lb = CellLandblock::from_dense(
+            DataId(0x2020_FFFF),
+            0,
+            dereth_assets::world::DenseLand {
+                steps: 3,
+                terrain: terrain.into(),
+                height: vec![10u8; SIDE * SIDE].into(),
+                split: vec![0u8; (24 * 24usize).div_ceil(8)].into(),
+            },
+        );
+        let mut table = [0.0f32; crate::consts::LAND_HEIGHT_TABLE_LEN];
+        for (i, v) in table.iter_mut().enumerate() {
+            *v = 2.0 * i as f32;
+        }
+        let scene_id = DataId(0x1200_0001);
+        let kind = dereth_assets::region::TerrainType {
+            terrain_name: String::new(),
+            terrain_color: 0,
+            scene_types: vec![0],
+        };
+        let region = Region {
+            id: DataId(0x1300_0000),
+            region_number: 1,
+            version: 0,
+            region_name: String::new(),
+            land_defs: dereth_assets::region::LandDefs {
+                num_block_length: 255,
+                num_block_width: 255,
+                square_length: 24.0,
+                lblock_length: 8,
+                vertex_per_cell: 3,
+                max_obj_height: 200.0,
+                sky_height: 1000.0,
+                road_width: 3.0,
+                land_height_table: table.to_vec(),
+            },
+            game_time: dereth_assets::region::GameTime {
+                zero_time_of_year: 0.0,
+                zero_year: 0,
+                day_length: 1.0,
+                days_per_year: 1,
+                year_spec: String::new(),
+                times_of_day: Vec::new(),
+                days_of_the_week: Vec::new(),
+                seasons: Vec::new(),
+            },
+            parts_mask: 0,
+            sky_info: None,
+            sound_info: None,
+            scene_info: Some(vec![dereth_assets::region::SceneDesc {
+                stb_index: 0,
+                scenes: vec![scene_id],
+            }]),
+            terrain_types: vec![kind.clone(), kind],
+            land_surf: dereth_assets::region::LandSurf {
+                surf_type: 0,
+                tex_merge: None,
+                pal_shift: None,
+            },
+            region_misc: None,
+        };
+        let mesh = crate::land::mesh::generate_landblock_with_table(
+            &lb,
+            &region,
+            &table,
+            0x20,
+            0x20,
+            1,
+            dereth_landscape::Direction::InViewerBlock,
+        );
+        let mut obj = default_object_desc(DataId(0x0100_0001));
+        obj.base_loc.origin = Vec3::new(offset, 0.0, 0.0);
+        let scene = Scene {
+            id: scene_id,
+            objects: vec![obj],
+        };
+        let env = SceneryEnv {
+            scenes: &|id| (id == scene_id).then(|| scene.clone()),
+            has_building: &|_| false,
+            shape: &|_| Some(WithinBlockShape::default()),
+        };
+        generate_scenery(&lb, &mesh, &region, 0x20, 0x20, &env)
+            .into_iter()
+            .map(|p| p.frame.origin)
+            .collect()
+    }
+
+    /// On a grid finer than the land cells, a road that runs between the cell corners keeps the
+    /// scenery off it: an object one 8 m step from a corner, on a road vertex, is not grown, though
+    /// no corner carries road. With no road the same objects grow.
+    #[test]
+    fn a_road_between_the_cell_corners_of_a_finer_grid_keeps_scenery_off_it() {
+        let open = grown_on_a_finer_grid(&|_, _| false, 8.0);
+        assert!(open.len() > 20, "{}", open.len());
+        // Road on every vertex but the cell corners: each object stands on one.
+        let between = |i: usize, j: usize| !i.is_multiple_of(3) || !j.is_multiple_of(3);
+        let roaded = grown_on_a_finer_grid(&between, 8.0);
+        assert!(roaded.is_empty(), "{roaded:?}");
+        // A road along each line of vertices one step east of a cell corner's: only the objects
+        // standing on it go, and those 8 m or more beside it stay.
+        let lines = |i: usize, _: usize| i % 3 == 1;
+        let kept = grown_on_a_finer_grid(&lines, 8.0);
+        let on_a_line = |p: &Vec3| (p.x - 8.0).rem_euclid(24.0) < 0.01;
+        assert!(open.iter().any(on_a_line));
+        assert_eq!(kept.len(), open.iter().filter(|p| !on_a_line(p)).count());
+        assert!(!kept.iter().any(on_a_line), "{kept:?}");
     }
 
     /// Oracle: land-cell ids are `1 + cellY + cellX*8` in the low 16
