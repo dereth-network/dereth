@@ -26,6 +26,7 @@ mod corpse_finds;
 mod corpse_profiles;
 mod corpse_rights;
 mod corpse_rot;
+mod countdowns;
 mod crafting;
 mod creature_areas;
 mod creature_effects;

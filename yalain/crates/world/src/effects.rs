@@ -10,8 +10,22 @@
 //! combination looks at the target's effects and adds what it adds; a chain of other effects puts
 //! each on at once, in its order, as each does itself (its own appearance, if it names one, played
 //! first); an effect that raises a vital's own level ([`raises_for_good`]) adds it to the
-//! player's greatest of that vital for good, with no record; any other effect that lasts is added
-//! as a record. A player's ids count on from the last one it was given, across its sessions.
+//! player's greatest of that vital for good, with no record; a text shows in its player's chat
+//! as the text kind its data names, or in a box of its own, its player's name as its variable
+//! (2017: 14 of 14 and 7 of 7; a broadcast to those around or to the world shows nothing here, none
+//! recorded); any other effect that lasts is added as a record. A player's ids count on from the
+//! last one it was given, across its sessions.
+//!
+//! **A countdown** is a record that, as it runs out, puts its result on its holder, cast as the
+//! countdown was (a quest's next phase, a chain of other effects); taken off any other way, it puts
+//! on nothing. A result that holds a change over time with a place of its own comes only to a living
+//! holder within that place's reach. One its data keeps from its holder's client is never told, as
+//! an immunity's is not. One that ran out while its player was away runs out as the player comes
+//! back.
+//!
+//! **A change over time with a place of its own** (a hotspot) changes its player's vitals only
+//! while the player is within its radius of the place, in its landblock, and ends at its first
+//! change that finds the player outside.
 //!
 //! **A record** stays on its own clock: its timeout is its effect's duration at its spellcraft,
 //! longer by a part of its spread drawn evenly where its data gives one
@@ -1226,6 +1240,8 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
+        (Kind::Text(text), On::Player(world)) => show_text(s, net, world, *text),
+        (Kind::Text(_), On::Creature(_)) => false,
         (Kind::Instants(_), _) => {
             if def.fx != 0 {
                 show_fx_on(s, net, on, def.fx);
@@ -1250,6 +1266,48 @@ pub fn apply_on<S: Store>(
             true
         }
     }
+}
+
+/// The variable a text effect's text names its player with.
+pub const TEXT_NAME: u32 = 0x9D06_6C50;
+
+/// Show a player a text effect's text, its name as the variable: in its chat as the text's kind, or
+/// in a box of its own. Whether it was shown.
+fn show_text<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    text: crate::effect_defs::Text,
+) -> bool {
+    use crate::effect_defs::text_how;
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let name = crate::player::world_name(&p.name, p.sex);
+    let words = progress::text_with(
+        text.words,
+        vec![progress::nested(
+            TEXT_NAME,
+            TextInfo {
+                has_literal: 1,
+                literal: Some(name.encode_utf16().collect()),
+                ..TextInfo::default()
+            },
+        )],
+    );
+    let m = if text.how & text_how::POPUP != 0 {
+        session::call(
+            crate::popups::DISPLAY_MESSAGE,
+            &[Arg::Int(0), crate::chat::text_arg(words)],
+        )
+        .expect("a string reference packs")
+    } else if text.how & text_how::CHAT != 0 {
+        crate::chat::show_text(text.kind, words)
+    } else {
+        return false;
+    };
+    progress::private(net, world, &m);
+    true
 }
 
 /// The quality of a vital's own level a change names (type 4), and the greatest it is held in:
@@ -2216,9 +2274,14 @@ pub fn add_on<S: Store>(
     add_quietly(s, net, on, def, cast, shape, clock)
 }
 
-/// Is a record of this effect kept from its holder's client?
+/// Is a record of this effect kept from its holder's client: an immunity's, or a countdown's its
+/// data does not show?
 const fn hidden(def: &EffectDef) -> bool {
-    matches!(def.kind, Kind::Immunity { .. })
+    match def.kind {
+        Kind::Immunity { .. } => true,
+        Kind::Countdown { .. } => !def.client_visible(),
+        _ => false,
+    }
 }
 
 /// [`add_on`] but for the appearance, which the caller shows (or not) when it is due.
@@ -2647,9 +2710,60 @@ pub fn ends<S: Store>(
     if remove(s, net, world, eid) {
         if let Some(e) = ended {
             immunity_ended(s, net, on, &e, clock);
+            countdown_ended(s, net, on, &e, clock);
         }
         crate::world::keep_player(s, world);
     }
+}
+
+/// A countdown has run out: its result goes on its holder, cast as the countdown was; a result that
+/// holds a change over time with a place of its own, only on a living holder within its reach.
+fn countdown_ended<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    ended: &EffectState,
+    clock: Clock,
+) {
+    let Some(Kind::Countdown {
+        result: Some(result),
+    }) = s.effect_table.get(ended.state).map(|d| d.kind.clone())
+    else {
+        return;
+    };
+    let mut held = chained(&s.effect_table, result);
+    held.push(result);
+    let areas: Vec<crate::effect_defs::Area> = held
+        .iter()
+        .filter_map(|e| s.effect_table.areas.get(e).copied())
+        .collect();
+    if !areas.is_empty() {
+        let reached = match on {
+            On::Player(world) => s.players.get(&world).is_some_and(|p| {
+                !(crate::combat::is_dead(p) || p.dying.is_some())
+                    && areas.iter().any(|a| a.holds(&p.position))
+            }),
+            On::Creature(id) => s
+                .things
+                .get(id)
+                .and_then(|t| t.at)
+                .is_some_and(|at| areas.iter().any(|a| a.holds(&at))),
+        };
+        if !reached {
+            return;
+        }
+    }
+    let cast = Cast {
+        caster: ended.caster,
+        spellcraft: ended.spellcraft,
+        pk: ended.pk,
+        skill: ended.skill,
+        item: ended.item,
+        giver: None,
+        answers: false,
+        quiet: false,
+    };
+    apply_on(s, net, on, result, cast, clock);
 }
 
 /// An immunity under way has run out: unless the same has come on again since, what it leaves goes
@@ -2714,6 +2828,7 @@ pub fn creature_ends<S: Store>(
     }
     remove_on(s, net, on, eid);
     immunity_ended(s, net, on, &e, clock);
+    countdown_ended(s, net, on, &e, clock);
     let empty = records_of(s, on).is_empty();
     if empty {
         s.creature_effects.on.remove(&creature);
@@ -2813,6 +2928,19 @@ pub fn tick<S: Store>(
     else {
         return;
     };
+    // One with a place of its own ends once its player is outside it, changing nothing.
+    if let Some(area) = s.effect_table.areas.get(&e.state).copied() {
+        let inside = s
+            .players
+            .get(&world)
+            .is_some_and(|p| area.holds(&p.position));
+        if !inside {
+            if remove(s, net, world, eid) {
+                crate::world::keep_player(s, world);
+            }
+            return;
+        }
+    }
     let dead = s
         .players
         .get(&world)
@@ -2939,9 +3067,14 @@ pub fn prune(play: &mut crate::state::PlayState, table: &EffectTable, now: f64) 
 }
 
 /// Whether a record is still there for a player entering at the game time `now`: it did not go
-/// with the last session, nor run out.
+/// with the last session, nor run out (a countdown that ran out stays, to run out as it enters).
 fn lasts(table: &EffectTable, e: &EffectState, now: f64) -> bool {
-    !goes_at_logout(table, e) && (e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
+    let countdown = matches!(
+        table.get(e.state).map(|d| &d.kind),
+        Some(Kind::Countdown { .. })
+    );
+    !goes_at_logout(table, e)
+        && (countdown || e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
 }
 
 /// A player enters: its records are scheduled to run out (and to change vitals over time) on
@@ -3298,6 +3431,7 @@ pub fn toggled_on<S: Store>(
             | Kind::Resurrect { .. }
             | Kind::Combo(_)
             | Kind::Instants(_)
+            | Kind::Text(_)
     );
     if !record || warded(s, On::Player(world), &def) {
         return None;

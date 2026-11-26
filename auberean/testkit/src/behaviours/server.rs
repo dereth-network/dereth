@@ -5436,6 +5436,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.a-countdown-puts-its-result-on-as-it-runs-out",
+        says: "A countdown is a record that, as it runs out, puts its result on its holder, cast as the countdown was: a quest's next phase closes the window its quest opened, and a quest moved on before then is left where it is; taken off sooner, it puts on nothing; one its data keeps from its holder's client is never told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-COUNTDOWNS"),
+        station: "yalain-testkit::cpu::play::countdowns::a_countdown_puts_its_result_on_as_it_runs_out_and_not_before",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.a-countdown-run-out-away-runs-out-on-return",
+        says: "A countdown that ran out while its player was away runs out as the player comes back, its result after the session start. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COUNTDOWN-AWAY"),
+        station: "yalain-testkit::cpu::play::countdowns::a_countdown_that_ran_out_while_away_runs_out_as_its_player_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.a-countdowns-hotspot-only-within-its-reach",
+        says: "A countdown's result that holds a change over time with a place of its own comes only to a living holder within that place's reach: a holder elsewhere, or dead, gets none of it, its popup included.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOTSPOTS"),
+        station: "yalain-testkit::cpu::play::countdowns::a_countdowns_hotspot_comes_only_to_a_living_player_within_its_reach",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-dispel-takes-off-what-it-names",
         says: "A dispel takes off every record its target holds of the effects the world's rule \
                names for it, and leaves the rest; with no rule it does nothing, as its own data \
@@ -5453,6 +5477,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HEAL-AT-FULL"),
         station: "yalain-testkit::cpu::play::effects::a_heal_at_full_health_tells_its_story_and_sends_no_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.a-hotspot-harms-only-within-its-reach",
+        says: "A change over time with a place of its own harms its player while the player is within its radius of the place, in its landblock, and ends at its first change that finds the player outside, harming nothing more. Its end outside is our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOTSPOT-ENDS"),
+        station: "yalain-testkit::cpu::play::countdowns::a_hotspot_harms_its_player_inside_and_ends_once_it_is_outside",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5503,6 +5535,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-text-effect-shows-its-text",
+        says: "A text effect shows its text once, in its player's chat as the text kind its data names or in a box of its own, its player's name as a variable; it keeps no record.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TEXT-EFFECTS"),
+        station: "yalain-testkit::cpu::play::countdowns::a_text_effect_shows_in_chat_or_in_a_box_of_its_own_naming_its_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-weapons-applied-effect-lands-on-every-blow",
         says: "An effect on a weapon that applies another puts that one on the creature each of the \
                weapon's blows lands on, even one whose harm a watcher took whole: a dispel of the \
@@ -5543,6 +5583,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-RECORDS"),
         station: "yalain-testkit::cpu::play::effects::a_buff_is_a_record_that_runs_out_on_its_own_clock",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.countdowns-hotspots-and-texts-read",
+        says: "The install's countdowns read with their durations and results, kept from their holders' clients; the tent quests' results read as the quest's next phase and a chain of a hotspot, with its place and reach, and a popup.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-COUNTDOWNS-READ"),
+        station: "yalain-testkit::dat::effects::the_tent_quests_countdowns_read_with_their_results_hotspots_and_popups",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.effects.counter-answers-an-attack",

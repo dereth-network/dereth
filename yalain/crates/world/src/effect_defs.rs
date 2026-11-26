@@ -18,7 +18,9 @@
 //! of a list of named places, or to its allegiance's hall; a taunt, which changes a creature's mind
 //! about its caster once ([`crate::ai`]), by the share its data gives at the cast's spellcraft;
 //! a resurrection, which offers a dead player a return ([`crate::resurrections`]); extra
-//! consignments at each broker, as many as its spellcraft, while its player holds it.
+//! consignments at each broker, as many as its spellcraft, while its player holds it; a countdown,
+//! which lasts its time and then puts its result on its holder; a text shown to its target, in its
+//! chat or in a box of its own.
 //! Where a world's rules say what an effect does that its own data doesn't, the rule's kind: among
 //! them a skill trained for good ([`crate::skills::trained_for_good`]).
 //!
@@ -390,6 +392,10 @@ pub enum Kind {
     /// Held by its player, it lets it hold more consignments at each broker: as many more as its
     /// spellcraft ([`crate::market`]).
     ExtraConsignments,
+    /// Lasts its time, then puts this effect (by its saved state) on its holder as it runs out.
+    Countdown { result: Option<u32> },
+    /// Shows its target a text, once.
+    Text(Text),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -464,6 +470,40 @@ pub enum Recall {
     Allegiance,
 }
 
+/// A text an effect shows: its string, the kind of text it is shown as, and how (its flags'
+/// [`text_how`] bits).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Text {
+    pub words: (u32, u32),
+    pub kind: u32,
+    pub how: u32,
+}
+
+/// How a text effect is shown (its flags): in its target's chat, to those around it, to the whole
+/// world, in a box of its own.
+pub mod text_how {
+    pub const CHAT: u32 = 0x1;
+    pub const LOCAL: u32 = 0x2;
+    pub const GLOBAL: u32 = 0x4;
+    pub const POPUP: u32 = 0x8;
+}
+
+/// Where a change over time holds: within its radius of its place, in its place's landblock.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area {
+    pub at: yalain_store::StoredPosition,
+    pub radius: f32,
+}
+
+impl Area {
+    /// Is a place within it?
+    #[must_use]
+    pub fn holds(&self, p: &yalain_store::StoredPosition) -> bool {
+        p.cell >> 16 == self.at.cell >> 16
+            && crate::presence::distance(p, &self.at).is_some_and(|d| d <= self.radius)
+    }
+}
+
 /// An effect's definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectDef {
@@ -511,6 +551,7 @@ impl EffectDef {
                     | Kind::Impulse { .. }
                     | Kind::CraftExperience(_)
                     | Kind::Instants(_)
+                    | Kind::Text(_)
             )
     }
 
@@ -532,6 +573,7 @@ impl EffectDef {
             Kind::Immunity { then } | Kind::Applies(then) => vec![*then],
             Kind::Instants(list) => list.clone(),
             Kind::Pick(p) => p.effects.iter().map(|(e, _)| *e).collect(),
+            Kind::Countdown { result } => result.iter().copied().collect(),
             _ => Vec::new(),
         }
     }
@@ -707,6 +749,31 @@ impl EffectDef {
         let root = nav.object(g.root()?).ok()?;
         let spread = nav.number(root, "m_fVariance").ok()?;
         (spread.is_finite() && spread > 0.0).then_some(spread)
+    }
+
+    /// Where a saved state's change over time holds, when its data gives it a place: its place and
+    /// radius.
+    #[must_use]
+    pub fn area_of(lib: &Library, g: &Graph) -> Option<Area> {
+        let nav = Nav::new(lib, g);
+        let root = nav.object(g.root()?).ok()?;
+        let hotspot = lib
+            .package_id("HotspotEffect")
+            .is_some_and(|b| lib.derives_from(root.package_id(), b));
+        if !hotspot {
+            return None;
+        }
+        let r = nav
+            .field(root, "m_posStatic")
+            .ok()
+            .filter(|r| *r != 0 && *r != NULL)?;
+        let NativeObject::Position { cell, frame } = nav.native(r).ok()? else {
+            return None;
+        };
+        Some(Area {
+            at: position(*cell, frame),
+            radius: nav.number(root, "m_fRadius").ok()?,
+        })
     }
 
     /// The effect enumeration's value a saved state's graph holds, when it holds one.
@@ -970,20 +1037,7 @@ impl EffectDef {
                     _ => None,
                 });
             match at {
-                Some((cell, f)) => Kind::Teleport(yalain_store::StoredPosition {
-                    cell,
-                    origin: [
-                        f32::from_bits(f[0]),
-                        f32::from_bits(f[1]),
-                        f32::from_bits(f[2]),
-                    ],
-                    rotation: [
-                        f32::from_bits(f[3]),
-                        f32::from_bits(f[4]),
-                        f32::from_bits(f[5]),
-                        f32::from_bits(f[6]),
-                    ],
-                }),
+                Some((cell, f)) => Kind::Teleport(position(cell, &f)),
                 None => Kind::Other,
             }
         } else if is("TravelRecallEffect") {
@@ -1035,6 +1089,27 @@ impl EffectDef {
             })
         } else if is("Eff_SetSales") {
             Kind::ExtraConsignments
+        } else if is("CountdownEffect") {
+            Kind::Countdown {
+                result: state_of("m_effResult"),
+            }
+        } else if is("TextEffect") {
+            let words = nav
+                .field(o, "m_siBroadcast")
+                .ok()
+                .filter(|r| *r != 0 && *r != NULL)
+                .and_then(|r| match nav.native(r).ok()? {
+                    NativeObject::TextInfo(t) if t.string_id != 0 => Some((t.string_id, t.table)),
+                    _ => None,
+                });
+            match words {
+                Some(words) => Kind::Text(Text {
+                    words,
+                    kind: word("m_typeText").unwrap_or(0),
+                    how: flags,
+                }),
+                None => Kind::Other,
+            }
         } else if let Some(v) = heal_scaled(lib, o.package_id()) {
             // Its factor runs from its least to its most by spellcraft, held at the ends.
             let n = |name: &str| nav.number(o, name).ok();
@@ -1109,6 +1184,9 @@ pub struct EffectTable {
     /// The chance a weapon's blow that names an effect puts it on what it lands on, at a
     /// spellcraft, by saved state, where its data gives one ([`EffectTable::chance`]).
     pub chances: HashMap<u32, Scale>,
+    /// Where its changes over time hold, by saved state, where their data gives a place
+    /// ([`EffectDef::area_of`]).
+    pub areas: HashMap<u32, Area>,
     /// The forces among its effects, by saved state ([`EffectDef::force_of`]).
     pub forces: HashMap<u32, Force>,
     /// What effects hold back while they are held, by saved state (the world's rules).
@@ -1202,6 +1280,9 @@ impl EffectTable {
                 if let Some(spread) = EffectDef::duration_spread_of(lib, &g) {
                     t.duration_spreads.insert(s, spread);
                 }
+                if let Some(area) = EffectDef::area_of(lib, &g) {
+                    t.areas.insert(s, area);
+                }
                 todo.extend(d.adds());
                 todo.extend(d.chained_states());
                 t.effects.insert(s, d);
@@ -1293,6 +1374,16 @@ impl EffectTable {
     #[must_use]
     pub fn line(&self, state: u32) -> Option<(u32, u32)> {
         self.lines.get(&state).copied()
+    }
+}
+
+/// A place from its cell and its frame's words (origin, then rotation).
+fn position(cell: u32, f: &[u32]) -> yalain_store::StoredPosition {
+    let at = |i: usize| f32::from_bits(f.get(i).copied().unwrap_or(0));
+    yalain_store::StoredPosition {
+        cell,
+        origin: [at(0), at(1), at(2)],
+        rotation: [at(3), at(4), at(5), at(6)],
     }
 }
 

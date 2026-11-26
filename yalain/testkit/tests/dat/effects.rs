@@ -4540,3 +4540,90 @@ fn a_debuffs_records_run_their_duration_and_a_random_part_of_its_spread() {
         "Wingfoot: {t:?}"
     );
 }
+
+/// The tent quests' countdowns read as the install defines them: Infiltrate the Nursery's two last
+/// 30 s at spellcraft 1 to 900 s at 50 and are kept from their holder's client; one's result moves
+/// the quest to its third phase, the other's is a chain of the Olthoi's hotspot (25 health and
+/// vigor a second, for good, within 300 m of its place in the nursery's landblock) and its popup.
+/// The portal shard's countdown, shown to its holder, runs 300 s into a text in chat.
+/// Behaviour: server.effects.countdowns-hotspots-and-texts-read
+#[test]
+fn the_tent_quests_countdowns_read_with_their_results_hotspots_and_popups() {
+    use yalain_world::effect_defs::text_how;
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_0E1E, 0x6F00_0E1F, 0x6F00_0E4D, 0x6F00_0E8B]);
+    for (countdown, result) in [
+        (0x6F00_0E1E, 0x6F00_02C9),
+        (0x6F00_0E1F, 0x6F00_02C8),
+        (0x6F00_0E4D, 0x6F00_02CB),
+    ] {
+        let d = t.get(countdown).expect("a countdown");
+        assert_eq!(
+            d.kind,
+            Kind::Countdown {
+                result: Some(result)
+            },
+            "{countdown:08X}"
+        );
+        assert_eq!(
+            (d.duration.at(1.0), d.duration.at(50.0)),
+            (Some(30.0), Some(900.0))
+        );
+        assert!(!d.client_visible() && !d.removed_on_death() && !d.ends_at_logout);
+    }
+    assert_eq!(
+        t.get(0x6F00_02C9).map(|d| d.kind.clone()),
+        Some(Kind::Quest {
+            quest: 0x8000_01DC,
+            update: 0x2000_0003
+        })
+    );
+    assert_eq!(
+        t.get(0x6F00_02C8).map(|d| d.kind.clone()),
+        Some(Kind::Instants(vec![0x6F00_0E20, 0x6F00_0E21]))
+    );
+    let hotspot = t.get(0x6F00_0E20).expect("the hotspot");
+    assert_eq!(
+        hotspot.kind,
+        Kind::VitalOverTime {
+            flags: 7,
+            per_second: Scale(vec![(0.0, -25.0)])
+        }
+    );
+    assert!(hotspot.duration.is_empty() && hotspot.removed_on_death() && hotspot.client_visible());
+    let area = t.areas.get(&0x6F00_0E20).expect("its place");
+    assert_eq!((area.at.cell, area.radius), (0x0AC8_011C, 300.0));
+    assert!(area.holds(&area.at));
+    let mut beside = area.at;
+    beside.cell = 0x0AC7_011C;
+    assert!(!area.holds(&beside), "another landblock");
+    let Some(Kind::Text(popup)) = t.get(0x6F00_0E21).map(|d| d.kind.clone()) else {
+        panic!("the popup")
+    };
+    assert_eq!(
+        (popup.words, popup.kind, popup.how),
+        ((0xA727_FC98, 0x2500_165E), 8, text_how::POPUP)
+    );
+    let shard = t.get(0x6F00_0E8B).expect("the portal shard's countdown");
+    assert_eq!(
+        (
+            shard.kind.clone(),
+            shard.duration.at(1.0),
+            shard.client_visible()
+        ),
+        (
+            Kind::Countdown {
+                result: Some(0x6F00_0E8C)
+            },
+            Some(300.0),
+            true
+        )
+    );
+    let Some(Kind::Text(said)) = t.get(0x6F00_0E8C).map(|d| d.kind.clone()) else {
+        panic!("the shard's text")
+    };
+    assert_eq!(
+        (said.words, said.kind, said.how),
+        ((0x39E6_919F, 0x2500_16EF), 8, text_how::CHAT)
+    );
+}
