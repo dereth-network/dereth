@@ -429,6 +429,8 @@ lyceum-foundry = { path = "lyceum/crates/foundry" }
 gilrs = { version = "0.11", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam = "0.30"
+# Scoring a big BSP node's splitting planes on every core (dereth-builder).
+rayon = "1.12"
 # The art tool's global allocator (dereth-art), for its many-threaded building and freeing.
 mimalloc = { version = "0.1.52", default-features = false }
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }

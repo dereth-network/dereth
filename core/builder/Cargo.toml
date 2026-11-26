@@ -13,6 +13,8 @@ autotests = false
 dereth-primitives.workspace = true
 # The model and room records the trees are built for.
 dereth-assets.workspace = true
+# Scoring a big node's splitting planes on every core; on one thread where there are none.
+rayon.workspace = true
 
 [lints]
 workspace = true

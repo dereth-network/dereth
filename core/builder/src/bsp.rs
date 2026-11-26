@@ -213,35 +213,26 @@ const SPLIT_ON_CORES: usize = 256;
 /// alike, as scoring them one after another in order finds it. `score(k, beat)` scores plane `k`,
 /// or gives up on it (`None`) once its [`key`] can only be `beat` or more; `beat` only ever falls,
 /// so a plane given up on is never the best. A node of `size` polygons or more is scored on every
-/// core, which chooses the same plane.
+/// core (where it has more than one), which chooses the same plane.
 fn best_split(
     n: usize,
     size: usize,
     score: impl Fn(usize, u64) -> Option<i64> + Sync,
 ) -> Option<(usize, i64)> {
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     let best = AtomicU64::new(u64::MAX);
     let one = |k: usize| {
         if let Some(s) = score(k, best.load(Ordering::Relaxed)) {
             best.fetch_min(key(s, k), Ordering::Relaxed);
         }
     };
-    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-    if size < SPLIT_ON_CORES || cores < 2 || n < 2 {
+    // On the shared pool of workers: a node's own threads, made and joined at every big node, cost
+    // more than its scoring where making a thread is slow (Windows).
+    if size < SPLIT_ON_CORES || n < 2 {
         (0..n).for_each(one);
     } else {
-        let next = AtomicUsize::new(0);
-        std::thread::scope(|s| {
-            for _ in 0..cores.min(n) {
-                s.spawn(|| loop {
-                    let k = next.fetch_add(1, Ordering::Relaxed);
-                    if k >= n {
-                        break;
-                    }
-                    one(k);
-                });
-            }
-        });
+        (0..n).into_par_iter().for_each(one);
     }
     let b = best.into_inner();
     (b != u64::MAX).then(|| {
