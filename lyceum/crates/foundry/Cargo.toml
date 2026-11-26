@@ -40,7 +40,8 @@ serde_json.workspace = true
 # A static glTF scene, read by the world builders' shared reader.
 dereth-gltf.workspace = true
 glam.workspace = true
-toml.workspace = true
+# Its rows written in the order they are read, as the server's rows writer writes them.
+toml = { workspace = true, features = ["preserve_order"] }
 # A source file edited in place, its comments and layout kept.
 sha2.workspace = true
 toml_edit.workspace = true

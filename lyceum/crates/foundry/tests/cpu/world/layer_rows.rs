@@ -201,3 +201,152 @@ fn new_patch_adds_a_patch_with_a_pack_after_the_last_layer() {
     assert!(dir.join("patches/2027-02-second/NOTES.md").is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A new file of rows written at once is what writing them one after another makes, each new
+/// row's key first.
+#[test]
+fn a_new_file_written_at_once_is_its_rows_written_one_by_one() {
+    use lyceum_foundry::layer_rows::{new_file, removals_file};
+    let schema = schema();
+    let row = |class: i64, level: i64| -> toml::Table {
+        toml::from_str(&format!(
+            "class = {class}\nclass_name = \"c{class}\"\n[int]\nLevel = {level}\n[did]\nSetup = 33554433\n"
+        ))
+        .unwrap()
+    };
+    let rows = [row(509, 5), row(510, 6)];
+    let mut text: Option<String> = None;
+    for r in &rows {
+        let item = format!("weenie {}", r["class"]);
+        text = write_row(&schema, "weenie", text.as_deref(), &item, Some(r)).unwrap();
+    }
+    let at_once: Vec<(&str, &toml::Table)> = rows.iter().map(|r| ("weenie", r)).collect();
+    assert_eq!(new_file(&schema, &at_once), text.unwrap());
+    // A kind whose key isn't first by name.
+    let schema = RowSchema::of_schema(&serde_json::json!({
+        "rows": {
+            "encounter": {
+                "file": "encounter/{landblock >> 8:02X}xx.toml",
+                "item": "encounter {landblock:04X} {cell[0]},{cell[1]}",
+                "key": ["landblock", "cell"],
+                "fields": { "landblock": "hex", "cell": { "list": "int", "len": 2 }, "class": "int" },
+            },
+        },
+    }))
+    .unwrap()
+    .unwrap();
+    let wanted: toml::Table =
+        toml::from_str("landblock = 2158\ncell = [7, 5]\nclass = 61070\n").unwrap();
+    let row = delta(&schema, "encounter", None, &wanted).unwrap();
+    let one = write_row(&schema, "encounter", None, "encounter 086E 7,5", Some(&row))
+        .unwrap()
+        .unwrap();
+    // Its key first, as the server's rows writer writes it, however the build orders a table.
+    assert!(one.starts_with("[[encounter]]\nlandblock = "), "{one}");
+    let wanted2: toml::Table =
+        toml::from_str("landblock = 2158\ncell = [7, 6]\nclass = 61070\n").unwrap();
+    let row2 = delta(&schema, "encounter", None, &wanted2).unwrap();
+    let two = write_row(
+        &schema,
+        "encounter",
+        Some(&one),
+        "encounter 086E 7,6",
+        Some(&row2),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        new_file(&schema, &[("encounter", &row), ("encounter", &row2)]),
+        two
+    );
+    let mut text: Option<String> = None;
+    for item in ["weenie 509", "spawn 0x7A9B400A"] {
+        text = write_removal(text.as_deref(), item, true).unwrap();
+    }
+    assert_eq!(
+        removals_file(&["weenie 509", "spawn 0x7A9B400A"]),
+        text.unwrap()
+    );
+}
+
+/// A patch's pack written from a whole world of rows folds, over the base, into that world: an
+/// item changed is the patch's row of its change, one new is written whole, one the world lacks is
+/// taken away, and one alike is left out. A pack that holds rows already is refused.
+#[test]
+fn a_layer_written_from_a_world_folds_into_that_world() {
+    use lyceum_foundry::layer_from::{world_of_rows, write as write_layer};
+    let (dir, world) = repo("layer-from");
+    let schema = schema();
+    write(
+        &dir.join("base/library/weenie/00510.toml"),
+        "[[weenie]]\nclass = 510\nclass_name = \"gone\"\n",
+    );
+    write(
+        &dir.join("base/library/weenie/00511.toml"),
+        "[[weenie]]\nclass = 511\nclass_name = \"kept\"\n",
+    );
+    // The world wanted: the drudge a level higher with no name, the kept one as it was, a new one.
+    let wanted = dir.join("wanted");
+    write(
+        &wanted.join("pack.toml"),
+        "name = \"wanted\"\nversion = \"1\"\n",
+    );
+    write(
+        &wanted.join("weenie/00509.toml"),
+        "[[weenie]]\nclass = 509\nclass_name = \"drudge\"\n\n[weenie.int]\nItemType = 16\nLevel = 6\n\n\
+         [[weenie.create_list]]\nweenie_class_id = 273\nstack_size = 1\n",
+    );
+    write(
+        &wanted.join("weenie/00511.toml"),
+        "[[weenie]]\nclass = 511\nclass_name = \"kept\"\n",
+    );
+    write(
+        &wanted.join("weenie/00512.toml"),
+        "[[weenie]]\nclass = 512\nclass_name = \"new\"\n\n[weenie.did]\nSetup = 0x02000001\n",
+    );
+    let repo = Repo::open(&world).unwrap();
+    let want = world_of_rows(&schema, &wanted).unwrap();
+    let w = write_layer(&schema, &repo, 1, 0, &want).unwrap();
+    assert_eq!((w.made, w.changed, w.removed), (1, 1, 1));
+    let pack = dir.join("patches/2027-01-first/packs/main");
+    let names: Vec<String> = w
+        .files
+        .keys()
+        .map(|p| {
+            p.strip_prefix(&pack)
+                .unwrap()
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        })
+        .collect();
+    assert_eq!(
+        names,
+        ["remove.toml", "weenie/00509.toml", "weenie/00512.toml"]
+    );
+    // The change is the patch's row of it alone: the level, and the name unset.
+    let changed = &w.files[&pack.join("weenie/00509.toml")];
+    assert!(
+        changed.contains("Level = 6") && !changed.contains("ItemType"),
+        "{changed}"
+    );
+    assert!(
+        changed.contains("remove_fields = [\"string.Name\"]"),
+        "{changed}"
+    );
+    for (path, text) in &w.files {
+        write(path, text);
+    }
+    let folded = Repo::open(&world).unwrap().fold(&schema, 1).unwrap();
+    let rows = |w: &lyceum_foundry::repo::ShownWorld| -> Vec<(String, toml::Table)> {
+        w.items
+            .iter()
+            .map(|(n, i)| (n.clone(), i.row(&schema)))
+            .collect()
+    };
+    assert_eq!(rows(&folded), rows(&want));
+    // Written once, the pack is no longer empty.
+    let again = write_layer(&schema, &Repo::open(&world).unwrap(), 1, 0, &want);
+    assert!(again.is_err_and(|e| e.contains("holds rows already")));
+    let _ = std::fs::remove_dir_all(&dir);
+}

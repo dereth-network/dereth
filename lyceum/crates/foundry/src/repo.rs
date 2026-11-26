@@ -222,6 +222,25 @@ pub struct RowPack {
     pub files: BTreeMap<String, String>,
 }
 
+impl RowPack {
+    /// The pack in folder `dir`: its name, the provenance its header gives and its rows.
+    ///
+    /// # Errors
+    /// A folder or header that doesn't read.
+    pub fn read(dir: &Path) -> Result<Self, String> {
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("{}: not a pack folder", dir.display()))?;
+        Ok(Self {
+            name,
+            dir: dir.to_path_buf(),
+            prov: pack_prov(dir)?,
+            files: rows_of(dir)?,
+        })
+    }
+}
+
 /// A layer of a repository: its id (`base`, or a patch's `<yyyy-mm>-<name>`), whether it is a
 /// checkpoint, and its packs.
 #[derive(Clone, Debug, PartialEq)]
@@ -431,16 +450,7 @@ impl Repo {
         for l in &lineage.layers {
             let mut packs = Vec::new();
             for dir in &l.packs {
-                let name = dir
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .ok_or_else(|| format!("{}: not a pack folder", dir.display()))?;
-                packs.push(RowPack {
-                    name,
-                    dir: dir.clone(),
-                    prov: pack_prov(dir)?,
-                    files: rows_of(dir)?,
-                });
+                packs.push(RowPack::read(dir)?);
             }
             layers.push(RepoLayer {
                 id: l.id.clone(),

@@ -300,6 +300,44 @@ pub fn write_removal(text: Option<&str>, item: &str, gone: bool) -> Result<Optio
     Ok((!out.trim().is_empty()).then_some(out))
 }
 
+/// A new pack file of `rows`, each its kind and row, in order: what [`write_row`] writes of them
+/// one after another into no file, written at once.
+#[must_use]
+pub fn new_file(schema: &RowSchema, rows: &[(&str, &toml::Table)]) -> String {
+    let mut doc = toml_edit::DocumentMut::new();
+    for (kind, row) in rows {
+        let described = schema
+            .kinds
+            .get(*kind)
+            .map(|k| &k.described)
+            .unwrap_or(&J::Null);
+        if doc.get(kind).is_none() {
+            doc[*kind] = toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
+        }
+        if let Some(a) = doc[*kind].as_array_of_tables_mut() {
+            a.push(new_row(row, described));
+        }
+    }
+    doc.to_string()
+}
+
+/// A new pack file taking `items` away, a `[[remove]]` row each, in order: what
+/// [`write_removal`] writes of them one after another into no file, written at once.
+#[must_use]
+pub fn removals_file(items: &[&str]) -> String {
+    let mut doc = toml_edit::DocumentMut::new();
+    let mut a = toml_edit::ArrayOfTables::new();
+    for item in items {
+        let mut t = toml_edit::Table::new();
+        t["item"] = toml_edit::value(*item);
+        a.push(t);
+    }
+    if !a.is_empty() {
+        doc["remove"] = toml_edit::Item::ArrayOfTables(a);
+    }
+    doc.to_string()
+}
+
 // ---- writing TOML ------------------------------------------------------------------------------
 
 /// A value written as TOML, a number the server writes in hexadecimal (`ty` is `"hex"`) in it; of

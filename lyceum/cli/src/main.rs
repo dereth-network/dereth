@@ -42,6 +42,11 @@
 //!                                               one item's fields with the layer and the place
 //!                                               that set each and where it came from; the
 //!                                               vocabulary is `empyrean-import schema`'s
+//! lyceum layer-from <world.toml> --layer <id> --rows <folder> --schema <json> [--pack <name>]
+//!                   [--dry-run]                a patch's empty pack written so the world at
+//!                                               it is the folder of rows (a newer snapshot of
+//!                                               what the base was written from): each item
+//!                                               it changes, makes or takes away
 //! lyceum lock <world.toml> --dats <dir> [--on <overlay>]
 //!                                               the world's lockfile regenerated after a
 //!                                               merge: every id kept, what two branches
@@ -98,6 +103,7 @@ lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--e
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
+lyceum layer-from <world.toml> --layer <id> --rows <folder> --schema <json> [--pack <name>] [--dry-run]
 lyceum lock <world.toml> --dats <dir> [--on <overlay>]
 lyceum name <world.toml> --heritage <name> --seed <text> [--count <n>]
 lyceum publish <world.toml> --dats <dir> --out <dir> [--on <overlay>] [--layer <id>] [--number] [--empyrean <dir>]
@@ -268,6 +274,89 @@ fn lock(args: &Args) -> ExitCode {
         Err(e) => {
             eprintln!("lyceum: {e}");
             ExitCode::from(2)
+        }
+    }
+}
+
+/// `layer-from`: a patch's empty pack written so the world at the patch is a folder of rows.
+fn layer_from(args: &Args) -> ExitCode {
+    use lyceum_foundry::layer_from;
+    use lyceum_foundry::repo::{Repo, RowSchema};
+    if args
+        .known(&["schema", "layer", "rows", "pack", "dry-run"])
+        .is_err()
+        || args.words.len() != 1
+    {
+        return usage("layer-from takes a world file, --layer, --rows and --schema");
+    }
+    let (Some(schema), Some(layer), Some(rows)) =
+        (args.path("schema"), args.value("layer"), args.path("rows"))
+    else {
+        return usage(
+            "layer-from takes --layer, --rows and --schema (empyrean-import schema writes it)",
+        );
+    };
+    let run = || -> Result<(), String> {
+        let text =
+            std::fs::read_to_string(&schema).map_err(|e| format!("{}: {e}", schema.display()))?;
+        let vocabulary = RowSchema::read(&text)
+            .map_err(|e| format!("{}: {e}", schema.display()))?
+            .ok_or_else(|| {
+                format!(
+                    "{}: no rows; a newer empyrean-import writes them",
+                    schema.display()
+                )
+            })?;
+        let repo = Repo::open(Path::new(&args.words[0]))?;
+        let at = repo
+            .ids()
+            .iter()
+            .position(|l| *l == layer)
+            .ok_or_else(|| format!("no layer {layer}; the layers are {:?}", repo.ids()))?;
+        let packs = &repo.layers[at].packs;
+        let pack = match args.value("pack") {
+            Some(name) => packs
+                .iter()
+                .position(|p| p.name == name)
+                .ok_or_else(|| format!("{layer} has no pack {name}"))?,
+            None if packs.len() == 1 => 0,
+            None => {
+                return Err(format!(
+                    "{layer} has {} packs: name one with --pack",
+                    packs.len()
+                ))
+            }
+        };
+        let wanted = layer_from::world_of_rows(&vocabulary, &rows)?;
+        let w = layer_from::write(&vocabulary, &repo, at, pack, &wanted)?;
+        if !args.switch("dry-run") {
+            for (path, text) in &w.files {
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                }
+                std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+        }
+        println!(
+            "{layer}/{}: {} items made, {} changed, {} taken away, in {} files{}",
+            packs[pack].name,
+            w.made,
+            w.changed,
+            w.removed,
+            w.files.len(),
+            if args.switch("dry-run") {
+                " (dry run: none written)"
+            } else {
+                ""
+            }
+        );
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("lyceum layer-from: {e}");
+            ExitCode::FAILURE
         }
     }
 }
@@ -1600,6 +1689,10 @@ fn main() -> ExitCode {
         },
         "rows" => match parsed(rest) {
             Ok(a) => rows(&a),
+            Err(why) => usage(&why),
+        },
+        "layer-from" => match parsed(rest) {
+            Ok(a) => layer_from(&a),
             Err(why) => usage(&why),
         },
         "publish" => match parsed(rest) {
