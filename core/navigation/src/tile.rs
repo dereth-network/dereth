@@ -190,6 +190,7 @@ impl Region {
             loose_todo: Vec::new(),
             dirty: HashSet::new(),
             drop_links: Vec::new(),
+            fences: Vec::new(),
         };
         region.stitch(per, config);
         region.report.polygons = region.polys.len();

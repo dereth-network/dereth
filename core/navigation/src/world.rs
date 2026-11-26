@@ -1,6 +1,6 @@
 //! The planner: regions built on first use and kept, the objects that come and go, and the plan.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 use dereth_physics::globals::FLOOR_Z;
@@ -10,7 +10,7 @@ use dereth_primitives::{CellId, ObjectId, Position, Quat, Vec3};
 
 use crate::mesh::SearchWork;
 use crate::path::{global, global_distance, NavPath, NoPath, Waypoint, WaypointAction};
-use crate::region::{block_xy, poly_square, Region, GROUND};
+use crate::region::{block_xy, Region, LAND_CELL};
 use crate::search::{Gate, Gates, Steps};
 use crate::solids::{object_shapes, Shape};
 use crate::source::{NavConfig, NavSource};
@@ -100,9 +100,6 @@ pub enum ObstacleKind {
 /// How much further than a solid object's a portal the walk is not taking is kept off, metres:
 /// room for the body's steering to swing without touching it.
 pub const PORTAL_CLEARANCE: f32 = 1.0;
-
-/// The side of a land cell, metres.
-const LAND_CELL: f32 = 24.0;
 
 /// How far a portal whose body has no collision shapes is kept off, metres from its place.
 const PORTAL_BODY: f32 = 1.0;
@@ -235,6 +232,22 @@ pub fn fence_near_way(cell: CellId, way: &[Position], clear: f32) -> bool {
     })
 }
 
+/// Whether the barrier round land cell `cell` reaches the land of the landblock `(dx, dy)` from
+/// its own: its own landblock's always, the one beside it only across the edge the cell lies on.
+/// The room a route keeps is far less than a land cell.
+fn reaches(cell: u32, (dx, dy): (i32, i32)) -> bool {
+    let index = cell & 0xFFFF;
+    #[allow(clippy::cast_possible_wrap)]
+    let (cx, cy) = (((index - 1) / 8) as i32, ((index - 1) % 8) as i32);
+    let along = |d: i32, c: i32| match d {
+        0 => true,
+        -1 => c == 0,
+        1 => c == 7,
+        _ => false,
+    };
+    along(dx, cx) && along(dy, cy)
+}
+
 /// The planner over one source.
 #[derive(Debug)]
 pub struct NavWorld<S> {
@@ -345,7 +358,9 @@ impl<S: NavSource> NavWorld<S> {
                 self.touch_tile((bx, by));
                 continue;
             }
-            let kept = block_id(bx, by).and_then(|id| {
+            // A tile a house's barrier reaches is built with it, never read back.
+            let fenced = !self.fences_for((bx, by)).is_empty();
+            let kept = block_id(bx, by).filter(|_| !fenced).and_then(|id| {
                 let store = self.tile_store.as_ref()?;
                 let key = tile_key(id.0);
                 let bytes = store.load(&key)?;
@@ -417,17 +432,60 @@ impl<S: NavSource> NavWorld<S> {
     }
 
     /// Keep tile `block` (`None` for a landblock with no terrain), and in the store when it was
-    /// built here.
+    /// built here and no house's barrier reaches it. A tile built with barriers that have changed
+    /// since is let go of, to be built again.
     pub(crate) fn keep_tile(&mut self, block: (i32, i32), region: Option<Region>) {
         self.tiles_built += 1;
+        if let Some(r) = region.as_ref() {
+            if r.fences != self.fences_for(block) {
+                return;
+            }
+        }
         if let (Some(r), Some(store), Some(id)) = (
-            region.as_ref(),
+            region.as_ref().filter(|r| r.fences.is_empty()),
             self.tile_store.as_ref(),
             block_id(block.0, block.1),
         ) {
             store.save(&tile_key(id.0), &r.tile_bytes(&self.config));
         }
         self.remember_tile(block, region.map(Arc::new));
+    }
+
+    /// Start building tile `block`, with the barriers that reach it.
+    pub(crate) fn start_tile(&self, block: (i32, i32)) -> Option<crate::region::Finishing> {
+        Region::start_tile(&self.source, block, &self.config, &self.fences_for(block))
+    }
+
+    /// The fenced land cells whose barriers reach landblock `block`'s land, in order: its own,
+    /// and those of the landblocks round it along the edge they share with it.
+    pub(crate) fn fences_for(&self, (bx, by): (i32, i32)) -> Vec<u32> {
+        let mut out = Vec::new();
+        if self.fenced.is_empty() {
+            return out;
+        }
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let Some(id) = block_id(bx + dx, by + dy) else {
+                    continue;
+                };
+                let lo = u32::from(id.0) << 16;
+                for &cell in self.fenced.range(lo | 1..=lo | 0x40) {
+                    if reaches(cell, (-dx, -dy)) {
+                        out.push(cell);
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out
+    }
+
+    /// Let go of tile `block` and the windows that hold it.
+    fn forget_tile(&mut self, block: (i32, i32)) {
+        self.tiles.remove(&block);
+        self.tile_order.retain(|&b| b != block);
+        self.regions
+            .retain(|r| r.blocks.as_ref().is_none_or(|b| !b.contains(&block)));
     }
 
     fn touch_tile(&mut self, block: (i32, i32)) {
@@ -773,8 +831,31 @@ impl<S: NavSource> NavWorld<S> {
     /// The cells a house's barrier keeps the body out of, replacing the last set: the route keeps
     /// the body's width and the margin clear of a fenced land cell's edges, and ends in no fenced
     /// cell, land or interior (a house's rooms open only onto its own land cell).
+    ///
+    /// The landblocks whose land a barrier that came or went reaches are built again when next
+    /// wanted, with the barriers in them.
     pub fn set_fenced_cells(&mut self, cells: impl IntoIterator<Item = CellId>) {
-        self.fenced = cells.into_iter().map(|c| c.0).collect();
+        let fenced: BTreeSet<u32> = cells.into_iter().map(|c| c.0).collect();
+        let changed: Vec<u32> = fenced
+            .symmetric_difference(&self.fenced)
+            .copied()
+            .filter(|c| (1..=0x40).contains(&(c & 0xFFFF)))
+            .collect();
+        self.fenced = fenced;
+        let mut blocks = BTreeSet::new();
+        for cell in changed {
+            let (bx, by) = block_xy(cell >> 16);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if reaches(cell, (dx, dy)) {
+                        blocks.insert((bx + dx, by + dy));
+                    }
+                }
+            }
+        }
+        for b in blocks {
+            self.forget_tile(b);
+        }
     }
 
     /// Record a door's state, if the door is known.
@@ -860,87 +941,6 @@ impl<S: NavSource> NavWorld<S> {
     /// Whether place `i` of `region` stands in a fenced cell: no route ends there.
     pub(crate) fn fenced_place(&self, region: &Region, i: u32) -> bool {
         !self.fenced.is_empty() && self.fenced.contains(&region.position(i).cell.0)
-    }
-
-    /// The places a house's barrier keeps the body out of, and the polygons over them: every
-    /// outdoor place whose body, as wide as the room the route keeps, reaches across a fenced land
-    /// cell's edge (the barrier stops a body there). The band they make walls the places further
-    /// in off without each one being blocked, and the polygons wholly inside it stay whole.
-    pub(crate) fn fence_gates(&self, region: &Region) -> (HashSet<u32>, HashSet<u32>) {
-        let mut places = HashSet::new();
-        let mut polys = HashSet::new();
-        if self.fenced.is_empty() {
-            return (places, polys);
-        }
-        let clear = self.config.agent.radius + self.config.margin;
-        let s = region.spacing;
-        for &cell in &self.fenced {
-            let index = cell & 0xFFFF;
-            if !(1..=0x40).contains(&index) {
-                continue;
-            }
-            let (cx, cy) = ((index - 1) / 8, (index - 1) % 8);
-            #[allow(clippy::cast_precision_loss)]
-            let corner = Position::new(
-                CellId(cell),
-                dereth_primitives::Frame::new(
-                    Vec3::new(cx as f32 * LAND_CELL, cy as f32 * LAND_CELL, 0.0),
-                    Quat::IDENTITY,
-                ),
-            );
-            if !region.covers(&corner) {
-                continue;
-            }
-            let o = region.to_region(&corner);
-            let x0 = floor_to_i32((o.x - clear) / s);
-            let x1 = floor_to_i32((o.x + LAND_CELL + clear) / s) + 1;
-            let y0 = floor_to_i32((o.y - clear) / s);
-            let y1 = floor_to_i32((o.y + LAND_CELL + clear) / s) + 1;
-            // The columns further in than the room kept from every edge.
-            let (ix0, ix1) = (
-                floor_to_i32((o.x + clear) / s) + 1,
-                floor_to_i32((o.x + LAND_CELL - clear) / s),
-            );
-            let (iy0, iy1) = (
-                floor_to_i32((o.y + clear) / s) + 1,
-                floor_to_i32((o.y + LAND_CELL - clear) / s),
-            );
-            let inner = |ix: i32, iy: i32| (ix0..=ix1).contains(&ix) && (iy0..=iy1).contains(&iy);
-            for ix in x0..=x1 {
-                for iy in y0..=y1 {
-                    if inner(ix, iy) {
-                        continue;
-                    }
-                    for i in region.column(ix, iy) {
-                        let outdoors = i & GROUND != 0
-                            || region
-                                .nodes
-                                .get(i as usize)
-                                .and_then(|n| region.cell_ids.get(usize::from(n.cell)))
-                                .is_some_and(|c| c.0 & 0xFFFF < 0x0100);
-                        if outdoors {
-                            places.insert(i);
-                        }
-                    }
-                }
-            }
-            // The polygons reaching into the band: those whose bounds meet the fenced square
-            // and are not wholly inside the band's inner edge.
-            let (sx0, sy0) = poly_square(x0, y0);
-            let (sx1, sy1) = poly_square(x1, y1);
-            for sx in sx0..=sx1 {
-                for sy in sy0..=sy1 {
-                    for &p in region.poly_index.get(&(sx, sy)).into_iter().flatten() {
-                        let (bx0, by0, bx1, by1) = region.polys[p as usize].bounds();
-                        let meets = bx1 >= x0 && bx0 <= x1 && by1 >= y0 && by0 <= y1;
-                        if meets && !(inner(bx0, by0) && inner(bx1, by1)) {
-                            polys.insert(p);
-                        }
-                    }
-                }
-            }
-        }
-        (places, polys)
     }
 
     /// Plan a route from `from` to `to`: inside one dungeon, or outdoors across a window of
@@ -1474,6 +1474,50 @@ mod tests {
             "the one used longest ago goes"
         );
         assert_eq!(nav.tiles.len(), MAX_TILES);
+    }
+
+    #[test]
+    fn a_barrier_reaches_its_own_landblock_and_those_across_the_edges_its_cell_lies_on() {
+        let mut nav = ledge(true);
+        let around: Vec<(i32, i32)> = (0x0F..=0x11)
+            .flat_map(|x| (0x0F..=0x11).map(move |y| (x, y)))
+            .collect();
+        for &b in &around {
+            nav.remember_tile(b, None);
+        }
+        // A cell inside landblock 0x1010, and the one in its far corner.
+        let (inner, corner) = (0x1010_001B, 0x1010_0040);
+        nav.set_fenced_cells([CellId(inner)]);
+        let held = around.iter().filter(|b| nav.tiles.contains_key(b)).count();
+        assert_eq!(held, 8, "only the cell's own landblock let go of");
+        assert!(!nav.tiles.contains_key(&(0x10, 0x10)));
+        assert_eq!(nav.fences_for((0x10, 0x10)), vec![inner]);
+        assert!(nav.fences_for((0x11, 0x10)).is_empty());
+
+        for &b in &around {
+            nav.remember_tile(b, None);
+        }
+        nav.set_fenced_cells([CellId(inner), CellId(corner)]);
+        let gone: BTreeSet<(i32, i32)> = around
+            .iter()
+            .copied()
+            .filter(|b| !nav.tiles.contains_key(b))
+            .collect();
+        assert_eq!(
+            gone,
+            BTreeSet::from([(0x10, 0x10), (0x11, 0x10), (0x10, 0x11), (0x11, 0x11)]),
+            "the corner cell's landblock and the three across its corner"
+        );
+        assert_eq!(nav.fences_for((0x11, 0x11)), vec![corner]);
+        assert_eq!(nav.fences_for((0x10, 0x10)), vec![inner, corner]);
+        assert!(nav.fences_for((0x0F, 0x0F)).is_empty());
+
+        // The same barriers again let go of nothing.
+        for &b in &around {
+            nav.remember_tile(b, None);
+        }
+        nav.set_fenced_cells([CellId(corner), CellId(inner)]);
+        assert!(around.iter().all(|b| nav.tiles.contains_key(b)));
     }
 
     #[test]

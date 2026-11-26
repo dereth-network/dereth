@@ -285,3 +285,50 @@ pub fn lowest(region: &dereth_navigation::Region) -> Option<u32> {
         .filter(|&i| region.is_clear(i))
         .min_by(|&a, &b| region.node_point(a).z.total_cmp(&region.node_point(b).z))
 }
+
+/// Every house of `blocks` someone else's and shut, as the landblocks' restriction tables place
+/// them: each house's cells are restricted by it, and it refuses the player. Answers how many
+/// houses there are and the cells the physics would stop the player at.
+pub fn shut_houses(d: &mut Dungeon, blocks: &[u16]) -> (usize, Vec<CellId>) {
+    use dereth_physics::obj::{Restrictions, WeenieRestrictions};
+    use dereth_primitives::ObjectId;
+    let mut houses = 0;
+    for &b in blocks {
+        let (bx, by) = (i32::from(b >> 8), i32::from(b & 0xFF));
+        let Some(table) = dereth_client_runtime::world_build::read_lbi(&store(), bx, by)
+            .and_then(|lbi| lbi.restrictions)
+        else {
+            continue;
+        };
+        for &(cell, house) in &table.entries {
+            let house = ObjectId(house);
+            if d.world.by_object_id(house).is_none() {
+                let h = d
+                    .world
+                    .create(house, Arc::new(SetupGeometry::default()), false);
+                d.world.set_weenie_restrictions(
+                    h,
+                    Some(WeenieRestrictions {
+                        house_owner: Some(ObjectId(0x5000_0777)),
+                        restrictions: Some(Restrictions::default()),
+                        ..WeenieRestrictions::default()
+                    }),
+                );
+                houses += 1;
+            }
+            d.world.set_cell_restriction(CellId(cell), Some(house));
+        }
+    }
+    let player = Arc::clone(&d.player);
+    let probe = d.world.create(ObjectId(0x5000_0003), player, true);
+    d.world.set_weenie_restrictions(
+        probe,
+        Some(WeenieRestrictions {
+            is_player: true,
+            ..WeenieRestrictions::default()
+        }),
+    );
+    let fenced = d.world.fenced_cells(probe);
+    d.world.destroy(probe);
+    (houses, fenced)
+}

@@ -17,7 +17,6 @@ use std::sync::Arc;
 use dereth_navigation::{
     DoorState, NavConfig, NoPath, Obstacle, ObstacleKind, SegmentCheck, WaypointAction,
 };
-use dereth_physics::obj::{Restrictions, WeenieRestrictions};
 use dereth_physics::{CylSphere, PhysicsNotice, SetupGeometry};
 use dereth_primitives::{Frame, ObjectId, Position, Quat, Vec3};
 
@@ -729,15 +728,9 @@ fn a_fence_across_the_walk_from_the_villas_portal_is_found_in_the_way_and_walked
     );
 }
 
-/// From where the Unified Heart Villas portal sets a body down (`0x9390`) to Sylsfear Dungeon's
-/// portal (`0x918D`), with each villa there someone else's and shut: its barrier stands at the
-/// edges of its land cell. The route keeps a body's width clear of every barrier, and the body
-/// walks it to the portal at 60 and 20 frames a second without once being stopped by one. A
-/// planner not told of the barriers cuts the corner of the villa it passes (`0x93900022`), where
-/// the barrier holds the body for seconds. The search round the barriers looks only at the places
-/// it steps into them from, not at every place of every polygon a barrier crosses.
-#[test]
-fn the_walk_from_the_villas_portal_to_sylsfear_keeps_clear_of_the_shut_villas_barriers() {
+/// The landblocks round the Unified Heart Villas portal's landing (`0x9390`) and Sylsfear
+/// Dungeon's portal (`0x918D`), the landing first, every villa there someone else's and shut.
+fn the_shut_villas() -> (Dungeon, Vec<dereth_primitives::CellId>) {
     let mut blocks = Vec::new();
     for x in 0x90_u16..=0x94 {
         for y in 0x8C_u16..=0x91 {
@@ -746,63 +739,49 @@ fn the_walk_from_the_villas_portal_to_sylsfear_keeps_clear_of_the_shut_villas_ba
     }
     blocks.sort_by_key(|b| u16::from(*b != 0x9390));
     let mut d = load(&blocks, true, NavConfig::default());
-    // Each villa's land cell, fenced by its house as the landblock's restriction table says; the
-    // house has an owner and is shut to everyone else.
-    let mut houses = 0;
-    for &b in &blocks {
-        let (bx, by) = (i32::from(b >> 8), i32::from(b & 0xFF));
-        let Some(table) = dereth_client_runtime::world_build::read_lbi(&store(), bx, by)
-            .and_then(|lbi| lbi.restrictions)
-        else {
-            continue;
-        };
-        for &(cell, house) in &table.entries {
-            let house = ObjectId(house);
-            if d.world.by_object_id(house).is_none() {
-                let h = d
-                    .world
-                    .create(house, Arc::new(SetupGeometry::default()), false);
-                d.world.set_weenie_restrictions(
-                    h,
-                    Some(WeenieRestrictions {
-                        house_owner: Some(ObjectId(0x5000_0777)),
-                        restrictions: Some(Restrictions::default()),
-                        ..WeenieRestrictions::default()
-                    }),
-                );
-                houses += 1;
-            }
-            d.world
-                .set_cell_restriction(dereth_primitives::CellId(cell), Some(house));
-        }
-    }
+    let (houses, fenced) = shut_houses(&mut d, &blocks);
     assert_eq!(houses, 6, "the six villas");
-    // The cells the physics would stop the player at, handed to the planner.
-    let player = Arc::clone(&d.player);
-    let probe = d.world.create(ObjectId(0x5000_0003), player, true);
-    d.world.set_weenie_restrictions(
-        probe,
-        Some(WeenieRestrictions {
-            is_player: true,
-            ..WeenieRestrictions::default()
-        }),
-    );
-    let fenced = d.world.fenced_cells(probe);
-    d.world.destroy(probe);
     assert_eq!(fenced.len(), 6, "each villa's cell: {fenced:?}");
+    (d, fenced)
+}
+
+/// The route from the villas portal's landing to Sylsfear Dungeon's portal.
+fn to_sylsfear(d: &Dungeon) -> (Position, Position) {
+    (
+        ground(d, 0x9390, 123.574, 79.763),
+        ground(d, 0x918D, 151.2, 33.1),
+    )
+}
+
+/// From where the Unified Heart Villas portal sets a body down (`0x9390`) to Sylsfear Dungeon's
+/// portal (`0x918D`), with each villa there someone else's and shut: its barrier stands at the
+/// edges of its land cell. The route keeps a body's width clear of every barrier, and the body
+/// walks it to the portal at 60 and 20 frames a second without once being stopped by one. A
+/// planner not told of the barriers cuts the corner of the villa it passes (`0x93900022`), where
+/// the barrier holds the body for seconds. The barriers are part of the landblocks' mesh, so the
+/// search round them costs what the search without them does: it searches no polygon place by
+/// place that it does not search so without them, and settles about as many places by
+/// themselves.
+#[test]
+fn the_walk_from_the_villas_portal_to_sylsfear_keeps_clear_of_the_shut_villas_barriers() {
+    let (mut d, fenced) = the_shut_villas();
+    let (from, to) = to_sylsfear(&d);
+    d.nav
+        .plan_toward(&from, &to)
+        .expect("a route, no barriers known");
+    let open = d.nav.last_search_work();
     d.nav.set_fenced_cells(fenced.iter().copied());
 
-    let from = ground(&d, 0x9390, 123.574, 79.763);
-    let to = ground(&d, 0x918D, 151.2, 33.1);
     let (path, whole) = d.nav.plan_toward(&from, &to).expect("a route");
     assert!(whole, "planned to the portal");
-    // The search looks for the steps into the polygons a barrier's band crosses only where it
-    // leaves a polygon beside one: some thousand places, not every place of every such polygon
-    // (about 180,000 here).
     let work = d.nav.last_search_work();
     assert!(
-        work.step_in_places < 10_000,
-        "places looked at for the steps round the barriers: {work:?}"
+        work.step_in_places <= open.step_in_places,
+        "no polygon a barrier crosses searched place by place, with the barriers {work:?} and          without {open:?}"
+    );
+    assert!(
+        work.places_settled <= 2 * open.places_settled + 500,
+        "places settled by themselves, with the barriers {work:?} and without {open:?}"
     );
     let way: Vec<Position> = path.waypoints.iter().map(|w| w.position).collect();
     let radius = NavConfig::default().agent.radius;
@@ -832,4 +811,100 @@ fn the_walk_from_the_villas_portal_to_sylsfear_keeps_clear_of_the_shut_villas_ba
             "at {fps} frames a second, stopped by a barrier: {r:?}"
         );
     }
+}
+
+/// The barriers a planner is told of are built into the landblocks they stand on: a barrier
+/// that comes or goes has only the landblocks its land cell's edges reach built again, and the
+/// same barriers told again build nothing. Over the villas round the portal's landing, the villa
+/// the route passes opened builds its own landblock again, and so does its shutting again.
+#[test]
+fn a_barrier_that_comes_or_goes_builds_again_only_the_landblocks_it_reaches() {
+    let (mut d, fenced) = the_shut_villas();
+    let (from, to) = to_sylsfear(&d);
+    d.nav.set_fenced_cells(fenced.iter().copied());
+    d.nav.plan_toward(&from, &to).expect("a route");
+    let built = d.nav.tiles_built();
+    assert_eq!(built, 30, "every landblock of the window, once");
+
+    d.nav.set_fenced_cells(fenced.iter().copied());
+    d.nav.plan_toward(&from, &to).expect("the route again");
+    assert_eq!(
+        d.nav.tiles_built(),
+        built,
+        "the same barriers build nothing"
+    );
+
+    let villa = dereth_primitives::CellId(0x9390_0022);
+    assert!(fenced.contains(&villa), "{fenced:?}");
+    d.nav
+        .set_fenced_cells(fenced.iter().copied().filter(|&c| c != villa));
+    d.nav
+        .plan_toward(&from, &to)
+        .expect("a route past the open villa");
+    assert_eq!(
+        d.nav.tiles_built() - built,
+        1,
+        "the villa's landblock alone"
+    );
+    d.nav.set_fenced_cells(fenced.iter().copied());
+    d.nav
+        .plan_toward(&from, &to)
+        .expect("a route past the shut villa");
+    assert_eq!(
+        d.nav.tiles_built() - built,
+        2,
+        "the villa's landblock again"
+    );
+}
+
+/// A landblock a house's barrier reaches is never kept between sessions with the barrier in it,
+/// and the one kept without it is not read back while the barrier stands: it is built with the
+/// barrier, and the kept one is left as it was. The other landblocks are kept and read back as
+/// ever. Over the villas round the portal's landing, whose barriers reach their own landblock
+/// alone.
+#[test]
+fn a_landblock_a_barrier_reaches_is_never_kept_between_sessions() {
+    let kept = crate::mesh::Kept::default();
+    let (mut d, fenced) = the_shut_villas();
+    d.nav.set_tile_store(Box::new(kept.clone()));
+    let (from, to) = to_sylsfear(&d);
+    let first = d
+        .nav
+        .plan_toward(&from, &to)
+        .expect("a route, no barriers known");
+    assert_eq!(kept.len(), 30, "each landblock kept");
+    let before = kept.0.lock().expect("the store").clone();
+
+    d.nav.set_fenced_cells(fenced.iter().copied());
+    let built = d.nav.tiles_built();
+    d.nav
+        .plan_toward(&from, &to)
+        .expect("a route round the barriers");
+    let reached = d.nav.tiles_built() - built;
+    assert_eq!(reached, 1, "the villas' landblock, built again");
+    assert!(
+        *kept.0.lock().expect("the store") == before,
+        "what is kept unchanged"
+    );
+
+    // The next session, with the barriers: those landblocks built, the rest read back.
+    let (mut again, _) = the_shut_villas();
+    again.nav.set_tile_store(Box::new(kept.clone()));
+    again.nav.set_fenced_cells(fenced.iter().copied());
+    let fenced_route = again.nav.plan_toward(&from, &to).expect("a route");
+    assert_eq!(again.nav.tiles_built(), reached, "only those built");
+    assert!(
+        *kept.0.lock().expect("the store") == before,
+        "what is kept unchanged"
+    );
+    assert_ne!(
+        first.0.waypoints, fenced_route.0.waypoints,
+        "the route goes round the barriers"
+    );
+    // Without the barriers, every landblock read back.
+    let (mut third, _) = the_shut_villas();
+    third.nav.set_tile_store(Box::new(kept.clone()));
+    let open = third.nav.plan_toward(&from, &to).expect("a route");
+    assert_eq!(third.nav.tiles_built(), 0, "every landblock read back");
+    assert_eq!(open.0.waypoints, first.0.waypoints, "the same route");
 }

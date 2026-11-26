@@ -435,6 +435,7 @@ impl Region {
             loose_todo: Vec::new(),
             dirty: HashSet::new(),
             drop_links,
+            fences: Vec::new(),
         })
     }
 }

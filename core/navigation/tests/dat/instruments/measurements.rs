@@ -347,3 +347,70 @@ fn long_routes_over_many_landblocks() {
         );
     }
 }
+
+#[test]
+#[ignore = "instrument: prints the cost of planning beside shut houses, fenced and not"]
+fn planning_cost_beside_shut_houses() {
+    type Scene = (&'static str, (u16, u16), u16, (f32, f32), u16, (f32, f32));
+    let scenes: [Scene; 2] = [
+        (
+            "Sylsfear route, villas",
+            (0x9390, 0x918D),
+            0x9390,
+            (123.574, 79.763),
+            0x918D,
+            (151.2, 33.1),
+        ),
+        (
+            "settlement 0xD7C2",
+            (0xD7C2, 0xD7C2),
+            0xD7C2,
+            (4.0, 4.0),
+            0xD7C2,
+            (188.0, 188.0),
+        ),
+    ];
+    println!("| scene | houses | fenced cells | ms a landblock built | unfenced ms | landblocks built again | first fenced ms | fenced ms | places settled (unfenced, fenced) |");
+    println!("|---|---|---|---|---|---|---|---|---|");
+    for (name, (lo, hi), a, (ax, ay), b, (bx, by)) in scenes {
+        let mut blocks = Vec::new();
+        for x in (lo >> 8).min(hi >> 8) - 2..=(lo >> 8).max(hi >> 8) + 2 {
+            for y in (lo & 0xFF).min(hi & 0xFF) - 2..=(lo & 0xFF).max(hi & 0xFF) + 2 {
+                blocks.push((x << 8) | y);
+            }
+        }
+        blocks.sort_by_key(|k| u16::from(*k != a));
+        let mut d = crate::common::load(&blocks, true, dereth_navigation::NavConfig::default());
+        let (houses, fenced) = crate::common::shut_houses(&mut d, &blocks);
+        let from = ground(&d, a, ax, ay);
+        let to = ground(&d, b, bx, by);
+        // The fastest of a few plans, every tile built.
+        let best = |d: &mut Dungeon| {
+            (0..5)
+                .map(|_| {
+                    let t = Instant::now();
+                    d.nav.plan_toward(&from, &to).expect("a route");
+                    t.elapsed().as_secs_f64() * 1e3
+                })
+                .fold(f64::MAX, f64::min)
+        };
+        let t = Instant::now();
+        d.nav.plan_toward(&from, &to).expect("a route");
+        #[allow(clippy::cast_precision_loss)]
+        let per_tile = t.elapsed().as_secs_f64() * 1e3 / d.nav.tiles_built() as f64;
+        let unfenced = best(&mut d);
+        let open = d.nav.last_search_work().places_settled;
+        d.nav.set_fenced_cells(fenced.iter().copied());
+        let built = d.nav.tiles_built();
+        let t = Instant::now();
+        d.nav.plan_toward(&from, &to).expect("a fenced route");
+        let change = t.elapsed().as_secs_f64() * 1e3;
+        let shut = best(&mut d);
+        let work = d.nav.last_search_work().places_settled;
+        println!(
+            "| {name} | {houses} | {} | {per_tile:.0} | {unfenced:.1} | {} | {change:.1} | {shut:.1} | {open}, {work} |",
+            fenced.len(),
+            d.nav.tiles_built() - built,
+        );
+    }
+}

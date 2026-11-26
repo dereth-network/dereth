@@ -49,7 +49,9 @@
 //! [`WaypointAction::OpenDoor`] before it; a locked one, and any solid object, is not passed; a
 //! creature is passed only where there is no way round. The cells a house's barrier keeps the
 //! body out of are handed over with [`NavWorld::set_fenced_cells`]: a route keeps the body clear
-//! of a fenced land cell's edges and ends in no fenced cell.
+//! of a fenced land cell's edges and ends in no fenced cell. The barriers are built into the
+//! landblocks they stand on, so a landblock whose barriers change is built again, and one with
+//! any is never kept between sessions.
 //!
 //! Routes through portals between places are not made yet: a dungeon and the outdoors are
 //! [`NoPath::Disconnected`] from each other, and two ends farther apart than one window are

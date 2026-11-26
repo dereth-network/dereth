@@ -74,14 +74,14 @@ fn the_navigation_mesh_parts_a_regions_places_exactly_as_their_steps_do() {
 
 /// A store of tiles in memory, shared by the planners given a copy.
 #[derive(Debug, Default, Clone)]
-struct Kept(Arc<Mutex<HashMap<String, Vec<u8>>>>);
+pub struct Kept(pub Arc<Mutex<HashMap<String, Vec<u8>>>>);
 
 impl Kept {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.lock().expect("the store").len()
     }
 
-    fn holds(&self, prefix: &str) -> bool {
+    pub fn holds(&self, prefix: &str) -> bool {
         self.0
             .lock()
             .expect("the store")

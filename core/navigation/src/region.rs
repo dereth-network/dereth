@@ -50,6 +50,9 @@ const OUTDOORS: u32 = 0xFFFF_FFFF;
 /// A landblock's side, in metres.
 pub(crate) const BLOCK_LENGTH: f32 = 192.0;
 
+/// The side of a land cell, metres.
+pub(crate) const LAND_CELL: f32 = 24.0;
+
 /// The bit that marks a place id as a terrain place: the rest is its index in the ground grid.
 pub(crate) const GROUND: u32 = 1 << 31;
 
@@ -561,6 +564,62 @@ pub struct Region {
     /// a body jumping off lands on, more than a step below. Marked, never walked: a route only
     /// names the first a way would need, so a jump can be put there on purpose.
     pub(crate) drop_links: Vec<DropLink>,
+    /// The fenced land cells a landblock tile's places were decided with: no outdoor place within
+    /// the room the route keeps of their edges is clear. Empty for a tile none reaches, and for
+    /// any other region.
+    pub(crate) fences: Vec<u32>,
+}
+
+/// The columns a house's barrier round a fenced land cell keeps the body out of: every column
+/// within the room the route keeps of the cell's edges, on either side.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FenceBand {
+    /// The columns as far out as the room kept beyond the edges, `(x0, y0, x1, y1)` inclusive.
+    outer: (i32, i32, i32, i32),
+    /// The columns further in than the room kept from every edge, inclusive.
+    inner: (i32, i32, i32, i32),
+}
+
+impl FenceBand {
+    /// The band round fenced land cell `cell` in the space of a region whose origin is landblock
+    /// `origin`, at `spacing`, keeping `clear` metres; `None` for a cell that is not a land cell.
+    pub(crate) fn of(cell: u32, origin: (i32, i32), spacing: f32, clear: f32) -> Option<Self> {
+        let index = cell & 0xFFFF;
+        if !(1..=0x40).contains(&index) {
+            return None;
+        }
+        let (bx, by) = block_xy(cell >> 16);
+        let (cx, cy) = ((index - 1) / 8, (index - 1) % 8);
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (
+            (bx - origin.0) as f32 * BLOCK_LENGTH + cx as f32 * LAND_CELL,
+            (by - origin.1) as f32 * BLOCK_LENGTH + cy as f32 * LAND_CELL,
+        );
+        let s = spacing;
+        Some(Self {
+            outer: (
+                floor_to_i32((ox - clear) / s),
+                floor_to_i32((oy - clear) / s),
+                floor_to_i32((ox + LAND_CELL + clear) / s) + 1,
+                floor_to_i32((oy + LAND_CELL + clear) / s) + 1,
+            ),
+            inner: (
+                floor_to_i32((ox + clear) / s) + 1,
+                floor_to_i32((oy + clear) / s) + 1,
+                floor_to_i32((ox + LAND_CELL - clear) / s),
+                floor_to_i32((oy + LAND_CELL - clear) / s),
+            ),
+        })
+    }
+
+    /// Whether column `(ix, iy)` is in the band.
+    pub(crate) const fn holds(&self, ix: i32, iy: i32) -> bool {
+        let (x0, y0, x1, y1) = self.outer;
+        let (ix0, iy0, ix1, iy1) = self.inner;
+        let out = ix >= x0 && ix <= x1 && iy >= y0 && iy <= y1;
+        let inner = ix >= ix0 && ix <= ix1 && iy >= iy0 && iy <= iy1;
+        out && !inner
+    }
 }
 
 /// One drop off a ledge: where the body stands and where it lands, places of the region.
@@ -792,6 +851,8 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
             next: 0,
             row: 0,
             drops: None,
+            fences: Vec::new(),
+            bands: Vec::new(),
         }
     }
 }
@@ -840,6 +901,9 @@ pub(crate) struct Finishing {
     next: usize,
     /// The next row of that terrain tile.
     row: i32,
+    /// The fenced land cells whose barriers the outdoor places are kept clear of, and their bands.
+    fences: Vec<u32>,
+    bands: Vec<FenceBand>,
 }
 
 /// The places a narrow gap between two floors leaves out. Where two floors a step apart in height
@@ -917,6 +981,21 @@ impl Finishing {
                 }
             }
         }
+    }
+
+    /// Keep the outdoor places clear of the barriers round fenced land cells `fences`.
+    fn fence_off(&mut self, fences: &[u32]) {
+        let clear = self.config.agent.radius + self.config.margin;
+        self.fences = fences.to_vec();
+        self.bands = fences
+            .iter()
+            .filter_map(|&c| FenceBand::of(c, self.origin, self.config.spacing, clear))
+            .collect();
+    }
+
+    /// Whether column `(ix, iy)` is in a fenced land cell's band.
+    fn fenced(&self, ix: i32, iy: i32) -> bool {
+        self.bands.iter().any(|b| b.holds(ix, iy))
     }
 
     /// Standing places on the floors.
@@ -1059,7 +1138,12 @@ impl Finishing {
                 let dz = self.nodes[j as usize].z - n.z;
                 dz > SAME_LEVEL && dz < headroom
             });
-            if crowded {
+            // A house's barrier stops a body outdoors near a fenced cell's edge.
+            let outdoors = self
+                .cell_ids
+                .get(usize::from(n.cell))
+                .is_some_and(|id| id.0 & 0xFFFF < 0x0100);
+            if crowded || (outdoors && self.fenced(i32::from(n.ix), i32::from(n.iy))) {
                 self.nodes[i].flags = BLOCKED_BY_CELL;
                 continue;
             }
@@ -1140,6 +1224,9 @@ impl Finishing {
                     }
                     if t.normal_z < FLOOR_Z {
                         self.report.steep_ground += 1;
+                        continue;
+                    }
+                    if self.fenced(ix, iy) {
                         continue;
                     }
                     // A floor over the terrain: indoors (the interior floor is the place), or an
@@ -1298,6 +1385,7 @@ impl Finishing {
             exits: HashMap::new(),
             dirty: HashSet::new(),
             drop_links: Vec::new(),
+            fences: std::mem::take(&mut self.fences),
         }
     }
 }
@@ -1388,12 +1476,14 @@ impl Region {
     /// Start building landblock `(bx, by)` as a tile of its own: its terrain, buildings, objects
     /// and the interiors its buildings open onto, as a window of it alone would hold them, and
     /// the buildings and objects of the eight landblocks round it as solids only, so that its
-    /// places along its edges are decided as a wider window would decide them. `None` for a
+    /// places along its edges are decided as a wider window would decide them. Its outdoor
+    /// places are kept clear of the barriers round the fenced land cells `fences`. `None` for a
     /// landblock with no terrain.
     pub(crate) fn start_tile<S: NavSource + ?Sized>(
         source: &S,
         (bx, by): (i32, i32),
         config: &NavConfig,
+        fences: &[u32],
     ) -> Option<Finishing> {
         let window = (bx, by, bx, by);
         let mut b = Builder::new(source, config, (bx, by));
@@ -1435,7 +1525,9 @@ impl Region {
         for g in &geometry {
             b.add_cell(g);
         }
-        Some(b.finishing(Some(window), lands))
+        let mut f = b.finishing(Some(window), lands);
+        f.fence_off(fences);
+        Some(f)
     }
 
     /// What building the region found.

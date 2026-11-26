@@ -241,11 +241,10 @@ impl<S: NavSource> NavWorld<S> {
             },
             Located::Outdoor(window) => {
                 while let Some(block) = self.tile_missing(&window) {
-                    let built =
-                        Region::start_tile(&self.source, block, &self.config).and_then(|mut f| {
-                            let mut all = u64::MAX;
-                            f.step(&mut all)
-                        });
+                    let built = self.start_tile(block).and_then(|mut f| {
+                        let mut all = u64::MAX;
+                        f.step(&mut all)
+                    });
                     self.keep_tile(block, built);
                 }
                 Some(self.assemble_window(&window))
@@ -298,8 +297,7 @@ impl<S: NavSource> NavWorld<S> {
             });
         }
         let (gates, door_ids) = self.gates(region);
-        let (fenced, fenced_polys) = self.fence_gates(region);
-        let gates = Gates::new(region, gates).with_fences(fenced, fenced_polys);
+        let gates = Gates::new(region, gates);
         let gate = |i: u32| gates.of(i);
         let steps = self.steps();
         let start = region
@@ -437,12 +435,10 @@ impl<S: NavSource> NavWorld<S> {
                                 return None;
                             }
                         }
-                        crate::world::NextTile::Build(block) => {
-                            match Region::start_tile(&self.source, block, &self.config) {
-                                Some(f) => task.phase = Phase::BuildTile(block, Box::new(f)),
-                                None => self.keep_tile(block, None),
-                            }
-                        }
+                        crate::world::NextTile::Build(block) => match self.start_tile(block) {
+                            Some(f) => task.phase = Phase::BuildTile(block, Box::new(f)),
+                            None => self.keep_tile(block, None),
+                        },
                         crate::world::NextTile::Ready => {
                             let region = self.assemble_window(&window);
                             if region.ground.as_ref().is_none_or(|g| g.land_count() == 0) {
