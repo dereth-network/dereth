@@ -37,7 +37,8 @@ pub struct InDungeon {
 #[derive(Debug, Default)]
 pub struct DungeonList {
     pub(super) retail: Option<BTreeMap<u16, u32>>,
-    /// What the world's map names the dungeons under an entrance, by landblock.
+    /// What the world's map names the dungeons under an entrance, and a converted land's table
+    /// the rest, by landblock.
     pub(super) place_names: BTreeMap<u16, String>,
     /// Which game's dungeons the list shows, on a world over a land; and each dungeon's game, as
     /// last worked out (till the list is made again).
@@ -91,7 +92,8 @@ impl EditorApp {
         let retail = self.dungeon_list.retail.clone().unwrap_or_default();
         let mut listed = self.session.dungeons(&retail);
         self.dungeon_list.games.clear();
-        // A dungeon nothing else names takes the name the world's map gives its entrance.
+        // A dungeon nothing else names takes the name the world's map gives its entrance, or
+        // the one its land's table gives it.
         for d in listed.iter_mut().filter(|d| d.name.is_none()) {
             d.name = self.dungeon_list.place_names.get(&d.landblock).cloned();
         }

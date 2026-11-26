@@ -34,7 +34,9 @@
 //!   lie under its land; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
 //! - unless `--names off`, `places.tsv`: AC2's towns and landmarks where AC2's map names them,
-//!   which Dereth's map shows in place of AC1's notes ([`names`]);
+//!   which Dereth's map shows in place of AC1's notes ([`names`]); and `dungeon-names.tsv`: each
+//!   AC2 dungeon, the AC1 block it went under and its name where the portals that lead in give
+//!   one, from the install's own strings ([`dungeon_names`]);
 //! - every AC2 dungeon written under an AC1 block, those `--vaults LIST` names where it puts
 //!   them and the rest under free blocks beyond AC2's landmass ([`vaults`]), and with
 //!   `--placements LIST`, `placements.tsv`: the things the world places itself (a
@@ -89,6 +91,7 @@ mod clearing;
 mod climb;
 mod creatures;
 mod dense;
+mod dungeon_names;
 mod effects;
 mod ground;
 mod grown;
@@ -1526,6 +1529,8 @@ pub fn build(args: &Args) -> Result<u32, String> {
         "ac2_block\tac1_block\tcorner_x\tcorner_y\tcorner_z\tcells\tfirst_cell\tlast_cell\tportals_closed\tlights\tlights_left\n",
     );
     let mut dungeon_cells_tsv = String::from("ac2_cell\tac1_cell\n");
+    // Each AC2 dungeon written and the AC1 block it went under, for their names.
+    let mut placed_dungeons: Vec<(u16, u16)> = Vec::new();
     // Each block written and how many cells it has, for the placements' cells.
     let mut written_cells: std::collections::BTreeMap<(usize, usize), u32> =
         std::collections::BTreeMap::new();
@@ -1660,6 +1665,12 @@ pub fn build(args: &Args) -> Result<u32, String> {
                 stand_ins.held += s.held;
                 for m in vaults_here.into_iter().flatten() {
                     let first = 0x0100 + info.num_cells;
+                    let block = |x: usize, y: usize| u16::try_from((x << 8) | y).ok();
+                    if let (Ok(ax), Ok(ay)) = (usize::try_from(m.ac2.0), usize::try_from(m.ac2.1)) {
+                        if let (Some(ac2), Some(ac1)) = (block(ax, ay), block(bx, by)) {
+                            placed_dungeons.push((ac2, ac1));
+                        }
+                    }
                     let _ = writeln!(
                         dungeons_tsv,
                         "{:02X}{:02X}\t{bx:02X}{by:02X}\t{:.2}\t{:.2}\t{:.2}\t{}\t{first:04X}\t{:04X}\t{}\t{}\t{}",
@@ -2017,6 +2028,25 @@ pub fn build(args: &Args) -> Result<u32, String> {
             std::fs::remove_file(&places).map_err(|e| format!("{}: {e}", places.display()))?;
         }
         format!("{PLACES}: none (--names off)")
+    };
+    // AC2's dungeons by the names of the portals that lead in, from the player's own strings.
+    let dungeon_names_path = args.out.join(dungeon_names::FILE);
+    let dungeons_named = if args.names {
+        let names = dungeon_names::resolve(&args.ac2, &dungeon_names::tokens()?)?;
+        let (doc, named) = dungeon_names::document(&placed_dungeons, &names);
+        std::fs::write(&dungeon_names_path, doc)
+            .map_err(|e| format!("{}: {e}", dungeon_names_path.display()))?;
+        format!(
+            "{}: {named} of the {} dungeons named",
+            dungeon_names::FILE,
+            placed_dungeons.len()
+        )
+    } else {
+        if dungeon_names_path.exists() {
+            std::fs::remove_file(&dungeon_names_path)
+                .map_err(|e| format!("{}: {e}", dungeon_names_path.display()))?;
+        }
+        format!("{}: none (--names off)", dungeon_names::FILE)
     };
 
     // The environment each AC2 cell mesh was made as.
@@ -2387,6 +2417,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         "map window picture {MAP_ID:#010X}: AC1's frame, the converted land drawn into its marker box (map-picture.png)"
     );
     let _ = writeln!(stats, "{named}");
+    let _ = writeln!(stats, "{dungeons_named}");
     let _ = writeln!(stats, "{start_line}");
     let _ = writeln!(
         stats,
@@ -2571,6 +2602,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     }
     let _ = writeln!(readme, "The portal overlay's character-creation table (0x0E000002) offers one starting area: see stats.txt.");
     let _ = writeln!(readme, "overlay/places.tsv: AC2's towns and landmarks where AC2's map names them, which Dereth's map shows in place of AC1's notes (on by default; --names off leaves it out).");
+    let _ = writeln!(readme, "overlay/dungeon-names.tsv: each AC2 dungeon, the AC1 block it lies under and its name, the name of the portals that lead in from the AC2 install's own strings (on by default; --names off leaves it out).");
     let _ = writeln!(readme, "overlay/environments.tsv: each AC2 cell mesh, whether a building's rooms or the dungeons are drawn with it, the environment made of it and the surfaces its cells name.");
     let _ = writeln!(readme, "overlay/creatures.tsv: AC2's creatures, every look of each family, and the setup, motion table, combat table and texture swaps a world's weenie names for each.");
     let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, its cells (its dungeons' among them), its statics or its house restrictions (ac1-removed.tsv).");

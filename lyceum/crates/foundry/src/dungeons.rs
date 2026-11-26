@@ -1,7 +1,9 @@
 //! The world's dungeons: the landblocks whose indoor cells are a dungeon's rather than a town's
-//! rooms, those under a building's entrance, and what the portals that lead into each call it.
+//! rooms, those under a building's entrance, and what the portals that lead into each call it,
+//! or a converted land's own table of them.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use dereth_assets::world::{EnvCell, LandblockInfo};
 use dereth_assets::Decode;
@@ -142,10 +144,83 @@ pub fn portal_names(weenies: &BTreeMap<u32, WeenieFacts>) -> BTreeMap<u16, Strin
         .collect()
 }
 
+/// The file in a converted land's overlay folder naming its dungeons: a line per dungeon after a
+/// header, `ac1_block ac2_block name`, tab-separated, the blocks in hex and the name empty where the
+/// land gives none.
+pub const LAND_NAMES: &str = "dungeon-names.tsv";
+
+/// The names in a [`LAND_NAMES`] table, by the landblock each dungeon lies under in the world.
+///
+/// # Errors
+/// A line that is not two blocks and a name.
+pub fn parse_land_names(text: &str) -> Result<BTreeMap<u16, String>, String> {
+    let mut out = BTreeMap::new();
+    for (k, line) in text.lines().enumerate().skip(1) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        let [ac1, _ac2, name] = cols[..] else {
+            return Err(format!("line {}: not three columns", k + 1));
+        };
+        let lb = u16::from_str_radix(ac1, 16)
+            .map_err(|_| format!("line {}: {ac1:?} is not a landblock", k + 1))?;
+        let name = name.trim();
+        if !name.is_empty() {
+            out.insert(lb, name.to_owned());
+        }
+    }
+    Ok(out)
+}
+
+/// The names the world's land gives its dungeons ([`LAND_NAMES`]): the last of `imports` (overlay
+/// folders) that holds the table. Empty when none does, as for a land not converted from AC2.
+///
+/// # Errors
+/// A table that will not read or parse.
+pub fn land_names(imports: &[PathBuf]) -> Result<BTreeMap<u16, String>, String> {
+    for dir in imports.iter().rev() {
+        let path = dir.join(LAND_NAMES);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                return parse_land_names(&text).map_err(|e| format!("{}: {e}", path.display()))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
+    Ok(BTreeMap::new())
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (tooling: the world editor's dungeon list)
     use super::*;
+
+    #[test]
+    fn a_converted_lands_table_names_its_dungeons_by_the_block_they_lie_under() {
+        let text = "ac1_block\tac2_block\tname\nFE01\t00A7\tA Cave\nFE80\t0487\t\n";
+        let names = parse_land_names(text).unwrap();
+        // A dungeon the land gives no name has none here; the list calls it by its block.
+        assert_eq!(names, BTreeMap::from([(0xFE01, "A Cave".to_owned())]));
+        assert!(parse_land_names("ac1_block\tac2_block\tname\nFE01\tA Cave\n").is_err());
+    }
+
+    #[test]
+    fn the_last_overlay_folder_with_a_table_names_the_dungeons() {
+        let dir = std::env::temp_dir().join(format!("lyceum-land-names-{}", std::process::id()));
+        let (first, second, none) = (dir.join("a"), dir.join("b"), dir.join("c"));
+        for d in [&first, &second, &none] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let table = |name: &str| format!("ac1_block\tac2_block\tname\nFE01\t00A7\t{name}\n");
+        std::fs::write(first.join(LAND_NAMES), table("Old")).unwrap();
+        std::fs::write(second.join(LAND_NAMES), table("New")).unwrap();
+        let got = land_names(&[first.clone(), second.clone(), none.clone()]).unwrap();
+        assert_eq!(got.get(&0xFE01).map(String::as_str), Some("New"));
+        assert!(land_names(std::slice::from_ref(&none)).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_dungeon_is_named_by_the_name_most_of_its_portals_have() {

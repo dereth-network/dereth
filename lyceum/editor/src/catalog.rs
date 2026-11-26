@@ -40,7 +40,8 @@ pub struct Ready {
     /// The world's own dungeons, by landblock, with their rooms; `None` when the files do not
     /// open.
     pub dungeons: Option<std::collections::BTreeMap<u16, u32>>,
-    /// The names the world's map gives the dungeons under an entrance, by landblock.
+    /// The names the world's map gives the dungeons under an entrance, and a converted land's own
+    /// table the rest, by landblock.
     pub dungeon_names: std::collections::BTreeMap<u16, String>,
     /// Over a land, the dungeons of the player's own files under it, with their rooms.
     pub files_dungeons: std::collections::BTreeMap<u16, u32>,
@@ -300,10 +301,19 @@ fn gather(
             .map(|set| lyceum_foundry::dungeons::retail(&|id| set.cell.read(id).ok(), set.era))
             .unwrap_or_default()
     };
-    let dungeon_names = entrances
+    let mut dungeon_names: std::collections::BTreeMap<u16, String> = entrances
         .iter()
         .filter_map(|(lb, (_, at))| towns.place_near(*lb, *at).map(|n| (*lb, n)))
         .collect();
+    // The rest of a converted land's dungeons, by the names its own table gives them.
+    match lyceum_foundry::dungeons::land_names(imports) {
+        Ok(names) => {
+            for (lb, name) in names {
+                dungeon_names.entry(lb).or_insert(name);
+            }
+        }
+        Err(e) => tracing::warn!("the dungeons go unnamed by the land: {e}"),
+    }
     let dungeons = dungeons.map(|mut d| {
         for (lb, (rooms, _)) in &entrances {
             d.entry(*lb).or_insert(*rooms);
