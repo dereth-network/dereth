@@ -220,6 +220,17 @@ impl Pregame {
         }
     }
 
+    /// What a character made on this world is made from: the world's creation tables, offering
+    /// only the heritages its era has, and their texts.
+    pub fn creation_for(&self, state: &GameState) -> Option<CreationSource> {
+        let (tables, texts) = self.creation_source.clone()?;
+        let tables = match state.creation_heritages {
+            Some(heritages) => std::rc::Rc::new(tables.offering(heritages)),
+            None => tables,
+        };
+        Some((tables, texts))
+    }
+
     /// Where the creation screen shows the character's model this frame.
     #[must_use]
     pub fn creation_preview(&self) -> Option<(Rect, &crate::ui::creation::Creation)> {
@@ -253,7 +264,7 @@ impl Pregame {
         });
         if let (Some(name), 0, Screen::Lobby) = (make, self.auto.step, &*screen) {
             if (options.immediate_entry || wait > 1.5) && state.free_slot.is_some() {
-                if let Some((tables, texts)) = self.creation_source.clone() {
+                if let Some((tables, texts)) = self.creation_for(state) {
                     let mut c = crate::ui::creation::Creation::new(
                         tables,
                         texts,
@@ -566,7 +577,7 @@ impl Pregame {
         let can_create =
             ready && phase_ready && state.free_slot.is_some() && self.creation_source.is_some();
         if kit::button(p, ctx, layout.create, "Create", can_create) {
-            if let Some((tables, texts)) = self.creation_source.clone() {
+            if let Some((tables, texts)) = self.creation_for(state) {
                 self.creation = Some(crate::ui::creation::Creation::new(
                     tables,
                     texts,

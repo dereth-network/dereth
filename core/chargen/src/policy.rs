@@ -17,6 +17,22 @@ impl CreationTables {
     pub fn heritage_keys(&self) -> &[u32] {
         &self.chargen.heritage_order
     }
+    /// These tables offering only the heritages in `heritages`, in the world's order: what a world
+    /// whose era has fewer peoples than its files define lets a new character be. A world that
+    /// defines none of them keeps every heritage it has, so creation is never left with none.
+    #[must_use]
+    pub fn offering(&self, heritages: &[u32]) -> Self {
+        let mut chargen = self.chargen.clone();
+        if chargen.heritage_order.iter().any(|k| heritages.contains(k)) {
+            chargen.heritage_order.retain(|k| heritages.contains(k));
+            chargen.heritage_groups.retain(|k, _| heritages.contains(k));
+        }
+        Self {
+            chargen,
+            skills: self.skills.clone(),
+            clothing: Rc::clone(&self.clothing),
+        }
+    }
     #[must_use]
     pub fn sex_keys(&self, heritage: u32) -> &[u32] {
         self.chargen

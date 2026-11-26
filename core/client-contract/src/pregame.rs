@@ -92,6 +92,9 @@ pub struct PregameView {
     /// The systems the world has, for the screens before the world: whether character creation
     /// warns of skill credits lost.
     pub era_features: dereth_primitives::EraFeatures,
+    /// The world's era, for the screens before the world: which heritages character creation
+    /// offers.
+    pub era: dereth_primitives::EraId,
     /// `DDD_PatchtimeEnd`: there is nothing to patch.
     pub patch_finished: bool,
     /// Data-patch notifications, in arrival order, since the last frame.

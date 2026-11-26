@@ -200,6 +200,19 @@ pub const fn loses_skill_credits(features: EraFeatures, remaining: i32) -> bool 
     !features.creation_credit_carry_over && remaining > 0
 }
 
+/// New Dereth's peoples: Aluvian, Gharu'ndim, Sho, Viamontian and Empyrean.
+pub const NEW_DERETH_HERITAGES: [u32; 5] = [1, 2, 3, 4, 9];
+
+/// The heritages character creation offers on a world of `profile`, when its era has fewer than
+/// the world's files define: New Dereth's peoples. `None`: every heritage the files define.
+#[must_use]
+pub const fn creation_heritages(profile: EraId) -> Option<&'static [u32]> {
+    match profile {
+        EraId::NewDereth => Some(&NEW_DERETH_HERITAGES),
+        EraId::Launch | EraId::Infiltration | EraId::Eor => None,
+    }
+}
+
 /// A complete localized caption with an English fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Caption {

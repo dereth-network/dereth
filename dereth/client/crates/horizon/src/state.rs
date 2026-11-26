@@ -253,6 +253,7 @@ pub fn snapshot<S: Shell>(
     g.chargen_response_notices = pregame.chargen_response_notices;
     g.chargen_seeds = pregame.chargen_seeds;
     g.era = Some(pregame.era_features);
+    g.creation_heritages = dereth_client_contract::era::creation_heritages(pregame.era);
     g.new_chat = chat.into_iter().map(ChatLine::from_message).collect();
     chat_entry_state(cx, &mut g);
     if !g.in_world {

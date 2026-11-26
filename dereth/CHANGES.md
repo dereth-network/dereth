@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Horizon: character creation on a New Dereth world offers only its peoples.
 - Plugins: nav.follow now steers while running and keeps pace with its leader.
 - Plugins: large metas load faster.
 - /perfcapture now also records GPU times and how much each frame draws.
