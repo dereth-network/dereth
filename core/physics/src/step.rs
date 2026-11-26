@@ -535,6 +535,36 @@ impl PhysicsWorld {
         self.cell_mut(cell).restriction_obj = obj;
     }
 
+    /// The cells whose house refuses `mover` now: those a move's entry check would stop it at,
+    /// among the cells whose gate keeper is in the world with its game record. None for a mover
+    /// with no game record, one that is not a player, or one that bypasses restrictions. A cell
+    /// whose gate keeper has not arrived is not listed, though a move into it is refused: its
+    /// house is not known yet, and is listed once it arrives if it refuses.
+    #[must_use]
+    pub fn fenced_cells(&self, mover: PhysHandle) -> Vec<CellId> {
+        let Some(m) = self.objects.get(mover) else {
+            return Vec::new();
+        };
+        let Some(w) = m.weenie.as_ref().filter(|w| w.is_player && !w.can_bypass) else {
+            return Vec::new();
+        };
+        self.cells
+            .iter()
+            .filter_map(|(&id, c)| {
+                let keeper = c.restriction_obj.filter(|r| r.0 != 0)?;
+                let allowed = match &self.entry_host {
+                    Some(host) => host.can_move_into(keeper, m.id),
+                    None => self
+                        .by_object_id(keeper)
+                        .and_then(|h| self.objects.get(h))
+                        .and_then(|o| o.weenie.as_ref())
+                        .is_none_or(|k| k.can_move_into(m.id, Some(w))),
+                };
+                (!allowed).then_some(CellId(id))
+            })
+            .collect()
+    }
+
     /// Installs (or, with `None`, removes) the host's answer to the entry-restriction question
     /// (see [`crate::transition::EntryRestrictionHost`]). Every transition run afterwards
     /// asks it in place of the gate keeper's pushed record. The client never calls this.

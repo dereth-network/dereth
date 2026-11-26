@@ -66,6 +66,8 @@ pub enum Job {
     },
     /// The objects in the world now (doors, other solid objects, creatures), replacing the last.
     Obstacles(Vec<Obstacle>),
+    /// The cells a house's barrier keeps the character out of now, replacing the last.
+    Fences(Vec<CellId>),
     /// Take out the places just ahead of where a walk stopped.
     Block { at: Position, toward: Position },
     /// Put back every place a stopped walk took out.
@@ -403,7 +405,7 @@ impl Worker {
                 v.extend(blocks_round(cell(to), cell(to)));
                 v
             }
-            Job::Obstacles(_) | Job::Block { .. } | Job::Unblock => Vec::new(),
+            Job::Obstacles(_) | Job::Fences(_) | Job::Block { .. } | Job::Unblock => Vec::new(),
         }
     }
 
@@ -419,6 +421,7 @@ impl Worker {
                     self.nav.set_obstacle(o);
                 }
             }
+            Job::Fences(cells) => self.nav.set_fenced_cells(cells),
             Job::Block { at, toward } => {
                 self.nav.block_ahead(&at, &toward);
             }
@@ -823,16 +826,20 @@ impl Planning {
                         return;
                     }
                 };
-                // The objects last set: a worker made anew after a panic is given them again.
+                // The objects and fences last set: a worker made anew after a panic is given them
+                // again.
                 let mut obstacles: Option<Vec<Obstacle>> = None;
+                let mut fences: Option<Vec<CellId>> = None;
                 // Each job as it comes; what has queued meanwhile is taken in order before the
                 // next, so the objects set are the latest when a plan starts.
                 while let Ok(job) = inbox.recv() {
                     let batch: Vec<Job> = std::iter::once(job).chain(inbox.try_iter()).collect();
                     let pending: Vec<Pending> = batch.iter().filter_map(Pending::of).collect();
                     for j in &batch {
-                        if let Job::Obstacles(o) = j {
-                            obstacles = Some(o.clone());
+                        match j {
+                            Job::Obstacles(o) => obstacles = Some(o.clone()),
+                            Job::Fences(f) => fences = Some(f.clone()),
+                            _ => {}
                         }
                     }
                     worker.queue.extend(batch);
@@ -851,6 +858,9 @@ impl Planning {
                         }
                         if let Some(o) = &obstacles {
                             worker.queue.push_back(Job::Obstacles(o.clone()));
+                        }
+                        if let Some(f) = &fences {
+                            worker.queue.push_back(Job::Fences(f.clone()));
                         }
                     }
                     for a in answers {

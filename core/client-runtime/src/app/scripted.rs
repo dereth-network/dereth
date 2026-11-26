@@ -75,6 +75,8 @@ impl<S: Shell> App<S> {
             .map(crate::character::Character::position);
         let land = character.map(|c| std::sync::Arc::clone(c.land()));
         let obstacles = character.map(|c| nav_obstacles(&self.objects.world, c));
+        // The cells a house's barrier would stop the character at: routes go round them.
+        let fences = character.map(|c| c.world.fenced_cells(c.handle));
         let portals = nav_portals(&self.objects.world, character);
         let idle = self.teleport.anim.state == crate::teleport::TeleportAnimState::Off;
         let world = self.travel_world();
@@ -135,6 +137,9 @@ impl<S: Shell> App<S> {
         }
         if let Some(list) = obstacles {
             self.travel.set_obstacles(list, at.as_ref());
+        }
+        if let Some(cells) = fences {
+            self.travel.set_fences(cells);
         }
         // A door the server answered as locked is planned round; one only slow to open is not.
         for door in self.objects.take_lock_answers() {

@@ -84,14 +84,29 @@ pub(crate) struct MeshSearch {
     steps: Steps,
     /// The polygons searched place by place.
     broken: HashSet<u32>,
-    /// The steps out of whole polygons into the places of broken ones: from the polygon's place
-    /// to the broken one's.
+    /// The broken polygons in order, with their bounds.
+    broken_bounds: Vec<(u32, (i32, i32, i32, i32))>,
+    /// The steps out of whole polygons into the places of broken ones, from the polygon's place
+    /// to the broken one's: found for a polygon the first time the search leaves it.
     into_broken: HashMap<u32, Vec<(u32, u32)>>,
     /// The places searched one by one, by place, as nodes.
     loose: HashMap<u32, u32>,
     /// The places searched one by one, by node, from the first after the polygons.
     loose_places: Vec<u32>,
     polys: u32,
+    /// The work done so far.
+    work: SearchWork,
+}
+
+/// What a search over a region's polygons has done: how many places it settled one by one, and
+/// how many places of the polygons it crosses place by place it looked at for the steps into
+/// them from the whole polygons beside them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchWork {
+    /// Places settled one by one.
+    pub places_settled: u64,
+    /// Places looked at for the steps into them.
+    pub step_in_places: u64,
 }
 
 impl MeshSearch {
@@ -114,37 +129,12 @@ impl MeshSearch {
                 broken.insert(p);
             }
         }
-        // The steps from whole polygons into the broken ones' places.
-        let mut into_broken: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
         // In order, so the same search finds the same way every time.
-        let mut order: Vec<u32> = broken.iter().copied().collect();
-        order.sort_unstable();
-        for &b in &order {
-            let Some(poly) = region.polys.get(b as usize) else {
-                continue;
-            };
-            let (x0, y0, x1, y1) = poly.bounds();
-            for iy in y0..=y1 {
-                for ix in x0..=x1 {
-                    let Some(q) = region.patch_place(b, ix, iy) else {
-                        continue;
-                    };
-                    let zq = region.column_and_z(q).2;
-                    for (dx, dy) in STEPS {
-                        let Some(a) = region.step_into(ix + dx, iy + dy, zq, steps) else {
-                            continue;
-                        };
-                        let Some(p) = region.patch_of(a) else {
-                            continue;
-                        };
-                        if broken.contains(&p) {
-                            continue;
-                        }
-                        into_broken.entry(p).or_default().push((a, q));
-                    }
-                }
-            }
-        }
+        let mut order: Vec<(u32, (i32, i32, i32, i32))> = broken
+            .iter()
+            .filter_map(|&b| Some((b, region.polys.get(b as usize)?.bounds())))
+            .collect();
+        order.sort_unstable_by_key(|&(b, _)| b);
         let mut search = Self {
             book: HashMap::new(),
             open: BinaryHeap::new(),
@@ -153,10 +143,12 @@ impl MeshSearch {
             toward,
             steps,
             broken,
-            into_broken,
+            broken_bounds: order,
+            into_broken: HashMap::new(),
             loose: HashMap::new(),
             loose_places: Vec::new(),
             polys: u32::try_from(region.polys.len()).unwrap_or(u32::MAX),
+            work: SearchWork::default(),
         };
         if let Some(start) = search.node_of(region, from) {
             let f = dist(region.node_point(from), toward);
@@ -254,6 +246,7 @@ impl MeshSearch {
             if node >= self.polys {
                 *budget -= 1;
                 let u = self.loose_places[(node - self.polys) as usize];
+                self.work.places_settled += 1;
                 if let Some(extra) = self.ends.get(&u) {
                     let total = e.g + extra;
                     if self.best.is_none_or(|(b, _)| total < b) {
@@ -262,6 +255,7 @@ impl MeshSearch {
                 }
                 self.ways_from_place(region, &gate, node, u, e.g);
             } else {
+                self.find_into_broken(region, node);
                 let p = &region.polys[node as usize];
                 let n = p.links.len()
                     + region.exits.get(&node).map_or(0, Vec::len)
@@ -275,6 +269,52 @@ impl MeshSearch {
             return Some(None);
         };
         Some(Some(self.chain(region, end)))
+    }
+
+    /// The work done so far.
+    pub(crate) const fn work(&self) -> SearchWork {
+        self.work
+    }
+
+    /// The steps from whole polygon `p` into the places of the broken polygons beside it, found
+    /// once: from each broken polygon's places in the columns round `p`'s bounds, the steps that
+    /// land on a place of `p`, in the broken polygons' order and then by column.
+    fn find_into_broken(&mut self, region: &Region, p: u32) {
+        if self.broken_bounds.is_empty() || self.into_broken.contains_key(&p) {
+            return;
+        }
+        let Some(poly) = region.polys.get(p as usize) else {
+            return;
+        };
+        let (px0, py0, px1, py1) = poly.bounds();
+        let mut out = Vec::new();
+        for &(b, (bx0, by0, bx1, by1)) in &self.broken_bounds {
+            // Only a broken place within a step of `p`'s bounds can step onto `p`.
+            let (x0, y0) = (bx0.max(px0 - 1), by0.max(py0 - 1));
+            let (x1, y1) = (bx1.min(px1 + 1), by1.min(py1 + 1));
+            for iy in y0..=y1 {
+                for ix in x0..=x1 {
+                    let Some(q) = region.patch_place(b, ix, iy) else {
+                        continue;
+                    };
+                    self.work.step_in_places += 1;
+                    let zq = region.column_and_z(q).2;
+                    for (dx, dy) in STEPS {
+                        let (ax, ay) = (ix + dx, iy + dy);
+                        if ax < px0 || ax > px1 || ay < py0 || ay > py1 {
+                            continue;
+                        }
+                        let Some(a) = region.step_into(ax, ay, zq, self.steps) else {
+                            continue;
+                        };
+                        if region.patch_of(a) == Some(p) {
+                            out.push((a, q));
+                        }
+                    }
+                }
+            }
+        }
+        self.into_broken.insert(p, out);
     }
 
     /// The ways on from a place searched by itself: a step to each neighbouring column, as the

@@ -1,6 +1,6 @@
 //! The planner: regions built on first use and kept, the objects that come and go, and the plan.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use dereth_physics::globals::FLOOR_Z;
@@ -8,8 +8,9 @@ use dereth_physics::source::SetupGeometry;
 use dereth_primitives::num::floor_to_i32;
 use dereth_primitives::{CellId, ObjectId, Position, Quat, Vec3};
 
+use crate::mesh::SearchWork;
 use crate::path::{global, global_distance, NavPath, NoPath, Waypoint, WaypointAction};
-use crate::region::{block_xy, Region};
+use crate::region::{block_xy, poly_square, Region, GROUND};
 use crate::search::{Gate, Gates, Steps};
 use crate::solids::{object_shapes, Shape};
 use crate::source::{NavConfig, NavSource};
@@ -100,6 +101,9 @@ pub enum ObstacleKind {
 /// room for the body's steering to swing without touching it.
 pub const PORTAL_CLEARANCE: f32 = 1.0;
 
+/// The side of a land cell, metres.
+const LAND_CELL: f32 = 24.0;
+
 /// How far a portal whose body has no collision shapes is kept off, metres from its place.
 const PORTAL_BODY: f32 = 1.0;
 
@@ -181,6 +185,56 @@ impl Obstacle {
     }
 }
 
+/// Whether the way through `way` (places walked in order) comes within `clear` metres of the
+/// fenced cell `cell`: into its square, `clear` further out, for a land cell; through it, for an
+/// interior cell.
+#[must_use]
+pub fn fence_near_way(cell: CellId, way: &[Position], clear: f32) -> bool {
+    /// How far apart the way is looked at, metres.
+    const STEP: f32 = 0.5;
+    let index = cell.0 & 0xFFFF;
+    if index >= 0x0100 {
+        return way.iter().any(|p| p.cell == cell);
+    }
+    if !(1..=0x40).contains(&index) {
+        return false;
+    }
+    let (cx, cy) = ((index - 1) / 8, (index - 1) % 8);
+    #[allow(clippy::cast_precision_loss)]
+    let lo = global(&Position::new(
+        cell,
+        dereth_primitives::Frame::new(
+            Vec3::new(cx as f32 * LAND_CELL, cy as f32 * LAND_CELL, 0.0),
+            Quat::IDENTITY,
+        ),
+    ));
+    let inside = |p: Vec3| {
+        p.x > lo.x - clear
+            && p.x < lo.x + LAND_CELL + clear
+            && p.y > lo.y - clear
+            && p.y < lo.y + LAND_CELL + clear
+    };
+    let points: Vec<Vec3> = way
+        .iter()
+        .filter(|p| p.cell.0 & 0xFFFF < 0x0100)
+        .map(global)
+        .collect();
+    if let [only] = points.as_slice() {
+        return inside(*only);
+    }
+    points.windows(2).any(|w| {
+        let d = sub(w[1], w[0]);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a count of half-metre steps along one stretch of a walk.
+        let steps = (dist(w[0], w[1]) / STEP).ceil().max(1.0) as u32;
+        (0..=steps).any(|i| {
+            #[allow(clippy::cast_precision_loss)]
+            let f = i as f32 / steps as f32;
+            inside(Vec3::new(w[0].x + d.x * f, w[0].y + d.y * f, 0.0))
+        })
+    })
+}
+
 /// The planner over one source.
 #[derive(Debug)]
 pub struct NavWorld<S> {
@@ -188,6 +242,10 @@ pub struct NavWorld<S> {
     pub(crate) config: NavConfig,
     pub(crate) regions: Vec<Region>,
     obstacles: BTreeMap<u32, Obstacle>,
+    /// The cells a house's barrier keeps the body out of: land cells and interior cells.
+    fenced: BTreeSet<u32>,
+    /// What the last route's search did.
+    pub(crate) last_search: SearchWork,
     /// The serial number the last region built was given.
     pub(crate) serial: u64,
     /// The stretches of floor of each dungeon region asked about, by its serial: a label per
@@ -229,6 +287,8 @@ impl<S: NavSource> NavWorld<S> {
             config,
             regions: Vec::new(),
             obstacles: BTreeMap::new(),
+            fenced: BTreeSet::new(),
+            last_search: SearchWork::default(),
             serial: 0,
             sets: std::cell::RefCell::new(HashMap::new()),
             tiles: HashMap::new(),
@@ -250,6 +310,12 @@ impl<S: NavSource> NavWorld<S> {
     /// from there rather than building them again.
     pub fn set_tile_store(&mut self, store: Box<dyn TileStore>) {
         self.tile_store = Some(store);
+    }
+
+    /// What the search of the last route planned did, to its end.
+    #[must_use]
+    pub const fn last_search_work(&self) -> SearchWork {
+        self.last_search
     }
 
     /// How many landblock tiles this planner has built, rather than found kept or read back.
@@ -704,6 +770,13 @@ impl<S: NavSource> NavWorld<S> {
         self.obstacles.remove(&id.0);
     }
 
+    /// The cells a house's barrier keeps the body out of, replacing the last set: the route keeps
+    /// the body's width and the margin clear of a fenced land cell's edges, and ends in no fenced
+    /// cell, land or interior (a house's rooms open only onto its own land cell).
+    pub fn set_fenced_cells(&mut self, cells: impl IntoIterator<Item = CellId>) {
+        self.fenced = cells.into_iter().map(|c| c.0).collect();
+    }
+
     /// Record a door's state, if the door is known.
     pub fn set_door_state(&mut self, id: ObjectId, state: DoorState) {
         if let Some(o) = self.obstacles.get_mut(&id.0) {
@@ -782,6 +855,92 @@ impl<S: NavSource> NavWorld<S> {
             }
         }
         (gates, ids)
+    }
+
+    /// Whether place `i` of `region` stands in a fenced cell: no route ends there.
+    pub(crate) fn fenced_place(&self, region: &Region, i: u32) -> bool {
+        !self.fenced.is_empty() && self.fenced.contains(&region.position(i).cell.0)
+    }
+
+    /// The places a house's barrier keeps the body out of, and the polygons over them: every
+    /// outdoor place whose body, as wide as the room the route keeps, reaches across a fenced land
+    /// cell's edge (the barrier stops a body there). The band they make walls the places further
+    /// in off without each one being blocked, and the polygons wholly inside it stay whole.
+    pub(crate) fn fence_gates(&self, region: &Region) -> (HashSet<u32>, HashSet<u32>) {
+        let mut places = HashSet::new();
+        let mut polys = HashSet::new();
+        if self.fenced.is_empty() {
+            return (places, polys);
+        }
+        let clear = self.config.agent.radius + self.config.margin;
+        let s = region.spacing;
+        for &cell in &self.fenced {
+            let index = cell & 0xFFFF;
+            if !(1..=0x40).contains(&index) {
+                continue;
+            }
+            let (cx, cy) = ((index - 1) / 8, (index - 1) % 8);
+            #[allow(clippy::cast_precision_loss)]
+            let corner = Position::new(
+                CellId(cell),
+                dereth_primitives::Frame::new(
+                    Vec3::new(cx as f32 * LAND_CELL, cy as f32 * LAND_CELL, 0.0),
+                    Quat::IDENTITY,
+                ),
+            );
+            if !region.covers(&corner) {
+                continue;
+            }
+            let o = region.to_region(&corner);
+            let x0 = floor_to_i32((o.x - clear) / s);
+            let x1 = floor_to_i32((o.x + LAND_CELL + clear) / s) + 1;
+            let y0 = floor_to_i32((o.y - clear) / s);
+            let y1 = floor_to_i32((o.y + LAND_CELL + clear) / s) + 1;
+            // The columns further in than the room kept from every edge.
+            let (ix0, ix1) = (
+                floor_to_i32((o.x + clear) / s) + 1,
+                floor_to_i32((o.x + LAND_CELL - clear) / s),
+            );
+            let (iy0, iy1) = (
+                floor_to_i32((o.y + clear) / s) + 1,
+                floor_to_i32((o.y + LAND_CELL - clear) / s),
+            );
+            let inner = |ix: i32, iy: i32| (ix0..=ix1).contains(&ix) && (iy0..=iy1).contains(&iy);
+            for ix in x0..=x1 {
+                for iy in y0..=y1 {
+                    if inner(ix, iy) {
+                        continue;
+                    }
+                    for i in region.column(ix, iy) {
+                        let outdoors = i & GROUND != 0
+                            || region
+                                .nodes
+                                .get(i as usize)
+                                .and_then(|n| region.cell_ids.get(usize::from(n.cell)))
+                                .is_some_and(|c| c.0 & 0xFFFF < 0x0100);
+                        if outdoors {
+                            places.insert(i);
+                        }
+                    }
+                }
+            }
+            // The polygons reaching into the band: those whose bounds meet the fenced square
+            // and are not wholly inside the band's inner edge.
+            let (sx0, sy0) = poly_square(x0, y0);
+            let (sx1, sy1) = poly_square(x1, y1);
+            for sx in sx0..=sx1 {
+                for sy in sy0..=sy1 {
+                    for &p in region.poly_index.get(&(sx, sy)).into_iter().flatten() {
+                        let (bx0, by0, bx1, by1) = region.polys[p as usize].bounds();
+                        let meets = bx1 >= x0 && bx0 <= x1 && by1 >= y0 && by0 <= y1;
+                        if meets && !(inner(bx0, by0) && inner(bx1, by1)) {
+                            polys.insert(p);
+                        }
+                    }
+                }
+            }
+        }
+        (places, polys)
     }
 
     /// Plan a route from `from` to `to`: inside one dungeon, or outdoors across a window of

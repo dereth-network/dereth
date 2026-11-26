@@ -60,6 +60,14 @@ impl<'w> KeyBody<'w> {
     ) -> Option<Self> {
         let handle = world.create(ObjectId(0x5000_0002), Arc::clone(&setup), true);
         world.set_player(handle);
+        // A player's game record: a house's barrier stops it, as it stops the client's player.
+        world.set_weenie_restrictions(
+            handle,
+            Some(dereth_physics::obj::WeenieRestrictions {
+                is_player: true,
+                ..Default::default()
+            }),
+        );
         if !dereth_navigation::stand(world, handle, &setup, at) {
             world.destroy(handle);
             return None;

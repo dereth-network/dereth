@@ -5,7 +5,8 @@
 //! is stopped by them. Doors and other placed objects gate the places they stand on: a closed door
 //! is passed with an instruction to open it, a locked one and a solid object are not passed. A low
 //! object is stepped over where that is shortest, and a creature standing in the way is walked
-//! round once the route knows of it, up a shop's stairs past the people standing in it too.
+//! round once the route knows of it, up a shop's stairs past the people standing in it too. A
+//! closed house's barrier is kept clear of.
 //! Fixtures: the rooms of pillars and furniture of block `0x0106` and other dungeons, Holtburg's
 //! streets (`0xA9B4`), its scriveners' shop (`0xA9B3`) and the land the Unified Heart Villas
 //! portal sets a body down on (`0x9390`), from the retail dats; the shop's people
@@ -16,7 +17,8 @@ use std::sync::Arc;
 use dereth_navigation::{
     DoorState, NavConfig, NoPath, Obstacle, ObstacleKind, SegmentCheck, WaypointAction,
 };
-use dereth_physics::{CylSphere, SetupGeometry};
+use dereth_physics::obj::{Restrictions, WeenieRestrictions};
+use dereth_physics::{CylSphere, PhysicsNotice, SetupGeometry};
 use dereth_primitives::{Frame, ObjectId, Position, Quat, Vec3};
 
 use crate::common::*;
@@ -725,4 +727,109 @@ fn a_fence_across_the_walk_from_the_villas_portal_is_found_in_the_way_and_walked
             .map(dereth_navigation::global)
             .collect::<Vec<_>>()
     );
+}
+
+/// From where the Unified Heart Villas portal sets a body down (`0x9390`) to Sylsfear Dungeon's
+/// portal (`0x918D`), with each villa there someone else's and shut: its barrier stands at the
+/// edges of its land cell. The route keeps a body's width clear of every barrier, and the body
+/// walks it to the portal at 60 and 20 frames a second without once being stopped by one. A
+/// planner not told of the barriers cuts the corner of the villa it passes (`0x93900022`), where
+/// the barrier holds the body for seconds. The search round the barriers looks only at the places
+/// it steps into them from, not at every place of every polygon a barrier crosses.
+#[test]
+fn the_walk_from_the_villas_portal_to_sylsfear_keeps_clear_of_the_shut_villas_barriers() {
+    let mut blocks = Vec::new();
+    for x in 0x90_u16..=0x94 {
+        for y in 0x8C_u16..=0x91 {
+            blocks.push((x << 8) | y);
+        }
+    }
+    blocks.sort_by_key(|b| u16::from(*b != 0x9390));
+    let mut d = load(&blocks, true, NavConfig::default());
+    // Each villa's land cell, fenced by its house as the landblock's restriction table says; the
+    // house has an owner and is shut to everyone else.
+    let mut houses = 0;
+    for &b in &blocks {
+        let (bx, by) = (i32::from(b >> 8), i32::from(b & 0xFF));
+        let Some(table) = dereth_client_runtime::world_build::read_lbi(&store(), bx, by)
+            .and_then(|lbi| lbi.restrictions)
+        else {
+            continue;
+        };
+        for &(cell, house) in &table.entries {
+            let house = ObjectId(house);
+            if d.world.by_object_id(house).is_none() {
+                let h = d
+                    .world
+                    .create(house, Arc::new(SetupGeometry::default()), false);
+                d.world.set_weenie_restrictions(
+                    h,
+                    Some(WeenieRestrictions {
+                        house_owner: Some(ObjectId(0x5000_0777)),
+                        restrictions: Some(Restrictions::default()),
+                        ..WeenieRestrictions::default()
+                    }),
+                );
+                houses += 1;
+            }
+            d.world
+                .set_cell_restriction(dereth_primitives::CellId(cell), Some(house));
+        }
+    }
+    assert_eq!(houses, 6, "the six villas");
+    // The cells the physics would stop the player at, handed to the planner.
+    let player = Arc::clone(&d.player);
+    let probe = d.world.create(ObjectId(0x5000_0003), player, true);
+    d.world.set_weenie_restrictions(
+        probe,
+        Some(WeenieRestrictions {
+            is_player: true,
+            ..WeenieRestrictions::default()
+        }),
+    );
+    let fenced = d.world.fenced_cells(probe);
+    d.world.destroy(probe);
+    assert_eq!(fenced.len(), 6, "each villa's cell: {fenced:?}");
+    d.nav.set_fenced_cells(fenced.iter().copied());
+
+    let from = ground(&d, 0x9390, 123.574, 79.763);
+    let to = ground(&d, 0x918D, 151.2, 33.1);
+    let (path, whole) = d.nav.plan_toward(&from, &to).expect("a route");
+    assert!(whole, "planned to the portal");
+    // The search looks for the steps into the polygons a barrier's band crosses only where it
+    // leaves a polygon beside one: some thousand places, not every place of every such polygon
+    // (about 180,000 here).
+    let work = d.nav.last_search_work();
+    assert!(
+        work.step_in_places < 10_000,
+        "places looked at for the steps round the barriers: {work:?}"
+    );
+    let way: Vec<Position> = path.waypoints.iter().map(|w| w.position).collect();
+    let radius = NavConfig::default().agent.radius;
+    for &cell in &fenced {
+        assert!(
+            !dereth_navigation::fence_near_way(cell, &way, radius),
+            "the way comes within a body's width of the barrier round {:08X}: {:?}",
+            cell.0,
+            way.iter()
+                .map(dereth_navigation::global)
+                .collect::<Vec<_>>()
+        );
+    }
+    for fps in [60.0, 20.0] {
+        let _ = d.world.drain_notices().count();
+        let player = Arc::clone(&d.player);
+        let Dungeon { world, nav, .. } = &mut d;
+        let mut replan = |p: &Position, _: &Position| nav.plan_toward(p, &to).ok().map(|r| r.0);
+        let r = drive(world, &player, path.clone(), fps, &mut replan);
+        let stopped = world
+            .drain_notices()
+            .filter(|n| matches!(n, PhysicsNotice::MoveRestricted { .. }))
+            .count();
+        assert!(r.arrived, "at {fps} frames a second: {r:?}");
+        assert_eq!(
+            stopped, 0,
+            "at {fps} frames a second, stopped by a barrier: {r:?}"
+        );
+    }
 }

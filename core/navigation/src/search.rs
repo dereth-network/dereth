@@ -27,6 +27,8 @@ pub(crate) enum Gate {
 #[derive(Debug, Default)]
 pub(crate) struct Gates {
     map: HashMap<u32, Gate>,
+    /// Places a house's barrier keeps the body off.
+    fenced: HashSet<u32>,
     polys: HashSet<u32>,
 }
 
@@ -41,11 +43,26 @@ impl Gates {
             })
             .chain(region.dirty.iter().copied())
             .collect();
-        Self { map, polys }
+        Self {
+            map,
+            fenced: HashSet::new(),
+            polys,
+        }
+    }
+
+    /// The same gates with `places` blocked by a house's barrier, and `polys` the polygons over
+    /// them.
+    pub(crate) fn with_fences(mut self, places: HashSet<u32>, polys: HashSet<u32>) -> Self {
+        self.fenced = places;
+        self.polys.extend(polys);
+        self
     }
 
     /// The gate on place `p`.
     pub(crate) fn of(&self, p: u32) -> Gate {
+        if self.fenced.contains(&p) {
+            return Gate::Blocked;
+        }
         self.map.get(&p).copied().unwrap_or(Gate::Free)
     }
 

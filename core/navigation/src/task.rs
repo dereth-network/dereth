@@ -298,18 +298,21 @@ impl<S: NavSource> NavWorld<S> {
             });
         }
         let (gates, door_ids) = self.gates(region);
-        let gates = Gates::new(region, gates);
+        let (fenced, fenced_polys) = self.fence_gates(region);
+        let gates = Gates::new(region, gates).with_fences(fenced, fenced_polys);
         let gate = |i: u32| gates.of(i);
         let steps = self.steps();
         let start = region
             .nearest_clear(region.to_region(from), 1.5, |i| gate(i) != Gate::Blocked)
             .ok_or(NoPath::NoStandingPlace(End::Start))?;
+        // No route ends in a cell a house's barrier keeps the body out of.
+        let open = |i: u32| gate(i) != Gate::Blocked && !self.fenced_place(region, i);
         let (ends, toward) = match task.want {
             Want::Approach(reach) => {
                 let target = region.to_region(to);
                 let ends: HashMap<u32, f32> = region
                     .clear_near(target, reach, NEAR_RISE)
-                    .filter(|&i| gate(i) != Gate::Blocked)
+                    .filter(|&i| open(i))
                     .map(|i| (i, SHORT_COST * dist(region.node_point(i), target)))
                     .collect();
                 if ends.is_empty() {
@@ -319,7 +322,7 @@ impl<S: NavSource> NavWorld<S> {
             }
             Want::Route | Want::Place => {
                 let goal = region
-                    .nearest_clear(region.to_region(to), 1.5, |i| gate(i) != Gate::Blocked)
+                    .nearest_clear(region.to_region(to), 1.5, open)
                     .ok_or(NoPath::NoStandingPlace(End::Goal))?;
                 (HashMap::from([(goal, 0.0)]), region.node_point(goal))
             }
@@ -488,6 +491,7 @@ impl<S: NavSource> NavWorld<S> {
                         continue;
                     };
                     let chain = search.step(&self.regions[i], gates, budget)?;
+                    self.last_search = search.work();
                     let Some(chain) = chain else {
                         // No walk there: is there a way with a drop? A dungeon's only.
                         match self.drop_search(i, (&task.from, &task.to, task.want), gates) {

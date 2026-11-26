@@ -1,7 +1,8 @@
 //! Behaviour: none (checks formats, geometry, numeric contracts or repository tools)
 //! A missile target id makes other creatures pass (client missiles still hit creatures); an absent
-//! gate keeper closes a cell unless an installed host answers; a committed host sweep moves body,
-//! cell, contact and shadows.
+//! gate keeper closes a cell unless an installed host answers; the cells a player is fenced out of
+//! are those whose gate keeper would refuse it; a committed host sweep moves body, cell, contact
+//! and shadows.
 //! Fixture: synthetic state, geometry and reference vectors.
 
 use std::sync::{Arc, Mutex};
@@ -300,6 +301,55 @@ fn an_installed_host_answers_the_entry_question() {
         "the host closes the gate"
     );
     assert!(!closed.asked.lock().expect("unpoisoned").is_empty());
+}
+
+/// The cells a player is fenced out of are the cells whose house would refuse it: one with an
+/// owner, shut and with no place for the player; never an open house, an unowned one, the owner's
+/// own, a gate keeper not yet in the world, or anything for a body that is not a player.
+#[test]
+fn the_cells_a_player_is_fenced_out_of_are_those_whose_gate_keeper_refuses_it() {
+    use dereth_physics::obj::Restrictions;
+    let house = |owner: Option<u32>, open: bool| WeenieRestrictions {
+        house_owner: owner.map(ObjectId),
+        restrictions: Some(Restrictions {
+            open,
+            ..Restrictions::default()
+        }),
+        ..WeenieRestrictions::default()
+    };
+    let mut w = flat_world();
+    let player = place(&mut w, 1, at(110.0, 100.0, 20.0));
+    w.set_weenie_restrictions(
+        player,
+        Some(WeenieRestrictions {
+            is_player: true,
+            ..WeenieRestrictions::default()
+        }),
+    );
+    let cell = |x: f32| at(x, 100.0, 20.0).cell;
+    // A gate keeper that is not there yet.
+    w.set_cell_restriction(cell(130.0), Some(GATE_KEEPER));
+    // Houses: someone else's and shut; someone else's and open; nobody's; the player's own.
+    for (k, (x, keeper)) in [
+        (154.0, house(Some(9), false)),
+        (178.0, house(Some(9), true)),
+        (10.0, house(None, false)),
+        (34.0, house(Some(1), false)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = 0x7000_0100 + u32::try_from(k).expect("small");
+        let h = w.create(ObjectId(id), body_geometry(), false);
+        w.set_weenie_restrictions(h, Some(keeper));
+        w.set_cell_restriction(cell(x), Some(ObjectId(id)));
+    }
+    let fenced = w.fenced_cells(player);
+    assert_eq!(fenced, vec![cell(154.0)], "the shut house's");
+    // A body that is not a player is fenced out of nothing.
+    let creature = place(&mut w, 2, at(60.0, 100.0, 20.0));
+    w.set_weenie_restrictions(creature, Some(WeenieRestrictions::default()));
+    assert!(w.fenced_cells(creature).is_empty());
 }
 
 use crate::common::physics_fixture::{flat_world, player_geometry as body_geometry};

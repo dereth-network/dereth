@@ -1333,6 +1333,10 @@ pub struct Travel {
     plans_asked: BTreeMap<u64, u64>,
     /// The objects last handed to the planning: id, kind and where, to tell when they change.
     obstacles_sent: Vec<(u32, ObstacleKind, u32, [i32; 3])>,
+    /// The cells a house's barrier keeps the character out of, in order.
+    fences: Vec<CellId>,
+    /// The fences last handed to the planning; `None` before any were.
+    fences_sent: Option<Vec<CellId>>,
     /// The dungeon whose region was last built ahead of need.
     prepared: Option<u32>,
     character: CharacterState,
@@ -1405,6 +1409,8 @@ impl Travel {
             routes_asked: BTreeMap::new(),
             plans_asked: BTreeMap::new(),
             obstacles_sent: Vec::new(),
+            fences: Vec::new(),
+            fences_sent: None,
             prepared: None,
             character: CharacterState::default(),
             stance: Stance::default(),
@@ -1597,6 +1603,8 @@ impl Travel {
                     // goes round them as any later one does.
                     self.obstacles_sent.clear();
                     self.send_obstacles();
+                    self.fences_sent = None;
+                    self.send_fences();
                 }
                 Err(e) => {
                     tracing::warn!(target: "travel", "no planner: {e}");
@@ -1966,6 +1974,49 @@ impl Travel {
         }
         self.obstacles = kept;
         self.send_obstacles();
+    }
+
+    /// The cells a house's barrier keeps the character out of now, replacing the last. A newly
+    /// fenced cell the way ahead runs into sends the walk round it by a new route before the body
+    /// is stopped at the barrier.
+    pub fn set_fences(&mut self, mut cells: Vec<CellId>) {
+        cells.sort_unstable_by_key(|c| c.0);
+        cells.dedup();
+        if cells == self.fences {
+            return;
+        }
+        if let Some(t) = self.trip.as_mut().filter(|t| t.route_dirty.is_none()) {
+            if let Some(f) = t.follower.as_ref() {
+                let way: Vec<Position> = f
+                    .path()
+                    .waypoints
+                    .iter()
+                    .skip(f.next_waypoint().saturating_sub(1))
+                    .map(|w| w.position)
+                    .collect();
+                let clear = NavConfig::default().agent.radius;
+                if let Some(c) = cells.iter().find(|c| {
+                    self.fences.binary_search_by_key(&c.0, |f| f.0).is_err()
+                        && dereth_navigation::fence_near_way(**c, &way, clear)
+                }) {
+                    t.route_dirty = Some(format!("a house's barrier {:08X}", c.0));
+                }
+            }
+        }
+        self.fences = cells;
+        self.send_fences();
+    }
+
+    /// Hand the planning the fenced cells, when they have changed since it was last handed them.
+    fn send_fences(&mut self) {
+        if self.fences_sent.as_ref() == Some(&self.fences) {
+            return;
+        }
+        let Some(planning) = self.planning.as_mut() else {
+            return;
+        };
+        self.fences_sent = Some(self.fences.clone());
+        planning.ask(Job::Fences(self.fences.clone()));
     }
 
     /// The objects and creatures within `reach` across of `p` and a body's height up or down,
@@ -5087,6 +5138,82 @@ mod tests {
             clear.trip.as_ref().and_then(|t| t.route_dirty.clone()),
             None
         );
+    }
+
+    /// A house's barrier that comes to stand across the way ahead (the land cell of a villa shut
+    /// to the character, its corner cut by the way) sends the walk round it by a new route before
+    /// the body is stopped there, and the planning is handed the fenced cells; the same barrier
+    /// 2 m clear of the way, or one already known, does not.
+    #[test]
+    fn a_house_barrier_across_the_way_ahead_sends_the_walk_round_it() {
+        // Outdoors in landblock 0x9390, at (x, y) metres.
+        let land = |x: f32, y: f32| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let index = (x / 24.0) as u32 * 8 + (y / 24.0) as u32 + 1;
+            Position::new(
+                CellId(0x9390_0000 | index),
+                Frame::new(Vec3::new(x, y, 30.0), Quat::IDENTITY),
+            )
+        };
+        // The villa's land cell: 96 to 120 m east, 24 to 48 m north.
+        let villa = CellId(0x9390_0022);
+        let walking = |x: f32| {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.planning = Some(Planning::held());
+            let mut trip = Trip::new(
+                1,
+                Purpose::Go,
+                TravelTarget::Place(land(x, 10.0)),
+                TravelAllow::default(),
+                0.0,
+                0.0,
+            );
+            trip.step = Some(Step::Walk {
+                target: land(x, 10.0),
+                last: true,
+            });
+            travel.trip = Some(trip);
+            let straight = NavPath {
+                waypoints: [70.0, 10.0]
+                    .into_iter()
+                    .map(|y| dereth_navigation::Waypoint {
+                        position: land(x, y),
+                        action: None,
+                    })
+                    .collect(),
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            };
+            travel.follow_route(straight, true);
+            travel
+        };
+        let dirty = |t: &Travel| t.trip.as_ref().and_then(|t| t.route_dirty.clone());
+        // South along x = 96.3: the body's width reaches into the villa's cell.
+        let mut crossing = walking(96.3);
+        crossing.set_fences(vec![villa]);
+        assert_eq!(
+            dirty(&crossing).as_deref(),
+            Some("a house's barrier 93900022"),
+            "planned again round it"
+        );
+        assert!(
+            matches!(
+                crossing.planning.as_ref().and_then(Planning::last_asked),
+                Some(Job::Fences(f)) if f == &vec![villa]
+            ),
+            "the planning has the fenced cell"
+        );
+        // South along x = 94: 2 m clear of it.
+        let mut clear = walking(94.0);
+        clear.set_fences(vec![villa]);
+        assert_eq!(dirty(&clear), None);
+        // Known before the walk began, the route planned round it already: another fenced far off
+        // changes nothing.
+        let mut known = walking(96.3);
+        known.fences = vec![villa];
+        known.set_fences(vec![villa, CellId(0x9390_0001)]);
+        assert_eq!(dirty(&known), None);
     }
 
     /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so

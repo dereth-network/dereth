@@ -47,7 +47,9 @@
 //! Doors, creatures and other objects the world places come and go through
 //! [`NavWorld::set_obstacle`]. A closed door is a gate the route may pass at a cost, with a
 //! [`WaypointAction::OpenDoor`] before it; a locked one, and any solid object, is not passed; a
-//! creature is passed only where there is no way round.
+//! creature is passed only where there is no way round. The cells a house's barrier keeps the
+//! body out of are handed over with [`NavWorld::set_fenced_cells`]: a route keeps the body clear
+//! of a fenced land cell's edges and ends in no fenced cell.
 //!
 //! Routes through portals between places are not made yet: a dungeon and the outdoors are
 //! [`NoPath::Disconnected`] from each other, and two ends farther apart than one window are
@@ -83,6 +85,7 @@ pub use journey::{
     reach_for, survivable_drop, CharacterState, DropLink, HandBack, Journey, JourneyConfig, Leg,
     Reach, Realm, Teleport, HARMLESS_LANDING, LEAST_JUMP_RISE,
 };
+pub use mesh::SearchWork;
 pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};
 pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, PLACES_VERSION};
@@ -97,4 +100,4 @@ pub use source::{
 pub use task::{Done, Task, Want};
 pub use tile::TileStore;
 pub use walk::{stand, CheckReport, PhysicsWalker, SegmentCheck, WalkOutcome, WalkerConfig};
-pub use world::{DoorState, NavWorld, Obstacle, ObstacleKind};
+pub use world::{fence_near_way, DoorState, NavWorld, Obstacle, ObstacleKind};
