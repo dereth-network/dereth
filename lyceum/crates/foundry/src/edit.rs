@@ -1503,7 +1503,8 @@ impl Session {
         })
     }
 
-    /// The pieces of the AC2 dungeon kits the packs ask for, as the world's install made them.
+    /// The pieces of the AC2 dungeon kits the packs ask for: the world's land's own, on a land
+    /// converted from AC2 ([`Self::ac2_from_land`]), else as the world's install made them.
     #[must_use]
     pub fn ac2_pieces(&self) -> &[crate::ac2_kit::Ac2Piece] {
         &self.compiled.ac2_pieces
@@ -1518,16 +1519,33 @@ impl Session {
             .collect()
     }
 
+    /// Whether the AC2 dungeon kits' pieces are the world's land's own: a land converted from AC2
+    /// holds them all, each in the one look it drew it in, which nothing changes
+    /// ([`crate::ac2_kit::from_land`]).
+    #[must_use]
+    pub fn ac2_from_land(&self) -> bool {
+        self.compiled.ac2_from_land
+    }
+
+    /// Whether the session can offer AC2's dungeon kits: its world's land holds them, or it was
+    /// given an AC2 install to make them from.
+    #[must_use]
+    pub fn ac2_kits_offered(&self) -> bool {
+        self.ac2.is_some() || self.compiled.ac2_from_land
+    }
+
     /// Ask for every AC2 dungeon kit in the pack being edited (`[[ac2-kit]]` rows in its
-    /// `records/ac2.toml`, written when the session is saved) and make them from the session's
-    /// install. Answers whether anything changed: nothing does when a pack asks for every kit
-    /// already. The new records are the overlay's: a scratch overlay is written whole next.
+    /// `records/ac2.toml`, written when the session is saved): their pieces the world's land's
+    /// own, else made from the session's install. Answers whether anything changed: nothing does
+    /// when a pack asks for every kit already. Records made are the overlay's: a scratch overlay is
+    /// written whole next.
     ///
     /// # Errors
-    /// A session given no AC2 install, or a kit that will not make.
+    /// A session given no AC2 install on a land that holds no kit pieces, or a kit that will not
+    /// make.
     pub fn add_ac2_kits(&mut self) -> Result<bool, Error> {
         use crate::ac2_kit::Kit;
-        if self.ac2.is_none() {
+        if !self.ac2_kits_offered() {
             return Err(Error::Refused(
                 "AC2's dungeon kits are made from your Asheron's Call 2 install: start the editor \
                  with --ac2-dats"
@@ -1562,6 +1580,7 @@ impl Session {
         self.record_checks.borrow_mut().all = true;
         if let Err(e) = compile::ac2_kits(
             &self.packs,
+            &self.world.imports,
             &self.base,
             self.ac2.as_ref(),
             &mut self.compiled,

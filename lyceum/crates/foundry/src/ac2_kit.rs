@@ -21,8 +21,17 @@
 //! are its own materials (`own`) and the appearances AC2's dungeons draw it in: `plain`, `haunted`
 //! and `emplite` for `basic`, `broken` for `fancy`, `human` for `castle`; for `cave`, the stones
 //! AC2's caves are drawn in.
+//!
+//! **On a converted land.** A land converted from AC2 (New Dereth's) already holds every kit
+//! piece: each AC2 cell mesh its rooms and dungeons are drawn with is one of its environments, in
+//! the mesh's own materials, its cell tree cut at its doorways. The land says which in its overlay
+//! folder ([`LAND_TABLE`]). A world over such a land takes its kits' pieces from it
+//! ([`from_land`]): no environment or surface is made for them, a new dungeon's cells name the
+//! land's records, and each piece has the one look the land drew it in (`own`), which nothing
+//! changes. No install is needed for them; the kits' lights still come from one when it is given.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use dereth_ac2_convert::records::{NewIds, Pictures, Records};
 use dereth_ac2_convert::source::Ac2;
@@ -881,6 +890,107 @@ pub fn make(
     Ok(pieces)
 }
 
+/// The file in a converted land's overlay folder naming the environment each AC2 cell mesh became:
+/// a line per mesh and what it was made for, `mesh made_for environment surfaces`, tab-separated,
+/// the ids in hex and the surfaces (its cells' list, in order) apart by spaces.
+pub const LAND_TABLE: &str = "environments.tsv";
+
+/// The environments a converted land made of AC2's cell meshes ([`LAND_TABLE`]): for each mesh,
+/// the environment and the surfaces its cells name. A mesh made both for a building's rooms and
+/// for the dungeons is the dungeons' here, as a kit's pieces are dungeon pieces.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LandEnvironments(BTreeMap<u32, (DataId, Vec<DataId>)>);
+
+impl LandEnvironments {
+    /// The table in `text`.
+    ///
+    /// # Errors
+    /// A line that is not a mesh, what it was made for, an environment and surfaces.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let hex = |s: &str, n: usize| {
+            u32::from_str_radix(s.trim(), 16).map_err(|_| format!("line {n}: {s:?} is not an id"))
+        };
+        let mut rows: BTreeMap<u32, (bool, DataId, Vec<DataId>)> = BTreeMap::new();
+        for (k, line) in text.lines().enumerate().skip(1) {
+            let n = k + 1;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = line.split('\t').collect();
+            let [mesh, made_for, env, surfaces] = cols[..] else {
+                return Err(format!("line {n}: not four columns"));
+            };
+            let dungeon = made_for == "dungeon";
+            let surfaces = surfaces
+                .split_whitespace()
+                .map(|s| hex(s, n).map(DataId))
+                .collect::<Result<Vec<_>, _>>()?;
+            let row = (dungeon, DataId(hex(env, n)?), surfaces);
+            let mesh = hex(mesh, n)?;
+            if rows.get(&mesh).is_none_or(|(had, ..)| dungeon && !had) {
+                rows.insert(mesh, row);
+            }
+        }
+        Ok(Self(
+            rows.into_iter()
+                .map(|(m, (_, env, surfaces))| (m, (env, surfaces)))
+                .collect(),
+        ))
+    }
+
+    /// The table of the world's land: the last of `imports` (overlay folders) that holds one.
+    /// `None` when none does, as for a land not converted from AC2.
+    ///
+    /// # Errors
+    /// A table that will not read or parse.
+    pub fn of_imports(imports: &[PathBuf]) -> Result<Option<Self>, String> {
+        for dir in imports.iter().rev() {
+            let path = dir.join(LAND_TABLE);
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    return Self::parse(&text)
+                        .map(Some)
+                        .map_err(|e| format!("{}: {e}", path.display()));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("{}: {e}", path.display())),
+            }
+        }
+        Ok(None)
+    }
+
+    /// The environment mesh `mesh` became and the surfaces its cells name.
+    #[must_use]
+    pub fn get(&self, mesh: u32) -> Option<&(DataId, Vec<DataId>)> {
+        self.0.get(&mesh)
+    }
+}
+
+/// Every piece of `kits` as the land `land` holds it, in the order of [`PIECES`]: the land's
+/// environment for its mesh, and one look, the kit's own (`own`), the surfaces the land's cells
+/// name. Answers the pieces, and those the land lacks (left out).
+#[must_use]
+pub fn from_land(
+    land: &LandEnvironments,
+    kits: &BTreeSet<Kit>,
+) -> (Vec<Ac2Piece>, Vec<(Kit, u32, &'static str)>) {
+    let mut pieces = Vec::new();
+    let mut lacks = Vec::new();
+    for &(kit, mesh, label) in PIECES.iter().filter(|(k, _, _)| kits.contains(k)) {
+        match land.get(mesh) {
+            Some((environment, surfaces)) => pieces.push(Ac2Piece {
+                kit,
+                mesh,
+                label,
+                environment: *environment,
+                looks: vec![(kit.looks()[0].0, surfaces.clone())],
+            }),
+            None => lacks.push((kit, mesh, label)),
+        }
+    }
+    (pieces, lacks)
+}
+
 /// A name a new record of a kit is made under, as a symbol: `ac2-` and its words and numbers,
 /// lowercase, joined by hyphens (`surface 310002C2 …` is `ac2-surface-310002c2-…`).
 #[must_use]
@@ -914,6 +1024,43 @@ mod tests {
             PIECES.len(),
             "a label names one piece of its kit"
         );
+    }
+
+    /// A land's table gives each mesh's environment and surfaces, a dungeon's line over a
+    /// building's for the same mesh in either order; a kit's pieces are the land's environments in
+    /// one look, its own, and those the land lacks are named.
+    #[test]
+    fn a_lands_table_gives_the_kit_its_environments_dungeon_lines_first() {
+        let text = "mesh\tmade_for\tenvironment\tsurfaces\n\
+                    01000042\tbuilding\t0D00C001\t0800C001\n\
+                    01000042\tdungeon\t0D00C002\t0800C002 0800C003\n\
+                    0100003F\tdungeon\t0D00C003\t0800C004\n\
+                    0100003F\tbuilding\t0D00C004\t0800C005\n\
+                    0100003E\tbuilding\t0D00C005\t\n";
+        let land = LandEnvironments::parse(text).unwrap();
+        assert_eq!(
+            land.get(0x0100_0042),
+            Some(&(
+                DataId(0x0D00_C002),
+                vec![DataId(0x0800_C002), DataId(0x0800_C003)]
+            ))
+        );
+        assert_eq!(land.get(0x0100_003F).unwrap().0, DataId(0x0D00_C003));
+        assert_eq!(land.get(0x0100_003E), Some(&(DataId(0x0D00_C005), vec![])));
+        let (pieces, lacks) = from_land(&land, &BTreeSet::from([Kit::Basic]));
+        let labels: Vec<&str> = pieces.iter().map(|p| p.label).collect();
+        assert_eq!(labels, ["turn", "end", "straight"]);
+        let straight = &pieces[2];
+        assert_eq!(straight.environment, DataId(0x0D00_C002));
+        assert_eq!(
+            straight.looks,
+            [("own", land.get(0x0100_0042).unwrap().1.clone())]
+        );
+        assert_eq!(lacks.len(), 37);
+        assert!(lacks.iter().all(|(k, ..)| *k == Kit::Basic));
+        let e = LandEnvironments::parse("mesh\tmade_for\tenvironment\tsurfaces\n0100\tdungeon\n")
+            .unwrap_err();
+        assert!(e.contains("line 2"), "{e}");
     }
 
     #[test]

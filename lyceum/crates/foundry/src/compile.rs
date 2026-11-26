@@ -164,10 +164,14 @@ pub struct Compiled {
     /// again when their rows change ([`recompile_tables`]).
     pub tables_below: BTreeMap<u32, Option<Staged>>,
     pub tables_said: Vec<String>,
-    /// The pieces of the AC2 dungeon kits the packs ask for, made from the player's install.
+    /// The pieces of the AC2 dungeon kits the packs ask for: the land's own, or made from the
+    /// player's install.
     pub ac2_pieces: Vec<crate::ac2_kit::Ac2Piece>,
     /// Those kits' lights, made from the same install.
     pub ac2_lights: Vec<crate::ac2_kit::Ac2Light>,
+    /// Whether the world's land holds AC2's kit pieces, a land converted from AC2: the kits' pieces
+    /// are then its own ([`crate::ac2_kit::from_land`]), each in the one look the land drew it in.
+    pub ac2_from_land: bool,
 }
 
 /// A part of a world a compile settles conflicts in, so that compiling a part again replaces
@@ -396,10 +400,13 @@ impl dereth_ac2_convert::records::NewIds for LockIds<'_> {
     }
 }
 
-/// The AC2 dungeon kits the packs ask for, made from `ac2` into `c`: their records, numbered in
-/// the lockfile under the first pack that asks for one, and their pieces.
+/// The AC2 dungeon kits the packs ask for, into `c`: on a land converted from AC2 (an import with
+/// [`crate::ac2_kit::LAND_TABLE`]), its own environments, no record made for them; else made from
+/// `ac2`, their records numbered in the lockfile under the first pack that asks for one. Their
+/// lights are made from `ac2` either way, when it is given.
 pub(crate) fn ac2_kits(
     packs: &[Pack],
+    imports: &[PathBuf],
     base: &DatSet,
     ac2: Option<&dereth_ac2_convert::source::Ac2>,
     c: &mut Compiled,
@@ -408,16 +415,19 @@ pub(crate) fn ac2_kits(
         .iter()
         .flat_map(|p| p.ac2_kits.iter().map(|k| k.item))
         .collect();
+    let land = crate::ac2_kit::LandEnvironments::of_imports(imports).map_err(Error::Refused)?;
+    c.ac2_from_land = land.is_some();
     let Some(first) = packs.iter().find(|p| !p.ac2_kits.is_empty()) else {
         return Ok(());
     };
-    let Some(ac2) = ac2 else {
+    let land_pieces = land.as_ref().map(|l| crate::ac2_kit::from_land(l, &kits));
+    if land_pieces.is_none() && ac2.is_none() {
         return Err(Error::source(
             &first.ac2_kits[0].at,
             "this world uses AC2's dungeon kit: give the folder of your Asheron's Call 2 install \
              (--ac2-dats)",
         ));
-    };
+    }
     let mut lock = c.lock.clone();
     let mut out = dereth_ac2_convert::records::Records::default();
     let (pieces, lights, numbered) = {
@@ -429,10 +439,18 @@ pub(crate) fn ac2_kits(
             numbered: Vec::new(),
             failed: None,
         };
-        let pieces =
-            crate::ac2_kit::make(ac2, &kits, &mut ids, &mut out).map_err(Error::Refused)?;
-        let lights =
-            crate::ac2_kit::make_lights(ac2, &kits, &mut ids, &mut out).map_err(Error::Refused)?;
+        let pieces = match (land_pieces, ac2) {
+            (Some((pieces, _)), _) => pieces,
+            (None, Some(ac2)) => {
+                crate::ac2_kit::make(ac2, &kits, &mut ids, &mut out).map_err(Error::Refused)?
+            }
+            (None, None) => Vec::new(),
+        };
+        let lights = match ac2 {
+            Some(ac2) => crate::ac2_kit::make_lights(ac2, &kits, &mut ids, &mut out)
+                .map_err(Error::Refused)?,
+            None => Vec::new(),
+        };
         if let Some(e) = ids.failed.take() {
             return Err(e);
         }
@@ -2600,7 +2618,7 @@ pub fn compile_with(
     c.lock = lock;
     build_records(packs, &defs, base, &mut c)?;
     c.settled.insert(Part::Records, defs.settled.clone());
-    ac2_kits(packs, base, ac2, &mut c)?;
+    ac2_kits(packs, &world.imports, base, ac2, &mut c)?;
     edit_landblocks(packs, base, &mut c, None)?;
     game_tables(packs, base, &mut c)?;
     fill_sql(packs, &defs.defined, &tokens, &mut c)?;

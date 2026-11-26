@@ -133,6 +133,11 @@ light setups, all numbered in the world's lockfile by what they are (`ac2-enviro
 `ac2-light-ffd450-12m`), so the same install gives the same ids. Rooms place them as `[[cell]]` rows
 with those ids, as any piece.
 
+On a land converted from AC2 (New Dereth's), whose overlay folder lists the environment each AC2
+cell mesh became (`environments.tsv`), the kits' pieces are the land's own: nothing is made for
+them, rooms name the land's environments and surfaces, and each piece has one look, the land's.
+The install is then needed only for the kits' lights.
+
 ### The game's tables
 
 A pack can change the skill table, the experience table, the spell table and character creation,

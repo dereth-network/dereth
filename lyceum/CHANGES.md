@@ -34,6 +34,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - The map is cropped to the world's land, as in game.
 - Spawns placed in rooms land on the floor, and the check finds ones that don't.
 - Painting and shaping terrain is much faster on a large world like New Dereth.
+- On New Dereth, AC2 dungeon pieces come from the land itself.
 
 ## 0.2.8 (2026-11-23)
 

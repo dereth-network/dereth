@@ -611,8 +611,8 @@ impl EditorApp {
 
     /// The game dungeon `lb` is built in: AC2's when any of its rooms is a piece of an AC2 kit or
     /// one of AC2's own the world's land brings ([`Self::from_land`]), AC1's when it has rooms of
-    /// other pieces; an empty one's, the game chosen for it (AC1's when the editor has no AC2
-    /// install), or none yet.
+    /// other pieces; an empty one's, the game chosen for it (AC1's when the editor can offer no
+    /// AC2 kit: no install, on a land that holds none), or none yet.
     #[must_use]
     pub fn dungeon_game(&self, lb: u16) -> Option<Game> {
         let ac2: BTreeSet<DataId> = self
@@ -635,7 +635,7 @@ impl EditorApp {
                 },
             );
         }
-        if !self.session.has_ac2() {
+        if !self.session.ac2_kits_offered() {
             return Some(Game::Ac1);
         }
         self.kit.games.get(&lb).copied()
@@ -1669,8 +1669,14 @@ impl EditorApp {
                 }
             }
         });
-        // The look the kit's pieces are placed in.
-        if let Some((_, names)) = kits.iter().find(|(k, _)| *k == kit) {
+        // The look the kit's pieces are placed in: on a land converted from AC2, the one the land
+        // drew them in, which nothing changes.
+        if self.session.ac2_from_land() {
+            ui.horizontal_wrapped(|ui| {
+                name(ui, t.get("dungeon.ac2_look"));
+                ui.weak(t.get("dungeon.ac2_look_fixed"));
+            });
+        } else if let Some((_, names)) = kits.iter().find(|(k, _)| *k == kit) {
             ui.horizontal_wrapped(|ui| {
                 name(ui, t.get("dungeon.ac2_look"));
                 let now = self.kit.ac2_looks.get(kit).copied().unwrap_or("own");

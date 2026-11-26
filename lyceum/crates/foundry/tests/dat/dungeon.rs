@@ -1925,6 +1925,207 @@ fn an_editor_given_the_ac2_install_adds_its_kits_to_the_pack_once_and_saves_the_
     assert_eq!(again.ac2_pieces()[0].environment, env);
 }
 
+/// A small land converted from AC2 in folder `land`, as New Dereth's is made: the environment of
+/// each of `meshes`, made as the land makes its rooms (in the mesh's own materials, its cell tree
+/// cut at its doorways), with its surfaces, and the table naming each mesh's environment and
+/// surfaces. Answers the table's rows, by mesh.
+fn ac2_land(land: &std::path::Path, meshes: &[u32]) -> BTreeMap<u32, (DataId, Vec<DataId>)> {
+    use dereth_ac2_convert::records::{Ids, Pictures, Records};
+    use lyceum_foundry::compile::{self, Staged};
+    let ac2 = ac2_install();
+    let (mut ids, mut out, mut pictures, mut made) = (
+        Ids::default(),
+        Records::default(),
+        Pictures::default(),
+        BTreeMap::new(),
+    );
+    let mut rows = BTreeMap::new();
+    let mut table = String::from("mesh\tmade_for\tenvironment\tsurfaces\n");
+    for &mesh in meshes {
+        let (env, surfaces, _, _) = dereth_ac2_convert::cell::environment(
+            ac2.records(),
+            &ac2,
+            mesh,
+            &mut pictures,
+            &mut ids,
+            &mut out,
+            &mut made,
+        )
+        .unwrap()
+        .expect("the mesh makes a cell");
+        let listed: Vec<String> = surfaces
+            .iter()
+            .map(|s| format!("{:08X}", s.raw()))
+            .collect();
+        table.push_str(&format!(
+            "{mesh:08X}\tdungeon\t{:08X}\t{}\n",
+            env.raw(),
+            listed.join(" ")
+        ));
+        rows.insert(mesh, (env, surfaces));
+    }
+    let mut records = compile::Records::new();
+    records.insert(
+        ModernDat::Portal,
+        out.0
+            .into_iter()
+            .map(|(id, bytes)| {
+                (
+                    id.raw(),
+                    Staged {
+                        bytes: bytes.into(),
+                        version: 1,
+                    },
+                )
+            })
+            .collect(),
+    );
+    let base = lyceum_foundry::dats::DatSet::open(&dereth_dat::testing::dat_dir()).unwrap();
+    compile::write_records(&records, &BTreeMap::new(), &base, "a-land", land).unwrap();
+    std::fs::write(land.join(lyceum_foundry::ac2_kit::LAND_TABLE), table).unwrap();
+    rows
+}
+
+/// The environments and surfaces the world's compile holds that its imports do not: what it made.
+fn made_environments(s: &Session) -> Vec<u32> {
+    let c = s.compiled();
+    let imported = &c.imported[&ModernDat::Portal];
+    c.records[&ModernDat::Portal]
+        .keys()
+        .copied()
+        .filter(|id| matches!(id >> 24, 0x0D | 0x08) && !imported.contains_key(id))
+        .collect()
+}
+
+/// On a land converted from AC2, a world's AC2 kit is the land's own: no install is asked for,
+/// each piece is the land's environment in the one look the land drew it in, and a hall, a room
+/// laid against it and the hall's end all fit, join doorway to doorway and are built into cells
+/// naming the land's environments and surfaces, with no environment or surface made for them.
+/// Without the land's table, the world makes its own from the install, as a world over AC1's land
+/// does.
+#[test]
+fn on_a_land_converted_from_ac2_the_kit_is_the_lands_own_and_a_new_dungeon_makes_no_environment() {
+    let (dir, world) = super::sample::sample("dungeon-ac2-land");
+    std::fs::write(
+        dir.path().join("holtburg/records/ac2.toml"),
+        "[[ac2-kit]]\nkit = \"basic\"\n",
+    )
+    .unwrap();
+    // The basic kit's hall, its end, and the tiles of a room with a doorway.
+    let land = dir.path().join("land");
+    let meshes = [
+        0x0100_0042, // straight
+        0x0100_003F, // end
+        0x0100_0047, // room floor side doorway
+        0x0100_0048, // room floor corner
+        0x0100_0049, // room floor side
+        0x0100_004A, // room floor center
+        0x0100_0055, // room ceiling side
+        0x0100_0056, // room ceiling corner
+        0x0100_0057, // room ceiling center
+    ];
+    let rows = ac2_land(&land, &meshes);
+    let text = std::fs::read_to_string(&world).unwrap();
+    let imports = format!(
+        "imports = [{:?}]\npacks",
+        land.display().to_string().replace('\\', "/")
+    );
+    std::fs::write(&world, text.replacen("packs", &imports, 1)).unwrap();
+    let dats = dereth_dat::testing::dat_dir();
+
+    // No install: the pieces are the land's, those it lacks left out, and nothing is lit.
+    let mut s = Session::open(&world, &dats, None).unwrap();
+    s.set_today("2026-11-26 00:00:00");
+    assert!(s.ac2_from_land() && s.ac2_kits_offered());
+    let pieces = s.ac2_pieces().to_vec();
+    assert_eq!(pieces.len(), meshes.len(), "the land's basic pieces");
+    for p in &pieces {
+        let (env, surfaces) = &rows[&p.mesh];
+        assert_eq!(p.environment, *env, "{}", p.label);
+        assert_eq!(p.looks, vec![("own", surfaces.clone())], "{}", p.label);
+    }
+    assert!(s.ac2_lights().is_empty());
+    let made = made_environments(&s);
+    assert!(made.is_empty(), "made {made:08X?}");
+
+    // A hall, a room laid west of it in one step, and an end closing the hall's far side.
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lb = empty_landblock(&store);
+    let z = -40.0;
+    let hall = place_ac2(
+        &mut s,
+        lb,
+        "straight",
+        "own",
+        Vec3::new(105.0, 90.0, z),
+        "EW",
+    );
+    let room = lyceum_foundry::edit::Ac2Room {
+        landblock: lb,
+        kit: lyceum_foundry::ac2_kit::Kit::Basic,
+        look: "own".to_owned(),
+        south_west: (80.0, 80.0),
+        floor: z,
+        east: 2,
+        north: 3,
+    };
+    assert_eq!(s.lay_ac2_room(&room).unwrap().len(), 12);
+    let end = place_ac2(&mut s, lb, "end", "own", Vec3::new(120.0, 90.0, z), "");
+    let cells = s.cells(lb);
+    assert_eq!(cells.len(), 14);
+    let free = s.free_doorways(lb, &[]);
+    assert!(free.is_empty(), "every doorway joined: {free:?}");
+    // The hall's two doorways are joined: to the room's doorway tile and to the end.
+    let joined: BTreeSet<u32> = cells[&hall]
+        .portals
+        .iter()
+        .filter(|p| p.flags & 4 == 0)
+        .map(|p| p.other_cell_id)
+        .collect();
+    assert_eq!(joined.len(), 2, "{joined:?}");
+    assert!(joined.contains(&u32::from(end)));
+    let by_env: BTreeMap<DataId, &Vec<DataId>> = rows.values().map(|(e, s)| (*e, s)).collect();
+    for (n, c) in &cells {
+        let surfaces = by_env
+            .get(&c.environment)
+            .unwrap_or_else(|| panic!("cell {n:04X} names {:?}, not the land's", c.environment));
+        assert_eq!(&c.surfaces, *surfaces, "cell {n:04X}");
+    }
+    let found = s.walk(lb);
+    assert!(
+        found.iter().all(|f| !f.text.contains("falls")),
+        "{found:#?}"
+    );
+
+    // Built with no install, the overlay holds the cells and nothing of the kit's own.
+    s.save().unwrap();
+    lyceum_foundry::compile::build_with(&world, &dats, None, false, None).unwrap();
+    let lock = std::fs::read_to_string(dir.path().join("world.lock")).unwrap();
+    assert!(!lock.contains("ac2-environment"), "{lock}");
+    assert!(!lock.contains("ac2-surface"), "{lock}");
+    let built = lyceum_foundry::dats::DatSet::open(&dats)
+        .unwrap()
+        .with_overlay(&dir.path().join("build/overlay"), None)
+        .unwrap();
+    let id = DataId((u32::from(lb) << 16) | u32::from(hall));
+    let cell = EnvCell::decode_payload(id, &built.cell.read(id).unwrap()).unwrap();
+    assert_eq!(cell.environment, rows[&0x0100_0042].0);
+
+    // Without the land's table, the world makes its own from the install.
+    std::fs::remove_file(land.join(lyceum_foundry::ac2_kit::LAND_TABLE)).unwrap();
+    let e = Session::open(&world, &dats, None).unwrap_err().to_string();
+    assert!(e.contains("--ac2-dats"), "{e}");
+    let own = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
+    assert!(!own.ac2_from_land());
+    assert_eq!(own.ac2_pieces().len(), 40, "every piece of the basic kit");
+    let imported = &own.compiled().imported[&ModernDat::Portal];
+    assert!(own
+        .ac2_pieces()
+        .iter()
+        .all(|p| !imported.contains_key(&p.environment.raw()) && p.looks.len() == 4));
+    assert!(!made_environments(&own).is_empty());
+}
+
 /// The sides a piece's doorways open on at `frame`, as compass bearings in landblock space
 /// (`N`, `E`, `S`, `W`), its openings up and down left out.
 fn ac2_sides(env: &Environment, frame: &Frame, form: &lyceum_foundry::kit::Form) -> BTreeSet<char> {

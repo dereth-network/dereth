@@ -197,7 +197,10 @@ kits: `basic` (stone halls and rooms), `fancy` (a palace's), `tomb` (rough stone
 vaulted rooms), `mine` (timbered tunnels), `castle` (a castle's halls, great rooms and towers) and
 `cave` (rock tunnels that bend, fork and climb), at AC2's own size. They are made from your own
 Asheron's Call 2 install: start the editor with `--ac2-dats <your AC2 folder>`, and build with
-`lyceum build --ac2-dats <folder>`.
+`lyceum build --ac2-dats <folder>`. On New Dereth's land, which already holds every kit piece, a
+world uses the land's own pieces instead: no install is needed for them, a new dungeon's rooms are
+the land's, and each piece keeps the one look the land has for it. The kits' lights still come
+from the install when it is given.
 
 - **A dungeon is AC1's or AC2's**, never both. A new dungeon asks which game it is built of;
   choosing **Asheron's Call 2** asks for the kits in the pack being edited (it writes
