@@ -562,9 +562,10 @@ pub fn validate_transition(
         t.sphere_path.cache_global_sphere(None);
     }
 
-    // A mover that slides along what it meets keeps no sliding normal: each step meets the
-    // surface again and slides along it there. A body's level slide off a floor or a slope would
-    // hold it still against them.
+    // Every client mover takes the surface it met as its sliding normal here, whatever it is.
+    // A mover that slides along what it meets, which no client mover is, keeps none: each step
+    // meets the surface again and slides along it there. A body's level slide off a floor or a
+    // slope would hold it still against them.
     if t.collision_info.collision_normal_valid && !t.object_info.slides {
         let n = t.collision_info.collision_normal;
         t.collision_info.set_sliding_normal(n);
@@ -1163,6 +1164,39 @@ mod tests {
             ));
         }
         assert_eq!(seen, vec![(1, false), (2, false), (3, true)]);
+    }
+
+    /// A sub-step that met a surface leaves the client's mover sliding along it, level, whatever
+    /// the surface's slope; the free-flying sphere that slides along what it meets keeps none.
+    #[test]
+    fn a_sub_step_that_met_a_surface_leaves_its_level_normal_as_the_sliding_normal() {
+        let world =
+            crate::PhysicsWorld::new(std::sync::Arc::new(crate::StaticLandSource::linear()));
+        let ctx = world.transition_ctx(None);
+        for slides in [false, true] {
+            let mut t = transition_moving(
+                0.5,
+                Vec3::new(12.0, 12.0, 20.0),
+                Vec3::new(13.0, 12.0, 20.0),
+            );
+            t.sphere_path.cache_global_sphere(None);
+            t.object_info.slides = slides;
+            // A slope rising away from the move, 45 degrees.
+            let h = std::f32::consts::FRAC_1_SQRT_2;
+            t.collision_info.set_collision_normal(Vec3::new(-h, 0.0, h));
+            validate_transition(&ctx, &mut t, TransitionState::Collided, false);
+            assert_eq!(
+                t.collision_info.sliding_normal_valid, !slides,
+                "slides {slides}"
+            );
+            if !slides {
+                let n = t.collision_info.sliding_normal;
+                assert!(
+                    (n.x + 1.0).abs() < 1e-6 && n.y == 0.0 && n.z == 0.0,
+                    "{n:?}"
+                );
+            }
+        }
     }
 
     /// Land whose cells are a quarter of a block: 48 m across.
