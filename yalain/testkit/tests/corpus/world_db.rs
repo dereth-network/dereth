@@ -29654,6 +29654,8 @@ fn mound_hive_walk(
     let mound = land.cell >> 16;
     let way_in = way_into(t, mound, landing);
     let mut w = walled(t, &[mound, landing >> 16]);
+    // Of the level the bottom portal asks.
+    set_level(&mut w.h, 35);
     w.put(land);
     assert!(w.at().cell & 0xFFFF < 0x100, "on the land");
     on_foot_to(
@@ -29750,6 +29752,8 @@ fn the_warren_under_the_northeast_hive_is_walked_from_both_its_portals_to_every_
     let c = compiled();
     let t = &c.tables;
     let mut w = walled(t, &[MOUND, HIVE, WARREN]);
+    // Of the level the bottom portal asks.
+    set_level(&mut w.h, 35);
     let way_out = |at: &yalain_store::StoredPosition, to: u32| {
         let (i, by) = (0..t.content.objects.len())
             .filter(|&i| {
@@ -29949,6 +29953,8 @@ fn the_western_hives_nymph_is_kept_at_the_eight_spawns_its_map_marks_reached_fro
     }
     camps_clear_of_the_rest(c, &camps, HIVE, 8.0);
     let mut w = walled(t, &[MOUND, HIVE]);
+    // Of the level the bottom portal asks.
+    set_level(&mut w.h, 35);
     w.put(spot(0xDEA8_000C, [28.01, 69.15, 74.8]));
     let bottom = way_into(t, MOUND, HIVE_LANDING);
     on_foot_to(
@@ -30024,6 +30030,8 @@ fn the_olthoi_hunts_grubs_are_kept_in_the_warren_reached_on_foot_from_its_landin
     assert!(apart >= 30.0, "the soldier grub's two chambers: {apart}");
     camps_clear_of_the_rest(c, &camps, WARREN, 8.0);
     let mut w = walled(t, &[MOUND, HIVE, WARREN]);
+    // Of the level the bottom portal asks.
+    set_level(&mut w.h, 35);
     let into_hive = way_into(t, MOUND, HIVE_LANDING);
     assert_eq!(
         through(&mut w, t, into_hive).cell,
