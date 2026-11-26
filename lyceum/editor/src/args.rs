@@ -1,7 +1,7 @@
 //! The command line.
 //!
 //! ```text
-//! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--ac2 <dir>] [--pack <name>]
+//! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--ac2-dats <dir>] [--pack <name>]
 //!               [--landblock <XXYY>]
 //!               [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
 //!               [--repo <world.toml>] [--on <overlay>]
@@ -16,7 +16,7 @@
 //! - `--dats`: the player's data files (the later set); the folder the client would find otherwise.
 //! - `--classic-dats`: the files from before Throne of Destiny (`portal.dat`, `cell.dat`), which an
 //!   Infiltration world is built on, when they are not beside the later ones.
-//! - `--ac2`: the player's Asheron's Call 2 install, which the AC2 dungeon kits a world's packs ask
+//! - `--ac2-dats`: the player's Asheron's Call 2 install, which the AC2 dungeon kits a world's packs ask
 //!   for (`[[ac2-kit]]`) are made from.
 //! - `--pack`: the pack edits are written into; the world's last otherwise.
 //! - `--landblock`: where the camera starts; the first landblock the world's packs edit otherwise.
@@ -184,7 +184,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         match arg.as_str() {
             "--dats" => a.dats = Some(PathBuf::from(value(arg)?)),
             "--classic-dats" => a.classic_dats = Some(PathBuf::from(value(arg)?)),
-            "--ac2" => a.ac2 = Some(PathBuf::from(value(arg)?)),
+            "--ac2-dats" => a.ac2 = Some(PathBuf::from(value(arg)?)),
             "--pack" => a.pack = Some(value(arg)?),
             "--landblock" => {
                 let v = value(arg)?;

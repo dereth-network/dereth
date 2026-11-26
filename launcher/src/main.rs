@@ -944,6 +944,7 @@ fn main() {
             Path::new(&args[1]),
             Path::new(&args[2]),
             Path::new(&args[3]),
+            None,
         ) {
             Ok(publication) => println!(
                 "{}",

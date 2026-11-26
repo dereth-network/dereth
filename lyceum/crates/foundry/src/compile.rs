@@ -415,7 +415,7 @@ pub(crate) fn ac2_kits(
         return Err(Error::source(
             &first.ac2_kits[0].at,
             "this world uses AC2's dungeon kit: give the folder of your Asheron's Call 2 install \
-             (--ac2)",
+             (--ac2-dats)",
         ));
     };
     let mut lock = c.lock.clone();

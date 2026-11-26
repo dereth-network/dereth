@@ -127,7 +127,7 @@ A pack asks for one of Asheron's Call 2's dungeon kits in `records/`:
 kit = "basic"                # or "fancy", "tomb", "mine", "castle", "cave"
 ```
 
-A build then needs the player's AC2 install (`lyceum build --ac2 <folder>`): every piece of the kit
+A build then needs the player's AC2 install (`lyceum build --ac2-dats <folder>`): every piece of the kit
 becomes an environment, each of the kit's looks a list of surfaces for it, and the kit's lights
 light setups, all numbered in the world's lockfile by what they are (`ac2-environment-0100004a-bymaterial`,
 `ac2-light-ffd450-12m`), so the same install gives the same ids. Rooms place them as `[[cell]]` rows

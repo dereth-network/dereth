@@ -1528,7 +1528,7 @@ impl Session {
         if self.ac2.is_none() {
             return Err(Error::Refused(
                 "AC2's dungeon kits are made from your Asheron's Call 2 install: start the editor \
-                 with --ac2"
+                 with --ac2-dats"
                     .into(),
             ));
         }

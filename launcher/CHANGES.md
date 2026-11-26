@@ -15,6 +15,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 - Lyceum: fetch New Dereth's world from the launcher, and update it later.
 - Library: build a New Dereth data set from your Asheron's Call 2 files.
 - Library: opens on your data sets, with clients and art packs folded.
+- Lyceum: build dungeons from AC2's kits when you have Asheron's Call 2's files.
 
 ## 0.5.10 (2026-11-23)
 

@@ -3,7 +3,7 @@
 //! from the player's own Asheron's Call 2 install ([`dereth_ac2_convert`]).
 //!
 //! A pack asks for a kit with an `[[ac2-kit]]` row in its records; a build then reads the install
-//! (`--ac2`), and every piece and look of the kit becomes records of the world, numbered in its
+//! (`--ac2-dats`), and every piece and look of the kit becomes records of the world, numbered in its
 //! lockfile by what each is, so the same install always gives the same ids. A piece is placed as any
 //! of the world's pieces is (`[[cell]]`), with its environment and one of its looks' surfaces.
 //!

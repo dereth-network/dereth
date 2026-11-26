@@ -1764,7 +1764,7 @@ fn an_ac2_kits_pieces_are_made_in_every_look_and_two_of_its_halls_join_and_walk(
     let dats = dereth_dat::testing::dat_dir();
     // Without the install, the world says what it needs.
     let e = Session::open(&world, &dats, None).unwrap_err().to_string();
-    assert!(e.contains("--ac2"), "{e}");
+    assert!(e.contains("--ac2-dats"), "{e}");
     let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
     s.set_today("2026-11-21 00:00:00");
     let pieces = s.ac2_pieces().to_vec();
@@ -1899,7 +1899,7 @@ fn an_editor_given_the_ac2_install_adds_its_kits_to_the_pack_once_and_saves_the_
         .add_ac2_kits()
         .unwrap_err()
         .to_string()
-        .contains("--ac2"));
+        .contains("--ac2-dats"));
     let mut s = Session::open_with(&world, &dats, None, Some(ac2_install())).unwrap();
     assert!(s.ac2_pieces().is_empty(), "no pack asks for a kit yet");
     assert!(s.add_ac2_kits().unwrap());

@@ -1466,7 +1466,7 @@ fn an_ac2_piece_set_on_a_square_stands_on_the_square_clicked_for_each_kit() {
         panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
     };
     let (_dir, world) = sample("dungeon-ac2-square");
-    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    let mut ed = editor_with(&world, &["--ac2-dats", ac2.to_str().unwrap()]);
     ed.add_ac2_kits().unwrap();
     ed.wait_for_pieces();
     // The kits on squares (the cave's, on none, has its own test).
@@ -1564,7 +1564,7 @@ fn a_dungeon_offers_only_its_own_games_pieces() {
         panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
     };
     let (_dir, world) = sample("dungeon-games");
-    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    let mut ed = editor_with(&world, &["--ac2-dats", ac2.to_str().unwrap()]);
     ed.wait_for_pieces();
     // An empty dungeon: nothing, then AC1's.
     let lb = ed.new_dungeon(None).unwrap();
@@ -1633,7 +1633,7 @@ fn a_cave_is_set_where_clicked_then_at_its_doorways_eighths_of_a_turn_and_all() 
         panic!("AUBEREAN_TEST_DAT_DIR: the Asheron's Call 2 install the AC2 kits are made from");
     };
     let (_dir, world) = sample("dungeon-ac2-cave");
-    let mut ed = editor_with(&world, &["--ac2", ac2.to_str().unwrap()]);
+    let mut ed = editor_with(&world, &["--ac2-dats", ac2.to_str().unwrap()]);
     ed.wait_for_pieces();
     let lb = ed.new_dungeon(None).unwrap();
     ed.choose_dungeon_game(lb, Game::Ac2).unwrap();

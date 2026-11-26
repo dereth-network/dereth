@@ -196,8 +196,8 @@ Asheron's Call 2's dungeons are built from shared pieces, and Lyceum can build w
 kits: `basic` (stone halls and rooms), `fancy` (a palace's), `tomb` (rough stone tunnels and
 vaulted rooms), `mine` (timbered tunnels), `castle` (a castle's halls, great rooms and towers) and
 `cave` (rock tunnels that bend, fork and climb), at AC2's own size. They are made from your own
-Asheron's Call 2 install: start the editor with `--ac2 <your AC2 folder>`, and build with
-`lyceum build --ac2 <folder>`.
+Asheron's Call 2 install: start the editor with `--ac2-dats <your AC2 folder>`, and build with
+`lyceum build --ac2-dats <folder>`.
 
 - **A dungeon is AC1's or AC2's**, never both. A new dungeon asks which game it is built of;
   choosing **Asheron's Call 2** asks for the kits in the pack being edited (it writes

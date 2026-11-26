@@ -1821,7 +1821,8 @@ pub async fn open_lyceum(
     let Some(land) = land_for(&app, world.as_deref(), &built) else {
         return Ok(());
     };
-    open_editor(&shared, world, dats, classic, land)
+    let ac2 = lyceum_ac2(&shared, &backend);
+    open_editor(&shared, world, dats, classic, land, ac2)
 }
 
 /// Fetch the world repository the page offers by `name` into Lyceum's folder for worlds
@@ -2012,19 +2013,25 @@ fn repository_land_in(text: &str, world: &Path) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// The editor's arguments for world file `world`: the data files it is drawn over, the Classic
-/// ones beside them, and the land a world repository is built over.
+/// The editor's arguments for world file `world` (none: its start screen): the data files it is
+/// drawn over, the Classic ones beside them, the land a world repository is built over, and the
+/// Asheron's Call 2 files AC2's dungeon kits are made from.
 fn editor_args(
-    world: &Path,
+    world: Option<&Path>,
     dats: Option<&Path>,
     classic: Option<&Path>,
     land: Option<&Path>,
+    ac2: Option<&Path>,
 ) -> Vec<std::ffi::OsString> {
-    let mut args = vec![world.as_os_str().to_owned()];
+    let mut args: Vec<std::ffi::OsString> = world
+        .map(|w| w.as_os_str().to_owned())
+        .into_iter()
+        .collect();
     for (switch, folder) in [
         ("--dats", dats),
         ("--classic-dats", classic),
         ("--on", land),
+        ("--ac2-dats", ac2),
     ] {
         if let Some(folder) = folder {
             args.push(switch.into());
@@ -2034,12 +2041,48 @@ fn editor_args(
     args
 }
 
+/// The first Lyceum whose editor and `lyceum build` take `--ac2-dats`.
+const LYCEUM_TAKES_AC2: releases::Version = releases::Version {
+    major: 0,
+    minor: 2,
+    patch: 9,
+};
+
+/// Whether a Lyceum of version `version` takes `--ac2-dats`: this checkout's build (`None`) always.
+fn takes_ac2(version: Option<&str>) -> bool {
+    version.is_none_or(|v| releases::Version::parse(v).is_some_and(|v| v >= LYCEUM_TAKES_AC2))
+}
+
+/// The version of the Lyceum in use: `None` for this checkout's build, empty when there is none.
+fn lyceum_version(store: &Store) -> Option<String> {
+    if newest_build(&store.builds, Product::Lyceum.program()).is_some() {
+        return None;
+    }
+    store
+        .entries
+        .iter()
+        .find(|e| e.view.product == Product::Lyceum)
+        .and_then(|e| packaged_view(&store.bundled, &store.versions, &e.view))
+        .map_or_else(|| Some(String::new()), |(i, _)| Some(i.version))
+}
+
+/// The Library's Asheron's Call 2 files, for the Lyceum in use to make AC2's dungeon kits from:
+/// the ones the New Dereth data set is built from, when they check and this Lyceum takes them.
+pub fn lyceum_ac2(shared: &Shared, backend: &crate::backend::Shared) -> Option<PathBuf> {
+    let version = lyceum_version(&lock(shared));
+    if !takes_ac2(version.as_deref()) {
+        return None;
+    }
+    crate::backend::lock(backend).ac2_files()
+}
+
 fn open_editor(
     shared: &Shared,
     world: Option<PathBuf>,
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
     land: Option<PathBuf>,
+    ac2: Option<PathBuf>,
 ) -> Result<(), String> {
     let mut store = lock(shared);
     let editor = program(&store, Product::Lyceum).ok_or("Download Lyceum first.")?;
@@ -2057,11 +2100,14 @@ fn open_editor(
         remember_opened(&store.root, &world);
         store.listed = None;
         cmd.args(editor_args(
-            &world,
+            Some(&world),
             recent_dats().or(dats).filter(|d| d.is_dir()).as_deref(),
             classic.filter(|d| d.is_dir()).as_deref(),
             land.as_deref(),
+            ac2.as_deref(),
         ));
+    } else {
+        cmd.args(editor_args(None, None, None, None, ac2.as_deref()));
     }
     cmd.current_dir(editor.parent().ok_or("Invalid editor path")?);
     let e = entry(&mut store, Product::Lyceum);
@@ -2136,9 +2182,12 @@ pub fn world_folder_name(name: &str) -> Option<String> {
 /// person chose another), from the sample or `empty`, built on the files of `era` (`eor`, the
 /// default, or `infiltration`), and open the editor on it. A Lyceum whose `lyceum` command cannot
 /// make worlds yet opens its own start screen instead, which can.
+// A command is given each piece of the launcher's state it reads, one argument each.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn new_lyceum_world(
     shared: State<'_, Shared>,
+    backend: State<'_, crate::backend::Shared>,
     name: String,
     parent: Option<PathBuf>,
     empty: bool,
@@ -2181,13 +2230,14 @@ pub async fn new_lyceum_world(
     .await
     .map_err(|e| e.to_string())??;
     let shared = shared.inner();
+    let ac2 = lyceum_ac2(shared, &backend);
     if output.status.success() {
         let world = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-        return open_editor(shared, Some(world), dats, classic, None);
+        return open_editor(shared, Some(world), dats, classic, None, ac2);
     }
     let error = String::from_utf8_lossy(&output.stderr);
     if error.contains("new is not a command") {
-        open_editor(shared, None, None, None, None)?;
+        open_editor(shared, None, None, None, None, ac2)?;
         return Err("This Lyceum makes new worlds on its own start screen, which is open now. Update Lyceum to make them here.".into());
     }
     Err(error
@@ -2298,7 +2348,8 @@ pub async fn choose_lyceum_world(
     let Some(land) = land_for(&app, Some(&world), &built) else {
         return Ok(());
     };
-    open_editor(&shared, Some(world), dats, classic, land)
+    let ac2 = lyceum_ac2(&shared, &backend);
+    open_editor(&shared, Some(world), dats, classic, land, ac2)
 }
 
 /// Open Lyceum's folder for new worlds in the system's file manager, making it first.
@@ -2993,7 +3044,7 @@ mod tests {
         assert_eq!(repository_land_in("not toml [", &world), None);
 
         let dats = temp.path().join("dats");
-        let args = editor_args(&world, Some(&dats), None, Some(&land));
+        let args = editor_args(Some(&world), Some(&dats), None, Some(&land), None);
         assert_eq!(
             args,
             [
@@ -3004,8 +3055,45 @@ mod tests {
                 land.as_os_str()
             ]
         );
-        assert!(!editor_args(&plain, Some(&dats), None, None).contains(&"--on".into()));
+        assert!(!editor_args(Some(&plain), Some(&dats), None, None, None).contains(&"--on".into()));
         assert_eq!(LYCEUM_SHOWS_ERRORS, "LYCEUM_STARTED_BY_SCREEN");
+    }
+
+    /// With the Library's Asheron's Call 2 files, Lyceum is opened on them, a world or its start
+    /// screen, so AC2's dungeon kits can be built; without them, or on a Lyceum from before it
+    /// took them, it is not.
+    #[test]
+    fn lyceum_is_given_the_ac2_files_when_there_are_any_and_it_takes_them() {
+        let (world, dats, ac2) = (
+            Path::new("w/world.toml"),
+            Path::new("dats"),
+            Path::new("ac2"),
+        );
+        assert_eq!(
+            editor_args(Some(world), Some(dats), None, None, Some(ac2)),
+            [
+                world.as_os_str(),
+                "--dats".as_ref(),
+                dats.as_os_str(),
+                "--ac2-dats".as_ref(),
+                ac2.as_os_str()
+            ]
+        );
+        assert_eq!(
+            editor_args(None, None, None, None, Some(ac2)),
+            ["--ac2-dats", "ac2"]
+        );
+        assert!(
+            !editor_args(Some(world), Some(dats), None, None, None).contains(&"--ac2-dats".into())
+        );
+        assert!(editor_args(None, None, None, None, None).is_empty());
+        // This checkout's build, and a release from 0.2.9 on, take it; 0.2.8 and before refuse
+        // a switch they do not know, and an unknown version is not given it.
+        assert!(takes_ac2(None));
+        assert!(takes_ac2(Some("0.2.9")));
+        assert!(takes_ac2(Some("0.3.0")));
+        assert!(!takes_ac2(Some("0.2.8")));
+        assert!(!takes_ac2(Some("")));
     }
 
     /// A land the launcher built for a world repository is written into Lyceum's lands file as

@@ -3069,6 +3069,15 @@ impl Backend {
         self.worlds_home = home;
     }
 
+    /// The Library's Asheron's Call 2 files, when they check: the ones the New Dereth data set is
+    /// built from, and Lyceum makes AC2's dungeon kits from.
+    pub fn ac2_files(&self) -> Option<PathBuf> {
+        self.state
+            .auberean_default_set()
+            .map(|s| s.path.clone())
+            .filter(|d| dereth_launch::auberean::check_install(d).ok)
+    }
+
     /// The New Dereth world's file, fetched into Lyceum's folder for worlds, when it is there.
     pub fn newdereth_world(&self) -> Option<PathBuf> {
         let world = self

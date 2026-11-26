@@ -1248,6 +1248,7 @@ pub async fn publish_host_world(
     app: tauri::AppHandle,
     shared: State<'_, Shared>,
     components: State<'_, crate::components::Shared>,
+    backend: State<'_, crate::backend::Shared>,
     id: String,
     world: Option<PathBuf>,
 ) -> Result<(), String> {
@@ -1279,8 +1280,9 @@ pub async fn publish_host_world(
             return Err(error);
         }
     };
+    let ac2 = crate::components::lyceum_ac2(&components, &backend);
     let result = tauri::async_runtime::spawn_blocking(move || {
-        crate::host_publication::publish(&dir, &world, &builder).map(|_| ())
+        crate::host_publication::publish(&dir, &world, &builder, ac2.as_deref()).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())

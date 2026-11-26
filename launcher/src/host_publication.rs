@@ -283,9 +283,43 @@ fn new_snapshot(dir: &Path) -> Result<PathBuf, String> {
         .ok_or("Too many retained snapshots.")?
 }
 
+/// `lyceum build`'s arguments for world file `world` over the data files `dats` into `out`: the
+/// overlay it was last published with (`after`), so players are patched with what changed, and
+/// the Asheron's Call 2 files AC2's dungeon kits are made from (`ac2`).
+fn build_args<'a>(
+    world: &'a Path,
+    dats: &'a Path,
+    out: &'a Path,
+    after: Option<&'a Path>,
+    ac2: Option<&'a Path>,
+) -> Vec<&'a std::ffi::OsStr> {
+    use std::ffi::OsStr;
+    let mut args = vec![
+        OsStr::new("build"),
+        world.as_os_str(),
+        OsStr::new("--dats"),
+        dats.as_os_str(),
+        OsStr::new("--out"),
+        out.as_os_str(),
+    ];
+    for (switch, folder) in [("--after", after), ("--ac2-dats", ac2)] {
+        if let Some(folder) = folder {
+            args.extend([OsStr::new(switch), folder.as_os_str()]);
+        }
+    }
+    args
+}
+
 /// Builds from saved sources into a new folder, leaving the selected world intact on failure.
-/// The caller excludes source edits; this operation locks the stopped host.
-pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, String> {
+/// The caller excludes source edits; this operation locks the stopped host. `ac2` is the
+/// Asheron's Call 2 files a plain Lyceum world's AC2 dungeon kits are made from, when there are
+/// any and the builder takes them.
+pub fn publish(
+    dir: &Path,
+    world: &Path,
+    builder: &Path,
+    ac2: Option<&Path>,
+) -> Result<Publication, String> {
     use std::ffi::OsStr;
     let guard = std::fs::OpenOptions::new()
         .write(true)
@@ -390,17 +424,7 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
     // A build that fails part way leaves nothing behind: the snapshot folder was made above
     // for this build alone, and the selected world is untouched until the very end.
     let built = (|| -> Result<Publication, String> {
-        let mut build = vec![
-            OsStr::new("build"),
-            world.as_os_str(),
-            OsStr::new("--dats"),
-            settings.dats.as_os_str(),
-            OsStr::new("--out"),
-            folder.as_os_str(),
-        ];
-        if let Some(last) = &last {
-            build.extend([OsStr::new("--after"), last.as_os_str()]);
-        }
+        let build = build_args(&world, &settings.dats, &folder, last.as_deref(), ac2);
         run(builder, &build, dir)?;
         if std::fs::read_to_string(&world).map_err(|e| e.to_string())? != source
             || crate::lyceum_world::digest(&world)? != sources
@@ -1434,7 +1458,7 @@ packs = [\"town\"]
             "key = 'nd'\nera = 'newdereth'\npacks = []\nlineage = []\n[land]\ncell_overlay_sha256 = '00'\n",
         )
         .unwrap();
-        let refused = publish(&dir, &world, &dir.join("missing-builder")).unwrap_err();
+        let refused = publish(&dir, &world, &dir.join("missing-builder"), None).unwrap_err();
         assert!(
             refused.starts_with("Open the world in Lyceum first"),
             "{refused}"
@@ -1444,7 +1468,7 @@ packs = [\"town\"]
             "key = 'nd'\nera = 'newdereth'\npacks = []\nlineage = []\n",
         )
         .unwrap();
-        let failed = publish(&dir, &world, &dir.join("missing-builder")).unwrap_err();
+        let failed = publish(&dir, &world, &dir.join("missing-builder"), None).unwrap_err();
         assert!(!failed.contains("publish only"), "{failed}");
         assert_eq!(std::fs::read(dir.join("empyrean.toml")).unwrap(), config);
         assert!(!dir.join("published/snapshot-0").exists());
@@ -1494,7 +1518,7 @@ packs = [\"town\"]
         let config = std::fs::read(dir.join("empyrean.toml")).unwrap();
         let world = dir.join("source.toml");
         std::fs::write(&world, "key = 'new'\npacks = []\n").unwrap();
-        assert!(publish(&dir, &world, &dir.join("missing-builder")).is_err());
+        assert!(publish(&dir, &world, &dir.join("missing-builder"), None).is_err());
         assert_eq!(std::fs::read(dir.join("empyrean.toml")).unwrap(), config);
         assert_eq!(selected(&dir).unwrap().unwrap().1.build, old.build);
         assert!(!dir.join("published/snapshot-1").exists());
@@ -1690,7 +1714,7 @@ packs = [\"town\"]
         let config = std::fs::read(dir.join("empyrean.toml")).unwrap();
         let world = dir.join("source.toml");
         std::fs::write(&world, "key = 'test'\npacks = []\n").unwrap();
-        let e = publish(&dir, &world, &dir.join("missing-builder")).unwrap_err();
+        let e = publish(&dir, &world, &dir.join("missing-builder"), None).unwrap_err();
         assert!(
             e.starts_with("Publishing would replace the world database")
                 && e.contains("world_overlay_path")
@@ -1756,11 +1780,48 @@ packs = [\"town\"]
         assert!(publish(
             &dir,
             &dir.join("missing-world"),
-            &dir.join("missing-builder")
+            &dir.join("missing-builder"),
+            None
         )
         .unwrap_err()
         .contains("waiting Empyrean update"));
         assert!(!dir.join("published").exists());
+    }
+    /// `lyceum build` is given the Asheron's Call 2 files when there are any, so a world's AC2
+    /// dungeon kits build, and the overlay last published, so players get only what changed.
+    #[test]
+    fn a_build_is_given_the_ac2_files_and_the_last_overlay_when_there_are_any() {
+        let (world, dats, out, last, ac2) = (
+            Path::new("w/world.toml"),
+            Path::new("dats"),
+            Path::new("out"),
+            Path::new("last/overlay"),
+            Path::new("ac2"),
+        );
+        let s = |args: Vec<&std::ffi::OsStr>| {
+            args.iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            s(build_args(world, dats, out, None, None)),
+            ["build", "w/world.toml", "--dats", "dats", "--out", "out"]
+        );
+        assert_eq!(
+            s(build_args(world, dats, out, Some(last), Some(ac2))),
+            [
+                "build",
+                "w/world.toml",
+                "--dats",
+                "dats",
+                "--out",
+                "out",
+                "--after",
+                "last/overlay",
+                "--ac2-dats",
+                "ac2"
+            ]
+        );
     }
     #[test]
     fn a_selected_snapshot_is_prepared_without_a_stock_pack_at_the_host_root() {
