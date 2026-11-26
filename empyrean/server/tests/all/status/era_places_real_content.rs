@@ -1,10 +1,13 @@
 //! Divergence: V458
 //! The places a launcher builds for a world from the public database of the world's era: the
 //! server publishes the same documents of the same content, byte for byte; each era's database
-//! gives its own portals, what they ask and its towns at their drop points; and where each era's
-//! database is fetched from is where the server's import tool fetches it.
+//! gives its own portals, what they ask and its towns at their drop points; an Infiltration
+//! world's server publishes its era's towns as the world's own names, and an end-of-retail world's
+//! does not; and where each era's database is fetched from is where the server's import tool
+//! fetches it.
 //! Fixture: ACE's world-database dump and the `world.pack` built from it (`EMPYREAN_WORLD_SQL`,
-//! `EMPYREAN_TEST_WORLD_PACK`), the February 2005 dump and the Launch world's SQL in the per-user
+//! `EMPYREAN_TEST_WORLD_PACK`), the Infiltration world's pack (`EMPYREAN_TEST_INFILTRATION_PACK`),
+//! the February 2005 dump and the Launch world's SQL in the per-user
 //! world-database cache (`EMPYREAN_TEST_INFILTRATION_SQL`, `EMPYREAN_TEST_LAUNCH_SQL`), with the
 //! `real-content` feature.
 
@@ -250,4 +253,78 @@ fn each_eras_database_is_fetched_from_where_the_import_tool_fetches_it() {
             assert_eq!(db.download_url(db.tag), line.download_url(line.pinned_tag));
         }
     }
+}
+
+/// The content pack at `path`, as a server loads it.
+fn pack(path: &std::path::Path, var: &str) -> std::sync::Arc<dyn WorldDatabase> {
+    let pack = empyrean_content::PackContent::open(path).unwrap_or_else(|e| {
+        panic!(
+            "the real-content tier needs a world pack at {} ({var}): {e}",
+            path.display()
+        )
+    });
+    std::sync::Arc::new(pack)
+}
+
+#[test]
+fn an_infiltration_worlds_server_names_its_eras_towns_as_its_own_and_an_end_of_retail_worlds_does_not(
+) {
+    if !cfg!(feature = "real-content") {
+        return;
+    }
+    use empyrean_common::era::{EraExt, EraId};
+    let content = pack(
+        &empyrean_common::test_paths::infiltration_pack(),
+        "EMPYREAN_TEST_INFILTRATION_PACK",
+    );
+    assert_eq!(content.era(), EraId::Infiltration);
+    let table = portal_table::PortalTable::of_world(
+        "Dereth",
+        std::sync::Arc::clone(&content),
+        None,
+        content.era().rules(),
+    );
+    let store = PlaceStore::from_text(table.places()).expect("the client reads the places");
+    assert!(store.own_names, "the maps name the era's own towns");
+    let named = |kind: PlaceKind| -> Vec<(String, u32)> {
+        store
+            .places()
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(|p| (p.name.clone(), p.at.cell.0 >> 16))
+            .collect()
+    };
+    let towns = named(PlaceKind::Town);
+    assert!(towns.len() >= 40, "{towns:?}");
+    assert!(towns.iter().any(|(n, _)| n == "Holtburg"), "{towns:?}");
+    // Yanshi stands where it stood in February 2005, and towns founded later are not named.
+    assert!(
+        towns.iter().any(|(n, at)| n == "Yanshi" && at >> 8 == 0xB9),
+        "{towns:?}"
+    );
+    for later in ["Sanamar", "Silyun", "Fiun"] {
+        assert!(towns.iter().all(|(n, _)| n != later), "{later}: {towns:?}");
+    }
+
+    let content = pack(
+        &empyrean_common::test_paths::world_pack(),
+        "EMPYREAN_TEST_WORLD_PACK",
+    );
+    assert_eq!(content.era(), EraId::Eor);
+    let table = portal_table::PortalTable::of_world(
+        "Dereth",
+        std::sync::Arc::clone(&content),
+        None,
+        content.era().rules(),
+    );
+    let store = PlaceStore::from_text(table.places()).expect("the client reads the places");
+    assert!(
+        !store.own_names,
+        "an end-of-retail world's maps keep the game's own map notes"
+    );
+    assert_eq!(
+        table.places(),
+        portal_table::places_document("Dereth", &*content),
+        "an end-of-retail world's places are unchanged"
+    );
 }

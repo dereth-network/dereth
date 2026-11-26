@@ -1,14 +1,13 @@
-//! The places the world map names, read from the same data as its picture.
+//! The places the world map names: its houses, and its towns and landmarks.
 //!
-//! Two kinds of place come from the data alone, with no server:
-//!
-//! - **The houses**, by the building each one is: every cottage, villa and mansion the landblocks
-//!   stand, by its model ([`house_kind`]). Whether a world offers them, and who owns them, is the
-//!   server's to say.
-//! - **The towns and landmarks** the game's own map names (its rollover notes), each placed on the
-//!   buildings that stand near where that map puts it, and left out where the data has none: data
-//!   from before a town was built does not name it. A world that names its own towns and
-//!   landmarks (its overlay folder's places document) is named by those instead ([`Naming`]).
+//! - **The houses** come from the data alone, by the building each one is: every cottage, villa
+//!   and mansion the landblocks stand, by its model ([`house_kind`]). Whether a world offers them,
+//!   and who owns them, is the server's to say.
+//! - **The towns and landmarks** are the client's table of the game's own map notes (the names its
+//!   map shows on rollover), each placed on the buildings that stand near where that map puts it,
+//!   and left out where the data has none: data from before a town was built does not name it. A
+//!   world that names its own towns and landmarks is named by those instead ([`Naming`]): the
+//!   places its server publishes as its own names, or its overlay folder's places document.
 //!
 //! Portals, lifestones, vendors and anything else the server places are not in the data. The
 //! client learns them per world as the player plays, and [`learned`] turns what it learned into

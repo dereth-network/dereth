@@ -13,11 +13,18 @@
 //! database of a world's era with the same code, so the two agree on the same content. This
 //! module gives that builder the server's content ([`ServerContent`]) and builds the documents
 //! off the endpoint's thread ([`PortalTable`]).
+//!
+//! The places say whether their towns and landmarks are the world's own names, which a client's
+//! maps draw in place of the game's own map notes: they are when the world's overlay folder names
+//! its own ([`with_own_places`]), or else when its era's world database names them, as the
+//! Infiltration and Launch databases do and the end of retail's does not
+//! ([`PortalTable::of_world`]).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use dereth_world_places::{GameEvent, Landmark, Placement, Spawn, Spot, WorldSource};
+use empyrean_common::era::EraRules;
 use empyrean_content::models::world::{LandblockInstance, Weenie};
 use empyrean_content::WorldDatabase;
 
@@ -212,11 +219,36 @@ impl PortalTable {
         content: Arc<dyn WorldDatabase>,
         own: Option<String>,
     ) -> Self {
+        Self::named(world_name, content, own, false)
+    }
+
+    /// As [`Self::with_own_places`], for a world playing the era `era`: a world with no places
+    /// document of its own whose era's world database names the world's own towns and landmarks
+    /// ([`EraRules::names_own_places`]) publishes the content's places marked as its own names
+    /// ([`marked_own`]). The world's own document still wins over its era's names.
+    #[must_use]
+    pub fn of_world(
+        world_name: &str,
+        content: Arc<dyn WorldDatabase>,
+        own: Option<String>,
+        era: &EraRules,
+    ) -> Self {
+        Self::named(world_name, content, own, era.names_own_places)
+    }
+
+    fn named(
+        world_name: &str,
+        content: Arc<dyn WorldDatabase>,
+        own: Option<String>,
+        era_names_own: bool,
+    ) -> Self {
         let world_name = world_name.to_owned();
         Self::building(move || {
             let mut d = Documents::of(&world_name, &ServerContent::new(&*content));
             if let Some(own) = &own {
                 d.places = with_own_places(&d.places, own);
+            } else if era_names_own {
+                d.places = marked_own(&d.places);
             }
             d
         })
@@ -287,6 +319,24 @@ pub fn document(world_name: &str, content: &dyn WorldDatabase) -> String {
 #[must_use]
 pub fn places_document(world_name: &str, content: &dyn WorldDatabase) -> String {
     dereth_world_places::documents::places(world_name, &ServerContent::new(content))
+}
+
+/// `places` with a `naming own` line after its `world` line, saying its towns and landmarks are
+/// the world's own names; any `naming` line it had is dropped. Its places are unchanged.
+#[must_use]
+pub fn marked_own(places: &str) -> String {
+    let mut out = String::with_capacity(places.len() + 11);
+    for line in places.lines() {
+        if line.starts_with("naming\t") {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if line.starts_with("world\t") {
+            out.push_str("naming\town\n");
+        }
+    }
+    out
 }
 
 /// `places` with its places replaced by those of a world's own places document `own`: its

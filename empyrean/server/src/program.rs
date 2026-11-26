@@ -602,6 +602,7 @@ pub fn main(options: &Options) -> ExitCode {
         &commands,
         started,
         &portal_content,
+        era,
     );
 
     // Not ACE: the admin channel (`server.admin_channel`), never in the updater's health check,
@@ -1360,7 +1361,8 @@ fn start_bulk_patch(config: &MasterConfiguration) {
 /// Not ACE: starts the status endpoint when `--status` or `server.status_address` names an
 /// address. Each request takes its snapshot on the world thread through `commands`. With
 /// `server.publish_portals` on, it also serves `content`'s portal table, and its places with the
-/// world's own (its overlay folder's places document).
+/// world's own (its overlay folder's places document), else marked as the world's own names when
+/// its era `era` names its own.
 fn start_status_endpoint(
     options: &Options,
     config: &MasterConfiguration,
@@ -1368,6 +1370,7 @@ fn start_status_endpoint(
     commands: &Sender<WorldCommand>,
     started: std::time::Instant,
     content: &Arc<dyn WorldDatabase>,
+    era: &empyrean_common::era::EraRules,
 ) -> Option<empyrean_server::status_endpoint::StatusEndpoint> {
     use empyrean_server::status_endpoint::{self, StatusSnapshot};
     let addr = match status_endpoint::status_address(
@@ -1415,11 +1418,17 @@ fn start_status_endpoint(
                 "The world's own places ({}) are published in place of the world database's",
                 dat_directory::WORLD_PLACES_FILE
             );
+        } else if era.names_own_places {
+            log::info!(
+                "The {} era's towns and landmarks are published as the world's own names",
+                era.id.name()
+            );
         }
-        empyrean_server::portal_table::PortalTable::with_own_places(
+        empyrean_server::portal_table::PortalTable::of_world(
             &config.server.world_name,
             Arc::clone(content),
             own,
+            era,
         )
     });
     let publishing = portals.is_some();

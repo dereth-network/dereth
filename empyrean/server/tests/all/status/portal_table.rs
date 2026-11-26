@@ -7,8 +7,10 @@
 //! and creature that cannot be attacked, in the client's place-store format; the portals spawners
 //! make are listed in both, and the towns the world names in the places; and the status document
 //! names both. A world's own places document (its overlay folder's `places.tsv`) is published in
-//! place of the world's places; without one the places are the world's alone. A world that places
-//! its own things publishes no portal or place of the world database's.
+//! place of the world's places; without one the places are the world's alone, marked as the
+//! world's own names when its era's world database names them (Infiltration and Launch, not the
+//! end of retail). A world that places its own things publishes no portal or place of the world
+//! database's.
 //! Fixture: a small in-memory world of placed portals, a portal with no destination and a
 //! non-portal, and for the places a lifestone, a vendor, people, a monster, a hidden person and a
 //! creature that is no creature by its item type; and a world of a quest-gated portal, a spawner
@@ -665,5 +667,80 @@ fn a_world_that_places_its_own_things_publishes_only_its_own_places_and_no_porta
     assert!(
         !retail.own_names,
         "a retail world's towns and landmarks are not its own names"
+    );
+}
+
+#[test]
+fn an_era_that_names_its_own_places_publishes_its_towns_and_landmarks_as_the_worlds_own_names() {
+    use empyrean_common::era::{EOR, INFILTRATION, LAUNCH};
+    let towns = |store: &PlaceStore| -> Vec<(PlaceKind, String)> {
+        store
+            .places()
+            .iter()
+            .filter(|p| matches!(p.kind, PlaceKind::Town | PlaceKind::Landmark))
+            .map(|p| (p.kind, p.name.clone()))
+            .collect()
+    };
+    let unmarked = portal_table::places_document("W", &asking_world());
+    for era in [&INFILTRATION, &LAUNCH] {
+        let table = PortalTable::of_world("W", Arc::new(asking_world()), None, era);
+        let mut lines = unmarked.lines();
+        let head: String = lines.by_ref().take(2).map(|l| format!("{l}\n")).collect();
+        let rest: String = lines.map(|l| format!("{l}\n")).collect();
+        assert_eq!(
+            table.places(),
+            format!("{head}naming\town\n{rest}"),
+            "{:?}: the world database's places, marked after the header as the world's own names",
+            era.id
+        );
+        let store = PlaceStore::from_text(table.places()).expect("the client reads the places");
+        assert!(
+            store.own_names,
+            "{:?}: the client reads them as its own",
+            era.id
+        );
+        assert_eq!(towns(&store), [(PlaceKind::Town, "Holtburg".to_owned())]);
+        assert_eq!(
+            table.document(),
+            portal_table::document("W", &asking_world()),
+            "the portal table is unchanged"
+        );
+    }
+
+    let retail = PortalTable::of_world("W", Arc::new(asking_world()), None, &EOR);
+    assert_eq!(
+        retail.places(),
+        unmarked,
+        "an end-of-retail world's places are unchanged"
+    );
+    let store = PlaceStore::from_text(retail.places()).expect("the client reads the places");
+    assert!(
+        !store.own_names,
+        "an end-of-retail world's towns and landmarks leave the maps their notes"
+    );
+
+    let own = PortalTable::of_world(
+        "W",
+        Arc::new(asking_world()),
+        Some(OWN_PLACES.to_owned()),
+        &INFILTRATION,
+    );
+    let store = PlaceStore::from_text(own.places()).expect("the client reads the places");
+    assert!(store.own_names);
+    assert_eq!(
+        towns(&store),
+        [
+            (PlaceKind::Town, "Cragstone".to_owned()),
+            (
+                PlaceKind::Landmark,
+                "The Hovel (Dungeon, Level 4-7)".to_owned()
+            )
+        ],
+        "the world's own places document wins over its era's names"
+    );
+    assert_eq!(
+        portal_table::marked_own(&portal_table::marked_own(&unmarked)),
+        portal_table::marked_own(&unmarked),
+        "marked once"
     );
 }

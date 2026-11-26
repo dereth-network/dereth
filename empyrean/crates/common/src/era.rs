@@ -161,6 +161,10 @@ pub struct EraRules {
     /// The era's world database is made for a land that places its own things (V565): on such a
     /// land its placements are kept rather than hidden. Without it they are hidden.
     pub placements_on_own_land: bool,
+    /// The towns and landmarks the era's world database names are the world's own names: the
+    /// places the server publishes say so, and a client's maps name those in place of the game's
+    /// own map notes. Without it the published places leave the maps their notes.
+    pub names_own_places: bool,
     /// Server properties whose default the era changes (ClassicACE's per-ruleset defaults); a
     /// value the operator has set still wins.
     pub property_defaults: &'static [(&'static str, bool)],
@@ -496,6 +500,7 @@ pub static EOR: EraRules = EraRules {
     heritages: None,
     features: EraFeatures::END_OF_RETAIL,
     placements_on_own_land: false,
+    names_own_places: false,
     property_defaults: &[],
     long_property_defaults: &[],
     string_property_defaults: &[],
@@ -582,6 +587,8 @@ pub static INFILTRATION: EraRules = EraRules {
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::INFILTRATION,
     placements_on_own_land: false,
+    // DIVERGE: V458 the maps name the February 2005 world's own towns and landmarks.
+    names_own_places: true,
     property_defaults: &INFILTRATION_PROPERTY_DEFAULTS,
     long_property_defaults: &[],
     string_property_defaults: &[],
@@ -607,6 +614,8 @@ pub static LAUNCH: EraRules = EraRules {
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::LAUNCH,
     placements_on_own_land: false,
+    // DIVERGE: V458 the maps name the 1999 world's own towns and landmarks.
+    names_own_places: true,
     // DIVERGE: V506 an item's only requirements in 1999 are the gates on its magic.
     property_defaults: &[("use_wield_requirements", false)],
     // DIVERGE: V496 five characters an account until later years gave more.
@@ -639,6 +648,7 @@ pub static NEW_DERETH: EraRules = EraRules {
     // DIVERGE: V569 the world is made for its land: a land that places its own things keeps the
     // world's placements.
     placements_on_own_land: true,
+    names_own_places: false,
     property_defaults: &[],
     long_property_defaults: &[],
     // DIVERGE: V570 no Training Academy, so no greeter to send a new character to.
@@ -985,6 +995,17 @@ mod tests {
         // An era on ACE's calendar takes no launch, and ignores one given.
         c.profile = EraId::Eor;
         assert_eq!(c.launch(), Ok(None));
+    }
+
+    /// Divergence: V458
+    /// The February 2005 and 1999 worlds' towns and landmarks are the world's own names for the
+    /// maps; the end of retail's and New Dereth's are not.
+    #[test]
+    fn infiltration_and_launch_name_their_own_places_and_the_end_of_retail_does_not() {
+        assert!(INFILTRATION.names_own_places);
+        assert!(LAUNCH.names_own_places);
+        assert!(!EOR.names_own_places);
+        assert!(!NEW_DERETH.names_own_places);
     }
 
     /// Divergence: V516
