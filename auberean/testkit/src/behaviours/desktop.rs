@@ -1082,6 +1082,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-radar-filter-set-in-the-options-takes-its-objects-off-the-minimap",
+        says: "A radar filter turned off in the player's options takes its objects off Horizon's \
+               minimap, and turned on again puts them back: the scripts' radar looks follow the \
+               filters, and every object's look is asked again as the options change, as the \
+               game's own radar asks.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-RADAR-FILTERS"),
+        station: "auberean-horizon::dat::interfaces::a_radar_filter_set_in_the_options_takes_its_objects_off_horizons_minimap",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-switch-carries-the-chat-lines-written-before",
         says: "The chat lines written while one interface is shown reach the other's log when it \
                is chosen: Horizon chosen for the first time starts from the lines written before \

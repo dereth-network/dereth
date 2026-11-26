@@ -40,8 +40,12 @@ pub const PREFERENCE_PAGES: [(&str, &[u32]); 3] = [
     ("Camera", &[section::CAMERA, section::INPUT, section::OTHER]),
 ];
 
-/// The player's yes-or-no options as the character page lists them, with Horizon's names.
-pub const PLAYER_FLAGS: [(PlayerOption, &str); 22] = [
+/// The player's yes-or-no options as the character page lists them, with Horizon's names. Those
+/// Horizon has no use for are left to the game's own options window: the bar's smooth or instant
+/// swap between sets (Horizon's always shows the next set at once), and the damage numbers and
+/// player-killer damage (Horizon shows no floating damage text and no player-killer damage
+/// meters).
+pub const PLAYER_FLAGS: [(PlayerOption, &str); 18] = [
     (PlayerOption::AutoTarget, "Auto-Target"),
     (
         PlayerOption::TakeFellowshipOffers,
@@ -52,21 +56,8 @@ pub const PLAYER_FLAGS: [(PlayerOption, &str); 22] = [
         "Accept Allegiance Requests",
     ),
     (PlayerOption::TakeTradeOffers, "Accept Trade Requests"),
-    (PlayerOption::DamageNumbers, "See Damage Numbers"),
-    (
-        PlayerOption::OthersDamageNumbers,
-        "See Other Characters' Damage Numbers",
-    ),
-    (
-        PlayerOption::PlayerKillerDamage,
-        "Show Player-Inflicted Damage",
-    ),
     (PlayerOption::ShortcutNumbers, "See Numbers on Shortcuts"),
     (PlayerOption::ShortcutLocked, "Lock Shortcuts"),
-    (
-        PlayerOption::ShortcutInstantScroll,
-        "Instantly Swap Shortcut Bars",
-    ),
     (
         PlayerOption::AskBeforeMelting,
         "Confirm Before Turning Items To Gold",

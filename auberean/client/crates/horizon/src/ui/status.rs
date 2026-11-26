@@ -4,6 +4,12 @@
 //! vitae lamp beside the conflict lamp. The band and the line are drawn as the first game's
 //! Horizon draws them ([`dereth_ui_kit::hud`]).
 //!
+//! **The bandwidth meter** shows under the link line while the player turns it on in the
+//! character options, as the game's own network indicator draws its graph: a column for each
+//! heartbeat (the last 32), the bytes sent a second hanging from the top and the bytes received
+//! standing from the bottom, each a step for every doubling from 8 bytes a second; the link's
+//! tooltip then gives both rates.
+//!
 //! **The vitae lamp** shows below full vitae only, as the first game's Horizon shows it: the heart,
 //! opaque, with the vitae under it; over it, the game's own words for the vitae. A click on it
 //! examines the vitae in the examine window, as the game's own lamp does.
@@ -16,7 +22,7 @@ use dereth_ui_kit::paint::{Align, Painter, TextStyle};
 use dereth_ui_kit::widgets::Ctx;
 
 use crate::draw::{Argb, Rect, WHITE};
-use crate::state::GameState;
+use crate::state::{GameState, METER_COLUMNS};
 use crate::ui::hotbar::Examine;
 use crate::ui::{minimap, party, Tip};
 
@@ -109,10 +115,80 @@ pub fn link_anchor(screen: (f32, f32), k: f32) -> (f32, f32) {
     (map.right() + 15.0 * k, map.y - 36.0 * k)
 }
 
-/// The link line over the minimap; over it, the connection's measures.
+/// The bandwidth meter's colors: its ground, the bytes sent, the bytes received.
+pub const METER_GROUND: Argb = 0x9010_0C08;
+pub const METER_SENT: Argb = 0xFF58_B4E8;
+pub const METER_RECEIVED: Argb = 0xFF7C_D46A;
+
+/// Where the bandwidth meter is: under the link line, its right edge at the lamp's, a column of
+/// two units a heartbeat.
+#[must_use]
+pub fn meter_rect(screen: (f32, f32), k: f32) -> Rect {
+    let (right, top) = link_anchor(screen, k);
+    #[allow(clippy::cast_precision_loss)]
+    let w = METER_COLUMNS as f32 * 2.0 * k;
+    Rect::new(right - 15.0 * k - w, top + 21.0 * k, w, 12.0 * k)
+}
+
+/// How far a bar of the meter reaches for `rate` bytes a second, as a share of half the meter's
+/// height: the game's own graph's scale, a step for each doubling from 8 bytes a second, full at
+/// fifteen steps.
+#[must_use]
+pub fn meter_share(rate: f32) -> f32 {
+    if rate <= 8.0 {
+        return 0.0;
+    }
+    let steps = dereth_primitives::num::math::log2(f64::from(rate / 8.0));
+    #[allow(clippy::cast_possible_truncation)] // a share, 0 to 1
+    let share = (steps / 15.0).clamp(0.0, 1.0) as f32;
+    share
+}
+
+/// The bandwidth meter while the player turned it on: a column for each heartbeat, the newest at
+/// the right, the bytes sent hanging from the top and the bytes received standing from the bottom.
+fn meter(p: &mut Painter<'_>, link: &crate::state::Link) {
+    let k = p.scale;
+    let r = meter_rect(p.screen, k);
+    p.fill(r, METER_GROUND);
+    let half = r.h / 2.0;
+    let column = 2.0 * k;
+    #[allow(clippy::cast_precision_loss)]
+    let first = r.right() - link.history.len() as f32 * column;
+    for (i, (received, sent)) in link.history.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let x = first + i as f32 * column;
+        let down = meter_share(*sent) * half;
+        let up = meter_share(*received) * half;
+        if down > 0.0 {
+            p.fill(Rect::new(x, r.y, column, down), METER_SENT);
+        }
+        if up > 0.0 {
+            p.fill(Rect::new(x, r.bottom() - up, column, up), METER_RECEIVED);
+        }
+    }
+}
+
+/// The meter's lines in the link's tooltip: the bytes received and sent a second.
+#[must_use]
+pub fn meter_lines(link: &crate::state::Link) -> Vec<String> {
+    match link.rates {
+        Some((received, sent)) if link.meter => vec![
+            format!("Received: {received:.0} bytes/s"),
+            format!("Sent: {sent:.0} bytes/s"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// The link line over the minimap and, while the player turned it on, the bandwidth meter under
+/// it; over the line, the connection's measures (with the meter's, while it shows).
 pub fn link_line(p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState, tip: &mut Option<Tip>) {
     let (right, top) = link_anchor(p.screen, p.scale);
-    if let Some(lines) = shared::link_line(p, &*ctx.input, right, top, &link(state)) {
+    if state.link.meter && state.in_world {
+        meter(p, &state.link);
+    }
+    if let Some(mut lines) = shared::link_line(p, &*ctx.input, right, top, &link(state)) {
+        lines.extend(meter_lines(&state.link));
         *tip = Some(Tip {
             title: "Connection".to_owned(),
             lines,

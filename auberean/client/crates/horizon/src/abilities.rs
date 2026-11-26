@@ -75,10 +75,12 @@ pub struct Bar {
     /// Every slot the scripts keep, by its number.
     pub slots: Vec<Slot>,
     /// The set of ten shown (from 1), the rows shown, and whether the slots are locked (a slot is
-    /// dragged off the bar only with Shift held).
+    /// dragged only with Shift held).
     pub set: u32,
     pub rows: u32,
     pub locked: bool,
+    /// The player numbers the slots: the keys and the set's number are written.
+    pub numbers: bool,
 }
 
 /// The rows the bar shows at most.
@@ -164,6 +166,7 @@ impl Bar {
             set: t.set.clamp(1, SETS),
             rows: u32::try_from(t.height).unwrap_or(1).clamp(1, MOST_ROWS),
             locked: t.locked,
+            numbers: t.show_numbers,
         }
     }
 }

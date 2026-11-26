@@ -9,11 +9,12 @@ use auberean_client_sdk::contract::session::Heartbeat;
 use auberean_client_sdk::contract::view::{self as v, Progress, View};
 use auberean_client_sdk::Action;
 use auberean_horizon::draw::{Quad, Rect};
-use auberean_horizon::state::{Frame, GameState};
+use auberean_horizon::state::{Frame, GameState, METER_COLUMNS};
 use auberean_horizon::ui::hud::{target_gauge_rect, EXPERIENCE};
 use auberean_horizon::ui::minimap;
 use auberean_horizon::ui::status::{
-    self, experience_rect, link_anchor, vitae_rect, vitae_words, VITAE_GROUND,
+    self, experience_rect, link_anchor, meter_rect, meter_share, vitae_rect, vitae_words,
+    METER_GROUND, METER_RECEIVED, METER_SENT, VITAE_GROUND,
 };
 use dereth_ui_kit::hud::{LINK_GOOD, LINK_LOST, LINK_SLOW};
 
@@ -161,6 +162,136 @@ fn the_link_lamp_over_the_minimap_is_green_amber_then_red_as_the_server_falls_qu
     let tip = h.ui.tip().expect("a tooltip");
     assert_eq!(tip.title, "Connection");
     assert_eq!(tip.lines[0], "Round trip: 50 ms");
+}
+
+/// A heartbeat numbered `count` that measured `received` and `sent` bytes over two seconds.
+fn traffic(count: u64, received: u32, sent: u32) -> Heartbeat {
+    Heartbeat {
+        count,
+        latency: 0.05,
+        bytes_in: received,
+        bytes_out: sent,
+        span: 2.0,
+        ..Heartbeat::default()
+    }
+}
+
+/// The player's options with the bandwidth meter on or off.
+fn meter_option(on: bool) -> v::GameOptions {
+    v::GameOptions {
+        bits: if on { 0x4000 } else { 0 },
+        ..v::GameOptions::default()
+    }
+}
+
+/// The player followed through `beats`, each a view of its own, the meter on or off.
+fn through(beats: &[Heartbeat], on: bool) -> GameState {
+    let mut s = GameState::default();
+    for b in beats {
+        let mut v = view(Progress::default(), Some(*b), Some(0.5));
+        v.options = Some(meter_option(on));
+        s.follow(&Frame {
+            view: Some(&v),
+            notices: &[],
+            events: &[],
+            told: &[],
+            lines: &[],
+            write: &|_| None,
+            unknown_command: "",
+        });
+    }
+    s
+}
+
+#[test]
+fn the_link_keeps_each_heartbeats_rates_once_and_the_last_32() {
+    // The same heartbeat seen in three frames is one column.
+    let s = through(&[traffic(1, 2_000, 400); 3], true);
+    assert_eq!(s.link.rates, Some((1_000.0, 200.0)), "a second");
+    assert_eq!(s.link.history.len(), 1);
+    let beats: Vec<Heartbeat> = (0..40_u32)
+        .map(|n| traffic(n.into(), 16 * (n + 1), 0))
+        .collect();
+    let s = through(&beats, true);
+    assert_eq!(s.link.history.len(), METER_COLUMNS);
+    assert_eq!(
+        s.link.history.back(),
+        Some(&(320.0, 0.0)),
+        "the newest last"
+    );
+}
+
+#[test]
+fn the_bandwidth_meter_shows_under_the_link_line_only_while_the_player_turns_it_on() {
+    let mut h = Harness::new();
+    let k = h.k();
+    let beats = [
+        traffic(1, 8_192, 512),
+        traffic(2, 0, 0),
+        traffic(3, 1 << 20, 64),
+    ];
+    let r = meter_rect(h.screen, k);
+    let map = minimap::parts(h.screen, k).map;
+    let (right, top) = link_anchor(h.screen, k);
+    assert!(
+        r.bottom() <= map.y && r.y > top,
+        "between the line and the map"
+    );
+    h.frame(&through(&beats, false));
+    assert!(fills(&h, METER_GROUND).is_empty(), "off: no meter");
+    assert!(fills(&h, METER_SENT).is_empty() && fills(&h, METER_RECEIVED).is_empty());
+    let s = through(&beats, true);
+    h.frame(&s);
+    assert_eq!(fills(&h, METER_GROUND), vec![r]);
+    // A column of two units each, the newest at the right; the quiet one draws nothing.
+    let column = 2.0 * k;
+    let received = fills(&h, METER_RECEIVED);
+    let sent = fills(&h, METER_SENT);
+    assert_eq!(received.len(), 2, "{received:?}");
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    let newest = received
+        .iter()
+        .find(|q| near(q.right(), r.right()))
+        .expect("the newest");
+    assert!(
+        near(newest.bottom(), r.bottom()),
+        "received stands from the bottom"
+    );
+    assert!(
+        near(newest.h, r.h / 2.0),
+        "a megabyte a second fills its half"
+    );
+    let oldest = received
+        .iter()
+        .find(|q| near(q.x, r.right() - 3.0 * column))
+        .expect("the oldest");
+    // 4,096 bytes a second: nine doublings from 8.
+    assert!(near(oldest.h, r.h / 2.0 * 9.0 / 15.0), "{oldest:?}");
+    assert!(
+        sent.iter().all(|q| near(q.y, r.y)),
+        "sent hangs from the top"
+    );
+    assert_eq!(meter_share(8.0), 0.0);
+    // Over the line, the rates too.
+    h.input.mouse = (right - 20.0 * k, top + 8.0 * k);
+    h.frame(&s);
+    let tip = h.ui.tip().expect("a tooltip");
+    assert!(
+        tip.lines.contains(&"Received: 524288 bytes/s".to_owned()),
+        "{:?}",
+        tip.lines
+    );
+    assert!(
+        tip.lines.contains(&"Sent: 32 bytes/s".to_owned()),
+        "{:?}",
+        tip.lines
+    );
+    h.frame(&through(&beats, false));
+    let tip = h.ui.tip().expect("a tooltip");
+    assert!(
+        !tip.lines.iter().any(|l| l.starts_with("Received")),
+        "off: no rates"
+    );
 }
 
 #[test]

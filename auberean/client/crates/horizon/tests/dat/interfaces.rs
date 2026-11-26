@@ -923,6 +923,49 @@ fn horizons_minimap_places_the_player_and_holds_the_radars_objects() {
     assert_eq!(state.radar.blips.len(), on_radar);
 }
 
+/// A radar filter turned off in the player's options takes its objects off Horizon's minimap, and
+/// turned on again puts them back: the scripts' radar looks follow the filters, and every object's
+/// look is asked again as the options change, as the game's own radar asks.
+///
+/// Behaviour: desktop.horizon.a-radar-filter-set-in-the-options-takes-its-objects-off-the-minimap
+#[test]
+fn a_radar_filter_set_in_the_options_takes_its_objects_off_horizons_minimap() {
+    use auberean_client_sdk::contract::{Action, PlayerOption};
+    const MONSTER: u64 = 0x2130_0000_0000_0777;
+    let mut s = Session::going_on(
+        Some("[UI]\r\nInterface=Horizon\r\n"),
+        crate::session::monster_ahead(MONSTER, 5.0, 8.0, 900),
+    );
+    s.enter_the_world();
+    let on_map = |s: &Session| {
+        s.horizon()
+            .borrow()
+            .state()
+            .radar
+            .blips
+            .iter()
+            .any(|b| b.id == MONSTER)
+    };
+    assert!(s.until(10.0, on_map), "the monster on the minimap");
+    let monsters = |s: &mut Session, on: u32| {
+        s.shell
+            .client
+            .as_mut()
+            .expect("the session")
+            .act(Action::SetOptions {
+                changes: vec![(PlayerOption::RadarMonsters, on)],
+                tell: true,
+            });
+    };
+    monsters(&mut s, 0);
+    assert!(
+        s.until(2.0, |s| !on_map(s)),
+        "monsters turned off take it off"
+    );
+    monsters(&mut s, 1);
+    assert!(s.until(2.0, on_map), "and turned on put it back");
+}
+
 /// Horizon's social window opens on Horizon's key for it (O); a fellowship asked for there, its name
 /// typed, goes to the player's scripts, which send the server their call for it; Escape closes the
 /// window.

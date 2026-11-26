@@ -12,7 +12,7 @@ use auberean_client_sdk::contract::notice::{vital, Notice, PlayerNotice, Said, S
 use auberean_client_sdk::contract::question::Asked;
 use auberean_client_sdk::contract::text::TextRef;
 use auberean_client_sdk::contract::view::{self as v, View};
-use auberean_client_sdk::contract::ChatHistory;
+use auberean_client_sdk::contract::{ChatHistory, PlayerOption};
 
 pub use crate::abilities::{Bar, Combat, Light, Skills, Slot};
 pub use crate::examined::Examined;
@@ -57,6 +57,13 @@ pub struct Effect {
     pub left: Option<f64>,
 }
 
+/// Bytes over a span of seconds, a second.
+fn per_second(bytes: u32, span: f32) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // a rate shown, never exact
+    let b = bytes as f32;
+    b / span
+}
+
 /// What is selected, as the target bar shows it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {
@@ -66,8 +73,13 @@ pub struct Target {
     pub health: Option<Vital>,
 }
 
+/// How many heartbeats the bandwidth meter shows, a column each, as the game's own network
+/// indicator's graph does at most.
+pub const METER_COLUMNS: usize = 32;
+
 /// The link as the link line shows it: the world's name, the machine's clock, the round trip, the
-/// share of packets lost and how lately the server was heard.
+/// share of packets lost and how lately the server was heard; and, while the player turned the
+/// bandwidth meter on, the bytes received and sent a second at each heartbeat.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Link {
     pub world: Option<String>,
@@ -79,6 +91,14 @@ pub struct Link {
     pub loss: f32,
     /// Seconds since the world's server was last heard; none with no connection to it.
     pub since_heard: Option<f64>,
+    /// The player turned the bandwidth meter on.
+    pub meter: bool,
+    /// The bytes received and sent a second, as the last heartbeat measured them.
+    pub rates: Option<(f32, f32)>,
+    /// The last heartbeat's number.
+    pub heartbeat: Option<u64>,
+    /// Each heartbeat's rates, oldest first: the last [`METER_COLUMNS`].
+    pub history: VecDeque<(f32, f32)>,
 }
 
 impl Link {
@@ -104,7 +124,37 @@ impl Link {
                 .map(|h| h.latency * 1000.0),
             loss,
             since_heard: view.since_heard,
+            meter: view
+                .options
+                .as_ref()
+                .and_then(|o| o.flag(PlayerOption::LatencyGraph))
+                .unwrap_or(false),
+            rates: view.link.filter(|h| h.span > 0.0).map(|h| {
+                (
+                    per_second(h.bytes_in, h.span),
+                    per_second(h.bytes_out, h.span),
+                )
+            }),
+            heartbeat: view.link.map(|h| h.count),
+            history: VecDeque::new(),
         }
+    }
+
+    /// The link as `view` gives it, keeping the rates of the heartbeats `before` held, this
+    /// heartbeat's added when it is a new one.
+    #[must_use]
+    pub fn after(view: &View, before: Self) -> Self {
+        let mut link = Self::of(view);
+        link.history = before.history;
+        if link.heartbeat != before.heartbeat {
+            if let Some(r) = link.rates {
+                link.history.push_back(r);
+                while link.history.len() > METER_COLUMNS {
+                    link.history.pop_front();
+                }
+            }
+        }
+        link
     }
 
     /// The clock as the link line writes it: `9:57 PM`.
@@ -267,7 +317,9 @@ impl GameState {
         crate::examined::follow(self, f);
         crate::social::follow(self, f);
         self.follow_journal(f);
-        self.link = view.map(Link::of).unwrap_or_default();
+        self.link = view.map_or_else(Link::default, |v| {
+            Link::after(v, std::mem::take(&mut self.link))
+        });
         if let Some(p) = player {
             self.progress = p.progress;
         }

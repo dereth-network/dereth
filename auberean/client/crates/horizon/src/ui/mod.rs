@@ -764,6 +764,13 @@ impl HorizonUi {
             && ((x - d.origin.0).abs() > hotbar::DRAG_SLOP
                 || (y - d.origin.1).abs() > hotbar::DRAG_SLOP)
         {
+            let locked = state.bar.as_ref().is_some_and(|b| b.locked);
+            if !d.may_drag(locked, ctx.input.shift) {
+                // A slot of a locked bar moved off without Shift is let go of: neither dragged
+                // nor used.
+                self.drag = None;
+                return;
+            }
             d.active = true;
         }
         hotbar::draw_drag(p, d, ctx.input.mouse);

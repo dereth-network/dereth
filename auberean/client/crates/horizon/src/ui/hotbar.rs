@@ -3,14 +3,15 @@
 //! with the set's number between them, and the attack button past them, on the bar's right.
 //!
 //! - **A slot** shows what it holds (its icon, or a plain tile), its key in its corner on the first
-//!   row, a skill's wait as a shade drawing back, a skill or item the player cannot use now
+//!   row while the player numbers the slots (the set's number by the arrows too), a skill's wait as a shade drawing back, a skill or item the player cannot use now
 //!   shaded whole, and a skill's special attack as a rim: amber while asked for, gold once started,
 //!   blue while turned on. Over it, its name. A slot past the hundredth is never used.
 //! - **A click** on a slot uses it; a right click examines what it holds and opens the examine
 //!   window.
-//! - **Dragging** a slot onto another moves its shortcut there; off the bar, it empties its slot
-//!   (while the slots are locked, only with Shift held). A skill dragged from the skill window
-//!   onto a slot puts it there.
+//! - **Dragging** a slot onto another moves its shortcut there; off the bar, it empties its slot.
+//!   While the slots are locked a slot is dragged only with Shift held, as the game's own bar's
+//!   are: moved off without it, the press neither drags nor uses the slot. A skill dragged from
+//!   the skill window onto a slot puts it there.
 //! - **The attack button** says whether the player is attacking, as the game's own lit axe and
 //!   dove do: the art's dove while it is not, and its axe, glowing, while it is; no words and no
 //!   frame, the icon on a soft round ground with room round it. A click asks the game to start
@@ -157,6 +158,15 @@ pub struct Drag {
     pub active: bool,
 }
 
+impl Drag {
+    /// Whether the held shortcut may be dragged once the pointer moves far enough: from the skill
+    /// window always; from a slot of a locked bar only with Shift held.
+    #[must_use]
+    pub const fn may_drag(&self, locked: bool, shift: bool) -> bool {
+        self.from.is_none() || !locked || shift
+    }
+}
+
 /// An examination a right click on a slot asks for: the request's kind and its datum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Examine {
@@ -296,7 +306,7 @@ impl Hotbar {
                         p.text_in(&waits, r, Align::Centre, &crate::ui::hud::time_left(left));
                     }
                 }
-                if row == 0 {
+                if row == 0 && bar.numbers {
                     p.text(&keys, r.x + 3.0 * k, r.y + 1.0 * k, KEYS[column as usize]);
                 }
             }
@@ -312,8 +322,10 @@ impl Hotbar {
                 set: bar.stepped(1),
             });
         }
-        let set = TextStyle::new(Family::Numerals, 14.0, 0xFFEE_E1C5).edge(0xFF00_0000);
-        p.text_in(&set, number, Align::Centre, &bar.set.to_string());
+        if bar.numbers {
+            let set = TextStyle::new(Family::Numerals, 14.0, 0xFFEE_E1C5).edge(0xFF00_0000);
+            p.text_in(&set, number, Align::Centre, &bar.set.to_string());
+        }
         covers.extend([before, after, number]);
         covers
     }

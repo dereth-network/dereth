@@ -191,10 +191,28 @@ pub fn character_list() -> CharacterList {
 /// numbered from `n`.
 #[allow(dead_code)] // the gpu tests', which take this file too
 pub fn creature_ahead(id: u64, ahead: f32, t: f64, n: u64) -> Vec<Step> {
+    being_ahead(id, ahead, t, n, None)
+}
+
+/// A monster as [`creature_ahead`], of the game's own monsters' scripts, which say how it shows
+/// on the radar.
+#[allow(dead_code)] // the gpu tests', which take this file too
+pub fn monster_ahead(id: u64, ahead: f32, t: f64, n: u64) -> Vec<Step> {
+    being_ahead(id, ahead, t, n, Some(MONSTER_PACKAGE))
+}
+
+/// The game's monsters' scripts' package.
+const MONSTER_PACKAGE: u32 = 0x1169;
+
+fn being_ahead(id: u64, ahead: f32, t: f64, n: u64, package: Option<u32>) -> Vec<Step> {
     use auberean_client_sdk::protocol::quality::VisualQuality;
     use auberean_client_sdk::protocol::types::ObjectStamp;
     use auberean_client_sdk::runtime::description::set_bool;
     let mut weenie = WeenieDesc::default();
+    if let Some(package) = package {
+        weenie.mask |= WeenieDesc::PACKAGE;
+        weenie.package_id = package;
+    }
     assert!(set_bool(&mut weenie, 624, 1), "selectable");
     set_string_info(&mut weenie, NAME_QUALITY, StringInfo::literal("Drudge"));
     let creature = CreateObject {

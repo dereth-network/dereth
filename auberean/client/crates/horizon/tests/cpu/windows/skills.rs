@@ -344,6 +344,7 @@ fn a_trained_skill_dragged_from_the_tree_onto_the_hotbar_goes_in_that_slot() {
         set: 1,
         rows: 1,
         locked: false,
+        numbers: true,
     });
     let parts = opened(&mut h, &s);
     let to = centre(slot_rect(h.screen, h.k(), 0, 6));

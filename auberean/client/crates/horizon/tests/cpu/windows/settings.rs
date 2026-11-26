@@ -249,7 +249,7 @@ fn the_player_s_options_show_as_the_game_keeps_them_and_each_set_is_asked_for() 
     let mut h = Harness::new();
     // Melting without asking is kept as its bit; the radar's items in its mask.
     h.ui.settings.data.options = Some(GameOptions {
-        bits: 0x404,
+        bits: 0x401,
         radar_mask: 0x20,
         shortcut_height: 2,
         ..GameOptions::default()
@@ -275,15 +275,51 @@ fn the_player_s_options_show_as_the_game_keeps_them_and_each_set_is_asked_for() 
             tell: true
         }]
     );
-    let damage = options::row(area, 0.0, at(PlayerOption::DamageNumbers), h.k());
-    let out = h.click(&s, check(&h, damage));
+    let numbers = options::row(area, 0.0, at(PlayerOption::ShortcutNumbers), h.k());
+    let out = h.click(&s, check(&h, numbers));
     assert_eq!(
         out.acts,
         vec![Action::SetOptions {
-            changes: vec![(PlayerOption::DamageNumbers, 0)],
+            changes: vec![(PlayerOption::ShortcutNumbers, 0)],
             tell: true
         }]
     );
+}
+
+#[test]
+fn the_character_page_leaves_out_the_options_horizon_has_no_use_for() {
+    use PlayerOption as O;
+    let listed = |o: O| options::PLAYER_FLAGS.iter().any(|(at, _)| *at == o);
+    for o in [
+        O::ShortcutInstantScroll,
+        O::DamageNumbers,
+        O::OthersDamageNumbers,
+        O::PlayerKillerDamage,
+    ] {
+        assert!(!listed(o), "{o:?} left to the game's own window");
+    }
+    for o in [
+        O::AutoTarget,
+        O::TakeAllegianceOffers,
+        O::TakeFellowshipOffers,
+        O::TakeTradeOffers,
+        O::ShortcutNumbers,
+        O::ShortcutLocked,
+        O::AskBeforeMelting,
+        O::LatencyGraph,
+        O::FellowsOnMap,
+        O::PetPanel,
+        O::ClassicExamination,
+        O::RadarMonsters,
+        O::RadarPeople,
+        O::RadarPlayers,
+        O::RadarPortals,
+        O::RadarLifestones,
+        O::RadarItems,
+        O::RadarCoordinates,
+    ] {
+        assert!(listed(o), "{o:?} listed");
+    }
 }
 
 #[test]

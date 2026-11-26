@@ -215,6 +215,7 @@ fn a_shortcut_dragged_between_the_slots_of_a_hotbar_moved_lands_in_the_slot_show
         set: 1,
         rows: 1,
         locked: false,
+        numbers: true,
     });
     h.ui.layout.read(Some("hotbar 0 -300 1\n"));
     h.frame(&s);

@@ -68,6 +68,7 @@ pub fn full_hud() -> GameState {
         set: 0,
         rows: 4,
         locked: false,
+        numbers: true,
     });
     s.goods.inventory = Some(auberean_client_sdk::contract::view::Inventory {
         version: 1,
@@ -105,6 +106,7 @@ pub fn full_hud() -> GameState {
         round_trip_ms: Some(105.0),
         loss: 0.0,
         since_heard: Some(0.5),
+        ..Link::default()
     };
     s.radar.coordinates = Some((32.1, -13.4));
     s.radar.show_coordinates = true;

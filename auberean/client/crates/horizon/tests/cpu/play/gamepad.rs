@@ -98,6 +98,7 @@ fn bar_with(slots: &[u32]) -> GameState {
         set: 3,
         rows: 1,
         locked: false,
+        numbers: true,
     });
     s
 }

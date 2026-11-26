@@ -150,6 +150,7 @@ fn a_recipe_carried_onto_the_hotbar_becomes_a_shortcut_to_it() {
         set: 1,
         rows: 1,
         locked: false,
+        numbers: true,
     });
     let parts = open(&mut h, &s);
     let k = h.k();

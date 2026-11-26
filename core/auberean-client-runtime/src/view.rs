@@ -9,7 +9,9 @@
 //!   again when the player's options come back or the player changed them;
 //! - each object's name (once, and again when the scripts say its radar look or the item changed),
 //!   its kind, groove, owner, container, whether it may be selected and whether it is dead, every
-//!   refresh; how it shows on the radar, once, and again when the scripts say its look changed;
+//!   refresh; how it shows on the radar, once, and again when the scripts say its look changed or
+//!   the player's options come back or the player changed them (the looks follow the radar's
+//!   filters);
 //! - which objects are fellows and which the player may attack, only when asked
 //!   ([`Action::AskTargets`]); the fellows' shares of the experience, when the fellowship's notices
 //!   come;
@@ -741,8 +743,12 @@ impl Client {
                         f.name = None;
                     }
                 }
+                // The radar asks every object's look again as the options come: the scripts'
+                // looks follow the radar's filters, which say nothing when they change.
+                // D2-02053, D2-02049
                 notice::RELOAD_OPTIONS | notice::OPTIONS_CHANGED => {
                     self.views.world_options = None;
+                    facts.values_mut().for_each(|f| f.radar = None);
                 }
                 _ => {}
             }

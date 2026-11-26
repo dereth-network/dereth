@@ -42,6 +42,7 @@ fn bar(set: u32, rows: u32, slots: &[(u32, Slot)]) -> Bar {
         set,
         rows,
         locked: false,
+        numbers: true,
     };
     for (n, s) in slots {
         b.slots[*n as usize] = s.clone();
@@ -175,15 +176,21 @@ fn a_slot_dragged_onto_another_moves_there_and_off_the_bar_empties_its_slot() {
 }
 
 #[test]
-fn while_the_slots_are_locked_a_slot_leaves_the_bar_only_with_shift_held() {
+fn while_the_slots_are_locked_a_slot_is_dragged_only_with_shift_held() {
     let mut h = Harness::new();
     let k = h.k();
     let mut b = bar(1, 1, &[(0, skill(SWORD_SKILL))]);
     b.locked = true;
     let s = with_bar(b);
     let from = centre(slot_rect(h.screen, k, 0, 0));
+    let to = centre(slot_rect(h.screen, k, 0, 3));
     let world = (h.screen.0 / 2.0, h.screen.1 / 2.0);
-    assert!(h.drag(&s, from, world).acts.is_empty());
+    assert!(h.drag(&s, from, world).acts.is_empty(), "not off the bar");
+    assert!(
+        h.drag(&s, from, to).acts.is_empty(),
+        "nor onto another slot, nor used"
+    );
+    assert!(h.ui.drag.is_none(), "nothing held");
     h.input.shift = true;
     assert_eq!(
         h.drag(&s, from, world).acts,
@@ -192,6 +199,60 @@ fn while_the_slots_are_locked_a_slot_leaves_the_bar_only_with_shift_held() {
             shortcut: ToolbarShortcut::default()
         }]
     );
+    assert_eq!(
+        h.drag(&s, from, to).acts,
+        vec![
+            Action::SetToolbarSlot {
+                slot: 0,
+                shortcut: ToolbarShortcut::default()
+            },
+            Action::SetToolbarSlot {
+                slot: 3,
+                shortcut: skill_shortcut(SWORD_SKILL)
+            },
+        ]
+    );
+}
+
+/// The text quads drawn in the keys' and the set's color within `r` last frame.
+fn numbers_in(h: &Harness, r: Rect) -> usize {
+    h.list
+        .quads
+        .iter()
+        .filter(|q| q.tex.is_some() && q.colour == 0xFFEE_E1C5 && r.contains(q.dst.x, q.dst.y))
+        .count()
+}
+
+#[test]
+fn the_keys_and_the_sets_number_are_written_only_while_the_player_numbers_the_slots() {
+    let mut h = Harness::with_built_in_art();
+    let k = h.k();
+    let (_, _, number) = set_rects(h.screen, k);
+    let slot = slot_rect(h.screen, k, 0, 0);
+    let mut b = bar(3, 1, &[(20, skill(SWORD_SKILL))]);
+    h.frame(&with_bar(b.clone()));
+    assert!(numbers_in(&h, slot) > 0, "the key");
+    assert!(numbers_in(&h, number) > 0, "the set's number");
+    b.numbers = false;
+    h.frame(&with_bar(b));
+    assert_eq!(numbers_in(&h, slot), 0, "no key");
+    assert_eq!(numbers_in(&h, number), 0, "no set's number");
+}
+
+#[test]
+fn the_bar_numbers_its_slots_as_the_views_toolbar_says() {
+    let t = v::Toolbar {
+        set: 1,
+        height: 1,
+        show_numbers: true,
+        ..v::Toolbar::default()
+    };
+    assert!(Bar::from_view(&t, 0.0).numbers);
+    let t = v::Toolbar {
+        show_numbers: false,
+        ..t
+    };
+    assert!(!Bar::from_view(&t, 0.0).numbers);
 }
 
 #[test]
