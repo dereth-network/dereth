@@ -19,7 +19,10 @@
 //! **Models:** each part's most detailed level, its vertices moved into the entity's frame (its
 //! pose, its attachment, its scale) and every part laid into one AC1 model (more where one would
 //! pass AC1's vertex limit). Collision is AC2's own: each mesh's physics polygons, a part without
-//! them colliding with nothing.
+//! them colliding with nothing. AC2 tests them where the mesh stores them, in the placed object's
+//! own frame, whatever its part's place, pose or scale, so they stay there while the part is drawn
+//! where it stands; only the object's own scale along each axis (its entity's times its look's,
+//! a negative one turning it over) applies to them, as it does to its parts.
 //!
 //! **Materials:** each as AC2 makes it ready to draw: its template's own parameters, then its
 //! instance's modifiers, then the changes the part's look makes to it (its appearance's), the last
@@ -257,6 +260,9 @@ pub(crate) struct Model {
     collision_part: Option<DataId>,
     triangles: usize,
     physics: usize,
+    /// How far its collision stands from where its parts are drawn, at most, meters: kept where
+    /// its meshes store it while their parts stand elsewhere.
+    kept: f32,
     /// Each material its meshes draw with: the AC2 material, the picture list it shows (0 for
     /// none), and how it is drawn ([`Shown`]'s ways).
     shown: std::collections::BTreeSet<(u32, u32, &'static str)>,
@@ -639,7 +645,7 @@ pub fn place_statics(
     }
     let _ = writeln!(
         st.tsv,
-        "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tplacements"
+        "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tcollision_kept_m\tplacements"
     );
     st.models = models.values().filter(|m| m.is_ok()).count();
     for ((object, s), n) in &effect_placed {
@@ -724,7 +730,7 @@ pub fn place_statics(
         };
         let _ = writeln!(
             st.tsv,
-            "{object:08X}\t{},{},{}\t{:08X}\t{}\t{}\t{}\t{placements}",
+            "{object:08X}\t{},{},{}\t{:08X}\t{}\t{}\t{}\t{:.2}\t{placements}",
             s[0],
             s[1],
             s[2],
@@ -732,6 +738,7 @@ pub fn place_statics(
             m.parts.len(),
             m.triangles,
             m.physics,
+            m.kept,
         );
     }
     Ok((st, Standing { pending, models }))
@@ -1544,6 +1551,7 @@ pub(crate) fn make_model(
     if parts.is_empty() {
         return Ok(Err(NO_MESH));
     }
+    let tested_at = object_scale(wr, object);
     let meshes: Vec<Option<Mesh>> = parts.iter().map(|p| wr.get::<Mesh>(p.mesh.0)).collect();
     let stance = if as_built {
         let how = if meshes
@@ -1577,6 +1585,7 @@ pub(crate) fn make_model(
                         detail: p.detail,
                         look: p.look.clone(),
                         physics: true,
+                        scale: tested_at,
                     })
                 })
                 .collect();
@@ -1601,6 +1610,7 @@ pub(crate) fn make_model(
                 collision_part,
                 triangles: b.triangles,
                 physics: b.physics,
+                kept: b.kept,
                 shown: b.shown,
                 made,
                 off,
@@ -1609,9 +1619,47 @@ pub(crate) fn make_model(
             }))
         }
         Stance::Moving(frames, looped) => make_mover(
-            ac2, &parts, meshes, &frames, looped, pictures, ids, out, max_levels,
+            ac2, &parts, meshes, &frames, looped, tested_at, pictures, ids, out, max_levels,
         ),
     }
+}
+
+/// The scale AC2 tests object `object`'s collision at along each axis, sign and all: its entity
+/// records' scales times its look's, as its parts are drawn at, with no part's own.
+fn object_scale(wr: &WorldRecords, object: u32) -> auberean_primitives::Vec3 {
+    use auberean_world::place::PlaceRecords as _;
+    let mut s = auberean_primitives::Vec3::new(1.0, 1.0, 1.0);
+    let times = |s: auberean_primitives::Vec3, k: auberean_primitives::Vec3| {
+        auberean_primitives::Vec3::new(s.x * k.x, s.y * k.y, s.z * k.z)
+    };
+    let mut id = auberean_primitives::DataId(object);
+    // An entity names another or a look; a look ends it.
+    for _ in 0..8 {
+        match id.0 >> 24 {
+            0x47 => {
+                let Some(e) = wr.entity(id) else {
+                    break;
+                };
+                s = times(
+                    s,
+                    e.scale
+                        .unwrap_or(auberean_primitives::Vec3::new(1.0, 1.0, 1.0)),
+                );
+                id = e.object.map_or(
+                    auberean_primitives::DataId::NONE,
+                    auberean_primitives::DataId,
+                );
+            }
+            0x1F => {
+                if let Ok(look) = auberean_world::look::Look::of_record(wr, id) {
+                    s = times(s, look.scale);
+                }
+                break;
+            }
+            _ => break,
+        }
+    }
+    s
 }
 
 /// A moving object as AC1 parts, one for each mesh carried whole by a bone and one for each bone
@@ -1624,6 +1672,7 @@ fn make_mover(
     meshes: Vec<Option<Mesh>>,
     frames: &[Vec<Carry>],
     looped: bool,
+    tested_at: auberean_primitives::Vec3,
     pictures: &mut Pictures,
     ids: &mut Ids,
     out: &mut Records,
@@ -1682,8 +1731,10 @@ fn make_mover(
     let mut verts = Vec::new();
     let mut corners = Vec::new();
     let (mut triangles, mut physics) = (0, 0);
-    // The collision of the parts that do not move, where they stand.
+    // The collision of the parts that do not move, where their meshes store it, and how far that
+    // is from where they stand.
     let mut collision = Collision::default();
+    let mut kept = 0.0f32;
     let mut shown = std::collections::BTreeSet::new();
     for (i, only, at) in pieces {
         let Some((scale, _, _)) = split_rigid(&at[0]) else {
@@ -1728,6 +1779,7 @@ fn make_mover(
             detail: parts[i].detail,
             look: parts[i].look.clone(),
             physics: still,
+            scale: tested_at,
         };
         let Some(b) = build(ac2, vec![input], pictures, ids, out, max_levels)? else {
             continue;
@@ -1778,7 +1830,12 @@ fn make_mover(
                 anim[k].push(*f);
             }
         }
-        collision.add_carried(&b.collision, &first);
+        // Its collision where the mesh stores it, as AC2 tests it, not where the part stands.
+        for c in &b.collision.points {
+            let p = first.point(auberean_primitives::Vec3::new(c.x, c.y, c.z));
+            kept = kept.max(between(Vec3::new(p.x, p.y, p.z), *c));
+        }
+        collision.add(&b.collision);
         triangles += b.triangles;
         physics += b.physics;
         shown.extend(b.shown);
@@ -1803,6 +1860,7 @@ fn make_mover(
         collision_part,
         triangles,
         physics,
+        kept,
         shown,
         made: MADE_MOVING,
         off: 0.0,
@@ -1850,6 +1908,12 @@ fn box_of(drawn: &[Vec3], collided: &[Vec3]) -> (Vec3, Vec3) {
     bounds(held.iter().copied())
 }
 
+/// How far apart two points stand, meters.
+fn between(a: Vec3, b: Vec3) -> f32 {
+    let (x, y, z) = (a.x - b.x, a.y - b.y, a.z - b.z);
+    (x * x + y * y + z * z).sqrt()
+}
+
 /// The farthest any point stands from the upright through the origin.
 fn reach(points: &[Vec3]) -> f32 {
     points
@@ -1867,6 +1931,8 @@ struct Input {
     detail: Option<[auberean_assets::setup::DetailDistances; 3]>,
     look: Option<std::sync::Arc<PartLook>>,
     physics: bool,
+    /// The object's scale along each axis, sign and all, which its collision is tested at.
+    scale: auberean_primitives::Vec3,
 }
 
 /// What laying meshes into AC1 models made.
@@ -1874,8 +1940,10 @@ struct Built {
     parts: Vec<DataId>,
     /// Every vertex of the most detailed level, where the meshes stand.
     corners: Vec<Vec3>,
-    /// The meshes' collision, where they stand (none when they have none).
+    /// The meshes' collision, where they store it (none when they have none).
     collision: Collision,
+    /// How far that collision stands from where the meshes are drawn, at most, meters.
+    kept: f32,
     triangles: usize,
     physics: usize,
     shown: std::collections::BTreeSet<(u32, u32, &'static str)>,
@@ -1906,6 +1974,11 @@ fn build(
         look: Option<std::sync::Arc<PartLook>>,
         only: Option<Vec<bool>>,
         physics: bool,
+        /// Its vertices where the mesh stores them, at the object's scale: where its collision
+        /// is tested.
+        stored: Vec<Vec3>,
+        /// Whether that scale turns it inside out.
+        inside_out: bool,
     }
     let mut drawn: Vec<Drawn> = Vec::new();
     let mut sizes: Vec<usize> = vec![0];
@@ -1916,6 +1989,7 @@ fn build(
         detail,
         look,
         physics: keeps_physics,
+        scale: tested_at,
     } in inputs
     {
         let Some(vs) = m.vertices.attributes() else {
@@ -1960,6 +2034,18 @@ fn build(
         let piece = sizes.len() - 1;
         *sizes.last_mut().expect("a piece") += vs.len();
         let up = auberean_primitives::Vec3::new(0.0, 0.0, 1.0);
+        let stored = vs
+            .iter()
+            .map(|v| {
+                Vec3::new(
+                    v.position.x * tested_at.x,
+                    v.position.y * tested_at.y,
+                    v.position.z * tested_at.z,
+                )
+            })
+            .collect();
+        // Turned inside out by an odd number of axes scaled negative, its polygons face back out.
+        let inside_out = tested_at.x * tested_at.y * tested_at.z < 0.0;
         let vs = vs
             .iter()
             .enumerate()
@@ -1993,6 +2079,8 @@ fn build(
             look,
             only,
             physics: keeps_physics,
+            stored,
+            inside_out,
         });
     }
     // The model's levels: at each, every mesh at the coarsest of its levels handed over to by then.
@@ -2003,6 +2091,9 @@ fn build(
     let mut surfaces = BTreeMap::new();
     let mut shown = std::collections::BTreeSet::new();
     let (mut triangles, mut physics) = (0, 0);
+    // The meshes' collision, where they store it, and how far that is from where they are drawn.
+    let mut collision = Collision::default();
+    let mut kept = 0.0f32;
     // Per piece, per level: its geometry.
     let mut levels: Vec<Vec<Piece>> = Vec::new();
     for level in 0..=steps.len() {
@@ -2083,45 +2174,57 @@ fn build(
                     }
                 }
             }
-            // Collision is the most detailed level's alone.
+            // Collision is the most detailed level's alone, at the mesh's own vertices.
             if level > 0 || !d.physics {
                 continue;
             }
-            for p in &d.m.physics_polygons {
-                if !taken(&p.vertices) {
-                    continue;
-                }
-                let Some(v) = p
-                    .vertices
+            let mut held = Piece {
+                vertices: d
+                    .stored
                     .iter()
-                    .map(|&i| id_of(i))
-                    .collect::<Option<Vec<u16>>>()
-                else {
-                    continue;
-                };
-                if v.len() < 3 || usize::from(*v.iter().max().unwrap_or(&0)) >= piece.vertices.len()
+                    .map(|&position| SwVertex {
+                        id: 0,
+                        position,
+                        normal: Vec3::ZERO,
+                        uvs: Vec::new(),
+                    })
+                    .collect(),
+                ..Piece::default()
+            };
+            for p in &d.m.physics_polygons {
+                if !taken(&p.vertices)
+                    || p.vertices.len() < 3
+                    || p.vertices.iter().any(|&i| usize::from(i) >= d.stored.len())
                 {
                     continue;
                 }
-                piece.physics.push(Polygon {
-                    poly_id: i16::try_from(piece.physics.len()).unwrap_or(i16::MAX),
-                    num_pts: u8::try_from(v.len()).unwrap_or(u8::MAX),
-                    // No texture coordinates on a physics polygon.
+                for &i in &p.vertices {
+                    let (a, b) = (d.vs[usize::from(i)].position, d.stored[usize::from(i)]);
+                    kept = kept.max(between(a, b));
+                }
+                held.physics.push(Polygon {
+                    poly_id: 0,
+                    num_pts: u8::try_from(p.vertices.len()).unwrap_or(u8::MAX),
                     stippling: 4,
                     sides_type: 0,
                     pos_surface: 0,
                     neg_surface: 0,
-                    vertex_ids: v,
+                    vertex_ids: if d.inside_out {
+                        p.vertices.iter().rev().copied().collect()
+                    } else {
+                        p.vertices.clone()
+                    },
                     pos_uv_indices: None,
                     neg_uv_indices: None,
                 });
                 physics += 1;
             }
+            collision.take(&mut held);
         }
         levels.push(pieces);
     }
     let keep: Vec<usize> = (0..sizes.len())
-        .filter(|&p| !levels[0][p].polygons.is_empty() || !levels[0][p].physics.is_empty())
+        .filter(|&p| !levels[0][p].polygons.is_empty())
         .collect();
     // A model that draws nothing is left out, unless AC2 draws it clear and it collides: its
     // collision stays, unseen, as AC2's does.
@@ -2132,13 +2235,7 @@ fn build(
     // Each piece as an AC1 model, its coarser levels as the models its detail-level record names.
     let mut part_ids = Vec::with_capacity(keep.len());
     let mut corners: Vec<Vec3> = Vec::new();
-    // Each piece's collision, gathered into a model of its own below.
-    let mut collision = Collision::default();
     for &p in &keep {
-        collision.take(&mut levels[0][p]);
-        if levels[0][p].polygons.is_empty() {
-            continue;
-        }
         let degrade = (!steps.is_empty()).then(|| ids.next(0x11));
         let mut level_ids = Vec::with_capacity(levels.len());
         for (level, pieces) in levels.iter_mut().enumerate() {
@@ -2211,6 +2308,7 @@ fn build(
         parts: part_ids,
         corners,
         collision,
+        kept,
         triangles,
         physics,
         shown,
@@ -2247,13 +2345,10 @@ impl Collision {
         }
     }
 
-    /// Add `other`'s polygons, each corner carried by `by`.
-    fn add_carried(&mut self, other: &Self, by: &Mat4) {
+    /// Add `other`'s polygons.
+    fn add(&mut self, other: &Self) {
         let base = self.points.len();
-        self.points.extend(other.points.iter().map(|c| {
-            let p = by.point(auberean_primitives::Vec3::new(c.x, c.y, c.z));
-            Vec3::new(p.x, p.y, p.z)
-        }));
+        self.points.extend(other.points.iter().copied());
         self.rings.extend(other.rings.iter().map(|r| {
             r.iter()
                 .map(|&i| u16::try_from(base + usize::from(i)).unwrap_or(u16::MAX))
@@ -2585,6 +2680,69 @@ mod tests {
     //! Behavior: none (tooling: the AC2 world's statics)
     use super::*;
 
+    /// The bounds of AC2 object `object` as made, drawn and collided with.
+    fn drawn_and_collided(object: u32) -> ((Vec3, Vec3), (Vec3, Vec3)) {
+        let dir = auberean_dat::testing::require_target_install();
+        let wr = world_records(&dir).expect("the install");
+        let ac2 = Ac2::open(&dir).expect("the install");
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let mut pictures = Pictures::default();
+        let m = make_model(
+            &wr,
+            &ac2,
+            object,
+            false,
+            &mut pictures,
+            &mut ids,
+            &mut out,
+            1,
+        )
+        .expect("reads")
+        .expect("the model");
+        let c = m.collision.as_ref().expect("its collision");
+        ((m.lo, m.hi), bounds(c.points.iter().copied()))
+    }
+
+    fn assert_within_a_meter(((dlo, dhi), (lo, hi)): ((Vec3, Vec3), (Vec3, Vec3))) {
+        for (a, b) in [
+            (lo.x, dlo.x),
+            (lo.y, dlo.y),
+            (lo.z, dlo.z),
+            (hi.x, dhi.x),
+            (hi.y, dhi.y),
+            (hi.z, dhi.z),
+        ] {
+            assert!(
+                (a - b).abs() < 1.0,
+                "collision {lo:?}..{hi:?}, drawn {dlo:?}..{dhi:?}"
+            );
+        }
+    }
+
+    /// The Olthoi hive's mound draws one part at its origin and collides with another, a ramp
+    /// into its mouth, whose part stands 50 m off. AC2 tests that ramp where its mesh stores it,
+    /// under the drawn mound, and so does the converted model: the ramp's mesh and the mound's
+    /// share their bounds, 34.5 m across.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn a_parts_collision_stays_in_the_objects_frame_whatever_its_parts_place() {
+        assert_within_a_meter(drawn_and_collided(0x4700_3DEC));
+    }
+
+    /// The piece at the middle of the Knorr Lyceum is drawn turned over by its look's scale,
+    /// (1, -1, -1); its collision is turned over with it.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn an_objects_collision_takes_its_looks_scale_a_negative_axis_turning_it_over() {
+        assert_within_a_meter(drawn_and_collided(0x4700_3C42));
+    }
+
     #[test]
     fn a_world_point_falls_in_the_ac1_block_holding_it() {
         assert_eq!(ac1_place(0.0, 0.0), Some(((0, 0), (0.0, 0.0))));
@@ -2622,6 +2780,7 @@ mod tests {
             collision_part: Some(unit_part),
             triangles: 2,
             physics: 2,
+            kept: 0.0,
             shown: std::collections::BTreeSet::new(),
             made: MADE_MOVING,
             off: 0.0,
@@ -2727,6 +2886,7 @@ mod tests {
             collision_part: Some(unit_part),
             triangles: 2,
             physics: 2,
+            kept: 0.0,
             shown: std::collections::BTreeSet::new(),
             made: MADE_STILL,
             off: 0.0,
@@ -2778,6 +2938,7 @@ mod tests {
             collision_part: None,
             triangles: 2,
             physics: 0,
+            kept: 0.0,
             shown: std::collections::BTreeSet::new(),
             made: MADE_STILL,
             off: 0.0,
@@ -2853,6 +3014,7 @@ mod tests {
             verts: c.points.clone(),
             collision: Some(c),
             physics: 2,
+            kept: 0.0,
             ..still(lo, hi)
         }
     }
