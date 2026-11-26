@@ -650,7 +650,10 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
 .set-explain .bar { margin: 4px 0; }
 .set-explain .sub { margin-bottom: 6px; }
 .status .line { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
-.status .line span { flex: 1; }
+/* What a row says of a failure wraps within the row, a long path broken where it must be. */
+.row .sub.said { overflow-wrap: anywhere; }
+/* A line's words wrap within the box, a long name or number broken where it must be. */
+.status .line span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .status .line.error { color: #ef8a7c; }
 .status .line button:not(.btn) { background: none; border: 0; padding: 0 2px; color: var(--gold); cursor: pointer; font-size: 14px; }
 

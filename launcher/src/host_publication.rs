@@ -1280,6 +1280,39 @@ impl PlayInputs {
     }
 }
 
+/// Set the era of each of the player's worlds that is a Dereth world this launcher hosts to the
+/// one its settings give (`[era] profile`): it says it when asked, and says nothing while it is
+/// stopped, so the list would not know it then. Whether any changed.
+pub fn sync_hosted_eras(root: &Path, state: &mut dereth_launch::state::LauncherState) -> bool {
+    let Ok(worlds) = player_worlds(root) else {
+        return false;
+    };
+    let mut changed = false;
+    for (slug, id) in worlds {
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root.join("hosts").join(&id).join("empyrean.toml"))
+        else {
+            continue;
+        };
+        let Ok(settings) = host_config::Settings::from_config(&text) else {
+            continue;
+        };
+        let now = state
+            .custom_worlds
+            .iter()
+            .find(|w| w.slug == slug)
+            .and_then(|w| w.era.clone());
+        if now.as_deref() != Some(settings.era.as_str())
+            && state.set_custom_world_era(&slug, Some(&settings.era))
+        {
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// The folder of the Yalain world this launcher hosts for the player's world `slug`, in the
 /// launcher's data folder `root`, when the player's world is one of those.
 #[must_use]

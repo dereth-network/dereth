@@ -286,11 +286,13 @@ pub struct Args {
     pub command: String,
 }
 
-/// The land a world repository pins in its `[land]`: its content digest and generation.
+/// The land a world repository pins in its `[land]`: its content digest and generation, and the
+/// converter's commit it names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pin {
     pub content: String,
     pub generation: u32,
+    pub converter: Option<String>,
 }
 
 /// The converter's version: a hash of its own code and tables, which decide what land it makes
@@ -404,6 +406,10 @@ impl Args {
                 content: c.to_owned(),
                 generation: u32::try_from(g)
                     .map_err(|_| format!("{}: [land] generation {g}", world.display()))?,
+                converter: land
+                    .get("converter_commit")
+                    .and_then(toml::Value::as_str)
+                    .map(str::to_owned),
             }),
             _ => None,
         };
@@ -528,9 +534,21 @@ fn check_pin(args: &Args, content: &str, generation: u32, new_content: bool) -> 
         ));
     };
     if pin.content != content {
+        let this = if new_content {
+            "a land the world's ledger doesn't list".to_owned()
+        } else if generation > pin.generation {
+            format!("the ledger's generation {generation}, a newer land")
+        } else {
+            format!("the ledger's generation {generation}, an older land")
+        };
+        let by = pin
+            .converter
+            .as_deref()
+            .map(|c| format!(", made by the converter at dereth {}", short(c)))
+            .unwrap_or_default();
         return Err(format!(
-            "this isn't the land the world pins: its content is {content}, the world pins {}; --new-land builds it as a new land",
-            pin.content
+            "this converter makes another land than the world pins: the world's land is generation {}{by}, and this one is {this}. Move the world to the land this converter makes, or build with the converter the world pins; --new-land builds this one as a new land of its own (content {content})",
+            pin.generation
         ));
     }
     if new_content {
@@ -548,6 +566,32 @@ fn check_pin(args: &Args, content: &str, generation: u32, new_content: bool) -> 
         ));
     }
     Ok(())
+}
+
+/// The line a build refused for the world's pinning another land says on standard output, for the
+/// launcher to say it in its own words: `refused land <the world's generation> <the converter the
+/// world names, or -> <this land's generation in the world's ledger, or ->`. `None` for any other
+/// build.
+fn refusal(args: &Args, content: &str, generation: u32, new_content: bool) -> Option<String> {
+    let pin = args
+        .pin
+        .as_ref()
+        .filter(|p| !args.new_land && p.content != content)?;
+    Some(format!(
+        "refused land {} {} {}",
+        pin.generation,
+        pin.converter.as_deref().map_or("-", short),
+        if new_content {
+            "-".to_owned()
+        } else {
+            generation.to_string()
+        }
+    ))
+}
+
+/// A commit as it is said: its first nine digits.
+fn short(commit: &str) -> &str {
+    commit.get(..9).unwrap_or(commit)
 }
 
 /// Every input's SHA-256, refusing a file that is not the expected one.
@@ -1898,12 +1942,13 @@ pub fn build(args: &Args) -> Result<u32, String> {
     };
     let mut ledger = crate::ac2_world::iteration::Ledger::parse(&ledger_text)?;
     let (generation, new_content) = ledger.generation(&content);
-    check_pin(
-        args,
-        &crate::ac2_world::iteration::hex(&content),
-        generation,
-        new_content,
-    )?;
+    let hex = crate::ac2_world::iteration::hex(&content);
+    if let Err(e) = check_pin(args, &hex, generation, new_content) {
+        if let Some(line) = refusal(args, &hex, generation, new_content) {
+            println!("{line}");
+        }
+        return Err(e);
+    }
     if new_content {
         std::fs::write(ledger_path, ledger.text())
             .map_err(|e| format!("{}: {e}", ledger_path.display()))?;
@@ -2963,7 +3008,8 @@ mod tests {
             a.pin,
             Some(Pin {
                 content: "ab12".into(),
-                generation: 4
+                generation: 4,
+                converter: None,
             })
         );
         assert!(!a.new_land);
@@ -3007,12 +3053,29 @@ mod tests {
         a.pin = Some(Pin {
             content: "ab12".into(),
             generation: 4,
+            converter: Some("47ced4bf571c9b3a85da584dab90b0af6cf59564".into()),
         });
         assert!(check_pin(&a, "ab12", 4, false).is_ok());
+        assert_eq!(refusal(&a, "ab12", 4, false), None);
+        // Another land: said plainly, what to do first, the digest last for the command line.
         let other = check_pin(&a, "cd34", 5, true).unwrap_err();
         assert!(
-            other.contains("cd34") && other.contains("--new-land"),
+            other.starts_with("this converter makes another land than the world pins: the world's land is generation 4, made by the converter at dereth 47ced4bf5, and this one is a land the world's ledger doesn't list. Move the world")
+                && other.contains("--new-land")
+                && other.ends_with("(content cd34)"),
             "{other}"
+        );
+        assert!(check_pin(&a, "cd34", 6, false)
+            .unwrap_err()
+            .contains("the ledger's generation 6, a newer land"));
+        // And the line the launcher says it from.
+        assert_eq!(
+            refusal(&a, "cd34", 5, true).as_deref(),
+            Some("refused land 4 47ced4bf5 -")
+        );
+        assert_eq!(
+            refusal(&a, "cd34", 6, false).as_deref(),
+            Some("refused land 4 47ced4bf5 6")
         );
         let stale = check_pin(&a, "ab12", 2, false).unwrap_err();
         assert!(

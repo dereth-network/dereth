@@ -917,6 +917,9 @@ pub async fn save_host(
     .await
     .map_err(|e| e.to_string())
     .and_then(|result| result);
+    if result.is_ok() {
+        crate::backend::lock(&backend).hosted_eras_changed();
+    }
     let running = dir_of(&shared, &id).is_ok_and(|dir| host_runtime::active(&dir));
     finish(
         &shared,

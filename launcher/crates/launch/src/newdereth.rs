@@ -41,6 +41,10 @@ pub const BUILDING: &str = ".newdereth-building";
 /// The folder the data set it replaces is moved to while the new one takes its place.
 pub const REPLACED: &str = ".newdereth-replaced";
 
+/// The file in the launcher's data folder that holds everything the last build said, made anew by
+/// each build.
+pub const BUILD_LOG: &str = "newdereth-build.log";
+
 /// The folder the build is told to write the data files into, in the folder it builds in.
 pub const OVERLAY: &str = "overlay";
 
@@ -93,6 +97,63 @@ pub fn step_words(step: &str) -> &'static str {
 pub fn converter_of(line: &str) -> Option<String> {
     let version = line.trim().strip_prefix("converter ")?.trim();
     (!version.is_empty() && !version.contains(char::is_whitespace)).then(|| version.to_owned())
+}
+
+/// A build the converter refused because the world pins another land, as it says on its line
+/// `refused land <the world's generation> <the converter the world names, or -> <this land's
+/// generation in the world's ledger, or ->`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandRefusal {
+    /// The land generation the world is at.
+    pub world: u32,
+    /// The converter the world names (its commit's first digits).
+    pub converter: Option<String>,
+    /// The generation this converter's land is in the world's ledger, when it is there.
+    pub this: Option<u32>,
+}
+
+impl LandRefusal {
+    /// The converter's line, or `None` for any other.
+    #[must_use]
+    pub fn of(line: &str) -> Option<Self> {
+        let mut w = line
+            .trim()
+            .strip_prefix("refused land ")?
+            .split_whitespace();
+        let world = w.next()?.parse().ok()?;
+        let converter = w.next().filter(|c| *c != "-").map(str::to_owned);
+        let this = match w.next()? {
+            "-" => None,
+            n => Some(n.parse().ok()?),
+        };
+        w.next().is_none().then_some(Self {
+            world,
+            converter,
+            this,
+        })
+    }
+
+    /// What the player is told: what is wrong, and what to do.
+    #[must_use]
+    pub fn words(&self) -> String {
+        let named = self
+            .converter
+            .as_deref()
+            .map(|c| format!(" (dereth {c})"))
+            .unwrap_or_default();
+        let world = self.world;
+        match self.this {
+            Some(n) if n > world => format!(
+                "This launcher builds New Dereth's land generation {n}, newer than the New Dereth world on this computer, which is at generation {world}. Update the New Dereth world to generation {n}, or build with the converter the world names{named}."
+            ),
+            Some(n) => format!(
+                "This launcher builds New Dereth's land generation {n}, older than the New Dereth world on this computer, which is at generation {world}. Update the launcher, or build with the converter the world names{named}."
+            ),
+            None => format!(
+                "The New Dereth world on this computer is at land generation {world}, made with a different converter{named} than this launcher's. Update the New Dereth world to a newer land generation, or build with the converter the world names."
+            ),
+        }
+    }
 }
 
 /// The land's files in its folder of data files, each by the `[land]` key that pins its SHA-256.
@@ -269,6 +330,42 @@ mod tests {
         assert_eq!(content_of_stats(stats), Some(("5a4620cb00".into(), 4)));
         assert_eq!(content_of_stats("overlay content abc is new\n"), None);
         assert_eq!(content_of_stats("nothing here\n"), None);
+    }
+
+    /// A build refused for the world's pinning another land is said plainly: the world's land
+    /// generation, what to do, and no digest or flag.
+    #[test]
+    fn a_refused_land_is_said_as_what_to_do() {
+        let r = LandRefusal::of("refused land 6 47ced4bf5 -").expect("a refusal");
+        assert_eq!(
+            r,
+            LandRefusal {
+                world: 6,
+                converter: Some("47ced4bf5".into()),
+                this: None
+            }
+        );
+        assert_eq!(
+            r.words(),
+            "The New Dereth world on this computer is at land generation 6, made with a different converter (dereth 47ced4bf5) than this launcher's. Update the New Dereth world to a newer land generation, or build with the converter the world names."
+        );
+        let newer = LandRefusal::of("refused land 6 - 10").unwrap();
+        assert_eq!(
+            newer.words(),
+            "This launcher builds New Dereth's land generation 10, newer than the New Dereth world on this computer, which is at generation 6. Update the New Dereth world to generation 10, or build with the converter the world names."
+        );
+        assert!(LandRefusal::of("refused land 10 - 6")
+            .unwrap()
+            .words()
+            .contains("Update the launcher"));
+        for other in [
+            "converter abc",
+            "refused land x - -",
+            "refused land 6 - - more",
+            "step land",
+        ] {
+            assert_eq!(LandRefusal::of(other), None, "{other}");
+        }
     }
 
     #[test]

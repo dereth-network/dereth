@@ -2387,7 +2387,8 @@ function newDereth() {
       <div class="row static"><div class="grow"><div class="name">New Dereth data set <span class="muted small">${said}</span></div>
         ${n.built ? `<div class="sub muted small path" title="${esc(n.built.overlay)}">${esc(n.built.overlay)}</div>` : ""}
         ${n.built?.converter ? `<div class="sub muted small">Converter ${esc(n.built.converter)}</div>` : ""}${bar}
-        ${why ? `<div class="sub warn">${why}</div>` : ""}</div>
+        ${why ? `<div class="sub warn">${why}</div>` : ""}
+        ${n.failed && !p ? `<div class="sub bad small said">The last build failed: ${esc(n.failed)}</div>` : ""}</div>
         <div class="btns">${button}</div></div></div>${setBelow("auberean")}`;
 }
 
@@ -4162,6 +4163,7 @@ async function demoJump() {
     ui.screen = "library";
   }
   // `#library=ask-<set>` a Download's explainer folded out, `#library=get-<set>` that set downloading.
+  else if (what === "library" && arg === "newdereth-refused") { ui.screen = "library"; window.demoNewDerethRefused = true; await buildNewDereth(); }
   else if (what === "library" && arg?.startsWith("ask-")) { ui.libGet = arg.slice(4); ui.screen = "library"; }
   else if (what === "library" && arg?.startsWith("get-")) { await api("get_dats", { id: arg.slice(4) }); ui.screen = "library"; }
   else if (what === "interface") ui.screen = "interface";

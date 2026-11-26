@@ -493,11 +493,13 @@
   // The New Dereth data set, as the backend's: built from Auberean's library's default set, not
   // built until Build.
   let newDerethBuilt = null;
+  let newDerethFailed = null;
   const newDerethView = () => {
     const set = (state.auberean?.dat_sets ?? []).find((d) => d.origin.kind === "shared");
     return {
       tool: true, ac2: set?.path ?? null, ac2_ok: !!set, ac1: state.dat_sets.some((d) => d.kind === "modern"),
       world: "C:\\Users\\you\\Documents\\Lyceum\\New Dereth\\world.toml", built: newDerethBuilt, stale: false, progress: null,
+      failed: newDerethFailed,
     };
   };
   const hosts = [];
@@ -756,6 +758,12 @@
     }),
     get_dats: ({ id }) => { getDats(id); },
     build_newdereth: () => {
+      // `#library=newdereth-refused`: the world on this computer pins another land.
+      if (window.demoNewDerethRefused) {
+        newDerethFailed = "The New Dereth world on this computer is at land generation 6, made with a different converter (dereth 47ced4bf5) than this launcher's. Update the New Dereth world to a newer land generation, or build with the converter the world names. Everything it said is in C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\newdereth-build.log.";
+        throw newDerethFailed;
+      }
+      newDerethFailed = null;
       newDerethBuilt = { generation: 4, converter: "0123456789abcdef", overlay: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library\\newdereth\\overlay" };
       return "Built the New Dereth data set, generation 4.";
     },

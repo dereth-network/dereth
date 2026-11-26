@@ -101,6 +101,37 @@ pub fn run_tool_making(
     line: &mut dyn FnMut(&str),
     what: &str,
 ) -> Result<(), String> {
+    run_tool_logged(program, args, line, what, None)
+}
+
+/// [`run_tool_making`], everything the tool says (its standard output, then its standard error)
+/// also written to the file `log` when one is given, made anew; a failure says where it is.
+///
+/// # Errors
+/// It will not start, or it fails.
+pub fn run_tool_logged(
+    program: &Path,
+    args: &[OsString],
+    line: &mut dyn FnMut(&str),
+    what: &str,
+    log: Option<&Path>,
+) -> Result<(), String> {
+    let mut file = log.and_then(|p| std::fs::File::create(p).ok());
+    if let Some(f) = file.as_mut() {
+        use std::io::Write as _;
+        let shown: Vec<String> = args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let _ = writeln!(f, "{} {}", program.display(), shown.join(" "));
+    }
+    let mut line = |l: &str| {
+        if let Some(f) = file.as_mut() {
+            use std::io::Write as _;
+            let _ = writeln!(f, "{l}");
+        }
+        line(l);
+    };
     // No console window over the launcher's, and outside its own mount.
     let mut cmd = crate::components::command(program);
     cmd.args(args)
@@ -128,16 +159,38 @@ pub fn run_tool_making(
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     let said = said.join().unwrap_or_default();
+    if let Some(f) = file.as_mut() {
+        use std::io::Write as _;
+        let _ = write!(f, "{said}");
+        let _ = writeln!(f, "{status}");
+    }
     if status.success() {
         return Ok(());
     }
+    let whole = log
+        .filter(|_| file.is_some())
+        .map(|p| format!(" Everything it said is in {}.", p.display()))
+        .unwrap_or_default();
+    Err(match failure(&said) {
+        None => format!("{what} could not be built.{whole}"),
+        Some(why) => format!("{what} could not be built: {why}{whole}"),
+    })
+}
+
+/// Why the tool failed, from what it said on its error output: its own error line
+/// (`dereth-art <command>: <why>`) alone, without what it was doing before; else its last lines.
+fn failure(said: &str) -> Option<String> {
+    let own = said.lines().rev().find_map(|l| {
+        let rest = l.strip_prefix("dereth-art ")?;
+        let (command, why) = rest.split_once(": ")?;
+        (!command.contains(char::is_whitespace)).then(|| why.trim().to_owned())
+    });
+    if own.is_some() {
+        return own;
+    }
     let last: Vec<&str> = said.lines().rev().take(3).collect();
     let last: Vec<&str> = last.into_iter().rev().collect();
-    Err(if last.is_empty() {
-        format!("{what} could not be built.")
-    } else {
-        format!("{what} could not be built: {}", last.join(" "))
-    })
+    (!last.is_empty()).then(|| last.join(" "))
 }
 
 /// The tool's tables' versions, asked of it.
@@ -185,6 +238,55 @@ mod tests {
     //! Behaviour: none (the launcher building the AC2 look, with a stand-in for the art tool)
     use super::*;
     use std::path::PathBuf;
+
+    /// A build with a log keeps everything the tool said in it, its standard output and its
+    /// error output, and its failure says where the log is.
+    #[cfg(unix)]
+    #[test]
+    fn a_logged_build_keeps_everything_the_tool_said_and_says_where() {
+        let dir = std::env::temp_dir().join(format!("dereth-launcher-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("build.log");
+        let args: Vec<OsString> = ["-c", "echo step one; echo starting area >&2; echo 'dereth-art newdereth-world: no land' >&2; exit 1"]
+            .map(OsString::from)
+            .to_vec();
+        let mut seen = Vec::new();
+        let err = run_tool_logged(
+            Path::new("/bin/sh"),
+            &args,
+            &mut |l| seen.push(l.to_owned()),
+            "The set",
+            Some(&log),
+        )
+        .unwrap_err();
+        assert_eq!(seen, ["step one"]);
+        assert_eq!(
+            err,
+            format!(
+                "The set could not be built: no land Everything it said is in {}.",
+                log.display()
+            )
+        );
+        let kept = std::fs::read_to_string(&log).unwrap();
+        for said in [
+            "step one",
+            "starting area",
+            "dereth-art newdereth-world: no land",
+        ] {
+            assert!(kept.contains(said), "{kept}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A failure is the tool's own error line, without what it was doing before; a tool that
+    /// says no such line is said by its last lines.
+    #[test]
+    fn a_failure_is_the_tools_own_error_line_alone() {
+        let said = "placing the starting area\nstarting area: Cragstone (the nearest of AC2's towns, 128 m away) at 0x8E8C0028\ndereth-art newdereth-world: the world pins no land yet\n";
+        assert_eq!(failure(said).as_deref(), Some("the world pins no land yet"));
+        assert_eq!(failure("a\nb\nc\nd\n").as_deref(), Some("b c d"));
+        assert_eq!(failure(""), None);
+    }
 
     #[test]
     fn a_build_says_each_step_and_ends_with_the_file_it_wrote() {

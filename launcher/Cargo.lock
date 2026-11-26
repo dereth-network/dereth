@@ -901,6 +901,7 @@ name = "dereth-dat"
 version = "0.0.0"
 dependencies = [
  "dereth-primitives",
+ "miniz_oxide 0.8.9",
  "sha2",
  "thiserror 2.0.21",
 ]

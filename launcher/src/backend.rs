@@ -778,6 +778,8 @@ pub struct Backend {
     ac2_look_progress: Option<crate::ac2_look::Progress>,
     /// The New Dereth data set being built, when it is.
     newdereth_progress: Option<crate::newdereth::Progress>,
+    /// Why the last build of the New Dereth data set failed, until the next one.
+    newdereth_failed: Option<String>,
     /// Lyceum's folder for worlds, where the New Dereth world is fetched to.
     worlds_home: Option<PathBuf>,
     /// Whether the launcher offers New Dereth ([`Backend::with_new_dereth`]).
@@ -909,6 +911,11 @@ impl Backend {
                 eprintln!("dereth-launcher: {e}");
             }
         }
+        // A world this launcher hosts plays the era its settings give, also while it is stopped;
+        // one added before the launcher kept it takes it now.
+        if crate::host_publication::sync_hosted_eras(&folders.data, &mut state) {
+            let _ = state.save(&folders.config);
+        }
         Self {
             plugins,
             art,
@@ -916,6 +923,7 @@ impl Backend {
             ac2_look_versions: None,
             ac2_look_progress: None,
             newdereth_progress: None,
+            newdereth_failed: None,
             worlds_home: None,
             new_dereth: true,
             download: None,
@@ -2404,14 +2412,23 @@ impl Backend {
                 Game::Auberean => Emulator::Yalain,
             },
             game: definition.game,
-            // A hosted world says its own era when asked.
+            // A hosted world says its own era when asked; its settings give it until then.
             era: None,
         })?;
         // The world's game data goes in its realm's Library.
         let find = self.read_folder(&settings.dats, definition.game);
         self.add_folder(find);
         crate::host_publication::register_player(&self.folders.data, &definition.id, &slug)?;
+        self.hosted_eras_changed();
         Ok(slug)
+    }
+
+    /// The worlds this launcher hosts take the eras their settings give now (after a save of
+    /// them), so the list shows each while it is stopped.
+    pub fn hosted_eras_changed(&mut self) {
+        if crate::host_publication::sync_hosted_eras(&self.folders.data, &mut self.state) {
+            self.save();
+        }
     }
 
     /// Remove a server the player added, and every password kept for it.
@@ -3178,6 +3195,7 @@ impl Backend {
                 converter: b.converter.clone(),
             }),
             progress: self.newdereth_progress.clone(),
+            failed: self.newdereth_failed.clone(),
         }
     }
 
@@ -3234,6 +3252,7 @@ impl Backend {
                 .map(|n| n.steps)
                 .filter(|&n| n > 0)
                 .or(Some(dereth_launch::newdereth::STEPS.len()));
+            b.newdereth_failed = None;
             b.newdereth_progress = Some(crate::newdereth::Progress {
                 doing: if world.is_some() {
                     "Starting".into()
@@ -3295,6 +3314,8 @@ impl Backend {
             Ok(built) => built,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&staging);
+                // Kept on the data set's row until the next build.
+                b.newdereth_failed = Some(e.clone());
                 return Err(e);
             }
         };
@@ -3840,6 +3861,49 @@ mod tests {
             world.endpoint.map(|e| (e.address, e.port)),
             Some(("127.0.0.1".into(), 9200))
         );
+    }
+
+    /// A Dereth world the launcher hosts plays the era its settings give, shown while it is
+    /// stopped and says nothing (a New Dereth world as New Dereth, not unknown), and the one a
+    /// save of its settings gives after.
+    #[test]
+    fn a_hosted_worlds_era_is_its_settings_while_it_says_none() {
+        let (mut b, _dir) = backend("hosted-era");
+        let data = b.folders.data.clone();
+        let host = data.join("hosts").join("host-2");
+        std::fs::create_dir_all(&host).unwrap();
+        let definition = crate::host_runtime::Definition {
+            id: "host-2".into(),
+            version: "0.3.9".into(),
+            program: data.join("empyrean-server"),
+            wrapper: data.join("dereth-host"),
+            checkout: false,
+            game: Game::Dereth,
+        };
+        crate::host_runtime::write_json(&host.join("host.json"), &definition).unwrap();
+        let settings = |era: &str| crate::host_config::Settings {
+            name: "Emergence".into(),
+            dats: data.join("dats"),
+            bind: "127.0.0.1".into(),
+            port: 9300,
+            accounts: true,
+            era: era.into(),
+            ..crate::host_config::Settings::default()
+        };
+        let write = |s: &crate::host_config::Settings| {
+            std::fs::write(host.join("empyrean.toml"), s.update_config("").unwrap()).unwrap();
+        };
+        write(&settings("newdereth"));
+        let slug = b.open_host_world(&host).unwrap();
+        let w = b.world(&slug).unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_state),
+            (Some("newdereth"), dereth_launch::world::EraState::Known),
+            "stopped, it is the New Dereth its settings give"
+        );
+        write(&settings("eor"));
+        b.hosted_eras_changed();
+        assert_eq!(b.world(&slug).unwrap().era.as_deref(), Some("eor"));
     }
 
     /// A launch of an Asheron's Call 2 world is kept as any launch is: the account for the world,
@@ -4540,6 +4604,8 @@ mod tests {
         );
         assert!(!staging.exists());
         assert!(lock(&shared).snapshot().newdereth.progress.is_none());
+        // The failure stays on the data set's row, after its notice has gone, until the next build.
+        assert_eq!(lock(&shared).snapshot().newdereth.failed, refused.err());
         // Rebuilt for the new land, measured against the last build's steps.
         *content.lock().unwrap() = "bb22".into();
         seen.lock().unwrap().clear();
@@ -4549,6 +4615,7 @@ mod tests {
             Some(Some(3))
         );
         assert!(!lock(&shared).snapshot().newdereth.stale);
+        assert_eq!(lock(&shared).snapshot().newdereth.failed, None);
         // A different converter binary is no reason to build again: only the pins are.
         std::fs::write(&tool, b"a newer stand-in").unwrap();
         assert!(!lock(&shared).snapshot().newdereth.stale);

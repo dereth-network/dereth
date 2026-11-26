@@ -341,6 +341,11 @@ async fn build_newdereth(
     }
     let shared = b.inner().clone();
     let lyceum = c.inner().clone();
+    // Everything the build says, kept for after its notice has gone.
+    let log = backend::lock(&shared)
+        .folders()
+        .data
+        .join(dereth_launch::newdereth::BUILD_LOG);
     tauri::async_runtime::spawn_blocking(move || {
         let fetch = |home: &Path| {
             let offered = world_repos::NEW_DERETH;
@@ -354,7 +359,7 @@ async fn build_newdereth(
         };
         Backend::build_newdereth(
             &shared,
-            &newdereth::run_tool,
+            &|program, args, line| newdereth::run_tool(program, args, line, &log),
             &fetch,
             &components::remember_repository_land,
         )

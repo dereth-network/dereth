@@ -52,6 +52,8 @@ pub struct View {
     /// again.
     pub stale: bool,
     pub progress: Option<Progress>,
+    /// Why the last build failed, until the next one.
+    pub failed: Option<String>,
 }
 
 /// The art tool run for a build of the data set: [`crate::ac2_look::run_tool`], its failures said
@@ -63,8 +65,9 @@ pub fn run_tool(
     program: &Path,
     args: &[OsString],
     line: &mut dyn FnMut(&str),
+    log: &Path,
 ) -> Result<(), String> {
-    crate::ac2_look::run_tool_making(program, args, line, "The New Dereth data set")
+    crate::ac2_look::run_tool_logged(program, args, line, "The New Dereth data set", Some(log))
 }
 
 /// What a build said: the folder of data files it wrote, the steps it took and the converter's
@@ -91,10 +94,14 @@ pub fn build(
     let mut steps = 0;
     let mut built = None;
     let mut converter = String::new();
-    run(tool, args, &mut |l| match Line::read(l) {
+    let mut refused = None;
+    let ran = run(tool, args, &mut |l| match Line::read(l) {
         Line::Other => {
             if let Some(v) = dereth_launch::newdereth::converter_of(l) {
                 converter = v;
+            }
+            if let Some(r) = dereth_launch::newdereth::LandRefusal::of(l) {
+                refused = Some(r);
             }
         }
         Line::Step(what) => {
@@ -106,7 +113,12 @@ pub fn build(
             });
         }
         Line::Built { file, .. } => built = Some(file),
-    })?;
+    });
+    // The world pins another land: said as what to do, not as the converter says it.
+    if let Some(r) = refused.filter(|_| ran.is_err()) {
+        return Err(r.words());
+    }
+    ran?;
     built
         .map(|overlay| Said {
             overlay,
@@ -194,6 +206,22 @@ pub fn inside(said: &Path, staging: &Path) -> Option<PathBuf> {
 mod tests {
     //! Behaviour: none (the launcher building the New Dereth data set, with a stand-in for the art tool)
     use super::*;
+
+    /// A build the converter refuses because the world pins another land fails with what to do,
+    /// not with the converter's own words.
+    #[test]
+    fn a_build_of_another_land_than_the_world_pins_says_what_to_do() {
+        let run: &RunTool<'_> = &|_, _, line| {
+            line("converter 0123456789abcdef");
+            line("step inputs");
+            line("refused land 6 47ced4bf5 -");
+            Err("The New Dereth data set could not be built: this converter makes another land than the world pins".into())
+        };
+        assert_eq!(
+            build(run, Path::new("tool"), &[], None, &mut |_| {}),
+            Err("The New Dereth world on this computer is at land generation 6, made with a different converter (dereth 47ced4bf5) than this launcher's. Update the New Dereth world to a newer land generation, or build with the converter the world names.".into())
+        );
+    }
 
     #[test]
     fn a_build_says_each_step_against_the_last_and_ends_with_the_folder_it_wrote() {
