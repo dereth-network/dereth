@@ -2280,6 +2280,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-crafts-from-heads-and-shafts-that-come-into-the-pack-after-it-starts",
+        says: "With CraftAmmo and a launcher in hand, heads or shafts that come into the pack after \
+               the Tank starts are used as those it started with: with nothing about to fight, it \
+               makes the ammunition they make without waiting for its next shot.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-CRAFT-ARRIVALS"),
+        station: "dereth-testkit::cpu::plugins::tank_crafting::scenario_the_tank_crafts_from_heads_and_shafts_that_come_into_the_pack_after_it_starts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-crafts-nothing-without-the-skill-and-says-why",
         says: "The Tank makes nothing with the combine's skill untrained, and its log says so.",
         since: THIS_CLIENT,

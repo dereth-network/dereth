@@ -184,6 +184,7 @@ end
 function C.forget()
 	C.failed = {}
 	said = {}
+	C.arrived = false
 end
 
 -- The least chance a combine is made at, 0 to 1.
@@ -224,6 +225,27 @@ function C.heads(name)
 	end
 	return nil
 end
+
+-- Whether an item named `name` is a bundle of shafts, of any launcher's.
+local function is_shafts(name)
+	local n = plain(name)
+	for _, kinds in pairs(SHAFTS) do
+		if kinds[n] ~= nil then
+			return true
+		end
+	end
+	return false
+end
+
+-- Whether heads or shafts have come into the pack since the engine last looked (it clears this
+-- when it does): what they make is a combine the pack did not hold before.
+C.arrived = false
+on("inventory.item_added", function(e)
+	local it = game.world:get(e.id)
+	if it ~= nil and (C.heads(it.name) ~= nil or is_shafts(it.name)) then
+		C.arrived = true
+	end
+end)
 
 -- What a name's words make of its quality: Prismatic first, then Deadly, Greater and an element.
 function C.rank(name)

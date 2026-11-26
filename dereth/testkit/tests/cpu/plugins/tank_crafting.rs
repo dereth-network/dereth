@@ -23,6 +23,7 @@ dereth_testkit::scenarios! {
     scenario_the_tank_names_ammunition_as_retail_does_and_keeps_wrapped_heads_off_plain_shafts => the_tank_names_ammunition_as_retail_does_and_keeps_wrapped_heads_off_plain_shafts ["plugins.samples.the-tank-names-ammunition-as-retail-does-and-keeps-wrapped-heads-off-plain-shafts"],
     scenario_the_tank_takes_the_worlds_recipe_answers_over_the_names_of_its_heads => the_tank_takes_the_worlds_recipe_answers_over_the_names_of_its_heads ["plugins.samples.the-tank-takes-the-worlds-recipe-answers-over-the-names-of-its-heads"],
     scenario_the_tank_makes_a_healing_kit_in_two_combines_when_its_consumables_want_one => the_tank_makes_a_healing_kit_in_two_combines_when_its_consumables_want_one ["plugins.samples.the-tank-makes-a-healing-kit-in-two-combines-when-its-consumables-want-one"],
+    scenario_the_tank_crafts_from_heads_and_shafts_that_come_into_the_pack_after_it_starts => the_tank_crafts_from_heads_and_shafts_that_come_into_the_pack_after_it_starts ["plugins.samples.the-tank-crafts-from-heads-and-shafts-that-come-into-the-pack-after-it-starts"],
 }
 
 // Use flags: used from the pack, on something in the pack (the low half where it must be, the high
@@ -689,4 +690,45 @@ fn the_tank_names_ammunition_as_retail_does_and_keeps_wrapped_heads_off_plain_sh
     assert_eq!(combines_sent(&run), vec![combine(HEADS, SHAFTS)]);
     no_errors(&run);
     note_asserted("plugins.samples.the-tank-names-ammunition-as-retail-does-and-keeps-wrapped-heads-off-plain-shafts");
+}
+
+/// Behaviour: plugins.samples.the-tank-crafts-from-heads-and-shafts-that-come-into-the-pack-after-it-starts
+fn the_tank_crafts_from_heads_and_shafts_that_come_into_the_pack_after_it_starts() {
+    const HEADS: u32 = 0x8000_0D61;
+    const PLAIN_SHAFTS: u32 = 0x8000_0D62;
+    const SHAFTS: u32 = 0x8000_0D63;
+    // Wrapped heads and only a plain bundle of shafts: nothing to make when the run starts.
+    let mut run = crafter(
+        vec![
+            bow(),
+            used_on(HEADS, "Wrapped Bundle of Blunt Arrowheads"),
+            ingredient(PLAIN_SHAFTS, "Bundle of Arrowshafts"),
+        ],
+        &["/tank set CraftAmmo true", "/tank start"],
+    );
+    run.advance(5.0);
+    assert!(combines_sent(&run).is_empty(), "{:#?}", run.console(TANK));
+    // Wrapped shafts come into the pack, with no monster about to shoot at: the heads go on them.
+    run.spawn(vec![ingredient(SHAFTS, "Wrapped Bundle of Arrowshafts")]);
+    until_sent(&mut run, &combine(HEADS, SHAFTS), 10.0);
+    assert_eq!(
+        combines_sent(&run),
+        vec![combine(HEADS, SHAFTS)],
+        "{:#?}",
+        run.console(TANK)
+    );
+    no_errors(&run);
+    // Shafts and no heads; then the heads come.
+    let mut run = crafter(
+        vec![bow(), ingredient(SHAFTS, "Bundle of Arrowshafts")],
+        &["/tank set CraftAmmo true", "/tank start"],
+    );
+    run.advance(5.0);
+    assert!(combines_sent(&run).is_empty(), "{:#?}", run.console(TANK));
+    run.spawn(vec![used_on(HEADS, "Bundle of Deadly Arrowheads")]);
+    until_sent(&mut run, &combine(HEADS, SHAFTS), 10.0);
+    no_errors(&run);
+    note_asserted(
+        "plugins.samples.the-tank-crafts-from-heads-and-shafts-that-come-into-the-pack-after-it-starts",
+    );
 }

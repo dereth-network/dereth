@@ -22,6 +22,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Plugins can find a spell by its name, icon included.
 - Creatures from Asheron's Call 2 can now be brought into worlds, with their own animations.
 - Objects the server makes see-through, such as ghostly creatures, now draw see-through.
+- Tank: crafting now uses heads and shafts picked up after it starts.
 
 ## 0.4.23 (2026-11-23)
 - Horizon: fixed plugin windows over a moved party list not taking clicks or drags.

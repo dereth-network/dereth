@@ -420,8 +420,9 @@ waypoint; a monster close at hand on the way is fought first. It starts on:
 ### Crafting
 
 **Missile ammunition** (`CraftAmmo`, off by default; the plugin's own). With a bow, crossbow or
-atlatl in hand and no ammunition readied, before a shot as well as when it arms, the Tank makes
-ammunition from the bundles the pack holds, then readies the best it carries. Where the world
+atlatl in hand and no ammunition readied, before a shot as well as when it arms, and with nothing
+to fight when heads or shafts come into the pack, the Tank makes ammunition from the bundles the
+pack holds, then readies the best it carries. Where the world
 answers what the pack's items make (Empyrean does), the Tank asks it about its heads and shafts and
 takes the best combine it names whose chance is `CraftMinChance` (90%; the plugin's own) or better.
 Anywhere else a bundle of heads goes on the shafts of the launcher in hand by their names: "Bundle

@@ -2517,6 +2517,24 @@ local function kit_step()
 	return did
 end
 
+-- Heads or shafts come into the pack since the last look, with a missile weapon in hand:
+-- ammunition made from them, as when the macro arms. Answers whether ammunition is readied.
+local function ammo_step()
+	if not craft.arrived then
+		return false
+	end
+	craft.arrived = false
+	if not E.missile or not S.get("CraftAmmo") then
+		return false
+	end
+	local weapon = wielded_weapon()
+	if weapon == nil or weapon.class ~= "MissileWeapon" or is_grenade(weapon) then
+		return false
+	end
+	set_state("Crafting")
+	return E.ready_ammo()
+end
+
 -- With no monster near: stamina or mana under the top-off marks, to be waited back up.
 local function needs_rest()
 	if not S.get("RestWhenIdle") then
@@ -4195,6 +4213,9 @@ local function tick()
 		return
 	end
 	if E.can("craft") and kit_step() then
+		return
+	end
+	if E.can("craft") and ammo_step() then
 		return
 	end
 	if needs_rest() then
