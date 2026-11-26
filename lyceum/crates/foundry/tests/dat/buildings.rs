@@ -88,8 +88,8 @@ fn sites(c: &Catalog, model: u32) -> Vec<Site> {
 }
 
 /// The doors the tests' world database stands at the building at `site`: one at the foot of
-/// each doorway, in the land cell outside, and one in its lowest room, as the server's world
-/// stands doors. Each is its guid, its cell and its frame (landblock meters).
+/// each doorway, in the land cell outside, and one in its lowest room, on its floor, as the
+/// server's world stands doors. Each is its guid, its cell and its frame (landblock meters).
 fn site_doors(site: Site) -> Vec<(u32, u32, Frame)> {
     let t = Template::read(&read, site, None, dereth_primitives::EraId::Eor).unwrap();
     let mut env = environment;
@@ -104,9 +104,12 @@ fn site_doors(site: Site) -> Vec<(u32, u32, Frame)> {
         })
         .collect();
     let (n, room) = t.rooms.iter().next().unwrap();
+    let on_floor = lyceum_foundry::floor::Floor::of(room, &environment(room.environment).unwrap())
+        .and_then(|f| f.middle())
+        .expect("the room's floor");
     out.push((
         first | u32::from(*n),
-        Frame::new(room.frame.origin, t.building.frame.rotation),
+        Frame::new(on_floor, t.building.frame.rotation),
     ));
     out.into_iter()
         .enumerate()

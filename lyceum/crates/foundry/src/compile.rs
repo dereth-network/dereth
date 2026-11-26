@@ -3201,6 +3201,19 @@ fn build_inner(
                     report.problems.push(line);
                 }
             }
+            // The packs' spawns in rooms, each on its room's floor: warnings here, as a build
+            // knows no weenie but the packs' own and so can't tell what hangs on a wall (a house's
+            // hook) from what stands; the editor, which knows the server's world, finds them
+            // faults.
+            report.warnings.extend({
+                let (classes, symbols) = crate::floor::pack_kinds(&packs);
+                crate::floor::check_packs(&packs, &c.lock, &layered, &|p, w| {
+                    crate::sql_ids::number(w)
+                        .and_then(|n| classes.get(&n))
+                        .or_else(|| symbols.get(&crate::edit::token_symbol(&p.name, w)?))
+                        .copied()
+                })
+            });
             report
         };
         if !report.problems.is_empty() {

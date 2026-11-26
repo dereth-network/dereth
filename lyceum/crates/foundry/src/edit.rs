@@ -131,7 +131,9 @@ pub enum Op {
         heading: f32,
     },
     /// Place an instance of `weenie` in indoor cell `cell` of `landblock`, at `origin`
-    /// (landblock meters), facing `heading` degrees clockwise from north.
+    /// (landblock meters), facing `heading` degrees clockwise from north. It is set on the room's
+    /// floor: on the floor under `origin` (or just over it), else (or for an `origin` that is not
+    /// a number) at the floor's point farthest from its edges ([`crate::floor::Floor::snap`]).
     PlaceSpawnInCell {
         landblock: u16,
         cell: u16,
@@ -2625,6 +2627,29 @@ impl Session {
             .ok()
     }
 
+    /// The floor of room `cell` of landblock `lb` as compiled ([`crate::floor`]); `None` when
+    /// there is no such room.
+    #[must_use]
+    pub fn room_floor(&self, lb: u16, cell: u16) -> Option<crate::floor::Floor> {
+        let id = (u32::from(lb) << 16) | u32::from(cell);
+        let c = self
+            .base
+            .decode::<dereth_assets::world::EnvCell>(DataId(id), &self.cell_record(id)?)
+            .ok()?;
+        crate::floor::Floor::of(&c, &self.environment(c.environment)?)
+    }
+
+    /// Where a new placement in room `cell` of landblock `lb` goes, given `at` (landblock meters;
+    /// none when any coordinate is not a number, and an infinite height meaning the highest floor
+    /// under it): on the room's floor ([`crate::floor::Floor::snap`]), or at `at` in a room with
+    /// no floor. `None` given no such point in such a room.
+    fn on_floor(&self, lb: u16, cell: u16, at: Vec3) -> Option<Vec3> {
+        let given = (!(at.x.is_nan() || at.y.is_nan() || at.z.is_nan())).then_some(at);
+        self.room_floor(lb, cell)
+            .and_then(|f| f.snap(given))
+            .or(given.filter(|p| p.z.is_finite()))
+    }
+
     /// The packs' original dungeon pieces, with their default surfaces, including unplaced pieces.
     #[must_use]
     pub fn new_pieces(&self) -> Vec<crate::pieces::Piece> {
@@ -4139,10 +4164,16 @@ impl Session {
                 origin,
                 heading,
             } => {
+                // On the room's floor: under the place given, else at its middle.
+                let origin = self.on_floor(*landblock, *cell, *origin).ok_or_else(|| {
+                    Error::Refused(format!(
+                        "room {cell:04X} of landblock {landblock:04X} has no floor to set a spawn on: give it a place"
+                    ))
+                })?;
                 let (path, text) = if self.placing().is_some() {
-                    self.placement_file(*landblock, Some(*cell), weenie, *origin, *heading, out)?
+                    self.placement_file(*landblock, Some(*cell), weenie, origin, *heading, out)?
                 } else {
-                    self.spawn_sql(*landblock, Some(*cell), weenie, *origin, *heading)
+                    self.spawn_sql(*landblock, Some(*cell), weenie, origin, *heading)
                 };
                 out.insert(path.clone(), Some(text));
                 spawned = Some(path);
@@ -6655,6 +6686,35 @@ impl Session {
             } else {
                 report.problems.push(line);
             }
+        }
+        // The packs' spawns in rooms, each on its room's floor; a weenie's type as the packs, the
+        // server's world and the houses the building catalog knows say.
+        {
+            let (classes, weenies) = (self.pack_class_facts(), self.pack_weenies());
+            let houses: BTreeMap<u32, u32> = self
+                .buildings
+                .iter()
+                .flat_map(crate::buildings::Catalog::entries)
+                .flat_map(|e| &e.layouts)
+                .filter_map(|l| l.house.as_ref())
+                .flat_map(|h| &h.objects)
+                .map(|o| (o.weenie, o.kind))
+                .collect();
+            report.problems.extend(crate::floor::check_packs(
+                &self.packs,
+                &self.compiled.lock,
+                &layered,
+                &|p, w| match token_symbol(&p.name, w) {
+                    Some(sym) => weenies.get(&sym).and_then(|f| f.kind),
+                    None => sql_ids::number(w).and_then(|c| {
+                        classes
+                            .get(&c)
+                            .or_else(|| self.retail.get(&c))
+                            .and_then(|f| f.kind)
+                            .or_else(|| houses.get(&c).copied())
+                    }),
+                },
+            ));
         }
         // The buildings the packs moved, and those they dropped.
         let mut moved: BTreeMap<u16, BTreeSet<usize>> = BTreeMap::new();

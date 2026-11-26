@@ -626,6 +626,36 @@ fn edits_written_as_text_read_and_one_that_does_not_read_says_which() {
     )
     .unwrap_err();
     assert!(e.contains("index = 0"), "{e}");
+    // A spawn in a room, by its cell: with no place, at its floor's middle (no number); on the
+    // floor's highest under a place "ground".
+    let a = actions(
+        "[[edit]]\ndo = \"spawn\"\nweenie = 7\nlandblock = \"0101\"\ncell = \"0102\"\n\n\
+         [[edit]]\ndo = \"spawn\"\nweenie = 7\nlandblock = \"0101\"\ncell = \"0102\"\n\
+         at = [1.0, 2.0, \"ground\"]\n",
+        "sample",
+    )
+    .unwrap();
+    let origins: Vec<Vec3> = a
+        .iter()
+        .map(|a| match a {
+            Action::Op(Op::PlaceSpawnInCell {
+                landblock: 0x0101,
+                cell: 0x0102,
+                origin,
+                ..
+            }) => *origin,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert!(origins[0].x.is_nan() && origins[0].z.is_nan());
+    assert!((origins[1].x - 1.0).abs() < 1e-6 && (origins[1].y - 2.0).abs() < 1e-6);
+    assert!(origins[1].z.is_infinite() && origins[1].z > 0.0);
+    let e = actions(
+        "[[edit]]\ndo = \"spawn\"\nweenie = 7\nlandblock = \"0101\"\ncell = \"0040\"\n",
+        "sample",
+    )
+    .unwrap_err();
+    assert!(e.contains("cell = \"0101\""), "{e}");
 }
 
 #[test]

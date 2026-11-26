@@ -42,8 +42,10 @@
 //! from the world database's; [`quests`] every quest of the world, where each is named, and a
 //! quest copied, renamed or taken away; [`loot`] every loot table of the world, where each is used,
 //! and a table changed in the world, made or taken away, with [`wielded`] a wielded treasure's sets
-//! read and written as the server draws them. [`footprint`] and [`sql_ids`] are two of the checks: a
-//! static placed inside a building, and SQL that names records the files do not hold.
+//! read and written as the server draws them. [`footprint`], [`sql_ids`] and [`floor`] are three of
+//! the checks: a static placed inside a building, SQL that names records the files do not hold, and
+//! a spawn in a room that stands over no floor or under it; [`floor`] also sets a new spawn in a
+//! room on its floor.
 //! [`buildings`] is every building the world places, gathered from all its copies, and [`drops`] a
 //! copy of one dropped somewhere else, its rooms, doors and level ground with it. [`sample`] is the
 //! sample world Lyceum carries, and a new world made from it or empty.
@@ -72,6 +74,7 @@ pub mod error;
 pub mod export;
 pub mod facts;
 pub mod fit;
+pub mod floor;
 pub mod footprint;
 pub mod format;
 pub mod grid;

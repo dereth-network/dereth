@@ -32,6 +32,12 @@
 //! heading = 180.0
 //!
 //! [[edit]]
+//! do = "spawn"                     # in a room: on its floor under at, or with no at (or none
+//! weenie = "guide"                 # under it) at the floor's point farthest from its edges
+//! landblock = "A9B4"
+//! cell = "0102"
+//!
+//! [[edit]]
 //! do = "move-building"             # a building of the landblock's statics record, by its index:
 //! landblock = "A9B4"               # its rooms, doors and the spawns inside go with it
 //! index = 0
@@ -338,15 +344,43 @@ pub fn action(t: &toml::Table, pack: &str) -> Result<Action, String> {
                 }
                 _ => return Err("a spawn names its weenie: a symbol or a class id".into()),
             };
+            let heading = match rotation(t)? {
+                Some(Rotation::Heading(h)) => h,
+                _ => 0.0,
+            };
+            if let Some(cell) = t.get("cell") {
+                let cell = cell
+                    .as_str()
+                    .and_then(|s| u16::from_str_radix(s, 16).ok().filter(|_| s.len() == 4))
+                    .filter(|c| *c >= crate::cells::FIRST_CELL && *c < 0xFFFE)
+                    .ok_or("a spawn's room is its cell, as cell = \"0101\"")?;
+                // Set on the room's floor: under `at` (its highest, for "ground"), or with no
+                // place given, at the floor's middle.
+                let origin = match place(t)? {
+                    Some(at) => Vec3::new(
+                        at.x,
+                        at.y,
+                        match at.z {
+                            Height::At(z) => z,
+                            Height::Ground => f32::INFINITY,
+                        },
+                    ),
+                    None => Vec3::new(f32::NAN, f32::NAN, f32::NAN),
+                };
+                return Ok(Action::Op(Op::PlaceSpawnInCell {
+                    landblock: landblock(t)?,
+                    cell,
+                    weenie,
+                    origin,
+                    heading,
+                }));
+            }
             let at = place(t)?.ok_or("a spawn says where: at = [x, y, z]")?;
             Action::Op(Op::PlaceSpawn {
                 landblock: landblock(t)?,
                 weenie,
                 origin: Vec3::new(at.x, at.y, f32::NAN),
-                heading: match rotation(t)? {
-                    Some(Rotation::Heading(h)) => h,
-                    _ => 0.0,
-                },
+                heading,
             })
             .with_height(at.z)
         }
