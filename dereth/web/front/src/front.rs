@@ -258,13 +258,15 @@ impl Front {
     }
 
     /// Every world as it is shown at `now` (seconds since the epoch), with the eras and systems
-    /// the page offers for those that do not say theirs.
+    /// the page offers for those that do not say theirs. A browser has no environment to ask, so
+    /// New Dereth is offered only by a page built with `DERETH_NEW_DERETH=1`.
     #[must_use]
     pub fn worlds(&self, now: u64) -> Value {
         let worlds: Vec<Value> = self.shown(now).map(|w| self.world_json(&w)).collect();
+        let new_dereth = eras::offers_new_dereth(false, option_env!("DERETH_NEW_DERETH"));
         json!({
             "worlds": worlds,
-            "eras": eras::eras(),
+            "eras": eras::eras(new_dereth),
             "features": eras::features(),
         })
     }

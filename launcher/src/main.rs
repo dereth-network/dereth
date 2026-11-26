@@ -986,6 +986,13 @@ fn main() {
         client_beside(&here).is_some() || !components::bundled_clients(&here).is_empty();
     let is_release = components::is_release(components::DEVELOPMENT, packaged_client);
     let checkout = components::uses_checkout(components::DEVELOPMENT, &args);
+    // New Dereth is offered in a development build, and in a release only when asked for.
+    let new_dereth = dereth_launch::eras::offers_new_dereth(
+        components::DEVELOPMENT,
+        std::env::var(dereth_launch::eras::NEW_DERETH_VARIABLE)
+            .ok()
+            .as_deref(),
+    );
     if !checkout {
         // Before anything looks for a client: an update would delete the one in the bundle.
         components::adopt_packaged_client(&folders.data, &here);
@@ -1019,7 +1026,12 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(pending)
         .manage(update::Updates::default())
-        .manage(components::new(folders.data.clone(), &here, checkout))
+        .manage(components::new(
+            folders.data.clone(),
+            &here,
+            checkout,
+            new_dereth,
+        ))
         .manage(hosts::new(folders.data.clone()))
         .manage(local::new(folders.data.clone()))
         .manage(share::Shared::default())
@@ -1057,6 +1069,7 @@ fn main() {
                     client_preferences.clone(),
                 )
                 .with_tool(tool.clone())
+                .with_new_dereth(new_dereth)
                 .with_first_realm(defaults),
             ));
             Backend::load_list(&shared);
@@ -1953,7 +1966,7 @@ mod tests {
             .find("const BASE_NAMES = {")
             .expect("the page names world bases");
         let names = &page[at..at + page[at..].find("};").expect("their end")];
-        for era in dereth_launch::eras::eras() {
+        for era in dereth_launch::eras::eras(true) {
             assert!(
                 names.contains(&format!("{}: \"", era.name)),
                 "{} has no world base name: {names}",
@@ -1994,6 +2007,34 @@ mod tests {
         assert!(include_str!("../ui/app.js").contains(
             r#"if (d.srvBuildBase) { await act("prepare_host", { id: d.srvBuildBase, source: "checkout" }); return; }"#
         ));
+    }
+
+    /// While the launcher does not offer New Dereth the page draws none of it: no New Dereth fold
+    /// in the Library, no Build from New Dereth's world, and its era for no world but one that
+    /// plays it already, which keeps showing it. Offered, all of it is drawn.
+    #[test]
+    fn the_page_draws_new_dereth_only_while_the_launcher_offers_it() {
+        assert!(page_function("library")
+            .contains(r#"(ui.snap.new_dereth && ui.snap.newdereth ? libFold("sets.newdereth""#));
+        let settings = page_function("settingsPage");
+        assert!(settings.contains(
+            r#"const buildBase = ui.snap.new_dereth && plays.database === "era" && s.era === "newdereth""#
+        ));
+        assert!(settings
+            .contains("ui.snap.eras.filter((e) => e.offered || e.name === h.settings.era).map("));
+        assert!(page_function("eraOptions")
+            .contains("(ui.snap?.eras ?? []).filter((e) => e.offered || e.name === chosen).map("));
+        // A world's era is named from every era, offered or not.
+        assert!(page_function("eraLabel")
+            .contains("ui.snap?.eras.find((e) => e.name === name)?.label ?? name"));
+        // The page's own demonstration offers it, as a development build does.
+        let demo = include_str!("../ui/demo.js");
+        assert!(demo.contains("new_dereth: true,"));
+        assert_eq!(
+            demo.matches("offered: true,").count(),
+            3,
+            "every era it lists"
+        );
     }
 
     fn page_function(name: &str) -> &'static str {

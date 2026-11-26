@@ -31,9 +31,9 @@
   const SECOND = NAMES.slice(24);
   const table = (on) => Object.fromEntries(NAMES.map((n) => [n, on(n)]));
   const eras = [
-    { name: "eor", label: "End of Retail", needs: "modern", features: table((n) => n !== "spell_research" && n !== "swear_xp_cost" && n !== "creation_skill_bonus_as_experience") },
-    { name: "infiltration", label: "Infiltration (February 2005)", needs: "classic", features: table((n) => (SECOND.includes(n) && n !== "creation_skill_bonus_as_experience") || ["trade", "housing", "apartments", "tinkering", "cantrips", "chess", "swear_xp_cost"].includes(n)) },
-    { name: "launch", label: "Launch (1999)", needs: "classic", pair: { portal: [102, 123], cell: [67, 107] }, features: table((n) => n === "spell_research" || n === "swear_xp_cost" || n === "creation_skill_bonus_as_experience") },
+    { name: "eor", label: "End of Retail", needs: "modern", offered: true, features: table((n) => n !== "spell_research" && n !== "swear_xp_cost" && n !== "creation_skill_bonus_as_experience") },
+    { name: "infiltration", label: "Infiltration (February 2005)", needs: "classic", offered: true, features: table((n) => (SECOND.includes(n) && n !== "creation_skill_bonus_as_experience") || ["trade", "housing", "apartments", "tinkering", "cantrips", "chess", "swear_xp_cost"].includes(n)) },
+    { name: "launch", label: "Launch (1999)", needs: "classic", offered: true, pair: { portal: [102, 123], cell: [67, 107] }, features: table((n) => n === "spell_research" || n === "swear_xp_cost" || n === "creation_skill_bonus_as_experience") },
   ];
   eras[1].pair = { portal: [2021, 4294967295], cell: [1537, 4294967295] };
   const features = NAMES.map((name) => {
@@ -751,6 +751,7 @@
       art_progress: null,
       ac2_look: structuredClone(ac2Look),
       newdereth: newDerethView(),
+      new_dereth: true,
       downloads: { offers: OFFERS, status: download && { ...download }, guide: "https://www.accpp.net/manual-installation" },
     }),
     get_dats: ({ id }) => { getDats(id); },

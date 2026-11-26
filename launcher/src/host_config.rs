@@ -19,11 +19,32 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use toml_edit::{value, DocumentMut};
 
-/// The eras a world can play, as `[era] profile` names them: those the launcher offers
-/// ([`dereth_launch::eras::eras`]).
+/// The eras a world can play, as `[era] profile` names them ([`dereth_launch::eras::eras`]): every
+/// one, offered or not, since a world keeps playing an era the launcher no longer offers. Which a
+/// world may be set to is [`check_era_offered`]'s.
 #[must_use]
 pub fn eras() -> Vec<&'static str> {
-    dereth_launch::eras::eras().iter().map(|e| e.name).collect()
+    dereth_launch::eras::eras(true)
+        .iter()
+        .map(|e| e.name)
+        .collect()
+}
+
+/// Whether a world may be set to play `era`, as one that plays `before` (`None` for a new world):
+/// an era the launcher offers (`new_dereth` says whether it offers New Dereth), or the one it plays
+/// already.
+///
+/// # Errors
+/// An era the launcher does not offer, in words for a person.
+pub fn check_era_offered(era: &str, before: Option<&str>, new_dereth: bool) -> Result<(), String> {
+    if dereth_launch::eras::may_choose(era, before, new_dereth) {
+        Ok(())
+    } else {
+        Err(format!(
+            "This launcher does not offer {} for a world.",
+            dereth_launch::eras::label(Some(era))
+        ))
+    }
 }
 
 /// The log levels `server.log_level` takes.
@@ -1288,10 +1309,37 @@ mod tests {
         assert!(s.validate().is_err(), "no such era");
     }
 
+    /// While the launcher does not offer New Dereth, no new world is made to play it and no world
+    /// is moved to it, but a world that plays it still checks, saves and plays its world database.
+    #[test]
+    fn a_new_dereth_world_keeps_its_era_while_new_dereth_is_hidden() {
+        assert!(check_era_offered("newdereth", None, false).is_err());
+        assert!(check_era_offered("newdereth", Some("eor"), false).is_err());
+        check_era_offered("newdereth", None, true).unwrap();
+        check_era_offered("newdereth", Some("newdereth"), false).unwrap();
+        check_era_offered("eor", Some("newdereth"), false).unwrap();
+        check_era_offered("infiltration", None, false).unwrap();
+        let nd = Settings {
+            era: "newdereth".into(),
+            ..settings()
+        };
+        nd.validate().expect("a New Dereth world still checks");
+        let text = nd.update_config("").unwrap();
+        assert!(
+            text.contains("world_pack_path = \"world.pack.newdereth\""),
+            "{text}"
+        );
+        let saved = nd.update_config(&text).unwrap();
+        assert_eq!(Settings::from_config(&saved).unwrap().era, "newdereth");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("world.pack.newdereth"), b"").unwrap();
+        assert_eq!(plays(&text, dir.path()).database, "era");
+    }
+
     /// Every era the Settings screen offers can be saved, each with a world database of its own.
     #[test]
     fn every_era_the_settings_screen_offers_can_be_saved() {
-        let eras = dereth_launch::eras::eras();
+        let eras = dereth_launch::eras::eras(true);
         let mut packs: Vec<_> = eras.iter().map(|e| era_pack(e.name)).collect();
         packs.sort_unstable();
         packs.dedup();

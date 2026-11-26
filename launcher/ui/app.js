@@ -195,10 +195,11 @@ function eraNote(w) {
   const said = w.era_source === "world" ? "verified" : w.era_source === "player" ? "set by you" : "assumed";
   return `<span class="era-note">(${said})</span>`;
 }
-// The eras a world the player adds may play, the first "Not sure", which is the end of retail.
+// The eras a world the player adds may play, the first "Not sure", which is the end of retail:
+// those the launcher offers, and the one chosen already.
 function eraOptions(chosen) {
   return `<option value="" ${chosen ? "" : "selected"}>Not sure</option>`
-    + (ui.snap?.eras ?? []).map((e) => `<option value="${esc(e.name)}" ${chosen === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
+    + (ui.snap?.eras ?? []).filter((e) => e.offered || e.name === chosen).map((e) => `<option value="${esc(e.name)}" ${chosen === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
 }
 // The era setting of a world the player added: the era the world says it plays, which no setting
 // changes, or else the one the player set, "Not sure" when they set none.
@@ -1178,7 +1179,8 @@ function settingsPage() {
   // The file the world keeps its settings in.
   const config = h.game === "auberean" ? "yalain.toml" : "empyrean.toml";
 
-  const eras = ui.snap.eras.map((e) => `<option value="${esc(e.name)}" ${s.era === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
+  // The eras the launcher offers, and the one the world plays, which it keeps.
+  const eras = ui.snap.eras.filter((e) => e.offered || e.name === h.settings.era).map((e) => `<option value="${esc(e.name)}" ${s.era === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
   // The world base: the one it plays, or the one saving switches it to.
   const eraChangedHere = s.era !== h.settings.era;
   const next = eraChangedHere && plays.database === "era" ? (plays.era_bases ?? []).find((b) => b.era === s.era) : null;
@@ -1187,8 +1189,9 @@ function settingsPage() {
   const getDatabase = plays.database === "era" && !h.prepared && !eraChangedHere
     ? `<button class="btn mini-btn" data-srv-prepare="${id}" ${running || h.busy ? "disabled" : ""}>Get world database</button>` : "";
   // A New Dereth world's database may be built from New Dereth's world fetched for Lyceum, as it
-  // is while nothing is published, and built again after the world's files change.
-  const buildBase = plays.database === "era" && s.era === "newdereth" && !eraChangedHere && ui.snap.newdereth?.world
+  // is while nothing is published, and built again after the world's files change, while the
+  // launcher offers New Dereth.
+  const buildBase = ui.snap.new_dereth && plays.database === "era" && s.era === "newdereth" && !eraChangedHere && ui.snap.newdereth?.world
     ? `<button class="btn mini-btn" data-srv-build-base="${id}" ${running || h.busy ? "disabled" : ""}${tipOf(TIP_BUILD_BASE)}>Build from New Dereth's world</button>` : "";
   const world = `<div class="form long-labels">
       ${formRow("set-name", "NAME", textField("set-name", "name", s))}
@@ -2258,7 +2261,7 @@ function library() {
     sets = libFold("sets", "DATA SETS",
       libFold("sets.modern", "MODERN", `<p class="muted small">The data files from a modern, post-ToD install.</p>${kindBody("modern", s.dat_sets.filter((d) => d.kind === "modern"), say("library.no-modern", "No modern data files yet."))}`, { sub: true })
       + libFold("sets.classic", "CLASSIC", `<p class="muted small">The data files from a pre-ToD install.</p>${kindBody("classic", s.dat_sets.filter((d) => d.kind === "classic"), say("library.no-classic", "No classic data files yet."))}`, { sub: true, closed: true })
-      + (ui.snap.newdereth ? libFold("sets.newdereth", "NEW DERETH", newDereth(), { sub: true, closed: true }) : ""));
+      + (ui.snap.new_dereth && ui.snap.newdereth ? libFold("sets.newdereth", "NEW DERETH", newDereth(), { sub: true, closed: true }) : ""));
   }
 
   // The launcher's own settings: the interface every world starts in, its updates and Discord.

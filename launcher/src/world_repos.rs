@@ -41,8 +41,19 @@ pub const NEW_DERETH: Offered = Offered {
     branch: "main",
 };
 
-/// The world repositories offered.
+/// Every world repository the launcher knows: one fetched before is brought up to date whether or
+/// not it is still offered ([`offered`]).
 pub const OFFERED: [Offered; 1] = [NEW_DERETH];
+
+/// The world repositories offered to fetch: New Dereth's only while the launcher offers New Dereth
+/// (`new_dereth`, [`dereth_launch::eras::offers_new_dereth`]).
+#[must_use]
+pub fn offered(new_dereth: bool) -> Vec<Offered> {
+    OFFERED
+        .into_iter()
+        .filter(|o| new_dereth || *o != NEW_DERETH)
+        .collect()
+}
 
 /// The file beside a fetched repository's own that says what was fetched.
 pub const MARKER: &str = ".dereth-fetched.json";
@@ -398,6 +409,15 @@ mod tests {
         fn source(&self) -> String {
             "https://example.invalid/a-world".into()
         }
+    }
+
+    /// New Dereth's world is offered to fetch only while the launcher offers New Dereth; one
+    /// fetched already is still brought up to date.
+    #[test]
+    fn new_dereths_world_is_offered_to_fetch_only_while_new_dereth_is_offered() {
+        assert_eq!(offered(true), [NEW_DERETH]);
+        assert!(offered(false).is_empty());
+        assert!(OFFERED.contains(&NEW_DERETH), "updated when fetched before");
     }
 
     const WORLD: &str = "format_version = 1\nkey = \"a-world\"\nera = \"newdereth\"\npacks = [\"base/emergence\"]\nlineage = []\n";

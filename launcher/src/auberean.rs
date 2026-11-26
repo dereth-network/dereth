@@ -1547,7 +1547,7 @@ mod tests {
             "memory",
             None,
         )));
-        let c = components::new(d.join("components"), &d, false);
+        let c = components::new(d.join("components"), &d, false, true);
         let a = new(d.join("data"), None);
         let choice = |password: Option<&str>| backend::Choice {
             world_slug: "shardfall".into(),

@@ -316,6 +316,11 @@ A development build (one release packaging didn't make) uses the newest `empyrea
 `target/debug`, and shows `(Local Build)`. Its worlds run that build and never update from a
 release. `cargo run -- --downloads` makes it download the programs as a release does.
 
+New Dereth (its era for a hosted or added world, the Library's New Dereth data set, and its world
+under Lyceum's **Server Worlds**) is offered in a development build and hidden in a release, unless
+the launcher is started with `DERETH_NEW_DERETH=1`; `DERETH_NEW_DERETH=0` hides it in a development
+build. A world that plays New Dereth already keeps playing it, on the data set built for it.
+
 **New world** asks for a name, a Modern data set, a port no other world uses, and two switches, both
 on to begin with: **Automatically create accounts** and **Allow other players**. Each world's row
 shows its state, Empyrean version, players online and uptime

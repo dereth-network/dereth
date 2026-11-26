@@ -434,6 +434,8 @@ pub async fn create_host(
     mut settings: Settings,
 ) -> Result<String, String> {
     settings.validate()?;
+    let new_dereth = crate::backend::lock(&backend).offers_new_dereth();
+    crate::host_config::check_era_offered(&settings.era, None, new_dereth)?;
     if !settings.dats.is_dir() {
         return Err("The game data folder does not exist.".into());
     }
@@ -881,7 +883,8 @@ pub fn stop_host(shared: State<'_, Shared>, id: String) -> Result<(), String> {
     host_runtime::request_stop(&dir)
 }
 /// Save a world's settings. A New Dereth world plays the data set the Library built, and is not
-/// saved as one while none is; a world moved off New Dereth no longer plays it.
+/// saved as one while none is; a world moved off New Dereth no longer plays it. A world keeps the
+/// era it plays, and is moved only to one the launcher offers.
 #[tauri::command]
 pub async fn save_host(
     shared: State<'_, Shared>,
@@ -891,12 +894,14 @@ pub async fn save_host(
 ) -> Result<(), String> {
     settings.validate()?;
     let land = data_set(&backend);
+    let new_dereth = crate::backend::lock(&backend).offers_new_dereth();
     let shared = shared.inner().clone();
     let dir = begin(&shared, &id, "Checking the settings...")?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         let definition = host_runtime::read_definition(&dir)?;
         let text = std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?;
         let before = Settings::from_config(&text)?;
+        crate::host_config::check_era_offered(&settings.era, Some(&before.era), new_dereth)?;
         if cfg!(windows) && crate::host_service::installed(&dir) && before.dats != settings.dats {
             return Err(
                 "Turn off running in the background before changing the game data folder.".into(),

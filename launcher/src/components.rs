@@ -107,7 +107,7 @@ pub struct View {
     pub worlds: Vec<LyceumWorld>,
     /// Lyceum's folder for new worlds.
     pub home: Option<PathBuf>,
-    /// The world repositories Lyceum's page offers to fetch ([`crate::world_repos::OFFERED`]).
+    /// The world repositories Lyceum's page offers to fetch ([`crate::world_repos::offered`]).
     pub offered: Vec<crate::world_repos::Offered>,
     /// Where an update the launcher is making on its own stands, for the corner of the page.
     pub auto: Option<Auto>,
@@ -340,8 +340,9 @@ fn in_use(
 
 /// The store, over the launcher's data folder `root`. A launcher that uses its checkout's builds
 /// ([`uses_checkout`]) looks for them from the launcher's folder `here`; a release finds its
-/// packaged game client there.
-pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
+/// packaged game client there. Lyceum's page offers New Dereth's world to fetch only when
+/// `new_dereth` says the launcher offers New Dereth ([`crate::world_repos::offered`]).
+pub fn new(root: PathBuf, here: &Path, checkout: bool, new_dereth: bool) -> Shared {
     let entries = Product::ALL
         .into_iter()
         .map(|product| Entry {
@@ -364,7 +365,7 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
                 worlds: Vec::new(),
                 home: None,
                 offered: if product == Product::Lyceum {
-                    crate::world_repos::OFFERED.to_vec()
+                    crate::world_repos::offered(new_dereth)
                 } else {
                     Vec::new()
                 },
@@ -1837,15 +1838,16 @@ pub async fn fetch_world_repository(
     name: String,
 ) -> Result<PathBuf, String> {
     use crate::world_repos::{self, GitHub};
-    let offered = *world_repos::OFFERED
-        .iter()
-        .find(|o| o.name == name)
-        .ok_or_else(|| format!("{name} is not a world the launcher fetches."))?;
-    let home = {
+    let (offered, home) = {
         let mut store = lock(&shared);
-        entry(&mut store, Product::Lyceum).view.home.clone()
-    }
-    .ok_or("Lyceum has no folder for worlds on this computer.")?;
+        let view = &entry(&mut store, Product::Lyceum).view;
+        (
+            view.offered.iter().find(|o| o.name == name).copied(),
+            view.home.clone(),
+        )
+    };
+    let offered = offered.ok_or_else(|| format!("{name} is not a world the launcher fetches."))?;
+    let home = home.ok_or("Lyceum has no folder for worlds on this computer.")?;
     let world = tauri::async_runtime::spawn_blocking(move || {
         let remote = GitHub {
             owner: offered.owner,
@@ -3933,11 +3935,33 @@ mod tests {
         Arc::new(std::sync::atomic::AtomicBool::new(on))
     }
 
+    /// Lyceum's page offers New Dereth's world to fetch only while the launcher offers New Dereth.
+    #[test]
+    fn lyceums_page_offers_new_dereths_world_only_while_new_dereth_is_offered() {
+        let temp = tempfile::tempdir().unwrap();
+        for offered in [true, false] {
+            let shared = new(
+                temp.path().to_path_buf(),
+                &temp.path().join("no-package"),
+                false,
+                offered,
+            );
+            let mut store = lock(&shared);
+            let names: Vec<_> = entry(&mut store, Product::Lyceum)
+                .view
+                .offered
+                .iter()
+                .map(|o| o.name)
+                .collect();
+            assert_eq!(names.contains(&"New Dereth"), offered, "{names:?}");
+        }
+    }
+
     /// The store over `root` with Lyceum 1.2.3 fetched, keeping things up to date with the
     /// Library's setting as `on` says and `root_client` as the package's client.
     fn keeping(root: &Path, on: &Setting, root_client: Option<Product>) -> Shared {
         install_archive(root, Product::Lyceum, "1.2.3", "", "test.zip", &package()).unwrap();
-        let shared = new(root.to_path_buf(), &root.join("no-package"), false);
+        let shared = new(root.to_path_buf(), &root.join("no-package"), false, true);
         let on = on.clone();
         lock(&shared).keeping = Some(Keeping {
             root: root_client,

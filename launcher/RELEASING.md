@@ -324,6 +324,9 @@ launcher files with the key above, then finishes and publishes it:
 
 ## The launcher's own release
 
+New Dereth is hidden in a release build of the launcher unless it is started with
+`DERETH_NEW_DERETH=1`, so a release can ship before New Dereth does.
+
 The launcher has releases of its own, `launcher-v<version>`, from
 `.github/workflows/release-launcher.yml`, and a version of its own, in `launcher/Cargo.toml`.
 `cargo xtask package launcher` builds it (the Tauri CLI, with the friends library and on macOS

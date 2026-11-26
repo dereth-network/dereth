@@ -324,6 +324,9 @@ pub enum ListState {
     Unavailable,
 }
 
+/// What the launcher says when asked for New Dereth while it does not offer it.
+pub const NEW_DERETH_HIDDEN: &str = "New Dereth is not offered in this launcher.";
+
 /// Everything the page draws from.
 #[derive(Debug, Clone, Serialize)]
 pub struct Snapshot {
@@ -359,6 +362,10 @@ pub struct Snapshot {
     pub ac2_look: crate::ac2_look::View,
     /// The New Dereth data set the launcher builds from the player's own Asheron's Call 2 files.
     pub newdereth: crate::newdereth::View,
+    /// Whether the launcher offers New Dereth ([`dereth_launch::eras::offers_new_dereth`]): the
+    /// page draws the Library's New Dereth data set and offers its era and its world only when it
+    /// does.
+    pub new_dereth: bool,
     /// The data sets the Library can download, and the last download's status.
     pub downloads: DownloadsView,
 }
@@ -773,6 +780,8 @@ pub struct Backend {
     newdereth_progress: Option<crate::newdereth::Progress>,
     /// Lyceum's folder for worlds, where the New Dereth world is fetched to.
     worlds_home: Option<PathBuf>,
+    /// Whether the launcher offers New Dereth ([`Backend::with_new_dereth`]).
+    new_dereth: bool,
     /// The last data set download's status, and the flag that stops one going.
     download: Option<crate::downloads::Status>,
     download_cancel: Arc<AtomicBool>,
@@ -908,6 +917,7 @@ impl Backend {
             ac2_look_progress: None,
             newdereth_progress: None,
             worlds_home: None,
+            new_dereth: true,
             download: None,
             download_cancel: Arc::new(AtomicBool::new(false)),
             job_cancel: Arc::new(AtomicBool::new(false)),
@@ -940,6 +950,19 @@ impl Backend {
     pub fn with_tool(mut self, tool: Option<PathBuf>) -> Self {
         self.tool = tool;
         self
+    }
+
+    /// Offer New Dereth or not ([`dereth_launch::eras::offers_new_dereth`]), as the launcher was
+    /// started; offered until this says otherwise.
+    #[must_use]
+    pub fn with_new_dereth(mut self, offered: bool) -> Self {
+        self.new_dereth = offered;
+        self
+    }
+
+    /// Whether the launcher offers New Dereth.
+    pub fn offers_new_dereth(&self) -> bool {
+        self.new_dereth
     }
 
     /// A first run (no state file yet) opens in `realm`, the one the launcher's package names;
@@ -1042,7 +1065,7 @@ impl Backend {
             list_state: self.list_state.clone(),
             list_error: self.list_error.clone(),
             list_fetched_at: self.list.copy().map(|c| c.fetched_at),
-            eras: eras::eras(),
+            eras: eras::eras(self.new_dereth),
             features: eras::features(),
             state: self.state.clone(),
             dereth: self.dereth.clone(),
@@ -1058,6 +1081,7 @@ impl Backend {
             art_progress: self.art_progress.clone(),
             ac2_look: self.ac2_look_view(),
             newdereth: self.newdereth_view(),
+            new_dereth: self.new_dereth,
             downloads: DownloadsView {
                 offers: dereth_launch::downloads::offers(catalogue()),
                 status: self.download.clone(),
@@ -1561,9 +1585,18 @@ impl Backend {
     /// Say which era the world the player added as `slug` plays, or `None` for not said.
     ///
     /// # Errors
-    /// No such world of Asheron's Call, or no era the client plays.
+    /// No such world of Asheron's Call, no era the client plays, or an era the launcher does not
+    /// offer that the world was not said to play already.
     pub fn set_custom_world_era(&mut self, slug: &str, era: Option<&str>) -> Result<(), String> {
-        if !self.state.set_custom_world_era(slug, era) {
+        let kept = self
+            .state
+            .custom_worlds
+            .iter()
+            .find(|w| w.slug == slug)
+            .and_then(|w| w.era.clone());
+        if era.is_some_and(|e| !eras::may_choose(e, kept.as_deref(), self.new_dereth))
+            || !self.state.set_custom_world_era(slug, era)
+        {
             return Err("Choose launch, infiltration or end of retail.".into());
         }
         self.save();
@@ -2321,8 +2354,16 @@ impl Backend {
     }
 
     /// Add a server by hand, with the rules and the emulator the player says it has. Its era is
-    /// what it says when asked, else the end of retail.
+    /// what it says when asked, else the end of retail; it may be said to play only an era the
+    /// launcher offers.
     pub fn add_custom_world(&mut self, s: &NewServer) -> Result<String, String> {
+        if s.game == dereth_launch::world::Game::Dereth
+            && s.era
+                .as_deref()
+                .is_some_and(|e| eras::known(e) && !eras::may_choose(e, None, self.new_dereth))
+        {
+            return Err("Choose launch, infiltration or end of retail.".into());
+        }
         let slug = self
             .state
             .add_custom_world_for(
@@ -3147,8 +3188,8 @@ impl Backend {
     /// it is whole, and `remember_land` is told it is that world's land. One at a time.
     ///
     /// # Errors
-    /// No tool, no files of either game, no world, the build, or a set that will not take the old
-    /// one's place.
+    /// A launcher that does not offer New Dereth ([`NEW_DERETH_HIDDEN`]), no tool, no files of
+    /// either game, no world, the build, or a set that will not take the old one's place.
     pub fn build_newdereth(
         shared: &Shared,
         run: &crate::ac2_look::RunTool<'_>,
@@ -3158,6 +3199,9 @@ impl Backend {
         use dereth_launch::newdereth::{self as nd, Built};
         let (tool, world, home, dats, ac2, library, of) = {
             let mut b = lock(shared);
+            if !b.new_dereth {
+                return Err(NEW_DERETH_HIDDEN.into());
+            }
             if b.newdereth_progress.is_some() {
                 return Err("The New Dereth data set is being built.".into());
             }
@@ -5312,6 +5356,75 @@ mod tests {
         );
     }
 
+    /// While the launcher does not offer New Dereth, the page is told so and offers its era to no
+    /// new world, the Library does not build its data set, and a world the player adds cannot be
+    /// said to play it; a world said to play it already keeps it, and the data set built before
+    /// stays what a New Dereth world plays.
+    #[test]
+    fn hidden_new_dereth_is_offered_to_no_new_world_and_what_plays_it_keeps_playing() {
+        let (b, dir) = backend("newdereth-hidden");
+        let mut b = b.with_new_dereth(false);
+        let s = b.snapshot();
+        assert!(!s.new_dereth);
+        let nd = s
+            .eras
+            .iter()
+            .find(|e| e.name == "newdereth")
+            .expect("described");
+        assert!(!nd.offered);
+        assert!(s
+            .eras
+            .iter()
+            .filter(|e| e.name != "newdereth")
+            .all(|e| e.offered));
+        // A world the player adds.
+        let form = |era: &str| NewServer {
+            host: "127.0.0.1".into(),
+            port: "9000".into(),
+            era: Some(era.into()),
+            ..NewServer::default()
+        };
+        assert!(b.add_custom_world(&form("newdereth")).is_err());
+        let slug = b.add_custom_world(&form("eor")).unwrap();
+        assert!(b.set_custom_world_era(&slug, Some("newdereth")).is_err());
+        assert_eq!(b.world(&slug).and_then(|w| w.era).as_deref(), Some("eor"));
+        // One said to play it while it was offered keeps it.
+        b.new_dereth = true;
+        b.set_custom_world_era(&slug, Some("newdereth")).unwrap();
+        b.new_dereth = false;
+        b.set_custom_world_era(&slug, Some("newdereth"))
+            .expect("the era it plays already");
+        assert_eq!(
+            b.world(&slug).and_then(|w| w.era).as_deref(),
+            Some("newdereth")
+        );
+        // The data set built before is still played, and not built again.
+        let overlay = dir.join("library").join("newdereth").join("overlay");
+        std::fs::create_dir_all(&overlay).unwrap();
+        b.state.newdereth = Some(dereth_launch::newdereth::Built {
+            overlay: overlay.clone(),
+            content: "aa11".into(),
+            generation: 4,
+            files: std::collections::BTreeMap::new(),
+            converter: String::new(),
+            steps: 3,
+        });
+        assert_eq!(b.newdereth_overlay(), Some(overlay));
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let never: &crate::ac2_look::RunTool<'_> = &|_, _, _| panic!("not built");
+        let no_fetch = |_: &Path| -> Result<PathBuf, String> { panic!("not fetched") };
+        assert_eq!(
+            Backend::build_newdereth(&shared, never, &no_fetch, &|_, _| {}),
+            Err(NEW_DERETH_HIDDEN.into())
+        );
+        // Offered again, the same launcher builds it.
+        lock(&shared).new_dereth = true;
+        assert_ne!(
+            Backend::build_newdereth(&shared, never, &no_fetch, &|_, _| {}),
+            Err(NEW_DERETH_HIDDEN.into())
+        );
+    }
+
     #[test]
     fn a_server_added_by_hand_is_a_world_and_goes_with_its_accounts() {
         let (mut b, _dir) = backend("custom");
@@ -5855,7 +5968,7 @@ mod tests {
         assert_eq!(s.worlds[0].slug, "leafcull");
         assert!(s.list_fetched_at.is_some());
         assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
-        assert_eq!(s.eras.len(), eras::eras().len());
+        assert_eq!(s.eras.len(), eras::eras(true).len());
     }
 
     /// A launcher started on another hub's list (`DERETH_HUB_LIST`) reads that hub's list at

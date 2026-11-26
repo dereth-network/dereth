@@ -21,6 +21,9 @@ pub struct EraInfo {
     pub label: &'static str,
     /// Which data set the era's world is drawn from.
     pub needs: SetKind,
+    /// Whether a world may be set to play it from now on: a world that plays an era no longer
+    /// offered keeps playing it, and the era is still named and described for it.
+    pub offered: bool,
     /// For an era drawn from a Classic set, the iterations its pair's files carry, each a range
     /// with both ends included: which Classic sets its worlds are offered.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,25 +94,59 @@ pub fn label(era: Option<&str>) -> String {
     }
 }
 
-/// Whether the launcher offers New Dereth: a hosted world may play it and a world a player adds
-/// may say it does. `false` hides it everywhere again.
-pub const OFFER_NEW_DERETH: bool = true;
+/// The environment variable that offers New Dereth in any build when it is `1`, and hides it in a
+/// development build when it is `0`.
+pub const NEW_DERETH_VARIABLE: &str = "DERETH_NEW_DERETH";
 
-/// Every era a hosted world can play, latest first: the end of retail is what most worlds play.
-/// New Dereth only while [`OFFER_NEW_DERETH`] says so.
-pub fn eras() -> Vec<EraInfo> {
+/// Whether the launcher offers New Dereth: a hosted world may be set to play it, a world a player
+/// adds may be said to, the Library builds its data set and Lyceum fetches its world. On in a
+/// development build and off in a release, unless [`NEW_DERETH_VARIABLE`] (`variable`, its value
+/// when set) says otherwise.
+#[must_use]
+pub fn offers_new_dereth(development: bool, variable: Option<&str>) -> bool {
+    match variable.map(str::trim) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => development,
+    }
+}
+
+/// Every era a world can play, latest first: the end of retail is what most worlds play. New
+/// Dereth is offered only when `new_dereth` says so ([`offers_new_dereth`]); every other era always is.
+#[must_use]
+pub fn eras(new_dereth: bool) -> Vec<EraInfo> {
     EraId::ALL
         .iter()
         .rev()
-        .filter(|&&e| OFFER_NEW_DERETH || e != EraId::NewDereth)
         .map(|&e| EraInfo {
             name: e.name(),
             label: era_label(e),
             needs: needs(e),
+            offered: new_dereth || e != EraId::NewDereth,
             pair: pair_iterations(e),
             features: e.features().iter().collect(),
         })
         .collect()
+}
+
+/// Whether `era` names an era this build knows.
+#[must_use]
+pub fn known(era: &str) -> bool {
+    EraId::parse(era).is_some()
+}
+
+/// Whether a world may be set to play `era`: one the launcher offers ([`eras`]), or `kept`, the era
+/// it plays already, which it keeps playing whether or not that is still offered. An era this
+/// build does not know never is.
+#[must_use]
+pub fn may_choose(era: &str, kept: Option<&str>, new_dereth: bool) -> bool {
+    let Some(id) = EraId::parse(era) else {
+        return false;
+    };
+    let kept = kept.and_then(EraId::parse) == Some(id);
+    kept || eras(new_dereth)
+        .iter()
+        .any(|e| e.offered && e.name == id.name())
 }
 
 /// A system's name in words: `consolidated_weapon_skills` is "Consolidated weapon skills".
@@ -215,12 +252,13 @@ mod tests {
 
     #[test]
     fn the_eras_are_the_clients_table_latest_first_with_the_set_each_needs() {
-        let mut e = eras();
-        // New Dereth, the latest, first while the launcher offers it, on the later files.
-        assert_eq!(e[0].name == "newdereth", OFFER_NEW_DERETH);
-        if OFFER_NEW_DERETH {
-            assert_eq!(e.remove(0).needs, SetKind::Modern);
-        }
+        let mut e = eras(true);
+        // New Dereth, the latest, first, on the later files.
+        let nd = e.remove(0);
+        assert_eq!(
+            (nd.name, nd.needs, nd.offered),
+            ("newdereth", SetKind::Modern, true)
+        );
         assert_eq!(
             e.iter().map(|e| e.name).collect::<Vec<_>>(),
             ["eor", "infiltration", "launch"]
@@ -238,6 +276,54 @@ mod tests {
         assert_eq!(e[0].features.len(), EraFeatures::COUNT);
         assert_eq!(features().len(), EraFeatures::COUNT);
         assert_eq!(features()[1].label, "Consolidated weapon skills");
+    }
+
+    /// Hidden, New Dereth is still named and described for a world that plays it, but not offered;
+    /// the other eras are offered either way.
+    #[test]
+    fn new_dereth_is_offered_only_when_the_launcher_offers_it_and_still_described_when_not() {
+        let hidden = eras(false);
+        assert_eq!(hidden.len(), eras(true).len());
+        let nd = hidden
+            .iter()
+            .find(|e| e.name == "newdereth")
+            .expect("described");
+        assert!(!nd.offered);
+        assert_eq!(nd.label, "New Dereth, Emergence");
+        assert_eq!(nd.features.len(), EraFeatures::COUNT);
+        assert!(hidden
+            .iter()
+            .filter(|e| e.name != "newdereth")
+            .all(|e| e.offered));
+    }
+
+    /// A release offers New Dereth only when the variable is `1`; a development build offers it
+    /// unless the variable is `0`.
+    #[test]
+    fn new_dereth_is_on_in_a_development_build_off_in_a_release_and_the_variable_says_otherwise() {
+        assert!(offers_new_dereth(true, None), "development");
+        assert!(!offers_new_dereth(false, None), "release");
+        assert!(offers_new_dereth(false, Some("1")));
+        assert!(offers_new_dereth(false, Some(" 1 ")));
+        assert!(!offers_new_dereth(false, Some("yes")), "only 1 turns it on");
+        assert!(!offers_new_dereth(true, Some("0")));
+        assert!(offers_new_dereth(true, Some("")));
+    }
+
+    /// A world may be set to an offered era, and keeps the one it plays even when that is no
+    /// longer offered.
+    #[test]
+    fn a_world_keeps_new_dereth_when_it_is_hidden_but_no_other_world_is_set_to_it() {
+        assert!(may_choose("newdereth", None, true));
+        assert!(!may_choose("newdereth", None, false));
+        assert!(!may_choose("newdereth", Some("eor"), false));
+        assert!(may_choose("newdereth", Some("newdereth"), false));
+        assert!(may_choose("eor", Some("newdereth"), false));
+        assert!(may_choose("launch", None, false));
+        assert!(
+            !may_choose("gold", Some("gold"), true),
+            "no era this build knows"
+        );
     }
 
     #[test]
