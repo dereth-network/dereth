@@ -51,6 +51,8 @@ It writes the overlay folder `ac2-world/overlay`:
 | `overlay_cell.dat`, `overlay_portal.dat` | The world's records over the two game files. |
 | `world.toml` | The world's own rules: its dungeons are told apart by cell, and it places its own things. |
 | `places.tsv` | AC2's towns and landmarks, which the map shows. |
+| `creatures.tsv` | AC2's creatures, each family the creature tables name and every look of it, made into the portal overlay at ids of their own (`0xB000` and on, a block of `0x100` a family): the setup, motion table, combat table and texture swaps a world's weenie names for each look. |
+| `environments.tsv` | Each AC2 cell mesh a building's rooms or a dungeon is drawn with, the environment made of it, and the surfaces its cells name. |
 
 Beside the folder go `generations.tsv` (the ledger, below), a `README.txt` saying how the world was
 made, `stats.txt` and a set of reports in tab-separated text: how the ground was rounded, which

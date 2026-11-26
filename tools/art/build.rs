@@ -6,17 +6,26 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// The converter's own files, from this crate's folder.
-const OWN: [&str; 3] = ["src/ac2_world", "ac2-world", "../../core/ac2-convert/src"];
+/// The converter's own files, from this crate's folder: every file under each folder, and the
+/// creature tables (the files directly in `ac2-creatures`, not the worlds beneath it).
+const OWN: [(&str, bool); 5] = [
+    ("src/ac2_world", true),
+    ("ac2-world", true),
+    ("../../core/ac2-convert/src", true),
+    ("src/ac2_creature", true),
+    ("ac2-creatures", false),
+];
 
-fn files(dir: &Path, out: &mut Vec<PathBuf>) {
+fn files(dir: &Path, deep: bool, out: &mut Vec<PathBuf>) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
     };
     for e in read.flatten() {
         let p = e.path();
         if p.is_dir() {
-            files(&p, out);
+            if deep {
+                files(&p, deep, out);
+            }
         } else {
             out.push(p);
         }
@@ -26,11 +35,11 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo's folder"));
     let mut h = Sha256::new();
-    for own in OWN {
+    for (own, deep) in OWN {
         let dir = root.join(own);
         println!("cargo:rerun-if-changed={}", dir.display());
         let mut list = Vec::new();
-        files(&dir, &mut list);
+        files(&dir, deep, &mut list);
         list.sort();
         for f in list {
             let name = f

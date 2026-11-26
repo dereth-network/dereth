@@ -333,6 +333,80 @@ impl DenseWorld {
         raised
     }
 
+    /// Pin the land under the points `at` (world meters) to AC2's ground there
+    /// ([`crate::ac2_world::pinned`]): the corners of the squares they lie on, but for squares
+    /// with a water corner or off AC2's land, fitted to AC2's ground at the points, each rounded
+    /// into the table, and the cuts of the squares they touch chosen again. Returns how many
+    /// vertices moved, and how many the fit would have moved past its cap (left as they are).
+    pub fn pin_to(&mut self, g: &Ac2Ground, at: &[(f64, f64)]) -> (usize, usize) {
+        use crate::ac2_world::pinned::{self, Sample};
+        let side = self.grid.side();
+        let n = side - 1;
+        let step = self.grid.spacing();
+        let mut samples = Vec::with_capacity(at.len());
+        for &(x, y) in at {
+            if x < 0.0 || y < 0.0 || g.ground(x, y).is_none() {
+                continue;
+            }
+            let (u, v) = (x / step, y / step);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: square indices of a world a few thousand squares wide.
+            let (i, j) = (u.floor() as usize, v.floor() as usize);
+            if i >= n || j >= n {
+                continue;
+            }
+            let wet = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+                .iter()
+                .any(|&(a, b)| self.vertex[a * side + b].water);
+            if wet {
+                continue;
+            }
+            #[allow(clippy::cast_precision_loss)]
+            samples.push(Sample {
+                square: (i, j),
+                fu: u - i as f64,
+                fv: v - j as f64,
+                target: target_at(g, x, y),
+            });
+        }
+        let fitted = pinned::fit(
+            side,
+            &|i, j| self.cut[i * n + j],
+            &|k| f64::from(self.table[usize::from(self.height[k])]),
+            &samples,
+        );
+        let (mut moved, mut past_cap) = (0, 0);
+        let mut squares = std::collections::BTreeSet::new();
+        for (k, h) in fitted {
+            let old = f64::from(self.table[usize::from(self.height[k])]);
+            if (h - old).abs() > pinned::CAP {
+                past_cap += 1;
+                continue;
+            }
+            let to = table::quantize(&self.table, h);
+            if to == self.height[k] {
+                continue;
+            }
+            self.height[k] = to;
+            moved += 1;
+            let (a, b) = (k / side, k % side);
+            for (i, j) in [
+                (a, b),
+                (a.wrapping_sub(1), b),
+                (a, b.wrapping_sub(1)),
+                (a.wrapping_sub(1), b.wrapping_sub(1)),
+            ] {
+                if i < n && j < n {
+                    squares.insert((i, j));
+                }
+            }
+        }
+        for (i, j) in squares {
+            self.cut[i * n + j] = self.cut_of(g, i, j);
+        }
+        (moved, past_cap)
+    }
+
     /// Put the corners of `squares` back to the rounded heights `from` holds for them, and choose
     /// again the cuts of the squares they touch. Returns how many changed.
     pub fn restore(

@@ -214,8 +214,10 @@ struct Pending {
     object: u32,
     at: (f64, f64),
     block: (usize, usize),
-    /// Its points under AC2's ground, with the converted squares they lie on.
+    /// Its points under AC2's ground, with the converted squares they lie on, and where each
+    /// lies in AC2's world (x, y).
     buried: Vec<(Point, (usize, usize))>,
+    buried_at: Vec<(f64, f64)>,
     /// The converted ground less AC2's at its origin, and whether that square has a water corner.
     at_origin: Option<(f64, bool)>,
     /// Its box in AC2's world, and its scale and turn there (none for an effect alone).
@@ -324,8 +326,9 @@ fn milli(s: auberean_primitives::Vec3) -> [i32; 3] {
 /// water corner, and that square (the index of its south-west corner).
 pub type Under = (f64, f64, bool, (usize, usize));
 
-/// Every static AC2's landblocks place, made and placed. `skip_block` says which AC2 blocks were
-/// left out as placeholder land; `under` the ground under a world point (none off AC2's land).
+/// Every static AC2's landblocks place, made and placed, their heights waiting on the ground
+/// ([`Standing`], [`stand`]). `skip_block` says which AC2 blocks were left out as placeholder
+/// land; `under` the ground under a world point (none off AC2's land).
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn place_statics(
     ac2_dir: &Path,
@@ -337,7 +340,7 @@ pub fn place_statics(
     ids: &mut Ids,
     out: &mut Records,
     max_levels: usize,
-) -> Result<Statics, String> {
+) -> Result<(Statics, Standing), String> {
     let wr = world_records(ac2_dir)?;
     let mut st = Statics {
         by_block: BTreeMap::new(),
@@ -457,6 +460,7 @@ pub fn place_statics(
                             at: (wx, wy),
                             block,
                             buried: Vec::new(),
+                            buried_at: Vec::new(),
                             at_origin: under(wx, wy).map(|u| (u.1 - u.0, u.2)),
                             piece: joined::Piece {
                                 lo: [wx, wy, oz],
@@ -528,7 +532,7 @@ pub fn place_statics(
                 let oz = f64::from(o.z);
                 let mut lo = [wx, wy, oz];
                 let mut hi = lo;
-                let buried_points: Vec<(Point, (usize, usize))> = model
+                let (buried_points, buried_at): (Vec<_>, Vec<_>) = model
                     .verts
                     .iter()
                     .filter_map(|v| {
@@ -550,9 +554,9 @@ pub fn place_statics(
                             converted,
                             wet,
                         };
-                        p.buried().then_some((p, square))
+                        p.buried().then_some(((p, square), (x, y)))
                     })
-                    .collect();
+                    .unzip();
                 let at_origin = under(wx, wy).map(|u| (u.1 - u.0, u.2));
                 // Its height waits on what it stands with.
                 #[allow(clippy::cast_possible_truncation)]
@@ -599,6 +603,7 @@ pub fn place_statics(
                     at: (wx, wy),
                     block,
                     buried: buried_points,
+                    buried_at,
                     at_origin,
                     piece: joined::Piece {
                         lo,
@@ -632,7 +637,6 @@ pub fn place_statics(
             }
         }
     }
-    stand_together(&mut st, &pending, &models);
     let _ = writeln!(
         st.tsv,
         "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tplacements"
@@ -730,7 +734,31 @@ pub fn place_statics(
             m.physics,
         );
     }
-    Ok(st)
+    Ok((st, Standing { pending, models }))
+}
+
+/// The placements' heights, waiting on the ground they are set into: [`stand`] takes them from
+/// it once the land under them is final.
+pub struct Standing {
+    pending: Vec<Pending>,
+    models: BTreeMap<u32, Result<Model, &'static str>>,
+}
+
+/// Stand every placement `standing` holds on the ground `under` gives (the converted ground as
+/// it is now: the land under the statics may have changed since they were placed), with the ones
+/// it stands against ([`joined`]), and cover what of them shows ([`buried::cover`]).
+pub fn stand(st: &mut Statics, mut standing: Standing, under: &dyn Fn(f64, f64) -> Option<Under>) {
+    for p in &mut standing.pending {
+        for ((point, _), &(x, y)) in p.buried.iter_mut().zip(&p.buried_at) {
+            if let Some(u) = under(x, y) {
+                point.converted = u.1;
+            }
+        }
+        if p.at_origin.is_some() {
+            p.at_origin = under(p.at.0, p.at.1).map(|u| (u.1 - u.0, u.2));
+        }
+    }
+    stand_together(st, &standing.pending, &standing.models);
 }
 
 /// A placement's vertices in AC2's world: a static's every vertex as it is placed, an effect's

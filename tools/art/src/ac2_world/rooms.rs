@@ -159,7 +159,8 @@ pub struct Building {
 }
 
 /// The buildings `found` names, from the statics `shells` made of their shells; each shell's
-/// collision is added to `solids`, its block's statics, as a collision-only static.
+/// collision is added to `solids`, its block's statics, as a collision-only static. Each AC2 cell
+/// mesh a room is drawn with is made once, into `environments`.
 ///
 /// # Errors
 /// A record that will not encode, or one of the materials' pictures that will not convert.
@@ -174,10 +175,9 @@ pub fn make(
     out: &mut Records,
     passed: &mut BTreeMap<&'static str, usize>,
     solids: &mut BTreeMap<(usize, usize), Vec<ObjectEntry>>,
+    environments: &mut BTreeMap<u32, Option<Room>>,
 ) -> Result<Vec<Building>, String> {
     let mut made = Vec::new();
-    // Each cell mesh made once: its environment, its surfaces, and its portals' polygons.
-    let mut environments: BTreeMap<u32, Option<Room>> = BTreeMap::new();
     let mut surfaces = BTreeMap::new();
     for shell in shells {
         let Some(rooms) = found.rooms.get(&shell.ac2) else {

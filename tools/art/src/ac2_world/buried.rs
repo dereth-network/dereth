@@ -15,7 +15,9 @@
 //! dry square under such a point is raised to the first height of the table at least as high as
 //! the corner plus what shows, which covers the point on either of the square's triangles. Less
 //! than [`TOLERANCE`] is left as it is, and more than [`CAP`] is left and listed: raising the land
-//! that far would make a spike. Water corners are never raised.
+//! that far would make a spike. Water corners are never raised. Nor is a corner whose next height
+//! up the table overshoots by more than what shows: where the table's heights stand far apart,
+//! covering a sliver of a static would sink it deeper than the sliver ever showed.
 
 use std::collections::BTreeMap;
 
@@ -115,7 +117,8 @@ pub fn cover(points: &[(Point, (usize, usize))], shift: f64) -> Cover {
 
 /// The heights each raised vertex needs, by its index in a world `side` vertices a side whose
 /// rounded heights are `height` into `table`: each corner of a covered square at least its height
-/// plus what shows, the greatest of every static's asks.
+/// plus what shows, the greatest of every static's asks; but for a corner the table's next height
+/// up would overshoot by more than what shows.
 #[must_use]
 pub fn wants(
     covers: &[Cover],
@@ -129,6 +132,9 @@ pub fn wants(
             for (a, b) in [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)] {
                 let k = a * side + b;
                 let want = f64::from(table[usize::from(height[k])]) + s;
+                if f64::from(table[usize::from(at_least(table, want))]) - want > s {
+                    continue;
+                }
                 let e = out.entry(k).or_insert(want);
                 *e = e.max(want);
             }
@@ -248,6 +254,12 @@ mod tests {
             // 8 m lies between 7.7 (11) and 8.4 (12): the first at least 8 m is 12.
             assert_eq!(at_least(&t, h), 12);
         }
+        // A sliver that shows less than the next height up overshoots is left showing.
+        let sliver = Cover {
+            dry: vec![((0, 0), 0.3)],
+            ..Cover::default()
+        };
+        assert!(wants(&[sliver], 3, &height, &t).is_empty());
         // Nothing asked, nothing raised.
         assert!(wants(&[Cover::default()], 3, &height, &t).is_empty());
         // Past the table's top, its last height.

@@ -199,6 +199,13 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// Each AC2 cell mesh made and its environment; a mesh that makes no cell is left out.
+    pub fn environments(&self) -> impl Iterator<Item = (u32, &rooms::Room)> {
+        self.environments
+            .iter()
+            .filter_map(|(&m, r)| Some((m, r.as_ref()?)))
+    }
+
     /// The environments of every cell mesh `dungeons` name that none is made for yet, made at
     /// once: each made in turn but for its cells' trees, the trees built side by side, and each
     /// stored in turn, so they take the ids they would made one by one.

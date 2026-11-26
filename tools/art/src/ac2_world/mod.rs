@@ -25,6 +25,10 @@
 //!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]), or
 //!   near the point a world's own `start.toml` gives (`--start FILE`, a world repository's
 //!   `land/start.toml`);
+//! - `environments.tsv`: each AC2 cell mesh a building's rooms or a dungeon is drawn with, and the
+//!   environment written for it, with the surfaces its cells name;
+//! - `creatures.tsv`: AC2's creatures, every family a creature table names, made into the portal
+//!   overlay in ids of their own, and the ids each look's weenie names ([`creatures`]);
 //! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's dungeons
 //!   lie under its land; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
@@ -80,6 +84,7 @@ mod buried;
 mod cleared;
 mod clearing;
 mod climb;
+mod creatures;
 mod dense;
 mod effects;
 mod ground;
@@ -91,6 +96,7 @@ mod ledges;
 mod map;
 mod names;
 mod passage;
+mod pinned;
 mod placeholder;
 mod polys;
 mod region;
@@ -871,36 +877,25 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let ac2_world = statics::world_records(&args.ac2)?;
     let rooms_found = rooms::find(&ac2_world);
     let shells_asked = rooms_found.shells();
-    let mut statics = {
-        let (step, wside) = (w.grid.spacing(), w.grid.side());
-        // LINT-OK: square indices of a world a few thousand squares wide.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let under = |x: f64, y: f64| -> Option<statics::Under> {
-            let ac2_ground = g.ground(x, y)?;
-            if x < 0.0 || y < 0.0 {
-                return None;
-            }
-            let (i, j) = ((x / step).floor() as usize, (y / step).floor() as usize);
-            if i + 1 >= wside || j + 1 >= wside {
-                return None;
-            }
-            let wet = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)]
-                .iter()
-                .any(|&(a, b)| w.vertex[a * wside + b].water);
-            Some((ac2_ground, w.height_at(x, y, true), wet, (i, j)))
-        };
-        statics::place_statics(
-            &args.ac2,
-            &ac2_art,
-            &on_dropped,
-            &under,
-            &shells_asked,
-            &mut pictures,
-            &mut ids,
-            &mut art_records,
-            args.levels,
-        )?
-    };
+    let (mut statics, standing) = statics::place_statics(
+        &args.ac2,
+        &ac2_art,
+        &on_dropped,
+        &under_of(&g, &w),
+        &shells_asked,
+        &mut pictures,
+        &mut ids,
+        &mut art_records,
+        args.levels,
+    )?;
+    // The converted ground under every placed static pinned to AC2's, then each stood on it.
+    let (pinned, pinned_past_cap) = w.pin_to(&g, &pinned::under(&statics.footprints));
+    let pinned_line = format!(
+        "the ground under the placed statics pinned to AC2's: {pinned} vertices moved, {pinned_past_cap} left past the {} m cap",
+        pinned::CAP
+    );
+    eprintln!("{pinned_line}");
+    statics::stand(&mut statics, standing, &under_of(&g, &w));
     eprintln!(
         "statics: {} placed, {} models, left out {:?}",
         statics.placed, statics.models, statics.left_out
@@ -909,6 +904,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let mut rooms_passed = rooms_found.passed.clone();
     let mut ac2_buildings: std::collections::BTreeMap<(usize, usize), Vec<rooms::Building>> =
         std::collections::BTreeMap::new();
+    let mut room_environments = BTreeMap::new();
     for b in rooms::make(
         &rooms_found,
         &statics.shells,
@@ -919,6 +915,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         &mut art_records,
         &mut rooms_passed,
         &mut statics.by_block,
+        &mut room_environments,
     )? {
         ac2_buildings.entry(b.block).or_default().push(b);
     }
@@ -1016,6 +1013,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         }
         vault_cells.entry(m.block).or_default().push(m);
     }
+    let environments_tsv = environments_table(&room_environments, shared.environments());
     let dungeons_line = format!(
         "AC2's dungeons: {} written under AC1 blocks ({} where the list puts them), {dungeon_cells} cells, {dungeon_closed} portals left closed, {dungeon_lights} lights placed, {dungeon_lights_left} left out (dungeons-ac2.tsv, dungeon-cells.tsv)",
         dungeons.len(),
@@ -1110,9 +1108,10 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let on_water = statics.covers.iter().filter(|c| c.wet > 0.0).count();
     let covered = statics.covers.iter().filter(|c| !c.dry.is_empty()).count();
     let buried_line = format!(
-        "statics set into AC2's ground: {} placed by where they are set in ({} more than 0.5 m from where their origin put them); land raised under {covered} of them, {raised} vertices; left showing more than {} m: {past_cap} past the {} m cap, {on_water} on squares with a water corner (statics-showing.tsv)",
+        "statics set into AC2's ground: {} placed by where they are set in ({} more than 0.5 m from where their origin put them); {covered} of them showing more than {} m on dry squares, {raised} vertices raised to cover them; left showing more than {} m: {past_cap} past the {} m cap, {on_water} on squares with a water corner (statics-showing.tsv)",
         statics.set_in,
         statics.moved,
+        crate::ac2_world::buried::TOLERANCE,
         crate::ac2_world::buried::TOLERANCE,
         crate::ac2_world::buried::CAP,
     );
@@ -1676,6 +1675,9 @@ pub fn build(args: &Args) -> Result<u32, String> {
     } else {
         None
     };
+    // AC2's creatures, each family in ids of its own, for a world's weenies to name.
+    eprintln!("making AC2's creatures");
+    let creatures_made = creatures::make(&ac2_art, &mut art_records)?;
     // Every new record's id is free: the converted world names none of AC1's scenery records.
     check_free(&portal, art_records.0.keys().copied())?;
     let tm = ac1_region
@@ -1925,6 +1927,15 @@ pub fn build(args: &Args) -> Result<u32, String> {
         }
         format!("{PLACES}: none (--names off)")
     };
+
+    // The environment each AC2 cell mesh was made as.
+    let environments_path = args.out.join(ENVIRONMENTS);
+    std::fs::write(&environments_path, &environments_tsv)
+        .map_err(|e| format!("{}: {e}", environments_path.display()))?;
+    // The ids each creature look's weenie names.
+    let creature_table = args.out.join(creatures::TABLE);
+    std::fs::write(&creature_table, creatures::table(&creatures_made))
+        .map_err(|e| format!("{}: {e}", creature_table.display()))?;
 
     // Read it all back through the overlay over AC1's own files.
     eprintln!("verifying");
@@ -2340,6 +2351,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     );
     let _ = writeln!(stats, "{rooms_line}");
     let _ = writeln!(stats, "{dungeons_line}");
+    let _ = writeln!(stats, "{pinned_line}");
     let _ = writeln!(stats, "{buried_line}");
     let _ = writeln!(stats, "{joined_line}");
     let _ = writeln!(stats, "{}", climb.line);
@@ -2466,6 +2478,8 @@ pub fn build(args: &Args) -> Result<u32, String> {
     }
     let _ = writeln!(readme, "The portal overlay's character-creation table (0x0E000002) offers one starting area: see stats.txt.");
     let _ = writeln!(readme, "overlay/places.tsv: AC2's towns and landmarks where AC2's map names them, which Dereth's map shows in place of AC1's notes (on by default; --names off leaves it out).");
+    let _ = writeln!(readme, "overlay/environments.tsv: each AC2 cell mesh, whether a building's rooms or the dungeons are drawn with it, the environment made of it and the surfaces its cells name.");
+    let _ = writeln!(readme, "overlay/creatures.tsv: AC2's creatures, every look of each family, and the setup, motion table, combat table and texture swaps a world's weenie names for each.");
     let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, its cells (its dungeons' among them), its statics or its house restrictions (ac1-removed.tsv).");
     let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv (AC1's dungeon blocks, their cells taken off), dungeons-ac2.tsv (each AC2 dungeon and the AC1 block it lies under), dungeon-cells.tsv (each AC2 dungeon cell's AC1 cell), dungeons-left.tsv (AC2's cells left out, and why), buildings-ac2.tsv (each AC2 building with rooms: where it stands, its rooms, those beyond its block, its first doorway), ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
     for (name, body) in [
@@ -2634,6 +2648,62 @@ fn par_rows<T: Send, F: Fn(usize) -> T + Sync>(n: usize, f: F) -> Vec<T> {
 const WORLD_RULES: &str = "world.toml";
 /// The file in the overlay folder that names the world's towns and landmarks, as Dereth reads it.
 const PLACES: &str = "places.tsv";
+
+/// The ground under a world point as the statics ask for it ([`statics::Under`]): AC2's, the
+/// converted world's as it stands now, whether the converted square has a water corner, and the
+/// square. None off AC2's land or the converted world.
+fn under_of<'a>(
+    g: &'a Ac2Ground,
+    w: &'a DenseWorld,
+) -> impl Fn(f64, f64) -> Option<statics::Under> + 'a {
+    let (step, wside) = (w.grid.spacing(), w.grid.side());
+    // LINT-OK: square indices of a world a few thousand squares wide.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    move |x: f64, y: f64| {
+        let ac2_ground = g.ground(x, y)?;
+        if x < 0.0 || y < 0.0 {
+            return None;
+        }
+        let (i, j) = ((x / step).floor() as usize, (y / step).floor() as usize);
+        if i + 1 >= wside || j + 1 >= wside {
+            return None;
+        }
+        let wet = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)]
+            .iter()
+            .any(|&(a, b)| w.vertex[a * wside + b].water);
+        Some((ac2_ground, w.height_at(x, y, true), wet, (i, j)))
+    }
+}
+
+/// The table of the environment each AC2 cell mesh was made as, in the overlay folder.
+const ENVIRONMENTS: &str = "environments.tsv";
+
+/// `environments.tsv`: a line per AC2 cell mesh and what it was made for (a building's rooms, or
+/// the dungeons), with the environment made and the surfaces its cells name, in order. A mesh
+/// that makes no cell has no line.
+fn environments_table<'a>(
+    rooms: &BTreeMap<u32, Option<rooms::Room>>,
+    dungeons: impl Iterator<Item = (u32, &'a rooms::Room)>,
+) -> String {
+    let mut s = String::from("mesh\tmade_for\tenvironment\tsurfaces\n");
+    let rows = rooms
+        .iter()
+        .filter_map(|(&m, r)| Some((m, "building", r.as_ref()?)))
+        .chain(dungeons.map(|(m, r)| (m, "dungeon", r)));
+    for (mesh, made_for, (env, surfaces, _, _)) in rows {
+        let surfaces: Vec<String> = surfaces
+            .iter()
+            .map(|d| format!("{:08X}", d.raw()))
+            .collect();
+        let _ = writeln!(
+            s,
+            "{mesh:08X}\t{made_for}\t{:08X}\t{}",
+            env.raw(),
+            surfaces.join(" ")
+        );
+    }
+    s
+}
 /// The file in the overlay folder holding the things the world places itself, as Empyrean reads
 /// it: one landblock instance a line, `guid wcid cell x y z qw qx qy qz [links]`, tab-separated.
 const PLACEMENTS: &str = "placements.tsv";
@@ -2928,5 +2998,55 @@ mod tests {
         let (first, land) = build();
         assert!(land > 1000, "the area is land: {land} land vertices");
         assert_eq!(first, build().0);
+    }
+    /// The pedestal AC2 places at 8AB5 (AC1's 7396, static 36): the converted ground under it,
+    /// pinned to AC2's, stands within 0.15 m of AC2's at its origin, nearer than the converted
+    /// triangles alone stood it.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_ground_under_a_placed_static_is_pinned_to_ac2s() {
+        let dir = auberean_dat::testing::require_target_install();
+        // AC2's block 8AB4 and AC1's 7396 share a south-west corner (960 m is six AC2 blocks and
+        // five AC1 blocks), so the area's meters are block 7396's own.
+        let (g, ..) = read_ac2_area(&dir, (0x8A, 0xB4), 2).expect("AC2's ground");
+        let grid = Grid {
+            blocks: 1,
+            cells: 8,
+            cell_len: 24.0,
+            steps: STEPS,
+        };
+        let mut w = DenseWorld::sample(&g, grid);
+        let heights: Vec<f32> = w
+            .vertex
+            .iter()
+            .filter(|v| !v.water)
+            .map(|v| v.exact)
+            .collect();
+        let (t, _) = table::fitted(&heights, MAX_ROUNDING);
+        w.finish(&g, t);
+        // The pedestal's box on the ground, and its origin.
+        let footprint = (63.0, 170.0, 72.5, 180.0);
+        let origin = (67.85, 175.85);
+        let off = |w: &DenseWorld| {
+            w.height_at(origin.0, origin.1, true) - dense::target_at(&g, origin.0, origin.1)
+        };
+        let before = off(&w);
+        let (moved, past_cap) = w.pin_to(&g, &pinned::under(&[footprint]));
+        let after = off(&w);
+        assert!(
+            moved > 0 && past_cap == 0,
+            "{moved} moved, {past_cap} past the cap"
+        );
+        assert!(
+            after.abs() < 0.15,
+            "the ground at its origin is {after:.3} m off AC2's"
+        );
+        assert!(
+            after.abs() < before.abs(),
+            "{before:.3} m off before, {after:.3} m after"
+        );
     }
 }
