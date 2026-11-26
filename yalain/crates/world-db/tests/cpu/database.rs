@@ -442,11 +442,12 @@ fn a_camp_regenerated_by_the_outdoor_rule_is_a_listed_derivation() {
     assert!(messages.is_empty(), "{messages:?}");
 }
 
-/// A camp made for land no recording reached is derived by its rule, the nearest recorded kin's or
-/// the zone's list, both listed rules; a rule the list lacks is refused.
+/// A camp made for land no recording reached is derived by its rule, the nearest recorded kin's,
+/// the zone's list or the zone list's group kinds, all listed rules; a rule the list lacks is
+/// refused.
 #[test]
 fn a_camp_made_for_unrecorded_land_is_derived_by_a_listed_rule() {
-    for rule in ["camp-nearest-kin", "camp-zone-list"] {
+    for rule in ["camp-nearest-kin", "camp-zone-list", "camp-zone-list-group"] {
         let mut files = fixture();
         edit(
             &mut files,
