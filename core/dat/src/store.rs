@@ -561,7 +561,8 @@ impl RetailDatStore {
             let _ = lock.set(h);
             self.highres = lock;
         }
-        self.overlay = Some((dir.clone(), world_key.map(str::to_owned)));
+        // Kept as the folder itself, never what one reading of it opened.
+        self.overlay = Some((dir.fresh(), world_key.map(str::to_owned)));
         Ok(self)
     }
 

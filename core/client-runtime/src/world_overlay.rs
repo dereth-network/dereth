@@ -391,6 +391,8 @@ pub fn lay_folder(
     if dir.containers().is_empty() {
         return (store, None);
     }
+    // Each container opened once for all that is asked of it here.
+    let dir = &dir.opened_once();
     let key = dir.world_key();
     let Some(k) = key else {
         tracing::warn!(

@@ -229,6 +229,21 @@ impl ContainerManifest {
     /// # Errors
     /// Bytes that are not a manifest of this layout.
     pub fn decode(bytes: &[u8]) -> Result<Self, DatError> {
+        Self::decode_with(bytes, true)
+    }
+
+    /// The manifest record, read without its records' hashes ([`Self::hashes`] empty): what an
+    /// overlay is laid over its base by, and checked against it with. A manifest names every
+    /// record of a world's overlay, a hundred thousand and more, and the hashes are wanted only
+    /// by what compares the records. The bytes are checked as [`Self::decode`] checks them.
+    ///
+    /// # Errors
+    /// As [`Self::decode`].
+    pub fn decode_head(bytes: &[u8]) -> Result<Self, DatError> {
+        Self::decode_with(bytes, false)
+    }
+
+    fn decode_with(bytes: &[u8], with_hashes: bool) -> Result<Self, DatError> {
         let mut c = Cursor::new(bytes);
         let magic = c.u32()?;
         let version = c.u32()?;
@@ -251,9 +266,13 @@ impl ContainerManifest {
         };
         let n = c.u32()?;
         let mut hashes = BTreeMap::new();
-        for _ in 0..n {
-            let id = c.u32()?;
-            hashes.insert(id, get_hash(&mut c)?);
+        if with_hashes {
+            for _ in 0..n {
+                let id = c.u32()?;
+                hashes.insert(id, get_hash(&mut c)?);
+            }
+        } else {
+            c.skip(n as usize * 36)?;
         }
         c.expect_end()?;
         Ok(Self {
@@ -556,7 +575,7 @@ impl Layer {
         let path = overlay.path().to_path_buf();
         let manifest = overlay
             .read(MANIFEST)
-            .and_then(|b| ContainerManifest::decode(&b))
+            .and_then(|b| ContainerManifest::decode_head(&b))
             .map_err(|_| OverlayError::NotOverlay(path.clone()))?;
         if let Some(key) = world_key {
             if manifest.world_key != key {
@@ -791,6 +810,9 @@ where
 pub struct OverlayDir {
     dir: PathBuf,
     folder: Arc<dyn DatFolder>,
+    /// Its containers as opened, kept by a copy made for one caller that asks several things of
+    /// the folder as it stands ([`Self::opened_once`]).
+    opened: Option<Arc<std::sync::Mutex<BTreeMap<ModernDat, DatFile>>>>,
 }
 
 /// Two overlay folders are the same folder when they have the same name.
@@ -824,7 +846,33 @@ impl OverlayDir {
         if holds_base {
             return Err(OverlayError::BaseFolder(dir));
         }
-        Ok(Self { dir, folder })
+        Ok(Self {
+            dir,
+            folder,
+            opened: None,
+        })
+    }
+
+    /// This folder, its containers each opened once and kept: for one caller asking several
+    /// things of the folder as it stands now (its world, its bases, its layers), which a large
+    /// world's containers, a hundred thousand records each, make worth opening only once. Never
+    /// kept beyond that caller: a write to the folder afterwards leaves what it opened behind
+    /// ([`Self::fresh`] is the folder again).
+    #[must_use]
+    pub fn opened_once(&self) -> Self {
+        Self {
+            opened: Some(Arc::new(std::sync::Mutex::new(BTreeMap::new()))),
+            ..self.clone()
+        }
+    }
+
+    /// This folder, its containers opened anew whenever they are read.
+    #[must_use]
+    pub fn fresh(&self) -> Self {
+        Self {
+            opened: None,
+            ..self.clone()
+        }
     }
 
     #[must_use]
@@ -855,10 +903,24 @@ impl OverlayDir {
     /// # Errors
     /// No such container, and its read errors.
     pub fn open(&self, target: ModernDat) -> Result<DatFile, DatError> {
-        DatFile::from_storage(
-            self.container(target),
-            self.folder.open(container_name(target))?,
-        )
+        let open = || {
+            DatFile::from_storage(
+                self.container(target),
+                self.folder.open(container_name(target))?,
+            )
+        };
+        let Some(opened) = &self.opened else {
+            return open();
+        };
+        let mut kept = opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(f) = kept.get(&target) {
+            return Ok(f.clone());
+        }
+        let f = open()?;
+        kept.insert(target, f.clone());
+        Ok(f)
     }
 
     /// Remove the overlay container over `target`'s file.
@@ -892,9 +954,11 @@ impl OverlayDir {
         )
     }
 
+    /// The manifest of `target`'s container without its records' hashes
+    /// ([`ContainerManifest::decode_head`]): what the folder is told apart and checked by.
     fn manifest_of(&self, target: ModernDat) -> Option<ContainerManifest> {
         let f = self.open(target).ok()?;
-        ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()
+        ContainerManifest::decode_head(&f.read(MANIFEST).ok()?).ok()
     }
 
     /// The world the folder's overlay belongs to, from the first container that says; `None` for
@@ -1479,6 +1543,117 @@ mod tests {
         assert_eq!(plain.len() + 32, named.len());
         assert_eq!(ContainerManifest::decode(&plain).unwrap(), m);
         assert!(ContainerManifest::decode(b"not a manifest at all").is_err());
+        // Its head alone: everything but the records' hashes, from bytes checked as whole.
+        let head = ContainerManifest::decode_head(&named).unwrap();
+        assert!(head.hashes.is_empty());
+        assert_eq!(
+            ContainerManifest {
+                hashes: m.hashes.clone(),
+                base_records: Some([9; 32]),
+                ..head
+            },
+            ContainerManifest {
+                base_records: Some([9; 32]),
+                ..m.clone()
+            }
+        );
+        assert!(ContainerManifest::decode_head(&named[..named.len() - 1]).is_err());
+        assert!(ContainerManifest::decode_head(b"not a manifest at all").is_err());
+    }
+
+    /// Behaviour: none (an overlay folder read once for several questions)
+    /// An overlay folder opened once answers its world, whether it was made against its base, and
+    /// its layer over the base from one opening of its container; the folder itself opens it
+    /// again for each, and the store laid over it keeps the folder, not what was opened.
+    #[test]
+    fn a_folder_opened_once_opens_its_container_once_for_all_that_is_asked_of_it() {
+        use crate::folder::MemoryFolder;
+        use std::sync::atomic::AtomicUsize;
+        #[derive(Debug)]
+        struct Counting(MemoryFolder, Arc<AtomicUsize>);
+        impl DatFolder for Counting {
+            fn path(&self) -> &Path {
+                self.0.path()
+            }
+            fn is_file(&self, name: &str) -> bool {
+                self.0.is_file(name)
+            }
+            fn open(&self, name: &str) -> std::io::Result<Box<dyn crate::container::DatStorage>> {
+                self.1.fetch_add(1, Ordering::Relaxed);
+                self.0.open(name)
+            }
+            fn open_mut(
+                &self,
+                name: &str,
+            ) -> Result<Box<dyn crate::folder::DatStorageMut>, DatError> {
+                self.0.open_mut(name)
+            }
+            fn create(
+                &self,
+                name: &str,
+            ) -> Result<Box<dyn crate::folder::DatStorageMut>, DatError> {
+                self.0.create(name)
+            }
+            fn remove(&self, name: &str) -> std::io::Result<()> {
+                self.0.remove(name)
+            }
+        }
+        let files = MemoryFolder::new(Path::new("files"));
+        let name = "client_portal.dat";
+        {
+            let mut w = DatWriter::create_in(
+                files.path().join(name),
+                files.create(name).unwrap(),
+                0x400,
+                crate::container::PORTAL_DATFILE,
+                0,
+                0x400 + 0x400 * 64,
+            )
+            .unwrap();
+            w.save(ITERATION_LIST, &crate::iteration::encode(&[1]), 1, 0, 1)
+                .unwrap();
+        }
+        let base =
+            DatFile::from_storage(files.path().join(name), files.open(name).unwrap()).unwrap();
+        let opens = Arc::new(AtomicUsize::new(0));
+        let counting = Arc::new(Counting(
+            MemoryFolder::new(Path::new("overlay")),
+            Arc::clone(&opens),
+        ));
+        {
+            let mut o = OverlayWriter::open_or_create_in(
+                counting.as_ref(),
+                "overlay_portal.dat",
+                &base,
+                name,
+                "a world",
+                1,
+            )
+            .unwrap();
+            o.save(&base, DataId(0x0600_0001), b"world", 1, 2, 1)
+                .unwrap();
+            o.flush(1).unwrap();
+        }
+        let dir = OverlayDir::in_folder(counting).unwrap();
+        let ask = |d: &OverlayDir| {
+            assert_eq!(d.world_key().as_deref(), Some("a world"));
+            assert_eq!(d.made_against(ModernDat::Portal, &base), Some(true));
+            assert!(d
+                .layer_over(ModernDat::Portal, &base, Some("a world"))
+                .unwrap()
+                .is_some());
+        };
+        opens.store(0, Ordering::Relaxed);
+        ask(&dir.opened_once());
+        assert_eq!(opens.load(Ordering::Relaxed), 1, "opened once");
+        opens.store(0, Ordering::Relaxed);
+        ask(&dir);
+        assert_eq!(
+            opens.load(Ordering::Relaxed),
+            3,
+            "the folder itself opens it each time"
+        );
+        assert!(dir.opened_once().fresh().opened.is_none());
     }
 
     /// Behaviour: none (the overlay writer's save rule under its own deletions)

@@ -33,6 +33,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - New "New Dereth only" filter for models and weenies.
 - The map is cropped to the world's land, as in game.
 - Spawns placed in rooms land on the floor, and the check finds ones that don't.
+- Painting and shaping terrain is much faster on a large world like New Dereth.
 
 ## 0.2.8 (2026-11-23)
 

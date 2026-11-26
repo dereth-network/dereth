@@ -771,7 +771,10 @@ impl DatWriter {
         if head == 0 {
             return Ok(0);
         }
-        let mut freed = 0u32;
+        // The chain walked first, then each run of blocks that lie one after another marked free
+        // in one read and one write: a large record's chain frees many blocks, and a write of a
+        // few bytes each would cost a call to the storage for every one of them.
+        let mut chain: Vec<(u32, u32)> = Vec::new();
         let mut cur = head;
         let tail;
         loop {
@@ -779,14 +782,35 @@ impl DatWriter {
             if !allow_free && link & FREE_BIT != 0 {
                 return Err(DatError::DoubleFree(cur));
             }
-            self.write_link(cur, link | FREE_BIT)?;
-            freed += 1;
+            chain.push((cur, link | FREE_BIT));
             let next = link & !FREE_BIT;
             if next == 0 {
                 tail = cur;
                 break;
             }
             cur = next;
+        }
+        let freed = u32::try_from(chain.len()).unwrap_or(u32::MAX);
+        let bs = self.header.block_size;
+        let mut at = 0;
+        while at < chain.len() {
+            let mut end = at + 1;
+            while end < chain.len() && chain[end].0 == chain[end - 1].0.wrapping_add(bs) {
+                end += 1;
+            }
+            if end - at == 1 {
+                self.write_link(chain[at].0, chain[at].1)?;
+            } else {
+                let first = chain[at].0;
+                let mut run = vec![0u8; (end - at) * bs as usize];
+                self.read_at(u64::from(first), &mut run)?;
+                for (k, (_, link)) in chain[at..end].iter().enumerate() {
+                    let o = k * bs as usize;
+                    run[o..o + 4].copy_from_slice(&link.to_le_bytes());
+                }
+                self.write_at(u64::from(first), &run)?;
+            }
+            at = end;
         }
         let old_tail = self.header.free_tail;
         self.write_link(old_tail, head | FREE_BIT)?;

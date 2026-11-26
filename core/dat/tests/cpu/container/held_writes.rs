@@ -151,3 +151,34 @@ fn the_header_still_reaches_the_storage_before_a_records_last_block() {
         "chain, header, last block: {writes:x?}"
     );
 }
+
+/// A record about a thousand blocks long replaced by another frees its chain in a handful of
+/// writes, not one for each block, and the blocks it freed take the next record, which reads back
+/// whole through the writer and through an ordinary reader.
+#[test]
+fn a_long_records_chain_is_freed_in_a_handful_of_writes() {
+    let (storage, mut w) = made();
+    let first = payload(1 << 18);
+    w.save(ID, &first, 1, 1, 7).unwrap();
+    let before = storage.0.lock().unwrap().writes.len();
+    let second: Vec<u8> = first.iter().rev().copied().collect();
+    w.save(ID, &second, 1, 2, 7).unwrap();
+    let writes = storage.0.lock().unwrap().writes.len() - before;
+    assert!(
+        writes <= 24,
+        "{writes} writes to replace a record of about a thousand blocks"
+    );
+    let other = DataId(ID.raw() + 1);
+    let third = payload(1 << 17);
+    w.save(other, &third, 1, 1, 7).unwrap();
+    assert_eq!(w.read(ID).unwrap(), second);
+    assert_eq!(w.read(other).unwrap(), third);
+    drop(w);
+    let file = DatFile::from_storage(PathBuf::from("held.dat"), Box::new(storage)).unwrap();
+    assert_eq!(
+        file.read(ID).unwrap(),
+        second,
+        "an ordinary reader reads it"
+    );
+    assert_eq!(file.read(other).unwrap(), third);
+}

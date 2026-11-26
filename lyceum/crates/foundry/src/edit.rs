@@ -3013,13 +3013,13 @@ impl Session {
     /// setup each is drawn with when the session knows it.
     #[must_use]
     pub fn spawns(&self) -> Vec<Spawn> {
-        let classes = self.pack_classes();
-        let mut out = self.pack_spawns(&classes);
+        let classes = self.pack_class_facts();
+        let mut out = self.pack_spawns(classes);
         // The server's own in the landblocks shown, but those a pack writes again or takes away.
         let taken = self.server_taken();
         for lb in &self.shown {
             for i in self.retail_instances.get(lb).into_iter().flatten() {
-                out.extend(self.server_spawn(*lb, i, &taken, &classes));
+                out.extend(self.server_spawn(*lb, i, &taken, classes));
             }
         }
         out
@@ -3077,9 +3077,9 @@ impl Session {
         let mut setups: BTreeMap<String, u32> = BTreeMap::new();
         for p in &self.packs {
             for f in &p.sql {
-                for (w, s) in sql_ids::weenie_setups(&f.text) {
-                    if let Some(sym) = token_symbol(&p.name, &w) {
-                        setups.insert(sym, s);
+                for (w, s) in f.weenie_setups() {
+                    if let Some(sym) = token_symbol(&p.name, w) {
+                        setups.insert(sym, *s);
                     }
                 }
             }
@@ -3087,7 +3087,7 @@ impl Session {
         let mut out = Vec::new();
         for (pi, p) in self.packs.iter().enumerate() {
             for f in &p.sql {
-                for i in sql_ids::instances(&f.text) {
+                for i in f.instances() {
                     let setup = match token_symbol(&p.name, &i.weenie) {
                         Some(sym) => setups.get(&sym).copied(),
                         None => {
@@ -3110,8 +3110,8 @@ impl Session {
                     out.push(Spawn {
                         pack: pi,
                         file: f.path.clone(),
-                        guid: i.guid,
-                        weenie: i.weenie,
+                        guid: i.guid.clone(),
+                        weenie: i.weenie.clone(),
                         cell,
                         frame: Frame::new(
                             Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
@@ -3143,12 +3143,12 @@ impl Session {
         for p in &self.packs {
             for f in &p.sql {
                 taken.extend(
-                    sql_ids::instances(&f.text)
+                    f.instances()
                         .iter()
                         .filter_map(|i| sql_ids::number(&i.guid)),
                 );
                 taken.extend(
-                    sql_ids::deleted_instances(&f.text)
+                    f.deleted_instances()
                         .iter()
                         .filter_map(|g| sql_ids::number(g)),
                 );
@@ -3639,12 +3639,15 @@ impl Session {
 
     /// Put `texts` in place of the files' texts, and read them into the target pack again.
     fn set_texts(&mut self, texts: &BTreeMap<PathBuf, Option<String>>) -> Result<(), Error> {
-        self.weenie_files = std::cell::OnceCell::new();
         let sql_dir = self.pack_dir().join("server").join("sql");
-        self.pack_loot = std::cell::OnceCell::new();
-        self.link_table = std::cell::OnceCell::new();
-        self.pack_class_facts = std::cell::OnceCell::new();
-        self.pack_weenie_facts = std::cell::OnceCell::new();
+        // What is read of the packs' SQL is read again only when it changes: a landblock's own
+        // edits (a stroke of the terrain brush) change none of it.
+        if texts
+            .keys()
+            .any(|p| p.starts_with(&sql_dir) || self.is_rows(p))
+        {
+            self.invalidate();
+        }
         for (path, text) in texts {
             self.sources.put(&DiskStore, path, text.clone());
             if self.is_rows(path) {
@@ -3665,11 +3668,7 @@ impl Session {
                 let sql = &mut self.packs[self.target].sql;
                 sql.retain(|f| f.path != *path);
                 if let Some(text) = text {
-                    sql.push(SqlFile {
-                        rel,
-                        path: path.clone(),
-                        text: text.clone(),
-                    });
+                    sql.push(SqlFile::new(rel, path.clone(), text.clone()));
                     sql.sort_by_key(|f| {
                         f.rel
                             .components()

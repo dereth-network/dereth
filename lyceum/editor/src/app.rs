@@ -277,6 +277,18 @@ fn world_models(session: &Session) -> Vec<DataId> {
     all.into_iter().collect()
 }
 
+/// An edit that reached `touched` gathered into the write waiting (`queued`), with whether the
+/// world is checked later, as the latest edit says: one write then reaches every edit made while
+/// another went on.
+fn gather(queued: &mut Option<(Touched, bool)>, touched: &Touched, checks_later: bool) {
+    let (all, later) = queued.get_or_insert_with(Default::default);
+    all.landblocks.extend(touched.landblocks.iter().copied());
+    all.sql |= touched.sql;
+    all.rows |= touched.rows;
+    all.tables |= touched.tables;
+    *later = checks_later;
+}
+
 /// What is selected.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Selection {
@@ -625,7 +637,7 @@ pub struct Stats {
 #[derive(Debug)]
 struct InFlight {
     thread: std::thread::JoinHandle<
-        Result<(usize, lyceum_foundry::scratch::Written), lyceum_foundry::error::Error>,
+        Result<lyceum_foundry::scratch::Done, lyceum_foundry::error::Error>,
     >,
     touched: Touched,
     checks_later: bool,
@@ -662,6 +674,9 @@ pub struct EditorApp {
     /// window, where the frame never waits on one; off screen, where each is done before the next
     /// step, they do not.
     writing: Option<InFlight>,
+    /// What the edits made while a write went on reached, written once it is done: one write for
+    /// them all, however many a stroke makes meanwhile; and whether the world is checked later.
+    queued: Option<(Touched, bool)>,
     pub write_off_frame: bool,
     pub models: Models,
     /// The model the place tool places.
@@ -1187,6 +1202,7 @@ impl EditorApp {
             stroke: false,
             dabbing: false,
             writing: None,
+            queued: None,
             write_off_frame: !args.headless,
             checks_due: false,
             models: Models::default(),
@@ -1776,13 +1792,35 @@ impl EditorApp {
                 }
             }
         }
-        // A write begun before is finished first: the folders take turns.
+        let checks_later = self.dabbing;
+        // A write still going on takes this edit after it, with every other edit made meanwhile:
+        // the folders take turns, and the next write reaches them all at once.
+        if self.write_off_frame
+            && self
+                .writing
+                .as_ref()
+                .is_some_and(|w| !w.thread.is_finished())
+        {
+            gather(&mut self.queued, touched, checks_later);
+            return Ok(());
+        }
+        // A write begun before is finished first, and anything left waiting goes with this one.
         self.finish_write(true)?;
+        gather(&mut self.queued, touched, checks_later);
+        let (all, later) = self.queued.take().unwrap_or_default();
+        self.start_write(&all, later)
+    }
+
+    /// Write the scratch overlay up to the edits that reached `touched`: on a thread of its own
+    /// ([`Self::write_off_frame`]), else now.
+    ///
+    /// # Errors
+    /// An overlay that will not write or open.
+    fn start_write(&mut self, touched: &Touched, checks_later: bool) -> Result<(), String> {
         let writing = self
             .scratch
             .begin(&self.session, &touched.landblocks)
             .map_err(|e| e.to_string())?;
-        let checks_later = self.dabbing;
         if self.write_off_frame {
             // Written on a thread of its own; the world is built again from it once it is done,
             // a frame or two later.
@@ -1807,22 +1845,29 @@ impl EditorApp {
     /// # Errors
     /// The write's, or a store that will not open.
     pub fn finish_write(&mut self, wait: bool) -> Result<(), String> {
-        if !self
-            .writing
-            .as_ref()
-            .is_some_and(|w| wait || w.thread.is_finished())
-        {
-            return Ok(());
+        loop {
+            if !self
+                .writing
+                .as_ref()
+                .is_some_and(|w| wait || w.thread.is_finished())
+            {
+                return Ok(());
+            }
+            let Some(w) = self.writing.take() else {
+                return Ok(());
+            };
+            let done = w.thread.join().unwrap_or_else(|_| {
+                Err(lyceum_foundry::error::Error::Dat(
+                    "the overlay's write stopped".into(),
+                ))
+            });
+            self.written(done, &w.touched, w.checks_later)?;
+            // The edits made while it was written, written together now.
+            let Some((touched, later)) = self.queued.take() else {
+                return Ok(());
+            };
+            self.start_write(&touched, later)?;
         }
-        let Some(w) = self.writing.take() else {
-            return Ok(());
-        };
-        let done = w.thread.join().unwrap_or_else(|_| {
-            Err(lyceum_foundry::error::Error::Dat(
-                "the overlay's write stopped".into(),
-            ))
-        });
-        self.written(done, &w.touched, w.checks_later)
     }
 
     /// The rest of a reload once the scratch overlay is written: the store laid over it, the
@@ -1830,7 +1875,7 @@ impl EditorApp {
     /// stroke ends).
     fn written(
         &mut self,
-        done: Result<(usize, lyceum_foundry::scratch::Written), lyceum_foundry::error::Error>,
+        done: Result<lyceum_foundry::scratch::Done, lyceum_foundry::error::Error>,
         touched: &Touched,
         checks_later: bool,
     ) -> Result<(), String> {
@@ -5511,6 +5556,29 @@ mod tests {
 
     fn key(guid: &str) -> (PathBuf, String) {
         (PathBuf::from("landblock/0101.toml"), guid.to_owned())
+    }
+
+    /// Edits made while a write of the overlay goes on are gathered into one write: every
+    /// landblock any reached, SQL if any changed it, and checked later as the last says.
+    #[test]
+    fn the_edits_made_while_a_write_goes_on_make_one_write() {
+        let edit = |lbs: &[u16], sql: bool| Touched {
+            landblocks: lbs.iter().copied().collect(),
+            sql,
+            ..Touched::default()
+        };
+        let mut queued = None;
+        gather(&mut queued, &edit(&[0x6498], false), true);
+        gather(&mut queued, &edit(&[0x6498, 0x6499], false), true);
+        gather(&mut queued, &edit(&[0x6598], true), false);
+        let (all, later) = queued.take().expect("one write waiting");
+        assert_eq!(
+            all.landblocks.into_iter().collect::<Vec<_>>(),
+            [0x6498, 0x6499, 0x6598]
+        );
+        assert!(all.sql);
+        assert!(!later, "the last edit's word");
+        assert!(queued.is_none());
     }
 
     /// On a world repository that numbers its own classes, its own weenies are those classes and

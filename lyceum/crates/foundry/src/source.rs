@@ -578,13 +578,53 @@ impl LandblockEdits {
     }
 }
 
-/// One SQL file.
+/// One SQL file, and what is read of its text, read once and kept with it: a file whose text
+/// changes is a new one.
 #[derive(Clone, Debug)]
 pub struct SqlFile {
     /// Its path under `server/sql`.
     pub rel: PathBuf,
     pub path: PathBuf,
     pub text: String,
+    instances: std::cell::OnceCell<Vec<crate::sql_ids::Instance>>,
+    setups: std::cell::OnceCell<Vec<(String, u32)>>,
+    deleted: std::cell::OnceCell<Vec<String>>,
+}
+
+impl SqlFile {
+    /// The file at `path`, `rel` under `server/sql`, holding `text`.
+    #[must_use]
+    pub fn new(rel: PathBuf, path: PathBuf, text: String) -> Self {
+        Self {
+            rel,
+            path,
+            text,
+            instances: std::cell::OnceCell::new(),
+            setups: std::cell::OnceCell::new(),
+            deleted: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// The instances its text places ([`crate::sql_ids::instances`]).
+    #[must_use]
+    pub fn instances(&self) -> &[crate::sql_ids::Instance] {
+        self.instances
+            .get_or_init(|| crate::sql_ids::instances(&self.text))
+    }
+
+    /// The setups its text gives weenies ([`crate::sql_ids::weenie_setups`]).
+    #[must_use]
+    pub fn weenie_setups(&self) -> &[(String, u32)] {
+        self.setups
+            .get_or_init(|| crate::sql_ids::weenie_setups(&self.text))
+    }
+
+    /// The instances its text takes away ([`crate::sql_ids::deleted_instances`]).
+    #[must_use]
+    pub fn deleted_instances(&self) -> &[String] {
+        self.deleted
+            .get_or_init(|| crate::sql_ids::deleted_instances(&self.text))
+    }
 }
 
 #[derive(Deserialize)]
@@ -2111,7 +2151,7 @@ pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
     pack.edits.sort_by_key(|e| e.landblock);
     for (rel, path) in sql_files(&dir.join("server").join("sql"))? {
         let text = read_text(&path)?;
-        pack.sql.push(SqlFile { rel, path, text });
+        pack.sql.push(SqlFile::new(rel, path, text));
     }
     Ok(pack)
 }

@@ -14,6 +14,9 @@
 //! a whole write of the same deletions is made a copy of it instead, and then written as any
 //! other: the landblocks edited since are put in. A whole write of a large world (a converted
 //! land's) takes seconds; a copy does not.
+//!
+//! Each folder's writer stays open from one of its writes to the next, so its manifest, which
+//! names every record of a large world, is read once rather than at every edit.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -39,17 +42,19 @@ pub struct Written {
     pub kept: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Folder {
     dir: PathBuf,
     /// Whether the folder holds a whole write yet.
     written: bool,
     /// The landblocks edited since it was last written.
     pending: BTreeSet<u16>,
+    /// Its cell container's writer, as its last write left it: kept for its next.
+    writer: Option<OverlayWriter>,
 }
 
 /// The two folders of an editor's scratch overlay.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Scratch {
     folders: [Folder; 2],
     /// The folder written last: the one the drawn store reads.
@@ -68,6 +73,7 @@ impl Scratch {
             dir: root.join(name),
             written: false,
             pending: BTreeSet::new(),
+            writer: None,
         };
         let mut me = Self {
             folders: [folder("overlay-a"), folder("overlay-b")],
@@ -78,6 +84,7 @@ impl Scratch {
         let written = me.finish(writing.run())?;
         // The other folder made a copy now, so that the first edit doesn't write it whole.
         let other = 1 - me.current;
+        me.folders[other].writer = None;
         copy_folder(&me.folders[me.current].dir, &me.folders[other].dir)?;
         me.folders[other].written = true;
         Ok((me, written))
@@ -88,6 +95,7 @@ impl Scratch {
     pub fn invalidate(&mut self) {
         for f in &mut self.folders {
             f.written = false;
+            f.writer = None;
         }
     }
 
@@ -126,6 +134,7 @@ impl Scratch {
         {
             // The folder the store reads holds a whole write: the other starts as its copy, and
             // takes the landblocks edited since it was written (all of them: it never was).
+            self.folders[which].writer = None;
             copy_folder(&self.folders[self.current].dir, &self.folders[which].dir)?;
             self.folders[which].written = true;
         }
@@ -141,6 +150,7 @@ impl Scratch {
         };
         if whole {
             // Rare (a folder's first write): written whole now.
+            self.folders[which].writer = None;
             session.write_scratch(&dir)?;
             self.folders[which].written = true;
             self.tombstones.clone_from(tombstones);
@@ -163,13 +173,16 @@ impl Scratch {
         };
         let revision = decompose::revision_over(file);
         let path = dir.join(container_name(ModernDat::Cell));
-        let w = OverlayWriter::open_or_create(
-            &path,
-            file,
-            ModernDat::Cell.file_name(),
-            &session.world().key,
-            0,
-        )?;
+        let w = match self.folders[which].writer.take() {
+            Some(w) => w,
+            None => OverlayWriter::open_or_create(
+                &path,
+                file,
+                ModernDat::Cell.file_name(),
+                &session.world().key,
+                0,
+            )?,
+        };
         written.dir = dir;
         Ok(Writing {
             which,
@@ -188,9 +201,14 @@ impl Scratch {
     ///
     /// # Errors
     /// The write's own.
-    pub fn finish(&mut self, done: Result<(usize, Written), Error>) -> Result<Written, Error> {
-        let (which, written) = done?;
+    pub fn finish(&mut self, done: Result<Done, Error>) -> Result<Written, Error> {
+        let Done {
+            which,
+            written,
+            writer,
+        } = done?;
         self.current = which;
+        self.folders[which].writer = writer;
         Ok(written)
     }
 }
@@ -220,6 +238,15 @@ fn copy_folder(from: &Path, to: &Path) -> Result<(), Error> {
         std::fs::copy(&path, &dest).map_err(|e| Error::io(&dest, e))?;
     }
     Ok(())
+}
+
+/// A write [`Writing::run`] did, for [`Scratch::finish`]: its folder, what it wrote, and the
+/// folder's writer, kept for its next write.
+#[derive(Debug)]
+pub struct Done {
+    which: usize,
+    written: Written,
+    writer: Option<OverlayWriter>,
 }
 
 /// A write of a scratch folder [`Scratch::begin`] began.
@@ -256,10 +283,16 @@ impl Writing {
     ///
     /// # Errors
     /// The writer's errors.
-    pub fn run(self) -> Result<(usize, Written), Error> {
+    pub fn run(self) -> Result<Done, Error> {
         let which = self.which;
         let p = match self.work {
-            Work::Done(w) => return Ok((which, w)),
+            Work::Done(written) => {
+                return Ok(Done {
+                    which,
+                    written,
+                    writer: None,
+                })
+            }
             Work::Puts(p) => *p,
         };
         let Puts {
@@ -304,10 +337,17 @@ impl Writing {
         w.flush(0)?;
         // A container left holding nothing of the world's is one a whole write would not make.
         let empty = w.manifest().hashes.is_empty() && w.tombstones().is_empty();
-        drop(w);
-        if empty {
+        let writer = if empty {
+            drop(w);
             std::fs::remove_file(&path).map_err(|e| Error::io(&path, e))?;
-        }
-        Ok((which, written))
+            None
+        } else {
+            Some(w)
+        };
+        Ok(Done {
+            which,
+            written,
+            writer,
+        })
     }
 }
