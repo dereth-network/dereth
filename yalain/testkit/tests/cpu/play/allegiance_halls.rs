@@ -118,7 +118,7 @@ fn hall_world(money: u32, permitted: bool) -> (Harness, usize, u64, usize, u64) 
                 key: "ondekodo".into(),
                 stone: 0,
                 place: HALL,
-                name: "dng_lug_allegiancerecall4".into(),
+                name: "dng_test_allegiancerecall1".into(),
                 cost: COST,
             }],
         },
@@ -264,13 +264,13 @@ fn a_monarch_binds_its_allegiance_at_a_halls_stone_and_a_vassal_recalls_there() 
     let kept = h.server.allegiances.to_bytes();
     let read = yalain_world::allegiance::Allegiances::from_bytes(&kept).expect("reads");
     let hall = read.hall_of(vassal).expect("kept for the whole allegiance");
-    assert_eq!(hall.name, "dng_lug_allegiancerecall4");
+    assert_eq!(hall.name, "dng_test_allegiancerecall1");
     assert_eq!(hall.place.cell, HALL.cell);
 
     let from = recall(&mut h, b);
     assert_eq!(landed(&h, b, from, vassal), Some(HALL.cell), "to the hall");
     assert!(texts(&h, b, from).contains(&RECALLED));
-    assert_eq!(exported_hall(&mut h, a), "dng_lug_allegiancerecall4");
+    assert_eq!(exported_hall(&mut h, a), "dng_test_allegiancerecall1");
 }
 
 /// The hall the allegiance's tree export names, as the monarch asks for it.
@@ -369,7 +369,7 @@ fn an_allegiances_bound_hall_is_kept_and_an_older_record_reads_with_none() {
     let read = Allegiances::from_bytes(&older).expect("an older record reads");
     assert!(read.charters.get(&7).is_some_and(|c| c.hall.is_none()));
     all.charter_mut(7).hall = Some(BoundHall {
-        name: "dng_lug_allegiancerecall4".into(),
+        name: "dng_test_allegiancerecall1".into(),
         place: yalain_store::StoredPosition {
             cell: HALL.cell,
             origin: HALL.origin,
@@ -379,5 +379,5 @@ fn an_allegiances_bound_hall_is_kept_and_an_older_record_reads_with_none() {
     let read = Allegiances::from_bytes(&all.to_bytes()).expect("reads");
     let hall = read.hall_of(8).expect("its monarch's");
     assert_eq!(hall.place.origin, HALL.origin);
-    assert_eq!(hall.name, "dng_lug_allegiancerecall4");
+    assert_eq!(hall.name, "dng_test_allegiancerecall1");
 }
