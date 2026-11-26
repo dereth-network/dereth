@@ -537,7 +537,12 @@ fn use_thing<S: Store>(
             }
             let done = use_done(&u, me, USE_FLAGS_ATTACK, false, distance);
             send(net, world, BlobKind::PRIVATE, &done);
-            crate::combat::begin(s, net, world, u.item, clock);
+            // In the attack state left up for a special queued behind it, the special goes next
+            // and no attack begins (2017: of 81 creatures used so whose special ran, none swung
+            // at before it nor after it until the state was lowered).
+            if !crate::skill_use::raised_for_queued(s, world) {
+                crate::combat::begin(s, net, world, u.item, clock);
+            }
         }
     }
 }

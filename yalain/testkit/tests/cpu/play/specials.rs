@@ -3512,8 +3512,8 @@ fn a_use_held_for_a_special_is_dropped_at_a_death() {
 }
 
 /// A special asked behind one from rest that holds a use, one its start would let go, is never cut:
-/// in the end's tick the skill's information, not attacking, peace, the held use goes ahead, and
-/// then the special asked behind it begins from rest, its story after.
+/// in the end's tick the skill's information and the held use goes ahead, the attack state neither
+/// lowered nor raised again, and then the special asked behind it begins, its story after.
 /// Behaviour: server.specials.held-use-goes-before-the-special-asked-behind
 #[test]
 fn a_special_asked_behind_a_held_use_begins_after_the_use_uncut() {
@@ -3526,14 +3526,8 @@ fn a_special_asked_behind_a_held_use_begins_after_the_use_uncut() {
     assert!(using(&h, me), "the special goes on");
     let ticks = held_use_ticks(&mut h, b, me, 120);
     assert_eq!(
-        ticks
-            .first()
-            .map(|t| t.iter().take(5).cloned().collect::<Vec<_>>()),
-        Some(
-            ["information", "lowered", "peace", "butchering", "raised"]
-                .map(String::from)
-                .to_vec()
-        ),
+        ticks.first().map(Vec::as_slice),
+        Some(&["information", "butchering"].map(String::from)[..]),
         "the end's tick: {ticks:?}"
     );
     assert!(
@@ -3541,6 +3535,66 @@ fn a_special_asked_behind_a_held_use_begins_after_the_use_uncut() {
         "nothing refused or cut: {ticks:?}"
     );
     assert!(told_story(&h, b, start, me, 7), "the one behind begins");
+}
+
+/// A creature used while a special from rest is under way, with another special asked behind that
+/// one: as the first ends, the skill's information and the use answered, and the attack state is
+/// neither lowered nor raised again; no attack on the creature begins; the special asked behind
+/// begins in that state, its story told, and the state is lowered only as it ends.
+/// Behaviour: server.specials.queued-special-keeps-the-attack-state-up
+#[test]
+fn a_special_queued_behind_a_held_use_starts_in_the_attack_state_left_up() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    deadeye_recovers_at_once(&mut h);
+    deadeye_told(&mut h, b, me, beetle);
+    ask_use(&mut h, b, me, 0, beetle);
+    let start = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(4);
+    assert!(using(&h, me), "the special goes on");
+    let mut ticks = Vec::new();
+    let mut told = false;
+    for _ in 0..400 {
+        let from = h.bots[b].inbox.len();
+        h.step();
+        let tick = held_use_named(&h, b, from, me);
+        if !tick.is_empty() {
+            ticks.push(tick);
+        }
+        if !told && told_story(&h, b, start, me, 7) {
+            told = true;
+            assert!(
+                h.server
+                    .players
+                    .values()
+                    .find(|p| p.character == me)
+                    .is_some_and(|p| p.attacking.is_none()),
+                "no attack on the creature begun"
+            );
+        }
+        if ticks.len() > 1 {
+            break;
+        }
+    }
+    assert!(told, "the one behind begins: {ticks:?}");
+    assert_eq!(
+        ticks.first().map(Vec::as_slice),
+        Some(&["information", "done 0"].map(String::from)[..]),
+        "the first special's end: {ticks:?}"
+    );
+    assert_eq!(
+        ticks.get(1).map(Vec::as_slice),
+        Some(&["information", "lowered", "peace"].map(String::from)[..]),
+        "lowered only as the one behind ends: {ticks:?}"
+    );
+    assert!(
+        !ticks
+            .iter()
+            .flatten()
+            .any(|t| t == "raised" || t == "refused"),
+        "never raised again, nothing refused: {ticks:?}"
+    );
 }
 
 /// A special asked behind one from rest that holds a use, one its start would refuse (its skill

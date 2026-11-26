@@ -20473,6 +20473,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.queued-special-keeps-the-attack-state-up",
+        says: "A special from rest that holds a use, with a special asked behind it that would go, \
+               leaves the attack state up as it ends: its skill information, the held use goes \
+               ahead (a creature used is answered and no attack on it begins), and the special \
+               asked behind begins with the state neither lowered nor raised again. It is lowered \
+               as that one ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEUED-SPECIAL-KEEPS-ATTACK-STATE"),
+        station: "yalain-testkit::cpu::play::specials::a_special_queued_behind_a_held_use_starts_in_the_attack_state_left_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.range-between-bodies",
         says: "A skill's range is measured between the bodies, each a cylinder of its look's \
                radius and height: too far beyond its greatest range, too close within its least.",
@@ -20542,7 +20554,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.specials.use-held-for-a-special",
         says: "A use of an object asked while a special from rest is under way past its story is \
                held, nothing sent, and goes ahead as the special ends, in that tick after its \
-               skill information, not attacking and peace. A second use asked while one is held \
+               skill information, not attacking and peace (the attack state left up instead when \
+               a special asked behind would go). A second use asked while one is held \
                is refused at once as the player's actions are locked. With no special under way a \
                use goes ahead at once.",
         since: RETAIL,

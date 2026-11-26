@@ -199,6 +199,9 @@ pub struct Player {
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
     pub in_run: Option<crate::skill_use::Request>,
+    /// The attack state left up as a special from rest ended, for the special queued behind it:
+    /// the use held for the one that ended goes ahead in it, and the queued one starts in it.
+    pub raised_for_queued: bool,
     /// How fast it may talk, once it has, and when it was last told it is past that.
     pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
     /// How fast it may put questions to other players, once it has.
@@ -578,6 +581,7 @@ pub fn enter<S: Store>(
         uses: 0,
         queued: None,
         in_run: None,
+        raised_for_queued: false,
         last_used: std::collections::HashMap::new(),
         use_over: None,
         talk: None,

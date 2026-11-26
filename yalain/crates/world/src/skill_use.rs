@@ -1635,13 +1635,32 @@ pub fn starts<S: Store>(
     r: Request,
     clock: Clock,
 ) {
+    start_in(s, net, world, r, false, clock);
+}
+
+/// A use begins as [`starts`], or, `raised`, in the attack state left up for it: not raised again
+/// nor its mode set, and refused, over and why, then lowered.
+fn start_in<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    r: Request,
+    raised: bool,
+    clock: Clock,
+) {
     if toggles_off(s, net, world, r) {
         return;
     }
     let u = match check(s, net, world, r, clock) {
         Ok(u) => u,
         Err(err) => {
-            refuse(s, net, world, r, err);
+            if raised {
+                progress::private(net, world, &ended(r.id));
+                progress::private(net, world, &refused(err, r.target, r.skill));
+                combat::lowered(s, net, world, None);
+            } else {
+                refuse(s, net, world, r, err);
+            }
             // A follow ends at the refusal (2017: 32 of 32 uses refused inside a follow).
             crate::follow::stop(s, net, world);
             return;
@@ -1656,10 +1675,14 @@ pub fn starts<S: Store>(
     };
     let me = p.character;
     let mode = player_mode(s, me);
-    progress::private(net, world, &combat::attack_state(true));
+    if !raised {
+        progress::private(net, world, &combat::attack_state(true));
+    }
     // Attacking ends a lifestone protection, before the use's mode.
     crate::effects::unprotect(s, net, world, |_, _| {});
-    combat::set_player_mode(s, net, world, mode);
+    if !raised {
+        combat::set_player_mode(s, net, world, mode);
+    }
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     // The player walks into the skill's reach of its target when the skill says so, or is turned
@@ -3285,6 +3308,8 @@ fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
 /// unused; a recall's start of the wait every skill shares), and, used from rest, the player not
 /// attacking and at peace, stopped where the use turned or walked it ([`stops_before_lowering`]);
 /// inside a run, the run's next swing. A held use goes ahead, then a request waiting is taken up.
+/// One from rest that held a use, with a special queued behind it that would go, leaves the
+/// attack state up for that one ([`queued_checked_for_held_use`]).
 fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let now_game = net.game_time(clock.local);
     let Some(p) = s.players.get_mut(&world) else {
@@ -3385,9 +3410,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     }
     let me = p.character;
     if x.alone {
-        if x.held_use.is_some() {
-            queued_checked_for_held_use(s, net, world, clock);
-        }
+        let keeps = x.held_use.is_some() && queued_checked_for_held_use(s, net, world, clock);
         // A use that gave the player no order ends a follow as it is over, the follow's stop in
         // place of the player's own: the stop sent before the attack state is lowered, the player
         // told after the peace (2017: of 156 such uses inside a follow, 129 ended it in the tick of
@@ -3400,8 +3423,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
         if first {
             stop_at_end(s, net, world, me);
         }
-        progress::private(net, world, &combat::attack_state(false));
-        combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        lowered_unless_kept(s, net, world, keeps);
         if stops && !first {
             stop_at_end(s, net, world, me);
         }
@@ -3452,22 +3474,53 @@ fn recall_protects<S: Store>(
     to_all_seeing(s, net, me, &glow);
 }
 
-/// A request that waited is taken up as the use before it, or the run it waited on, ends.
+/// A request that waited is taken up as the use before it, or the run it waited on, ends: in the
+/// attack state left up for it, when it was; with nothing left to take up, that state is lowered.
 pub(crate) fn take_up_waiting<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     clock: Clock,
 ) {
+    let raised = s
+        .players
+        .get_mut(&world)
+        .is_some_and(|p| std::mem::take(&mut p.raised_for_queued));
+    let attacking = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
     if let Some(next) = s.players.get_mut(&world).and_then(|p| p.queued.take()) {
-        let attacking = s.players.get(&world).is_some_and(|p| p.attacking.is_some());
         if attacking {
             if let Some(p) = s.players.get_mut(&world) {
                 p.in_run = Some(next);
             }
         } else {
-            starts(s, net, world, next, clock);
+            start_in(s, net, world, next, raised, clock);
         }
+    } else if raised && !attacking {
+        combat::lowered(s, net, world, None);
+    }
+}
+
+/// Is the attack state left up for a special queued behind a held use, while that use goes ahead?
+#[must_use]
+pub fn raised_for_queued<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| p.raised_for_queued)
+}
+
+/// A use from rest is over: the player not attacking and at peace, or, `kept`, the attack state left
+/// up for the special queued behind it.
+fn lowered_unless_kept<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kept: bool,
+) {
+    if kept {
+        if let Some(p) = s.players.get_mut(&world) {
+            p.raised_for_queued = true;
+        }
+    } else {
+        progress::private(net, world, &combat::attack_state(false));
+        combat::set_player_mode(s, net, world, combat::mode::PEACE);
     }
 }
 
@@ -3528,9 +3581,8 @@ fn turns_on<S: Store>(
     let followed = x.alone && crate::follow::order_stopped(s, net, world);
     progress::private(net, world, &crate::effects::toggle_call(true, x.req.skill));
     skill_info(s, net, world, x, now_game, TOGGLED_ON);
-    if x.alone && x.held_use.is_some() {
-        queued_checked_for_held_use(s, net, world, clock);
-    }
+    let keeps =
+        x.alone && x.held_use.is_some() && queued_checked_for_held_use(s, net, world, clock);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -3541,10 +3593,7 @@ fn turns_on<S: Store>(
         stop_at_end(s, net, world, me);
     }
     if x.alone {
-        progress::private(net, world, &combat::attack_state(false));
-    }
-    if x.alone {
-        combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        lowered_unless_kept(s, net, world, keeps);
         if stops && !first {
             stop_at_end(s, net, world, me);
         }
@@ -3622,21 +3671,28 @@ fn held_use_asked<S: Store>(
 /// would check it: refused, it is over and why before the attack state is lowered; one that would
 /// go waits for the held use and is taken up after it (2017: of 176 such specials, none was cut;
 /// 8 were refused in the end's tick, each before the lowering, and 147 ran, 141 of them after the
-/// use's answer).
+/// use's answer). Returns whether one waits that would go, other than a toggled skill to be turned
+/// off: the attack state is then left up for it, the held use goes ahead in it, and it starts in
+/// it, neither lowered between nor raised again (2017: of 108 such specials the server had well
+/// before the end, 107 so, the skill's information, the use's answer, then the special's start;
+/// of 49 that reached it after the end, 48 found the state lowered and the use gone ahead).
 fn queued_checked_for_held_use<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     clock: Clock,
-) {
+) -> bool {
     let Some(r) = s.players.get_mut(&world).and_then(|p| p.queued.take()) else {
-        return;
+        return false;
     };
-    if !waiting_refused(s, net, world, r, clock) {
-        if let Some(p) = s.players.get_mut(&world) {
-            p.queued = Some(r);
-        }
+    if waiting_refused(s, net, world, r, clock) {
+        return false;
     }
+    let turns_off = toggled(s, r.skill) && !toggled_held(s, world, r.skill).is_empty();
+    if let Some(p) = s.players.get_mut(&world) {
+        p.queued = Some(r);
+    }
+    !turns_off
 }
 
 /// A use inside a run is over: the run goes on ([`combat::special_over`]), or, ended while the use
