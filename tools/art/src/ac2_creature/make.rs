@@ -1278,11 +1278,42 @@ const LINK_FRAMES: usize = 6;
 /// and combat over a quarter of a second, and plays nothing of its own.
 const STANCE_FRAMES: usize = 8;
 
+/// The turn `s` of the way from `a` to `b` (0 to 1), by the shorter way, of unit length: the same
+/// bits on every host. glam's `slerp` takes its sine from the host's C runtime on one CPU and from
+/// its own polynomial on another, and sums its products in another order, so the land a converter
+/// made differed by the machine it ran on.
+fn turn_between(a: Quat, b: Quat, s: f32) -> Quat {
+    use dereth_primitives::num::math;
+    let mut dot = a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z;
+    let mut b = b;
+    if dot < 0.0 {
+        b = Quat::new(-b.w, -b.x, -b.y, -b.z);
+        dot = -dot;
+    }
+    let (wa, wb) = if dot > 1.0 - f32::EPSILON {
+        // Too near to turn between: a straight line.
+        (1.0 - s, s)
+    } else {
+        let theta = math::acosf(dot);
+        let sin = math::sinf(theta);
+        (
+            math::sinf(theta * (1.0 - s)) / sin,
+            math::sinf(theta * s) / sin,
+        )
+    };
+    let (w, x, y, z) = (
+        a.w * wa + b.w * wb,
+        a.x * wa + b.x * wb,
+        a.y * wa + b.y * wb,
+        a.z * wa + b.z * wb,
+    );
+    let length = (w * w + x * x + y * y + z * z).sqrt();
+    Quat::new(w / length, x / length, y / length, z / length)
+}
+
 /// A link from one pose to another over `count` frames: each part's frame eased from `from` to
 /// `to` (its place in a straight line, its turn by the shorter way).
 fn blend(b: &Bound, from: &[Frame], to: &[Frame], id: DataId, count: usize) -> Animation {
-    let quat =
-        |f: &Frame| glam::Quat::from_xyzw(f.rotation.x, f.rotation.y, f.rotation.z, f.rotation.w);
     let part_frames = (0..count)
         .map(|k| {
             #[allow(clippy::cast_precision_loss)] // LINT-OK: a few frames.
@@ -1291,14 +1322,14 @@ fn blend(b: &Bound, from: &[Frame], to: &[Frame], id: DataId, count: usize) -> A
                 .iter()
                 .zip(to)
                 .map(|(a, c)| {
-                    let q = quat(a).slerp(quat(c), s).normalize();
+                    let q = turn_between(a.rotation, c.rotation, s);
                     Frame::new(
                         Vec3::new(
                             a.origin.x + (c.origin.x - a.origin.x) * s,
                             a.origin.y + (c.origin.y - a.origin.y) * s,
                             a.origin.z + (c.origin.z - a.origin.z) * s,
                         ),
-                        Quat::new(q.w, q.x, q.y, q.z),
+                        q,
                     )
                 })
                 .collect();
@@ -1786,6 +1817,39 @@ fn rate_of(b: &Bound, clip: &NativeClip, m: &Motion, command: MotionCommand, sca
 mod tests {
     //! Behaviour: none (tooling: an AC2 creature made into Asheron's Call's records)
     use super::*;
+
+    /// A turn between two poses is the same bits on every host: these are pinned, so a converter
+    /// whose creature links (and so its land) would differ by the machine it runs on fails here,
+    /// on any machine's CI. The shorter way is taken either way round; one too near to turn
+    /// between is a straight line.
+    #[test]
+    fn a_turn_between_two_poses_is_the_same_bits_on_every_host() {
+        let bits = |q: Quat| [q.w.to_bits(), q.x.to_bits(), q.y.to_bits(), q.z.to_bits()];
+        let a = Quat::new(0.923_879_5, 0.0, 0.0, 0.382_683_43);
+        let b = Quat::new(0.707_106_77, 0.5, -0.5, 0.0);
+        assert_eq!(
+            bits(turn_between(a, b, 0.125)),
+            [0x3f6e_e740, 0x3d90_ed45, 0xbd90_ed45, 0x3eb0_b0a0]
+        );
+        assert_eq!(
+            bits(turn_between(a, b, 0.5)),
+            [0x3f65_9daa, 0x3e8c_c890, 0xbe8c_c890, 0x3e57_8081]
+        );
+        assert_eq!(
+            bits(turn_between(a, b, 0.875)),
+            [0x3f44_b6c6, 0x3ee6_db46, 0xbee6_db46, 0x3d5d_d82a]
+        );
+        let flipped = Quat::new(-0.707_106_77, -0.5, 0.5, 0.0);
+        assert_eq!(
+            bits(turn_between(a, flipped, 0.5)),
+            bits(turn_between(a, b, 0.5))
+        );
+        let near = Quat::new(0.923_879_5, 0.0, 0.0, 0.382_683_46);
+        assert_eq!(
+            bits(turn_between(a, near, 0.5)),
+            [0x3f6c_835e, 0, 0, 0x3ec3_ef16]
+        );
+    }
     use dereth_assets::Decode;
 
     /// The kept table `name`, made from this machine's AC2 install.
