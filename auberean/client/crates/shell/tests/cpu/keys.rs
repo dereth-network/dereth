@@ -24,6 +24,8 @@ const RUN_LOCK: u32 = 0x4000_0027;
 const SHIFT_KEY: u32 = 0x4000_000E;
 const CTRL_KEY: u32 = 0x4000_000D;
 const INVENTORY: u32 = 0x4100_0002;
+const EXAMINATION: u32 = 0x4100_0001;
+const STOP: u32 = 0x4000_00A3;
 const REPLY: u32 = 0x4100_0049;
 const WAVE: u32 = 0x8000_0001;
 const WAVE_BEHAVIOR: u32 = 0x4100_0007;
@@ -566,4 +568,99 @@ fn an_own_action_is_held_by_the_world_controls_and_never_sent() {
         !i.front_view && i.buttons == (false, false),
         "the window lost the keyboard"
     );
+}
+
+/// Horizon's layer for one modifier (0, Shift or Ctrl) when the player has applied no Horizon
+/// keys of their own, as `(input, action)` pairs.
+fn horizon_fresh(meta: u32) -> Vec<(u32, u32)> {
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::layers;
+    let mut host = TestHost::default();
+    let keys = start(&mut host);
+    let own = layers(Choice::Horizon, &keys.records, &HostFiles(&mut host));
+    let layer = own.iter().find(|l| l.meta == meta).expect("a layer");
+    layer
+        .map
+        .bindings
+        .iter()
+        .map(|b| (b.input, b.action))
+        .collect()
+}
+
+/// With no Horizon keys of the player's own, Horizon's keys alone are the shipped map's 57: W runs
+/// forward, Q strafes, V looks at the front, N opens crafting, B and I the inventory, G and X the
+/// examine window, Enter and the numpad's Enter the chat entry, F1 selects the first fellow and 0
+/// uses the tenth slot; Stop has no key.
+///
+/// Behaviour: desktop.keys.horizon-starts-with-its-shipped-key-maps
+#[test]
+fn horizons_keys_alone_are_its_shipped_map_with_x_examining() {
+    use auberean_shell::interface_keys::own;
+    let map = horizon_fresh(0);
+    let bound = |k: Key| {
+        map.iter()
+            .find(|(i, _)| *i == k.input_word())
+            .map(|(_, a)| *a)
+    };
+    assert_eq!(map.len(), 57);
+    assert_eq!(bound(Key::W), Some(FORWARD));
+    assert_eq!(bound(Key::Q), Some(STRAFE_LEFT));
+    assert_eq!(bound(Key::V), Some(own::LOOK_AT_FRONT));
+    assert_eq!(bound(Key::N), Some(own::CRAFTING));
+    assert_eq!(bound(Key::B), Some(INVENTORY));
+    assert_eq!(bound(Key::I), Some(INVENTORY));
+    assert_eq!(bound(Key::Enter), Some(0x4000_0017));
+    assert_eq!(bound(Key::NumpadEnter), Some(0x4000_0017));
+    assert_eq!(bound(Key::F1), Some(0x4100_0053));
+    assert_eq!(bound(Key::Digit0), Some(0x4100_0034));
+    assert_eq!(bound(Key::G), Some(EXAMINATION));
+    assert_eq!(bound(Key::X), Some(EXAMINATION), "X examines, as G does");
+    assert!(map.iter().all(|(_, a)| *a != STOP), "Stop has no key");
+}
+
+/// With no Horizon keys of the player's own, Horizon's Shift map is the shipped one's six keys:
+/// Shift+Tab and Shift+P pick the previous creature and pet, Shift+Escape logs out, and Shift+F2
+/// to F4 show the second to the fourth chat window.
+///
+/// Behaviour: desktop.keys.horizon-starts-with-its-shipped-key-maps
+#[test]
+fn horizons_shift_map_is_its_shipped_one() {
+    let w = |k: Key| k.input_word();
+    assert_eq!(
+        horizon_fresh(META_SHIFT),
+        [
+            (w(Key::Tab), 0x4100_0019),
+            (w(Key::P), 0x4100_005C),
+            (w(Key::Escape), 0x4100_000E),
+            (w(Key::F2), 0x4100_0042),
+            (w(Key::F3), 0x4100_0043),
+            (w(Key::F4), 0x4100_0044),
+        ]
+    );
+}
+
+/// With no Horizon keys of the player's own, Horizon's Ctrl map is the shipped one's ten keys:
+/// Ctrl+1 to Ctrl+9 and Ctrl+0 use the shortcut bar's second row, slot by slot, and nothing else.
+///
+/// Behaviour: desktop.keys.horizon-starts-with-its-shipped-key-maps
+#[test]
+fn horizons_ctrl_map_is_its_shipped_one() {
+    let digits = [
+        Key::Digit1,
+        Key::Digit2,
+        Key::Digit3,
+        Key::Digit4,
+        Key::Digit5,
+        Key::Digit6,
+        Key::Digit7,
+        Key::Digit8,
+        Key::Digit9,
+        Key::Digit0,
+    ];
+    let want: Vec<(u32, u32)> = digits
+        .iter()
+        .zip(0x4100_005F..)
+        .map(|(k, a)| (k.input_word(), a))
+        .collect();
+    assert_eq!(horizon_fresh(META_CTRL), want);
 }

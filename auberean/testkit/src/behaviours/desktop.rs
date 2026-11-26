@@ -2052,6 +2052,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.keys.horizon-starts-with-its-shipped-key-maps",
+        says: "Our choice: until a player applies Horizon keys of their own, Horizon's three key \
+               maps (keys alone, with Shift, with Ctrl) are the ones that ship with the client, \
+               binding for binding; a player's applied Horizon keys are kept over them.",
+        since: THIS_CLIENT,
+        divergence: "CD2-horizon-key-maps",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SHIPPED-KEYS"),
+        station: "auberean-shell::dat::keys::horizons_layers_with_no_files_of_its_own_bind_every_line_of_its_shipped_files",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.keys.horizons-key-files-read-back-as-written",
         says: "Our choice: Horizon's whole layout, written to its three key files as its Key \
                Bindings page applies it, reads back over the data as the same layout, binding for \

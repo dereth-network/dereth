@@ -61,7 +61,7 @@ the game's own interface does.
   across the top show each kind of skill's first panel, Back the panel before. Press a skill to
   select it; the foot shows its level and points and lets it be trained, raised or untrained
   (asking first where it can't be undone). Drag a trained skill onto the hotbar to put it there.
-- **The examine window** (G): what is examined. With Classic Examination on (in Options) every
+- **The examine window** (G or X): what is examined. With Classic Examination on (in Options) every
   tab's lines show on one page; with it off they are on the General, Details, Effects and Usage
   tabs, and a tab with nothing on it is disabled.
 - **The inventory window** (I or B): what the player wears around its figure, the pack in four
@@ -196,17 +196,18 @@ Escape closes the window on top.
 ## Keys and the camera
 
 Horizon has its own key layout, so its keys never change the game's own interface's. Movement: W
-forward, S back, A and D turn, Q and E strafe, Space jumps, R runs on, X stops. The arrows turn and
-tilt the camera, and V held looks at the character's front. Enter opens the chat entry, `/` a
+forward, S back, A and D turn, Q and E strafe, Space jumps, R runs on; Stop has no key. The arrows
+turn and tilt the camera, and V held looks at the character's front. Enter opens the chat entry, `/` a
 slash command and T a reply to the last tell, and Shift+F2 to F4 show the chat's second to fourth
 tab; K the settings, C the
-skills, G the examine window, I or B the inventory, O the social window, N the crafting window, M
-the map, J or L the journal; F1 to F9 select the party's fellows; P and Shift+P the next and
+skills, G or X the examine window, I or B the inventory, O the social window, N the crafting window,
+M the map, J or L the journal; F1 to F9 select the party's fellows; P and Shift+P the next and
 previous of the player's pets; Tab and Shift+Tab pick the next and previous creature; F uses the
 selection; 1 to 0 use the hotbar's first row, Ctrl with them its second, `-` and `=` show the set
 before and after, and `` ` `` starts and stops attacking; F12 takes a screenshot; Shift+Escape logs
-out. The layout is kept in `auberean-horizon.keymap` (and its `-shift` and `-control` files) in the
-settings folder, beside the player's own key maps, and changed on the settings' Key Bindings page.
+out. Changed on the settings' Key Bindings page, the layout is kept in `auberean-horizon.keymap`
+(and its `-shift` and `-control` files) in the settings folder, beside the player's own key maps;
+until then, the layout that ships with the client is used.
 
 In the world Horizon shows the orbit camera. A press over the world turns it while held, and the
 wheel zooms it. A left click on something that did not turn the camera selects it, and a quick

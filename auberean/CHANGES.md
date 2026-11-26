@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 - Headless: the snapshot's inventory no longer lists the selected object.
 - Key map and options files can now include other files.
+- Horizon: new default key maps.
 
 ## 0.1.13 (2026-11-23)
 - No changes of its own; built with the latest shared code.

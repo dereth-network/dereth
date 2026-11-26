@@ -518,12 +518,13 @@ fn slots(h: &Harness, action: u32) -> [Rect; auberean_horizon::ui::bindings::KEY
 
 const FORWARD: u32 = 0x4000_0020;
 const STOP: u32 = 0x4000_00A3;
+const STRAFE_LEFT: u32 = 0x4000_0022;
 
 #[test]
 fn a_key_pressed_for_one_of_an_actions_keys_binds_it_there_and_apply_asks_for_the_maps() {
     use auberean_horizon::ui::bindings::{self, Bindings};
     let w = auberean_shell::input::Key::W.input_word();
-    let x = auberean_shell::input::Key::X.input_word();
+    let q = auberean_shell::input::Key::Q.input_word();
     assert_eq!(bindings::key_name(w), "W");
     assert_eq!(bindings::keys_of(&bindings::defaults(), FORWARD), ["W"]);
     let mut h = Harness::new();
@@ -531,11 +532,12 @@ fn a_key_pressed_for_one_of_an_actions_keys_binds_it_there_and_apply_asks_for_th
     let area = key_page(&mut h, &s);
     h.click(&s, centre(slots(&h, FORWARD)[0]));
     assert_eq!(h.ui.settings.bindings.capturing, Some(FORWARD));
-    // X, Stop's key, now runs forward in W's place; W runs nothing; Stop has none.
-    h.ui.settings.bindings.bind(x, 0);
+    // Q, Side Step Left's key, now runs forward in W's place; W runs nothing; Side Step Left has
+    // none.
+    h.ui.settings.bindings.bind(q, 0);
     let maps = h.ui.settings.bindings.maps.clone().expect("edited");
-    assert_eq!(bindings::keys_of(&maps, FORWARD), ["X"]);
-    assert!(bindings::keys_of(&maps, STOP).is_empty());
+    assert_eq!(bindings::keys_of(&maps, FORWARD), ["Q"]);
+    assert!(bindings::keys_of(&maps, STRAFE_LEFT).is_empty());
     assert!(!maps[0].iter().any(|(k, _)| *k == w));
     h.click(&s, centre(Bindings::parts(area, h.k()).apply));
     assert_eq!(h.ui.settings.bindings.applied, Some(maps));
@@ -547,7 +549,7 @@ fn a_key_pressed_for_one_of_an_actions_keys_binds_it_there_and_apply_asks_for_th
 #[test]
 fn a_changed_row_is_marked_and_restore_defaults_puts_horizons_own_layout_back_to_apply() {
     use auberean_horizon::ui::bindings::{self, Bindings};
-    let x = auberean_shell::input::Key::X.input_word();
+    let q = auberean_shell::input::Key::Q.input_word();
     let mut h = Harness::new();
     let s = in_world();
     let area = key_page(&mut h, &s);
@@ -558,12 +560,12 @@ fn a_changed_row_is_marked_and_restore_defaults_puts_horizons_own_layout_back_to
             .all(|a| !bindings::changed(&defaults, *a)),
         "Horizon's own layout marks no row"
     );
-    // X runs forward: Forward's row and Stop's, which lost X, are marked; Jump's is not.
+    // Q runs forward: Forward's row and Side Step Left's, which lost Q, are marked; Jump's is not.
     h.click(&s, centre(slots(&h, FORWARD)[0]));
-    h.ui.settings.bindings.bind(x, 0);
+    h.ui.settings.bindings.bind(q, 0);
     let maps = h.ui.settings.bindings.maps.clone().expect("edited");
     assert!(bindings::changed(&maps, FORWARD));
-    assert!(bindings::changed(&maps, STOP));
+    assert!(bindings::changed(&maps, STRAFE_LEFT));
     assert!(!bindings::changed(&maps, 0x4000_0026));
     // Applied, then Restore Defaults: every row Horizon's own again, to apply.
     h.click(&s, centre(Bindings::parts(area, h.k()).apply));

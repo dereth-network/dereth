@@ -225,7 +225,7 @@ fn horizons_layout_written_to_its_files_reads_back_as_it_is() {
     let (keys, mut host) = fresh();
     let metas = [0, META_SHIFT, META_CTRL];
     let maps = metas.map(|m| {
-        horizon_map(&keys.records, m)
+        horizon_map(m)
             .bindings
             .iter()
             .map(|b| (b.input, b.action))
@@ -254,4 +254,77 @@ fn horizons_layout_written_to_its_files_reads_back_as_it_is() {
             .collect();
         assert_eq!(&read, map, "the layer with {meta}");
     }
+}
+
+/// Horizon's three shipped key map files, binding for binding, are its layers when the player has
+/// applied no Horizon keys: each line of a file (an action's name and a key's) binds that key to
+/// the action the data's input actions, or this client's own, give the name, and the layer binds
+/// nothing else. Every action Horizon's keys can be bound to has in the data the name the client
+/// reads its shipped files with.
+///
+/// Behaviour: desktop.keys.horizon-starts-with-its-shipped-key-maps
+#[test]
+fn horizons_layers_with_no_files_of_its_own_bind_every_line_of_its_shipped_files() {
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::{layers, own, HORIZON_ACTIONS, SHIPPED};
+    let (keys, mut host) = fresh();
+    for &(action, name) in HORIZON_ACTIONS {
+        if !own::is_own(action) {
+            assert_eq!(keys.records.action_of(name), Some(action), "{name}");
+        }
+    }
+    let own_layers = layers(Choice::Horizon, &keys.records, &HostFiles(&mut host));
+    assert_eq!(own_layers.len(), 3);
+    for (layer, file) in own_layers.iter().zip(SHIPPED) {
+        let text = std::str::from_utf8(file).expect("text");
+        let lines: Vec<(&str, &str)> = text
+            .lines()
+            .filter_map(|l| {
+                let inner = l.strip_prefix("\"\" [ ")?.strip_suffix(" ]")?;
+                let (action, input) = inner.split_once(' ')?;
+                input.starts_with("DIKEYBOARD_").then_some((action, input))
+            })
+            .collect();
+        assert!(!lines.is_empty());
+        let bound: Vec<(&str, &str)> = layer
+            .map
+            .bindings
+            .iter()
+            .map(|b| {
+                let name = own::name(b.action)
+                    .or_else(|| keys.records.action_name(b.action))
+                    .unwrap_or_default();
+                (name, input_name(b.input).unwrap_or_default())
+            })
+            .collect();
+        let lower = |v: &[(&str, &str)]| -> Vec<(String, String)> {
+            v.iter()
+                .map(|(a, i)| (a.to_ascii_lowercase(), (*i).to_owned()))
+                .collect()
+        };
+        assert_eq!(
+            lower(&bound),
+            lower(&lines),
+            "the layer with {}",
+            layer.meta
+        );
+    }
+}
+
+/// Horizon's shipped maps leave the retail interface's keys as they were: it has no maps of its
+/// own, and a fresh start's player maps are still the installer's, where X examines.
+///
+/// Behaviour: desktop.keys.a-fresh-start-has-the-installed-keys
+#[test]
+fn horizons_shipped_maps_leave_the_retail_interfaces_fresh_keys_as_the_installers() {
+    use auberean_shell::interface::Choice;
+    use auberean_shell::interface_keys::layers;
+    let (keys, mut host) = fresh();
+    assert!(layers(Choice::Retail, &keys.records, &HostFiles(&mut host)).is_empty());
+    let l = keys.stack.layers();
+    for (i, installed) in keys.records.installed.iter().enumerate() {
+        assert_eq!(&l[i + 1].map, installed, "the player's map {i}");
+    }
+    let x = Key::X.input_word();
+    assert_eq!(keys.interface_action(x, 0), Some(EXAMINATION));
 }

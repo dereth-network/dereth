@@ -7,7 +7,7 @@
 //! key files and binds them from then on; Restore Defaults puts Horizon's own layout back, to be
 //! applied.
 
-use auberean_shell::interface_keys::{own, HORIZON_KEYS};
+use auberean_shell::interface_keys::{own, HORIZON_ACTIONS, HORIZON_KEYS};
 use auberean_shell::keys::{META_CTRL, META_SHIFT};
 use dereth_ui_kit::art::Family;
 use dereth_ui_kit::paint::{Align, Painter, TextStyle};
@@ -155,7 +155,7 @@ pub fn key_name(input: u32) -> String {
 #[must_use]
 pub fn defaults() -> Maps {
     let mut maps: Maps = Default::default();
-    for &(input, meta, action) in HORIZON_KEYS {
+    for &(input, meta, action) in HORIZON_KEYS.iter() {
         if let Some(i) = METAS.iter().position(|m| *m == meta) {
             maps[i].push((input, action));
         }
@@ -163,16 +163,11 @@ pub fn defaults() -> Maps {
     maps
 }
 
-/// The actions the page lists, in Horizon's layout's order, each once.
+/// The actions the page lists, in Horizon's order, each once, those its layout binds to no key
+/// among them.
 #[must_use]
 pub fn actions() -> Vec<u32> {
-    let mut out: Vec<u32> = Vec::new();
-    for &(_, _, a) in HORIZON_KEYS {
-        if !out.contains(&a) {
-            out.push(a);
-        }
-    }
-    out
+    HORIZON_ACTIONS.iter().map(|(a, _)| *a).collect()
 }
 
 /// The keys bound to `action` in `maps`, each its map's place in [`Maps`] and its input, in
