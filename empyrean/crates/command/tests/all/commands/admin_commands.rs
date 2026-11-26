@@ -721,6 +721,51 @@ fn a_dat_export_with_the_wrong_parameter_count_prints_its_usage_and_stops() {
     }
 }
 
+/// `@teleloc` reads its rotation as `qw qx qy qz`, the order `@loc` prints it in, so a line `@loc`
+/// printed puts the body back facing the same way. A turn about the vertical axis by +θ faces
+/// the body θ counterclockwise from north: `0.707107 0 0 -0.707107` faces east.
+#[test]
+fn teleloc_reads_its_rotation_in_the_order_loc_prints_it() {
+    use empyrean_world::world_objects::creature_navigation::a_frame_get_heading;
+    let teleloc = |line: &str| {
+        let parameters: Vec<String> = line.split(' ').map(str::to_owned).collect();
+        ac::teleloc_position(&parameters)
+            .expect("parses")
+            .expect("a position")
+    };
+
+    let p = teleloc("0x7F0401AD [12.5 -28.25 0.5] 0.5 0.1 0.2 0.3");
+    assert_eq!(
+        (p.rotation_w, p.rotation_x, p.rotation_y, p.rotation_z),
+        (0.5, 0.1, 0.2, 0.3)
+    );
+
+    // the command's own example, which is `@loc`'s output
+    let loc = "0x7F0401AD [12.319900 -28.482000 0.005000] -0.338946 0.000000 0.000000 -0.940806";
+    assert_eq!(teleloc(loc).to_loc_string(), loc);
+
+    // without a rotation the body faces north
+    let p = teleloc("0x7F0401AD 12.5 -28.25 0.5");
+    assert_eq!(
+        (p.rotation_w, p.rotation_x, p.rotation_y, p.rotation_z),
+        (1.0, 0.0, 0.0, 0.0)
+    );
+
+    for (rotation, heading) in [
+        ("1 0 0 0", 0.0),
+        ("0.707107 0 0 -0.707107", 90.0),
+        ("0 0 0 1", 180.0),
+        ("0.707107 0 0 0.707107", 270.0),
+    ] {
+        let p = teleloc(&format!("0x7F0401AD 12.5 -28.25 0.5 {rotation}"));
+        let faces = a_frame_get_heading(p.rotation());
+        assert!(
+            (faces - heading).abs() < 0.01,
+            "{rotation} faces {faces}, not {heading}"
+        );
+    }
+}
+
 /// The admin's session in the god-mode tests.
 const GOD_SESSION: empyrean_net::SessionId = empyrean_net::SessionId {
     client_id: 1,
