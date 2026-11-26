@@ -29,6 +29,9 @@ const HZ: f64 = 30.0;
 
 /// One walk: in the AC1 block it starts in, from `start` (block meters, on the floor) along the
 /// heading `along` (a unit vector) for `dist` meters, or until it is `until` meters along it.
+/// `set_down`: the body is put into the world on the land under `start`, as the client puts a
+/// character in, rather than let fall from `start` (a body come down on a slope holds it as a
+/// wall to slide along, and walked straight up it does not move).
 #[derive(Clone, Copy, Debug)]
 pub struct Walk {
     pub block: (usize, usize),
@@ -36,6 +39,7 @@ pub struct Walk {
     pub along: [f32; 2],
     pub dist: f32,
     pub until: Option<f32>,
+    pub set_down: bool,
 }
 
 /// How far each walk got along its heading in the world written as the overlay in `overlay`,
@@ -113,7 +117,7 @@ pub fn ends(
                         .iter()
                         .map(|&k| {
                             let mut world = physics_world(&land, block, &statics, &geometry);
-                            (k, walk(&mut world, &human, &list[k], &mut 0.0))
+                            (k, walk(&mut world, &land, &human, &list[k], &mut 0.0))
                         })
                         .collect();
                     let mut o = out.lock().expect("results");
@@ -202,6 +206,7 @@ fn physics_world(
 /// nothing).
 fn walk(
     world: &mut PhysicsWorld,
+    land: &DatLandSource,
     body: &Arc<SetupGeometry>,
     w: &Walk,
     clock: &mut f64,
@@ -209,21 +214,36 @@ fn walk(
     #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     // LINT-OK: a landblock index, 0 to 254.
     let block = (w.block.0 as i32, w.block.1 as i32);
-    let start = Vec3::new(w.start[0], w.start[1], w.start[2] + 0.02);
-    let (cell, origin) = land_cell(block, start);
+    let mut start = Vec3::new(w.start[0], w.start[1], w.start[2] + 0.02);
+    let (cell, mut origin) = land_cell(block, start);
     let h = world.create(ObjectId(0x5000_0001), Arc::clone(body), true);
-    world.enter_cell(h, cell);
-    if let Some(o) = world.get_mut(h) {
-        o.position = Position::new(cell, Frame::new(origin, Quat::IDENTITY));
-        o.set_motion(Box::new(dereth_physics::ScriptedMotion::new(
-            Vec::new(),
-            true,
-        )));
-        o.transient_state.set_active_bit(true);
-        o.calc_acceleration();
-        o.update_time = *clock;
+    if w.set_down {
+        if let Some(z) = land.ground_height(cell.landblock(), origin.x, origin.y) {
+            start.z += z - origin.z;
+            origin.z = z;
+        }
+        if let Some(o) = world.get_mut(h) {
+            o.set_motion(Box::new(dereth_physics::ScriptedMotion::new(
+                Vec::new(),
+                true,
+            )));
+            o.update_time = *clock;
+        }
+        world.enter_world(h, &Position::new(cell, Frame::new(origin, Quat::IDENTITY)));
+    } else {
+        world.enter_cell(h, cell);
+        if let Some(o) = world.get_mut(h) {
+            o.position = Position::new(cell, Frame::new(origin, Quat::IDENTITY));
+            o.set_motion(Box::new(dereth_physics::ScriptedMotion::new(
+                Vec::new(),
+                true,
+            )));
+            o.transient_state.set_active_bit(true);
+            o.calc_acceleration();
+            o.update_time = *clock;
+        }
+        world.calc_cross_cells(h, false);
     }
-    world.calc_cross_cells(h, false);
     // LINT-OK: the physics tick rate, a small whole number.
     #[allow(clippy::cast_possible_truncation)]
     let step = SPEED / HZ as f32;
@@ -274,7 +294,10 @@ mod tests {
     /// Lanes across each doorway, as shares of its width either side of its middle.
     const LANES: [f32; 5] = [-0.3, -0.15, 0.0, 0.15, 0.3];
     /// A lane starts this far outside the doorway, this far over its floor, and walks this far.
+    /// A lane that never leaves its start is walked again from each of these in turn, set down
+    /// on the land there.
     const OUT: f32 = 6.0;
+    const AGAIN: [f32; 3] = [6.0, 12.0, 18.0];
     const DROP: f32 = 1.0;
     const DIST: f32 = 20.0;
     /// A lane stops this far past its doorway: it is in.
@@ -285,10 +308,14 @@ mod tests {
     /// 20 m walk takes or until 2 m past the doorway (a lane that drops to the ground short of a
     /// doorway climbs back up slowly). A lane is in when it ends in one of the building's rooms
     /// at least 1.5 m past the doorway, standing less than 1.2 m over the doorway's floor; it is
-    /// stuck when it never left its start (it began inside something), and those are not
-    /// counted. Prints a line a lane, a line a doorway, and
-    /// the totals: the lanes in of those that left their start, and the doorways at least one
-    /// lane entered.
+    /// stuck when it never left its start: it began inside something, or came down on a slope
+    /// it then walks straight up, which holds a body still (it keeps the slope as a wall to slide
+    /// along until it steps away from it; a character put into the world is not held so). A
+    /// lane that is stuck is walked again set down on the land as the client puts a character
+    /// in, from 6 m out, then 12 m, then 18 m, the walk longer by as much; lanes stuck from every
+    /// start are not counted. Prints a line a lane (with the start it was walked from), a
+    /// line a doorway, and the totals: the lanes in of those that left their start, and the
+    /// doorways at least one lane entered.
     ///
     /// It reads a whole built world, which takes minutes to make, so it runs only when asked:
     ///
@@ -316,8 +343,9 @@ mod tests {
                 .join("doorways-ac2.tsv"),
         )
         .expect("doorways-ac2.tsv beside the overlay");
+        // Each lane: its doorway's name, its share of the width, the doorway's floor, and where
+        // it is walked from at `out` meters outside.
         let mut rows = Vec::new();
-        let mut list = Vec::new();
         for line in tsv.lines().skip(1) {
             let f: Vec<&str> = line.split('\t').collect();
             let n = |k: usize| f[k].parse::<f32>().expect("a number");
@@ -325,23 +353,43 @@ mod tests {
             let b = u16::from_str_radix(f[1], 16).expect("a block");
             for share in LANES {
                 let t = share * width;
-                let (sx, sy) = (mx - iy * t - ix * OUT, my + ix * t - iy * OUT);
-                list.push(Walk {
+                let lane = move |out: f32, set_down: bool| Walk {
                     block: (usize::from(b >> 8), usize::from(b & 0xFF)),
-                    start: [sx, sy, floor + DROP],
+                    start: [mx - iy * t - ix * out, my + ix * t - iy * out, floor + DROP],
                     along: [ix, iy],
-                    dist: DIST,
-                    until: Some(OUT + PAST),
-                });
-                rows.push((f[0].to_owned(), share, floor));
+                    dist: DIST + out - OUT,
+                    until: Some(out + PAST),
+                    set_down,
+                };
+                rows.push((f[0].to_owned(), share, floor, lane));
             }
         }
+        // How far past its doorway a lane walked from `out` meters outside ended.
+        let past_of = |p: &Vec3, w: &Walk, out: f32| {
+            (p.x - w.start[0]) * w.along[0] + (p.y - w.start[1]) * w.along[1] - out
+        };
+        let mut results: Vec<(f32, Walk, (u32, Vec3))> = Vec::with_capacity(rows.len());
+        let list: Vec<Walk> = rows.iter().map(|r| (r.3)(OUT, false)).collect();
         let got = ends(&ac1, &overlay, crate::ac2_world::WORLD_KEY, &list).expect("the walks");
+        results.extend(list.into_iter().zip(got).map(|(w, g)| (OUT, w, g)));
+        for out in AGAIN {
+            let again: Vec<usize> = (0..rows.len())
+                .filter(|&k| {
+                    let (o, w, (_, p)) = &results[k];
+                    past_of(p, w, *o) < -(o - 0.3)
+                })
+                .collect();
+            let list: Vec<Walk> = again.iter().map(|&k| (rows[k].3)(out, true)).collect();
+            let got = ends(&ac1, &overlay, crate::ac2_world::WORLD_KEY, &list).expect("the walks");
+            for ((k, w), g) in again.into_iter().zip(list).zip(got) {
+                results[k] = (out, w, g);
+            }
+        }
         let (mut lanes, mut lanes_in) = (0, 0);
         let mut doorways: Vec<(String, usize, usize)> = Vec::new();
-        for ((name, share, floor), ((cell, p), w)) in rows.iter().zip(got.iter().zip(&list)) {
-            let past = (p.x - w.start[0]) * w.along[0] + (p.y - w.start[1]) * w.along[1] - OUT;
-            let stuck = past < -(OUT - 0.3);
+        for ((name, share, floor, _), (out, w, (cell, p))) in rows.iter().zip(&results) {
+            let past = past_of(p, w, *out);
+            let stuck = past < -(out - 0.3);
             let entered = cell & 0xFFFF >= 0x0100 && past >= 1.5 && p.z - floor < 1.2;
             let what = if entered {
                 "in"
@@ -351,7 +399,8 @@ mod tests {
                 "caught"
             };
             println!(
-                "lane\t{name}\t{share:+.2}\t{cell:08X}\tpast {past:.2}\tover floor {:.2}\t{what}",
+                "lane\t{name}\t{share:+.2}\tfrom {out:.0}{}\t{cell:08X}\tpast {past:.2}\tover floor {:.2}\t{what}",
+                if w.set_down { " set down" } else { "" },
                 p.z - floor
             );
             if doorways.last().is_none_or(|d| d.0 != *name) {
