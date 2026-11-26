@@ -4318,6 +4318,8 @@ impl EditorApp {
             .filter(|_| self.dungeon_list.retail.is_none())
         {
             self.dungeon_list.retail = Some(d);
+            self.dungeon_list.place_names = ready.dungeon_names;
+            self.pull.dungeons = ready.files_dungeons;
             self.dungeon_list.listed = None;
         }
         self.names = ModelNames::new(&ready.placements, &self.session.weenies_by_setup());
@@ -4727,6 +4729,8 @@ impl EditorApp {
                 "tables" => self.open_tables(),
                 "quests" => self.show_tab(Tab::Quests),
                 "loot" => self.show_tab(Tab::Loot),
+                "dungeons" => self.show_tab(Tab::Dungeons),
+                "grid" => self.show_tab(Tab::Grid),
                 other => return Err(format!("{other:?} is not a tab to show")),
             }
         }
@@ -4748,6 +4752,17 @@ impl EditorApp {
         }
         if let Some(find) = &s.tables_find {
             find.clone_into(&mut self.tables.filter);
+        }
+        if let Some(shown) = &s.dungeons_shown {
+            self.dungeon_list.game_shown = match shown.as_str() {
+                "ac2" => Some(dungeon::Game::Ac2),
+                "ac1" => Some(dungeon::Game::Ac1),
+                "all" => None,
+                other => return Err(format!("{other:?} is not ac2, ac1 or all")),
+            };
+        }
+        if let Some(find) = &s.pull_find {
+            find.clone_into(&mut self.pull.find);
         }
         if let Some(c) = s.edit_weenie {
             self.edit_weenie(&Weenie::Class(c), None);
@@ -4776,7 +4791,13 @@ impl EditorApp {
                     self.new_dungeon(None)?;
                 }
                 "leave" => self.leave_dungeon(),
-                other => return Err(format!("{other:?} is not new or leave")),
+                other => {
+                    let lb = u16::from_str_radix(other, 16)
+                        .ok()
+                        .filter(|_| other.len() == 4)
+                        .ok_or_else(|| format!("{other:?} is not new, leave or a landblock"))?;
+                    self.enter_dungeon(lb)?;
+                }
             }
         }
         if let Some(look) = s.look {

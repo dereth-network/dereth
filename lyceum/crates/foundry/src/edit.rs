@@ -2713,6 +2713,12 @@ impl Session {
         crate::dungeons::retail(&|id| self.base.cell.read(id).ok(), self.base.era)
     }
 
+    /// What the portals the server knows call the dungeons they lead into, by landblock.
+    #[must_use]
+    pub fn portal_names(&self) -> BTreeMap<u16, String> {
+        crate::dungeons::portal_names(&self.retail)
+    }
+
     /// What the packs say of landblock `lb`'s dungeon: its name and its look, a later pack's over
     /// an earlier's.
     #[must_use]
@@ -2763,6 +2769,25 @@ impl Session {
             });
             d.pack = true;
             d.cells = d.cells.max(u32::try_from(cells.len()).unwrap_or(u32::MAX));
+        }
+        // A dungeon a pack copies in (`[[add-dungeon]]`): its rooms are the copy's.
+        let copied: BTreeSet<u16> = self
+            .packs
+            .iter()
+            .flat_map(|p| p.edits.iter())
+            .filter(|e| !e.dungeon_copies.is_empty())
+            .map(|e| e.landblock)
+            .collect();
+        for lb in copied {
+            let rooms = self.compiled.rooms.get(&lb).map_or(0, BTreeMap::len);
+            let d = out.entry(lb).or_insert_with(|| crate::dungeons::Dungeon {
+                landblock: lb,
+                name: names.get(&lb).cloned(),
+                cells: 0,
+                pack: true,
+            });
+            d.pack = true;
+            d.cells = d.cells.max(u32::try_from(rooms).unwrap_or(u32::MAX));
         }
         // A dungeon a pack names: by its name, even before its first room.
         let named: BTreeSet<u16> = self

@@ -969,7 +969,7 @@ fn run_pull(args: &Args) -> ExitCode {
     };
     let land = args.path("on");
     let r = Request {
-        source,
+        source: Some(source),
         database: &database,
         landblock,
         target: &into,

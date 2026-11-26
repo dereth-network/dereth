@@ -38,6 +38,10 @@ pub struct Ready {
     /// The world's own dungeons, by landblock, with their rooms; `None` when the files do not
     /// open.
     pub dungeons: Option<std::collections::BTreeMap<u16, u32>>,
+    /// The names the world's map gives the dungeons under an entrance, by landblock.
+    pub dungeon_names: std::collections::BTreeMap<u16, String>,
+    /// Over a land, the dungeons of the player's own files under it, with their rooms.
+    pub files_dungeons: std::collections::BTreeMap<u16, u32>,
     /// The database read, and what went wrong, if anything did.
     pub database: Option<PathBuf>,
     pub problem: Option<String>,
@@ -243,6 +247,38 @@ fn gather(
         .as_ref()
         .ok()
         .map(|set| lyceum_foundry::dungeons::retail(&|id| set.cell.read(id).ok(), set.era));
+    // Over a land (an import), a building standing over a dungeon is a dungeon too (a converted
+    // land's AC2 dungeon under its entrance), named by the place the world's map names nearest
+    // its entrance.
+    let entrances = if imports.is_empty() {
+        std::collections::BTreeMap::new()
+    } else {
+        opened
+            .as_ref()
+            .ok()
+            .map(|set| {
+                lyceum_foundry::dungeons::under_entrances(&|id| set.cell.read(id).ok(), set.era)
+            })
+            .unwrap_or_default()
+    };
+    // Over a land, the dungeons of the player's own files, which a pull copies in.
+    let files_dungeons = if imports.is_empty() {
+        std::collections::BTreeMap::new()
+    } else {
+        DatSet::open_era(dats, era)
+            .map(|set| lyceum_foundry::dungeons::retail(&|id| set.cell.read(id).ok(), set.era))
+            .unwrap_or_default()
+    };
+    let dungeon_names = entrances
+        .iter()
+        .filter_map(|(lb, (_, at))| towns.place_near(*lb, *at).map(|n| (*lb, n)))
+        .collect();
+    let dungeons = dungeons.map(|mut d| {
+        for (lb, (rooms, _)) in &entrances {
+            d.entry(*lb).or_insert(*rooms);
+        }
+        d
+    });
     let doors = doors.or(database.as_deref());
     let buildings = opened.ok().map(|set| {
         let file = buildings_file(cache, &set, &towns, doors);
@@ -274,6 +310,8 @@ fn gather(
         server,
         buildings,
         dungeons,
+        dungeon_names,
+        files_dungeons,
         database,
         problem,
     }
@@ -282,6 +320,10 @@ fn gather(
 /// How far from a world's own town or landmark a landblock's middle is still in it, in map units
 /// (a landblock is 0.8).
 const OWN_REACH: f64 = 3.0;
+
+/// How far from a dungeon's entrance the place the map names it by stands at most, in map units
+/// (100 meters).
+const ENTRANCE_REACH: f64 = 100.0 / 240.0;
 
 /// What names the town a landblock is in: the world's own towns and landmarks, when its import
 /// names them in a places document, else the game's map's notes ([`town_of`]).
@@ -324,6 +366,27 @@ impl Towns {
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.own.as_ref().map(|(_, k)| k.as_str())
+    }
+
+    /// The place the world's own map names nearest point `at` of landblock `lb` (landblock
+    /// meters), within [`ENTRANCE_REACH`]: its name without the note after it (`Haunted Cave` of
+    /// `Haunted Cave (Dungeon, Level 5-10)`). None of the notes': they name towns, not entrances.
+    #[must_use]
+    pub fn place_near(&self, lb: u16, at: dereth_primitives::Vec3) -> Option<String> {
+        let (places, _) = self.own.as_ref()?;
+        let unit = |block: u16, m: f32| (f64::from(block) * 192.0 + f64::from(m)) / 240.0 - 101.95;
+        let (ew, ns) = (unit(lb >> 8, at.x), unit(lb & 0xFF, at.y));
+        places
+            .iter()
+            .map(|p| ((p.ew - ew).powi(2) + (p.ns - ns).powi(2), p))
+            .filter(|(d2, _)| *d2 <= ENTRANCE_REACH * ENTRANCE_REACH)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, p)| {
+                p.name
+                    .split_once(" (")
+                    .map_or(p.name.as_str(), |(n, _)| n)
+                    .to_owned()
+            })
     }
 
     /// The town or landmark landblock `lb` is in: the world's own nearest its middle, within

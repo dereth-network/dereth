@@ -654,12 +654,14 @@ impl EditorApp {
         if let Some(p) = self.layout.plans.get(&(env.raw(), piece)) {
             return p.clone();
         }
-        // An AC2 piece is drawn by what it covers: its floors are many triangles.
+        // An AC2 piece is drawn by what it covers: its floors are many triangles. So is a room the
+        // world's land brings (a converted land's AC2 dungeons, whose rooms are AC2's own meshes).
         let ac2 = self
             .session
             .ac2_pieces()
             .iter()
-            .any(|p| p.environment == env);
+            .any(|p| p.environment == env)
+            || self.from_land(env);
         let plan = self
             .session
             .environment(env)

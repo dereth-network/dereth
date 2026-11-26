@@ -598,9 +598,21 @@ impl EditorApp {
         groups
     }
 
-    /// The game dungeon `lb` is built in: AC2's when any of its rooms is a piece of an AC2 kit,
-    /// AC1's when it has rooms of other pieces; an empty one's, the game chosen for it (AC1's
-    /// when the editor has no AC2 install), or none yet.
+    /// Whether environment `env` is one the world's land brings (an import's): a converted land's
+    /// AC2 dungeons and buildings are built of AC2's own meshes, made environments there.
+    #[must_use]
+    pub fn from_land(&self, env: DataId) -> bool {
+        self.session
+            .compiled()
+            .imported
+            .get(&dereth_dat::ModernDat::Portal)
+            .is_some_and(|r| r.contains_key(&env.raw()))
+    }
+
+    /// The game dungeon `lb` is built in: AC2's when any of its rooms is a piece of an AC2 kit or
+    /// one of AC2's own the world's land brings ([`Self::from_land`]), AC1's when it has rooms of
+    /// other pieces; an empty one's, the game chosen for it (AC1's when the editor has no AC2
+    /// install), or none yet.
     #[must_use]
     pub fn dungeon_game(&self, lb: u16) -> Option<Game> {
         let ac2: BTreeSet<DataId> = self
@@ -615,11 +627,13 @@ impl EditorApp {
             .filter(|c| c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0)
             .peekable();
         if rooms.peek().is_some() {
-            return Some(if rooms.any(|c| ac2.contains(&c.environment)) {
-                Game::Ac2
-            } else {
-                Game::Ac1
-            });
+            return Some(
+                if rooms.any(|c| ac2.contains(&c.environment) || self.from_land(c.environment)) {
+                    Game::Ac2
+                } else {
+                    Game::Ac1
+                },
+            );
         }
         if !self.session.has_ac2() {
             return Some(Game::Ac1);

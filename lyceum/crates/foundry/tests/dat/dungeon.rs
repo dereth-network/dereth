@@ -4037,6 +4037,13 @@ mod pull {
 
         std::fs::write(&edits, row("from = \"files\"\n")).unwrap();
         let s = Session::open(&world, &dats, None).unwrap();
+        // The copy is a dungeon of the world's, its rooms the copy's.
+        let listed = s.dungeons(&BTreeMap::new());
+        let copy = listed
+            .iter()
+            .find(|d| d.landblock == DUNGEON)
+            .expect("the copy listed");
+        assert_eq!(copy.cells, count);
         for k in 0..count {
             let symbol = compile::cell_symbol(
                 &lyceum_foundry::drops::room_name("holtburg:back", k as usize),
@@ -4080,7 +4087,7 @@ mod pull {
                       cells_only: bool| {
             pull(
                 &Request {
-                    source: &world,
+                    source: Some(&world),
                     database: if cells_only {
                         Path::new("no-database.sql")
                     } else {

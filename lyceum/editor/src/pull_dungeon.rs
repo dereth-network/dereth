@@ -1,91 +1,56 @@
-//! Pulling a dungeon from another world into the world repository being edited
-//! ([`lyceum_foundry::pull`]): what that world places in the dungeon as the layer's rows, and a
-//! portal into it where the camera stands, one change that one undo takes back. What it can't
-//! settle (the exits to re-aim, the classes the repository lacks) is listed under it.
+//! Pulling one of AC1's dungeons into the world repository being edited, over a land
+//! ([`lyceum_foundry::pull`]): its rooms, copied from the player's own AC1 files, and what AC1's
+//! world places in it, as the layer's rows; one change that one undo takes back. Its way in is
+//! placed later, as any portal is. What it can't settle (the exits to re-aim, the classes the
+//! repository lacks) is listed under it.
 
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 
 use lyceum_foundry::edit::Op;
-use lyceum_foundry::pull::{self, Entrance, Request};
+use lyceum_foundry::pull::{self, Request};
 
 use super::EditorApp;
 
 /// The pull section's state.
 #[derive(Debug, Default)]
 pub struct PullView {
-    /// The source world's file and the landblock, as typed.
-    pub world: String,
-    pub landblock: String,
-    pub alongside: bool,
+    /// The dungeons of the player's own files, with their rooms, and what is typed to find one.
+    pub dungeons: BTreeMap<u16, u32>,
+    pub find: String,
+    /// The dungeon chosen.
+    pub chosen: Option<u16>,
     /// What the last pull left to its author, a line each.
     pub report: Vec<String>,
 }
 
 impl EditorApp {
-    /// Where the camera stands, as a pulled dungeon's way in: its cell, its spot on the floor or
-    /// the ground under it, and its heading.
-    fn entrance_here(&mut self) -> Result<Entrance, String> {
-        let c = self
-            .camera_spot()
-            .ok_or_else(|| self.say("messages.off_world"))?;
-        let (cell, z) = match c.cell {
-            Some((index, floor)) => (index, floor.ok_or_else(|| self.say("areas.no_floor"))?),
-            None => {
-                let ground = c.ground.ok_or_else(|| self.say("areas.off_land"))?;
-                let cell = u16::try_from(lyceum_foundry::edit::outdoor_cell(c.x, c.y)).unwrap_or(0);
-                (cell, ground)
-            }
-        };
-        Ok(Entrance {
-            cell: (u32::from(c.lb) << 16) | u32::from(cell),
-            at: [c.x, c.y, z],
-            heading: c.heading,
-        })
-    }
-
-    /// Dungeon `lb` of the world `world` pulled into the repository's layer being edited, with a
-    /// way in where the camera stands (`way_in`), beside what the layer places there
-    /// (`alongside`).
+    /// AC1's dungeon `lb` pulled into the repository's layer being edited: its rooms from the
+    /// player's own files, and what AC1's world places in it, beside what the layer places there.
     ///
     /// # Errors
-    /// No repository being edited, no server database for `world`, no place for the way in, or
-    /// the pull's refusal.
-    pub fn pull_dungeon(
-        &mut self,
-        world: &Path,
-        lb: u16,
-        way_in: bool,
-        alongside: bool,
-    ) -> Result<(), String> {
+    /// No repository being edited, no server database for AC1's world, or the pull's refusal.
+    pub fn pull_dungeon(&mut self, lb: u16) -> Result<(), String> {
         let m = self
             .session
             .mirror()
             .ok_or_else(|| self.say("messages.not_in_repository"))?;
         let (schema, pack) = (m.vocabulary().clone(), m.pack_name.clone());
-        let era = lyceum_foundry::world::World::read(world)
-            .map_err(|e| e.to_string())?
-            .era;
-        let database =
-            crate::catalog::server_database(era).ok_or_else(|| self.say("pull.no_database"))?;
-        let entrance = if way_in {
-            Some(self.entrance_here()?)
-        } else {
-            None
-        };
-        let land: Option<PathBuf> = self.session.world().imports.first().cloned();
+        let database = crate::catalog::server_database(dereth_primitives::EraId::Eor)
+            .ok_or_else(|| self.say("pull.no_database"))?;
+        let land = self.session.world().imports.first().cloned();
         let dats = self.session.base().dir.clone();
         let target = self.world_path.clone();
         let r = Request {
-            source: world,
+            source: None,
             database: &database,
             landblock: lb,
             target: &target,
             schema: &schema,
             land: land.as_deref(),
             pack: Some(&pack),
-            entrance,
+            entrance: None,
             portal: None,
-            alongside,
+            alongside: true,
             dry_run: false,
             library: true,
             cells_only: false,
@@ -168,52 +133,58 @@ impl EditorApp {
         Ok(())
     }
 
-    /// The Dungeons tab's pull section, for a world repository.
+    /// The Dungeons tab's pull section, for a world repository over a land: AC1's dungeons, by
+    /// name, to find one in and pull.
     pub(super) fn pull_ui(&mut self, ui: &mut egui::Ui) {
-        if !self.repo_world {
+        if !self.repo_world || self.session.world().imports.is_empty() {
             return;
         }
         let t = self.text.table();
+        let names = self.session.portal_names();
         egui::CollapsingHeader::new(t.get("pull.head"))
             .id_salt("pull dungeon")
+            .default_open(true)
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(t.get("pull.world"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.pull.world)
-                            .hint_text(t.get("pull.world_hint"))
-                            .desired_width(220.0),
-                    );
-                    ui.label(t.get("pull.landblock"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.pull.landblock)
-                            .hint_text("01A9")
-                            .desired_width(50.0),
-                    );
-                });
-                ui.checkbox(&mut self.pull.alongside, t.get("pull.alongside"));
-                let lb = u16::from_str_radix(self.pull.landblock.trim(), 16).ok();
-                let world = PathBuf::from(self.pull.world.trim());
-                let ready = lb.is_some() && world.is_file();
-                let mut go = None;
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(ready, egui::Button::new(t.get("pull.here")))
-                        .clicked()
-                    {
-                        go = Some(true);
-                    }
-                    if ui
-                        .add_enabled(ready, egui::Button::new(t.get("pull.go")))
-                        .clicked()
-                    {
-                        go = Some(false);
-                    }
-                });
-                if let (Some(way_in), Some(lb)) = (go, lb) {
-                    let alongside = self.pull.alongside;
-                    if let Err(why) = self.pull_dungeon(&world, lb, way_in, alongside) {
-                        self.panels.message = why;
+                super::panels::search_box(ui, &mut self.pull.find, t.get("pull.find"));
+                let find = self.pull.find.trim().to_lowercase();
+                let named = |lb: u16| {
+                    names.get(&lb).map_or_else(
+                        || t.fill("dungeon.unnamed", &[("landblock", &format!("{lb:04X}"))]),
+                        |n| format!("{n} ({lb:04X})"),
+                    )
+                };
+                // The dungeons AC1's portals name first, by name; then the others, by landblock.
+                let mut found: Vec<(u16, String)> = self
+                    .pull
+                    .dungeons
+                    .keys()
+                    .map(|&lb| (lb, named(lb)))
+                    .filter(|(_, n)| find.is_empty() || n.to_lowercase().contains(&find))
+                    .collect();
+                found.sort_by_key(|(lb, n)| (!names.contains_key(lb), n.clone(), *lb));
+                egui::ScrollArea::vertical()
+                    .id_salt("pull list")
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for (lb, name) in &found {
+                            if ui
+                                .selectable_label(self.pull.chosen == Some(*lb), name)
+                                .clicked()
+                            {
+                                self.pull.chosen = Some(*lb);
+                            }
+                        }
+                    });
+                let chosen = self.pull.chosen;
+                if ui
+                    .add_enabled(chosen.is_some(), egui::Button::new(t.get("pull.go")))
+                    .on_hover_text(t.get("pull.go_tip"))
+                    .clicked()
+                {
+                    if let Some(lb) = chosen {
+                        if let Err(why) = self.pull_dungeon(lb) {
+                            self.panels.message = why;
+                        }
                     }
                 }
                 for line in &self.pull.report {

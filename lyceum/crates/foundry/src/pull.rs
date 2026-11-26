@@ -381,8 +381,9 @@ pub struct Entrance {
 /// A dungeon to pull, and where to.
 #[derive(Clone, Debug)]
 pub struct Request<'a> {
-    /// The source world's file, and the server database its world runs on.
-    pub source: &'a Path,
+    /// The source world's file (`None`: the player's own files, under no pack), and the server
+    /// database its world runs on.
+    pub source: Option<&'a Path>,
     pub database: &'a Path,
     pub landblock: u16,
     /// The world repository's file, its row vocabulary (`empyrean-import schema`), and its land.
@@ -535,19 +536,23 @@ pub fn prepare(
         }
     }
 
-    // The two worlds' cells of the dungeon, the same.
-    let source = Session::open(r.source, dats, None)?;
+    // The source's cells of the dungeon: its world's, or the player's own files'.
+    let source = match r.source {
+        Some(path) => Session::open(path, dats, None)?,
+        None => Session::open_world(files_world(), dats, None, None)?,
+    };
+    let from = r
+        .source
+        .map_or_else(|| dats.display().to_string(), |p| p.display().to_string());
     let cells = source.cells(lb);
     if cells.is_empty() {
         return Err(refused(format!(
-            "{}: landblock {lb:04X} holds no dungeon",
-            r.source.display()
+            "{from}: landblock {lb:04X} holds no dungeon"
         )));
     }
     if cells.values().any(|c| c.flags & 1 != 0) {
         return Err(refused(format!(
-            "{}: landblock {lb:04X} holds a building's rooms, not a dungeon",
-            r.source.display()
+            "{from}: landblock {lb:04X} holds a building's rooms, not a dungeon"
         )));
     }
     let opened = match target {
@@ -757,6 +762,24 @@ pub fn prepare(
         pack_name: pack.name.clone(),
         library_text,
     })
+}
+
+/// The player's own files as a world: no pack and no import over them, the end of retail's.
+fn files_world() -> crate::world::World {
+    let dir = std::env::temp_dir().join(format!("lyceum-pull-files-{}", std::process::id()));
+    crate::world::World {
+        path: dir.join("world.toml"),
+        key: "files".into(),
+        era: crate::world::EraId::Eor,
+        packs: Vec::new(),
+        imports: Vec::new(),
+        out: dir.join("build"),
+        ids: BTreeMap::new(),
+        overrides: Vec::new(),
+        base: None,
+        lineage: Vec::new(),
+        land_steps: None,
+    }
 }
 
 /// Row `row`'s guid and the guids it links, renumbered as `guids` has them.

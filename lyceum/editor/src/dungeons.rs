@@ -37,6 +37,12 @@ pub struct InDungeon {
 #[derive(Debug, Default)]
 pub struct DungeonList {
     pub(super) retail: Option<BTreeMap<u16, u32>>,
+    /// What the world's map names the dungeons under an entrance, by landblock.
+    pub(super) place_names: BTreeMap<u16, String>,
+    /// Which game's dungeons the list shows, on a world over a land; and each dungeon's game, as
+    /// last worked out (till the list is made again).
+    pub(super) game_shown: Option<super::dungeon::Game>,
+    pub(super) games: BTreeMap<u16, Option<super::dungeon::Game>>,
     /// Every dungeon, as last listed (till the next edit, or the server's weenies learned).
     pub(super) listed: Option<Vec<Dungeon>>,
     pub filter: String,
@@ -83,7 +89,12 @@ impl EditorApp {
             self.dungeon_list.retail = Some(self.session.retail_dungeons());
         }
         let retail = self.dungeon_list.retail.clone().unwrap_or_default();
-        let listed = self.session.dungeons(&retail);
+        let mut listed = self.session.dungeons(&retail);
+        self.dungeon_list.games.clear();
+        // A dungeon nothing else names takes the name the world's map gives its entrance.
+        for d in listed.iter_mut().filter(|d| d.name.is_none()) {
+            d.name = self.dungeon_list.place_names.get(&d.landblock).cloned();
+        }
         self.dungeon_list.listed = Some(listed.clone());
         listed
     }
@@ -107,6 +118,16 @@ impl EditorApp {
             .into_iter()
             .find(|d| d.landblock == lb)
             .map_or_else(|| format!("{lb:04X}"), |d| self.dungeon_name(&d))
+    }
+
+    /// The game dungeon `lb` is built in ([`Self::dungeon_game`]), worked out once a listing.
+    fn game_of(&mut self, lb: u16) -> Option<super::dungeon::Game> {
+        if let Some(g) = self.dungeon_list.games.get(&lb) {
+            return *g;
+        }
+        let g = self.dungeon_game(lb);
+        self.dungeon_list.games.insert(lb, g);
+        g
     }
 
     /// The dungeon being edited, in dungeon mode.
@@ -686,7 +707,14 @@ impl EditorApp {
                     }
                 }
                 ui.end_row();
-                // A dungeon-wide look is AC1's: an AC2 piece wears its own kit's.
+                // A dungeon-wide look is AC1's: an AC2 piece wears its own kit's, and an AC2
+                // dungeon of the land its own, which nothing changes.
+                if self.dungeon_game(lb) == Some(super::dungeon::Game::Ac2) {
+                    ui.label(t.get("dungeon.look"));
+                    ui.weak(t.get("dungeon.ac2_look_fixed"));
+                    ui.end_row();
+                    return;
+                }
                 if self.dungeon_game(lb) != Some(super::dungeon::Game::Ac1) {
                     return;
                 }
@@ -848,19 +876,33 @@ impl EditorApp {
             &mut self.dungeon_list.filter,
             t.get("dungeon.list_filter"),
         );
+        // Over a land, its dungeons are AC2's and the world's own copies AC1's: either, or all.
+        let over_land = !self.session.world().imports.is_empty();
+        if over_land {
+            use super::dungeon::Game;
+            ui.horizontal(|ui| {
+                let g = &mut self.dungeon_list.game_shown;
+                ui.selectable_value(g, Some(Game::Ac2), t.get("dungeon.shown_ac2"));
+                ui.selectable_value(g, Some(Game::Ac1), t.get("dungeon.shown_ac1"));
+                ui.selectable_value(g, None, t.get("dungeon.shown_all"));
+            });
+        }
+        let game = self.dungeon_list.game_shown.filter(|_| over_land);
         let f = self.dungeon_list.filter.trim().to_lowercase();
-        let shown: Vec<(Dungeon, String)> = all
-            .into_iter()
-            .map(|d| {
-                let n = self.dungeon_name(&d);
-                (d, n)
-            })
-            .filter(|(d, n)| {
-                f.is_empty()
-                    || n.to_lowercase().contains(&f)
-                    || format!("{:04x}", d.landblock).contains(&f)
-            })
-            .collect();
+        let mut shown: Vec<(Dungeon, String)> = Vec::new();
+        for d in all {
+            let n = self.dungeon_name(&d);
+            if !(f.is_empty()
+                || n.to_lowercase().contains(&f)
+                || format!("{:04x}", d.landblock).contains(&f))
+            {
+                continue;
+            }
+            if game.is_some() && self.game_of(d.landblock) != game {
+                continue;
+            }
+            shown.push((d, n));
+        }
         self.dungeon_list.rects.clear();
         self.dungeon_list.delete_rects.clear();
         let here = self.dungeon_mode();
