@@ -431,6 +431,8 @@ flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam = "0.30"
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 png = "0.17"
+# DEFLATE for the data records a server sends compressed (`dereth-dat`): pure Rust, builds for wasm32.
+miniz_oxide = "0.8"
 # Lyceum's panels (`lyceum/editor` only): immediate-mode widgets, docked panels, tables.
 egui = { version = "0.36.2", default-features = false }
 egui_dock = { version = "0.21.1", default-features = false }

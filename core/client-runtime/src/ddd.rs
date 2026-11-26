@@ -475,6 +475,63 @@ pub struct DddPatcher {
     notices: Vec<String>,
 }
 
+/// A `0xF7E2 DDD_DataMessage` made ready to apply off the frame loop ([`decode`]): the record as it
+/// came, its payload inflated when it came compressed, and the payload's hash. A record that does
+/// not decode carries neither, and is refused when it is applied, as it would have been.
+#[derive(Debug)]
+pub struct Decoded {
+    pub record: Box<DddData>,
+    pub inflated: Option<Vec<u8>>,
+    pub hash: Option<[u8; 32]>,
+}
+
+impl std::ops::Deref for Decoded {
+    type Target = DddData;
+
+    fn deref(&self) -> &DddData {
+        &self.record
+    }
+}
+
+impl Decoded {
+    /// The bytes it holds: the record's as they came, and its inflated payload.
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.record.data.len() + self.inflated.as_ref().map_or(0, Vec::len)
+    }
+}
+
+/// What [`decode`] did ahead of the patcher, which it takes in place of doing it again.
+#[derive(Debug, Default)]
+struct Ready {
+    inflated: Option<Vec<u8>>,
+    hash: Option<[u8; 32]>,
+}
+
+/// Decode `record` for the patcher, where it is cheap to wait (the patch stream's own thread):
+/// inflate a compressed one and hash its payload. One whose compressed flag or length the patcher
+/// would refuse, or whose stream does not inflate, is left for the patcher to refuse.
+#[must_use]
+pub fn decode(record: Box<DddData>) -> Decoded {
+    let sound = u64::from(record.data_size) == record.data.len() as u64 + 4;
+    let (inflated, hash) = match record.compressed {
+        1 if sound => match dereth_dat::inflate::decompress_ddd_record(&record.data) {
+            Ok(p) => {
+                let h = dereth_dat::overlay::record_hash(&p);
+                (Some(p), Some(h))
+            }
+            Err(_) => (None, None),
+        },
+        0 if sound => (None, Some(dereth_dat::overlay::record_hash(&record.data))),
+        _ => (None, None),
+    };
+    Decoded {
+        record,
+        inflated,
+        hash,
+    }
+}
+
 impl DddPatcher {
     /// A patcher writing into `target`, the world's overlay; with none, every record is refused.
     #[must_use]
@@ -1089,7 +1146,22 @@ impl DddPatcher {
 
     /// `0xF7E2 DDD_DataMessage`: validate the record and put it in the dat.
     pub fn on_data(&mut self, m: &DddData) -> (DataOutcome, DddAction) {
-        let outcome = self.apply(m);
+        self.on_data_with(m, Ready::default())
+    }
+
+    /// [`Self::on_data`] of a record [`decode`]d ahead of time, off the frame loop: its inflated
+    /// payload and its hash are taken as they are.
+    pub fn on_decoded(&mut self, d: Decoded) -> (DataOutcome, DddAction) {
+        let Decoded {
+            record,
+            inflated,
+            hash,
+        } = d;
+        self.on_data_with(&record, Ready { inflated, hash })
+    }
+
+    fn on_data_with(&mut self, m: &DddData, ready: Ready) -> (DataOutcome, DddAction) {
+        let outcome = self.apply(m, ready);
         let mut action = DddAction::default();
         match &outcome {
             DataOutcome::Applied {
@@ -1210,7 +1282,7 @@ impl DddPatcher {
 
     /// The validate-then-write core, with no bookkeeping, so the bookkeeping above reads as one
     /// thing and this reads as the other.
-    fn apply(&mut self, m: &DddData) -> DataOutcome {
+    fn apply(&mut self, m: &DddData, ready: Ready) -> DataOutcome {
         let Some(target) = target_from_wire(m.dat_file_type, m.dat_file_id) else {
             return DataOutcome::Refused(DddRefusal::UnknownDatFile {
                 dat_file_type: m.dat_file_type,
@@ -1262,17 +1334,21 @@ impl DddPatcher {
                 belongs,
             });
         }
-        let payload = if m.compressed == 1 {
-            match dereth_dat::inflate::decompress_ddd_record(&m.data) {
+        let payload = match (m.compressed, ready.inflated) {
+            (1, Some(p)) => p,
+            (1, None) => match dereth_dat::inflate::decompress_ddd_record(&m.data) {
                 Ok(p) => p,
                 Err(e) => return DataOutcome::Refused(DddRefusal::Decompress(e.to_string())),
-            }
-        } else {
-            m.data.clone()
+            },
+            _ => m.data.clone(),
         };
+        // Hashed once: for the world's expected hash, and for the overlay's manifest.
+        let hash = ready
+            .hash
+            .unwrap_or_else(|| dereth_dat::overlay::record_hash(&payload));
 
         if let Some(want) = self.expected.get(&(target, id.raw())) {
-            if dereth_dat::overlay::record_hash(&payload) != *want {
+            if hash != *want {
                 return DataOutcome::Refused(DddRefusal::HashMismatch { id: id.raw() });
             }
         }
@@ -1291,9 +1367,9 @@ impl DddPatcher {
             Err(e) => DataOutcome::Refused(DddRefusal::Write(e.to_string())),
             Ok(w) => match if exact {
                 // The world numbers its iterations its own way: its record is its own.
-                w.put(id, &payload, version, iteration, date)
+                w.put_hashed(id, &payload, hash, version, iteration, date)
             } else {
-                w.save(&base, id, &payload, version, iteration, date)
+                w.save_hashed(&base, id, &payload, hash, version, iteration, date)
             }
             .and_then(|s| {
                 // A run-time answer has no end of patch behind it to write the manifest.
@@ -1673,6 +1749,103 @@ mod tests {
             entry_date(Some(Duration::from_secs(u64::from(u32::MAX) + 2))),
             1
         );
+    }
+
+    /// Behaviour: none (a patch record decoded off the frame loop)
+    /// A compressed record decoded ahead of time, inflated and hashed off the frame loop, is
+    /// written as the record applied as it came is: the same bytes, and the same hash in the
+    /// overlay's manifest. One that does not inflate is decoded to nothing and refused as before.
+    #[test]
+    fn a_record_decoded_off_the_frame_loop_is_written_as_one_applied_as_it_came() {
+        // `struct.pack("<I", 96) + zlib.compress(bytes(range(48)) * 2, 9)`.
+        const DATA: [u8; 63] = [
+            0x60, 0x00, 0x00, 0x00, 0x78, 0xDA, 0x63, 0x60, 0x64, 0x62, 0x66, 0x61, 0x65, 0x63,
+            0xE7, 0xE0, 0xE4, 0xE2, 0xE6, 0xE1, 0xE5, 0xE3, 0x17, 0x10, 0x14, 0x12, 0x16, 0x11,
+            0x15, 0x13, 0x97, 0x90, 0x94, 0x92, 0x96, 0x91, 0x95, 0x93, 0x57, 0x50, 0x54, 0x52,
+            0x56, 0x51, 0x55, 0x53, 0xD7, 0xD0, 0xD4, 0xD2, 0xD6, 0xD1, 0xD5, 0xD3, 0x67, 0x20,
+            0x51, 0x3D, 0x00, 0x63, 0xDF, 0x08, 0xD1,
+        ];
+        let plain: Vec<u8> = (0..48u8).chain(0..48u8).collect();
+        let record = |id: u32, data: Vec<u8>| DddData {
+            dat_file_type: 1,
+            dat_file_id: 3,
+            resource_type: 0x21,
+            resource_id: id,
+            iteration: 2,
+            compressed: 1,
+            version: 1,
+            data_size: u32::try_from(data.len() + 4).unwrap(),
+            data,
+        };
+        let (a, b, bad) = (
+            DataId(0x2100_0001),
+            DataId(0x2100_0002),
+            DataId(0x2100_0003),
+        );
+        let decoded = decode(Box::new(record(b.raw(), DATA.to_vec())));
+        assert_eq!(decoded.inflated.as_deref(), Some(plain.as_slice()));
+        assert_eq!(decoded.hash, Some(dereth_dat::overlay::record_hash(&plain)));
+        let mut corrupt = DATA.to_vec();
+        corrupt[30] ^= 0x55;
+        let undecoded = decode(Box::new(record(bad.raw(), corrupt)));
+        assert_eq!((undecoded.inflated.as_ref(), undecoded.hash), (None, None));
+
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("ddd-decoded").expect("scratch directory");
+        let dir = scratch.path().to_path_buf();
+        let base_path = DatTarget::Local.in_dir(&dir.join("base"));
+        std::fs::create_dir_all(dir.join("base")).expect("base folder");
+        {
+            let mut writer =
+                dereth_dat::write::DatWriter::create(&base_path, 0x400, 1, 3, 64 * 1024)
+                    .expect("create");
+            writer
+                .save(
+                    dereth_dat::ITERATION_LIST,
+                    &dereth_dat::iteration::encode(&[1]),
+                    1,
+                    0,
+                    1,
+                )
+                .expect("seed iterations");
+        }
+        let base = DatFile::open(&base_path).expect("the base");
+        let overlay = OverlayDir::new(&dir.join("overlay")).expect("an overlay folder");
+        let mut patcher = DddPatcher::new(Some(OverlayTarget::with_bases(
+            overlay.clone(),
+            [(DatTarget::Local, base)],
+            "a world",
+        )));
+        patcher.on_interrogation();
+        patcher.on_begin(&DddBeginDdd {
+            data_expected: 3,
+            revisions: vec![dereth_protocol::admin::PatchRevision {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                iteration: 2,
+                ids_to_download: vec![a.raw(), b.raw(), bad.raw()],
+                ids_to_purge: Vec::new(),
+            }],
+        });
+        let (as_came, _) = patcher.on_data(&record(a.raw(), DATA.to_vec()));
+        let (ahead, _) = patcher.on_decoded(decoded);
+        let (refused, _) = patcher.on_decoded(undecoded);
+        assert!(
+            matches!(as_came, DataOutcome::Applied { .. }),
+            "{as_came:?}"
+        );
+        assert!(matches!(ahead, DataOutcome::Applied { .. }), "{ahead:?}");
+        assert!(
+            matches!(refused, DataOutcome::Refused(DddRefusal::Decompress(_))),
+            "{refused:?}"
+        );
+        let w = patcher.writers.get(&DatTarget::Local).expect("the writer");
+        assert_eq!(w.hash_of(a), w.hash_of(b));
+        assert_eq!(w.hash_of(b), Some(dereth_dat::overlay::record_hash(&plain)));
+        patcher.on_end();
+        let reader = DatFile::open(&overlay.container(DatTarget::Local)).expect("the overlay");
+        assert_eq!(reader.read(a).unwrap(), plain);
+        assert_eq!(reader.read(b).unwrap(), plain);
     }
 
     /// Behaviour: none (completed patch writes stamp both records and revision metadata at the host boundary).

@@ -443,7 +443,7 @@ fn the_overlay_a_client_takes_holds_the_same_bytes_whichever_way_its_records_cam
     let mut streamed = Vec::new();
     while download.ended().is_none() {
         assert!(download.wait(GUARD), "the stream ends");
-        streamed.extend(download.drain(usize::MAX).into_iter().map(|d| *d));
+        streamed.extend(download.drain(usize::MAX).into_iter().map(|d| *d.record));
     }
     assert_eq!(download.ended(), Some(&Ok(())));
     assert_eq!(streamed.len(), RECORDS as usize);

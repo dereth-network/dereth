@@ -10,22 +10,23 @@
 //! or ends with records still pending is declined (`0xF7EE`) with those records, which the server
 //! then sends as `0xF7E2`s. Any other server never offers one, and the patch is retail's.
 
-/// How long a frame may spend applying the stream's records: the rest of the frame draws the
-/// screens and keeps the session's messages moving, so the progress shows and the server's
-/// messages are answered while the patch is written. A frame that may apply any applies at least
-/// one.
-pub const FRAME_SHARE: std::time::Duration = std::time::Duration::from_millis(8);
+/// How long a frame may spend applying the stream's records at the least: the rest of the frame
+/// draws the screens and keeps the session's messages moving, so the progress shows and the
+/// server's messages are answered while the patch is written. A frame that may apply any applies
+/// at least one.
+pub const FRAME_SHARE: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// How long a frame may spend applying the stream's records when frames are `spacing` apart at
-/// the least: three quarters of the spacing, and never less than `floor`. A window paced to ten
-/// frames a second (one in the background) gives the patch most of each frame rather than a
-/// sliver of it; one with no limit gives it `floor`.
+/// the least: the whole spacing, and never less than `floor`. A frame whose work fills its spacing
+/// has nothing left to sleep: a window in the background (ten frames a second), whose sleeps the
+/// system may stretch far past what was asked, applies the patch in all of each frame rather than
+/// waiting out a stretched sleep. One with no limit gives it `floor`, and draws in between.
 #[must_use]
 pub fn frame_share(
     floor: std::time::Duration,
     spacing: std::time::Duration,
 ) -> std::time::Duration {
-    floor.max(spacing * 3 / 4)
+    floor.max(spacing)
 }
 
 /// The clock a frame's share of the stream is measured by: the time since some fixed moment.
@@ -97,6 +98,8 @@ mod stream {
 
     use dereth_protocol::admin::{DddData, BULK_MAGIC, BULK_VERSION};
 
+    use crate::ddd::Decoded;
+
     /// How long a stream may take over each step, and how much it may hold, before it is given up
     /// on or made to wait.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,8 +109,8 @@ mod stream {
         /// To bring one whole record, its length and its body: a stream that stalls or trickles
         /// fails here.
         pub record: Duration,
-        /// The record bytes waiting for the frame loop at most; a record larger than this alone
-        /// still goes.
+        /// The bytes of records waiting for the frame loop at most, as they came and inflated; a
+        /// record larger than this alone still goes.
         pub queued: usize,
         /// The largest record body the stream may carry.
         pub largest: usize,
@@ -126,7 +129,7 @@ mod stream {
 
     #[derive(Debug)]
     enum Msg {
-        Record(Box<DddData>),
+        Record(Decoded),
         Done,
         Failed(String),
     }
@@ -238,10 +241,13 @@ mod stream {
             std::thread::Builder::new()
                 .name("patch stream".to_owned())
                 .spawn(move || {
+                    // Each record is decoded here, off the frame loop: inflated and hashed, so
+                    // the frame loop only writes it.
                     let take = |d: Box<DddData>| {
                         let n = d.data.len() as u64;
-                        let taken = theirs.take(d.data.len(), limits.queued)
-                            && tx.send(Msg::Record(d)).is_ok();
+                        let d = crate::ddd::decode(d);
+                        let taken =
+                            theirs.take(d.held(), limits.queued) && tx.send(Msg::Record(d)).is_ok();
                         if taken {
                             counted.records.fetch_add(1, Ordering::Relaxed);
                             counted.bytes.fetch_add(n, Ordering::Relaxed);
@@ -341,8 +347,8 @@ mod stream {
             }
         }
 
-        /// The records that have arrived, up to about `max_bytes` of them.
-        pub fn drain(&mut self, max_bytes: usize) -> Vec<Box<DddData>> {
+        /// The records that have arrived, decoded, up to about `max_bytes` of them as they came.
+        pub fn drain(&mut self, max_bytes: usize) -> Vec<Decoded> {
             let mut out = Vec::new();
             let mut taken = 0usize;
             while self.end.is_none() && taken < max_bytes {
@@ -358,7 +364,7 @@ mod stream {
                         taken += d.data.len();
                         self.records += 1;
                         self.bytes += d.data.len() as u64;
-                        self.budget.give(d.data.len());
+                        self.budget.give(d.held());
                         out.push(d);
                     }
                     end => self.take(end),
@@ -367,8 +373,8 @@ mod stream {
             out
         }
 
-        /// The next record that has arrived, if one has.
-        pub fn next_record(&mut self) -> Option<Box<DddData>> {
+        /// The next record that has arrived, decoded, if one has.
+        pub fn next_record(&mut self) -> Option<Decoded> {
             self.drain(1).pop()
         }
 
@@ -497,15 +503,15 @@ mod share_tests {
     use super::{frame_share, FRAME_SHARE};
 
     /// Behaviour: none (how much of a frame the patch stream may take)
-    /// A frame paced to ten a second, as a window in the background is, gives the patch three
-    /// quarters of its 99 ms; one with no limit gives it the floor, and so does one paced so fast
-    /// that three quarters of its spacing is less.
+    /// A frame paced to ten a second, as a window in the background is, gives the patch all of its
+    /// 99 ms, leaving nothing to sleep; one with no limit gives it the floor, and so does one
+    /// paced so fast that its spacing is less.
     #[test]
-    fn a_frame_gives_the_patch_three_quarters_of_its_spacing_and_never_less_than_the_floor() {
+    fn a_frame_gives_the_patch_its_whole_spacing_and_never_less_than_the_floor() {
         let spacing = |us| Duration::from_micros(us);
         assert_eq!(
             frame_share(FRAME_SHARE, spacing(99_000)),
-            spacing(74_250),
+            spacing(99_000),
             "ten frames a second"
         );
         assert_eq!(frame_share(FRAME_SHARE, Duration::ZERO), FRAME_SHARE);

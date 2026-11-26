@@ -1046,8 +1046,8 @@ impl<S: Shell> App<S> {
     }
 
     /// CD-bulk-patch: apply the records the patch stream has brought, as the `0xF7E2`s they stand
-    /// for, for as long as this frame's share of them lasts (three quarters of the frame's
-    /// spacing, at least [`App::patch_share`]: [`crate::bulk_patch::frame_share`], by
+    /// for, for as long as this frame's share of them lasts (the frame's whole spacing, at least
+    /// [`App::patch_share`]: [`crate::bulk_patch::frame_share`], by
     /// [`App::patch_clock`]), so the screens go on drawing the patch's progress while it is
     /// written. They wait for the world's manifest and its `0xF7E7`: the server sends both ahead of
     /// its offer, but the manifest is large and can come after the stream has begun, and a record
@@ -1069,16 +1069,15 @@ impl<S: Shell> App<S> {
         let share = crate::bulk_patch::frame_share(self.patch_share, frame_spacing);
         let began = self.patch_clock.now();
         while let Some(m) = download.next_record() {
-            let (outcome, action) = self.ddd.on_data(&m);
+            let bytes = m.data.len() as u64;
+            let (outcome, action) = self.ddd.on_decoded(m);
             if action.send_end {
                 if let Some(link) = self.link.as_mut() {
                     link.net.session.send_ddd_end();
                 }
             }
             tracing::debug!("DDD applied {outcome:?}");
-            self.pending_ddd.push(UiDdd::DataDownloaded {
-                bytes: m.data.len() as u64,
-            });
+            self.pending_ddd.push(UiDdd::DataDownloaded { bytes });
             if self.patch_clock.now().saturating_sub(began) >= share {
                 download.note_progress();
                 return;

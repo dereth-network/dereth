@@ -1176,6 +1176,26 @@ impl OverlayWriter {
         iteration: u32,
         date: u32,
     ) -> Result<SaveOutcome, DatError> {
+        let hash = record_hash(payload);
+        self.save_hashed(base, id, payload, hash, version, iteration, date)
+    }
+
+    /// [`Self::save`] of a payload whose [`record_hash`] is known already, `hash`.
+    ///
+    /// # Errors
+    /// As [`Self::save`].
+    // The record's own fields, each one argument, as `save` takes them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_hashed(
+        &mut self,
+        base: &DatFile,
+        id: DataId,
+        payload: &[u8],
+        hash: [u8; 32],
+        version: u16,
+        iteration: u32,
+        date: u32,
+    ) -> Result<SaveOutcome, DatError> {
         if is_reserved(id) {
             return Err(DatError::NotFound(id));
         }
@@ -1194,7 +1214,7 @@ impl OverlayWriter {
             out = SaveOutcome::Replaced;
         }
         if out != SaveOutcome::RefusedOlderIteration {
-            self.manifest.hashes.insert(id.raw(), record_hash(payload));
+            self.manifest.hashes.insert(id.raw(), hash);
             self.dirty = true;
         }
         Ok(out)
@@ -1213,13 +1233,29 @@ impl OverlayWriter {
         iteration: u32,
         date: u32,
     ) -> Result<SaveOutcome, DatError> {
+        self.put_hashed(id, payload, record_hash(payload), version, iteration, date)
+    }
+
+    /// [`Self::put`] of a payload whose [`record_hash`] is known already, `hash`.
+    ///
+    /// # Errors
+    /// As [`Self::put`].
+    pub fn put_hashed(
+        &mut self,
+        id: DataId,
+        payload: &[u8],
+        hash: [u8; 32],
+        version: u16,
+        iteration: u32,
+        date: u32,
+    ) -> Result<SaveOutcome, DatError> {
         if is_reserved(id) {
             return Err(DatError::NotFound(id));
         }
         // An overlay record of an older iteration than one already there is still the world's.
         self.writer.delete_data(id, 0)?;
         let out = self.writer.save(id, payload, version, iteration, date)?;
-        self.manifest.hashes.insert(id.raw(), record_hash(payload));
+        self.manifest.hashes.insert(id.raw(), hash);
         self.dirty = true;
         Ok(out)
     }

@@ -19,6 +19,8 @@ test-support = []
 
 [dependencies]
 dereth-primitives.workspace = true
+# DEFLATE for the records a server sends compressed: pure Rust, table-driven, builds for wasm32.
+miniz_oxide.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 
