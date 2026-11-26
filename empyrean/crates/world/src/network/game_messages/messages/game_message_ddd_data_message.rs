@@ -1,6 +1,7 @@
 // Ported from ACE (ACEmulator), AGPL-3.0: Source/ACE.Server/Network/GameMessages/Messages/GameMessageDDDDataMessage.cs
 //! Port of `Source/ACE.Server/Network/GameMessages/Messages/GameMessageDDDDataMessage.cs`.
 
+use dereth_assets::skinned::SKINNED_BODY_BASE;
 use dereth_protocol::admin as proto;
 use empyrean_dat::DatDatabaseType;
 use empyrean_net::GameMessageGroup;
@@ -23,7 +24,9 @@ use crate::World;
 /// in none of them is 6 in the portal and high-res dats and 37 in the language dat (1 for every
 /// cell-dat id), waits for a `DataMessage` of that type and id, and saves it; its own iteration
 /// list is written back as each iteration completes. For every other file in those dats
-/// `GetFileType` and the client agree.
+/// `GetFileType` and the client agree. A world's overlay can also hold records in the portal's
+/// render-mesh range, which `GetFileType` does not know either; they go as render meshes, the type
+/// the client gives them.
 ///
 /// # Panics
 /// As `DDDManager.TryGetDatFileContentsForTransmission`.
@@ -68,7 +71,8 @@ pub fn ddd_data_body(
 
     let dat_file = contents.dat_file;
     let file_id = dat_file.object_id;
-    let file_type = ddd_manager::dat_file_get_file_type(dat_file.object_id, dat_database_type)
+    let file_type = render_mesh_file_type(file_id, dat_database_type)
+        .or_else(|| ddd_manager::dat_file_get_file_type(file_id, dat_database_type))
         .unwrap_or_else(|| client_fallback_file_type(dat_database_type));
 
     let length = i32::try_from(contents.contents.len()).unwrap_or(i32::MAX);
@@ -83,6 +87,14 @@ pub fn ddd_data_body(
         data_size: length.wrapping_add(4).cast_unsigned(), // length + size of this message
         data: contents.contents,
     }
+}
+
+/// Not ACE's (V290): the portal dat's render-mesh range, which `GetFileType` leaves out though its
+/// `DatFileType` names it, so the type the client keys an id there by. The retail portal never
+/// fills it; Dereth's skinned bodies live there.
+fn render_mesh_file_type(file_id: u32, dat_database_type: DatDatabaseType) -> Option<u32> {
+    (dat_database_type == DatDatabaseType::Portal && file_id >> 24 == SKINNED_BODY_BASE >> 24)
+        .then_some(ddd_manager::dat_file_type::RENDER_MESH)
 }
 
 /// Not ACE's (a fix, V290): the type the client keys a downloaded id by when its id ranges give it none,

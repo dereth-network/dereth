@@ -17,7 +17,9 @@ use empyrean_common::vectors::{self, u64_of};
 use empyrean_dat::{DatDatabaseType, FakeDats};
 use empyrean_world::managers::ddd_manager::{self, dat_file_type, DatFileSize, DddManagerState};
 use empyrean_world::network::game_messages::messages::game_message_ddd_begin_ddd::game_message_ddd_begin_ddd;
-use empyrean_world::network::game_messages::messages::game_message_ddd_data_message::game_message_ddd_data_message;
+use empyrean_world::network::game_messages::messages::game_message_ddd_data_message::{
+    ddd_data_body, game_message_ddd_data_message,
+};
 use empyrean_world::network::structure::c_mostly_consecutive_int_set::CMostlyConsecutiveIntSet;
 use empyrean_world::World;
 use serde_json::Value;
@@ -657,6 +659,57 @@ fn the_iteration_file_is_sent_with_the_type_the_client_gives_it() {
         (dat_file_type::GRAPHICS_OBJECT, dat_file_type::STRING_TABLE),
         (6, 37)
     );
+}
+
+/// V290: a skinned body, the record a world's overlay keeps in the portal's render-mesh range, is
+/// sent as a render mesh, the type the client keys it by, whether it goes over UDP or down the
+/// patch stream, and nothing is logged as being of an unknown type.
+#[test]
+fn a_skinned_body_is_sent_as_a_render_mesh_without_an_unknown_type_line() {
+    let body = dereth_assets::skinned_body_id(dereth_primitives::DataId(0x0200_E700)).raw();
+    let dats = fake_dats()
+        .with_raw(DatDatabaseType::Portal, body, vec![9u8; 80])
+        .with_file_iteration(DatDatabaseType::Portal, body, 3)
+        .build()
+        .expect("fake dats");
+    let now = ClockSnapshot {
+        portal_year_ticks: 0.0,
+        unix_time: 1_000_000.0,
+        utc: DotNetDateTime::new(2026, 1, 1),
+        monotonic: Duration::ZERO,
+    };
+    ConfigManager::initialize(MasterConfiguration::default());
+    let mut w = World::new(now, std::sync::Arc::clone(&dats));
+    ddd_manager::initialize(&mut w.ddd_manager, &dats);
+
+    let ((udp, stream), lines) = crate::log_capture::capture_at(log::Level::Info, || {
+        let m = game_message_ddd_data_message(&mut w, body, DatDatabaseType::Portal);
+        let udp: DddData =
+            dereth_protocol::read_body_padded(&m.data[4..]).expect("DataMessage decodes");
+        let contents = ddd_manager::dat_file_contents(&dats, body, DatDatabaseType::Portal, None)
+            .expect("the body is read");
+        (udp, ddd_data_body(contents, DatDatabaseType::Portal))
+    });
+    for d in [&udp, &stream] {
+        assert_eq!(
+            (
+                (d.dat_file_type, d.dat_file_id),
+                d.resource_type,
+                d.resource_id
+            ),
+            ((0, 1), dat_file_type::RENDER_MESH, body)
+        );
+    }
+    assert_eq!(dat_file_type::RENDER_MESH, 67);
+    assert!(
+        lines.iter().all(|l| !l.contains("Unknown file type")),
+        "{lines:?}"
+    );
+    // The capture does see the line: the same id in the language dat is of no type ACE knows.
+    let (_, lines) = crate::log_capture::capture_at(log::Level::Info, || {
+        ddd_manager::dat_file_get_file_type(body, DatDatabaseType::Language)
+    });
+    assert_eq!(lines, vec![format!("Unknown file type: {body:08X}")]);
 }
 
 // ---- real content ------------------------------------------------------------------------------
