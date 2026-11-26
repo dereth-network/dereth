@@ -1,7 +1,8 @@
 //! Pulling one of AC1's dungeons into the world repository being edited, over a land
 //! ([`lyceum_foundry::pull`]): its rooms, copied from the player's own AC1 files, and what AC1's
 //! world places in it, as the layer's rows; one change that one undo takes back. Its way in is
-//! placed later, as any portal is. What it can't settle (the exits to re-aim, the classes the
+//! placed later, as any portal is. A copy moved to another landblock takes the repository's ways
+//! in with it, re-aimed. What it can't settle (the exits and ways in to re-aim, the classes the
 //! repository lacks) is listed under it.
 
 use std::collections::BTreeMap;
@@ -57,9 +58,12 @@ impl EditorApp {
         };
         let prepared = pull::prepare(&r, &dats, Some(&self.session)).map_err(|e| e.to_string())?;
         let session = &mut self.session;
-        let texts = pull::write_rows(&schema, &prepared.pack, &prepared.rows, &mut |p| {
+        let mut texts = pull::write_rows(&schema, &prepared.pack, &prepared.rows, &mut |p| {
             session.rows_text(p)
         })?;
+        texts.extend(pull::write_weenies(&schema, &prepared.weenies, &mut |p| {
+            session.rows_text(p)
+        })?);
         // The dungeon's cells first, copied in where the repository's world doesn't hold them, so
         // the rows after name cells the world has.
         let ops: Vec<Op> = prepared
@@ -84,6 +88,20 @@ impl EditorApp {
         }
         let done = &prepared.pulled;
         let mut report = Vec::new();
+        if let Some(c) = &done.copied {
+            for (key, list) in [("pull.reaimed", &c.reaimed), ("pull.reaim", &c.reaim)] {
+                for (class, from, to) in list {
+                    report.push(self.say_with(
+                        key,
+                        &[
+                            ("class", &class.to_string()),
+                            ("from", &format!("{from:#010X}")),
+                            ("to", &format!("{to:#010X}")),
+                        ],
+                    ));
+                }
+            }
+        }
         for e in &done.plan.exits {
             let key = if e.outdoors() {
                 "pull.exit_land"

@@ -365,7 +365,9 @@ and 2 for a usage or input error.
 - **`pull-dungeon`** pulls a dungeon into a world repository, as the editor's Dungeons tab does:
   its cells, copied from the source's files under its own landblock (or, when the repository's
   world holds cells there, the nearest that holds none, every row it writes renumbered to match),
-  and what the source places in it. A world that holds the same cells already keeps them.
+  and what the source places in it. A copy moved to another landblock re-aims the repository's
+  weenies of the portals into it, as the layer's rows of them; the ways in it holds no weenie of
+  are reported. A world that holds the same cells already keeps them.
   `--cells-only` copies the cells and places nothing.
   `--database` is the source world's server database (the newest cached one by default),
   `--schema` what `empyrean-import schema` writes, `--on` the repository's land. `--entrance`

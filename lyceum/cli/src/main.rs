@@ -60,8 +60,9 @@
 //!               [--entrance <cell>,<x>,<y>,<z>[,<heading>]] [--portal <class>]
 //!                                               a dungeon of another world pulled into a world
 //!                                               repository: what that world places in it as
-//!                                               the repository's rows, a portal into it, and
-//!                                               the exits and classes left to its author
+//!                                               the repository's rows, a portal into it, its
+//!                                               ways in re-aimed at a moved copy, and the
+//!                                               exits and classes left to its author
 //! lyceum name <world.toml> --heritage <name> --seed <text> [--count <n>]
 //!                                               people's names drawn from the world's name
 //!                                               table of that heritage: the same seed, the
@@ -1012,6 +1013,11 @@ fn run_pull(args: &Args) -> ExitCode {
                     if let (Some(a), Some(b)) = (first, last) {
                         println!("its cells are {a:#010X} to {b:#010X}");
                     }
+                }
+                for (class, from, to) in &c.reaimed {
+                    println!(
+                        "way in re-aimed: class {class} led to {from:#010X}, now to its copy's cell {to:#010X}"
+                    );
                 }
                 for (class, from, to) in &c.reaim {
                     println!(

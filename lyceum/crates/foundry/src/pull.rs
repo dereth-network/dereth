@@ -10,6 +10,10 @@
 //! ([`free_block`]). Every row the pull writes names the copy's cells, and a copy moved to
 //! another landblock takes guids of its own there.
 //!
+//! **The ways in:** when the copy's cells are not the source's, each weenie of the repository's
+//! world that is one of the source's ways in and leads into the dungeon is re-aimed at the copy's
+//! cell there, written as the layer's row of that weenie in the pack being edited.
+//!
 //! What it can't settle it reports:
 //! - **the exits:** the portals in the dungeon whose destinations lie outside it. One onto the land
 //!   leads where AC1's land was, so it is listed for its author to re-aim; one into another
@@ -17,7 +21,8 @@
 //! - **the classes the repository lacks:** each class a placement names that no row of the
 //!   repository's world defines, to be copied into its library;
 //! - **the ways in to re-aim:** the portals whose destination is in the dungeon, when its copy's
-//!   cells are not the source's: each class, where it leads, and the copy's cell there.
+//!   cells are not the source's, that no weenie of the repository's world defines: each class,
+//!   where it leads, and the copy's cell there.
 //!
 //! The source world's things are its server database's, with its packs' SQL over them: a pack's
 //! spawn of a guid the database places too stands for it.
@@ -64,9 +69,27 @@ pub struct Copied {
     pub file: PathBuf,
     /// Each of the source's cells, and the cell its copy is.
     pub cells: BTreeMap<u32, u32>,
-    /// The portals that lead into the dungeon, when its copy's cells are not the source's: each
-    /// class, the cell it leads to, and the copy's cell.
+    /// The portals that lead into the dungeon, when its copy's cells are not the source's, that no
+    /// weenie of the repository's world defines: each class, the cell it leads to, and the copy's
+    /// cell.
     pub reaim: Vec<(u32, u32, u32)>,
+    /// The repository's weenies re-aimed at the copy: each class, the cell it led to, and the
+    /// copy's cell it leads to now.
+    pub reaimed: Vec<(u32, u32, u32)>,
+}
+
+/// The kind of row a class's weenie is.
+pub const WEENIE: &str = "weenie";
+
+/// The field of a weenie row that says where it sends who uses it.
+const DESTINATION: &str = "position.Destination";
+
+/// A weenie's row in the layer being edited: the pack file it goes in, its item, and the row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeenieRow {
+    pub file: PathBuf,
+    pub item: String,
+    pub row: toml::Table,
 }
 
 impl Copied {
@@ -370,6 +393,130 @@ pub fn write_rows(
     Ok(out)
 }
 
+/// The files of `weenies` (weenie rows of the layer being edited) with each row written in: the
+/// files' new texts, by path. `read` gives a file's text now, if any.
+///
+/// # Errors
+/// A file that isn't TOML.
+pub fn write_weenies(
+    schema: &RowSchema,
+    weenies: &[WeenieRow],
+    read: &mut dyn FnMut(&Path) -> Option<String>,
+) -> Result<BTreeMap<PathBuf, String>, String> {
+    let mut out: BTreeMap<PathBuf, String> = BTreeMap::new();
+    for w in weenies {
+        let now = out.get(&w.file).cloned().or_else(|| read(&w.file));
+        if let Some(text) =
+            layer_rows::write_row(schema, WEENIE, now.as_deref(), &w.item, Some(&w.row))?
+        {
+            out.insert(w.file.clone(), text);
+        }
+    }
+    Ok(out)
+}
+
+/// A way in re-aimed: its class, the cell it led to, and the cell it leads to now.
+type Aimed = (u32, u32, u32);
+
+/// The weenies of the repository's world folded at layer `at` (`world`) whose class is one of
+/// `ways` and whose destination is one of `cells`' keys, re-aimed at the cell it maps to: the row
+/// of each that pack `pack` (the layer's `index`th) then writes, only what differs from the world
+/// below the pack; and each class, the cell it led to and the cell it leads to now.
+///
+/// # Errors
+/// A pack file that doesn't read.
+fn reaim_weenies(
+    repo: &crate::repo::Repo,
+    schema: &RowSchema,
+    at: usize,
+    (pack, index): (&crate::repo::RowPack, usize),
+    world: &crate::repo::ShownWorld,
+    ways: &BTreeSet<u32>,
+    cells: &BTreeMap<u32, u32>,
+) -> Result<Vec<(WeenieRow, Aimed)>, String> {
+    let cell_of = |v: &T| {
+        v.get("cell")
+            .and_then(T::as_integer)
+            .and_then(|c| u32::try_from(c).ok())
+    };
+    let leading: Vec<(&String, &crate::repo::ShownItem, u32, &T)> = world
+        .items
+        .iter()
+        .filter(|(_, i)| i.kind == WEENIE)
+        .filter_map(|(name, i)| {
+            let field = |n: &str| i.fields.iter().find(|f| f.name == n);
+            let class = field("class")
+                .and_then(|f| f.value.as_integer())
+                .and_then(|c| u32::try_from(c).ok())?;
+            let to = &field(DESTINATION)?.value;
+            (ways.contains(&class) && cell_of(to).is_some_and(|c| cells.contains_key(&c)))
+                .then_some((name, i, class, to))
+        })
+        .collect();
+    if leading.is_empty() {
+        return Ok(Vec::new());
+    }
+    let below = repo.fold_below(schema, at, index)?;
+    let mut out = Vec::new();
+    for (name, item, class, to) in leading {
+        let was = below.items.get(name).map(|i| i.row(schema));
+        // The pack's own row of it now, in the file the fold read it from.
+        let file = item
+            .fields
+            .iter()
+            .filter_map(|f| f.at.as_ref())
+            .map(|l| l.file.clone())
+            .find(|f| f.starts_with(&pack.dir));
+        let own = match &file {
+            Some(f) => {
+                let rel = f
+                    .strip_prefix(&pack.dir)
+                    .map_err(|e| e.to_string())?
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                match pack.files.get(&rel) {
+                    Some(text) => layer_rows::row_in(schema, WEENIE, text, name)
+                        .map_err(|e| format!("{}: {e}", f.display()))?,
+                    None => None,
+                }
+            }
+            None => None,
+        };
+        let now = match &own {
+            Some(row) => layer_rows::over(schema, WEENIE, was.as_ref(), row),
+            None => was.clone().unwrap_or_else(|| item.row(schema)),
+        };
+        let Some((from, new)) = cell_of(to).and_then(|c| Some((c, *cells.get(&c)?))) else {
+            continue;
+        };
+        let mut dest = to.clone();
+        if let T::Table(t) = &mut dest {
+            t.insert("cell".into(), T::Integer(i64::from(new)));
+        }
+        let mut fields = layer_rows::fields(schema, WEENIE, &now);
+        fields.insert(DESTINATION.into(), dest);
+        let wanted = layer_rows::row_of(schema, WEENIE, &fields);
+        let Some(row) = layer_rows::delta(schema, WEENIE, was.as_ref(), &wanted) else {
+            continue;
+        };
+        let file = match file {
+            Some(f) => f,
+            None => pack.dir.join(layer_rows::file_of(schema, WEENIE, &wanted)?),
+        };
+        out.push((
+            WeenieRow {
+                file,
+                item: name.clone(),
+                row,
+            },
+            (class, from, new),
+        ));
+    }
+    Ok(out)
+}
+
 /// Where the way into a pulled dungeon stands: a cell, landblock meters and a heading in degrees.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Entrance {
@@ -437,6 +584,8 @@ pub struct Prepared {
     pub pack_name: String,
     /// The library list's new text, when it gains classes.
     pub library_text: Option<String>,
+    /// The weenies re-aimed at the dungeon's copy, as the layer's rows of them.
+    pub weenies: Vec<WeenieRow>,
 }
 
 /// Pull `r`'s dungeon from its source world into its repository, over the client's files in
@@ -452,6 +601,7 @@ pub fn pull(r: &Request<'_>, dats: &Path) -> Result<Pulled, crate::error::Error>
         pack,
         pack_name,
         library_text,
+        weenies,
     } = prepare(r, dats, None)?;
     if let (Some((path, _)), Some(text), false) = (&pulled.library, &library_text, r.dry_run) {
         std::fs::write(path, text).map_err(|e| Error::io(path, e))?;
@@ -468,10 +618,14 @@ pub fn pull(r: &Request<'_>, dats: &Path) -> Result<Pulled, crate::error::Error>
         }
         pulled.files.push(c.file.clone());
     }
-    let texts = write_rows(r.schema, &pack, &rows, &mut |p| {
+    let mut texts = write_rows(r.schema, &pack, &rows, &mut |p| {
         std::fs::read_to_string(p).ok()
     })
     .map_err(Error::Refused)?;
+    texts.extend(
+        write_weenies(r.schema, &weenies, &mut |p| std::fs::read_to_string(p).ok())
+            .map_err(Error::Refused)?,
+    );
     for (path, text) in texts {
         if !r.dry_run {
             if let Some(d) = path.parent() {
@@ -502,17 +656,19 @@ pub fn prepare(
     let repo = crate::repo::Repo::open(r.target).map_err(refused)?;
     let at = repo.shown_layers() - 1;
     let layer = &repo.layers[at];
-    let pack = match r.pack {
+    let pack_index = match r.pack {
         Some(name) => layer
             .packs
             .iter()
-            .find(|p| p.name == name)
+            .position(|p| p.name == name)
             .ok_or_else(|| refused(format!("layer {} has no pack named {name}", layer.id)))?,
         None => layer
             .packs
-            .last()
+            .len()
+            .checked_sub(1)
             .ok_or_else(|| refused(format!("layer {} has no pack", layer.id)))?,
     };
+    let pack = &layer.packs[pack_index];
     let world = repo.fold(r.schema, at).map_err(refused)?;
     let field = |item: &crate::repo::ShownItem, name: &str| {
         item.fields
@@ -638,6 +794,7 @@ pub fn prepare(
     let mut rows: Vec<toml::Table> = plan.rows.values().cloned().collect();
     // The rows name the copy's cells; a copy moved to another landblock takes guids there.
     let mut copied = copied;
+    let mut weenies: Vec<WeenieRow> = Vec::new();
     if let Some(c) = copied.as_mut() {
         if c.landblock != lb {
             let mut guids: BTreeMap<u32, u32> = BTreeMap::new();
@@ -673,6 +830,24 @@ pub fn prepare(
                 }
             }
             c.reaim.sort_unstable();
+            // The repository's weenies of those ways in that lead into the dungeon lead into the
+            // copy; the ways in it defines no weenie of are left to re-aim.
+            let ways: BTreeSet<u32> = c.reaim.iter().map(|(k, _, _)| *k).collect();
+            for (row, aimed) in reaim_weenies(
+                &repo,
+                r.schema,
+                at,
+                (pack, pack_index),
+                &world,
+                &ways,
+                &c.cells,
+            )
+            .map_err(refused)?
+            {
+                weenies.push(row);
+                c.reaimed.push(aimed);
+            }
+            c.reaim.retain(|(k, _, _)| !classes.contains(k));
         }
     }
 
@@ -761,6 +936,7 @@ pub fn prepare(
         pack: pack.dir.clone(),
         pack_name: pack.name.clone(),
         library_text,
+        weenies,
     })
 }
 
@@ -861,6 +1037,7 @@ fn copy_into(
         file,
         cells: copied,
         reaim: Vec::new(),
+        reaimed: Vec::new(),
     })
 }
 

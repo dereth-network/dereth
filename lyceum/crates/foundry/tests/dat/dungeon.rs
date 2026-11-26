@@ -3936,7 +3936,14 @@ mod pull {
                     "links": { "list": { "either": ["hex", { "fields": { "child": "hex", "last_modified": "time" } }] } },
                 },
             },
-            "weenie": { "file": "weenie/{class:05}.toml", "item": "weenie {class}", "key": ["class"], "fields": { "class": "int" } },
+            "weenie": {
+                "file": "weenie/{class:05}.toml", "item": "weenie {class}", "key": ["class"],
+                "fields": { "class": "int", "class_name": "text" },
+                "maps": { "position": {
+                    "key": { "property": "position" },
+                    "value": { "fields": { "cell": "hex", "at": { "list": "float" }, "rotation": { "list": "float" } } },
+                } },
+            },
         } }))
         .unwrap()
         .unwrap()
@@ -4181,8 +4188,9 @@ mod pull {
         assert_eq!(
             c.reaim,
             [(3630, 0x01F6_0100, c.cells[&0x01F6_0100])],
-            "the portal that leads in, to re-aim"
+            "the portal that leads in, to re-aim: the repository defines no weenie of it"
         );
+        assert!(c.reaimed.is_empty());
         let pack = dir.path().join("copied/base/emergence");
         let row =
             std::fs::read_to_string(pack.join(format!("edits/landblocks/{to:04X}.toml"))).unwrap();
@@ -4243,5 +4251,111 @@ mod pull {
         // Holtburg's landblock holds buildings' rooms, not a dungeon.
         let town = run(&target, 0xA9B4, None, false).unwrap_err().to_string();
         assert!(town.contains("not a dungeon"), "{town}");
+    }
+
+    /// The repository's own weenie of the portal into the dungeon, as its library copies it.
+    const WAY_IN: &str = "\
+[[weenie]]
+class = 3630
+class_name = \"way-in\"
+
+[weenie.position]
+Destination = { cell = 0x01F60100, at = [10.0, -30.0, 0.0], rotation = [1.0, 0.0, 0.0, 0.0] }
+";
+
+    /// A dungeon whose own landblock the repository's world takes, pulled under another: the
+    /// repository's weenie of the portal into it is re-aimed at the copy's cell, as the layer's
+    /// row of it, its other fields kept, and a portal of that class still leads into the dungeon
+    /// in the world built from the repository. A dungeon that keeps its own cells changes no
+    /// weenie.
+    #[test]
+    fn a_library_portal_into_a_moved_dungeon_still_leads_into_it() {
+        let (dir, world) = sample("pull-reaims");
+        let dats = dereth_dat::testing::dat_dir();
+        let database = dir.path().join("ACE-World-Database-v0.9.296.sql");
+        std::fs::write(&database, DATABASE).unwrap();
+        let vocabulary = schema();
+        let run = |target: &Path| {
+            pull(
+                &Request {
+                    source: Some(&world),
+                    database: &database,
+                    landblock: DUNGEON,
+                    target,
+                    schema: &vocabulary,
+                    land: None,
+                    pack: None,
+                    entrance: None,
+                    portal: None,
+                    alongside: false,
+                    dry_run: false,
+                    library: true,
+                    cells_only: false,
+                },
+                &dats,
+            )
+            .unwrap()
+        };
+        let with_way_in = |name: &str, edits: Option<(u16, &str)>| {
+            let root = dir.path().join(name);
+            let world = repository(&root, edits);
+            let file = root.join("base/emergence/weenie/03630.toml");
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, WAY_IN).unwrap();
+            (world, file)
+        };
+
+        // Kept in its own cells: no weenie changes.
+        let (kept, file) = with_way_in("kept", None);
+        let done = run(&kept);
+        assert_eq!(done.copied, None);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), WAY_IN);
+        assert!(!done.files.contains(&file), "{:?}", done.files);
+
+        // Moved: the way in leads into the copy.
+        let other_text = format!("[[add-dungeon]]\nname = \"copy\"\ntemplate = 0x{OTHER:04X}\n");
+        let (moved, file) = with_way_in("moved", Some((DUNGEON, &other_text)));
+        let done = run(&moved);
+        let c = done.copied.clone().expect("copied in");
+        assert_ne!(c.landblock, DUNGEON, "its own landblock is taken");
+        let to = c.cells[&0x01F6_0100];
+        assert_eq!(to >> 16, u32::from(c.landblock));
+        assert_eq!(c.reaimed, [(3630, 0x01F6_0100, to)]);
+        assert!(c.reaim.is_empty(), "nothing left to re-aim: {:?}", c.reaim);
+        assert!(done.files.contains(&file), "{:?}", done.files);
+        let text = std::fs::read_to_string(&file).unwrap();
+        let wanted = WAY_IN.replace("cell = 0x01F60100", &format!("cell = {to:#010X}"));
+        assert_eq!(
+            toml::from_str::<toml::Table>(&text).unwrap(),
+            toml::from_str::<toml::Table>(&wanted).unwrap(),
+            "only its destination's cell changes: {text}"
+        );
+        assert!(
+            text.contains(&format!("cell = {to:#010X}")),
+            "in hexadecimal: {text}"
+        );
+
+        // The world built from the repository: the portal leads to a cell of the copy.
+        let repo = lyceum_foundry::repo::Repo::open(&moved).unwrap();
+        let folded = repo.fold(&vocabulary, 0).unwrap();
+        let destination = folded.items["weenie 3630"]
+            .fields
+            .iter()
+            .find(|f| f.name == "position.Destination")
+            .map(|f| f.value.clone())
+            .unwrap();
+        assert_eq!(
+            destination.get("cell").and_then(toml::Value::as_integer),
+            Some(i64::from(to))
+        );
+        let w =
+            lyceum_foundry::repo_world::world_of(&repo, 0, None, &dir.path().join("moved-build"))
+                .unwrap();
+        let s = lyceum_foundry::edit::Session::open_world(w, &dats, None, None).unwrap();
+        let low = u16::try_from(to & 0xFFFF).unwrap();
+        assert!(
+            s.cells(c.landblock).contains_key(&low),
+            "{to:#010X} is a cell of the copy"
+        );
     }
 }
