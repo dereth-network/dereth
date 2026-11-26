@@ -27,7 +27,7 @@ fn is(schema: &J, ty: &J, v: &T, at: &str, why: &mut Vec<String>) {
     let ok = match (ty, v) {
         (J::String(s), _) => matches!(
             (s.as_str(), v),
-            ("int" | "hex", T::Integer(_))
+            ("int" | "hex" | "block", T::Integer(_))
                 | ("float", T::Float(_) | T::Integer(_))
                 | ("bool", T::Boolean(_))
                 | ("text" | "time", T::String(_))

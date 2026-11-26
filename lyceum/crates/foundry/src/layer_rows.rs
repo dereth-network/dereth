@@ -340,8 +340,9 @@ pub fn removals_file(items: &[&str]) -> String {
 
 // ---- writing TOML ------------------------------------------------------------------------------
 
-/// A value written as TOML, a number the server writes in hexadecimal (`ty` is `"hex"`) in it; of
-/// a type that is one of several (`either`), as the one of its shape.
+/// A value written as TOML, a number the server writes in hexadecimal in it, as wide as the server
+/// writes it (`ty` is `"hex"`: eight digits; `"block"`, a landblock: four); of a type that is one of
+/// several (`either`), as the one of its shape.
 fn value_of(v: &T, ty: Option<&J>) -> toml_edit::Value {
     if let Some(alts) = ty.and_then(|t| t.get("either")).and_then(J::as_array) {
         let shape = alts.iter().find(|a| match v {
@@ -352,8 +353,10 @@ fn value_of(v: &T, ty: Option<&J>) -> toml_edit::Value {
         return value_of(v, shape);
     }
     match v {
-        T::Integer(n) if ty.and_then(J::as_str) == Some("hex") && *n >= 0 => {
+        T::Integer(n) if matches!(ty.and_then(J::as_str), Some("hex" | "block")) && *n >= 0 => {
+            let block = ty.and_then(J::as_str) == Some("block");
             let text = match u32::try_from(*n) {
+                Ok(u) if block && u <= 0xFFFF => format!("0x{u:04X}"),
                 Ok(u) => format!("0x{u:08X}"),
                 Err(_) => format!("0x{n:X}"),
             };

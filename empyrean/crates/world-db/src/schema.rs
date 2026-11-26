@@ -13,8 +13,9 @@
 //!
 //! and a type is one of:
 //!
-//! - `"int"`, `"float"`, `"bool"`, `"text"`; `"hex"`, an integer written in hexadecimal; `"time"`,
-//!   a moment written as text (`2005-02-09 10:00:00`);
+//! - `"int"`, `"float"`, `"bool"`, `"text"`; `"hex"`, an integer written in hexadecimal, eight
+//!   digits (`0x020002EE`), and `"block"`, a landblock written in four (`0x086E`); `"time"`, a
+//!   moment written as text (`2005-02-09 10:00:00`);
 //! - `{ "name": <enum> }`, a value written by its name in the schema's `enums`;
 //! - `{ "list": <type>, "len": n }`, a list (of `n` exactly, when `len` is given);
 //! - `{ "fields": { ... } }`, a table of fields written inline;
@@ -452,7 +453,7 @@ pub fn rows() -> Value {
             "item": "encounter {landblock:04X} {cell[0]},{cell[1]}",
             "key": ["landblock", "cell"],
             "fields": with::<Encounter>(
-                &[("landblock", "hex".into()), ("cell", list("int", 2)), ("class", "int".into())],
+                &[("landblock", "block".into()), ("cell", list("int", 2)), ("class", "int".into())],
                 &[],
             ),
         }),

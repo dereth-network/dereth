@@ -145,7 +145,7 @@ impl<'a> RowSql<'a> {
         }
         match (kind, v) {
             (Some("int"), T::Integer(n)) => Ok(n.to_string()),
-            (Some("hex"), T::Integer(n)) => Ok(match u32::try_from(*n) {
+            (Some("hex" | "block"), T::Integer(n)) => Ok(match u32::try_from(*n) {
                 Ok(u) => format!("0x{u:08X}"),
                 Err(_) => n.to_string(),
             }),
@@ -176,7 +176,7 @@ impl<'a> RowSql<'a> {
             ));
         }
         Ok(match ty.as_str() {
-            Some("int" | "hex") => {
+            Some("int" | "hex" | "block") => {
                 let n = int_of(&b).ok_or_else(wrong)?;
                 (!(dflt && n == 0)).then_some(T::Integer(n))
             }

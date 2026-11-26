@@ -203,7 +203,7 @@ fn new_patch_adds_a_patch_with_a_pack_after_the_last_layer() {
 }
 
 /// A new file of rows written at once is what writing them one after another makes, each new
-/// row's key first.
+/// row's key first and a landblock four hexadecimal digits wide, as the server writes it.
 #[test]
 fn a_new_file_written_at_once_is_its_rows_written_one_by_one() {
     use lyceum_foundry::layer_rows::{new_file, removals_file};
@@ -229,7 +229,7 @@ fn a_new_file_written_at_once_is_its_rows_written_one_by_one() {
                 "file": "encounter/{landblock >> 8:02X}xx.toml",
                 "item": "encounter {landblock:04X} {cell[0]},{cell[1]}",
                 "key": ["landblock", "cell"],
-                "fields": { "landblock": "hex", "cell": { "list": "int", "len": 2 }, "class": "int" },
+                "fields": { "landblock": "block", "cell": { "list": "int", "len": 2 }, "class": "int" },
             },
         },
     }))
@@ -242,7 +242,10 @@ fn a_new_file_written_at_once_is_its_rows_written_one_by_one() {
         .unwrap()
         .unwrap();
     // Its key first, as the server's rows writer writes it, however the build orders a table.
-    assert!(one.starts_with("[[encounter]]\nlandblock = "), "{one}");
+    assert!(
+        one.starts_with("[[encounter]]\nlandblock = 0x086E\n"),
+        "{one}"
+    );
     let wanted2: toml::Table =
         toml::from_str("landblock = 2158\ncell = [7, 6]\nclass = 61070\n").unwrap();
     let row2 = delta(&schema, "encounter", None, &wanted2).unwrap();
