@@ -19,6 +19,9 @@ retail-dats = []
 sha2.workspace = true
 
 [dependencies]
+# The global allocator: the land converter's walks build and drop a physics world each on every
+# core, which the Windows heap serializes (its ledge pass took four times as long).
+mimalloc.workspace = true
 dereth-primitives.workspace = true
 # The retail files and their records.
 dereth-dat.workspace = true

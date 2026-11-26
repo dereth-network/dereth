@@ -112,11 +112,21 @@ pub fn ends(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(&block) = blocks.get(i) else { break };
                     let statics = statics_round(&store, block);
+                    // The block's statics' shapes, looked up once for all its walks rather than
+                    // through the shared memo at every walk (whose lock the threads queue on).
+                    let shapes: HashMap<u32, Option<Arc<SetupGeometry>>> = statics
+                        .iter()
+                        .map(|&(_, id, _)| (id.0, geometry(id)))
+                        .collect();
+                    let shape = |id: DataId| match shapes.get(&id.0) {
+                        Some(g) => g.clone(),
+                        None => geometry(id),
+                    };
                     // do not always go as each would alone.
                     let got: Vec<(usize, (u32, Vec3))> = by_block[&block]
                         .iter()
                         .map(|&k| {
-                            let mut world = physics_world(&land, block, &statics, &geometry);
+                            let mut world = physics_world(&land, block, &statics, &shape);
                             (k, walk(&mut world, &land, &human, &list[k], &mut 0.0))
                         })
                         .collect();

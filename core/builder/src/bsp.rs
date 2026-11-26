@@ -193,6 +193,69 @@ fn side_of(corners: &[V], own: V, n: V, d: f64, near: f64) -> Side {
 /// Where a polygon, or the piece of it `corners` is, lies against the plane of `by`: on it when
 /// its own plane is that plane, even if its corners stray from it (a polygon that is not quite
 /// flat).
+/// The lowest score a plane being scored can still end with (`across * 8 + |lean|`): with
+/// `across` polygons across it so far, `lean` more in front than behind, and `left` still to
+/// place. `across` only grows, and each polygon left moves the lean by one at most.
+fn lowest(across: i64, lean: i64, left: i64) -> i64 {
+    across * 8 + (lean.abs() - left).max(0)
+}
+
+/// A plane's place in the choice: its score, then its place among the planes (`k`), so the lowest
+/// key is the lowest score and, of scores alike, the first plane.
+fn key(score: i64, k: usize) -> u64 {
+    (u64::try_from(score).unwrap_or(u64::MAX >> 32) << 32) | u64::try_from(k).unwrap_or(u64::MAX)
+}
+
+/// How many polygons a node needs before its planes are scored on every core.
+const SPLIT_ON_CORES: usize = 256;
+
+/// The best of `n` planes, its place and score: the one `score` scores lowest, the first of those
+/// alike, as scoring them one after another in order finds it. `score(k, beat)` scores plane `k`,
+/// or gives up on it (`None`) once its [`key`] can only be `beat` or more; `beat` only ever falls,
+/// so a plane given up on is never the best. A node of `size` polygons or more is scored on every
+/// core, which chooses the same plane.
+fn best_split(
+    n: usize,
+    size: usize,
+    score: impl Fn(usize, u64) -> Option<i64> + Sync,
+) -> Option<(usize, i64)> {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    let best = AtomicU64::new(u64::MAX);
+    let one = |k: usize| {
+        if let Some(s) = score(k, best.load(Ordering::Relaxed)) {
+            best.fetch_min(key(s, k), Ordering::Relaxed);
+        }
+    };
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    if size < SPLIT_ON_CORES || cores < 2 || n < 2 {
+        (0..n).for_each(one);
+    } else {
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..cores.min(n) {
+                s.spawn(|| loop {
+                    let k = next.fetch_add(1, Ordering::Relaxed);
+                    if k >= n {
+                        break;
+                    }
+                    one(k);
+                });
+            }
+        });
+    }
+    let b = best.into_inner();
+    (b != u64::MAX).then(|| {
+        let k = usize::try_from(b & 0xFFFF_FFFF).unwrap_or(usize::MAX);
+        let s = i64::try_from(b >> 32).unwrap_or(i64::MAX);
+        (k, s)
+    })
+}
+
+/// A count of polygons as the scores count them.
+fn count(n: usize) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
 fn place(fc: &Face, corners: &[V], by: &Face) -> Side {
     let (n, d) = (by.n, by.d);
     let along = dot(fc.n, n);
@@ -288,9 +351,10 @@ pub fn physics(va: &VertexArray, polygons: &[Polygon], solid: bool) -> BspTree {
             used.iter()
                 .any(|(m, e)| dot(*m, n) > 1.0 - 1e-6 && (e - d).abs() < ON_PLANE)
         };
-        // The plane that splits best: fewest polygons across it, then the most even split.
-        let mut best: Option<(usize, i64)> = None;
+        // The plane that splits best: fewest polygons across it, then the most even split; of
+        // planes alike, the first. A plane one on the path or an earlier one here has is tried once.
         let mut tried: Vec<(V, f64)> = Vec::new();
+        let mut planes: Vec<usize> = Vec::new();
         for c in set.iter().filter(|p| !p.sliver) {
             let cf = face_of(c.polygon);
             if used_plane(cf.n, cf.d)
@@ -301,19 +365,26 @@ pub fn physics(va: &VertexArray, polygons: &[Polygon], solid: bool) -> BspTree {
                 continue;
             }
             tried.push((cf.n, cf.d));
+            planes.push(c.polygon);
+        }
+        let best = best_split(planes.len(), set.len(), |k, beat| {
+            let cf = face_of(planes[k]);
             let (mut front, mut back, mut across) = (0i64, 0i64, 0i64);
+            let mut left = count(set.len());
             for p in &set {
                 match place(face_of(p.polygon), &p.corners, cf) {
                     Side::Front | Side::OnOpposite => front += 1,
                     Side::Back | Side::OnSame => back += 1,
                     Side::Across => across += 1,
                 }
+                left -= 1;
+                if key(lowest(across, front - back, left), k) >= beat {
+                    return None;
+                }
             }
-            let score = across * 8 + (front - back).abs();
-            if best.is_none_or(|(_, s)| score < s) {
-                best = Some((c.polygon, score));
-            }
-        }
+            Some(across * 8 + (front - back).abs())
+        })
+        .map(|(k, score)| (planes[k], score));
         let Some((splitter, _)) = best else {
             // Every polygon here has split by its own plane: they bound this leaf from behind.
             let mut polys: Vec<i16> = whole.iter().map(|i| index(*i)).collect();
@@ -434,11 +505,12 @@ pub fn drawing(va: &VertexArray, polygons: &[Polygon]) -> BspTree {
     let mut work = vec![(0usize, all)];
     while let Some((at, set)) = work.pop() {
         let sphere = bounding(&corners_of(&faces, &set));
-        // The plane with the fewest crossings, then the most even split.
-        let mut best: Option<(usize, i64)> = None;
-        for &c in &set {
-            let cf = faces[c].as_ref().expect("a face");
+        // The plane with the fewest crossings, then the most even split; of planes alike, the
+        // first.
+        let best = best_split(set.len(), set.len(), |k, beat| {
+            let cf = faces[set[k]].as_ref().expect("a face");
             let (mut front, mut back, mut across) = (0i64, 0i64, 0i64);
+            let mut left = count(set.len());
             for &i in &set {
                 let fc = faces[i].as_ref().expect("a face");
                 match place(fc, &fc.corners, cf) {
@@ -447,13 +519,14 @@ pub fn drawing(va: &VertexArray, polygons: &[Polygon]) -> BspTree {
                     Side::Across => across += 1,
                     _ => {}
                 }
+                left -= 1;
+                if key(lowest(across, front - back, left), k) >= beat {
+                    return None;
+                }
             }
-            let score = across * 8 + (front - back).abs();
-            if best.is_none_or(|(_, s)| score < s) {
-                best = Some((c, score));
-            }
-        }
-        let (splitter, _) = best.expect("a polygon");
+            Some(across * 8 + (front - back).abs())
+        });
+        let (splitter, _) = best.map(|(k, s)| (set[k], s)).expect("a polygon");
         let sf = faces[splitter].as_ref().expect("a face").clone();
         let (mut on, mut pos, mut neg) = (Vec::new(), Vec::new(), Vec::new());
         for &i in &set {
@@ -680,4 +753,36 @@ pub fn cell_struct(
         physics_bsp,
         drawing_bsp: Some(drawing),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the model builder's choice of splitting plane)
+    use super::*;
+
+    /// The best plane is the lowest score and, of scores alike, the first, as scoring every plane
+    /// in order finds it: on one core or on all of them, and with planes given up on once they
+    /// can no longer win.
+    #[test]
+    fn the_best_split_is_the_first_lowest_score_on_any_number_of_cores() {
+        // Scores with many alike, from a fixed sequence.
+        let scores: Vec<i64> = (0..2000u64)
+            .map(|k| i64::try_from((k * 7919 + 13) % 37).unwrap())
+            .collect();
+        let first_lowest = {
+            let low = *scores.iter().min().unwrap();
+            (scores.iter().position(|&s| s == low).unwrap(), low)
+        };
+        let score = |k: usize, beat: u64| (key(scores[k], k) < beat).then_some(scores[k]);
+        // Few polygons: in order, on one core; many: on every core.
+        assert_eq!(best_split(scores.len(), 10, score), Some(first_lowest));
+        assert_eq!(
+            best_split(scores.len(), SPLIT_ON_CORES, score),
+            Some(first_lowest)
+        );
+        assert_eq!(best_split(0, SPLIT_ON_CORES, score), None);
+        // A plane's lowest score left bounds what it can still end with.
+        assert_eq!(lowest(2, -5, 3), 16 + 2);
+        assert_eq!(lowest(2, 1, 3), 16);
+    }
 }

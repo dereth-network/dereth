@@ -911,6 +911,16 @@ pub fn build(args: &Args) -> Result<u32, String> {
     // converted ground as they stood on AC2's.
     eprintln!("placing AC2's statics");
     step("statics");
+    // Each part's time, said on the standard error (`time statics.<part> <seconds>`).
+    let mut clock = std::time::Instant::now();
+    let mut lap = |part: &str| {
+        let now = std::time::Instant::now();
+        eprintln!(
+            "time statics.{part} {:.2}",
+            now.duration_since(clock).as_secs_f64()
+        );
+        clock = now;
+    };
     let ac2_art = crate::ac2_look::source::Ac2::open(&args.ac2)?;
     let (mut ids, mut pictures, mut art_records) = (
         art::Ids::default(),
@@ -928,6 +938,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let ac2_world = statics::world_records(&args.ac2)?;
     let rooms_found = rooms::find(&ac2_world);
     let shells_asked = rooms_found.shells();
+    lap("rooms-found");
     let (mut statics, standing) = statics::place_statics(
         &args.ac2,
         &ac2_art,
@@ -939,14 +950,17 @@ pub fn build(args: &Args) -> Result<u32, String> {
         &mut art_records,
         args.levels,
     )?;
+    lap("placed");
     // The converted ground under every placed static pinned to AC2's, then each stood on it.
     let (pinned, pinned_past_cap) = w.pin_to(&g, &pinned::under(&statics.footprints));
+    lap("pinned");
     let pinned_line = format!(
         "the ground under the placed statics pinned to AC2's: {pinned} vertices moved, {pinned_past_cap} left past the {} m cap",
         pinned::CAP
     );
     eprintln!("{pinned_line}");
     statics::stand(&mut statics, standing, &under_of(&g, &w));
+    lap("stood");
     eprintln!(
         "statics: {} placed, {} models, left out {:?}",
         statics.placed, statics.models, statics.left_out
@@ -970,6 +984,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     )? {
         ac2_buildings.entry(b.block).or_default().push(b);
     }
+    lap("buildings");
     // The model of the stand-ins entered from the other land cells a doorway spans.
     let stand_in = rooms::stand_in_model(&mut ids, &mut art_records)?;
     let mut stand_ins = rooms::StandIns::default();
@@ -2688,6 +2703,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         std::fs::write(&p, body).map_err(|e| format!("{}: {e}", p.display()))?;
     }
     eprint!("{stats}");
+    stage_time("");
     eprintln!("done in {:.0} s", t0.elapsed().as_secs_f64());
     println!("built {} {generation}", args.out.display());
     Ok(generation)
@@ -2697,7 +2713,23 @@ pub fn build(args: &Args) -> Result<u32, String> {
 /// says it for whoever drives it: `inputs`, `ac2`, `land`, `statics`, `dungeons`, `ledges`, `cover`,
 /// `blocks`, `pictures`, `start`, `writing`, `map`, `verifying`.
 fn step(what: &str) {
+    stage_time(what);
     println!("step {what}");
+}
+
+/// The time the stage before took, said on the standard error as each stage starts (`time <stage>
+/// <seconds>`): a profile of the build, which no report or file holds.
+fn stage_time(next: &str) {
+    use std::sync::Mutex;
+    static LAST: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
+    let now = std::time::Instant::now();
+    let mut last = LAST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((stage, at)) = last.take() {
+        eprintln!("time {stage} {:.2}", now.duration_since(at).as_secs_f64());
+    }
+    *last = (!next.is_empty()).then(|| (next.to_owned(), now));
 }
 
 /// Refuses a new record's id that AC1's portal file or the client's own records already hold.

@@ -68,6 +68,11 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// mimalloc: the land converter builds and drops a physics world for each of its walks on every
+/// core, which the Windows heap serializes.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns <spawns.tsv>] \
 [--tags <tags.tsv>] [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
        dereth-art pack <folder> [--out <file>] [--check]

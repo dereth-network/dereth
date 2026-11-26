@@ -87,6 +87,16 @@ pub fn make(
     out: &mut Records,
     check: &Check,
 ) -> Result<Climb, String> {
+    // Each part's time, said on the standard error (`time ledges.<part> <seconds>`).
+    let mut clock = std::time::Instant::now();
+    let mut lap = |part: &str| {
+        let now = std::time::Instant::now();
+        eprintln!(
+            "time ledges.{part} {:.2}",
+            now.duration_since(clock).as_secs_f64()
+        );
+        clock = now;
+    };
     let mut polys = Vec::new();
     for (i, s) in st.solids.iter().enumerate() {
         let Some(c) = st.collisions.get(&s.object) else {
@@ -129,6 +139,7 @@ pub fn make(
         let sw = ledges::swell(&found, &scene, &land, &|i, j| held.contains(&(i, j)));
         (found, sw)
     };
+    lap("search");
     // The world before any ledge is touched, which the walks along the ramps' feet are measured
     // against.
     let before_dir = check.dir.join("before");
@@ -141,7 +152,9 @@ pub fn make(
         out,
         &Records::default(),
         None,
+        false,
     )?;
+    lap("write-before");
     let pre = w.height.clone();
     let mut raised = w.raise_to(g, &sw.wants);
     let (left, mut rp) = {
@@ -176,7 +189,9 @@ pub fn make(
             .flat_map(|r| foot_walks(r, st, &scene, &land))
             .collect()
     };
+    lap("raise-ramps");
     let before = crate::ac2_world::passage::walks(check.ac1, &before_dir, check.world_key, &walks)?;
+    lap("walk-before");
     let mut alive = vec![true; rp.made.len()];
     let mut stage = vec![0u8; walks.len()];
     let (mut cut, mut beside, mut lowered, mut rounds) = (0usize, 0usize, 0usize, 0usize);
@@ -214,11 +229,22 @@ pub fn make(
             let mut by_block = st.by_block.clone();
             place(&kept, st, &mut by_block, &mut trial_ids, &mut trial)?;
             let walked: BTreeSet<(usize, usize)> = todo.iter().map(|&i| walks[i].block).collect();
-            write_check(check, &after_dir, w, &by_block, out, &trial, Some(&walked))?;
+            write_check(
+                check,
+                &after_dir,
+                w,
+                &by_block,
+                out,
+                &trial,
+                Some(&walked),
+                rounds > 1,
+            )?;
+            lap(&format!("round{rounds}-write"));
             let list: Vec<crate::ac2_world::passage::Walk> =
                 todo.iter().map(|&i| walks[i]).collect();
             let got =
                 crate::ac2_world::passage::walks(check.ac1, &after_dir, check.world_key, &list)?;
+            lap(&format!("round{rounds}-walk"));
             for (&i, g) in todo.iter().zip(got) {
                 with[i] = g;
             }
@@ -285,6 +311,7 @@ pub fn make(
             .filter(|&i| changed.near(&walks[i]))
             .collect();
     }
+    lap("rounds-rest");
     raised -= lowered.min(raised);
     let walked: Vec<(crate::ac2_world::passage::Walk, (f32, f32))> = (0..rp.made.len())
         .filter(|&k| alive[k])
@@ -329,6 +356,7 @@ pub fn make(
     }
     let with = Scene::new(with);
     let after = ledges::band_ledges(&with, &land, &fixable);
+    lap("place-and-search-after");
     // By placement: its ledges, those onto the terrain, those the land serves, its ramps.
     let mut per: BTreeMap<usize, [usize; 6]> = BTreeMap::new();
     for l in &found {
@@ -602,7 +630,11 @@ fn near_changed(block: (usize, usize), changed: &BTreeSet<(usize, usize)>) -> bo
 /// The world as far as the walks need it, written as the world's overlay into `dir`: the
 /// land and the statics (the ramps on trial among them) of the blocks round every block in
 /// `blocks`, the region, and the models. With `walked`, only the blocks the walks in those
-/// blocks read ([`WALK_READS`]) are written; they read nothing else.
+/// blocks read ([`WALK_READS`]) are written; they read nothing else. With `models_there`, the
+/// portal written into `dir` before holds the region and `out`'s models already, and only the
+/// trial's are put over it: one an earlier trial put there that this one doesn't is named by no
+/// static, so no walk reads it.
+#[allow(clippy::too_many_arguments)]
 fn write_check(
     check: &Check,
     dir: &Path,
@@ -611,9 +643,15 @@ fn write_check(
     out: &Records,
     trial: &Records,
     walked: Option<&BTreeSet<(usize, usize)>>,
+    models_there: bool,
 ) -> Result<(), String> {
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if models_there {
+        let cell = dir.join(container_name(ModernDat::Cell));
+        std::fs::remove_file(&cell).map_err(|e| format!("{}: {e}", cell.display()))?;
+    } else {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
     let mut near: std::collections::BTreeSet<(usize, usize)> = std::collections::BTreeSet::new();
     for &(bx, by) in blocks.keys() {
         for dx in 0..5usize {
@@ -678,15 +716,19 @@ fn write_check(
     )
     .map_err(|e| format!("{e:?}"))?;
     let rid = DataId(check.region.0);
-    pw.put(
-        rid,
-        &check.region.1,
-        version(check.portal, rid),
-        portal_it,
-        0,
-    )
-    .map_err(err)?;
-    for (id, bytes) in out.0.iter().chain(trial.0.iter()) {
+    if !models_there {
+        pw.put(
+            rid,
+            &check.region.1,
+            version(check.portal, rid),
+            portal_it,
+            0,
+        )
+        .map_err(err)?;
+    }
+    let none = BTreeMap::new();
+    let base = if models_there { &none } else { &out.0 };
+    for (id, bytes) in base.iter().chain(trial.0.iter()) {
         if matches!(id.raw() >> 24, 0x01 | 0x02) {
             pw.put(*id, bytes, version(check.portal, *id), portal_it, 0)
                 .map_err(err)?;
