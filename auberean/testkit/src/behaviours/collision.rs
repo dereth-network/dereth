@@ -371,6 +371,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "collision.objects.a-cells-object-at-an-even-scale-holds-a-body-at-that-scale",
+        says: "An object a cell places with a physics tree at an even scale other than 1 is met \
+               at that scale: a body dropped over one 1.65 times its look comes down onto its \
+               top, 4.45 m above where the top would be at the look's own size.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-EVEN-CELL"),
+        station: "auberean-physics::dat::objects::a_cells_object_at_an_even_scale_holds_a_body_at_that_scale",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.objects.a-cells-object-at-an-uneven-scale-holds-nothing-up",
         says: "An object a cell places with a physics tree at an uneven scale holds nothing up: a \
                body dropped on a flat one 6 x 6 x 0.1, its top 0.3 m above the cell's floor, falls \
@@ -378,6 +388,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-UNEVEN-CELL"),
         station: "auberean-physics::dat::objects::a_cells_object_at_an_uneven_scale_holds_nothing_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "collision.objects.a-line-meets-an-object-at-its-scale-along-each-axis",
+        says: "A line meets a placed object's tree at the object's scale along each axis, inside \
+               and out: one down 2.8 m from the middle of a flat 6 x 6 x 0.1 object in a room \
+               meets its top, one 6 m out the floor; one down 6.4 m from the middle of an object \
+               on the land three times its look's length and width meets it, one 12 m out the \
+               ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-RAY-AXES"),
+        station: "auberean-physics::dat::objects::a_line_meets_an_object_at_its_scale_along_each_axis",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -245,13 +245,7 @@ pub fn trace(
                 continue;
             };
             let frame = &s.part.pos.frame;
-            let inv = if s.part.gfxobj_scale > 0.0 {
-                1.0 / s.part.gfxobj_scale
-            } else {
-                1.0
-            };
-            let lf = dereth_physics::math::globaltolocal(frame, from).mul(inv);
-            let lt = dereth_physics::math::globaltolocal(frame, to).mul(inv);
+            let (lf, lt) = (s.tree_point(from), s.tree_point(to));
             for poly in tree.polygons.iter() {
                 if let Some(t) = segment_polygon(lf, lt, &poly.vertices) {
                     if best.is_none_or(|(b, _)| t < b) {

@@ -715,6 +715,86 @@ fn a_cells_object_at_an_uneven_scale_holds_nothing_up() {
     );
 }
 
+/// An object a cell places with a physics tree at an even scale other than 1 is met at that scale:
+/// a body dropped over the middle of the one cell 0x02980104 places at (1.28, 359.97, -45.22),
+/// 1.65 times its look, comes down onto its top at -33.91, 4.45 m above where its top would be at
+/// its look's own size, and stays there.
+///
+/// Behaviour: collision.objects.a-cells-object-at-an-even-scale-holds-a-body-at-that-scale
+#[test]
+fn a_cells_object_at_an_even_scale_holds_a_body_at_that_scale() {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    add_block_cells(&land, &w.records, &mut trees, 0x02, 0x98);
+    let cell = CellId(0x0298_0104);
+    let solids = land.cell_solids(cell).expect("the room's solids");
+    let solid = solids
+        .iter()
+        .find(|s| across(s.part.pos.frame.origin, Vec3::new(1.28, 359.97, 0.0)) < 0.05)
+        .expect("the scaled object");
+    assert_eq!(solid.scale, Vec3::new(1.65, 1.65, 1.65));
+    let o = solid.part.pos.frame.origin;
+    let start = Position::new(cell, Frame::new(Vec3::new(o.x, o.y, -33.4), Quat::IDENTITY));
+    let mut world = World::new();
+    let mut b = body(w, start, 0.0);
+    world.insert_body(&land, 0x5000_0001, &mut b);
+    b.contact = false;
+    b.on_walkable = false;
+    for _ in 0..60 {
+        b.tick_in(&land, &mut world, 0.1);
+    }
+    let landed = b.position.frame.origin;
+    assert!(
+        b.contact && b.on_walkable && (landed.z - -33.91).abs() < 0.05,
+        "on its top: {landed:?}"
+    );
+}
+
+/// A line meets a placed object's tree at the object's scale along each axis, inside and out: a
+/// line straight down 2.8 m from the middle of the flat one cell 0x03C6011D places (6 x 6 x 0.1)
+/// meets its top at 78.2 rather than the floor at 77.9 under it, and one 6 m out meets the floor;
+/// over the land, one straight down 6.4 m from the middle of the one block 0x5672 places at
+/// (70.3, 75.7), three times its length and width, meets it 1.4 m above the ground, and one 12 m out
+/// meets the ground.
+///
+/// Behaviour: collision.objects.a-line-meets-an-object-at-its-scale-along-each-axis
+#[test]
+fn a_line_meets_an_object_at_its_scale_along_each_axis() {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    add_block_cells(&land, &w.records, &mut trees, 0x03, 0xC6);
+    let cell = CellId(0x03C6_011D);
+    let down = |x: f32, y: f32| {
+        auberean_physics::interior::trace(
+            &land,
+            cell,
+            Vec3::new(x, y, 80.0),
+            Vec3::new(x, y, 76.0),
+            true,
+        )
+        .map(|(p, _)| p.z)
+    };
+    let top = down(155.0, -13.0).expect("met");
+    assert!((top - 78.2).abs() < 0.01, "its top: {top}");
+    let floor = down(159.0, -15.0).expect("met");
+    assert!((floor - 77.9).abs() < 0.01, "the floor: {floor}");
+
+    let land = land_around(w, 0x56, 0x72);
+    let block = dereth_primitives::LandblockId::new(0x56, 0x72);
+    let down = |x: f32, y: f32| {
+        let (a, b) = (Vec3::new(x, y, 240.0), Vec3::new(x, y, 190.0));
+        let solid = land.trace(block, a, b, true).expect("met").0.z;
+        let ground = land.trace(block, a, b, false).expect("met").0.z;
+        solid - ground
+    };
+    let over = down(76.49, 74.04);
+    assert!((over - 1.39).abs() < 0.05, "1.4 m over the ground: {over}");
+    let out = down(81.9, 72.6);
+    assert!(out.abs() < 0.001, "the ground: {out}");
+}
+
 /// The look whose tree is drawn on a bone 0.11 m below the place it stands.
 const LIFTED_LOOK: u32 = 0x1F00_017E;
 

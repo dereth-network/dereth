@@ -90,6 +90,22 @@ pub struct Solid {
     pub marked: bool,
 }
 
+impl Solid {
+    /// A point of its block's frame in the frame its tree is traced in: its object's own frame,
+    /// divided by its scale along each axis (an axis of scale 0 left as it is).
+    // D2-05963, D2-06689
+    #[must_use]
+    pub fn tree_point(&self, v: Vec3) -> Vec3 {
+        let l = dereth_physics::math::globaltolocal(&self.part.pos.frame, v);
+        let k = |a: f32, s: f32| if s == 0.0 { a } else { a * (1.0 / s) };
+        Vec3::new(
+            k(l.x, self.scale.x),
+            k(l.y, self.scale.y),
+            k(l.z, self.scale.z),
+        )
+    }
+}
+
 /// Placed entities that collide through cylinders or spheres, each where it stands.
 pub type Placed = Vec<(Position, Arc<Shape>)>;
 
@@ -948,15 +964,11 @@ impl SolidNear {
         let Some(tree) = s.part.physics_bsp.as_ref() else {
             return Vec::new();
         };
-        let (f, t) = (from.add(self.off), to.add(self.off));
+        let (lf, lt) = (
+            s.tree_point(from.add(self.off)),
+            s.tree_point(to.add(self.off)),
+        );
         let frame = &s.part.pos.frame;
-        let inv = if s.part.gfxobj_scale > 0.0 {
-            1.0 / s.part.gfxobj_scale
-        } else {
-            1.0
-        };
-        let lf = dereth_physics::math::globaltolocal(frame, f).mul(inv);
-        let lt = dereth_physics::math::globaltolocal(frame, t).mul(inv);
         let (mut u, mut n) = (1.0, Vec3::ZERO);
         if !crate::parts::trace_ray(tree, &crate::geom::Ray::segment(lf, lt), &mut u, &mut n) {
             return Vec::new();

@@ -961,7 +961,7 @@ impl World {
             for s in solids.iter() {
                 let mut geometry = SetupGeometry {
                     parts: vec![SetupPart {
-                        default_scale: Vec3::new(1.0, 1.0, s.part.gfxobj_scale),
+                        default_scale: s.scale,
                         physics_bsp: s.part.physics_bsp.clone(),
                         bound_box: s.part.bound_box,
                         drawing_sphere: s.part.drawing_sphere,
