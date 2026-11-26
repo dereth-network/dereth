@@ -837,6 +837,7 @@ const TIP_ACCOUNTS = "If checked, anyone who connects with an unknown account na
 const TIP_OTHERS = "If checked, anyone on your local network (or outside your local network if you have properly configured port forwarding) can connect to this world.";
 const TIP_PER_ADDRESS = "The most players at once from each unique IP address. Empty is no limit.";
 const TIP_WELCOME = "What the character screen says, line by line. Not every client shows it.";
+const TIP_BUILD_BASE = "Build the world database from New Dereth's world in Lyceum's folder, with your changes, instead of the published one.";
 const TIP_YALAIN_WELCOME = "Shown to each player as their character enters the world, line by line.";
 const TIP_YALAIN_RULES = "Where players may fight. Standard: only in the world's conflict areas. KvK: players of different kingdoms, anywhere. FFA: anyone, anywhere.";
 // A Yalain world's rules, as yalain.toml's server.ruleset names them, and as the list shows them.
@@ -1185,11 +1186,15 @@ function settingsPage() {
     : worldBase(h);
   const getDatabase = plays.database === "era" && !h.prepared && !eraChangedHere
     ? `<button class="btn mini-btn" data-srv-prepare="${id}" ${running || h.busy ? "disabled" : ""}>Get world database</button>` : "";
+  // A New Dereth world's database may be built from New Dereth's world fetched for Lyceum, as it
+  // is while nothing is published, and built again after the world's files change.
+  const buildBase = plays.database === "era" && s.era === "newdereth" && !eraChangedHere && ui.snap.newdereth?.world
+    ? `<button class="btn mini-btn" data-srv-build-base="${id}" ${running || h.busy ? "disabled" : ""}${tipOf(TIP_BUILD_BASE)}>Build from New Dereth's world</button>` : "";
   const world = `<div class="form long-labels">
       ${formRow("set-name", "NAME", textField("set-name", "name", s))}
       ${formRow("set-era", "ERA", `<select id="set-era" class="field" data-srv-field="era" ${locked ? "disabled" : ""}${locked ? tipOf("Set by the Lyceum world it plays.") : ""}>${eras}</select>`)}
       ${formRow("set-dats", "GAME DATA", datsField("set-dats", s, locked))}
-      <span class="lab">WORLD BASE</span><div class="pair"><span class="small">${database}</span>${getDatabase}</div>
+      <span class="lab">WORLD BASE</span><div class="pair"><span class="small">${database}</span>${getDatabase}${buildBase}</div>
       ${formRow("set-welcome", "WELCOME", `<textarea id="set-welcome" class="field area" rows="3" data-srv-field="welcome" placeholder="Welcome to ${esc(s.name)}!"${tipOf(TIP_WELCOME)}>${esc(s.welcome ?? "")}</textarea>`, { tip: TIP_WELCOME })}
       ${portRow("set-port", s)}
     </div>`;
@@ -2076,6 +2081,8 @@ function worldPage() {
     ? `${eraName} needs Classic data files; iterations 102/67. Modern data files are used for the end of retail interface.`
     : needs === "classic"
     ? `${eraName} needs Classic data files; iterations 2112/1593. Modern data files are used for the end of retail interface.`
+    : world.era === "newdereth"
+    ? `${eraName} plays the end-of-retail Modern data files, and the world sends its land when you join. Classic data files enable the classic interface.`
     : `${eraName} needs Modern data files. Classic data files enable the classic interface.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
@@ -3084,6 +3091,7 @@ document.addEventListener("click", async (ev) => {
   if (d.srvStart) { await act("start_host", { id: d.srvStart }); return; }
   if (d.srvStop) { await act("stop_host", { id: d.srvStop }); return; }
   if (d.srvPrepare) { await act("prepare_host", { id: d.srvPrepare }); return; }
+  if (d.srvBuildBase) { await act("prepare_host", { id: d.srvBuildBase, source: "checkout" }); return; }
   if (d.srvPlay) { const slug = await act("open_host_world", { id: d.srvPlay }); if (slug) await openWorld(slug); return; }
   if (d.srvConfig) { await act("open_host_config", { id: d.srvConfig }); return; }
   if (d.srvFolder) { await act("open_host_folder", { id: d.srvFolder }); return; }
@@ -3700,7 +3708,9 @@ async function watchLibrary() {
     if (view) {
       ui.world.view = view;
       const more = host.moreSets?.(view.world) ?? [];
-      if (![...view.dat_sets, ...more].some((s) => s.id === ui.world.form.dat_set_id)) ui.world.form.dat_set_id = view.dat_sets[0]?.id ?? null;
+      if (![...view.dat_sets, ...more].some((s) => s.id === ui.world.form.dat_set_id)) {
+        ui.world.form.dat_set_id = (view.dat_sets.find((s) => s.origin.kind === "shared") ?? view.dat_sets[0])?.id ?? null;
+      }
       if (!view.classic_sets.some((s) => s.id === ui.world.form.classic_set_id)) {
         ui.world.form.classic_set_id = (view.classic_sets.find((s) => s.origin.kind === "shared")
           ?? (requiredKind(view.world) === "classic" ? view.classic_sets[0] : null))?.id ?? null;

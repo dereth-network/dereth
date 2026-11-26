@@ -591,10 +591,32 @@ fn finish(shared: &Shared, id: &str, result: Result<(), String>, message: &str) 
         Ok(()) => {}
     }
 }
+/// Get the world's world database: its era's published release, fetched. A New Dereth world's is
+/// built from the New Dereth world fetched for Lyceum instead when `source` is `checkout`, and
+/// when the release cannot be fetched (as while nothing is published).
 #[tauri::command]
-pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String> {
+pub fn prepare_host(
+    shared: State<'_, Shared>,
+    backend: State<'_, crate::backend::Shared>,
+    id: String,
+    source: Option<String>,
+) -> Result<(), String> {
     let shared = shared.inner().clone();
-    let dir = begin(&shared, &id, "Downloading the world database...")?;
+    let checkout = crate::backend::lock(&backend).newdereth_world();
+    let chosen = if source.as_deref() == Some("checkout") {
+        Source::Checkout
+    } else {
+        Source::Release
+    };
+    let dir = begin(
+        &shared,
+        &id,
+        if chosen == Source::Checkout {
+            "Building the world database..."
+        } else {
+            "Downloading the world database..."
+        },
+    )?;
     let game = host_runtime::read_definition(&dir).map_or(Game::Dereth, |d| d.game);
     if game == Game::Auberean {
         if crate::host_yalain::prepared(&dir) {
@@ -617,7 +639,7 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
         });
         return Ok(());
     }
-    if crate::host_publication::prepared(&dir) {
+    if chosen == Source::Release && crate::host_publication::prepared(&dir) {
         finish(&shared, &id, Ok(()), "The world database is ready.");
         return Ok(());
     }
@@ -631,6 +653,7 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
         return Ok(());
     }
     std::thread::spawn(move || {
+        let mut said = String::new();
         let result = (|| {
             let definition = host_runtime::read_definition(&dir)?;
             let import = definition
@@ -648,38 +671,122 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
             let text =
                 std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?;
             let era = Settings::from_config(&text)?.era;
-            let mut fetch = crate::components::command(&import);
-            fetch.arg("fetch");
-            fetch.args(world_arguments(&era));
             let pack = crate::host_publication::pack_path(&dir);
-            let output = fetch
-                .args(["--pack", "--out"])
-                .arg(&pack)
-                .current_dir(&dir)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if output.status.success() {
+            let record = crate::host_config::base_record(&pack);
+            let fetch = || {
+                let output = crate::components::command(&import)
+                    .arg("fetch")
+                    .args(world_arguments(&era))
+                    .args(["--pack", "--out"])
+                    .arg(&pack)
+                    .current_dir(&dir)
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    return Err(crate::host_config::redact(&String::from_utf8_lossy(
+                        &output.stderr,
+                    )));
+                }
                 // The release the world database was made from, as the import tool named it,
                 // kept beside it for the world's page.
-                let record = crate::host_config::base_record(&pack);
                 match crate::host_config::fetched_dump(&String::from_utf8_lossy(&output.stdout)) {
                     Some(dump) => {
-                        std::fs::write(record, format!("{dump}\n")).map_err(|e| e.to_string())?;
+                        std::fs::write(&record, format!("{dump}\n")).map_err(|e| e.to_string())?;
                     }
                     None => {
-                        let _ = std::fs::remove_file(record);
+                        let _ = std::fs::remove_file(&record);
                     }
                 }
                 Ok(())
-            } else {
-                Err(crate::host_config::redact(&String::from_utf8_lossy(
-                    &output.stderr,
-                )))
-            }
+            };
+            let build = |world: &Path| {
+                // Never over a published world's database: only the era's own is built.
+                if crate::host_config::plays(&text, &dir).database != "era" {
+                    return Err(
+                        "This world plays a published world: unpublish it to build its world database."
+                            .to_owned(),
+                    );
+                }
+                let output = crate::components::command(&import)
+                    .args(checkout_build_arguments(world, &pack))
+                    .current_dir(&dir)
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    return Err(crate::host_config::redact(&String::from_utf8_lossy(
+                        &output.stderr,
+                    )));
+                }
+                let _ = std::fs::remove_file(&record);
+                Ok(())
+            };
+            said = get_database(&era, chosen, checkout.as_deref(), fetch, build)?;
+            Ok(())
         })();
-        finish(&shared, &id, result, "The world database is ready.");
+        finish(&shared, &id, result, &said);
     });
     Ok(())
+}
+
+/// Where Get world database takes a world's database from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    /// Its era's published release.
+    Release,
+    /// The New Dereth world fetched for Lyceum, built.
+    Checkout,
+}
+
+/// `empyrean-import`'s arguments to build the world database `pack` from the world repository
+/// whose world file is `world`, at its newest layer.
+fn checkout_build_arguments(world: &Path, pack: &Path) -> Vec<std::ffi::OsString> {
+    vec![
+        "world".into(),
+        "build".into(),
+        "--world".into(),
+        world.as_os_str().to_owned(),
+        "--out".into(),
+        pack.as_os_str().to_owned(),
+    ]
+}
+
+/// Get a world of `era`'s database from `source`, by `fetch` (its release) or `build` (from the
+/// world file `checkout`, the New Dereth world fetched for Lyceum, when there is one). A New Dereth
+/// world whose release cannot be fetched is built from the checkout. What the world's page says.
+fn get_database(
+    era: &str,
+    source: Source,
+    checkout: Option<&Path>,
+    fetch: impl FnOnce() -> Result<(), String>,
+    build: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<String, String> {
+    let from = |world: &Path| world.parent().unwrap_or(world).display().to_string();
+    let checkout = checkout.filter(|_| era == "newdereth");
+    if source == Source::Checkout {
+        let world = checkout.ok_or(
+            "Only a New Dereth world is built from a world's folder, and New Dereth's world is not fetched for Lyceum yet.",
+        )?;
+        build(world)?;
+        return Ok(format!(
+            "Built the world database from New Dereth's world in {}.",
+            from(world)
+        ));
+    }
+    match (fetch(), checkout) {
+        (Ok(()), _) => Ok("The world database is ready.".into()),
+        (Err(why), Some(world)) => {
+            build(world)
+                .map_err(|e| format!("{why} Building it from New Dereth's world failed too: {e}"))?;
+            Ok(format!(
+                "The published world database could not be fetched, so it was built from New Dereth's world in {}.",
+                from(world)
+            ))
+        }
+        (Err(why), None) if era == "newdereth" => Err(format!(
+            "{why} With New Dereth's world fetched for Lyceum, its world database is built from that instead."
+        )),
+        (Err(why), None) => Err(why),
+    }
 }
 
 /// Bring the supervisor of the stopped world in `dir` (`wrapper`, the launcher copied into the
@@ -1409,6 +1516,79 @@ mod tests {
             ["--world", "newdereth-emergence"]
         );
         assert_eq!(world_arguments("launch"), ["--era", "launch"]);
+    }
+
+    /// A New Dereth world's database is built from New Dereth's world fetched for Lyceum when the
+    /// player chooses it, and when its release cannot be fetched (as while nothing is published);
+    /// a fetched release stays the default, and no other era is ever built from that folder.
+    #[test]
+    fn a_new_dereth_world_builds_its_database_from_the_fetched_world_when_none_is_published() {
+        use std::cell::RefCell;
+        let world = Path::new("Lyceum/New Dereth/world.toml");
+        let ran = RefCell::new(Vec::new());
+        let get = |era: &str, source, checkout, published: bool| {
+            ran.borrow_mut().clear();
+            get_database(
+                era,
+                source,
+                checkout,
+                || {
+                    ran.borrow_mut().push("fetch".to_owned());
+                    if published {
+                        Ok(())
+                    } else {
+                        Err("Nothing is published yet.".to_owned())
+                    }
+                },
+                |w: &Path| {
+                    ran.borrow_mut().push(format!("build {}", w.display()));
+                    Ok(())
+                },
+            )
+        };
+        // Published: the release, as for every era.
+        assert_eq!(
+            get("newdereth", Source::Release, Some(world), true),
+            Ok("The world database is ready.".into())
+        );
+        assert_eq!(*ran.borrow(), ["fetch"]);
+        // Nothing published: built from the fetched world, and said so.
+        let said = get("newdereth", Source::Release, Some(world), false).unwrap();
+        assert!(said.contains("built from New Dereth's world in"), "{said}");
+        assert_eq!(
+            *ran.borrow(),
+            ["fetch", &format!("build {}", world.display())]
+        );
+        // Chosen: built without fetching.
+        let said = get("newdereth", Source::Checkout, Some(world), true).unwrap();
+        assert!(said.starts_with("Built the world database"), "{said}");
+        assert_eq!(*ran.borrow(), [format!("build {}", world.display())]);
+        // No world fetched for Lyceum: the fetch's error, and the way to build one.
+        let refused = get("newdereth", Source::Release, None, false).unwrap_err();
+        assert!(
+            refused.starts_with("Nothing is published yet.")
+                && refused.contains("fetched for Lyceum"),
+            "{refused}"
+        );
+        assert!(get("newdereth", Source::Checkout, None, true).is_err());
+        assert!(ran.borrow().is_empty());
+        // Another era is never built from New Dereth's world.
+        assert_eq!(
+            get("eor", Source::Release, Some(world), false),
+            Err("Nothing is published yet.".into())
+        );
+        assert!(get("eor", Source::Checkout, Some(world), true).is_err());
+        assert_eq!(
+            checkout_build_arguments(world, Path::new("world.pack.newdereth")),
+            [
+                "world",
+                "build",
+                "--world",
+                "Lyceum/New Dereth/world.toml",
+                "--out",
+                "world.pack.newdereth"
+            ]
+        );
     }
 
     /// A Yalain world an earlier build made in `hosts` is moved at start to Yalain's own folder,

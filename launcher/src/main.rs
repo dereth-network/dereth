@@ -1962,6 +1962,40 @@ mod tests {
         }
     }
 
+    /// A New Dereth world's page says which data files it plays: the end of retail's, with the
+    /// land the world sends; a page whose sets change starts again on the shared set.
+    #[test]
+    fn a_new_dereth_world_says_it_plays_the_end_of_retails_files_with_its_own_land() {
+        let page = page_function("worldPage");
+        assert!(
+            page.contains(r#"world.era === "newdereth""#)
+                && page.contains(
+                    "plays the end-of-retail Modern data files, and the world sends its land when you join."
+                ),
+            "{page}"
+        );
+        assert!(include_str!("../ui/app.js").contains(
+            r#"ui.world.form.dat_set_id = (view.dat_sets.find((s) => s.origin.kind === "shared") ?? view.dat_sets[0])?.id ?? null;"#
+        ));
+    }
+
+    /// A New Dereth world's settings offer to build its world database from New Dereth's world
+    /// fetched for Lyceum, once that is fetched, and the button asks for exactly that.
+    #[test]
+    fn a_new_dereth_world_can_build_its_database_from_the_fetched_world() {
+        let settings = page_function("settingsPage");
+        assert!(
+            settings.contains(r#"s.era === "newdereth""#)
+                && settings.contains("ui.snap.newdereth?.world")
+                && settings.contains(r#"data-srv-build-base="${id}""#)
+                && settings.contains("Build from New Dereth's world"),
+            "{settings}"
+        );
+        assert!(include_str!("../ui/app.js").contains(
+            r#"if (d.srvBuildBase) { await act("prepare_host", { id: d.srvBuildBase, source: "checkout" }); return; }"#
+        ));
+    }
+
     fn page_function(name: &str) -> &'static str {
         let page = include_str!("../ui/app.js");
         let at = page

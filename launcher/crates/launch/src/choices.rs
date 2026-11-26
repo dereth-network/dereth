@@ -23,10 +23,17 @@ pub struct ClientOption {
 }
 
 /// Whether the retail client can play `world`: not one drawn from the 1999 files, whose wire and
-/// data it has never spoken.
+/// data it has never spoken, nor a New Dereth world, whose land only the Dereth client takes in.
 #[must_use]
 pub fn retail_can_play(world: &World) -> bool {
-    !plays_launch_pair(world)
+    !plays_launch_pair(world) && !plays_new_dereth(world)
+}
+
+/// Whether `world` plays New Dereth: the end of retail's data files with the world's own land,
+/// which the world sends the Dereth client when it joins.
+#[must_use]
+pub fn plays_new_dereth(world: &World) -> bool {
+    world.era.as_deref().and_then(EraId::parse) == Some(EraId::NewDereth)
 }
 
 /// The base a world names for itself ([`World::world_base`]), in lowercase.
@@ -98,7 +105,8 @@ pub fn default_client(
 /// assigned), whether or not it updates its files over the network: the Dereth client keeps a
 /// world's updates in that world's own overlay and never writes a set. One that ships its own gets
 /// only its own private set, or a custom set matching what it published: never a set another world
-/// might be using.
+/// might be using. A New Dereth world gets only the end of retail's files, which its land is
+/// made over.
 pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
     // A world that publishes no hash for its own files (the ones the launcher knows by their list
     // id) is matched by what its files report: any set of the player's that reports it, wherever
@@ -123,6 +131,7 @@ pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
             }),
             DatOrigin::Shared | DatOrigin::Unassigned => world.dats.custom.is_none(),
         })
+        .filter(|s| !plays_new_dereth(world) || s.iterations().is_end_of_retail())
         .cloned()
         .collect()
 }
@@ -166,12 +175,17 @@ pub fn set_matches(world: &World, set: &DatSet) -> Result<(), String> {
 }
 
 /// The set a world page should start on: the one last used there if it may still be used, else
-/// the first that matches.
+/// the shared set when it may be, else the first that matches.
 pub fn default_set_for(state: &LauncherState, world: &World, last: Option<&str>) -> Option<String> {
     let sets = dat_sets_for(state, world);
     last.filter(|id| sets.iter().any(|s| s.id == *id))
         .map(str::to_owned)
-        .or_else(|| sets.first().map(|s| s.id.clone()))
+        .or_else(|| {
+            sets.iter()
+                .find(|s| s.origin == DatOrigin::Shared)
+                .or_else(|| sets.first())
+                .map(|s| s.id.clone())
+        })
 }
 
 /// The data set a world's world is drawn from: the one it names ([`World::world_base`]), else its
@@ -609,6 +623,57 @@ mod tests {
 
         let relayed = crate::relayed::RELAYED_WORLDS[0].to_world();
         assert!(!retail_can_play(&relayed));
+    }
+
+    /// A New Dereth world is played with the Dereth client alone, which takes in the land the
+    /// world sends, on the end of retail's files: the shared set first, never a set of other
+    /// files, and a last choice of the retail client doesn't bring it back.
+    #[test]
+    fn a_new_dereth_world_plays_the_dereth_client_on_the_end_of_retails_files() {
+        let older = Iterations {
+            portal: Some(2000),
+            cell: Some(900),
+            local: Some(994),
+            highres: Some(497),
+        };
+        let s = LauncherState {
+            retail: Some(install(ClientKind::Retail, "acclient-6096")),
+            dat_sets: vec![
+                set_reading("nd-other", DatOrigin::Unassigned, older),
+                set_reading("nd-spare", DatOrigin::Unassigned, Iterations::END_OF_RETAIL),
+                set_reading("nd-eor", DatOrigin::Shared, Iterations::END_OF_RETAIL),
+            ],
+            ..LauncherState::default()
+        };
+        let dereth = install(ClientKind::Dereth, "dereth");
+        let mut w = World::new("arwic", "Arwic");
+        w.era = Some("newdereth".into());
+        assert!(plays_new_dereth(&w) && !retail_can_play(&w));
+        let opts = clients_for(&s, &w, Some(&dereth));
+        assert_eq!(
+            opts.iter().map(|o| o.kind).collect::<Vec<_>>(),
+            [ClientKind::Dereth]
+        );
+        assert_eq!(
+            default_client(&opts, &w, Some(ClientKind::Retail)),
+            Some(ClientKind::Dereth)
+        );
+        let ids = |v: Vec<DatSet>| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(ids(dat_sets_for(&s, &w)), ["nd-spare", "nd-eor"]);
+        assert_eq!(default_set_for(&s, &w, None).as_deref(), Some("nd-eor"));
+        assert_eq!(
+            default_set_for(&s, &w, Some("nd-other")).as_deref(),
+            Some("nd-eor"),
+            "a set of other files is not kept as the choice"
+        );
+        assert_eq!(required_set_for(&w), SetKind::Modern);
+        // Any other era keeps the retail client and every set it had.
+        w.era = Some("eor".into());
+        assert!(retail_can_play(&w));
+        assert_eq!(ids(dat_sets_for(&s, &w)).len(), 3);
+        for d in &s.dat_sets {
+            let _ = std::fs::remove_dir_all(&d.path);
+        }
     }
 
     #[test]
