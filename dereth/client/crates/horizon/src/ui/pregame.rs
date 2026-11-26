@@ -221,10 +221,10 @@ impl Pregame {
     }
 
     /// What a character made on this world is made from: the world's creation tables, offering
-    /// only the heritages its era has, and their texts.
+    /// only the heritages the world does, and their texts.
     pub fn creation_for(&self, state: &GameState) -> Option<CreationSource> {
         let (tables, texts) = self.creation_source.clone()?;
-        let tables = match state.creation_heritages {
+        let tables = match state.creation_heritages.as_deref() {
             Some(heritages) => std::rc::Rc::new(tables.offering(heritages)),
             None => tables,
         };

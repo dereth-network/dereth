@@ -359,6 +359,10 @@ pub struct Config {
     /// table; one this client's table and the bitfield's do not both have, or a name it does not
     /// know, is left to the table.
     pub era_features: dereth_primitives::EraFeatureOverrides,
+    /// `--heritages <n,n,...>`: the heritages the server says a new character on its world may
+    /// be, by number, as the launcher reads them from the world's status. `None`: the server said
+    /// nothing, and the world's systems decide.
+    pub heritages: Option<Vec<u32>>,
     /// `--logon-version <string>`: the logon version string the login request carries, for a
     /// world whose server wants one other than the end of retail's `"1802"`, as the launcher
     /// reads it from its table of such worlds.
@@ -706,6 +710,7 @@ impl Default for Config {
             world_base: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
+            heritages: None,
             logon_version: dereth_transport::conn::CLIENT_VERSION.to_owned(),
             world_rules: dereth_primitives::WorldRules::default(),
         }
@@ -927,6 +932,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "era-features",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "heritages",
         short: None,
         arity: Arity::Required,
     },
@@ -1980,6 +1990,17 @@ impl Config {
                     }
                     self.era_features = features;
                 }
+            }
+            "heritages" => {
+                let list = v
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(|h| h.parse::<u32>().ok().filter(|n| *n > 0))
+                    .collect::<Option<Vec<u32>>>()
+                    .filter(|l| !l.is_empty())
+                    .ok_or_else(|| ConfigError::new(format!("bad --heritages {v:?}")))?;
+                self.heritages = Some(list);
             }
             "logon-version" => {
                 // A packed string the server compares byte for byte; Windows-1252 has no room for

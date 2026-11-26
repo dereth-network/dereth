@@ -992,6 +992,56 @@ pub const SECTIONS: &[Section] = &[
                 "AllegianceHouseCommands",
                 "@allegiance house, opening the monarch's villa or mansion to the allegiance.",
             ),
+            system(
+                "heritage_viamontian",
+                "HeritageViamontian",
+                "A new character may be Viamontian.",
+            ),
+            system(
+                "heritage_umbraen",
+                "HeritageUmbraen",
+                "A new character may be Umbraen.",
+            ),
+            system(
+                "heritage_gear_knight",
+                "HeritageGearKnight",
+                "A new character may be a Gear Knight.",
+            ),
+            system(
+                "heritage_tumerok",
+                "HeritageTumerok",
+                "A new character may be Aun Tumerok.",
+            ),
+            system(
+                "heritage_lugian",
+                "HeritageLugian",
+                "A new character may be Lugian.",
+            ),
+            system(
+                "heritage_empyrean",
+                "HeritageEmpyrean",
+                "A new character may be Empyrean.",
+            ),
+            system(
+                "heritage_penumbraen",
+                "HeritagePenumbraen",
+                "A new character may be Penumbraen.",
+            ),
+            system(
+                "heritage_undead",
+                "HeritageUndead",
+                "A new character may be Undead.",
+            ),
+            system(
+                "heritage_olthoi",
+                "HeritageOlthoi",
+                "A new character may be an Olthoi Soldier.",
+            ),
+            system(
+                "heritage_olthoi_spitter",
+                "HeritageOlthoiSpitter",
+                "A new character may be an Olthoi Spitter.",
+            ),
             e(
                 "any_dat_files",
                 "AnyDatFiles",

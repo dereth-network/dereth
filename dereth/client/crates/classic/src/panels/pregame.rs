@@ -78,7 +78,11 @@ struct Pregame {
     resources: crate::resources::Resources,
     startup: startup::Startup,
     startup_error: Option<String>,
+    /// What a character is made from: the world's creation data, offering only the heritages the
+    /// world does once creation begins.
     data: Result<std::rc::Rc<CreationData>, String>,
+    /// The world's creation data, every heritage its files define.
+    source: Result<std::rc::Rc<CreationData>, String>,
     state: CharGenState,
     selected_skill: Option<usize>,
     rotation_velocity: f32,
@@ -329,6 +333,7 @@ impl Pregame {
             resources: resources.clone(),
             startup: startup::Startup::new(now),
             startup_error: None,
+            source: data.clone(),
             data,
             state,
             selected_skill: None,
@@ -1613,6 +1618,9 @@ impl Panel for Pregame {
                         self.status = "All character slots are full.".into();
                         return actions;
                     }
+                    self.data = self.source.as_ref().map_err(Clone::clone).map(|d| {
+                        CreationData::offering(d, c.pregame.creation_heritages.as_deref())
+                    });
                     if let Ok(d) = self.data.clone() {
                         self.heritage_chosen = false;
                         self.sex_chosen = false;

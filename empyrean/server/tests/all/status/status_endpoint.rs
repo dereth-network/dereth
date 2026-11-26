@@ -38,6 +38,7 @@ fn sample() -> StatusSnapshot {
         corrections_digest: "v1:0123456789abcdef".to_owned(),
         era: "infiltration".to_owned(),
         features: empyrean_common::era::EraFeatures::INFILTRATION,
+        heritages: vec![1, 2, 3],
         dats: DatIterations {
             portal: Some(2072),
             cell: Some(982),
@@ -108,7 +109,7 @@ fn snapshot_of_a_fresh_world_then_opened() {
 fn status_json_is_exact_and_escaped() {
     assert_eq!(
         sample().to_json(),
-        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"features\":{\"ratings\":false,\"consolidated_weapon_skills\":false,\"item_spell_auras\":false,\"assessed_armor_and_ratings\":false,\"swear_to_lower_level\":false,\"pre_order_items_and_rares\":false,\"dual_wield\":false,\"weapon_masteries\":false,\"innate_augmentations\":false,\"aetheria\":false,\"luminance\":false,\"contracts\":false,\"titles\":false,\"cloaks\":false,\"trinkets\":false,\"journal\":false,\"trade\":true,\"housing\":true,\"apartments\":true,\"tinkering\":true,\"cantrips\":true,\"spell_research\":false,\"chess\":true,\"swear_xp_cost\":true,\"lifestone_protection\":true,\"creation_credit_carry_over\":true,\"skill_alteration\":true,\"augmentations\":false,\"pk_lite\":true,\"marketplace_recall\":true,\"endurance_benefits\":true,\"lifestone_recall\":true,\"pk_arena_recalls\":false,\"player_corpse_hour_minimum\":true,\"component_burn_skill_discount\":true,\"war_and_life_projectile_criticals\":true,\"war_magic_skill_damage_bonus\":true,\"transfer_overflow_reduces_source\":true,\"item_enchantment_redirection\":true,\"spell_tabs\":true,\"fellowship_options\":true,\"corpse_permissions\":true,\"corpse_location_notices\":true,\"chat_log\":true,\"corpse_command\":true,\"allegiance_messages\":true,\"allegiance_oath_confirmation\":true,\"allegiance_boot\":true,\"appraisal_without_skills\":true,\"trade_notes_cash_anywhere\":true,\"allegiance_officers_and_bans\":true,\"allegiance_name\":false,\"fellowship_share_loot\":true,\"fellowship_auto_accept\":true,\"fellowship_open\":true,\"allegiance_chat\":true,\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false},\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"portals\":null,\"places\":\"/places\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
+        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"features\":{\"ratings\":false,\"consolidated_weapon_skills\":false,\"item_spell_auras\":false,\"assessed_armor_and_ratings\":false,\"swear_to_lower_level\":false,\"pre_order_items_and_rares\":false,\"dual_wield\":false,\"weapon_masteries\":false,\"innate_augmentations\":false,\"aetheria\":false,\"luminance\":false,\"contracts\":false,\"titles\":false,\"cloaks\":false,\"trinkets\":false,\"journal\":false,\"trade\":true,\"housing\":true,\"apartments\":true,\"tinkering\":true,\"cantrips\":true,\"spell_research\":false,\"chess\":true,\"swear_xp_cost\":true,\"lifestone_protection\":true,\"creation_credit_carry_over\":true,\"skill_alteration\":true,\"augmentations\":false,\"pk_lite\":true,\"marketplace_recall\":true,\"endurance_benefits\":true,\"lifestone_recall\":true,\"pk_arena_recalls\":false,\"player_corpse_hour_minimum\":true,\"component_burn_skill_discount\":true,\"war_and_life_projectile_criticals\":true,\"war_magic_skill_damage_bonus\":true,\"transfer_overflow_reduces_source\":true,\"item_enchantment_redirection\":true,\"spell_tabs\":true,\"fellowship_options\":true,\"corpse_permissions\":true,\"corpse_location_notices\":true,\"chat_log\":true,\"corpse_command\":true,\"allegiance_messages\":true,\"allegiance_oath_confirmation\":true,\"allegiance_boot\":true,\"appraisal_without_skills\":true,\"trade_notes_cash_anywhere\":true,\"allegiance_officers_and_bans\":true,\"allegiance_name\":false,\"fellowship_share_loot\":true,\"fellowship_auto_accept\":true,\"fellowship_open\":true,\"allegiance_chat\":true,\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false,\"heritage_viamontian\":false,\"heritage_umbraen\":false,\"heritage_gear_knight\":false,\"heritage_tumerok\":false,\"heritage_lugian\":false,\"heritage_empyrean\":false,\"heritage_penumbraen\":false,\"heritage_undead\":false,\"heritage_olthoi\":false,\"heritage_olthoi_spitter\":false},\"heritages\":[1,2,3],\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"portals\":null,\"places\":\"/places\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
     );
 }
 
@@ -161,8 +162,8 @@ fn the_status_names_the_era_its_systems_the_dats_and_the_client_versions() {
             && json.contains(",\"allegiance_name\":false,")
             && json.contains(",\"allegiance_chat\":true,")
             && json.contains(
-                ",\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false},"
-            ),
+                ",\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false,"
+            ) && json.contains("\"heritage_olthoi_spitter\":false},\"heritages\":[1,2,3],"),
         "{json}"
     );
     // A system the world's configuration turns on is announced as on.
@@ -179,6 +180,49 @@ fn the_status_names_the_era_its_systems_the_dats_and_the_client_versions() {
     let status = text(&respond("GET /status HTTP/1.1", || Some(sample())));
     assert!(v1.starts_with("HTTP/1.0 200 OK\r\n"), "{v1}");
     assert_eq!(v1, status);
+}
+
+/// The heritages a new character may be, always listed: every one the dats define on an end of
+/// retail world, the era's on another, the systems' when the world turns one on, and the world's
+/// own list when its rules name one.
+/// Divergence: V418
+#[test]
+fn the_status_lists_the_heritages_a_new_character_may_be() {
+    use empyrean_common::era::{with_features, EraFeatures, EraId};
+    let mut char_gen = empyrean_dat::fake::sample::char_gen();
+    let aluvian = char_gen.heritage_groups[&1].clone();
+    char_gen.heritage_groups.insert(6, aluvian);
+    let mut w = World::new(
+        ClockSnapshot::take(&VirtualClock::default(), 0.0),
+        FakeDats::new()
+            .with_char_gen(char_gen)
+            .build()
+            .expect("fake dats"),
+    );
+    assert_eq!(StatusSnapshot::take(&w, "Dereth", 1).heritages, [1, 6]);
+    w.era = EraId::NewDereth.rules();
+    let s = StatusSnapshot::take(&w, "Dereth", 1);
+    assert_eq!(s.heritages, [1, 2, 3, 4, 9]);
+    assert!(s.to_json().contains(",\"heritages\":[1,2,3,4,9],"));
+    w.era = EraId::Infiltration.rules();
+    assert_eq!(StatusSnapshot::take(&w, "Dereth", 1).heritages, [1, 2, 3]);
+    w.era = with_features(
+        w.era,
+        EraFeatures {
+            heritage_viamontian: true,
+            ..EraFeatures::INFILTRATION
+        },
+    );
+    assert_eq!(
+        StatusSnapshot::take(&w, "Dereth", 1).heritages,
+        [1, 2, 3, 4]
+    );
+    let own = empyrean_common::world_rules::WorldRules {
+        heritages: Some(empyrean_common::world_rules::Allowed::Only(vec![2, 9])),
+        ..Default::default()
+    };
+    w.era = own.apply(EraId::NewDereth.rules()).unwrap();
+    assert_eq!(StatusSnapshot::take(&w, "Dereth", 1).heritages, [2, 9]);
 }
 
 #[test]

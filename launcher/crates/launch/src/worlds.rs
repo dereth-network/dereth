@@ -141,6 +141,9 @@ pub fn shown(
             w.era_features.clone_from(&l.era_features);
             w.features_source = Some(Told::World);
         }
+        if l.heritages.is_some() {
+            w.heritages.clone_from(&l.heritages);
+        }
         if w.account_model == AccountModel::Unknown && l.auto_create_accounts == Some(true) {
             w.account_model = AccountModel::AutoCreateOnFirstLogin;
         }
@@ -556,7 +559,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "5:0002def7fefff700"
+                "6:0002def7fefff70000"
             ]
         );
         assert_eq!(
@@ -603,7 +606,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "5:0000dff7fefff700",
+                "6:0000dff7fefff70000",
                 "--logon-version",
                 "1802",
                 "--world-profile",

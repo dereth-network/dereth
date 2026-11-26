@@ -465,7 +465,10 @@ fn the_era_features_switch_takes_the_bitfield() {
     assert!(f.aetheria && !f.trade && f.housing && f.chess && !f.ratings);
     assert!(f.pk_lite && f.lifestone_recall && f.item_enchantment_redirection);
     assert!(f.spell_tabs && f.corpse_permissions && f.allegiance_name);
-    assert_eq!(c.era_features.iter().count(), EraFeatures::COUNT);
+    assert_eq!(
+        c.era_features.iter().count(),
+        EraFeatures::count_at_version(5)
+    );
     let second = parse(&["--era-features", "2:0002deff7f"]).expect("parses");
     assert_eq!(
         second.era_features.iter().count(),
@@ -482,13 +485,31 @@ fn the_era_features_switch_takes_the_bitfield() {
         EraFeatures::count_at_version(1)
     );
     assert_eq!(old.era_features.get("pk_lite"), None, "left to the era");
-    let newer = parse(&["--era-features", "99:ffff5fffffffff32"]).expect("parses");
+    let newer = parse(&["--era-features", "99:ffff5ffffffffff2ff"]).expect("parses");
     assert_eq!(
         newer.era_features.apply(EraFeatures::NONE),
         EraId::Eor.features()
     );
     assert!(parse(&["--era-features", "1:zz"]).is_err());
     assert!(parse(&["--era-features", "0:ffff5f"]).is_err());
+}
+
+/// `--heritages` names the heritages the server's world allows a new character, by number; a
+/// list with anything else in it, or none at all, is refused.
+///
+/// Behaviour: none (the command line's form of what a world's status lists)
+#[test]
+fn the_heritages_switch_names_the_worlds_heritages() {
+    assert_eq!(
+        parse(&["--heritages", "1,2, 3,9"])
+            .expect("parses")
+            .heritages,
+        Some(vec![1, 2, 3, 9])
+    );
+    assert_eq!(parse(&[]).expect("parses").heritages, None);
+    for bad in ["", "1,x", "0", "-1", ","] {
+        assert!(parse(&["--heritages", bad]).is_err(), "{bad:?}");
+    }
 }
 
 /// `--cast` names the spell a scripted world entry casts; it takes a spell id.

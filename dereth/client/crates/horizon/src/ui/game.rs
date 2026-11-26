@@ -634,9 +634,9 @@ pub struct GameState {
     pub new_chat: Vec<ChatLine>,
     /// What the world's era has, for the option rows that need it; `None` has everything.
     pub era: Option<dereth_primitives::EraFeatures>,
-    /// The heritages character creation offers on this world, when its era has fewer than its
-    /// files define; `None`: every one they define.
-    pub creation_heritages: Option<&'static [u32]>,
+    /// The heritages character creation offers on this world, when it offers fewer than its files
+    /// define; `None`: every one they define.
+    pub creation_heritages: Option<Vec<u32>>,
     /// Each chat window's filter, as the game holds it: `(window, filter)`.
     pub chat_filters: Vec<(u32, u64)>,
     /// The chat windows' two opacities, inactive then active, as the game holds them.

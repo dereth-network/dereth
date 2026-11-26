@@ -15,8 +15,8 @@ combat and death formulas, starter gear and first login. Each such rule names it
 source file, and `DIVERGENCES.md` lists them as the era rows.
 
 An era also sets which systems the world has: ratings, aetheria, luminance, trade, housing,
-tinkering, chess and so on. The `[era]` section can turn any of them on or off
-(`aetheria = true`, `trade = false`). The server refuses what the world lacks, whatever a client
+tinkering, chess, each heritage after the first three (`heritage_viamontian`, ...) and so on.
+The `[era]` section can turn any of them on or off (`aetheria = true`, `trade = false`). The server refuses what the world lacks, whatever a client
 asks, and the Dereth client's screens follow the server's list.
 
 - [SETUP.md](SETUP.md): setting up a server, running it, keeping it up to date and moving over
@@ -243,13 +243,15 @@ address. It has no authentication, so keep it on loopback or a private network.
  "shutting_down":false,"connections":1,"authenticated_connections":1,"players_online":1,
  "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:ab2327cb742b5d3c",
  "era":"eor","features":{"ratings":true,"consolidated_weapon_skills":true,…,"spell_research":false,
- "chess":true},"dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
+ "chess":true},"heritages":[1,2,3,4,5,6,7,8,9,10,11,12,13],"dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
  "client_versions":["1802"],"websocket_url":null,"portals":null,"places":null,
  "not_ported":{"ACE: EventManager.Initialize":1}}
 ```
 
 - `content_hash` is `null` without a pack.
 - `era` is the `[era] profile`, and `features` lists every system and whether the world has it.
+- `heritages` lists the heritages a new character may be, by number: the world's own list when
+  its rules name one, else those its systems allow, else every one its data files define.
 - `dats` gives the iterations of the server's data files, which it compares a client's against,
   and whether it patches them.
 - `portals` and `places` are the paths of the portal table and the places below, on this

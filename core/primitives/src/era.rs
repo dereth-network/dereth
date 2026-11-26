@@ -369,6 +369,62 @@ era_features! {
     /// as guests and for storage (after June 2005). Its storage also needs
     /// [`EraFeatures::apartments`].
     allegiance_house_commands,
+    // Version 6 of the table starts here: the heritages a new character may be, past the three
+    // every era has (Aluvian, Gharu'ndim and Sho), each from the update that made it playable.
+    /// Viamontian (Throne of Destiny, July 2005).
+    heritage_viamontian,
+    /// Umbraen, the first of the two Shadow heritages (April 2010).
+    heritage_umbraen,
+    /// Gear Knight (June 2010).
+    heritage_gear_knight,
+    /// Aun Tumerok (October 2011).
+    heritage_tumerok,
+    /// Lugian (April 2012).
+    heritage_lugian,
+    /// Empyrean (November 2010).
+    heritage_empyrean,
+    /// Penumbraen, the second of the two Shadow heritages (April 2010).
+    heritage_penumbraen,
+    /// Undead (September 2010).
+    heritage_undead,
+    /// Olthoi Soldier, for the Olthoi's player-killer island (November 2010).
+    heritage_olthoi,
+    /// Olthoi Spitter, for the Olthoi's player-killer island (November 2010).
+    heritage_olthoi_spitter,
+}
+
+/// The heritages every era lets a new character be: Aluvian, Gharu'ndim and Sho.
+pub const FIRST_HERITAGES: [u32; 3] = [1, 2, 3];
+
+/// Each later heritage, by the number the character-generation table keys it by, with the system
+/// that makes it playable.
+pub const LATER_HERITAGES: [(u32, &str); 10] = [
+    (4, "heritage_viamontian"),
+    (5, "heritage_umbraen"),
+    (6, "heritage_gear_knight"),
+    (7, "heritage_tumerok"),
+    (8, "heritage_lugian"),
+    (9, "heritage_empyrean"),
+    (10, "heritage_penumbraen"),
+    (11, "heritage_undead"),
+    (12, "heritage_olthoi"),
+    (13, "heritage_olthoi_spitter"),
+];
+
+impl EraFeatures {
+    /// The heritages a new character may be with these systems: the first three, and each later
+    /// one the set has, by number. `None` when the set has every later one: then character creation
+    /// offers every heritage the data files define.
+    #[must_use]
+    pub fn heritages(&self) -> Option<Vec<u32>> {
+        let later: Vec<u32> = LATER_HERITAGES
+            .iter()
+            .filter(|(_, name)| self.get(name) == Some(true))
+            .map(|(h, _)| *h)
+            .collect();
+        (later.len() < LATER_HERITAGES.len())
+            .then(|| FIRST_HERITAGES.iter().copied().chain(later).collect())
+    }
 }
 
 impl EraFeatures {
@@ -396,9 +452,18 @@ impl EraFeatures {
     };
 
     /// New Dereth: the end of retail's systems, with the old weapon skills (Axe, Sword, Bow, ...)
-    /// rather than their 2012 consolidation.
+    /// rather than their 2012 consolidation, and its own peoples: of the later heritages only
+    /// Viamontian and Empyrean.
     pub const NEW_DERETH: Self = Self {
         consolidated_weapon_skills: false,
+        heritage_umbraen: false,
+        heritage_gear_knight: false,
+        heritage_tumerok: false,
+        heritage_lugian: false,
+        heritage_penumbraen: false,
+        heritage_undead: false,
+        heritage_olthoi: false,
+        heritage_olthoi_spitter: false,
         ..Self::END_OF_RETAIL
     };
 
@@ -467,10 +532,10 @@ impl EraFeatures {
     /// The version of the systems' table, as [`EraFeatureBits`] carries it. Systems are only ever
     /// appended to the table, never moved or removed, so each version's systems are the first
     /// ones of every later version's; the version goes up by one whenever one is appended.
-    pub const TABLE_VERSION: u16 = 5;
+    pub const TABLE_VERSION: u16 = 6;
 
     /// How many systems each version of the table has, version 1 first.
-    pub const COUNT_BY_VERSION: [usize; Self::TABLE_VERSION as usize] = [24, 39, 52, 60, 62];
+    pub const COUNT_BY_VERSION: [usize; Self::TABLE_VERSION as usize] = [24, 39, 52, 60, 62, 72];
 
     /// How many systems version `version` of the table has, as far as this build can say: its own
     /// count for a version it knows, every system it has for a later one (whose first systems are
@@ -767,14 +832,15 @@ mod tests {
                 "allegiance_titles_and_lock",
                 "allegiance_house_commands",
             ]
-            .contains(&name);
+            .contains(&name)
+                || LATER_HERITAGES.iter().any(|(_, h)| *h == name);
             assert_eq!(
                 value,
                 !later_rule && (later_table || on.contains(&name)),
                 "{name}"
             );
         }
-        assert_eq!(EraFeatures::NAMES.len(), 62);
+        assert_eq!(EraFeatures::NAMES.len(), 72);
         assert_eq!(f, f.implied());
     }
 
@@ -887,7 +953,7 @@ mod tests {
         assert!(text.contains(",chess=true,swear_xp_cost=true,"), "{text}");
         assert!(
             text.ends_with(
-                ",spell_economy=false,allegiance_titles_and_lock=false,allegiance_house_commands=false"
+                ",heritage_undead=false,heritage_olthoi=false,heritage_olthoi_spitter=false"
             ),
             "{text}"
         );
@@ -999,15 +1065,15 @@ mod tests {
         }
         assert_eq!(
             EraFeatureBits::of(EraFeatures::END_OF_RETAIL).to_string(),
-            "5:ffff5fffffffff32"
+            "6:ffff5ffffffffff2ff"
         );
         assert_eq!(
             EraFeatureBits::of(EraFeatures::INFILTRATION).to_string(),
-            "5:0000dff7fefff700"
+            "6:0000dff7fefff70000"
         );
         assert_eq!(
             EraFeatureBits::of(EraFeatures::LAUNCH).to_string(),
-            "5:0000a0000000000d"
+            "6:0000a0000000000d00"
         );
     }
 
@@ -1138,14 +1204,78 @@ mod tests {
         }
     }
 
+    /// A fifth-table peer reads a sixth-table announcement as it read a fifth one, and a
+    /// fifth-table announcement read here leaves the heritages to the era's table: an older
+    /// server playing February 2005 offers the first three, one playing the end of retail all.
+    #[test]
+    fn a_fifth_table_peer_reads_the_sixth_table_as_it_read_the_fifth() {
+        let fifth_table = [
+            (EraId::Eor, [0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0x32]),
+            (
+                EraId::Infiltration,
+                [0x00, 0x00, 0xdf, 0xf7, 0xfe, 0xff, 0xf7, 0x00],
+            ),
+            (
+                EraId::Launch,
+                [0x00, 0x00, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x0d],
+            ),
+        ];
+        for (era, v5) in fifth_table {
+            let bits = EraFeatureBits::of(era.features());
+            for i in 0..62 {
+                let old = v5[i / 8] & (1 << (i % 8)) != 0;
+                assert_eq!(bits.bit(i), Some(old), "{era} bit {i}");
+            }
+            let over = EraFeatureBits {
+                table_version: 5,
+                bytes: v5.to_vec(),
+            }
+            .overrides();
+            for name in &EraFeatures::NAMES[62..] {
+                assert_eq!(over.get(name), None, "{era} {name} is unknown, never off");
+            }
+            assert_eq!(over.apply(era.features()), era.features(), "{era}");
+        }
+    }
+
+    /// Launch and February 2005 offer Aluvian, Gharu'ndim and Sho; the end of retail every
+    /// heritage the files define; New Dereth its own peoples. Each later heritage is its own
+    /// system, so a world that turns one on offers it too.
+    #[test]
+    fn each_era_offers_the_heritages_playable_in_it() {
+        assert_eq!(EraId::Launch.features().heritages(), Some(vec![1, 2, 3]));
+        assert_eq!(
+            EraId::Infiltration.features().heritages(),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(EraId::Eor.features().heritages(), None);
+        assert_eq!(
+            EraId::NewDereth.features().heritages(),
+            Some(vec![1, 2, 3, 4, 9])
+        );
+        let (o, _) = EraFeatureOverrides::parse("heritage_viamontian=true").expect("parses");
+        assert_eq!(
+            o.apply(EraId::Infiltration.features()).heritages(),
+            Some(vec![1, 2, 3, 4])
+        );
+        let (o, _) = EraFeatureOverrides::parse("heritage_lugian=false").expect("parses");
+        assert_eq!(
+            o.apply(EraId::Eor.features()).heritages(),
+            Some(vec![1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13])
+        );
+        for (h, name) in LATER_HERITAGES {
+            assert!(EraFeatures::NAMES.contains(&name), "{h} {name}");
+        }
+    }
+
     /// A newer table's bits past this build's are skipped; an older table's missing systems,
     /// and bits not sent, are unknown and left to the era's table.
     #[test]
     fn unknown_bits_are_unknown_never_off() {
-        // A newer writer: two more systems, both on, past this table's last bit.
+        // A newer writer: more systems, all on, past this table's last bit.
         let newer = EraFeatureBits {
             table_version: EraFeatures::TABLE_VERSION + 1,
-            bytes: vec![0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0xf2],
+            bytes: vec![0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0xf2, 0xff, 0xff],
         };
         assert_eq!(
             newer.overrides().apply(EraFeatures::NONE),
@@ -1175,6 +1305,7 @@ mod tests {
         assert_eq!(EraFeatures::count_at_version(3), 52);
         assert_eq!(EraFeatures::count_at_version(4), 60);
         assert_eq!(EraFeatures::count_at_version(5), 62);
+        assert_eq!(EraFeatures::count_at_version(6), 72);
         assert_eq!(EraFeatures::count_at_version(u16::MAX), EraFeatures::COUNT);
     }
 
@@ -1184,7 +1315,7 @@ mod tests {
             assert!(EraFeatureBits::parse(bad).is_err(), "{bad}");
         }
         assert_eq!(
-            EraFeatureBits::parse(" 5:FFff5FfFfFfFfF32 "),
+            EraFeatureBits::parse(" 6:FFff5FfFfFfFfFf2fF "),
             Ok(EraFeatureBits::of(EraFeatures::END_OF_RETAIL))
         );
         assert_eq!(

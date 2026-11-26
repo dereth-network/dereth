@@ -844,13 +844,49 @@ pub fn with_features(rules: &'static EraRules, features: EraFeatures) -> &'stati
     let mut made = MADE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let want = EraRules { features, ..*rules };
+    let want = EraRules {
+        features,
+        heritages: heritages_following(rules.heritages, rules.features, features),
+        ..*rules
+    };
     if let Some(r) = made.iter().find(|r| ***r == want) {
         return r;
     }
     let r: &'static EraRules = Box::leak(Box::new(want));
     made.push(r);
     r
+}
+
+/// The heritages a new character may be with `features` (its heritage systems,
+/// [`EraFeatures::heritages`]), as rules hold them: `None` for every one the data files have.
+#[must_use]
+pub fn heritages_of(features: EraFeatures) -> Option<&'static [u32]> {
+    static MADE: std::sync::Mutex<Vec<&'static [u32]>> = std::sync::Mutex::new(Vec::new());
+    let want = features.heritages()?;
+    let mut made = MADE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(h) = made.iter().find(|h| ***h == *want) {
+        return Some(h);
+    }
+    let h: &'static [u32] = Box::leak(want.into_boxed_slice());
+    made.push(h);
+    Some(h)
+}
+
+/// The heritages of rules whose systems go from `before` to `after`: those of `after` when the
+/// rules' heritages are their systems' own, else the rules' own list, which stays.
+#[must_use]
+pub fn heritages_following(
+    heritages: Option<&'static [u32]>,
+    before: EraFeatures,
+    after: EraFeatures,
+) -> Option<&'static [u32]> {
+    if heritages == heritages_of(before) {
+        heritages_of(after)
+    } else {
+        heritages
+    }
 }
 
 /// The configured world's rules: `[era]`, or end of retail before a configuration is loaded.
@@ -1256,5 +1292,48 @@ mod tests {
             feature_settings::key("pre_order_items_and_rares"),
             "PreOrderItemsAndRares"
         );
+    }
+
+    /// Divergence: V392
+    ///
+    /// Each era's heritages are its systems' own; a world turning a heritage system on or off
+    /// offers that heritage or not, and a world naming its heritages keeps its list whatever its
+    /// systems say.
+    #[test]
+    fn an_eras_heritages_follow_its_heritage_systems_unless_the_world_names_its_own() {
+        for era in EraId::ALL {
+            let rules = era.rules();
+            assert_eq!(rules.heritages, heritages_of(rules.features), "{era}");
+        }
+        let c: EraConfiguration =
+            serde_json::from_str(r#"{"Profile":"infiltration","HeritageViamontian":true}"#)
+                .unwrap();
+        assert_eq!(c.rules().heritages, Some(&[1, 2, 3, 4][..]));
+        let c: EraConfiguration =
+            serde_json::from_str(r#"{"Profile":"newdereth","HeritageEmpyrean":false}"#).unwrap();
+        assert_eq!(c.rules().heritages, Some(&[1, 2, 3, 4][..]));
+        let c: EraConfiguration = serde_json::from_str(
+            r#"{"Profile":"eor","HeritageOlthoi":false,"HeritageOlthoiSpitter":false}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            c.rules().heritages,
+            Some(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11][..])
+        );
+        let world = crate::world_rules::WorldRules {
+            heritages: Some(crate::world_rules::Allowed::Only(vec![1, 2])),
+            ..Default::default()
+        };
+        let c: EraConfiguration =
+            serde_json::from_str(r#"{"Profile":"newdereth","HeritageLugian":true}"#).unwrap();
+        let r = c.rules_over(Some(&world)).unwrap();
+        assert!(r.features.heritage_lugian);
+        assert_eq!(r.heritages, Some(&[1, 2][..]), "the world's own list stays");
+        let world = crate::world_rules::WorldRules {
+            features: [("heritage_viamontian".to_owned(), false)].into(),
+            ..Default::default()
+        };
+        let r = c.rules_over(Some(&world)).unwrap();
+        assert_eq!(r.heritages, Some(&[1, 2, 3, 8, 9][..]));
     }
 }

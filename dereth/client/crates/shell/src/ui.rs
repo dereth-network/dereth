@@ -549,6 +549,9 @@ pub struct UiShell {
     chargen_actions: Vec<CharGenAction>,
     /// Character-generation data and the `SkillTable`, loaded once. `None` when either would not decode.
     chargen_tables: Option<Rc<CharGenTables>>,
+    /// [`Self::chargen_tables`] offering only the heritages the world does, and the heritages
+    /// they were made for; made again when either changes.
+    offered_chargen_tables: Option<(Option<Vec<u32>>, Rc<CharGenTables>)>,
     /// The Classic presentation of the same world rules, retained across interface rebuilds.
     classic_creation: Result<Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String>,
     /// The last character set pushed into a screen, so a rebuild happens on the edge.
@@ -689,6 +692,7 @@ impl UiShell {
             character_actions: Vec::new(),
             chargen_actions: Vec::new(),
             chargen_tables: files.chargen_tables.clone(),
+            offered_chargen_tables: None,
             classic_creation: files.classic_creation,
             last_char_set: None,
             client_dir: std::path::PathBuf::from("."),
@@ -722,6 +726,23 @@ impl UiShell {
         self.chargen_tables.clone()
     }
 
+    /// The creation tables the char-gen wizard is made from: the world's, offering only
+    /// `heritages` when it names them. The barber keeps [`Self::chargen_tables`] whole.
+    fn offered_chargen_tables(&mut self, heritages: Option<&[u32]>) -> Option<Rc<CharGenTables>> {
+        let tables = self.chargen_tables.as_ref()?;
+        match &self.offered_chargen_tables {
+            Some((made_for, offered)) if made_for.as_deref() == heritages => {
+                Some(Rc::clone(offered))
+            }
+            _ => {
+                let offered = CharGenTables::offering(tables, heritages);
+                self.offered_chargen_tables =
+                    Some((heritages.map(<[u32]>::to_vec), Rc::clone(&offered)));
+                Some(offered)
+            }
+        }
+    }
+
     /// The Classic presentation of this shell's already loaded creation rules.
     ///
     /// # Errors
@@ -751,6 +772,7 @@ impl UiShell {
         self.patch_strings = files.patch_strings;
         self.client_strings = files.client_strings;
         self.chargen_tables = files.chargen_tables;
+        self.offered_chargen_tables = None;
         self.classic_creation = files.classic_creation;
         Ok(())
     }
@@ -2330,8 +2352,7 @@ impl UiShell {
             != self.last_host.chargen_response_notices
             || host.chargen_response != self.last_host.chargen_response;
         let tables = self
-            .chargen_tables
-            .clone()
+            .offered_chargen_tables(host.creation_heritages.as_deref())
             .map(|t| -> Rc<dyn std::any::Any> { t });
         let p = dereth_ui::framework::PregameCx {
             view: host,

@@ -446,7 +446,11 @@ impl WorldRules {
         for (name, on) in &self.features {
             features.set(name, *on);
         }
+        let before = r.features;
         r.features = features.apply(r.features);
+        if self.heritages.is_none() {
+            r.heritages = crate::era::heritages_following(r.heritages, before, r.features);
+        }
         for (name, v) in &self.formulas {
             set_formula(&mut r.formulas, name, v)?;
         }

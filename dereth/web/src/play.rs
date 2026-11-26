@@ -81,7 +81,7 @@ impl std::fmt::Debug for Play {
 const DATS_HELD_BY_THE_PAGE: &str = "dats-held-by-the-page";
 
 /// The configuration a world's words give (`world_args`: what the launcher puts on the desktop
-/// client's command line about the world, `--era`, `--era-features`, `--world-base`,
+/// client's command line about the world, `--era`, `--era-features`, `--heritages`, `--world-base`,
 /// `--logon-version`, `--world-profile`), read with the desktop client's own parser, with the
 /// world's overlay kept in `overlay` (a folder in the browser's storage) when there is one.
 ///

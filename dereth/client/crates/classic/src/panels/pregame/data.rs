@@ -111,6 +111,20 @@ impl CreationData {
     pub fn from_tables(tables: Rc<CreationTables>) -> Self {
         Self::project(tables, None)
     }
+    /// `data` offering only `heritages`, in the world's order, as the world allows a new character
+    /// ([`CreationTables::offering`]); all of its own for `None`.
+    #[must_use]
+    pub fn offering(data: &Rc<Self>, heritages: Option<&[u32]>) -> Rc<Self> {
+        let Some(heritages) = heritages else {
+            return Rc::clone(data);
+        };
+        let tables = data.tables.offering(heritages);
+        let mut out = (**data).clone();
+        out.heritages
+            .retain(|h| tables.heritage_keys().contains(&h.key));
+        out.tables = Rc::new(tables);
+        Rc::new(out)
+    }
     fn project(tables: Rc<CreationTables>, store: Option<&dereth_dat::RetailDatStore>) -> Self {
         let mut out = Self {
             tables: Rc::clone(&tables),

@@ -1296,6 +1296,46 @@
       {
         "about": "`@allegiance house`: opening and closing the monarch's villa or mansion to the allegiance, as guests and for storage (after June 2005). Its storage also needs [`EraFeatures::apartments`].",
         "name": "allegiance_house_commands"
+      },
+      {
+        "about": "Viamontian (Throne of Destiny, July 2005).",
+        "name": "heritage_viamontian"
+      },
+      {
+        "about": "Umbraen, the first of the two Shadow heritages (April 2010).",
+        "name": "heritage_umbraen"
+      },
+      {
+        "about": "Gear Knight (June 2010).",
+        "name": "heritage_gear_knight"
+      },
+      {
+        "about": "Aun Tumerok (October 2011).",
+        "name": "heritage_tumerok"
+      },
+      {
+        "about": "Lugian (April 2012).",
+        "name": "heritage_lugian"
+      },
+      {
+        "about": "Empyrean (November 2010).",
+        "name": "heritage_empyrean"
+      },
+      {
+        "about": "Penumbraen, the second of the two Shadow heritages (April 2010).",
+        "name": "heritage_penumbraen"
+      },
+      {
+        "about": "Undead (September 2010).",
+        "name": "heritage_undead"
+      },
+      {
+        "about": "Olthoi Soldier, for the Olthoi's player-killer island (November 2010).",
+        "name": "heritage_olthoi"
+      },
+      {
+        "about": "Olthoi Spitter, for the Olthoi's player-killer island (November 2010).",
+        "name": "heritage_olthoi_spitter"
       }
     ],
     "formulas": [
@@ -1355,6 +1395,16 @@
           "fellowship_options": true,
           "fellowship_share_loot": true,
           "global_chat_rooms": true,
+          "heritage_empyrean": true,
+          "heritage_gear_knight": true,
+          "heritage_lugian": true,
+          "heritage_olthoi": true,
+          "heritage_olthoi_spitter": true,
+          "heritage_penumbraen": true,
+          "heritage_tumerok": true,
+          "heritage_umbraen": true,
+          "heritage_undead": true,
+          "heritage_viamontian": true,
           "housing": true,
           "innate_augmentations": true,
           "item_enchantment_redirection": true,
@@ -1487,6 +1537,16 @@
           "fellowship_options": true,
           "fellowship_share_loot": true,
           "global_chat_rooms": false,
+          "heritage_empyrean": false,
+          "heritage_gear_knight": false,
+          "heritage_lugian": false,
+          "heritage_olthoi": false,
+          "heritage_olthoi_spitter": false,
+          "heritage_penumbraen": false,
+          "heritage_tumerok": false,
+          "heritage_umbraen": false,
+          "heritage_undead": false,
+          "heritage_viamontian": false,
           "housing": true,
           "innate_augmentations": false,
           "item_enchantment_redirection": true,
@@ -1629,6 +1689,16 @@
           "fellowship_options": false,
           "fellowship_share_loot": false,
           "global_chat_rooms": false,
+          "heritage_empyrean": false,
+          "heritage_gear_knight": false,
+          "heritage_lugian": false,
+          "heritage_olthoi": false,
+          "heritage_olthoi_spitter": false,
+          "heritage_penumbraen": false,
+          "heritage_tumerok": false,
+          "heritage_umbraen": false,
+          "heritage_undead": false,
+          "heritage_viamontian": false,
           "housing": false,
           "innate_augmentations": false,
           "item_enchantment_redirection": false,
@@ -1769,6 +1839,16 @@
           "fellowship_options": true,
           "fellowship_share_loot": true,
           "global_chat_rooms": true,
+          "heritage_empyrean": true,
+          "heritage_gear_knight": false,
+          "heritage_lugian": false,
+          "heritage_olthoi": false,
+          "heritage_olthoi_spitter": false,
+          "heritage_penumbraen": false,
+          "heritage_tumerok": false,
+          "heritage_umbraen": false,
+          "heritage_undead": false,
+          "heritage_viamontian": true,
           "housing": true,
           "innate_augmentations": true,
           "item_enchantment_redirection": true,

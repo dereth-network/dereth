@@ -54,7 +54,8 @@ adds the classic interface). A world that patches data files, or ships its own, 
 that only the Dereth client can use.
 
 The launcher starts the Dereth client with `--dat-dir` (the Modern set), `--classic-dat-dir`, and
-`--era` and `--era-features` for a world that names its era. Both clients get the account and
+`--era` and `--era-features` for a world that names its era, and `--heritages` for one whose status
+lists them. Both clients get the account and
 password as `-a <account> -v <password>`. The launcher shows and logs that command line with the
 password replaced by `***`.
 

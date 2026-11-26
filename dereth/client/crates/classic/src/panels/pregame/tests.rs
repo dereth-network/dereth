@@ -1029,6 +1029,87 @@ fn attributes_page_draws_the_vial_from_the_bottom_with_no_balance_toggle() {
         )));
     });
 }
+/// The Create button begins a character with only the heritages the world offers on the
+/// heritage page, in the world's order; a world that names none offers every one its files define.
+///
+/// Behaviour: presentation.era.classic-creation-shows-only-the-offered-heritages
+#[test]
+fn creation_shows_only_the_heritages_the_world_offers() {
+    let mut t = tables();
+    let aluvian = t.chargen.heritage_groups[&1].clone();
+    for (key, name) in [(4, "Viamontian"), (9, "Empyrean")] {
+        let mut h = aluvian.clone();
+        h.name = name.into();
+        t.chargen.heritage_groups.insert(key, h);
+    }
+    t.chargen.heritage_order = vec![1, 4, 9];
+    let data = std::rc::Rc::new(CreationData::from_tables(std::rc::Rc::new(t)));
+    let offered = |heritages: Option<Vec<u32>>| {
+        let game = EmptyView;
+        let pregame = PregameView {
+            character_set: Some(dereth_client_contract::persist::CharacterSet {
+                num_allowed_characters: 5,
+                ..Default::default()
+            }),
+            creation_heritages: heritages,
+            ..Default::default()
+        };
+        let keyboard = KeyboardState::default();
+        let settings = ClassicSettings::default();
+        let classic = ClassicState::default();
+        let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
+            now: dereth_primitives::LocalTime(0.0),
+            game: &game,
+            pregame: &pregame,
+            keyboard: &keyboard,
+            settings: &settings,
+            map_teleport_allowed: false,
+            classic: &classic,
+        };
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::clone(&data)),
+            dereth_primitives::LocalTime(0.0),
+        );
+        p.event(ControlEvent::Activate("create".into()), &c);
+        assert_eq!(p.page, "heritage");
+        // The heritage list's rows, and the name each shows.
+        let rows = p
+            .frame(&c)
+            .controls
+            .iter()
+            .find_map(|v| match v.kind {
+                ControlKind::HitList { row_count, .. } if v.id == "heritage" => Some(row_count),
+                _ => None,
+            })
+            .expect("the heritage list");
+        let d = p.data.as_ref().unwrap();
+        let shown: Vec<String> = d.heritages.iter().map(|h| h.name.clone()).collect();
+        assert_eq!(rows, shown.len());
+        let keys: Vec<u32> = d.heritages.iter().map(|h| h.key).collect();
+        assert_eq!(d.tables.heritage_keys(), keys);
+        assert!(keys.contains(&p.state.heritage_group), "{keys:?}");
+        p.event(
+            ControlEvent::Select {
+                id: "heritage".into(),
+                index: keys.len() - 1,
+            },
+            &c,
+        );
+        assert_eq!(p.state.heritage_group, *keys.last().unwrap());
+        (keys, shown)
+    };
+    let (keys, shown) = offered(Some(vec![1, 9]));
+    assert_eq!(keys, [1, 9]);
+    assert_eq!(shown, ["Aluvian", "Empyrean"]);
+    let (keys, shown) = offered(None);
+    assert_eq!(keys, [1, 4, 9]);
+    assert_eq!(shown, ["Aluvian", "Viamontian", "Empyrean"]);
+    // A list naming none the files define keeps them all: creation is never empty.
+    assert_eq!(offered(Some(vec![12])).0, [1, 4, 9]);
+}
 #[test]
 fn preview_rotate_and_zoom_controls_exist_before_there_is_a_model() {
     context(|c| {

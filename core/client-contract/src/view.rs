@@ -1202,6 +1202,9 @@ pub struct EraView {
     /// The systems the server announces for its world (the launcher passes them with the era).
     /// Each one announced wins over the era's table; empty: the era's table alone.
     pub announced_features: dereth_primitives::EraFeatureOverrides,
+    /// The heritages the server says a new character on its world may be (the launcher passes
+    /// them from the world's status); `None` when it says nothing.
+    pub announced_heritages: Option<Vec<u32>>,
     /// The rules the world plays by over the end of retail's, from the world profile the launcher
     /// names: what an appraisal or character creation shows, what selecting an item asks for.
     pub world_rules: dereth_primitives::WorldRules,
@@ -1220,6 +1223,17 @@ impl EraView {
     #[must_use]
     pub fn features(&self) -> dereth_primitives::EraFeatures {
         self.announced_features.apply(self.era.features())
+    }
+
+    /// The heritages character creation offers: the server's list when it gives one, else those
+    /// of the world's systems ([`dereth_primitives::EraFeatures::heritages`]). `None`: every
+    /// heritage the data files define.
+    #[must_use]
+    pub fn creation_heritages(&self) -> Option<Vec<u32>> {
+        match &self.announced_heritages {
+            Some(list) if !list.is_empty() => Some(list.clone()),
+            _ => self.features().heritages(),
+        }
     }
 
     /// The era a world drawn from `world_dats` plays when the server names none.

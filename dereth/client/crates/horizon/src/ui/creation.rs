@@ -1933,11 +1933,12 @@ pub(crate) mod tests {
         assert_eq!(next(&c), before);
     }
 
-    /// A New Dereth world's creation offers only the era's peoples, in the world's order, and the
-    /// Create button makes a character from those; any other era offers every heritage its files
-    /// define, and so does a world whose files define none of the era's.
+    /// Creation offers only the heritages the world does, in the world's order: the list its
+    /// server gives, else its era's (New Dereth's peoples, February 2005's three); the end of
+    /// retail offers every heritage its files define, and so does a world whose files define none
+    /// of those offered.
     #[test]
-    fn a_new_dereth_world_offers_only_its_own_peoples() {
+    fn creation_offers_only_the_heritages_the_world_does() {
         let mut t = tables();
         let aluvian = t.chargen.heritage_groups[&1].clone();
         for (key, name) in [(6, "Gear Knight"), (9, "Empyrean")] {
@@ -1951,28 +1952,42 @@ pub(crate) mod tests {
             Rc::new(t),
             Rc::new(dereth_chargen::CreationTexts::default()),
         ));
-        let offered = |pregame: &crate::ui::pregame::Pregame, era| {
-            let state = GameState {
-                creation_heritages: dereth_client_contract::era::creation_heritages(era),
-                ..lobby()
-            };
-            let (tables, _) = pregame.creation_for(&state).unwrap();
-            let keys = tables.heritage_keys().to_vec();
-            assert_eq!(
-                tables
-                    .chargen
-                    .heritage_groups
-                    .keys()
-                    .copied()
-                    .collect::<Vec<_>>(),
+        let offered_by =
+            |pregame: &crate::ui::pregame::Pregame, era, announced: Option<Vec<u32>>| {
+                let world = dereth_client_contract::EraView {
+                    era,
+                    era_announced: true,
+                    announced_heritages: announced,
+                    ..Default::default()
+                };
+                let state = GameState {
+                    creation_heritages: world.creation_heritages(),
+                    ..lobby()
+                };
+                let (tables, _) = pregame.creation_for(&state).unwrap();
+                let keys = tables.heritage_keys().to_vec();
+                assert_eq!(
+                    tables
+                        .chargen
+                        .heritage_groups
+                        .keys()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    keys
+                );
                 keys
-            );
-            keys
-        };
+            };
+        let offered = |pregame: &crate::ui::pregame::Pregame, era| offered_by(pregame, era, None);
         use dereth_primitives::EraId;
         assert_eq!(offered(&pregame, EraId::NewDereth), [1, 9]);
         assert_eq!(offered(&pregame, EraId::Eor), [1, 6, 9]);
-        assert_eq!(offered(&pregame, EraId::Infiltration), [1, 6, 9]);
+        assert_eq!(offered(&pregame, EraId::Infiltration), [1]);
+        // The server's list wins over the era's.
+        assert_eq!(
+            offered_by(&pregame, EraId::NewDereth, Some(vec![1, 6])),
+            [1, 6]
+        );
+        assert_eq!(offered_by(&pregame, EraId::Eor, Some(vec![9, 1])), [1, 9]);
         // Files without any of the era's peoples keep their own, so creation is never empty.
         let (t, texts) = pregame.creation_source.take().unwrap();
         let mut only_gear = (*t).offering(&[6]);

@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--overlay-address <host>:<port>] [--world-status <url>] [--nav-hints <dir>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--overlay-address <host>:<port>] [--world-status <url>] [--nav-hints <dir>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--heritages <n,n,...>] [--logon-version <string>] [--world-profile <name>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -19,7 +19,8 @@
 //! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
 //! that world's systems from the start. The systems go as the shared bitfield
 //! (`dereth_primitives::EraFeatureBits`): the world's whole set, the era's table with what the
-//! world turned on or off over it. A world that names no era plays the end of retail, and the
+//! world turned on or off over it. A world whose status lists the heritages a new character may
+//! be names them too. A world that names no era plays the end of retail, and the
 //! client is told nothing: it plays the end of retail from the later files its world is drawn
 //! from. A world that runs a client of its own
 //! ([`crate::known`]) also names the set its world is drawn from, the logon version its server
@@ -146,6 +147,8 @@ pub struct WorldLaunch {
     pub era: Option<String>,
     /// `--era-features`: the world's whole set of systems as the shared bitfield.
     pub era_features: Option<String>,
+    /// `--heritages`: the heritages a new character may be, when the world lists them.
+    pub heritages: Option<String>,
     /// `--logon-version`, for a world whose server wants another than the end of retail's.
     pub logon_version: Option<String>,
     /// `--world-profile`: the rules the world's own client played by.
@@ -169,6 +172,11 @@ pub fn describe(world: &World) -> WorldLaunch {
         }),
         era: some(world.era.as_deref()),
         era_features: era_feature_bits(world).map(|b| b.to_string()),
+        heritages: world
+            .heritages
+            .as_ref()
+            .filter(|h| !h.is_empty())
+            .map(|h| h.iter().map(u32::to_string).collect::<Vec<_>>().join(",")),
         logon_version: some(world.logon_version.as_deref()),
         world_profile: some(world.world_profile.as_deref()),
     }
@@ -182,6 +190,7 @@ impl WorldLaunch {
             ("--world-base", &self.world_base),
             ("--era", &self.era),
             ("--era-features", &self.era_features),
+            ("--heritages", &self.heritages),
             ("--logon-version", &self.logon_version),
             ("--world-profile", &self.world_profile),
         ]
@@ -570,7 +579,7 @@ mod tests {
             crate::datset::SetKind::Modern,
             "drawn from the later files"
         );
-        assert_eq!(d.era_features.as_deref(), Some("5:0000dff7fefff700"));
+        assert_eq!(d.era_features.as_deref(), Some("6:0000dff7fefff70000"));
         let words = d.args();
         assert_eq!(
             words[..4],
@@ -596,7 +605,7 @@ mod tests {
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(argv[argv.len() - 2..], ["--era", "infiltration"]);
         // And the systems its status lists, as the whole set over the era's table: Infiltration's
-        // `5:0000dff7fefff700` with trade off and aetheria on.
+        // `6:0000dff7fefff70000` with trade off and aetheria on.
         w.era_features = Some("trade=false,aetheria=true".into());
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(
@@ -605,7 +614,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "5:0002def7fefff700"
+                "6:0002def7fefff70000"
             ]
         );
 
@@ -624,7 +633,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "5:0002def7fefff700"
+                "6:0002def7fefff70000"
             ]
         );
 
@@ -740,6 +749,48 @@ mod tests {
         assert_eq!(view.era, EraId::Infiltration);
         assert_eq!(view.features(), world_has);
         assert_ne!(view.features(), EraId::Infiltration.features());
+    }
+
+    /// The heritages a world's status lists reach the Dereth client's creation through the
+    /// command line, over its era's; a status that lists none leaves creation to the era's.
+    #[test]
+    fn the_heritages_a_status_lists_reach_the_dereth_clients_creation() {
+        let creation = |doc: &str| {
+            let live = crate::status::parse_world_document(doc.as_bytes()).unwrap();
+            let (mut w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+            w.era.clone_from(&live.era);
+            w.heritages.clone_from(&live.heritages);
+            let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+            let cfg = dereth_client_runtime::config::Config::from_args_and_prefs_with(
+                &argv,
+                &dereth_client_runtime::config::Preferences::default(),
+            )
+            .unwrap();
+            let view = dereth_client_contract::EraView {
+                era: cfg.era.unwrap_or_default(),
+                era_announced: cfg.era.is_some(),
+                announced_heritages: cfg.heritages.clone(),
+                ..Default::default()
+            };
+            (argv, view.creation_heritages())
+        };
+        // A New Dereth world whose rules allow a heritage its era doesn't.
+        let (argv, offered) =
+            creation(r#"{"world_open":true,"era":"newdereth","heritages":[1,2,3,4,6,9]}"#);
+        assert!(
+            argv.windows(2).any(|a| a == ["--heritages", "1,2,3,4,6,9"]),
+            "{argv:?}"
+        );
+        assert_eq!(offered, Some(vec![1, 2, 3, 4, 6, 9]));
+        // One that lists nothing: its era's.
+        let (argv, offered) = creation(r#"{"world_open":true,"era":"newdereth"}"#);
+        assert!(!argv.iter().any(|a| a == "--heritages"), "{argv:?}");
+        assert_eq!(offered, Some(vec![1, 2, 3, 4, 9]));
+        // An empty or broken list is no list.
+        for list in ["[]", "[1,\"x\"]", "[0]"] {
+            let doc = format!(r#"{{"world_open":true,"era":"infiltration","heritages":{list}}}"#);
+            assert_eq!(creation(&doc).1, Some(vec![1, 2, 3]), "{list}");
+        }
     }
 
     /// Each known world's whole command line for the Dereth client, as the community list and the

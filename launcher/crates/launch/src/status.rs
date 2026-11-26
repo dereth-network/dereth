@@ -32,6 +32,10 @@ pub struct LiveStatus {
     /// Dereth client's `--era-features` reads (`ratings=false,trade=true,...`).
     #[serde(default)]
     pub era_features: Option<String>,
+    /// The heritages a new character on the world may be, by number, when the document lists
+    /// them.
+    #[serde(default)]
+    pub heritages: Option<Vec<u32>>,
     /// The server software, when the world says it (`Empyrean`).
     #[serde(default)]
     pub software: Option<String>,
@@ -90,6 +94,21 @@ fn era_features(v: &Value) -> Option<String> {
     (!list.is_empty()).then(|| list.join(","))
 }
 
+/// The document's `heritages` list (`[1,2,3]`), each a heritage's number; `None` for no list, an
+/// empty one, or one with anything but such numbers in it.
+fn heritages(v: &Value) -> Option<Vec<u32>> {
+    let list = v
+        .as_array()?
+        .iter()
+        .map(|h| {
+            h.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0)
+        })
+        .collect::<Option<Vec<u32>>>()?;
+    (!list.is_empty()).then_some(list)
+}
+
 /// Read the document: Empyrean's, which says whether the world is open, or Yalain's, which names
 /// its state as the hub's heartbeats do (`online`, or `maintenance` while it lets nobody in).
 /// `None` if it is not one.
@@ -146,6 +165,7 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .filter(|e| !e.is_empty())
             .map(str::to_owned),
         era_features: v.get("features").and_then(era_features),
+        heritages: v.get("heritages").and_then(heritages),
         // Yalain names itself; Empyrean's document names no server.
         software: v
             .get("server")

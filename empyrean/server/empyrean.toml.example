@@ -777,6 +777,46 @@ profile = "eor"
 # @allegiance house, opening the monarch's villa or mansion to the allegiance.
 # allegiance_house_commands = true
 
+# default: the profile's (Empyrean only)
+# A new character may be Viamontian.
+# heritage_viamontian = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Umbraen.
+# heritage_umbraen = true
+
+# default: the profile's (Empyrean only)
+# A new character may be a Gear Knight.
+# heritage_gear_knight = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Aun Tumerok.
+# heritage_tumerok = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Lugian.
+# heritage_lugian = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Empyrean.
+# heritage_empyrean = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Penumbraen.
+# heritage_penumbraen = true
+
+# default: the profile's (Empyrean only)
+# A new character may be Undead.
+# heritage_undead = true
+
+# default: the profile's (Empyrean only)
+# A new character may be an Olthoi Soldier.
+# heritage_olthoi = true
+
+# default: the profile's (Empyrean only)
+# A new character may be an Olthoi Spitter.
+# heritage_olthoi_spitter = true
+
 # default: false (Empyrean only)
 # Start even when the data files are not the ones the era expects (a Launch world on
 # later files, ...). The server logs which files it found.

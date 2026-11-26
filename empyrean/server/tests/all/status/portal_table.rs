@@ -376,6 +376,7 @@ fn the_places_are_served_and_the_status_document_names_both_documents() {
             corrections_digest: String::new(),
             era: "eor".to_owned(),
             features: empyrean_common::era::EraFeatures::default(),
+            heritages: Vec::new(),
             dats: empyrean_server::status_endpoint::DatIterations::default(),
             dat_patching: false,
             client_versions: Vec::new(),

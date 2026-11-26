@@ -112,7 +112,9 @@ from a creature to its equipment. Version 3 appends 13 more, for 52: the spellca
 fellowship options, corpse permissions (`@permit`, `@consent`), corpse location notices, the chat
 log (`@log`), `@corpse`, allegiance messages, the oath's confirmation, booting from an allegiance,
 appraisal without skills, trade notes cashing anywhere, allegiance officers and bans, and the
-allegiance's name.
+allegiance's name. Versions 4 and 5 append ten more, for 62. Version 6 appends the heritages a new
+character may be beyond Aluvian, Gharu'ndim and Sho, one system each, for 72: Viamontian, Umbraen,
+Gear Knight, Aun Tumerok, Lugian, Empyrean, Penumbraen, Undead, Olthoi Soldier and Olthoi Spitter.
 
 A reader takes only the systems its own table and the writer's version both have:
 
@@ -122,8 +124,8 @@ A reader takes only the systems its own table and the writer's version both have
 - version 0 names no table, so nothing is known.
 
 The same bitfield is what the Dereth client's `--era-features` takes, in text: the version in
-decimal, a colon, and the bytes in hex, first byte first. The end of retail is `5:ffff5fffffffff32`;
-the February 2005 world is `5:0000dff7fefff700`, and Launch `5:0000a0000000000d`. Their first three
+decimal, a colon, and the bytes in hex, first byte first. The end of retail is `6:ffff5ffffffffff2ff`;
+the February 2005 world is `6:0000dff7fefff70000`, and Launch `6:0000a0000000000d00`. Their first three
 bytes are what version 1 wrote for them (`ffff5f`, `0000df`).
 
 ## 5. Limits and the switch

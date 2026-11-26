@@ -582,12 +582,21 @@ impl CharGenState {
     ///
     /// The die covers only the ones the connected world defines, so a world without Viamontian
     /// never rolls it whatever the account holds. With every candidate present, as on the final
-    /// world, the roll and its result are the client's own; with none, the whole range is rolled.
+    /// world, the roll and its result are the client's own; a world that offers none of them rolls
+    /// among the heritages it does offer; with none at all, the whole range is rolled.
     fn roll_heritage(&mut self, cg: &CharGen, tod: bool) -> u32 {
         let hi: u32 = if tod { 4 } else { 3 };
-        let keys: Vec<u32> = (1..=hi)
+        let mut keys: Vec<u32> = (1..=hi)
             .filter(|k| cg.heritage_groups.contains_key(k))
             .collect();
+        if keys.is_empty() {
+            keys = cg
+                .heritage_order
+                .iter()
+                .copied()
+                .filter(|k| cg.heritage_groups.contains_key(k))
+                .collect();
+        }
         if keys.is_empty() {
             let roll = self.rng.roll_dice(1, i32::try_from(hi).unwrap_or(3));
             return u32::try_from(roll).unwrap_or(1);
@@ -1894,6 +1903,45 @@ mod tests {
                 order: Vec::new(),
             },
         )
+    }
+
+    /// A random heritage is one the world offers: of the first three (and Viamontian with the
+    /// expansion) those it has, and among its own when it has none of them.
+    #[test]
+    fn a_random_heritage_is_one_the_world_offers() {
+        let (mut cg, _) = no_tables();
+        let group = |name: &str| dereth_assets::tables::HeritageGroup {
+            description: None,
+            name: name.into(),
+            icon: 0,
+            setup: DataId(0),
+            environment_setup: DataId(0),
+            attribute_credits: 330,
+            skill_credits: 52,
+            primary_start_areas: Vec::new(),
+            secondary_start_areas: Vec::new(),
+            skills: Vec::new(),
+            templates: Vec::new(),
+            sex_table_marker: 0,
+            sex_order: Vec::new(),
+            template_presentations: BTreeMap::new(),
+            sexes: BTreeMap::new(),
+        };
+        let rolls = |cg: &CharGen, tod: bool| {
+            let mut s = CharGenState::default();
+            (0..64)
+                .map(|_| s.roll_heritage(cg, tod))
+                .collect::<std::collections::BTreeSet<u32>>()
+        };
+        for (key, name) in [(2, "Gharu'ndim"), (4, "Viamontian"), (9, "Empyrean")] {
+            cg.heritage_groups.insert(key, group(name));
+        }
+        cg.heritage_order = vec![2, 4, 9];
+        assert_eq!(rolls(&cg, true), [2, 4].into());
+        assert_eq!(rolls(&cg, false), [2].into());
+        cg.heritage_groups.retain(|k, _| *k == 9);
+        cg.heritage_order = vec![9];
+        assert_eq!(rolls(&cg, true), [9].into());
     }
 
     /// Oracle: the remaining-credits count, evaluated. With every attribute at the minimum and

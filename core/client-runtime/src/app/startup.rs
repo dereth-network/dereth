@@ -557,6 +557,11 @@ impl<S: Shell> App<S> {
         }
         // And so do the systems it announces for its world, each over the era's table.
         self.hud.era.announced_features = self.cfg.era_features;
+        // And the heritages it lets a new character be, when it says them.
+        self.hud
+            .era
+            .announced_heritages
+            .clone_from(&self.cfg.heritages);
         // And the rules the world's own client played by, which every front end and the object
         // model read from here.
         if let Some(name) = &self.cfg.world_rules.profile {

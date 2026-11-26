@@ -1486,6 +1486,23 @@ pub struct CharGenTables {
     pub texts: dereth_chargen::CreationTexts,
 }
 
+impl CharGenTables {
+    /// `tables` offering only `heritages`, in the world's order, as the world allows a new
+    /// character ([`dereth_chargen::CreationTables::offering`]); all of its own for `None`.
+    #[must_use]
+    pub fn offering(tables: &Rc<Self>, heritages: Option<&[u32]>) -> Rc<Self> {
+        let Some(heritages) = heritages else {
+            return Rc::clone(tables);
+        };
+        Rc::new(Self {
+            world: Rc::new(tables.world.offering(heritages)),
+            color_wheel_art: tables.color_wheel_art,
+            colors: tables.colors.clone(),
+            texts: tables.texts.clone(),
+        })
+    }
+}
+
 impl std::ops::Deref for CharGenTables {
     type Target = dereth_chargen::CreationTables;
     fn deref(&self) -> &Self::Target {
@@ -2067,7 +2084,8 @@ impl CharGenScreen {
     /// **The page's whole view**: without it no bullet ever fills and the description pane stays
     /// black.
     ///
-    /// All thirteen buttons go to state `0x10000016`; the text is set to the starting-skills header
+    /// Each heritage the world offers has its button, and the others none. All thirteen buttons go
+    /// to state `0x10000016`; the text is set to the starting-skills header
     /// (colour 1), then the starting skills, the bonus-skills header (colour 1) and the heritage's
     /// bonus skills are appended; the heritage's button goes to `0x10000017` and the background to
     /// the heritage's state; then a newline and the heritage's description are appended.
@@ -2078,9 +2096,13 @@ impl CharGenScreen {
         let Some(root) = self.roots.first().copied() else {
             return;
         };
-        for (id, _) in HERITAGE_BUTTONS {
+        for (id, heritage) in HERITAGE_BUTTONS {
             if let Some(h) = ui.get_child_recursive(root, id) {
                 ui.set_state(h, STATE_PROFESSION_OFF);
+                // A heritage the world does not offer has no button at all.
+                if let Some(t) = &self.tables {
+                    ui.set_visible(h, t.chargen.heritage_groups.contains_key(&heritage));
+                }
             }
         }
         let Some(text) = ui.get_child_recursive(root, heritage_page::TEXT) else {

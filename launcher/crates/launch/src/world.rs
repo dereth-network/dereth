@@ -294,6 +294,10 @@ pub struct World {
     /// whole table.
     #[serde(default)]
     pub era_features: Option<String>,
+    /// The heritages a new character on the world may be, by number, from its status document
+    /// when it lists them. `None` when it does not: the world's systems decide.
+    #[serde(default)]
+    pub heritages: Option<Vec<u32>>,
     /// Who named [`World::era`]; `None` when nobody has.
     #[serde(default)]
     pub era_source: Option<Told>,

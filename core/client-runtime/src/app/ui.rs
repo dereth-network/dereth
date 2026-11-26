@@ -18,7 +18,7 @@ impl<S: Shell> App<S> {
             .world
             .set_era_features(self.interaction.era_features);
         self.host_state.era_features = self.interaction.era_features;
-        self.host_state.era = self.hud.era.era;
+        self.host_state.creation_heritages = self.hud.era.creation_heritages();
         self.duties.teleport_ticked = false;
         self.duties.hud_synced = false;
         self.duties.portal_driven = false;

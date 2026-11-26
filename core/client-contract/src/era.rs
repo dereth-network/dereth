@@ -200,19 +200,6 @@ pub const fn loses_skill_credits(features: EraFeatures, remaining: i32) -> bool 
     !features.creation_credit_carry_over && remaining > 0
 }
 
-/// New Dereth's peoples: Aluvian, Gharu'ndim, Sho, Viamontian and Empyrean.
-pub const NEW_DERETH_HERITAGES: [u32; 5] = [1, 2, 3, 4, 9];
-
-/// The heritages character creation offers on a world of `profile`, when its era has fewer than
-/// the world's files define: New Dereth's peoples. `None`: every heritage the files define.
-#[must_use]
-pub const fn creation_heritages(profile: EraId) -> Option<&'static [u32]> {
-    match profile {
-        EraId::NewDereth => Some(&NEW_DERETH_HERITAGES),
-        EraId::Launch | EraId::Infiltration | EraId::Eor => None,
-    }
-}
-
 /// A complete localized caption with an English fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Caption {
@@ -477,6 +464,56 @@ mod tests {
         assert!(EraSurface::QuestWindow.offered(one), "contracts alone");
         one.contracts = false;
         assert!(!EraSurface::QuestWindow.offered(one));
+    }
+
+    /// A world whose server lists its heritages offers that list, whatever its era; a server that
+    /// says nothing leaves them to the world's systems, its era's table with what it announced over
+    /// it; an era that has every heritage, or one not known, offers every one the files define.
+    /// An empty list is no list.
+    ///
+    /// Behaviour: presentation.era.creation-offers-the-worlds-heritages
+    #[test]
+    fn creation_offers_the_servers_heritages_else_its_eras() {
+        use dereth_primitives::EraId;
+        let view = |era, announced: Option<Vec<u32>>| EraView {
+            era,
+            era_announced: true,
+            announced_heritages: announced,
+            ..EraView::default()
+        };
+        // A world that overrides its era's heritages.
+        assert_eq!(
+            view(EraId::NewDereth, Some(vec![1, 2, 6])).creation_heritages(),
+            Some(vec![1, 2, 6])
+        );
+        assert_eq!(
+            view(EraId::Eor, Some(vec![1, 9])).creation_heritages(),
+            Some(vec![1, 9])
+        );
+        // A server that says nothing: the era's.
+        assert_eq!(
+            view(EraId::Launch, None).creation_heritages(),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(
+            view(EraId::Infiltration, None).creation_heritages(),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(
+            view(EraId::NewDereth, None).creation_heritages(),
+            Some(vec![1, 2, 3, 4, 9])
+        );
+        assert_eq!(
+            view(EraId::NewDereth, Some(Vec::new())).creation_heritages(),
+            Some(vec![1, 2, 3, 4, 9])
+        );
+        // ... with the systems it announced over the era's table.
+        let mut w = view(EraId::Infiltration, None);
+        w.announced_features.set("heritage_viamontian", true);
+        assert_eq!(w.creation_heritages(), Some(vec![1, 2, 3, 4]));
+        // The end of retail, and a world whose era nobody named, offer every heritage.
+        assert_eq!(view(EraId::Eor, None).creation_heritages(), None);
+        assert_eq!(EraView::default().creation_heritages(), None);
     }
 
     /// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
