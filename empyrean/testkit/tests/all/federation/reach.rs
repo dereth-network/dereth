@@ -866,8 +866,22 @@ fn a_tell_to_a_character_away_reaches_its_persons_direct_messages_through_a_real
     });
     net.enter("aa", bob());
     net.enter("bb", ann());
+    let on = [
+        ("aa", "Bob", net.mark("aa", "Bob")),
+        ("bb", "Ann", net.mark("bb", "Ann")),
+    ];
     net.say("aa", "Bob", "@dn on");
     net.say("bb", "Ann", "@dn on");
+    // Each is in the hub's directory once its listing is answered with the character's page: the
+    // hub carries tells only to a character on the network, and Bob's line must not come with the
+    // answer to his tell.
+    until(&mut net, &mut links, "both listed", |net| {
+        on.iter().all(|&(slug, who, m)| {
+            Net::lines(&net.since(slug, who, m))
+                .iter()
+                .any(|l| l.starts_with("Your directory page: "))
+        })
+    });
     let m = net.mark("bb", "Ann");
     net.say("bb", "Ann", "@dn link");
     let mut code = None;

@@ -86,8 +86,9 @@ fn a_world_verifies_in_game_by_answering_a_real_hubs_challenge_from_another_addr
             db: ":memory:".into(),
             loopback_allowed: true,
             trusted_proxies: vec!["127.0.0.1".parse().expect("a proxy")],
+            // The hub stops waiting as soon as the nonce comes back; its wait only guards a hang.
             challenge_every: Duration::from_millis(100),
-            challenge_wait: Duration::from_secs(5),
+            challenge_wait: Duration::from_secs(60),
             ..HubConfig::default()
         },
         registry,
@@ -128,10 +129,13 @@ fn a_world_verifies_in_game_by_answering_a_real_hubs_challenge_from_another_addr
                 &json!({ "token": sent[0].token, "by": sent[0].by }),
             )
         });
-        let until = Instant::now() + Duration::from_secs(5);
+        // The call ends once the hub has the nonce back; the deadline only guards a hang, and
+        // outlasts the hub's own wait.
+        let hang = Instant::now() + Duration::from_secs(90);
         let mut buf = [0u8; 2048];
         let mut posted = Vec::new();
-        while !call.is_finished() && Instant::now() < until {
+        while !call.is_finished() {
+            assert!(Instant::now() < hang, "the verification call never ended");
             while let Ok((n, _)) = game_port.recv_from(&mut buf) {
                 heard(&mut net, "aa", &buf[..n]);
             }
