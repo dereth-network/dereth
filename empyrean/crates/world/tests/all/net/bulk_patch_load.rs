@@ -129,7 +129,7 @@ fn a_connection_past_the_cap_is_closed_unread_and_its_token_still_opens_the_stre
     let s = service(2);
     let dats = dats();
     let token = s
-        .offer(items(), Arc::clone(&dats), "late", LOOPBACK)
+        .offer(items(), Arc::clone(&dats), Arc::default(), "late", LOOPBACK)
         .expect("a ticket");
     // Two connections that say nothing hold both places.
     let first = connect(&s);
@@ -162,8 +162,14 @@ fn many_clients_at_once_stay_within_the_cap_and_every_thread_ends() {
     let dats = dats();
     let tokens: Vec<[u8; 16]> = (0..CLIENTS)
         .map(|n| {
-            s.offer(items(), Arc::clone(&dats), &format!("c{n}"), LOOPBACK)
-                .expect("a ticket")
+            s.offer(
+                items(),
+                Arc::clone(&dats),
+                Arc::default(),
+                &format!("c{n}"),
+                LOOPBACK,
+            )
+            .expect("a ticket")
         })
         .collect();
     let port = s.port();
@@ -224,6 +230,7 @@ fn a_ticket_opens_once_only_with_its_token_and_from_its_sessions_address() {
         .offer(
             items(),
             Arc::clone(&dats),
+            Arc::default(),
             "elsewhere",
             IpAddr::V4(Ipv4Addr::new(10, 0, 1, 1)),
         )
@@ -238,7 +245,7 @@ fn a_ticket_opens_once_only_with_its_token_and_from_its_sessions_address() {
     assert!(s.withdraw(&elsewhere), "and is left for its own client");
 
     let token = s
-        .offer(items(), Arc::clone(&dats), "here", LOOPBACK)
+        .offer(items(), Arc::clone(&dats), Arc::default(), "here", LOOPBACK)
         .expect("a ticket");
     let mut wrong = token;
     wrong[15] ^= 0x80;
@@ -272,7 +279,7 @@ fn a_connection_that_never_says_hello_is_closed() {
         },
     )
     .expect("the stream listens");
-    let _ticket = s.offer(items(), dats(), "quiet", LOOPBACK);
+    let _ticket = s.offer(items(), dats(), Arc::default(), "quiet", LOOPBACK);
     let mut c = connect(&s);
     assert!(closed_unread(&mut c), "closed for its silence");
     assert!(

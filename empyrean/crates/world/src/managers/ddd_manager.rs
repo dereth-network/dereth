@@ -7,6 +7,7 @@
 //! world.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use empyrean_common::config_manager::ConfigManager;
 use empyrean_common::dotnet::{format, DotNetDict, DotNetHashSet, Num};
@@ -58,6 +59,40 @@ pub struct DddManagerState {
     pub dat_file_sizes: HashMap<DatDatabaseType, HashMap<u32, DatFileSize>>,
     // ACE: DDDManager.CompressedDatFilesCache
     pub compressed_dat_files_cache: HashMap<DatDatabaseType, HashMap<u32, Vec<u8>>>,
+    /// Not ACE (V519): the compressed copy of each record of the world's data overlay, shared by
+    /// every client the world patches, over UDP or the patch stream.
+    pub overlay_records: Arc<CompressedRecords>,
+}
+
+/// Not ACE (V519): each record of a world's data overlay that goes compressed, as it goes (behind
+/// its uncompressed size), by dat and id. The patch state's walk compresses every such record once
+/// to size it, so it keeps the result: no client's patch compresses a record again, and every
+/// client is sent the same bytes for it, which are the bytes the patch's size was counted from.
+/// It is kept in memory, as compressed as the patch itself: a world whose overlay patches clients
+/// sends all of it to each new one.
+#[derive(Debug, Default, Clone)]
+pub struct CompressedRecords {
+    records: HashMap<(DatDatabaseType, u32), Arc<[u8]>>,
+}
+
+impl CompressedRecords {
+    /// The record `id` of `db`'s dat as it goes, when it goes compressed.
+    #[must_use]
+    pub fn get(&self, db: DatDatabaseType, id: u32) -> Option<&Arc<[u8]>> {
+        self.records.get(&(db, id))
+    }
+
+    /// How many records it holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Whether it holds none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
 }
 
 impl DddManagerState {
@@ -142,6 +177,9 @@ pub fn init_iterations_of(
                 first.saturating_sub(1)
             })
     });
+    // Not ACE (V519): the overlay's own records, compressed here to size them, are kept for every
+    // client the world patches to its overlay.
+    let keep_overlay_records = base_total.is_some() && ConfigManager::config().dat_overlay.patching;
 
     let mut compressor = Compressor::new();
     let mut file_count = 0;
@@ -213,7 +251,18 @@ pub fn init_iterations_of(
                 compressed_file_size: file_size_to_send,
             });
 
-        if use_compressed_file && precache_compressed_dat_files {
+        if use_compressed_file && keep_overlay_records {
+            Arc::make_mut(&mut state.overlay_records)
+                .records
+                .entry((dat_database_type, file_name))
+                .or_insert_with(|| {
+                    prepend_uncompressed_file_size(
+                        &compressed_dat_file,
+                        uncompressed_file_size.cast_unsigned(),
+                    )
+                    .into()
+                });
+        } else if use_compressed_file && precache_compressed_dat_files {
             state
                 .compressed_dat_files_cache
                 .entry(dat_database_type)
@@ -374,6 +423,14 @@ pub fn try_get_dat_file_contents_for_transmission(
     let compress_dat_file = cached_dat_file_sizes.compressed_file_size > 0;
 
     if compress_dat_file {
+        // Not ACE (V519): a record of the world's overlay goes as the copy every client shares.
+        if let Some(shared) = state.overlay_records.get(dat_database_type, dat_file_id) {
+            return Some(DatFileContents {
+                contents: shared.to_vec(),
+                dat_file,
+                is_compressed: true,
+            });
+        }
         let cache = state
             .compressed_dat_files_cache
             .get_mut(&dat_database_type)
@@ -414,7 +471,8 @@ pub fn try_get_dat_file_contents_for_transmission(
 }
 
 /// Not ACE (V519): [`try_get_dat_file_contents_for_transmission`] off the world thread, for the
-/// bulk stream: no cache, and a compressed file deflated at zlib `level`.
+/// bulk stream's records that [`shared_dat_file_contents`] does not hold: no cache, and a
+/// compressed file deflated at zlib `level`.
 #[must_use]
 pub fn dat_file_contents(
     dats: &DatManager,
@@ -452,6 +510,30 @@ pub fn dat_file_contents(
     Some(DatFileContents {
         contents,
         dat_file,
+        is_compressed: true,
+    })
+}
+
+/// Not ACE (V519): the record `dat_file_id` as `records` holds it compressed, for the bulk stream,
+/// without reading or compressing it again; `None` when `records` does not hold it.
+#[must_use]
+pub fn shared_dat_file_contents(
+    dats: &DatManager,
+    records: &CompressedRecords,
+    dat_file_id: u32,
+    dat_database_type: DatDatabaseType,
+) -> Option<DatFileContents> {
+    let shared = records.get(dat_database_type, dat_file_id)?;
+    let iteration = dat_database(dats, dat_database_type)?.file_iteration(dat_file_id)?;
+    // Each record is held behind its uncompressed size.
+    let file_size = u32::from_le_bytes(shared.get(..4)?.try_into().ok()?);
+    Some(DatFileContents {
+        contents: shared.to_vec(),
+        dat_file: DatFile {
+            object_id: dat_file_id,
+            file_size,
+            iteration,
+        },
         is_compressed: true,
     })
 }

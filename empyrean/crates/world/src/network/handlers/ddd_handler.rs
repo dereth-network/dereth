@@ -679,10 +679,13 @@ fn offer_bulk(
     let who = account(w, session);
     // The ticket opens only from the address the session plays from.
     let address = w.net.session(session).map(|s| s.core.end_point_c2s.ip());
+    // Each compressed record goes as the copy the world keeps for every client.
+    let records = std::sync::Arc::clone(&w.ddd_manager.overlay_records);
     let offered = bulk_patch::service()
         .zip(address)
         .and_then(|(service, address)| {
-            let token = service.offer(tickets, std::sync::Arc::clone(dats), &who, address)?;
+            let token =
+                service.offer(tickets, std::sync::Arc::clone(dats), records, &who, address)?;
             Some((u32::from(service.port()), token))
         });
     let Some((port, token)) = offered else {

@@ -37,7 +37,8 @@ pub const TICKET_SECONDS: f64 = 120.0;
 /// A ticket still unclaimed this long after it was made is dropped, whatever became of its
 /// session.
 const STALE: Duration = Duration::from_secs(600);
-/// The zlib level the stream deflates a compressed record at: fast, as the stream is.
+/// The zlib level the stream deflates a compressed record at when the world holds no compressed
+/// copy of it: fast, as the stream is.
 const LEVEL: i32 = 6;
 
 /// The listener's bounds.
@@ -94,6 +95,7 @@ pub struct BulkPending {
 struct Ticket {
     items: Vec<BulkItem>,
     dats: Arc<DatManager>,
+    records: Arc<ddd_manager::CompressedRecords>,
     account: String,
     address: IpAddr,
     made: Instant,
@@ -112,6 +114,8 @@ pub struct Service {
     threads: AtomicUsize,
     /// Connections closed at once for the cap.
     turned_away: AtomicUsize,
+    /// Records it compressed itself, for want of the world's compressed copy.
+    deflated: AtomicUsize,
 }
 
 impl std::fmt::Debug for Service {
@@ -160,6 +164,7 @@ impl Service {
             peak: AtomicUsize::new(0),
             threads: AtomicUsize::new(0),
             turned_away: AtomicUsize::new(0),
+            deflated: AtomicUsize::new(0),
         });
         let theirs = Arc::clone(&service);
         std::thread::Builder::new()
@@ -207,6 +212,12 @@ impl Service {
     #[must_use]
     pub fn turned_away(&self) -> usize {
         self.turned_away.load(Ordering::SeqCst)
+    }
+
+    /// Records it has compressed itself, as the world held no compressed copy of them.
+    #[must_use]
+    pub fn deflated(&self) -> usize {
+        self.deflated.load(Ordering::SeqCst)
     }
 
     /// Whether some ticket opens from `ip`.
@@ -257,13 +268,14 @@ impl Service {
         }
     }
 
-    /// A ticket for `items` from `dats`, for `account`, which opens from `address` alone: its
-    /// token.
+    /// A ticket for `items` from `dats`, each compressed one sent as `records` holds it, for
+    /// `account`, which opens from `address` alone: its token.
     #[must_use]
     pub fn offer(
         &self,
         items: Vec<BulkItem>,
         dats: Arc<DatManager>,
+        records: Arc<ddd_manager::CompressedRecords>,
         account: &str,
         address: IpAddr,
     ) -> Option<[u8; 16]> {
@@ -276,6 +288,7 @@ impl Service {
             Ticket {
                 items,
                 dats,
+                records,
                 account: account.to_owned(),
                 address: canonical(address),
                 made: Instant::now(),
@@ -348,7 +361,7 @@ impl Service {
             for _ in 0..self.limits.workers.max(1) {
                 let tx = tx.clone();
                 let (next, written) = (&next, &written);
-                let threads = &self.threads;
+                let (threads, deflated) = (&self.threads, &self.deflated);
                 s.spawn(move || {
                     let _alive = Counted::new(threads);
                     loop {
@@ -368,7 +381,7 @@ impl Service {
                                 break;
                             }
                         }
-                        if tx.send((at, frame(ticket, item))).is_err() {
+                        if tx.send((at, frame(ticket, item, deflated))).is_err() {
                             break;
                         }
                     }
@@ -417,10 +430,23 @@ impl Service {
 const AHEAD: usize = 64;
 
 /// `item` of `ticket` behind its length, as the stream sends it, or `None` when it cannot be read.
-fn frame(ticket: &Ticket, item: &BulkItem) -> Option<Vec<u8>> {
-    let level = item.compress.then_some(LEVEL);
-    let Some(contents) = ddd_manager::dat_file_contents(&ticket.dats, item.id, item.db, level)
-    else {
+/// A compressed record goes as the world's shared copy of it; one the world holds no copy of is
+/// compressed here, and counted in `deflated`.
+fn frame(ticket: &Ticket, item: &BulkItem, deflated: &AtomicUsize) -> Option<Vec<u8>> {
+    let shared = item
+        .compress
+        .then(|| {
+            ddd_manager::shared_dat_file_contents(&ticket.dats, &ticket.records, item.id, item.db)
+        })
+        .flatten();
+    let contents = shared.or_else(|| {
+        let level = item.compress.then_some(LEVEL);
+        if item.compress {
+            deflated.fetch_add(1, Ordering::Relaxed);
+        }
+        ddd_manager::dat_file_contents(&ticket.dats, item.id, item.db, level)
+    });
+    let Some(contents) = contents else {
         log::warn!("[DDD] bulk patch: 0x{:08X} could not be read", item.id);
         return None;
     };

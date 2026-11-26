@@ -482,3 +482,88 @@ fn the_overlay_a_client_takes_holds_the_same_bytes_whichever_way_its_records_cam
     );
     assert!(!files(&by_udp).is_empty() && files(&by_udp).len() == files(&by_stream).len());
 }
+
+/// Each record of the overlay that goes compressed is compressed once, when the world's patch
+/// state is built, and that copy is what every client is sent: two clients' streams and two
+/// clients' `0xF7E2`s compress none of them again, every client is sent the same bytes for each
+/// record, and they are the bytes the patch's size was counted from.
+#[test]
+fn an_overlay_record_is_compressed_once_and_every_client_is_sent_that_copy() {
+    use empyrean_common::config_manager::ConfigManager;
+    use empyrean_dat::DatDatabaseType::Portal;
+    use empyrean_world::managers::bulk_patch::{BulkItem, Limits, Service};
+    use empyrean_world::managers::ddd_manager::{self, DddManagerState};
+    use empyrean_world::network::game_messages::messages::game_message_ddd_data_message::ddd_data_body;
+    // The walk reads the default configuration, on this thread alone.
+    let _config = ConfigManager::override_for_thread(MasterConfiguration::default());
+    let scratch = dereth_dat::testing::ScratchDir::new("bulk-compressed-once").expect("scratch");
+    let (dats, _) = world(scratch.path());
+    let mut state = DddManagerState::new();
+    crate::support::ddd_start::initialize(&mut state, &dats);
+    assert_eq!(
+        state.overlay_records.len(),
+        RECORDS as usize,
+        "every overlay record, compressed at start"
+    );
+
+    let service = Service::listen(SocketAddr::from(([127, 0, 0, 1], 0)), Limits::default())
+        .expect("the stream listens");
+    let items: Vec<BulkItem> = (FIRST..FIRST + RECORDS)
+        .map(|id| BulkItem {
+            id,
+            db: Portal,
+            compress: true,
+        })
+        .collect();
+    let streams: Vec<Vec<DddData>> = (0..2)
+        .map(|n| {
+            let token = service
+                .offer(
+                    items.clone(),
+                    Arc::clone(&dats),
+                    Arc::clone(&state.overlay_records),
+                    &format!("client {n}"),
+                    std::net::Ipv4Addr::LOCALHOST.into(),
+                )
+                .expect("a ticket");
+            stream_with(u32::from(service.port()), &token).expect("the stream")
+        })
+        .collect();
+    assert_eq!(streams[0].len(), RECORDS as usize);
+    assert_eq!(service.deflated(), 0, "no record compressed for a stream");
+    assert!(streams[0] == streams[1], "both streams are the same bytes");
+
+    // Over UDP, for two clients: the same bytes again, and nothing compressed into the per-send
+    // cache.
+    for _ in 0..2 {
+        for d in &streams[0] {
+            let contents = ddd_manager::try_get_dat_file_contents_for_transmission(
+                &mut state,
+                &dats,
+                d.resource_id,
+                Portal,
+            )
+            .expect("the record");
+            assert!(
+                ddd_data_body(contents, Portal) == *d,
+                "{:#010X}",
+                d.resource_id
+            );
+        }
+    }
+    assert!(
+        state.compressed_dat_files_cache[&Portal]
+            .keys()
+            .all(|id| !(FIRST..FIRST + RECORDS).contains(id)),
+        "no overlay record compressed again over UDP"
+    );
+
+    let sent: usize = streams[0].iter().map(|d| d.data.len()).sum();
+    let counted: usize = (FIRST..FIRST + RECORDS)
+        .map(|id| {
+            4 + usize::try_from(state.dat_file_sizes[&Portal][&id].compressed_file_size)
+                .expect("a size")
+        })
+        .sum();
+    assert_eq!(sent, counted, "the bytes the patch's size counted");
+}
