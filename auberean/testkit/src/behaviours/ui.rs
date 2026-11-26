@@ -1559,7 +1559,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.names.damage-text-rises-over-the-struck-object-and-goes",
         says: "A hit's damage text stands over the struck object's box in the color the scripts \
                gave it and rises three of its own heights over its duration, then goes; texts at \
-               once are moved off each other as names are.",
+               once are moved off each other as names are, and one that would stand in the band \
+               along the screen's top or foot that the shown bars fill stands at the band's edge.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DAMAGE-TEXT"),
         station: "auberean-ui-game::dat::play::names::damage_text_rises_over_the_struck_object_and_goes",

@@ -1,8 +1,9 @@
 //! The damage text over struck objects: the scripts' damage texts followed into Horizon's state,
 //! each written over its object's box in its color, rising and fading over its life on the
 //! interface's clock (the harness's frames, a sixtieth of a second each), moved off the texts
-//! placed before it, over the selection's marks for the selection, gone when its object leaves the
-//! world, and moved with its object once the world is drawn. Drawn with the art the client
+//! placed before it, over the selection's marks for the selection, kept on the screen across and
+//! out of the bands along its top and foot, gone when its object leaves the world, and moved with
+//! its object once the world is drawn. Drawn with the art the client
 //! carries.
 //!
 //! Behaviour: none (this client's own interface, not a behaviour of the retail client)
@@ -14,7 +15,7 @@ use auberean_client_sdk::contract::text::TextRef;
 use auberean_client_sdk::contract::view::{self as v, View};
 use auberean_horizon::draw::Rect;
 use auberean_horizon::state::{Frame, GameState, Target};
-use auberean_horizon::ui::damage::Drawn;
+use auberean_horizon::ui::damage::{self, Drawn};
 use auberean_horizon::ui::marker::{self, Where};
 use dereth_ui_kit::selection::{ARROW_BOB, ARROW_GAP, ARROW_HEIGHT};
 
@@ -154,6 +155,44 @@ fn a_hit_s_text_over_the_selection_stands_over_its_name_and_arrow() {
         "over the arrow over the name: {:?}, the arrow's top {arrow_top}",
         texts[0].rect
     );
+}
+
+/// The text over the drudge's box at `b`, as the first frame draws it.
+fn drawn_over(b: Rect) -> (Drawn, f32) {
+    let mut h = Harness::with_built_in_art();
+    let mut s = struck(vec![(DRUDGE, hit("12"))]);
+    s.damage.at.insert(DRUDGE, b);
+    h.frame(&s);
+    let texts = drawn(&h);
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    (texts[0].clone(), h.k())
+}
+
+#[test]
+fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_top_stands_at_its_edge() {
+    let (t, k) = drawn_over(Rect::new(900.0, 10.0, 120.0, 240.0));
+    let edge = (damage::TOP_BAND * k).round();
+    assert!(
+        (t.rect.y - edge).abs() <= 0.5,
+        "its top at the band's edge, {edge}: {t:?}"
+    );
+}
+
+#[test]
+fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_foot_stands_at_its_edge() {
+    let (t, k) = drawn_over(Rect::new(900.0, 1060.0, 120.0, 240.0));
+    let edge = 1080.0 - (damage::FOOT_BAND * k).round();
+    assert!(
+        (t.rect.y - edge).abs() <= 0.5,
+        "its top at the band's edge, {edge}: {t:?}"
+    );
+}
+
+#[test]
+fn a_hit_s_text_over_a_box_past_the_screen_s_side_stands_centered_on_the_side() {
+    let (t, _) = drawn_over(Rect::new(-200.0, 420.0, 120.0, 240.0));
+    let middle = t.rect.x + t.rect.w / 2.0;
+    assert!(middle.abs() <= 1.0, "centered on the left side: {t:?}");
 }
 
 #[test]

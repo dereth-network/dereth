@@ -26,13 +26,25 @@ fn tick(
     world: &World,
     notices: &[Notice],
 ) -> Vec<Request> {
+    tick_clear(ui, p, t, world, notices, (0, 38))
+}
+
+/// As [`tick`], with the bands along the screen's top and foot the bars fill `preclude` deep.
+fn tick_clear(
+    ui: &mut Ui,
+    p: &mut GamePlay,
+    t: &mut f64,
+    world: &World,
+    notices: &[Notice],
+    preclude: (i32, i32),
+) -> Vec<Request> {
     *t += 0.05;
     ui.use_time(*t);
     let mut out = Vec::new();
     let view = View {
         world: Some(world),
         everyone: notices,
-        preclude: (0, 38),
+        preclude,
         ..View::default()
     };
     p.tick(ui, &view, &[], &mut out);
@@ -651,4 +663,43 @@ fn damage_text_rises_over_the_struck_object_and_goes() {
         tick(&mut ui, &mut p, &mut t, &w, &[]);
     }
     assert!(names_of(&p).damage().is_empty(), "gone after two seconds");
+}
+
+/// A hit's damage text that would stand in the band along the screen's top or foot that its bars
+/// fill stands at the band's edge: over a body reaching past the screen's top, its top at the top
+/// band's foot; over a body at the screen's foot, its top as low as the foot band lets it.
+///
+/// Behaviour: ui.names.damage-text-rises-over-the-struck-object-and-goes
+#[test]
+fn damage_text_keeps_out_of_the_bands_along_the_screens_top_and_foot() {
+    const BANDS: (i32, i32) = (40, 100);
+    let at = |base: f32, tall: f32, bands: (i32, i32)| {
+        let mut ui = Ui::new(records(), 1024, 768);
+        let mut p = play(&mut ui);
+        let mut t = 0.0;
+        let mut body = body_at(7, 0.0, 3.0, [1.0; 4]);
+        if let Some(b) = body.body.as_mut() {
+            b.origin[2] = base;
+            b.bounds = Some(([-0.5, -0.5, 0.0], [0.5, 0.5, tall]));
+        }
+        let w = world(vec![body]);
+        tick_clear(&mut ui, &mut p, &mut t, &w, &[], bands);
+        tick_clear(&mut ui, &mut p, &mut t, &w, &[hit(7, "12")], bands);
+        let text = names_of(&p).damage()[0].element;
+        assert!(ui.shown(text), "shown");
+        rect(&ui, Some(text))
+    };
+    // Six meters tall from a meter under the camera, four ahead: its top past the screen's.
+    let high = at(0.0, 6.0, BANDS);
+    assert_eq!(high.y0, BANDS.0, "at the top band's foot: {high:?}");
+    assert!(at(0.0, 6.0, (0, 0)).y0 < BANDS.0, "in the band without it");
+    // Two meters tall, its top three under the camera: low on the screen.
+    let low = at(-4.0, 2.0, BANDS);
+    assert_eq!(
+        low.y0,
+        768 - BANDS.1,
+        "as low as the foot band lets it: {low:?}"
+    );
+    let free = at(-4.0, 2.0, (0, 0));
+    assert!(free.y0 > 768 - BANDS.1, "in the band without it: {free:?}");
 }

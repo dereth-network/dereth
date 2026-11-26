@@ -3,8 +3,10 @@
 //! of their own heights over their life as they fade out; over the selection's name and arrow when
 //! the object is the selection. A text that would lie over one placed before it is moved off it
 //! the shortest way it may go, as the game's own damage text is moved; one moved off the screen,
-//! or over an object none of whose box is drawn on the screen, is not shown. A text goes once its
-//! life is over or its object leaves the world.
+//! or over an object none of whose box is drawn on the screen, is not shown. Like the game's own,
+//! a text stays on the screen across and out of the bands along the screen's top and foot that
+//! the HUD's bars fill ([`TOP_BAND`], [`FOOT_BAND`]), standing at a band's edge where it would be
+//! in it. A text goes once its life is over or its object leaves the world.
 //!
 //! The texts are drawn with the rest of the interface, before the world moves on for the frame,
 //! and moved once it has to where their objects are as the world is drawn
@@ -23,6 +25,12 @@ use crate::ui::marker::{self, Where};
 
 /// How large the text is written at a scale of 1, in points.
 pub const POINTS: f32 = 16.0;
+
+/// How deep the bands along the screen's top and foot that the texts keep out of are, in layout
+/// units: the experience band along the top, the hotbar and the gauges under it along the
+/// foot. A text that would stand in one stands at its edge.
+pub const TOP_BAND: f32 = 30.0;
+pub const FOOT_BAND: f32 = 104.0;
 
 /// The edge round the text's letters.
 const EDGE: Argb = 0xFF00_0000;
@@ -128,6 +136,10 @@ impl DamageTexts {
             .retain(|t| names::damage_age(t.start, t.duration, now) < 1.0);
         let (w, h) = p.screen;
         let screen = Box2D::sized(0, 0, to_i32(w), to_i32(h));
+        let band = (
+            to_i32((TOP_BAND * p.scale).round()),
+            to_i32((FOOT_BAND * p.scale).round()),
+        );
         let selection = state.target.as_ref().map(|t| t.id);
         let mut placed: Vec<Box2D> = Vec::new();
         for t in &self.up {
@@ -148,8 +160,14 @@ impl DamageTexts {
                 (b, b.y)
             };
             let rise = names::damage_rise(names::DAMAGE_TRAVEL, th, age);
-            let y = (to_i32(top.round()) - rise - th).clamp(0, to_i32(h));
-            let x = to_i32_f64(f64::from(b.x + b.w / 2.0) - f64::from(tw) * 0.5);
+            let (middle, y) = names::keep_clear(
+                to_i32((b.x + b.w / 2.0).round()),
+                to_i32(top.round()),
+                rise + th,
+                (to_i32(w), to_i32(h)),
+                band,
+            );
+            let x = to_i32_f64(f64::from(middle) - f64::from(tw) * 0.5);
             let Some(at) = names::place_damage(
                 Box2D::sized(x, y, tw, th),
                 &placed,

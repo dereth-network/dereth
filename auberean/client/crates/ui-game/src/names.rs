@@ -290,6 +290,31 @@ pub fn place_damage(
     Some(b)
 }
 
+/// Where a name or text whose top stands `height` pixels over `top`, centered across on `x`,
+/// goes on a screen `screen` pixels wide and tall, with a band `band.0` pixels deep along the
+/// screen's top and `band.1` along its foot kept clear: its middle kept on the screen across, and
+/// its top moved to a band's edge where it would be in that band (`band.1` over the foot at the
+/// lowest, so the text itself may still reach into the foot's band).
+// D2-02111
+#[must_use]
+pub fn keep_clear(
+    x: i32,
+    top: i32,
+    height: i32,
+    screen: (i32, i32),
+    band: (i32, i32),
+) -> (i32, i32) {
+    let (w, h) = screen;
+    let low = h - band.1;
+    let mut y = top - height;
+    if y < band.0 {
+        y = band.0;
+    } else if y > low {
+        y = low;
+    }
+    (x.clamp(0, w.max(0)), y)
+}
+
 /// A box of a body's own frame: least and most corners.
 type Bounds = ([f32; 3], [f32; 3]);
 
@@ -845,15 +870,13 @@ impl Names {
         }
         let (x0, _bottom) = clip_to_pixel([b[0], b[1]], w, h);
         let (x1, top) = clip_to_pixel([b[2], b[3]], w, h);
-        let x = ((x1 - x0) / 2 + x0).clamp(0, w);
-        let low = h - self.preclude_bottom;
-        let mut y = top - height;
-        if y < self.preclude_top {
-            y = self.preclude_top;
-        } else if y > low {
-            y = low;
-        }
-        Some((x, y))
+        Some(keep_clear(
+            (x1 - x0) / 2 + x0,
+            top,
+            height,
+            (w, h),
+            (self.preclude_top, self.preclude_bottom),
+        ))
     }
 
     /// An element's size on the screen.
