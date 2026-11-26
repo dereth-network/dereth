@@ -2,6 +2,7 @@
 //! the scripts' notices, the client's events and the chat windows' lines.
 
 pub mod craft;
+pub mod damage;
 pub mod goods;
 pub mod pets;
 
@@ -267,6 +268,8 @@ pub struct GameState {
     pub craft: craft::Crafting,
     /// The player's pets and its mount.
     pub pets: pets::Pets,
+    /// The damage texts the scripts sent this frame, and the objects they stand over.
+    pub damage: damage::Damage,
     /// The vitals the view last gave, so a notice since is not undone by the same view.
     view_vitals: Option<[u32; 4]>,
     /// The focus the view last gave, for the same.
@@ -310,6 +313,7 @@ impl GameState {
         self.goods.follow(f.view, f.notices, f.write);
         self.craft.follow(f.view, f.notices, f.write);
         self.pets.follow(f.view, f.notices, f.write);
+        self.damage.follow(f.view, f.notices);
         for n in f.notices {
             self.notice(n);
         }

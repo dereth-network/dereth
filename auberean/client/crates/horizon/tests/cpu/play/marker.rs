@@ -278,7 +278,7 @@ fn the_marks_move_to_where_the_world_is_drawn_and_hide_when_it_goes_off_the_scre
     h.frame(&selected(Where::Box(b), false));
     let before = marks(&h.list, MARK);
     assert_eq!(before.len(), 1);
-    follow(&mut h.list, Some(Where::Box(b.offset(30.0, -20.0))));
+    follow(&mut h.list, Some(Where::Box(b.offset(30.0, -20.0))), &[]);
     let after = marks(&h.list, MARK);
     for (a, m) in before.iter().zip(&after) {
         assert!(
@@ -286,7 +286,7 @@ fn the_marks_move_to_where_the_world_is_drawn_and_hide_when_it_goes_off_the_scre
             "{a:?} to {m:?}"
         );
     }
-    follow(&mut h.list, Some(Where::Off { toward: (1.0, 0.0) }));
+    follow(&mut h.list, Some(Where::Off { toward: (1.0, 0.0) }), &[]);
     let hidden = h
         .list
         .quads

@@ -290,12 +290,7 @@ fn the_player_s_options_show_as_the_game_keeps_them_and_each_set_is_asked_for() 
 fn the_character_page_leaves_out_the_options_horizon_has_no_use_for() {
     use PlayerOption as O;
     let listed = |o: O| options::PLAYER_FLAGS.iter().any(|(at, _)| *at == o);
-    for o in [
-        O::ShortcutInstantScroll,
-        O::DamageNumbers,
-        O::OthersDamageNumbers,
-        O::PlayerKillerDamage,
-    ] {
+    for o in [O::ShortcutInstantScroll, O::PlayerKillerDamage] {
         assert!(!listed(o), "{o:?} left to the game's own window");
     }
     for o in [
@@ -303,6 +298,8 @@ fn the_character_page_leaves_out_the_options_horizon_has_no_use_for() {
         O::TakeAllegianceOffers,
         O::TakeFellowshipOffers,
         O::TakeTradeOffers,
+        O::DamageNumbers,
+        O::OthersDamageNumbers,
         O::ShortcutNumbers,
         O::ShortcutLocked,
         O::AskBeforeMelting,

@@ -240,6 +240,56 @@ pub fn make_new_data(b: &mut Box2D, over: &Box2D, ways: &mut u32) {
     *ways &= !(1 << (way.wrapping_sub(2) & 3));
 }
 
+/// How many heights of its own a damage text rises over its life, as the game's records give it.
+pub const DAMAGE_TRAVEL: i32 = 3;
+
+/// How many times a name or a damage text is moved off the ones placed before it at most, as the
+/// game's records give it.
+pub const PLACEMENT_ATTEMPTS: i32 = 50;
+
+/// How far through its life a damage text begun at `start` and lasting `duration` seconds is at
+/// `now`: 0 as it begins (and before), 1 or more once its life is over.
+// D2-02119
+#[must_use]
+pub fn damage_age(start: f64, duration: f64, now: f64) -> f64 {
+    ((now - start) / duration).max(0.0)
+}
+
+/// How far a damage text `height` pixels high has risen at `age`, rising `travel` of its heights
+/// over its life.
+// D2-02119
+#[must_use]
+pub fn damage_rise(travel: i32, height: i32, age: f64) -> i32 {
+    dereth_primitives::num::to_i32_f64(f64::from(travel * height) * age)
+}
+
+/// Where a damage text's box `b` goes among the damage texts placed before it on `screen`: moved
+/// off the first it lies over, then the next, at most `attempts` times; none once it is moved off
+/// the screen, where it is not shown.
+// D2-02119
+#[must_use]
+pub fn place_damage(
+    mut b: Box2D,
+    placed: &[Box2D],
+    screen: &Box2D,
+    attempts: i32,
+) -> Option<Box2D> {
+    let mut ways = 0xF;
+    for _ in 0..attempts {
+        if !screen.collide(&b) {
+            return None;
+        }
+        let Some(over) = place_here(&b, placed).and_then(|i| placed.get(i)) else {
+            break;
+        };
+        make_new_data(&mut b, over, &mut ways);
+        if ways == 0 {
+            ways = 0xF;
+        }
+    }
+    Some(b)
+}
+
 /// A box of a body's own frame: least and most corners.
 type Bounds = ([f32; 3], [f32; 3]);
 
@@ -533,7 +583,7 @@ impl Names {
                 kept.push(d);
                 continue;
             }
-            let age = ((now - d.start) / d.duration).max(0.0);
+            let age = damage_age(d.start, d.duration, now);
             if age >= 1.0 {
                 ui.frame_remove_root(self.frame, d.element);
                 ui.remove(d.element);
@@ -543,7 +593,7 @@ impl Names {
             let (tw, th) = Self::size_of(ui, Some(d.element));
             #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
             let (tw, th) = ((tw as f32 * d.scale) as i32, (th as f32 * d.scale) as i32); // LINT-OK: a size in pixels cuts its fraction
-            let rise = dereth_primitives::num::to_i32_f64(f64::from(self.floaty_travel * th) * age);
+            let rise = damage_rise(self.floaty_travel, th, age);
             let mut above = rise;
             if d.object == self.selection {
                 for (on, e) in [
@@ -565,25 +615,14 @@ impl Names {
                 continue;
             };
             let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(tw) * 0.5);
-            let mut b = Box2D::sized(x0, cy, tw, th);
-            let mut ways = 0xF;
-            let mut off = false;
-            for _ in 0..self.max_attempts {
-                if !screen.collide(&b) {
-                    off = true;
-                    break;
-                }
-                let Some(i) = place_here(&b, &placed) else {
-                    break;
-                };
-                make_new_data(&mut b, &placed[i], &mut ways);
-                if ways == 0 {
-                    ways = 0xF;
-                }
-            }
-            if off {
+            let Some(b) = place_damage(
+                Box2D::sized(x0, cy, tw, th),
+                &placed,
+                &screen,
+                self.max_attempts,
+            ) else {
                 continue;
-            }
+            };
             placed.push(b);
             #[allow(clippy::cast_possible_truncation)] // a share of 1
             ui.set_object_alpha(d.element, (1.0 - age) as f32);

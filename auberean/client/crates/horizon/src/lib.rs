@@ -21,19 +21,19 @@
 //!
 //! In the world [`Horizon`] shows its own HUD ([`ui::hud`]): the parameter bar with the experience
 //! line, the target bar, the status row of effects, the selection's marks in the world
-//! ([`ui::marker`], from where the shell's last world frame drew it), the hotbar and the attack
-//! button ([`ui::hotbar`]), the minimap ([`ui::minimap`]), the log window and its chat entry
-//! ([`ui::chat`]), the game's questions in a box ([`ui::questions`]), and the menu bar, a button
-//! for each window and a menu of the settings window ([`ui::settings`]: the interface choice,
-//! logging out, the client's preferences, the player's and the chat's options, and the key
-//! bindings), the HUD layout, Log Out and Exit Game; and its windows, the skill window
-//! ([`ui::skills`]), the examine window ([`ui::examine`]), the social window ([`ui::social`]),
-//! with the party list beside the screen ([`ui::party`]), the windows of the player's things
-//! ([`ui::goods`]: the inventory with the player's figure ([`figure`]), loot, trade, the shops
-//! and the market), the crafting window ([`ui::crafting`]) and the making window ([`ui::making`]),
-//! the pets and the Dismount button ([`ui::pets`]), the map ([`ui::map`]), the journal
-//! ([`ui::journal`]) and a book read ([`ui::book`]); and the story's scenes over the whole screen
-//! ([`ui::story`]).
+//! ([`ui::marker`], from where the shell's last world frame drew it) and the damage text over
+//! struck objects ([`ui::damage`]), the hotbar and the attack button ([`ui::hotbar`]), the minimap
+//! ([`ui::minimap`]), the log window and its chat entry ([`ui::chat`]), the game's questions in a
+//! box ([`ui::questions`]), and the menu bar, a button for each window and a menu of the settings
+//! window ([`ui::settings`]: the interface choice, logging out, the client's preferences, the
+//! player's and the chat's options, and the key bindings), the HUD layout, Log Out and Exit Game;
+//! and its windows, the skill window ([`ui::skills`]), the examine window ([`ui::examine`]), the
+//! social window ([`ui::social`]), with the party list beside the screen ([`ui::party`]), the
+//! windows of the player's things ([`ui::goods`]: the inventory with the player's figure
+//! ([`figure`]), loot, trade, the shops and the market), the crafting window ([`ui::crafting`])
+//! and the making window ([`ui::making`]), the pets and the Dismount button ([`ui::pets`]), the map
+//! ([`ui::map`]), the journal ([`ui::journal`]) and a book read ([`ui::book`]); and the story's
+//! scenes over the whole screen ([`ui::story`]).
 //! It keeps its own plain state of the game ([`state`]), followed from the view, the notices and
 //! the events each frame. Before the world it shows its own screens ([`ui::pregame`]): connecting
 //! and the data download, character select over a view of the world the shell draws ([`vista`])
@@ -95,7 +95,7 @@ use auberean_shell::client_preferences::orbit as orbit_keys;
 use auberean_shell::interface::MovementMode;
 
 use crate::art::{Pieces, Records};
-use crate::draw::DrawList;
+use crate::draw::{DrawList, Rect};
 use crate::state::{Frame, GameState};
 use crate::ui::{vk, HorizonUi, InputFrame, PointerOver};
 
@@ -871,6 +871,31 @@ impl Horizon {
             .and_then(|(id, b)| ui::marker::locate(game.seen, id, b, screen));
     }
 
+    /// Where each object a damage text stands over is on the screen, as the shell's last world
+    /// frame drew it: those of the texts up and of those the scripts sent this frame.
+    fn locate_struck(&mut self, game: &Game<'_>, screen: (f32, f32)) {
+        let objects: Vec<u64> = self
+            .ui
+            .damage
+            .objects()
+            .chain(self.state.damage.texts.iter().map(|(o, _)| *o))
+            .collect();
+        self.state.damage.at = objects
+            .into_iter()
+            .filter_map(|o| Some((o, Self::struck_box(game, o, screen)?)))
+            .collect();
+    }
+
+    /// The box object `o` fills on a screen of `screen` pixels as the shell's last world frame
+    /// drew it; none when none of it was drawn on the screen.
+    fn struck_box(game: &Game<'_>, o: u64, screen: (f32, f32)) -> Option<Rect> {
+        let bounds = game.seen.body(o)?.bounds?;
+        match ui::marker::locate(game.seen, o, bounds, screen)? {
+            ui::marker::Where::Box(b) => Some(b),
+            ui::marker::Where::Off { .. } => None,
+        }
+    }
+
     /// The interface's actions the keys began this frame, carried out where Horizon has something
     /// for them.
     fn keyed(&mut self, game: &Game<'_>) {
@@ -1560,6 +1585,7 @@ impl Interface for Horizon {
         #[allow(clippy::cast_precision_loss)]
         let screen = (game.size.0 as f32, game.size.1 as f32);
         self.locate_selection(game, screen);
+        self.locate_struck(game, screen);
         // The ring under the selection, laid by the world as it is drawn this frame.
         let art = self.ui.art();
         let inner = *self
@@ -1624,7 +1650,8 @@ impl Interface for Horizon {
         }
     }
 
-    /// The selection's marks moved to where the world, as it is drawn this frame, puts it.
+    /// The selection's marks and the damage texts moved to where the world, as it is drawn this
+    /// frame, puts their objects.
     fn after_world(&mut self, game: &Game<'_>, _requests: &mut Vec<Request>) {
         if game.phase != Phase::World {
             return;
@@ -1637,7 +1664,14 @@ impl Interface for Horizon {
             .as_ref()
             .zip(self.selection_bounds)
             .and_then(|(t, b)| ui::marker::locate(game.seen, t.id, b, screen));
-        ui::marker::follow(&mut self.list, now);
+        let struck: Vec<Option<Rect>> = self
+            .ui
+            .damage
+            .anchored()
+            .iter()
+            .map(|o| Self::struck_box(game, *o, screen))
+            .collect();
+        ui::marker::follow(&mut self.list, now, &struck);
     }
 
     fn draw(&mut self, game: &Game<'_>, overlay: &mut Overlay) {

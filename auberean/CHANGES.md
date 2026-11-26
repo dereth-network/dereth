@@ -10,6 +10,7 @@ not how it was done.
 - Key map and options files can now include other files.
 - Horizon: new default key maps.
 - Horizon: character options now all do what they say; ones with no use here are hidden.
+- Horizon: floating damage numbers.
 
 ## 0.1.13 (2026-11-23)
 - No changes of its own; built with the latest shared code.

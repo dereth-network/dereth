@@ -2,9 +2,12 @@
 //! windows and showing the shortcut bar's set the other showed, the game's own screens before the
 //! world, the chat entry's command line, the social window asking the game, and the game's own
 //! pointers over Horizon's counterparts of the elements that name them and its crosshair in mouse
-//! look.
+//! look; and the player's options in Horizon: the minimap's filters, and the damage number
+//! options, by which the scripts of the game's monsters send the damage text Horizon puts up.
 
-use auberean_client_sdk::protocol::ClientMessage;
+use auberean_client_sdk::contract::{Action, PlayerOption};
+use auberean_client_sdk::protocol::types::PhysicsStory;
+use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
 use auberean_horizon::ui::hud;
 use auberean_horizon::ui::settings::Settings;
 use auberean_options::page::{section, Change, Request as PageRequest};
@@ -930,7 +933,6 @@ fn horizons_minimap_places_the_player_and_holds_the_radars_objects() {
 /// Behaviour: desktop.horizon.a-radar-filter-set-in-the-options-takes-its-objects-off-the-minimap
 #[test]
 fn a_radar_filter_set_in_the_options_takes_its_objects_off_horizons_minimap() {
-    use auberean_client_sdk::contract::{Action, PlayerOption};
     const MONSTER: u64 = 0x2130_0000_0000_0777;
     let mut s = Session::going_on(
         Some("[UI]\r\nInterface=Horizon\r\n"),
@@ -1177,4 +1179,130 @@ fn horizon_draws_the_game_s_crosshair_in_the_middle_while_in_mouse_look() {
     s.shell.scene.camera.set_mouse_look(false, heading);
     s.step();
     assert_eq!(drawn(&mut s), None, "none once mouse look ends");
+}
+
+/// The monster struck for the damage text.
+const STRUCK: u64 = 0x2130_0000_0000_0777;
+/// The monster striking it.
+const STRIKER: u64 = 0x2130_0000_0000_0778;
+
+/// A hit, kind 1 with the target, result, animation hook and the target's health change.
+const HIT: u32 = 0xB81;
+/// A thrown attack's arrival: the attacker, the skill and that it is a basic attack.
+const ARRIVAL: u32 = PhysicsStory::ATTACKER | PhysicsStory::SKILL | 0x20;
+/// The result the scripts call a plain hit.
+const HIT_RESULT: i32 = 0x4000_0008;
+
+/// `attacker`'s attack arriving on `target` for `damage`.
+fn arrival(attacker: u64, target: u64, damage: i32) -> ServerMessage {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::types::{ObjectStamp, StoryHook};
+    let mut hook = StoryHook {
+        bits: HIT,
+        target,
+        ..StoryHook::default()
+    };
+    hook.numbers[0] = HIT_RESULT;
+    hook.numbers[3] = -damage;
+    ServerMessage::DoStory(ObjectEvent {
+        sender: ObjectStamp {
+            id: target,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        action: PhysicsStory {
+            bits: ARRIVAL,
+            attacker,
+            skill: 0x4000_0001,
+            hooks: vec![hook],
+            ..PhysicsStory::default()
+        },
+    })
+}
+
+/// The player's option `o` set on or off.
+fn set_option(s: &mut Session, o: PlayerOption, on: bool) {
+    s.shell
+        .client
+        .as_mut()
+        .expect("the session")
+        .act(Action::SetOptions {
+            changes: vec![(o, u32::from(on))],
+            tell: true,
+        });
+}
+
+/// Whether Horizon has a damage text up over `object`.
+fn text_over(s: &Session, object: u64) -> bool {
+    s.horizon()
+        .borrow()
+        .ui()
+        .damage
+        .objects()
+        .any(|o| o == object)
+}
+
+/// Whether a damage text goes up over `object` before the host's clock reaches `by`, none being
+/// up before.
+fn text_by(s: &mut Session, object: u64, by: f64) -> bool {
+    assert!(!text_over(s, object), "the last text's life is over");
+    let left = by - s.shell.host.time;
+    assert!(left > 0.0, "the hit is still to come");
+    s.until(left, |s| text_over(s, object))
+}
+
+/// Horizon shows the text of the player's hit on a monster over it while the player's damage
+/// numbers are on, and none once they are off; and the text of another's hit on it while the
+/// other characters' damage numbers are on as well, and none once those are off.
+///
+/// Behaviour: desktop.horizon.a-hits-damage-text-shows-as-the-damage-number-options-say
+#[test]
+fn horizon_shows_a_hits_damage_text_over_the_struck_monster_as_the_damage_number_options_say() {
+    let mut more = crate::session::monster_ahead(STRUCK, 5.0, 8.0, 900);
+    more.extend(crate::session::monster_ahead(STRIKER, 6.0, 8.0, 902));
+    // Each hit reaches the client ten seconds after the one before, the first some five seconds
+    // after the world is entered.
+    for (i, (t, attacker)) in [
+        (20.0, crate::session::PLAYER),
+        (30.0, crate::session::PLAYER),
+        (40.0, STRIKER),
+        (50.0, STRIKER),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let n = 904 + u64::try_from(i).expect("a few");
+        more.push(crate::session::s2c(
+            t,
+            1,
+            1,
+            crate::session::WORLD | n,
+            &arrival(attacker, STRUCK, 12),
+        ));
+    }
+    let mut s = Session::going_on(Some("[UI]\r\nInterface=Horizon\r\n"), more);
+    s.enter_the_world();
+    set_option(&mut s, PlayerOption::DamageNumbers, true);
+    set_option(&mut s, PlayerOption::OthersDamageNumbers, true);
+    assert!(
+        text_by(&mut s, STRUCK, 19.0),
+        "the player's hit, numbers on"
+    );
+    set_option(&mut s, PlayerOption::DamageNumbers, false);
+    assert!(
+        s.until(4.0, |s| !text_over(s, STRUCK)),
+        "the text's life ends"
+    );
+    assert!(
+        !text_by(&mut s, STRUCK, 29.0),
+        "the player's hit, numbers off"
+    );
+    set_option(&mut s, PlayerOption::DamageNumbers, true);
+    assert!(text_by(&mut s, STRUCK, 39.0), "another's hit, both on");
+    set_option(&mut s, PlayerOption::OthersDamageNumbers, false);
+    assert!(
+        s.until(4.0, |s| !text_over(s, STRUCK)),
+        "the text's life ends"
+    );
+    assert!(!text_by(&mut s, STRUCK, 49.0), "another's hit, others' off");
 }

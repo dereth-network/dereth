@@ -1048,6 +1048,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-hits-damage-text-shows-as-the-damage-number-options-say",
+        says: "A hit's damage text goes up over the struck object in Horizon as the scripts send \
+               it, as the game's own interface puts it up: the player's hit while the player's \
+               damage numbers are on and none while they are off, another's hit while the other \
+               characters' damage numbers are on as well and none while those are off.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-DAMAGE-TEXT"),
+        station: "auberean-horizon::dat::interfaces::horizon_shows_a_hits_damage_text_over_the_struck_monster_as_the_damage_number_options_say",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-key-that-types-nothing-puts-nothing-in-the-chat-entry",
         says: "Our choice: the arrows and Home move the caret in Horizon's chat entry and put no \
                character in it, even where the desktop reports a stand-in character as the key's \

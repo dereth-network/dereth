@@ -6,6 +6,7 @@
 //! Behaviour: none (this client's own interface, not a behaviour of the retail client)
 
 mod chat;
+mod damage;
 pub mod fit;
 mod gamepad;
 mod hotbar;

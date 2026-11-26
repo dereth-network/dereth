@@ -23,6 +23,7 @@ pub mod chat;
 pub mod crafting;
 pub mod creation;
 pub mod cross;
+pub mod damage;
 pub mod examine;
 pub mod goods;
 pub mod hotbar;
@@ -134,6 +135,8 @@ pub struct HorizonUi {
     pub crafting: crafting::CraftingWindow,
     pub making: making::MakingWindow,
     pub pets: pets::PetsPanel,
+    /// The damage texts over struck objects.
+    pub damage: damage::DamageTexts,
     /// The screens before the world.
     pub pregame: pregame::Screens,
     /// Which window is drawn over which.
@@ -182,6 +185,7 @@ impl HorizonUi {
             crafting: crafting::CraftingWindow::default(),
             making: making::MakingWindow::default(),
             pets: pets::PetsPanel::default(),
+            damage: damage::DamageTexts::default(),
             pregame: pregame::Screens::default(),
             stack: stack::Stack::default(),
             system_menu: false,
@@ -357,6 +361,7 @@ impl HorizonUi {
             self.stack.raise(stack::Window::Book);
         }
         self.pets.follow(state, self.time, &mut out.acts);
+        self.damage.follow(state, self.time);
         if state.in_world {
             self.story
                 .update(state, self.time, &mut out.requests, &mut out.acts);
@@ -382,6 +387,7 @@ impl HorizonUi {
             let k = p.scale;
             // The selection's marks lie over the world, under the HUD; the crosshair too.
             marker::draw(&mut p, state, self.time);
+            self.damage.draw(&mut p, state, self.time);
             if let Some((picture, at)) = self.crosshair {
                 if let Some(s) = p.art.icon(picture) {
                     p.sprite(&s, at, WHITE);

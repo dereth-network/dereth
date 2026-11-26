@@ -50,8 +50,10 @@ pub const EDGE_FOOT: f32 = 150.0;
 /// How many frames the box is averaged over.
 pub const AVERAGE_FRAMES: usize = 4;
 
-/// The quads of the marks are kept as one group, by this id, to move after the world moves.
-const GROUP: dereth_primitives::ObjectId = dereth_primitives::ObjectId(0);
+/// The quads of the marks are kept as one group, by this id, to move after the world moves; the
+/// damage texts over the selection with them, and those over other objects in groups of their own
+/// from 1 on.
+pub const GROUP: dereth_primitives::ObjectId = dereth_primitives::ObjectId(0);
 
 /// The selection's recent boxes, in its own frame, for the average.
 #[derive(Clone, Debug, Default)]
@@ -203,6 +205,25 @@ pub fn name_rect(b: Rect, k: f32, line: f32) -> Rect {
     )
 }
 
+/// How the selection's name is written over it.
+fn name_style() -> TextStyle {
+    TextStyle::new(Family::Body, 14.0, 0xFFFF_FFFF).edge(0xFF00_0000)
+}
+
+/// The highest the marks over the selection's box `b` reach, on `state`: the arrow at the top of
+/// its bob, over the name where the selection has one.
+#[must_use]
+pub fn marks_top(p: &Painter<'_>, state: &GameState, b: Rect) -> f32 {
+    let k = p.scale;
+    let named = state.target.as_ref().is_some_and(|t| !t.name.is_empty());
+    let top = if named {
+        name_rect(b, k, p.line_height(&name_style())).y
+    } else {
+        b.y
+    };
+    top - (selection::ARROW_HEIGHT + selection::ARROW_GAP + selection::ARROW_BOB) * k
+}
+
 /// Where the arrow over box `b` stands at `time` seconds, the top of what it points at being
 /// `top` (the name's, or the box's with no name): centered over the box, pointing down, bobbing.
 /// The art's arrow's shape, or a square where it has none.
@@ -229,7 +250,7 @@ pub fn draw(p: &mut Painter<'_>, state: &GameState, time: f64) {
             let from = p.list.mark();
             let mut top = b.y;
             if !target.name.is_empty() {
-                let name = TextStyle::new(Family::Body, 14.0, 0xFFFF_FFFF).edge(0xFF00_0000);
+                let name = name_style();
                 let line = p.line_height(&name);
                 let r = name_rect(b, k, line);
                 p.text_in(&name, r, Align::Centre, &target.name);
@@ -261,10 +282,22 @@ pub fn ground(state: &GameState, time: f64, inner: bool) -> Vec<GroundMarker<u64
 }
 
 /// Move the marks drawn in `list` to where the selection's box is now, `now` (where the world as
-/// it is drawn this frame puts it), or hide them when it is no longer on the screen.
-pub fn follow(list: &mut DrawList, now: Option<Where>) {
-    list.follow(|_, _| match now {
-        Some(Where::Box(b)) => Some(Spot::at(b.x + b.w / 2.0, b.y + b.h / 2.0)),
-        _ => None,
+/// it is drawn this frame puts it), or hide them when it is no longer on the screen; and the damage
+/// texts over other objects to where each object's box is now, `struck` (the object of group 1
+/// first), or hide them likewise.
+pub fn follow(list: &mut DrawList, now: Option<Where>, struck: &[Option<Rect>]) {
+    list.follow(|id, _| {
+        if id == GROUP {
+            return match now {
+                Some(Where::Box(b)) => Some(Spot::at(b.x + b.w / 2.0, b.y + b.h / 2.0)),
+                _ => None,
+            };
+        }
+        let b = usize::try_from(id.0)
+            .ok()
+            .and_then(|i| struck.get(i.checked_sub(1)?))
+            .copied()
+            .flatten()?;
+        Some(crate::ui::damage::stands_on(b))
     });
 }
