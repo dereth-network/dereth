@@ -28,13 +28,14 @@ const SPEED: f32 = 4.0;
 const HZ: f64 = 30.0;
 
 /// One walk: in the AC1 block it starts in, from `start` (block meters, on the floor) along the
-/// heading `along` (a unit vector) for `dist` meters.
+/// heading `along` (a unit vector) for `dist` meters, or until it is `until` meters along it.
 #[derive(Clone, Copy, Debug)]
 pub struct Walk {
     pub block: (usize, usize),
     pub start: [f32; 3],
     pub along: [f32; 2],
     pub dist: f32,
+    pub until: Option<f32>,
 }
 
 /// How far each walk got along its heading in the world written as the overlay in `overlay`,
@@ -256,6 +257,10 @@ fn walk(
             last = o.position.frame.origin.add(off);
             last_cell = cid;
         }
+        let gone = (last.x - start.x) * w.along[0] + (last.y - start.y) * w.along[1];
+        if w.until.is_some_and(|u| gone >= u) {
+            break;
+        }
     }
     world.destroy(h);
     (last_cell, last)
@@ -271,13 +276,17 @@ mod tests {
     /// A lane starts this far outside the doorway, this far over its floor, and walks this far.
     const OUT: f32 = 6.0;
     const DROP: f32 = 1.0;
-    const DIST: f32 = 13.0;
+    const DIST: f32 = 20.0;
+    /// A lane stops this far past its doorway: it is in.
+    const PAST: f32 = 2.0;
 
     /// The walk-in sweep: AC1's human walked straight in through every doorway out to the land
-    /// of a built New Dereth world, five lanes across each, from 6 m outside. A lane is in when
-    /// it ends in one of the building's rooms at least 1.5 m past the doorway, standing less
-    /// than 1.2 m over the doorway's floor; it is stuck when it never left its start (it began
-    /// inside something), and those are not counted. Prints a line a lane, a line a doorway, and
+    /// of a built New Dereth world, five lanes across each, from 6 m outside, for as long as a
+    /// 20 m walk takes or until 2 m past the doorway (a lane that drops to the ground short of a
+    /// doorway climbs back up slowly). A lane is in when it ends in one of the building's rooms
+    /// at least 1.5 m past the doorway, standing less than 1.2 m over the doorway's floor; it is
+    /// stuck when it never left its start (it began inside something), and those are not
+    /// counted. Prints a line a lane, a line a doorway, and
     /// the totals: the lanes in of those that left their start, and the doorways at least one
     /// lane entered.
     ///
@@ -322,6 +331,7 @@ mod tests {
                     start: [sx, sy, floor + DROP],
                     along: [ix, iy],
                     dist: DIST,
+                    until: Some(OUT + PAST),
                 });
                 rows.push((f[0].to_owned(), share, floor));
             }

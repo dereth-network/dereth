@@ -24,7 +24,11 @@
 //! So the shell's collision is placed again beside it as a collision-only static, which AC1 meets
 //! from every cell it reaches into. AC1 likewise enters a building's rooms only from the land
 //! cell holding its origin, and a shell's origin can stand a cell from its doorway, so the
-//! building stands at its doorway, its model moved to match.
+//! building stands at its doorway, its model moved to match, in the block beyond its shell's
+//! where the doorway stands past the block's edge. A doorway can be wider than the land cell it
+//! stands in: each other land cell of its block it spans takes a stand-in ([`add_stand_ins`]), a
+//! building record with a model that draws and meets nothing, whose doorways lead into the same
+//! rooms, so they are entered from that cell too.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,6 +53,10 @@ const OUT_FLAGS: u16 = 1 | 4;
 const DOORWAY_FLAGS: u16 = 3;
 /// The farthest a building's origin stands into its block, meters: short of the 192 m edge.
 const IN_BLOCK: f32 = 191.99;
+/// A block's side and a land cell's, meters, and the last block on a side of AC1's world.
+const BLOCK: f32 = 192.0;
+const LAND_CELL: f32 = 24.0;
+const LAST_BLOCK: usize = 0xFE;
 /// The least slope of a polygon a body stands on: its normal's height at least this.
 const FLOOR_Z: f32 = 0.664_174;
 /// How near a shell's origin stands to its room's.
@@ -392,9 +400,10 @@ pub fn make(
         }
         // AC1 meets a building's doorways only from the land cell holding its origin, and a
         // shell's origin can stand a cell or more from its doorway (a hall whose shell stands over
-        // its far end): the building stands at the middle of its first doorway out to the land
-        // (kept in its own block), level with the shell, its model moved to match, so it is
-        // entered from the cell its doorway is in.
+        // its far end): the building stands at the middle of its first doorway out to the land,
+        // level with the shell, its model moved to match, so it is entered from the cell its
+        // doorway is in; past its block's edge it stands in the block beyond
+        // ([`into_block_of_origin`]), kept short of the edge of the world.
         let at = to_land.first().map_or(Vec3::ZERO, |d| {
             #[allow(clippy::cast_precision_loss)]
             let mid = d
@@ -404,8 +413,13 @@ pub fn make(
                 .mul(1.0 / d.corners.len().max(1) as f32);
             let o = shell.frame.origin;
             let mut to = o.add(turn(shell.frame.rotation, mid));
-            to.x = to.x.clamp(0.0, IN_BLOCK);
-            to.y = to.y.clamp(0.0, IN_BLOCK);
+            let keep = |v: f32, at: usize| match at {
+                0 => v.max(0.0),
+                LAST_BLOCK => v.min(IN_BLOCK),
+                _ => v,
+            };
+            to.x = keep(to.x, shell.block.0);
+            to.y = keep(to.y, shell.block.1);
             to.z = o.z;
             turn(back(shell.frame.rotation), to.sub(o))
         });
@@ -465,16 +479,204 @@ pub fn make(
                 floor: d.floor.into_iter().map(|t| t.map(in_block)).collect(),
             })
             .collect();
-        made.push(Building {
+        let mut b = Building {
             doorway,
             to_land,
             ac2: shell.ac2,
             block: shell.block,
             info,
             rooms: cells,
-        });
+        };
+        into_block_of_origin(&mut b);
+        made.push(b);
     }
     Ok(made)
+}
+
+/// `b` moved into the block its origin stands in, where that is past its shell's block's edge:
+/// its origin, its rooms and what stands in them, and its doorways, in meters of that block.
+pub(crate) fn into_block_of_origin(b: &mut Building) {
+    let o = b.info.frame.origin;
+    // LINT-OK: a block step of -1, 0 or 1, and block indices 0 to 254.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let step = |v: f32| (v / BLOCK).floor() as i32;
+    let (dx, dy) = (step(o.x), step(o.y));
+    if (dx, dy) == (0, 0) {
+        return;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    {
+        b.block = (
+            (b.block.0 as i32 + dx) as usize,
+            (b.block.1 as i32 + dy) as usize,
+        );
+        let by = Vec3::new(-dx as f32 * BLOCK, -dy as f32 * BLOCK, 0.0);
+        b.info.frame.origin = b.info.frame.origin.add(by);
+        for r in &mut b.rooms {
+            r.frame.origin = r.frame.origin.add(by);
+            for s in &mut r.static_objects {
+                s.frame.origin = s.frame.origin.add(by);
+            }
+        }
+        if let Some((d, i)) = &mut b.doorway {
+            *d = d.add(by);
+            *i = i.add(by);
+        }
+        for d in &mut b.to_land {
+            for c in &mut d.corners {
+                *c = c.add(by);
+            }
+            d.inside = d.inside.add(by);
+            for t in &mut d.floor {
+                *t = t.map(|p| p.add(by));
+            }
+        }
+    }
+}
+
+/// The model of every stand-in: one point and nothing else, so it draws nothing, opens no view
+/// into the rooms (those are opened through a model's drawing tree) and has no collision.
+///
+/// # Errors
+/// A record that will not encode.
+pub fn stand_in_model(ids: &mut Ids, out: &mut Records) -> Result<DataId, String> {
+    let id = ids.next(0x01);
+    let g = GfxObj {
+        id,
+        flags: 0,
+        surfaces: Vec::new(),
+        vertex_array: dereth_assets::VertexArray {
+            vertex_type: 1,
+            vertices: vec![SwVertex {
+                id: 0,
+                position: Vec3::ZERO,
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                uvs: Vec::new(),
+            }],
+        },
+        physics_polygons: Vec::new(),
+        physics_bsp: None,
+        sort_center: Vec3::ZERO,
+        polygons: Vec::new(),
+        drawing_bsp: None,
+        did_degrade: None,
+    };
+    out.add(
+        id,
+        g.encode_for(EraId::Eor)
+            .map_err(|e| format!("{id:?}: {e}"))?,
+    );
+    Ok(id)
+}
+
+/// The land cell of its block holding block point `(x, y)`, numbered as AC1 numbers them (1 to
+/// 64, south to north in columns west to east); `None` off the block.
+fn land_cell_of(x: f32, y: f32) -> Option<u16> {
+    if !(0.0..BLOCK).contains(&x) || !(0.0..BLOCK).contains(&y) {
+        return None;
+    }
+    // LINT-OK: a land cell's column and row, 0 to 7.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (i, j) = ((x / LAND_CELL) as u16, (y / LAND_CELL) as u16);
+    Some(i * 8 + j + 1)
+}
+
+/// The land cells of its block a doorway's outline crosses.
+fn doorway_cells(d: &ToLand) -> BTreeSet<u16> {
+    const STEP: f32 = 0.25;
+    let mut cells = BTreeSet::new();
+    for (k, a) in d.corners.iter().enumerate() {
+        let b = d.corners[(k + 1) % d.corners.len()];
+        let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+        // LINT-OK: a few meters in quarter-meter steps.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = (len / STEP).ceil().max(1.0) as usize;
+        for s in 0..=n {
+            #[allow(clippy::cast_precision_loss)]
+            let t = s as f32 / n as f32;
+            cells.extend(land_cell_of(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+        }
+    }
+    cells
+}
+
+/// What [`add_stand_ins`] added: the stand-ins, and the doorways' cells it left to a building
+/// standing there already (AC1 keeps one building a land cell, the first).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StandIns {
+    pub added: usize,
+    pub held: usize,
+}
+
+/// A stand-in in each land cell of `info`'s block that a doorway out to the land of one of the
+/// buildings `added` spans (each with its index among `info`'s buildings), but for the cell
+/// holding the building's origin and a cell holding another building: a building record with the
+/// model `model` ([`stand_in_model`]), standing in that cell at its nearest point to the doorway,
+/// whose doorways lead into the building's rooms. Added after every building of the block, so
+/// that none of them loses its cell to one.
+pub fn add_stand_ins(
+    info: &mut LandblockInfo,
+    added: &[(usize, &Building)],
+    model: DataId,
+) -> StandIns {
+    let mut taken: BTreeSet<u16> = info
+        .buildings
+        .iter()
+        .filter_map(|b| land_cell_of(b.frame.origin.x, b.frame.origin.y))
+        .collect();
+    let mut made = StandIns::default();
+    for &(index, b) in added {
+        let Some(entry) = info.buildings.get(index).cloned() else {
+            continue;
+        };
+        // The cells this building stands in or has a stand-in in, and those it found taken.
+        let mut mine: BTreeSet<u16> = land_cell_of(entry.frame.origin.x, entry.frame.origin.y)
+            .into_iter()
+            .collect();
+        for d in &b.to_land {
+            #[allow(clippy::cast_precision_loss)]
+            let mid = d
+                .corners
+                .iter()
+                .fold(Vec3::ZERO, |m, p| m.add(*p))
+                .mul(1.0 / d.corners.len().max(1) as f32);
+            for cell in doorway_cells(d) {
+                if !mine.insert(cell) {
+                    continue;
+                }
+                if !taken.insert(cell) {
+                    made.held += 1;
+                    continue;
+                }
+                let (i, j) = (f32::from((cell - 1) / 8), f32::from((cell - 1) % 8));
+                let inset =
+                    |v: f32, k: f32| v.clamp(k * LAND_CELL + 0.01, (k + 1.0) * LAND_CELL - 0.01);
+                info.buildings.push(BuildInfo {
+                    id: model,
+                    frame: Frame::new(
+                        Vec3::new(inset(mid.x, i), inset(mid.y, j), entry.frame.origin.z),
+                        Quat::IDENTITY,
+                    ),
+                    num_leaves: 0,
+                    portals: entry
+                        .portals
+                        .iter()
+                        .map(|p| BuildingPortal {
+                            stab_list: Vec::new(),
+                            ..p.clone()
+                        })
+                        .collect(),
+                });
+                made.added += 1;
+            }
+        }
+    }
+    made
 }
 
 /// A room's points, and its floor: the polygons of its collision facing up or down no steeper
@@ -921,5 +1123,211 @@ mod tests {
             Vec3::new(4.0, 0.0, 0.0)
         );
         assert_eq!(g.sort_center, Vec3::new(1.0, 1.0, 1.0));
+    }
+
+    /// A building at 66A9's doorway: its origin at the doorway's middle (47, 48), which stands
+    /// on the edge between land cells 11 (x 24 to 48, y 48 to 72) and 10 (y 24 to 48), the
+    /// doorway 7.8 m wide across it, facing west into a room; with two rooms.
+    fn across_a_cell_edge(info: &mut LandblockInfo) -> Building {
+        let at = Vec3::new(47.0, 48.0, 29.0);
+        let b = Building {
+            ac2: (0x66, 0xA9, 6),
+            block: (0x55, 0x8D),
+            info: BuildInfo {
+                id: DataId(0x0100_0001),
+                frame: Frame::new(at, Quat::IDENTITY),
+                num_leaves: 0,
+                portals: vec![BuildingPortal {
+                    flags: DOORWAY_FLAGS,
+                    other_cell_id: 0,
+                    other_portal_id: 0,
+                    stab_list: vec![0, 1],
+                }],
+            },
+            rooms: Vec::new(),
+            doorway: None,
+            to_land: vec![ToLand {
+                corners: vec![
+                    Vec3::new(47.0, 44.1, 29.0),
+                    Vec3::new(47.0, 51.9, 29.0),
+                    Vec3::new(47.0, 51.9, 34.0),
+                    Vec3::new(47.0, 44.1, 34.0),
+                ],
+                inside: Vec3::new(40.0, 48.0, 29.0),
+                floor: Vec::new(),
+            }],
+        };
+        let mut entry = b.info.clone();
+        entry.portals[0].other_cell_id = 0x0100;
+        entry.portals[0].stab_list = vec![0x0100, 0x0101];
+        info.buildings.push(entry);
+        b
+    }
+
+    fn info() -> LandblockInfo {
+        crate::ac2_world::cleared::empty(DataId(0x558D_FFFE))
+    }
+
+    #[test]
+    fn a_doorway_across_a_land_cell_edge_has_a_stand_in_in_the_other_cell() {
+        let mut info = info();
+        let b = across_a_cell_edge(&mut info);
+        let model = DataId(0x0100_0002);
+        let made = add_stand_ins(&mut info, &[(0, &b)], model);
+        assert_eq!(made, StandIns { added: 1, held: 0 });
+        // The building first, as it was: AC1 keeps the first building a land cell holds.
+        assert_eq!(info.buildings.len(), 2);
+        assert_eq!(info.buildings[0].id, DataId(0x0100_0001));
+        let s = &info.buildings[1];
+        assert_eq!(s.id, model);
+        // In the cell south of the edge, at its nearest point to the doorway, level with it.
+        let o = s.frame.origin;
+        assert_eq!(land_cell_of(o.x, o.y), Some(10));
+        assert_eq!(land_cell_of(47.0, 48.0), Some(11));
+        assert!((o.x - 47.0).abs() < 1e-4 && (o.y - 47.99).abs() < 1e-4 && o.z == 29.0);
+        // Leading into the same rooms, opening no view of its own.
+        assert_eq!(s.portals.len(), 1);
+        assert_eq!(s.portals[0].other_cell_id, 0x0100);
+        assert_eq!(s.portals[0].flags, DOORWAY_FLAGS);
+        assert!(s.portals[0].stab_list.is_empty());
+        // The block's record keeps both.
+        let back = LandblockInfo::decode_payload(info.id, &info.encode()).unwrap();
+        assert_eq!(back.buildings, info.buildings);
+    }
+
+    #[test]
+    fn a_land_cell_another_building_holds_takes_no_stand_in() {
+        let mut info = info();
+        info.buildings.push(BuildInfo {
+            id: DataId(0x0100_0009),
+            frame: Frame::new(Vec3::new(30.0, 30.0, 20.0), Quat::IDENTITY),
+            num_leaves: 0,
+            portals: Vec::new(),
+        });
+        let b = across_a_cell_edge(&mut info);
+        let made = add_stand_ins(&mut info, &[(1, &b)], DataId(0x0100_0002));
+        assert_eq!(made, StandIns { added: 0, held: 1 });
+        assert_eq!(info.buildings.len(), 2);
+    }
+
+    #[test]
+    fn a_doorway_within_its_land_cell_takes_no_stand_in() {
+        let mut info = info();
+        let mut b = across_a_cell_edge(&mut info);
+        for c in &mut b.to_land[0].corners {
+            c.y += 12.0;
+        }
+        let made = add_stand_ins(&mut info, &[(0, &b)], DataId(0x0100_0002));
+        assert_eq!(made, StandIns::default());
+        assert_eq!(info.buildings.len(), 1);
+    }
+
+    /// What the client's cell search reads of a block's buildings: the rooms a body in each land
+    /// cell can enter.
+    fn rooms_entered_from(info: &LandblockInfo, cell: u16) -> Vec<u32> {
+        use dereth_physics::LandSource as _;
+        let table = [0.0; dereth_physics::globals::LAND_HEIGHT_TABLE_LEN];
+        let mut memo = dereth_world_data::env_cells::CellBspMemo::new();
+        let block = dereth_primitives::LandblockId::new(0x55, 0x8D);
+        let source = dereth_world_data::env_cells::BlockCellSource::new(
+            block,
+            None,
+            &table,
+            (&[], &info.buildings),
+            &mut memo,
+        );
+        source
+            .building_cells(dereth_primitives::CellId(0x558D_0000 | u32::from(cell)))
+            .into_iter()
+            .map(|c| c.0)
+            .collect()
+    }
+
+    #[test]
+    fn the_rooms_are_entered_from_both_cells_of_the_doorway_and_no_others() {
+        let mut info = info();
+        let b = across_a_cell_edge(&mut info);
+        assert_eq!(rooms_entered_from(&info, 11), vec![0x558D_0100]);
+        assert!(rooms_entered_from(&info, 10).is_empty(), "before");
+        add_stand_ins(&mut info, &[(0, &b)], DataId(0x0100_0002));
+        assert_eq!(rooms_entered_from(&info, 11), vec![0x558D_0100]);
+        assert_eq!(rooms_entered_from(&info, 10), vec![0x558D_0100]);
+        for cell in (1..=64).filter(|c| ![10, 11].contains(c)) {
+            assert!(rooms_entered_from(&info, cell).is_empty(), "cell {cell}");
+        }
+    }
+
+    #[test]
+    fn the_stand_ins_model_draws_nothing_opens_nothing_and_meets_nothing() {
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let id = stand_in_model(&mut ids, &mut out).unwrap();
+        assert_eq!(
+            id.0 >> 24,
+            0x01,
+            "a graphics object, as a building's model is"
+        );
+        let g = GfxObj::decode_payload(id, &out.0[&id]).unwrap();
+        // No polygon drawn; no drawing tree, whose portal nodes are what open a building's rooms
+        // to view from outside; no collision.
+        assert!(g.polygons.is_empty() && g.drawing_bsp.is_none());
+        assert!(g.physics_polygons.is_empty() && g.physics_bsp.is_none());
+        // One point, so its bounds are a point, not an empty box.
+        assert_eq!(g.vertex_array.vertices.len(), 1);
+        assert_eq!(g.vertex_array.vertices[0].position, Vec3::ZERO);
+    }
+
+    #[test]
+    fn a_building_whose_doorway_is_past_its_block_stands_in_the_block_beyond() {
+        let mut info = info();
+        let mut b = across_a_cell_edge(&mut info);
+        b.block = (0x7C, 0x83);
+        b.info.frame.origin = Vec3::new(122.0, 193.0, 146.0);
+        b.rooms = vec![EnvCell {
+            id: DataId(0),
+            flags: 0,
+            cell_id_repeat: 0,
+            surfaces: Vec::new(),
+            environment: DataId(0x0D00_0001),
+            cell_struct: 0,
+            frame: Frame::new(Vec3::new(122.0, 186.0, 146.0), Quat::IDENTITY),
+            portals: Vec::new(),
+            visible_cells: Vec::new(),
+            static_objects: vec![ObjectEntry {
+                id: DataId(0x0200_0001),
+                frame: Frame::new(Vec3::new(121.0, 180.0, 147.0), Quat::IDENTITY),
+            }],
+            restriction_obj: None,
+        }];
+        b.doorway = Some((
+            Vec3::new(122.0, 193.0, 148.0),
+            Vec3::new(122.0, 186.0, 146.0),
+        ));
+        b.to_land[0].corners = vec![
+            Vec3::new(118.1, 193.0, 146.0),
+            Vec3::new(125.9, 193.0, 151.0),
+        ];
+        b.to_land[0].inside = Vec3::new(122.0, 186.0, 146.0);
+        b.to_land[0].floor = vec![[Vec3::new(120.0, 190.0, 146.0); 3]];
+        into_block_of_origin(&mut b);
+        assert_eq!(b.block, (0x7C, 0x84));
+        // Every place of it in the block north's meters: 192 m less north.
+        assert_eq!(b.info.frame.origin, Vec3::new(122.0, 1.0, 146.0));
+        assert_eq!(b.rooms[0].frame.origin, Vec3::new(122.0, -6.0, 146.0));
+        assert_eq!(
+            b.rooms[0].static_objects[0].frame.origin,
+            Vec3::new(121.0, -12.0, 147.0)
+        );
+        assert_eq!(
+            b.doorway,
+            Some((Vec3::new(122.0, 1.0, 148.0), Vec3::new(122.0, -6.0, 146.0)))
+        );
+        assert_eq!(b.to_land[0].corners[0], Vec3::new(118.1, 1.0, 146.0));
+        assert_eq!(b.to_land[0].inside, Vec3::new(122.0, -6.0, 146.0));
+        assert_eq!(b.to_land[0].floor[0][0], Vec3::new(120.0, -2.0, 146.0));
+        // One within its block stays.
+        let mut c = across_a_cell_edge(&mut info);
+        let was = c.info.frame;
+        into_block_of_origin(&mut c);
+        assert_eq!((c.block, c.info.frame), ((0x55, 0x8D), was));
     }
 }

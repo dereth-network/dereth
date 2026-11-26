@@ -514,6 +514,7 @@ fn foot_walks(
                 ],
                 along: [dir[0] as f32, dir[1] as f32],
                 dist: (len + 2.0 * back) as f32,
+                until: None,
             });
         }
     }
@@ -809,6 +810,7 @@ mod tests {
             start: [20.0, 1.0, 0.0],
             along: [1.0, 0.0],
             dist: 10.0,
+            until: None,
         };
         let (x, y) = (2.0 * 192.0 + 20.0, 3.0 * 192.0 + 1.0);
         // A change beside its line, and one just within reach of its end in the block south.

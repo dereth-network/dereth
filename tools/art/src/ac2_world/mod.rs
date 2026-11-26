@@ -923,6 +923,9 @@ pub fn build(args: &Args) -> Result<u32, String> {
     )? {
         ac2_buildings.entry(b.block).or_default().push(b);
     }
+    // The model of the stand-ins entered from the other land cells a doorway spans.
+    let stand_in = rooms::stand_in_model(&mut ids, &mut art_records)?;
+    let mut stand_ins = rooms::StandIns::default();
     // AC2's dungeons: every AC2 block's cells no building takes as its rooms, those the list names
     // where it puts them, the rest each under a free AC1 block beyond AC2's landmass.
     eprintln!("making AC2's dungeons");
@@ -1644,12 +1647,17 @@ pub fn build(args: &Args) -> Result<u32, String> {
             if write_info {
                 let mut info = ac1_cleared.map_or_else(|| cleared::empty(lid), |c| c.info);
                 info.objects.extend(placed.into_iter().flatten().cloned());
+                let mut added = Vec::new();
                 for b in with_rooms.into_iter().flatten() {
+                    added.push((info.buildings.len(), b));
                     for (rid, bytes) in rooms::add(&mut info, b) {
                         versions.push(1);
                         records.push((rid, bytes));
                     }
                 }
+                let s = rooms::add_stand_ins(&mut info, &added, stand_in);
+                stand_ins.added += s.added;
+                stand_ins.held += s.held;
                 for m in vaults_here.into_iter().flatten() {
                     let first = 0x0100 + info.num_cells;
                     let _ = writeln!(
@@ -1690,6 +1698,11 @@ pub fn build(args: &Args) -> Result<u32, String> {
             }
         }
     }
+    let stand_ins_line = format!(
+        "doorways' other land cells: {} stand-ins, {} cells another building holds",
+        stand_ins.added, stand_ins.held
+    );
+    eprintln!("{stand_ins_line}");
     // AC1's rooms taken off, deleted from the cell file as read through the overlay, but for those
     // the overlay writes anew (AC2's rooms and the buildings copied in, numbered from the block's
     // kept cells).
@@ -2434,6 +2447,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let _ = writeln!(stats, "{joined_line}");
     let _ = writeln!(stats, "{}", climb.line);
     let _ = writeln!(stats, "{sills_line}");
+    let _ = writeln!(stats, "{stand_ins_line}");
     let _ = writeln!(
         stats,
         "{}",
