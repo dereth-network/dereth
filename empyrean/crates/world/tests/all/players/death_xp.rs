@@ -1,5 +1,5 @@
 //! Vectors: fixtures/vectors/death/
-//! Divergence: V390, V398, V400, V405, V406, V531
+//! Divergence: V390, V398, V400, V405, V406, V531, V576
 //! XP/levelling, death, corpses, damage history, death string tables and DeathItems follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
@@ -1312,6 +1312,45 @@ fn drop_message_lists_the_items() {
     assert_eq!(
         player_death::drop_message(&h.w, &[coins, a, b], 250, &dead),
         "You've lost 250 Pyreals, your Sword, and your 1,200 Gems!"
+    );
+}
+
+/// On a world playing ac1999's loot rules (Launch) one lost item is named with its material in
+/// front, except a gem or leather; coins and stacks are named as before. Other eras keep ACE's name.
+#[test]
+fn a_launch_drop_message_names_a_lost_item_with_its_material() {
+    let mut h = H::new();
+    let gorget = h.item(0x8000_0310, "Gorget", ItemType::Armor, 1);
+    h.o_mut(gorget).set_property(PropertyInt::MaterialType, 60); // Gold
+    let ruby = h.item(0x8000_0311, "Ruby", ItemType::Gem, 1);
+    h.o_mut(ruby).set_property(PropertyInt::MaterialType, 38); // Ruby
+    h.o_mut(ruby).biota.weenie_type = WeenieType::Gem;
+    let boots = h.item(0x8000_0312, "Boots", ItemType::Armor, 1);
+    h.o_mut(boots).set_property(PropertyInt::MaterialType, 52); // Leather
+    let quartz = h.item(0x8000_0313, "Ring", ItemType::Jewelry, 1);
+    h.o_mut(quartz).set_property(PropertyInt::MaterialType, 40); // Smoky Quartz
+    let coins = h.item(0x8000_0314, "Pyreal", ItemType::Money, 1);
+    h.o_mut(coins).set_property(PropertyInt::MaterialType, 62); // Pyreal
+    let items = [coins, gorget, ruby, boots, quartz];
+    let dead = player_death::DeadItems::new();
+
+    assert_eq!(
+        player_death::drop_message(&h.w, &items, 25, &dead),
+        "You've lost 25 Pyreals, your Gorget, your Ruby, your Boots, and your Ring!"
+    );
+
+    h.w.era = empyrean_common::era::EraId::Launch.rules();
+    assert_eq!(
+        player_death::drop_message(&h.w, &items, 25, &dead),
+        "You've lost 25 Pyreals, your Gold Gorget, your Ruby, your Boots, and your Smoky Quartz Ring!"
+    );
+
+    let mut dead = player_death::DeadItems::new();
+    dead.remember(&h.w, gorget);
+    h.w.objects.remove(gorget);
+    assert_eq!(
+        player_death::drop_message(&h.w, &[gorget], 0, &dead),
+        "You've lost your Gold Gorget!"
     );
 }
 

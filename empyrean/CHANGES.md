@@ -20,6 +20,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Infiltration and Launch worlds name their own era's towns on the map.
 - Each later heritage is now an era setting, and Dereth clients are told which a world allows.
 - New players download a world's custom land much faster.
+- Launch: the death message names a lost item with its material, such as "Gold Gorget".
 
 ## 0.3.18 (2026-11-23)
 - Launch: drudge casters move their arms when they cast, with ac1999's data patches.

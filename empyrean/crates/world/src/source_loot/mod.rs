@@ -2,6 +2,7 @@
 // Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/TreasureFactory.cpp.
 
 mod mutation;
+pub mod names;
 pub mod rng;
 mod spells;
 

@@ -9,6 +9,7 @@
 use empyrean_common::dotnet::{
     format as dotnet_format, CsCast, DotNetDateTime, DotNetDict, TimeSpan,
 };
+use empyrean_common::era::LootRules;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_entity::enums::{
     BondedStatus, CharacterOption, ChatMessageType, CombatMode, DamageType, EnchantmentMask,
@@ -910,6 +911,8 @@ pub fn get_num_coins_dropped(w: &World, this: ObjectGuid) -> i32 {
 #[derive(Debug, Clone)]
 pub struct DeadItem {
     pub name: String,
+    /// The name the message gives one lost item ([`lost_name_of`]).
+    pub lost_name: String,
     pub stack_size: Option<i32>,
     pub plural_name: String,
 }
@@ -932,6 +935,7 @@ impl DeadItems {
         let Some(o) = w.objects.get(g) else { return };
         let item = DeadItem {
             name: name_of(w, g),
+            lost_name: lost_name_of(w, g),
             stack_size: o.stack_size(),
             plural_name: crate::world_objects::world_object::get_plural_name(w, g),
         };
@@ -942,6 +946,13 @@ impl DeadItems {
         match self.0.get(&g) {
             Some(d) if w.objects.get(g).is_none() => d.name.clone(),
             _ => name_of(w, g),
+        }
+    }
+
+    fn lost_name(&self, w: &World, g: ObjectGuid) -> String {
+        match self.0.get(&g) {
+            Some(d) if w.objects.get(g).is_none() => d.lost_name.clone(),
+            _ => lost_name_of(w, g),
         }
     }
 
@@ -957,6 +968,20 @@ impl DeadItems {
             Some(d) if w.objects.get(g).is_none() => d.plural_name.clone(),
             _ => crate::world_objects::world_object::get_plural_name(w, g),
         }
+    }
+}
+
+/// The name the drop message gives one lost item: its `Name`.
+///
+/// DIVERGE: on a world playing ac1999's loot rules (`LootRules::Ac1999`, V576) the item's
+/// material goes in front ("your Gold Gorget"), as it does on an ac1999 server.
+fn lost_name_of(w: &World, g: ObjectGuid) -> String {
+    let name = name_of(w, g);
+    match w.objects.get(g) {
+        Some(o) if w.era.loot_rules == LootRules::Ac1999 => {
+            crate::source_loot::names::with_material(o, name)
+        }
+        _ => name,
     }
 }
 
@@ -1000,7 +1025,11 @@ pub fn drop_message(
         }
 
         if stack_size == 1 {
-            msg += &name;
+            msg += &if is_coin {
+                name
+            } else {
+                dead.lost_name(w, *drop_item)
+            };
         } else {
             msg += &format!(
                 "{} {}",
