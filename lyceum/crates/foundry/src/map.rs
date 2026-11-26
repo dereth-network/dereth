@@ -48,12 +48,56 @@ pub fn world_of(px: f32, py: f32) -> (f32, f32) {
     crate::brush::WORLD.map_world(px, py)
 }
 
+/// The land's bounds on the map, in its pixels: west, north, east and south, the last two one
+/// past the land's last column and row.
+pub type LandBounds = [u32; 4];
+
+/// How much room a frame leaves about the land on each side, as a share of the land's longer
+/// side: the game's own map's.
+pub const FRAME_MARGIN: f32 = 0.04;
+
+/// The square of the map that frames land `bounds` as the game's own map frames a world's land:
+/// about the land's middle, its longer side with [`FRAME_MARGIN`] each way, held inside the map;
+/// west, north and side, in its pixels. The whole map when that square is as large.
+#[must_use]
+pub fn land_frame(bounds: LandBounds) -> [f32; 3] {
+    #[allow(clippy::cast_precision_loss)] // LINT-OK: pixels of a map 2,041 a side.
+    let ([west, north, east, south], whole) = (bounds.map(|v| v as f32), SIDE as f32);
+    let side = (east - west).max(south - north) * (1.0 + 2.0 * FRAME_MARGIN);
+    if side >= whole {
+        return [0.0, 0.0, whole];
+    }
+    let hold = |lo: f32| lo.clamp(0.0, whole - side);
+    [
+        hold((west + east - side) / 2.0),
+        hold((north + south - side) / 2.0),
+        side,
+    ]
+}
+
 impl WorldMap {
     /// Every landblock of the files `set` holds, drawn with `colors` (a terrain type's color by
     /// its value) over `region`'s heights.
     #[must_use]
     pub fn read(set: &DatSet, region: &Region, colors: &[[u8; 3]]) -> Self {
+        Self::read_framed(set, region, colors).0
+    }
+
+    /// [`Self::read`], with the land's bounds: every vertex whose terrain is not water, as the
+    /// game's own map tells land from sea (a terrain whose name says water); `None` with no land.
+    #[must_use]
+    pub fn read_framed(
+        set: &DatSet,
+        region: &Region,
+        colors: &[[u8; 3]],
+    ) -> (Self, Option<LandBounds>) {
         let mut map = Self::default();
+        let water: Vec<bool> = region
+            .terrain_types
+            .iter()
+            .map(|t| t.terrain_name.to_ascii_lowercase().contains("water"))
+            .collect();
+        let mut bounds: Option<LandBounds> = None;
         let heights = dereth_terrain::land::mesh::height_table(region);
         for id in set.cell.iter_ids() {
             if id.raw() & 0xFFFF != 0xFFFF {
@@ -68,9 +112,29 @@ impl WorldMap {
                 continue;
             };
             #[allow(clippy::cast_possible_truncation)] // LINT-OK: the high half is the landblock.
-            map.draw_block((id.raw() >> 16) as u16, &t, &heights, colors);
+            let lb = (id.raw() >> 16) as u16;
+            map.draw_block(lb, &t, &heights, colors);
+            let (x0, y0) = Self::block_corner(lb);
+            for x in 0..8 {
+                for y in 0..8 {
+                    let kind = usize::from(t.terrain_type(x, y));
+                    if water.get(kind).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    // Row 0 of a block's pixels is its north edge.
+                    let (px, py) = (x0 + x, y0 + 7 - y);
+                    let (px, py) = (
+                        u32::try_from(px).unwrap_or(u32::MAX),
+                        u32::try_from(py).unwrap_or(u32::MAX),
+                    );
+                    bounds = Some(match bounds {
+                        None => [px, py, px + 1, py + 1],
+                        Some([w, n, e, s]) => [w.min(px), n.min(py), e.max(px + 1), s.max(py + 1)],
+                    });
+                }
+            }
         }
-        map
+        (map, bounds)
     }
 
     /// Landblock `lb`'s pixels from its terrain `t`, with `heights` its height table and
@@ -198,4 +262,25 @@ pub fn terrain_blocks<'a, V>(
         .flat_map(|r| r.keys())
         .filter(|id| *id & 0xFFFF == 0xFFFF)
         .filter_map(|id| u16::try_from(id >> 16).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the world editor's map, framed to its land)
+    use super::*;
+
+    /// Land in a corner of the map is framed as the game frames it: a square about its middle, its
+    /// longer side and a margin each way; land that fills the map, and a frame that would run off
+    /// it, are held to the map.
+    #[test]
+    fn a_maps_land_is_framed_by_a_square_about_its_middle_with_the_games_margin() {
+        let [x, y, side] = land_frame([100, 200, 300, 300]);
+        assert!((side - 200.0 * 1.08).abs() < 1e-3, "{side}");
+        assert!((x + side / 2.0 - 200.0).abs() < 1e-3 && (y + side / 2.0 - 250.0).abs() < 1e-3);
+        #[allow(clippy::cast_precision_loss)]
+        let whole = SIDE as f32;
+        assert_eq!(land_frame([0, 0, 2000, 2000]), [0.0, 0.0, whole]);
+        let [x, y, _] = land_frame([0, 0, 50, 50]);
+        assert_eq!((x, y), (0.0, 0.0), "held inside the map");
+    }
 }

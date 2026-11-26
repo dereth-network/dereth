@@ -256,15 +256,36 @@ pub fn launched_at(repo: &Repo) -> Result<Option<String>, String> {
         .or_else(|| s("base", "month").map(|m| format!("{m}-01T00:00:00Z"))))
 }
 
-/// The landblock of the repository's first starting area, where new characters appear: the
-/// destination of the weenie its first `Start: <name>` point of interest names, as the newest layer
-/// that sets each has it. `None` when it has none.
+/// What a repository's own starting areas are named by: a point of interest named this and the
+/// area's name (`Start: Arwic`), as the server finds them, case aside.
+pub const START_PREFIX: &str = "Start: ";
+
+/// One of a repository's own starting areas: the point of interest `Start: <area>`, and the
+/// destination of the weenie it names (its cell and place in the cell's landblock), when that
+/// weenie has one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldStart {
+    pub area: String,
+    pub cell: Option<u32>,
+    pub at: Option<[f64; 3]>,
+}
+
+/// The repository's own starting areas, by their points' names (case aside), each as the newest
+/// layer that sets it has it: where a world that starts its characters from its own points puts
+/// them ([`start_for`]).
 #[must_use]
-pub fn start_landblock(repo: &Repo) -> Option<u16> {
-    let mut starts: Vec<(String, i64)> = Vec::new();
-    let mut cells: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
+pub fn world_starts(repo: &Repo) -> Vec<WorldStart> {
+    let mut starts: std::collections::BTreeMap<String, (String, i64)> =
+        std::collections::BTreeMap::new();
+    let mut places: std::collections::BTreeMap<i64, (i64, Option<[f64; 3]>)> =
+        std::collections::BTreeMap::new();
+    let prefix = START_PREFIX.to_lowercase();
     for pack in repo.layers.iter().flat_map(|l| &l.packs) {
         for text in pack.files.values() {
+            // Only a point of interest or a weenie with a destination is read.
+            if !text.contains("[[poi]]") && !text.contains("Destination") {
+                continue;
+            }
             let Ok(t) = toml::from_str::<toml::Table>(text) else {
                 continue;
             };
@@ -282,30 +303,71 @@ pub fn start_landblock(repo: &Repo) -> Option<u16> {
                 ) else {
                     continue;
                 };
-                if name.starts_with("Start:") {
-                    starts.retain(|(n, _)| n != name);
-                    starts.push((name.to_owned(), class));
+                let lower = name.to_lowercase();
+                if let Some(area) = lower
+                    .starts_with(&prefix)
+                    .then(|| name[START_PREFIX.len()..].to_owned())
+                {
+                    starts.insert(lower, (area, class));
                 }
             }
             for weenie in rows("weenie") {
+                let destination = weenie.get("position").and_then(|p| p.get("Destination"));
                 let (Some(class), Some(cell)) = (
                     weenie.get("class").and_then(toml::Value::as_integer),
-                    weenie
-                        .get("position")
-                        .and_then(|p| p.get("Destination"))
+                    destination
                         .and_then(|d| d.get("cell"))
                         .and_then(toml::Value::as_integer),
                 ) else {
                     continue;
                 };
-                cells.insert(class, cell);
+                let at = destination
+                    .and_then(|d| d.get("at"))
+                    .and_then(toml::Value::as_array)
+                    .and_then(|a| {
+                        let v: Vec<f64> = a
+                            .iter()
+                            .filter_map(|x| {
+                                x.as_float().or_else(|| x.as_integer().map(|i| i as f64))
+                            })
+                            .collect();
+                        <[f64; 3]>::try_from(v).ok()
+                    });
+                places.insert(class, (cell, at));
             }
         }
     }
-    starts.sort();
+    starts
+        .into_values()
+        .map(|(area, class)| {
+            let place = places.get(&class);
+            WorldStart {
+                area,
+                cell: place.and_then(|(c, _)| u32::try_from(*c).ok()),
+                at: place.and_then(|(_, a)| *a),
+            }
+        })
+        .collect()
+}
+
+/// The start of a character who chose starter area `area`, as the server picks it: the world's own
+/// of that name (case aside), else its first by name; `None` when it has none.
+#[must_use]
+pub fn start_for<'a>(starts: &'a [WorldStart], area: &str) -> Option<&'a WorldStart> {
     starts
         .iter()
-        .find_map(|(_, class)| cells.get(class))
+        .find(|s| s.area.eq_ignore_ascii_case(area))
+        .or_else(|| starts.first())
+}
+
+/// The landblock of the repository's first starting area, where new characters appear: the
+/// destination of the weenie its first `Start: <name>` point of interest names, as the newest layer
+/// that sets each has it. `None` when it has none.
+#[must_use]
+pub fn start_landblock(repo: &Repo) -> Option<u16> {
+    world_starts(repo)
+        .iter()
+        .find_map(|s| s.cell)
         .and_then(|cell| u16::try_from(cell >> 16).ok())
 }
 
@@ -375,6 +437,7 @@ pub fn world_of(
         base: None,
         lineage: Vec::new(),
         land_steps: None,
+        starts_at: None,
     })
 }
 

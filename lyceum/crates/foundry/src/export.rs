@@ -6,6 +6,9 @@
 //! | ACE | `dats/`, the data files the world changes with its changes written in ([`crate::bake`]); `sql/`, its content laid out as ACE's content folder, its loot tables under `treasure_death` and `treasure_wielded` (which ACE takes through MySQL) |
 //! | GDLE | `dats/`, as for ACE; `json/`, its content as GDLE's files (the import tool's `gdle`), with `quests.json`, the quests the world adds or changes, merged into the server's own `quests.json` when it is given, and its loot tables as GDLE's own lists: `wieldedTreasure.json`, and `treasureLoot.json` for the `loot` list of GDLE's `treasureTables.json` |
 //!
+//! A world repository, whose world file lists its layers, is exported for Empyrean alone, as
+//! [`crate::publish::publish`] writes it over the repository's land ([`export_on`]).
+//!
 //! Each export also writes a `README.txt` that says where the files go and what players need. A
 //! retail client reads only plain files: its players need the baked files, or a server that patches
 //! theirs.
@@ -224,6 +227,27 @@ impl Importer for ImportProgram {
     }
 }
 
+/// The rules a world plays when they are another era's than its world database's (New Dereth's,
+/// over the end of retail's database): that era, and when its calendar starts, for an era whose
+/// calendar runs from the world's launch. The server's `[era] profile` and `launched_at`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rules<'a> {
+    pub era: dereth_primitives::EraId,
+    pub launched_at: Option<&'a str>,
+}
+
+impl<'a> Rules<'a> {
+    /// The rules of a world built on `era` with its calendar starting at `starts_at`, when they
+    /// are not its world database's era's ([`Era::of`]).
+    #[must_use]
+    pub fn of(era: dereth_primitives::EraId, starts_at: Option<&'a str>) -> Option<Self> {
+        (Era::of(era).id() != era).then_some(Self {
+            era,
+            launched_at: starts_at,
+        })
+    }
+}
+
 /// What an export is for and where it goes.
 #[derive(Clone, Copy)]
 pub struct Options<'a> {
@@ -238,6 +262,8 @@ pub struct Options<'a> {
     pub importer: Option<&'a dyn Importer>,
     /// GDLE's own `quests.json`, which the world's quests are merged into.
     pub gdle_quests: Option<&'a Path>,
+    /// The rules the world plays, when another era's than its world database's.
+    pub rules: Option<Rules<'a>>,
 }
 
 impl std::fmt::Debug for Options<'_> {
@@ -249,6 +275,7 @@ impl std::fmt::Debug for Options<'_> {
             .field("world_sql", &self.world_sql)
             .field("importer", &self.importer.is_some())
             .field("gdle_quests", &self.gdle_quests)
+            .field("rules", &self.rules)
             .finish()
     }
 }
@@ -270,6 +297,26 @@ pub struct Exported {
 /// An export folder that holds something else; the build's errors; and the bake's and the import
 /// tool's.
 pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported, Error> {
+    export_on(world, dats, None, opts)
+}
+
+/// [`export`], a world repository built over the land `land` (its overlay folder, when the
+/// repository pins one). A world repository plays its own era's rules, which only Empyrean
+/// serves: its export for Empyrean is what serving it takes, as [`crate::publish::publish`]
+/// writes it, numbered from the repository's ledger as its author numbers it.
+///
+/// # Errors
+/// As [`export`]; for a world repository, an export for another server than Empyrean, and
+/// [`crate::publish::publish`]'s.
+pub fn export_on(
+    world: &Path,
+    dats: &Path,
+    land: Option<&Path>,
+    opts: &Options<'_>,
+) -> Result<Exported, Error> {
+    if crate::repo_world::is_repository(world) {
+        return export_repository(world, dats, land, opts);
+    }
     opts.era.require_export_support()?;
     let w = crate::world::World::read(world)?;
     refuse_era(w.era, opts)?;
@@ -297,6 +344,62 @@ pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported,
         let _ = std::fs::remove_dir_all(l);
     }
     result
+}
+
+/// A world repository exported for Empyrean ([`export_on`]).
+fn export_repository(
+    world: &Path,
+    dats: &Path,
+    land: Option<&Path>,
+    opts: &Options<'_>,
+) -> Result<Exported, Error> {
+    if opts.target != Target::Empyrean {
+        return Err(Error::Refused(format!(
+            "{} is a world repository, whose era only Empyrean plays: export it for Empyrean",
+            world.display()
+        )));
+    }
+    // An earlier export is replaced, as any export replaces one, unless it is this one's kind,
+    // which the publish follows, so a client is sent what changed alone.
+    let published = std::fs::read_to_string(opts.out.join("README.txt"))
+        .is_ok_and(|t| t.starts_with(crate::publish::MARK));
+    if opts.out.join(MARKER).is_file() && !published {
+        std::fs::remove_dir_all(opts.out).map_err(|e| Error::io(opts.out, e))?;
+    }
+    let done = crate::publish::publish(
+        world,
+        dats,
+        opts.out,
+        &crate::publish::Publish {
+            layer: None,
+            land,
+            number: true,
+            importer: importer(opts)?,
+        },
+    )?;
+    let marker = opts.out.join(MARKER);
+    std::fs::write(
+        &marker,
+        "Written by lyceum export; a later export replaces this folder.\n",
+    )
+    .map_err(|e| Error::io(&marker, e))?;
+    let mut wrote: Vec<String> = done
+        .files
+        .iter()
+        .map(|(f, _)| f.display().to_string().replace('\\', "/"))
+        .filter(|f| !f.starts_with("overlay/"))
+        .collect();
+    wrote.push(format!(
+        "overlay: generation {} in {}{}",
+        done.generation,
+        crate::publish::ledger_path(world).display(),
+        if done.numbered { " (new)" } else { "" }
+    ));
+    Ok(Exported {
+        out: done.out,
+        wrote,
+        warnings: Vec::new(),
+    })
 }
 
 /// Export a world already compiled: its overlay folder `overlay`, its filled SQL `sql` (by path
@@ -364,7 +467,8 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 fn refuse_era(era: dereth_primitives::EraId, opts: &Options<'_>) -> Result<(), Error> {
     Era::of(era).require_export_support()?;
     let named = crate::dats::era_name(era);
-    if opts.era.id() != era {
+    // A world's database is its files' era's: New Dereth's is the end of retail's.
+    if opts.era != Era::of(era) {
         return Err(Error::Refused(format!(
             "this world is built on the {named} files, so its content goes over the {named} \
              world database, not {}",
@@ -738,11 +842,12 @@ fn write(
             let n = write_sql(sql, &sql_dir, |rel, _| rel.to_path_buf())?;
             wrote.push(format!("{}: {n} file(s)", sql_dir.display()));
             let pack = out.join("world.pack");
+            let profile = opts.rules.map_or(opts.era.word(), |r| r.era.name());
             let mut args = vec![
                 OsStr::new("--sql"),
                 dump.as_os_str(),
                 OsStr::new("--era"),
-                OsStr::new(opts.era.word()),
+                OsStr::new(profile),
             ];
             if n > 0 {
                 args.extend([OsStr::new("--patches"), sql_dir.as_os_str()]);
@@ -758,7 +863,7 @@ fn write(
             let version = run(importer, &[OsStr::new("--version")])
                 .map(|v| first_line(&v).to_owned())
                 .unwrap_or_else(|_| "empyrean-import".into());
-            empyrean_readme(key, opts.era, &version, &dump)
+            empyrean_readme(key, opts.era, opts.rules, &version, &dump)
         }
         Target::Ace => {
             bake(overlay, dats, out, &mut wrote)?;
@@ -1029,10 +1134,21 @@ Retail players: their client reads only its own data files, never an overlay. Th
 data files baked with this world (lyceum export --for ace writes them), copied over a copy of
 their own files.";
 
-fn empyrean_readme(key: &str, era: Era, version: &str, dump: &Path) -> String {
+fn empyrean_readme(
+    key: &str,
+    era: Era,
+    rules: Option<Rules<'_>>,
+    version: &str,
+    dump: &Path,
+) -> String {
     let dump = dump
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    // The rules the world plays: its database's era's, unless it says another's.
+    let profile = rules.map_or(era.word(), |r| r.era.name());
+    let launched = rules
+        .and_then(|r| r.launched_at)
+        .map_or_else(String::new, |at| format!("\n  launched_at = \"{at}\""));
     format!(
         "{key}, a Lyceum world, exported for Empyrean.
 
@@ -1048,7 +1164,7 @@ elsewhere):
   dat_files_directory = \"<{data_files}>\"
 
   [era]
-  profile = \"{era}\"
+  profile = \"{profile}\"{launched}
 
   [dat_overlay]
   path = \"overlay\"
@@ -1056,14 +1172,13 @@ elsewhere):
 world.pack was written by {version}; another release of Empyrean may refuse it. Build it
 again over the same world database ({dump}, from empyrean-import fetch):
 
-  empyrean-import --sql <{dump}> --era {era} --patches sql --out world.pack
+  empyrean-import --sql <{dump}> --era {profile} --patches sql --out world.pack
 
 Dereth players: Empyrean sends a Dereth client the overlay when it connects.
 
 {retail}
 ",
         world = era.world(),
-        era = era.word(),
         data_files = era.data_files(),
         retail = match era {
             Era::Launch => "Launch world export is not supported yet.".to_owned(),
@@ -1280,6 +1395,7 @@ mod tests {
                     world_sql: None,
                     importer: Some(&recorder),
                     gdle_quests: Some(&missing),
+                    rules: None,
                 };
                 refused(export_compiled(
                     &missing,
@@ -1331,6 +1447,7 @@ era = \"infiltration\"
             world_sql,
             importer: None,
             gdle_quests: None,
+            rules: None,
         };
         let e = export(&world, &dir, &opts(Target::Empyrean, Era::Eor, None))
             .unwrap_err()
@@ -1621,6 +1738,7 @@ era = \"infiltration\"
                 world_sql: Some(&dump),
                 importer: Some(&recorder),
                 gdle_quests: None,
+                rules: None,
             },
         )
         .unwrap();
@@ -1661,6 +1779,74 @@ era = \"infiltration\"
             "{:?}",
             done.wrote
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A New Dereth world goes over the end of retail's world database and plays New Dereth's
+    /// rules: its world pack is built for them, and the README gives the server New Dereth's
+    /// profile and the world's calendar start. An end-of-retail world has no rules of its own.
+    #[test]
+    fn a_new_dereth_world_is_exported_with_its_own_rules_over_the_end_of_retails_database() {
+        use dereth_primitives::EraId;
+        assert_eq!(Rules::of(EraId::Eor, None), None);
+        assert_eq!(Rules::of(EraId::Infiltration, None), None);
+        let rules = Rules::of(EraId::NewDereth, Some("2026-11-01T00:00:00Z"));
+        assert_eq!(
+            rules,
+            Some(Rules {
+                era: EraId::NewDereth,
+                launched_at: Some("2026-11-01T00:00:00Z")
+            })
+        );
+        let dir = scratch("empyrean-newdereth");
+        let dats = dir.join("dats");
+        std::fs::create_dir_all(&dats).unwrap();
+        let overlay = dir.join("overlay");
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::write(overlay.join("overlay_cell.dat"), b"cells").unwrap();
+        let dump = dir.join("ACE-World-Database-v0.9.296.sql");
+        std::fs::write(&dump, b"-- dump").unwrap();
+        let out = dir.join("out");
+        let recorder = Recorder::default();
+        export_compiled(
+            &overlay,
+            &BTreeMap::new(),
+            "nd-world",
+            &dats,
+            &Options {
+                target: Target::Empyrean,
+                out: &out,
+                era: Era::of(EraId::NewDereth),
+                world_sql: Some(&dump),
+                importer: Some(&recorder),
+                gdle_quests: None,
+                rules,
+            },
+        )
+        .unwrap();
+        // Its database is the end of retail's, and no other era's.
+        let over = |era| Options {
+            target: Target::Empyrean,
+            out: &out,
+            era,
+            world_sql: None,
+            importer: None,
+            gdle_quests: None,
+            rules,
+        };
+        refuse_era(EraId::NewDereth, &over(Era::Eor)).unwrap();
+        assert!(refuse_era(EraId::NewDereth, &over(Era::Infiltration)).is_err());
+        let runs = recorder.runs.borrow();
+        let era = runs[0].iter().position(|a| a == "--era").unwrap();
+        assert_eq!(runs[0][era + 1], "newdereth");
+        let readme = std::fs::read_to_string(out.join("README.txt")).unwrap();
+        for said in [
+            "profile = \"newdereth\"",
+            "launched_at = \"2026-11-01T00:00:00Z\"",
+            "the end-of-retail world",
+        ] {
+            assert!(readme.contains(said), "{said}: {readme}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1790,6 +1976,7 @@ era = \"infiltration\"
                 world_sql: None,
                 importer: None,
                 gdle_quests: None,
+                rules: None,
             },
         )
         .unwrap_err()

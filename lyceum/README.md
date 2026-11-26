@@ -255,7 +255,7 @@ same playtest folder while its server runs.
 ```toml
 # world.toml
 key = "my-world"             # the world's key; the overlay records it
-era = "eor"                  # the files it is built on: eor (default) or infiltration
+era = "eor"                  # eor (default), infiltration, or newdereth (on New Dereth's land)
 packs = ["mypack", "other"]  # the load order, folders relative to this file
 imports = []                 # overlay folders made by import, laid under the packs
 out = "build"                # where build writes, relative to this file
@@ -263,6 +263,8 @@ out = "build"                # where build writes, relative to this file
 spacing = 8                  # meters between the land's vertices: 24 (the files'), 12 or 8
 [ids]
 wcid = 100000                # where new weenie class ids start
+[calendar]
+starts_at = "2026-12-01T00:00:00Z"  # a New Dereth world's: its calendar's first day, in UTC
 ```
 
 `lyceum new <folder>` makes a world from the sample; `--empty` makes an empty one,
@@ -270,7 +272,10 @@ wcid = 100000                # where new weenie class ids start
 `--on <overlay>` starts an empty world on the world another tool made (the AC2-in-AC1 world's
 overlay folder, for one): it is the world's import, its land and grid are the world's, and a build
 carries its rules, place names and placements (`world.toml`, `places.tsv`, `placements.tsv`) into
-the world's own overlay.
+the world's own overlay. `--era newdereth --on <New Dereth's land>` makes a New Dereth world: it
+plays New Dereth's rules over the end of retail's files and world database, and its calendar starts
+on the first of the month it was made in (`[calendar]`), which Live and an export for Empyrean give
+the server.
 
 **A finer land.** A landblock is always 192 m of eight 24 m land cells; a world's land spacing cuts
 each cell side into 1, 2 or 3 steps, so the world keeps its size and gains detail. A world set

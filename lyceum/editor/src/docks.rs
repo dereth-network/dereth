@@ -79,6 +79,22 @@ pub const VERSION: u32 = 5;
 /// The tabs beside the world view, behind it at first: the lists the world is built from.
 pub const BESIDE_WORLD: [Tab; 3] = [Tab::Dungeons, Tab::Quests, Tab::Loot];
 
+/// The tabs of the world's data the World data menu offers: a world repository's rows (`rows`,
+/// when one is open) and its rules (`rules`, when the layer edited has them), and any world's
+/// starting areas and tables.
+#[must_use]
+pub fn world_data(rows: bool, rules: bool) -> Vec<Tab> {
+    [
+        (Tab::Rows, rows),
+        (Tab::Rules, rules),
+        (Tab::Areas, true),
+        (Tab::Tables, true),
+    ]
+    .into_iter()
+    .filter_map(|(t, on)| on.then_some(t))
+    .collect()
+}
+
 /// The file the layout is kept in, in the editor's settings folder.
 pub const FILE_NAME: &str = "lyceum-layout.json";
 
@@ -480,6 +496,22 @@ pub fn put_back(dock: &mut DockState<Tab>, hidden: Hidden) {
 mod tests {
     //! Behaviour: none (tooling: the world editor's docked tabs)
     use super::*;
+
+    /// The World data menu offers any world its starting areas and tables, and a world
+    /// repository its rows and rules as well, every one a tab that may come and go.
+    #[test]
+    fn the_world_data_menu_offers_a_repositorys_rows_and_rules_and_any_worlds_tables() {
+        assert_eq!(world_data(false, false), [Tab::Areas, Tab::Tables]);
+        assert_eq!(
+            world_data(true, true),
+            [Tab::Rows, Tab::Rules, Tab::Areas, Tab::Tables]
+        );
+        assert_eq!(
+            world_data(true, false),
+            [Tab::Rows, Tab::Areas, Tab::Tables]
+        );
+        assert!(world_data(true, true).iter().all(|t| OPTIONAL.contains(t)));
+    }
 
     #[test]
     fn each_default_layout_shows_every_tab_of_its_mode_once() {

@@ -312,3 +312,45 @@ fn a_repository_starts_where_its_characters_do() {
         Some(0x6499)
     );
 }
+
+/// A repository's own starting areas are its `Start:` points with their weenies' destinations, by
+/// name; a character who chose an area of one's name starts there, any other at the first.
+#[test]
+fn a_character_starts_at_the_start_of_its_areas_name_else_the_repositorys_first() {
+    use lyceum_foundry::repo_world::{start_for, world_starts};
+    let f = Fixture::new("repo-starts");
+    let path = repo(&f, None);
+    for (file, name, class) in [
+        ("Start__Arwic", "Start: Arwic", 2300001),
+        ("Start__Cragstone", "start: Cragstone", 2300002),
+        ("Arwic", "Arwic", 2300003),
+    ] {
+        f.write(
+            &format!("repo/base/emergence/poi/{file}.toml"),
+            &format!("[[poi]]\nname = \"{name}\"\nweenie_class_id = {class}\n"),
+        );
+    }
+    f.write(
+        "repo/base/emergence/weenie/2300001.toml",
+        "[[weenie]]\nclass = 2300001\nclass_name = \"start-arwic\"\ntype = \"Portal\"\n\n[weenie.position]\nDestination = { cell = 0x6498002C, at = [122.5, 76.5, 128.0], rotation = [1.0, 0.0, 0.0, 0.0] }\n",
+    );
+    let starts = world_starts(&Repo::open(&path).unwrap());
+    let areas: Vec<&str> = starts.iter().map(|s| s.area.as_str()).collect();
+    assert_eq!(
+        areas,
+        ["Arwic", "Cragstone"],
+        "its Start: points alone, by name"
+    );
+    assert_eq!(starts[0].cell, Some(0x6498_002C));
+    assert_eq!(starts[0].at, Some([122.5, 76.5, 128.0]));
+    assert_eq!(starts[1].cell, None, "a weenie with no destination");
+    assert_eq!(
+        start_for(&starts, "cragstone").map(|s| s.area.as_str()),
+        Some("Cragstone")
+    );
+    assert_eq!(
+        start_for(&starts, "Holtburg").map(|s| s.area.as_str()),
+        Some("Arwic")
+    );
+    assert_eq!(start_for(&[], "Holtburg"), None);
+}

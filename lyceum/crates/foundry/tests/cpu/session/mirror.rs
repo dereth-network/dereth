@@ -194,6 +194,7 @@ fn an_export_with_a_repository_open_holds_none_of_its_items() {
             world_sql: None,
             importer: None,
             gdle_quests: None,
+            rules: None,
         },
     )
     .unwrap();

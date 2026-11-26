@@ -239,6 +239,7 @@ fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
         world_sql: Some(&dump),
         importer: Some(&tool),
         gdle_quests: None,
+        rules: None,
     };
     let ledger = f.path().join("world.generations.tsv");
 
@@ -272,6 +273,65 @@ fn a_plain_worlds_export_numbers_its_overlay_by_its_content() {
         lines.lines().count() + 1,
         "the ledger's new line"
     );
+}
+
+/// A world repository's world file says more than a plain world's (its title among it), and the
+/// repository is exported for Empyrean as it is published: its world pack, what the server reads
+/// (its own era) and its overlay, numbered in the repository's ledger. It replaces an earlier
+/// export of another kind in its folder, and is marked as an export, so the next goes there too.
+/// Its era is one only Empyrean plays, so an export for ACE is refused, naming Empyrean.
+#[test]
+fn a_world_repository_is_exported_for_empyrean_as_it_is_published() {
+    use lyceum_foundry::export::{export, Era, Options, Target};
+    let f = Fixture::new("export-repository");
+    let world = repo(&f, PICTURE);
+    let titled = std::fs::read_to_string(&world).unwrap().replace(
+        "lineage = []",
+        "title = \"A Test Repository\"\nlineage = []",
+    );
+    std::fs::write(&world, titled).unwrap();
+    let tool = Tool::default();
+    let out = f.path().join("for-empyrean");
+    let opts = |target| Options {
+        target,
+        out: &out,
+        era: Era::Eor,
+        world_sql: None,
+        importer: Some(&tool),
+        gdle_quests: None,
+        rules: None,
+    };
+
+    // An earlier export of the world as a plain world's.
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join(lyceum_foundry::export::MARKER), "an export").unwrap();
+    std::fs::write(out.join("world.pack.report.json"), "{}").unwrap();
+
+    let done = export(&world, &f.dats(), &opts(Target::Empyrean)).unwrap();
+    assert!(out.join("world.pack").is_file());
+    assert!(!out.join("world.pack.report.json").exists(), "replaced");
+    assert!(out.join(lyceum_foundry::export::MARKER).is_file());
+    assert_eq!(iterations(&f, &out).len(), 1, "generation 1");
+    assert!(
+        done.wrote
+            .iter()
+            .any(|w| w.starts_with("overlay: generation 1") && w.contains("generations.tsv")),
+        "{:?}",
+        done.wrote
+    );
+    let config: toml::Table =
+        toml::from_str(&std::fs::read_to_string(out.join("empyrean.toml")).unwrap()).unwrap();
+    assert_eq!(config["era"]["profile"].as_str(), Some("newdereth"));
+    let ledger = world.parent().unwrap().join("land/generations.tsv");
+    assert!(std::fs::read_to_string(ledger).unwrap().contains("\t1"));
+    let again = export(&world, &f.dats(), &opts(Target::Empyrean)).unwrap();
+    assert_eq!(again.out, out, "the next export goes into the same folder");
+    assert_eq!(iterations(&f, &out).len(), 1, "unchanged: generation 1");
+
+    let why = export(&world, &f.dats(), &opts(Target::Ace))
+        .unwrap_err()
+        .to_string();
+    assert!(why.contains("only Empyrean"), "{why}");
 }
 
 /// Each record of the served overlay with the iteration it is in, file by file.

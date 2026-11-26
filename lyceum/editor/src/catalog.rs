@@ -20,7 +20,7 @@ use dereth_client_runtime::map_places::{Naming, WORLD_PLACES_FILE};
 use dereth_primitives::EraId;
 use lyceum_foundry::buildings::Catalog as Buildings;
 use lyceum_foundry::dats::DatSet;
-use lyceum_foundry::map::WorldMap;
+use lyceum_foundry::map::{LandBounds, WorldMap};
 use lyceum_foundry::models::Placements;
 use lyceum_foundry::sql_ids::{self, ServerContent};
 
@@ -30,6 +30,8 @@ pub struct Ready {
     pub placements: Placements,
     /// The world as the data files hold it, from above.
     pub map: Option<WorldMap>,
+    /// Where on the map its land lies, when it has land.
+    pub map_land: Option<LandBounds>,
     /// The server's world: its weenies, instances and links; nothing when it was given no
     /// database.
     pub server: ServerContent,
@@ -146,6 +148,28 @@ pub fn placements_file(cache: &Path, set: &DatSet, towns: &Towns) -> PathBuf {
         .join(format!("placements-{cell}{named}.tsv"))
 }
 
+/// The land's bounds as kept beside the map's picture: `none`, or west, north, east and south.
+fn land_text(bounds: Option<LandBounds>) -> String {
+    bounds.map_or_else(
+        || "none\n".to_owned(),
+        |[w, n, e, s]| format!("{w} {n} {e} {s}\n"),
+    )
+}
+
+/// The land's bounds kept at `path` ([`land_text`]); `None` when there is no such file.
+fn read_land(path: &Path) -> Option<Option<LandBounds>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    if text.trim() == "none" {
+        return Some(None);
+    }
+    let v: Vec<u32> = text
+        .split_whitespace()
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .ok()?;
+    <[u32; 4]>::try_from(v).ok().map(Some)
+}
+
 /// The file the map's picture of the files `set` is kept in, beside the placements.
 #[must_use]
 pub fn map_file(cache: &Path, set: &DatSet) -> PathBuf {
@@ -220,14 +244,20 @@ fn gather(
                 p
             });
             let file = map_file(cache, set);
+            let land = file.with_extension("land");
             let map = region.map(|r| {
-                WorldMap::load(&file).unwrap_or_else(|| {
-                    let m = WorldMap::read(set, r, colors);
-                    if let Err(e) = m.save(&file) {
-                        tracing::warn!("{}: {e}", file.display());
-                    }
-                    m
-                })
+                WorldMap::load(&file)
+                    .zip(read_land(&land))
+                    .unwrap_or_else(|| {
+                        let (m, bounds) = WorldMap::read_framed(set, r, colors);
+                        if let Err(e) = m
+                            .save(&file)
+                            .and_then(|()| std::fs::write(&land, land_text(bounds)))
+                        {
+                            tracing::warn!("{}: {e}", file.display());
+                        }
+                        (m, bounds)
+                    })
             });
             (placements, map)
         }
@@ -236,6 +266,7 @@ fn gather(
             (Placements::default(), None)
         }
     };
+    let (map, map_land) = map.map_or((None, None), |(m, l)| (Some(m), l));
     let mut server = ServerContent::default();
     if let Some(path) = &database {
         match std::fs::read(path) {
@@ -307,6 +338,7 @@ fn gather(
     Ready {
         placements,
         map,
+        map_land,
         server,
         buildings,
         dungeons,
@@ -324,6 +356,15 @@ const OWN_REACH: f64 = 3.0;
 /// How far from a dungeon's entrance the place the map names it by stands at most, in map units
 /// (100 meters).
 const ENTRANCE_REACH: f64 = 100.0 / 240.0;
+
+/// How a world's own places label models: by their names without their notes ([`Towns::town`]).
+const LABELS: &str = "bare names";
+
+/// A place's name without the note the map writes after it: `Haunted Cave` of `Haunted Cave
+/// (Dungeon, Level 5-10)`.
+fn bare_name(name: &str) -> &str {
+    name.split_once(" (").map_or(name, |(n, _)| n)
+}
 
 /// What names the town a landblock is in: the world's own towns and landmarks, when its import
 /// names them in a places document, else the game's map's notes ([`town_of`]).
@@ -350,7 +391,10 @@ impl Towns {
     pub fn of_document(document: Option<&str>) -> Self {
         let own = document.and_then(|text| match Naming::of(Some(text)) {
             Naming::Own(places) => {
-                let digest = dereth_dat::generations::digest([(0, text.as_bytes())]);
+                // With how its names label models ([`Towns::town`]), so caches labeled
+                // otherwise are not taken.
+                let digest =
+                    dereth_dat::generations::digest([(0, text.as_bytes()), (1, LABELS.as_bytes())]);
                 Some((
                     places,
                     dereth_dat::generations::hex(&digest)[..16].to_owned(),
@@ -381,16 +425,12 @@ impl Towns {
             .map(|p| ((p.ew - ew).powi(2) + (p.ns - ns).powi(2), p))
             .filter(|(d2, _)| *d2 <= ENTRANCE_REACH * ENTRANCE_REACH)
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, p)| {
-                p.name
-                    .split_once(" (")
-                    .map_or(p.name.as_str(), |(n, _)| n)
-                    .to_owned()
-            })
+            .map(|(_, p)| bare_name(&p.name).to_owned())
     }
 
     /// The town or landmark landblock `lb` is in: the world's own nearest its middle, within
-    /// [`OWN_REACH`]; else the notes'.
+    /// [`OWN_REACH`], without the note after its name (`Inner Darkness` of `Inner Darkness
+    /// (Dungeon, Level 18-22)`); else the notes'.
     #[must_use]
     pub fn town(&self, lb: u16) -> Option<String> {
         let Some((places, _)) = &self.own else {
@@ -405,7 +445,7 @@ impl Towns {
             .map(|p| ((p.ew - ew).powi(2) + (p.ns - ns).powi(2), p))
             .filter(|(d2, _)| *d2 <= OWN_REACH * OWN_REACH)
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, p)| p.name.clone())
+            .map(|(_, p)| bare_name(&p.name).to_owned())
     }
 }
 
@@ -458,17 +498,22 @@ mod tests {
     }
 
     /// A world that names its own places labels a landblock with its own town or landmark nearest
-    /// the landblock's middle, never the game's map's, and open country with none; one whose
+    /// the landblock's middle (its name, without the map's note), never the game's map's, and
+    /// open country with none; one whose
     /// document names none, or that has none, has the notes. Its caches are named by its places.
     #[test]
     fn a_world_with_its_own_places_names_its_towns_by_them() {
         let doc = "dereth-places-store\t1\nworld\tElsewhere\n\
 place\ttown\tpublished\t-\tKehan\t0xA9B40012 54.000 46.000 0.000\t0\t0\t-\t-\n\
-place\tlandmark\tpublished\t-\tDrudge Windmill\t0xA9B90031 150.000 10.000 0.000\t0\t0\t-\t-\n";
+place\tlandmark\tpublished\t-\tDrudge Windmill (Point of Interest)\t0xA9B90031 150.000 10.000 0.000\t0\t0\t-\t-\n";
         let own = Towns::of_document(Some(doc));
         assert_eq!(own.town(0xA9B4).as_deref(), Some("Kehan"), "not Holtburg");
         assert_eq!(own.town(0xAAB5).as_deref(), Some("Kehan"));
-        assert_eq!(own.town(0xA9B9).as_deref(), Some("Drudge Windmill"));
+        assert_eq!(
+            own.town(0xA9B9).as_deref(),
+            Some("Drudge Windmill"),
+            "without its note"
+        );
         assert_eq!(own.town(0x7D64), None, "not Yaraq");
         let key = own.key().expect("named by its places").to_owned();
         assert_eq!(key.len(), 16);

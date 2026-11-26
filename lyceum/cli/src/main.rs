@@ -12,6 +12,8 @@
 //! ```text
 //! lyceum new <folder> [--empty] [--era eor|infiltration]   a new world, from the sample or
 //!                                               empty, built on that era's files
+//! lyceum new <folder> --era newdereth --on <overlay>   a New Dereth world on its land, its
+//!                                               calendar starting this month
 //! lyceum build <world.toml> --dats <dir> [--ac2-dats <dir>] [--out <dir>] [--after <overlay>] [--check]
 //! lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>]
 //!                 [--schema <json>]
@@ -28,6 +30,8 @@
 //! lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
 //!               [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>]
 //!               [--gdle-quests <quests.json>]   GDLE's quests.json, the world's merged into it
+//!               [--on <overlay>]   a world repository, for Empyrean alone, is written as
+//!                                  publish writes it, over its land
 //! lyceum import --base <dir> --world <dir> --out <dir> --world-key <key>
 //!               [--iterations revision|world] [--verify]
 //! lyceum facts <world.toml>                     what the world changes, counted, as one line
@@ -81,7 +85,7 @@ use lyceum_foundry::{
 };
 
 const USAGE: &str = "\
-lyceum new <folder> [--empty] [--era eor|infiltration] [--spacing 24|12|8 | --on <overlay>]
+lyceum new <folder> [--empty] [--era eor|infiltration|newdereth] [--spacing 24|12|8 | --on <overlay>]
 lyceum upgrade <world.toml> [--check]
 lyceum build <world.toml> --dats <dir> [--ac2-dats <dir>] [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>] [--schema <json>]
@@ -89,7 +93,7 @@ lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies 
 lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--on <overlay>] [--schema <json> | --empyrean <dir>] [--dry-run]
 lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
-lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
+lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>] [--on <overlay>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
 lyceum rows <world.toml> --schema <json> [--layer <id>] [--item <item>] [--as-sql]
@@ -1176,6 +1180,7 @@ fn run_export(args: &Args) -> ExitCode {
         "world-sql",
         "empyrean",
         "gdle-quests",
+        "on",
     ]) {
         return usage(&why);
     }
@@ -1194,15 +1199,33 @@ fn run_export(args: &Args) -> ExitCode {
     if gdle_quests.is_some() && target != export::Target::Gdle {
         return usage("--gdle-quests is for --for gdle");
     }
-    // The era of the world's files, unless the command line names one.
-    let era = match args.value("era").map(export::Era::parse) {
-        None => match lyceum_foundry::world::World::read(Path::new(world)) {
-            Ok(w) => export::Era::of(w.era),
-            Err(e) => return fail(&e),
-        },
-        Some(Some(era)) => era,
+    // The era of the world's files, unless the command line names one. A world repository's
+    // files are the end of retail's, which its land is built over.
+    let repository = lyceum_foundry::repo_world::is_repository(Path::new(world));
+    let named = match args.value("era").map(export::Era::parse) {
+        None => None,
+        Some(Some(era)) => Some(era),
         Some(None) => return usage("--era is launch, infiltration or eor"),
     };
+    // A plain world's file, for its era and rules: one the command line names an era for is read
+    // only for its rules, and the export says why it doesn't read.
+    let plain = match (repository, named) {
+        (true, _) => None,
+        (false, None) => match lyceum_foundry::world::World::read(Path::new(world)) {
+            Ok(w) => Some(w),
+            Err(e) => return fail(&e),
+        },
+        (false, Some(_)) => lyceum_foundry::world::World::read(Path::new(world)).ok(),
+    };
+    let era = named.unwrap_or_else(|| {
+        plain
+            .as_ref()
+            .map_or(export::Era::Eor, |w| export::Era::of(w.era))
+    });
+    // The rules a plain world plays, when another era's than its database's (New Dereth's).
+    let rules = plain
+        .as_ref()
+        .and_then(|w| export::Rules::of(w.era, w.starts_at.as_deref()));
     let named = args.path("empyrean");
     let program = import_program(named.as_deref());
     if named.is_some() && program.is_none() {
@@ -1217,8 +1240,10 @@ fn run_export(args: &Args) -> ExitCode {
         world_sql: world_sql.as_deref(),
         importer: importer.as_ref().map(|i| i as &dyn export::Importer),
         gdle_quests: gdle_quests.as_deref(),
+        rules,
     };
-    match export::export(Path::new(world), &dats, &opts) {
+    let land = args.path("on");
+    match export::export_on(Path::new(world), &dats, land.as_deref(), &opts) {
         Ok(done) => {
             for w in &done.warnings {
                 println!("warning: {w}");
@@ -1466,8 +1491,11 @@ fn main() -> ExitCode {
             let era = match args.value("era").map(lyceum_foundry::world::EraId::parse) {
                 None => lyceum_foundry::world::EraId::Eor,
                 Some(Some(era)) => era,
-                Some(None) => return usage("--era is eor or infiltration"),
+                Some(None) => return usage("--era is eor, infiltration or newdereth"),
             };
+            if era == lyceum_foundry::world::EraId::NewDereth && args.value("on").is_none() {
+                return usage("a New Dereth world starts on its land: --on <its overlay folder>");
+            }
             let spacing = match args.value("spacing").map(str::parse::<u32>) {
                 None => 24,
                 Some(Ok(m)) if lyceum_foundry::world::land_steps(m).is_some() => m,

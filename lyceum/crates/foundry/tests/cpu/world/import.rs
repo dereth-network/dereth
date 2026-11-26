@@ -232,6 +232,7 @@ fn an_export_over_a_world_that_places_its_own_things_carries_the_packs_spawns_as
             world_sql: Some(&dump),
             importer: Some(&Tool),
             gdle_quests: None,
+            rules: None,
         },
     )
     .unwrap();

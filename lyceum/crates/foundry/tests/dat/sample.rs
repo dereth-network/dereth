@@ -205,6 +205,7 @@ fn the_sample_world_exported_for_ace_is_baked_files_and_aces_content_folder() {
         world_sql: None,
         importer: None,
         gdle_quests: None,
+        rules: None,
     };
     let done = export::export(&world, &dats, &opts).unwrap();
     assert_eq!(done.out, out);
@@ -261,6 +262,7 @@ fn the_sample_world_exported_for_gdle_is_baked_files_and_gdles_folders() {
         world_sql: Some(&dump),
         importer: Some(&tool),
         gdle_quests: None,
+        rules: None,
     };
     export::export(&world, &dats, &opts).unwrap();
     let readme = std::fs::read_to_string(out.join("README.txt")).unwrap();

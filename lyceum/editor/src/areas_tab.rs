@@ -2,6 +2,10 @@
 //! each with its places and the heritages that offer it, changed as the pack being edited's
 //! `[[starter-area]]` rows ([`lyceum_foundry::starter_areas`]), in its `records/chargen.toml`.
 //!
+//! A world repository that starts its characters at its own `Start:` points (the server's
+//! `start = "world"`) is shown so: each area says the point a character who chooses it starts at
+//! ([`lyceum_foundry::repo_world::start_for`]), read when the tab is opened.
+//!
 //! A place is added where the camera is, standing on the floor of the cell it is in or on the
 //! ground; a spot with no floor under it, off the land or under the ground is refused. A new area
 //! is offered to every heritage until it names its own.
@@ -22,6 +26,8 @@ use super::{EditorApp, Tab};
 pub struct AreasView {
     /// A new area's name, being typed.
     pub new_name: String,
+    /// A world repository's own starting areas, as last read.
+    pub starts: Option<Vec<lyceum_foundry::repo_world::WorldStart>>,
 }
 
 /// A change of one area.
@@ -43,6 +49,8 @@ impl EditorApp {
     /// Show the Starting Areas tab: where it is, else floating over the world view.
     pub fn open_areas(&mut self) {
         self.bring_back(Tab::Areas);
+        // Read again, as the repository's points may have changed since.
+        self.areas.starts = None;
         let world = self.world_rect.unwrap_or(egui::Rect::from_min_size(
             egui::pos2(0.0, 0.0),
             egui::vec2(1400.0, 900.0),
@@ -211,6 +219,24 @@ impl EditorApp {
         let text = self.session.rows_text(&file);
         let pack = self.session.packs()[self.session.target()].name.clone();
         ui.label(t.fill("areas.head", &[("pack", &pack)]));
+        // A repository's own starts, which its server puts characters at.
+        if self.areas.starts.is_none() {
+            self.areas.starts = Some(
+                self.rows
+                    .repo
+                    .as_ref()
+                    .filter(|_| self.session.mirror().is_some())
+                    .map(lyceum_foundry::repo_world::world_starts)
+                    .unwrap_or_default(),
+            );
+        }
+        let starts = self.areas.starts.clone().unwrap_or_default();
+        if let Some(first) = starts.first() {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                t.fill("areas.world_starts", &[("first", &first.area)]),
+            );
+        }
         let mut change: Option<(String, Option<ShownArea>, AreaChange)> = None;
         ui.horizontal(|ui| {
             ui.label(t.get("areas.new"));
@@ -254,6 +280,20 @@ impl EditorApp {
                                 Some((a.name.clone(), Some(a.clone()), AreaChange::Remove(true)));
                         }
                     });
+                    if let Some(s) = lyceum_foundry::repo_world::start_for(&starts, &a.name) {
+                        ui.horizontal(|ui| {
+                            ui.label(t.fill("areas.starts_at", &[("start", &s.area)]));
+                            if let (Some(cell), Some([x, y, z])) = (s.cell, s.at) {
+                                ui.monospace(format!("0x{cell:08X}  {x:.1}, {y:.1}, {z:.1}"));
+                                if ui.small_button(t.get("areas.go")).clicked() {
+                                    let lb = u16::try_from(cell >> 16).unwrap_or(0);
+                                    #[allow(clippy::cast_possible_truncation)] // landblock meters
+                                    let at = Vec3::new(x as f32, y as f32, z as f32);
+                                    self.look_at(lb, at, 12.0, 0.0, -20.0);
+                                }
+                            }
+                        });
+                    }
                     for (i, p) in a.places.iter().enumerate() {
                         let o = p.frame.origin;
                         ui.horizontal(|ui| {

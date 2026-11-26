@@ -24,6 +24,24 @@ use lyceum_foundry::sql_ids::QuestDoes;
 
 use super::{EditorApp, Selection, UiAction};
 
+/// Whether a tab of the server's own rows (its quests, its loot) says its world database is still
+/// being read: the world is no repository, whose rows are all its own and never the server's
+/// database; the database is being fetched or read; and none of those rows has come yet.
+pub(super) fn database_loading(repository: bool, reading: bool, have_rows: bool) -> bool {
+    !repository && reading && !have_rows
+}
+
+impl EditorApp {
+    /// [`database_loading`] for this world, which `have_rows` of the server's rows.
+    pub(super) fn database_loading(&self, have_rows: bool) -> bool {
+        database_loading(
+            self.session.mirror().is_some(),
+            self.catalog.is_some() || self.fetching.is_some(),
+            have_rows,
+        )
+    }
+}
+
 /// A change the Quests tab asks for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuestAction {
@@ -420,7 +438,7 @@ impl EditorApp {
             let r = ui.checkbox(&mut self.quests.packs_only, t.get("quests.this_pack_only"));
             self.quests.buttons.push(("this_pack_only", r.rect));
             ui.weak(t.fill("quests.shown", &[("n", &list.len()), ("all", &all.len())]));
-            if self.session.server_quests().is_empty() {
+            if self.database_loading(!self.session.server_quests().is_empty()) {
                 ui.weak(t.get("quests.server_not_read"));
             }
         });
@@ -850,6 +868,22 @@ mod tests {
     //! Behaviour: none (tooling: the world editor's Quests tab)
     use super::*;
     use lyceum_foundry::sql_ids::{Quest, QuestUse};
+
+    /// The loading line shows only while a plain world's database is read and none of its rows
+    /// has come: never on a world repository, whose rows are its own, and never once reading ends.
+    #[test]
+    fn the_database_is_said_to_load_only_while_a_plain_worlds_is_read() {
+        assert!(database_loading(false, true, false));
+        assert!(
+            !database_loading(true, true, false),
+            "a repository's rows are its own"
+        );
+        assert!(
+            !database_loading(false, false, false),
+            "nothing is being read"
+        );
+        assert!(!database_loading(false, true, true), "its rows came");
+    }
 
     #[test]
     fn a_quests_timing_reads_every_box_seconds_box_times_and_any_is_no_limit() {

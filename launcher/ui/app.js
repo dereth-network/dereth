@@ -1442,6 +1442,7 @@ function makePage() {
     const folder = folderName(d.name);
     const where = d.parent ?? c?.home ?? "";
     const eras = [["eor", "End of Retail"], ["infiltration", "Infiltration"]]
+      .concat(ui.snap.new_dereth ? [["newdereth", "New Dereth"]] : [])
       .map(([v, l]) => `<option value="${v}" ${(d.era ?? "eor") === v ? "selected" : ""}>${l}</option>`).join("");
     pending = `<section class="panel pending"><header><h1>NEW WORLD</h1></header>
       <div class="form">

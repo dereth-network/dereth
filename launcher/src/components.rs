@@ -2180,9 +2180,49 @@ pub fn world_folder_name(name: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// The `lyceum` arguments that make a new world in `dir`, from the sample or `empty`, built on the
+/// files of `era` (`eor`, the default, or `infiltration`), or for `newdereth` a New Dereth world,
+/// its era's rules and a calendar of its own, started on the Library's New Dereth data set, its
+/// folder of data files `land` (the end of retail's files under it).
+///
+/// # Errors
+/// Another era, or New Dereth with no data set built.
+fn new_world_args(
+    dir: &Path,
+    empty: bool,
+    era: Option<&str>,
+    land: Option<&Path>,
+) -> Result<Vec<std::ffi::OsString>, String> {
+    let mut args: Vec<std::ffi::OsString> = vec!["new".into(), dir.into()];
+    match era {
+        None | Some("eor") => {}
+        Some("infiltration") => args.extend(["--era".into(), "infiltration".into()]),
+        Some("newdereth") => {
+            let land = land.ok_or(crate::host_config::NO_DATA_SET)?;
+            args.extend([
+                "--era".into(),
+                "newdereth".into(),
+                "--on".into(),
+                land.into(),
+            ]);
+            return Ok(args);
+        }
+        Some(_) => {
+            return Err(
+                "A world is built on the end-of-retail, Infiltration or New Dereth files.".into(),
+            )
+        }
+    }
+    if empty {
+        args.push("--empty".into());
+    }
+    Ok(args)
+}
+
 /// Make a new Lyceum world called `name` in `parent` (Lyceum's folder in Documents unless the
 /// person chose another), from the sample or `empty`, built on the files of `era` (`eor`, the
-/// default, or `infiltration`), and open the editor on it. A Lyceum whose `lyceum` command cannot
+/// default, or `infiltration`), or on the Library's New Dereth data set (`newdereth`), and open
+/// the editor on it. A Lyceum whose `lyceum` command cannot
 /// make worlds yet opens its own start screen instead, which can.
 // A command is given each piece of the launcher's state it reads, one argument each.
 #[allow(clippy::too_many_arguments)]
@@ -2197,11 +2237,18 @@ pub async fn new_lyceum_world(
     dats: Option<PathBuf>,
     classic: Option<PathBuf>,
 ) -> Result<(), String> {
-    let era = era.filter(|e| e != "eor");
-    if era.as_deref().is_some_and(|e| e != "infiltration") {
-        return Err("A world is built on the end-of-retail or the Infiltration files.".into());
-    }
+    let land = if era.as_deref() == Some("newdereth") {
+        let b = crate::backend::lock(&backend);
+        if !b.offers_new_dereth() {
+            return Err(crate::backend::NEW_DERETH_HIDDEN.into());
+        }
+        b.newdereth_overlay()
+    } else {
+        None
+    };
     let folder = world_folder_name(&name).ok_or("Give the world a name with letters or digits.")?;
+    // Refused before anything is made.
+    new_world_args(Path::new(&folder), empty, era.as_deref(), land.as_deref())?;
     let (lyceum, parent) = {
         let mut store = lock(&shared);
         let lyceum = lyceum_command(&store)?;
@@ -2220,13 +2267,12 @@ pub async fn new_lyceum_world(
     let output = tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         let mut cmd = command(&lyceum);
-        cmd.arg("new").arg(&dir);
-        if empty {
-            cmd.arg("--empty");
-        }
-        if let Some(era) = &era {
-            cmd.arg("--era").arg(era);
-        }
+        cmd.args(new_world_args(
+            &dir,
+            empty,
+            era.as_deref(),
+            land.as_deref(),
+        )?);
         cmd.output().map_err(|e| e.to_string())
     })
     .await
@@ -2653,6 +2699,16 @@ pub async fn export_lyceum_world(
     if !world.is_file() {
         return Err("That world is no longer there.".into());
     }
+    // A world repository is exported over the land Lyceum opened it on.
+    let land = if crate::lyceum_world::is_repository(&world)
+        && crate::lyceum_world::needs_land(&world)
+    {
+        Some(repository_land(&world_file(&world)).ok_or(
+            "Open the world in Lyceum first: it asks for the land the world is built over, which the export builds on.",
+        )?)
+    } else {
+        None
+    };
     let infiltration = crate::lyceum_world::header(&world).era == "infiltration";
     let game = if infiltration {
         classic.ok_or("Infiltration needs the 2005 game files. Add them in the Library.")?
@@ -2709,6 +2765,9 @@ pub async fn export_lyceum_world(
             .arg(&to);
         if let Some(dir) = importer {
             cmd.arg("--empyrean").arg(dir);
+        }
+        if let Some(land) = land {
+            cmd.arg("--on").arg(land);
         }
         let output = cmd.output().map_err(|e| e.to_string())?;
         if output.status.success() {
@@ -3936,6 +3995,46 @@ mod tests {
     }
 
     /// Lyceum's page offers New Dereth's world to fetch only while the launcher offers New Dereth.
+    /// A new world on New Dereth plays New Dereth's era, started on the Library's data set with the
+    /// end of retail's files under it; with no set built it is refused, saying to build one. The other eras are
+    /// built on their own files.
+    #[test]
+    fn a_new_new_dereth_world_starts_on_the_librarys_data_set() {
+        let (dir, land) = (
+            Path::new("worlds/mine"),
+            Path::new("library/newdereth/overlay"),
+        );
+        let words = |a: Vec<std::ffi::OsString>| -> Vec<String> {
+            a.iter()
+                .map(|s| s.to_string_lossy().replace('\\', "/"))
+                .collect()
+        };
+        assert_eq!(
+            words(new_world_args(dir, true, Some("newdereth"), Some(land)).unwrap()),
+            [
+                "new",
+                "worlds/mine",
+                "--era",
+                "newdereth",
+                "--on",
+                "library/newdereth/overlay"
+            ]
+        );
+        assert_eq!(
+            new_world_args(dir, true, Some("newdereth"), None),
+            Err(crate::host_config::NO_DATA_SET.to_owned())
+        );
+        assert_eq!(
+            words(new_world_args(dir, true, Some("infiltration"), None).unwrap()),
+            ["new", "worlds/mine", "--era", "infiltration", "--empty"]
+        );
+        assert_eq!(
+            words(new_world_args(dir, true, Some("eor"), Some(land)).unwrap()),
+            ["new", "worlds/mine", "--empty"]
+        );
+        assert!(new_world_args(dir, true, Some("launch"), None).is_err());
+    }
+
     #[test]
     fn lyceums_page_offers_new_dereths_world_only_while_new_dereth_is_offered() {
         let temp = tempfile::tempdir().unwrap();

@@ -28,6 +28,10 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Worlds started from another tool's world keep their packs' spawns, in exports and in Play.
 - Buildings and houses dropped in a world repository now keep their doors and house objects.
 - New Dereth's dungeons are named, drawn in the grid, filtered by game, and pulled by name.
+- Fixed Export For on a world repository such as New Dereth: it exports for Empyrean.
+- New World data menu opens Rows, Rules, Starting Areas and Tables.
+- New "New Dereth only" filter for models and weenies.
+- The map is cropped to the world's land, as in game.
 
 ## 0.2.8 (2026-11-23)
 

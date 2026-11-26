@@ -316,12 +316,18 @@ impl EditorApp {
             return Err(self.say("messages.database_needed"));
         }
         let base = self.session.base();
-        let setup = self.live_args.setup(
+        let mut setup = self.live_args.setup(
             (&base.dir, base.era),
             &self.core.cfg.dat_dir,
             self.server_sql.as_deref(),
             repo,
         )?;
+        // A world of an era whose calendar runs from its launch says when that is.
+        if setup.launched_at.is_none() {
+            setup
+                .launched_at
+                .clone_from(&self.session.world().starts_at);
+        }
         tracing::info!("starting the editor's world in {}", setup.dir.display());
         // A world built from a repository holds its layer's items as saved already.
         let built = self.session.mirror_saved();
@@ -445,7 +451,8 @@ impl EditorApp {
     }
 
     /// Write the world as the editor holds it out for `target`, into the build's
-    /// `export/<target>` folder, off the frame loop (or waited for: `wait`, a script's).
+    /// `export/<target>` folder, off the frame loop (or waited for: `wait`, a script's). A world
+    /// repository is written from its files as it is served, over its land.
     ///
     /// # Errors
     /// No import tool where the server needs one, an overlay that would not write, or (waited
@@ -462,45 +469,70 @@ impl EditorApp {
         }
         let world = self.session.world();
         let out = world.out.join("export").join(target.word());
-        let key = world.key.clone();
-        let staging = std::env::temp_dir().join(format!(
-            "lyceum-export-{}-{}",
-            std::process::id(),
-            target.word()
-        ));
-        lyceum_foundry::compile::write_overlay_numbered(
-            self.session.compiled(),
-            self.session.base(),
-            world,
-            &staging,
-            Some(&out.join("overlay")),
-        )
-        .map_err(|e| e.to_string())?;
-        let sql = self.session.compiled().sql.clone();
         let dats = self.session.base().dir.clone();
-        let world_sql = self.server_sql.clone();
-        let gdle_quests = Some(self.gdle_quests.trim())
-            .filter(|q| target == lyceum_foundry::export::Target::Gdle && !q.is_empty())
-            .map(std::path::PathBuf::from);
-        let era = Era::of(world.era);
+        let job: Box<dyn FnOnce() -> Result<String, String> + Send> =
+            if lyceum_foundry::repo_world::is_repository(&world.path) {
+                let (path, land) = (world.path.clone(), world.imports.first().cloned());
+                Box::new(move || {
+                    let importer = import.map(ImportProgram);
+                    let opts = Options {
+                        target,
+                        out: &out,
+                        era: Era::Eor,
+                        world_sql: None,
+                        importer: importer.as_ref().map(|i| i as &dyn Importer),
+                        gdle_quests: None,
+                        rules: None,
+                    };
+                    export::export_on(&path, &dats, land.as_deref(), &opts)
+                        .map(|d| d.out.display().to_string())
+                        .map_err(|e| e.to_string())
+                })
+            } else {
+                let key = world.key.clone();
+                let staging = std::env::temp_dir().join(format!(
+                    "lyceum-export-{}-{}",
+                    std::process::id(),
+                    target.word()
+                ));
+                lyceum_foundry::compile::write_overlay_numbered(
+                    self.session.compiled(),
+                    self.session.base(),
+                    world,
+                    &staging,
+                    Some(&out.join("overlay")),
+                )
+                .map_err(|e| e.to_string())?;
+                let sql = self.session.compiled().sql.clone();
+                let world_sql = self.server_sql.clone();
+                let gdle_quests = Some(self.gdle_quests.trim())
+                    .filter(|q| target == export::Target::Gdle && !q.is_empty())
+                    .map(std::path::PathBuf::from);
+                let era = Era::of(world.era);
+                let (rules_era, starts_at) = (world.era, world.starts_at.clone());
+                Box::new(move || {
+                    let importer = import.map(ImportProgram);
+                    let opts = Options {
+                        target,
+                        out: &out,
+                        era,
+                        world_sql: world_sql.as_deref(),
+                        importer: importer.as_ref().map(|i| i as &dyn Importer),
+                        gdle_quests: gdle_quests.as_deref(),
+                        rules: export::Rules::of(rules_era, starts_at.as_deref()),
+                    };
+                    let done = export::export_compiled(&staging, &sql, &key, &dats, &opts)
+                        .map(|d| d.out.display().to_string())
+                        .map_err(|e| e.to_string());
+                    let _ = std::fs::remove_dir_all(&staging);
+                    done
+                })
+            };
         self.panels.message =
             self.say_with("messages.export_writing", &[("target", &target.name())]);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let importer = import.map(ImportProgram);
-            let opts = Options {
-                target,
-                out: &out,
-                era,
-                world_sql: world_sql.as_deref(),
-                importer: importer.as_ref().map(|i| i as &dyn Importer),
-                gdle_quests: gdle_quests.as_deref(),
-            };
-            let done = export::export_compiled(&staging, &sql, &key, &dats, &opts)
-                .map(|d| d.out.display().to_string())
-                .map_err(|e| e.to_string());
-            let _ = std::fs::remove_dir_all(&staging);
-            let _ = tx.send(done);
+            let _ = tx.send(job());
         });
         self.export = Some((target, rx));
         if wait {

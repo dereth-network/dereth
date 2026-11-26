@@ -197,7 +197,7 @@ fn sha256(path: &Path) -> Result<String, Error> {
 }
 
 /// The README's first line, which marks a folder as a publish's: one it may write over.
-const MARK: &str = "A world repository published for Empyrean by lyceum publish.";
+pub(crate) const MARK: &str = "A world repository published for Empyrean by lyceum publish.";
 
 /// Publish the world repository whose world file is `world_toml` into `out`, over the client's
 /// files in `dats`, as `p` says.

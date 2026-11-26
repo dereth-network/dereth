@@ -504,6 +504,7 @@ fn a_link_reaches_each_server_the_world_is_exported_for_by_its_numbers() {
                 world_sql: Some(&dump),
                 importer: Some(&tool),
                 gdle_quests: None,
+                rules: None,
             },
         )
         .unwrap();

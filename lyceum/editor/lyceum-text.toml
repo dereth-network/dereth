@@ -49,6 +49,8 @@ modern = "Modern"
 classic = "Classic"
 settings = "Settings"
 walk_mode = "Walk Mode"
+world_data = "World data"
+world_data_tip = "Rows, rules, starting areas and tables."
 
 [status]
 grid = "Landscape Grid"
@@ -77,6 +79,8 @@ class = "wcid {id}"
 from_pack = "lyceum"
 from_server = "world base"
 new = "New..."
+own_only = "New Dereth only"
+own_only_tip = "Only the world's own weenies, not the library's."
 
 [models]
 recent = "Recent"
@@ -97,6 +101,8 @@ naming = "Loading..."
 unused = "Unknown model"
 tag_hint = "new tag"
 tag_add = "Add"
+own_only = "New Dereth only"
+own_only_tip = "Only the models the land and the world's packs make."
 
 [place]
 placed_n = "Placed {n} times in the world"
@@ -153,6 +159,7 @@ scene_nothing = "Scene {n}: nothing grows on {terrain}"
 [map]
 drawing = "Loading..."
 tip = "Left Click: Teleport\nMousewheel: Zoom"
+crop = "Crop to land"
 
 [inspector]
 cell_static_title = "Static {n} in {cell} @ {landblock}"
@@ -1667,6 +1674,8 @@ last_place = "An area keeps one place at least: take the area out instead."
 no_floor = "There is no floor under the camera in this cell."
 off_land = "There is no land under the camera."
 under_ground = "The camera is under the ground."
+world_starts = "Characters start at this world's Start points: the area's own, else Start: {first}."
+starts_at = "Starts at Start: {start}"
 
 [tables]
 head = "The game's tables. Changes go into {pack}."

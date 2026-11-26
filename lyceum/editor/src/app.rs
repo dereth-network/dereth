@@ -241,6 +241,29 @@ fn imported_store(
 
 /// Every model the world holds, by id: the base files' and those its imports and packs add (a
 /// converted land's buildings and statics), each once.
+/// The models the world's imports (a converted land) make: the setups and parts their portal
+/// overlays hold.
+fn import_models(imports: &[PathBuf]) -> BTreeSet<u32> {
+    imports
+        .iter()
+        .filter_map(|i| dereth_dat::overlay::OverlayDir::new(i).ok())
+        .filter_map(|o| o.open(dereth_dat::ModernDat::Portal).ok())
+        .flat_map(|f| f.iter_ids().map(DataId::raw).collect::<Vec<_>>())
+        .filter(|id| matches!(id >> 24, 0x01 | 0x02))
+        .collect()
+}
+
+/// Whether weenie `w` (a pack's: `pack`) is the world's own rather than its library's: on a world
+/// repository that numbers its own classes (`classes`), a class among them or a pack's named
+/// weenie; elsewhere, a pack's.
+#[must_use]
+pub fn own_weenie(w: &Weenie, pack: bool, classes: Option<(u32, u32)>) -> bool {
+    match (w, classes) {
+        (Weenie::Class(c), Some((first, last))) => (first..=last).contains(c),
+        _ => pack,
+    }
+}
+
 fn world_models(session: &Session) -> Vec<DataId> {
     let model = |id: &DataId| matches!(id.raw() >> 24, 0x01 | 0x02);
     let mut all: BTreeSet<DataId> = session.base().portal.iter_ids().filter(model).collect();
@@ -389,6 +412,10 @@ pub struct Panels {
     /// one, and the tag being typed.
     pub kinds: BTreeSet<Category>,
     pub tag: Option<String>,
+    /// Whether the model browser and the spawn browser show only the world's own: the models
+    /// its land and packs make, and its own weenies, not the library's.
+    pub own_models: bool,
+    pub own_weenies: bool,
     pub new_tag: String,
     /// The terrain whose scenes the scene brush lists: the one under the brush, last it was
     /// over the world.
@@ -398,6 +425,9 @@ pub struct Panels {
     pub map_zoom: f32,
     pub map_min_zoom: f32,
     pub show_grid: bool,
+    /// Whether the map frames the world's land as the game's own map does, when the land does not
+    /// fill it.
+    pub map_crop: bool,
     pub show_bounds: bool,
     pub show_hints: bool,
     pub shelf: crate::browser_state::Shelf,
@@ -637,6 +667,8 @@ pub struct EditorApp {
     /// The model the place tool places.
     pub model: Option<DataId>,
     all_models: Vec<DataId>,
+    /// The models the world's imports make ([`import_models`]).
+    import_models: BTreeSet<u32>,
     /// How many of them each category holds, as the model names last said.
     model_counts: BTreeMap<Category, usize>,
     /// What each model is called, for the browser.
@@ -646,6 +678,8 @@ pub struct EditorApp {
     /// The world from above, once drawn, with every edit in it (its texture is among the
     /// pictures); where the map tab drew it last, and the part of it (in map pixels) it showed.
     pub world_map: Option<lyceum_foundry::map::WorldMap>,
+    /// Where on the map the world's land lies, when it has land.
+    pub map_land: Option<lyceum_foundry::map::LandBounds>,
     pub map_rect: Option<egui::Rect>,
     /// The map tab's whole panel, the map drawn in its middle.
     pub map_panel: Option<egui::Rect>,
@@ -674,6 +708,8 @@ pub struct EditorApp {
     pub settings_button: Option<egui::Rect>,
     /// Whether the settings menu was open at the last pass: its button is lit only then.
     pub settings_open: bool,
+    /// The World data menu's button, as laid out last.
+    pub world_data_button: Option<egui::Rect>,
     /// The history's place and the clock when the world was last saved.
     pub saved: Option<(usize, f64)>,
     /// Every message the status bar has shown, the newest last, and the last one logged.
@@ -1079,6 +1115,7 @@ impl EditorApp {
                 FlyCamera::from_free(&w.camera, block, 3)
             });
         let all_models = world_models(&session);
+        let import_models = import_models(&session.world().imports);
         let thumbs_root = args
             .thumbnails
             .clone()
@@ -1155,10 +1192,12 @@ impl EditorApp {
             models: Models::default(),
             model: None,
             all_models,
+            import_models,
             names: ModelNames::default(),
             model_counts: BTreeMap::new(),
             placements: None,
             world_map: None,
+            map_land: None,
             map_rect: None,
             map_panel: None,
             map_view: egui::Rect::NOTHING,
@@ -1176,6 +1215,7 @@ impl EditorApp {
             settings_button: None,
             play_menu_button: None,
             settings_open: false,
+            world_data_button: None,
             saved: None,
             log: Vec::new(),
             log_last: String::new(),
@@ -1246,11 +1286,14 @@ impl EditorApp {
                 message: browser_problem,
                 kinds: BTreeSet::new(),
                 tag: None,
+                own_models: false,
+                own_weenies: false,
                 new_tag: String::new(),
                 scene_terrain: 1,
                 map_zoom: 1.0,
                 map_min_zoom: 1.0,
                 show_grid: false,
+                map_crop: true,
                 show_bounds: true,
                 show_hints: true,
                 shelf: crate::browser_state::Shelf::All,
@@ -2467,6 +2510,16 @@ impl EditorApp {
             UiAction::DungeonLook(lb, of) => self.choose_dungeon_look(lb, of),
             UiAction::OpenCharacters => {
                 self.open_characters();
+                Ok(())
+            }
+            UiAction::OpenTab(tab) => {
+                match tab {
+                    Tab::Rows => self.open_rows(),
+                    Tab::Rules => self.open_rules(),
+                    Tab::Areas => self.open_areas(),
+                    Tab::Tables => self.open_tables(),
+                    _ => {}
+                }
                 Ok(())
             }
             UiAction::ChooseRecipe(name) => self.characters.select(&name),
@@ -4103,6 +4156,7 @@ impl EditorApp {
                     .filter(|m| !near.contains(m)),
             )
             .filter(|m| self.in_shelf(*m))
+            .filter(|m| !self.panels.own_models || self.own_model(*m))
             .filter(|m| self.names.matches_lower(*m, &f, self.tags.of(*m)))
             .collect();
         self.shelve(&mut list);
@@ -4241,6 +4295,24 @@ impl EditorApp {
         self.weenies = out;
     }
 
+    /// Whether model `m` is the world's own: its land's, or a pack's.
+    #[must_use]
+    pub fn own_model(&self, m: DataId) -> bool {
+        self.import_models.contains(&m.raw())
+            || self
+                .session
+                .compiled()
+                .records
+                .get(&dereth_dat::ModernDat::Portal)
+                .is_some_and(|r| r.contains_key(&m.raw()))
+    }
+
+    /// Whether the browsers offer to show only the world's own: on a world over a land.
+    #[must_use]
+    pub fn offers_own_only(&self) -> bool {
+        !self.session.world().imports.is_empty()
+    }
+
     /// Weenie `w` as the spawn tool lists it.
     #[must_use]
     pub fn weenie_entry(&self, w: &Weenie) -> Option<&WeenieEntry> {
@@ -4256,6 +4328,14 @@ impl EditorApp {
             .iter()
             .enumerate()
             .filter(|(_, w)| self.panels.weenie_category.is_none_or(|c| w.category == c))
+            .filter(|(_, w)| {
+                !self.panels.own_weenies
+                    || own_weenie(
+                        &w.weenie,
+                        w.pack,
+                        self.session.mirror().and_then(|m| m.classes),
+                    )
+            })
             .filter(|(_, w)| w.matches(&f))
             .map(|(i, _)| i)
             .collect()
@@ -4337,6 +4417,7 @@ impl EditorApp {
             .collect();
             map.redraw(&self.session, edited, &self.terrain_colors);
             self.world_map = Some(map);
+            self.map_land = ready.map_land;
             self.pictures.0.remove(&MAP_PICTURE);
         }
         if learned {
@@ -5193,6 +5274,8 @@ enum UiAction {
     /// The Characters tab shown; a recipe selected, made new, deleted, changed; a character on
     /// the server the builder said to replace.
     OpenCharacters,
+    /// A tab of the world's data shown: Rows, Rules, Starting Areas or Tables.
+    OpenTab(Tab),
     ChooseRecipe(String),
     NewRecipe(String),
     DeleteRecipe(String),
@@ -5428,6 +5511,31 @@ mod tests {
 
     fn key(guid: &str) -> (PathBuf, String) {
         (PathBuf::from("landblock/0101.toml"), guid.to_owned())
+    }
+
+    /// On a world repository that numbers its own classes, its own weenies are those classes and
+    /// its packs' named ones, not the library's classes its packs carry; elsewhere, the packs'.
+    #[test]
+    fn a_worlds_own_weenies_are_its_own_classes_not_its_librarys() {
+        let own = Some((2_000_000, 2_999_999));
+        assert!(own_weenie(&Weenie::Class(2_400_000), true, own));
+        assert!(
+            !own_weenie(&Weenie::Class(2082), true, own),
+            "the library's"
+        );
+        assert!(own_weenie(
+            &Weenie::Symbol("emergence:guard".into()),
+            true,
+            own
+        ));
+        assert!(
+            own_weenie(&Weenie::Class(2082), true, None),
+            "a pack's copy"
+        );
+        assert!(
+            !own_weenie(&Weenie::Class(2082), false, None),
+            "the server's"
+        );
     }
 
     /// A spawn a world repository's rows bring, one whose setup is learned or changed, and one

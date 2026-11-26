@@ -779,6 +779,7 @@ fn files_world() -> crate::world::World {
         base: None,
         lineage: Vec::new(),
         land_steps: None,
+        starts_at: None,
     }
 }
 

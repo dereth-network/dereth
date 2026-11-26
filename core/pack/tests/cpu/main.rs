@@ -446,6 +446,26 @@ prov = { from = \"authored\", note = \"gone\" }\n",
     assert!(e.contains("not a landblock"), "{e}");
 }
 
+/// A world says when its calendar starts, a moment in UTC, or nothing; anything else is refused.
+#[test]
+fn a_world_says_when_its_calendar_starts_as_a_moment_in_utc() {
+    let w = |calendar: &str| world(&format!("key = \"w\"\ngame = \"toy\"\n{calendar}"));
+    assert_eq!(w("").unwrap().starts_at, None);
+    assert_eq!(
+        w("[calendar]\nstarts_at = \"2026-12-01T00:00:00Z\"\n")
+            .unwrap()
+            .starts_at
+            .as_deref(),
+        Some("2026-12-01T00:00:00Z")
+    );
+    for bad in ["2026-12-01", "2026-12-01 00:00:00", "next month"] {
+        let e = w(&format!("[calendar]\nstarts_at = \"{bad}\"\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("moment in UTC"), "{bad}: {e}");
+    }
+}
+
 #[test]
 fn a_world_sets_its_land_spacing_only_in_a_game_that_lets_it_and_only_to_a_whole_cut_of_a_cell() {
     assert_eq!(

@@ -381,6 +381,8 @@ impl EditorApp {
                     }
                     self.settings_menu(ui, out);
                     ui.separator();
+                    self.world_data_menu(ui, out);
+                    ui.separator();
                     let save = tip(
                         tool_button(ui, Icon::Save, false, self.session.unsaved()),
                         t.get("top.save"),
@@ -421,6 +423,36 @@ impl EditorApp {
         draw_icon(ui.painter(), r.rect, Icon::Menu, color);
         self.play_menu_button = Some(r.rect);
         tip(r, t.get("top.play_menu_tip"));
+    }
+
+    /// The world's data, each in its tab: a world repository's rows and rules, and any world's
+    /// starting areas and tables.
+    fn world_data_menu(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        use egui::containers::menu::MenuButton;
+        let t = self.text.table();
+        let shown = crate::docks::world_data(
+            self.rows.repo.is_some(),
+            self.session.mirror().is_some() && self.rows.rules.is_some(),
+        );
+        let (r, _) = MenuButton::from_button(
+            egui::Button::selectable(false, t.get("top.world_data")).min_size(BUTTON),
+        )
+        .ui(ui, |ui| {
+            for tab in shown {
+                let key = match tab {
+                    Tab::Rows => "tabs.rows",
+                    Tab::Rules => "tabs.rules",
+                    Tab::Areas => "tabs.areas",
+                    _ => "tabs.tables",
+                };
+                if ui.button(t.get(key)).clicked() {
+                    out.push(UiAction::OpenTab(tab));
+                    ui.close();
+                }
+            }
+        });
+        self.world_data_button = Some(r.rect);
+        tip(r, t.get("top.world_data_tip"));
     }
 
     /// The settings: the playtest's interface, walking or flying, the key hints, and the panels'
@@ -647,6 +679,10 @@ impl EditorApp {
     fn spawn_browser(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
         search_box(ui, &mut self.panels.weenie_filter, t.get("spawn.search"));
+        if self.offers_own_only() {
+            let r = ui.checkbox(&mut self.panels.own_weenies, t.get("spawn.own_only"));
+            tip(r, t.get("spawn.own_only_tip"));
+        }
         let mut counts: std::collections::BTreeMap<Category, usize> =
             std::collections::BTreeMap::new();
         for w in &self.weenies {
@@ -819,6 +855,10 @@ impl EditorApp {
                             }
                         }
                     });
+            }
+            if self.offers_own_only() {
+                let r = ui.checkbox(&mut self.panels.own_models, t.get("models.own_only"));
+                tip(r, t.get("models.own_only_tip"));
             }
             self.panels.clear_filters = None;
             if !self.panels.kinds.is_empty() || self.panels.tag.is_some() {
@@ -1329,6 +1369,12 @@ impl EditorApp {
             self.map_rect = None;
             return;
         };
+        // The square that frames the world's land, when the land does not fill the map.
+        #[allow(clippy::cast_precision_loss)] // 2,048
+        let framed = self
+            .map_land
+            .map(lyceum_foundry::map::land_frame)
+            .filter(|f| f[2] < lyceum_foundry::map::SIDE as f32);
         ui.horizontal(|ui| {
             if ui.small_button("-").clicked() {
                 out.push(UiAction::MapZoom(0.5));
@@ -1337,14 +1383,21 @@ impl EditorApp {
             if ui.small_button("+").clicked() {
                 out.push(UiAction::MapZoom(2.0));
             }
+            if framed.is_some() {
+                ui.checkbox(&mut self.panels.map_crop, t.get("map.crop"));
+            }
         });
-        // The map at one scale both ways: at zoom 1 the whole world, square, as large as the
-        // panel allows and in its middle; zoomed in, as much as the panel holds about the camera.
+        // The map at one scale both ways: at zoom 1 the whole world (or its land, framed as the
+        // game frames it), square, as large as the panel allows and in its middle; zoomed in, as
+        // much as the panel holds about the camera.
         let avail = ui.available_size();
         let (w, h) = (avail.x.max(64.0), avail.y.max(64.0));
         let (panel, r) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
         #[allow(clippy::cast_precision_loss)] // 2,048
-        let full = lyceum_foundry::map::SIDE as f32;
+        let picture = lyceum_foundry::map::SIDE as f32;
+        let [fx, fy, full] = framed
+            .filter(|_| self.panels.map_crop)
+            .unwrap_or([0.0, 0.0, picture]);
         self.panels.map_min_zoom = 1.0;
         let zoom = self.panels.map_zoom.max(1.0);
         let scale = w.min(h) * zoom / full;
@@ -1355,8 +1408,8 @@ impl EditorApp {
         );
         let cam = self.camera.position;
         let (cx, cy) = lyceum_foundry::map::pixel_of(cam.x, cam.y);
-        let x0 = (cx - span_x / 2.0).clamp(0.0, full - span_x);
-        let y0 = (cy - span_y / 2.0).clamp(0.0, full - span_y);
+        let x0 = (cx - span_x / 2.0).clamp(fx, fx + full - span_x);
+        let y0 = (cy - span_y / 2.0).clamp(fy, fy + full - span_y);
         let view = egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(span_x, span_y));
         self.map_rect = Some(rect);
         self.map_panel = Some(panel);
@@ -1366,8 +1419,8 @@ impl EditorApp {
             tex,
             rect,
             egui::Rect::from_min_max(
-                egui::pos2(x0 / full, y0 / full),
-                egui::pos2((x0 + span_x) / full, (y0 + span_y) / full),
+                egui::pos2(x0 / picture, y0 / picture),
+                egui::pos2((x0 + span_x) / picture, (y0 + span_y) / picture),
             ),
             egui::Color32::WHITE,
         );

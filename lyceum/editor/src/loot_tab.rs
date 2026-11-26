@@ -573,7 +573,7 @@ impl EditorApp {
                 self.loot.buttons.push((format!("show_{key}"), r.rect));
             }
             ui.weak(t.fill("quests.shown", &[("n", &list.len()), ("all", &all.len())]));
-            if self.session.server_treasures().is_empty() {
+            if self.database_loading(!self.session.server_treasures().is_empty()) {
                 ui.weak(t.get("loot.server_not_read"));
             }
         });

@@ -92,14 +92,54 @@ pub fn world_toml(key: &str, pack: &str, sample: bool, era: EraId, spacing: u32)
     )
 }
 
+/// Whether a world of `era` keeps a calendar that runs from its launch, so its world file says when
+/// that is (`[calendar] starts_at`): New Dereth's.
+#[must_use]
+pub fn keeps_calendar(era: EraId) -> bool {
+    era == EraId::NewDereth
+}
+
+/// The first moment of the month `now` falls in, in UTC, as a world's calendar names a moment
+/// (`2026-12-01T00:00:00Z`).
+#[must_use]
+pub fn month_start(now: std::time::SystemTime) -> String {
+    let days = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 86_400);
+    // The civil date of a day count from 1970-01-01 (Howard Hinnant's days-to-civil).
+    let z = i64::try_from(days).unwrap_or(0) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-01T00:00:00Z")
+}
+
 /// A new empty world started on the world an import made: its overlay folder `overlay`, laid under
 /// the world's one pack (`imports`), whose land grid, records and rules the world takes as its own
 /// ([`crate::land`], [`crate::compile::carry_world_files`]). The world's folder names the overlay
-/// relative to itself where it can.
+/// relative to itself where it can. A world of an era whose calendar runs from its launch
+/// ([`keeps_calendar`]) starts its calendar at the first moment of this month.
 ///
 /// # Errors
 /// As [`make`], and a folder that holds no overlay.
 pub fn make_on(dir: &Path, era: EraId, overlay: &Path) -> Result<PathBuf, NotMade> {
+    make_on_at(dir, era, overlay, std::time::SystemTime::now())
+}
+
+/// [`make_on`], made at `now`.
+///
+/// # Errors
+/// As [`make_on`].
+pub fn make_on_at(
+    dir: &Path,
+    era: EraId,
+    overlay: &Path,
+    now: std::time::SystemTime,
+) -> Result<PathBuf, NotMade> {
     let holds = std::fs::read_dir(overlay).is_ok_and(|entries| {
         entries.filter_map(Result::ok).any(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -117,10 +157,18 @@ pub fn make_on(dir: &Path, era: EraId, overlay: &Path) -> Result<PathBuf, NotMad
     let named = relative(dir, overlay).replace('\\', "/");
     let text = format!(
         "# A new world on the world in {named}, with one pack to build it in.\nformat_version = 1\n\
-         key = \"{key}\"\n{}imports = [\"{named}\"]\npacks = [\"{key}\"]\nout = \"build\"\n",
+         key = \"{key}\"\n{}imports = [\"{named}\"]\npacks = [\"{key}\"]\nout = \"build\"\n{}",
         match era {
             EraId::Eor => String::new(),
             other => format!("era = \"{}\"\n", other.name()),
+        },
+        if keeps_calendar(era) {
+            format!(
+                "\n# The calendar's first day is this moment.\n[calendar]\nstarts_at = \"{}\"\n",
+                month_start(now)
+            )
+        } else {
+            String::new()
         }
     );
     std::fs::write(&world, text)
@@ -371,6 +419,39 @@ mod tests {
             "an empty pack, not the sample's Holtburg"
         );
         std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    /// A New Dereth world started on its land plays New Dereth's era, its calendar starting at the
+    /// first moment of the month it was made in; an end-of-retail world keeps no calendar.
+    #[test]
+    fn a_new_dereth_world_on_its_land_starts_its_calendar_the_month_it_is_made() {
+        let parent = scratch("calendar");
+        let overlay = parent.join("land/overlay");
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::write(overlay.join("overlay_cell.dat"), b"").unwrap();
+        // 2026-11-26 07:00:00 UTC.
+        let made = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_795_676_400);
+        let world = make_on_at(&parent.join("nd"), EraId::NewDereth, &overlay, made).unwrap();
+        let read = crate::world::World::read(&world).unwrap();
+        assert_eq!(read.era, EraId::NewDereth);
+        assert_eq!(read.starts_at.as_deref(), Some("2026-11-01T00:00:00Z"));
+        let eor = make_on_at(&parent.join("eor"), EraId::Eor, &overlay, made).unwrap();
+        assert_eq!(crate::world::World::read(&eor).unwrap().starts_at, None);
+        std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    /// A month's first moment is found across years and a leap day.
+    #[test]
+    fn a_months_first_moment_is_its_first_day_at_midnight_utc() {
+        let at = |s: u64| month_start(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s));
+        assert_eq!(at(0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(951_825_600), "2000-02-01T00:00:00Z", "29 February 2000");
+        assert_eq!(
+            at(1_798_761_599),
+            "2026-12-01T00:00:00Z",
+            "31 December 2026, 23:59:59"
+        );
+        assert_eq!(at(1_798_761_600), "2027-01-01T00:00:00Z");
     }
 
     #[test]
