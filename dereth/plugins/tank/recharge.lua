@@ -13,7 +13,9 @@
 --   stamina or mana, other: a kit of that vital, a food of that vital, the spell
 --
 -- Kits, foods and potions are those the Consumables setting names (empty: any the pack holds). A
--- food's vital is the one its spell restores, read from an appraisal (else from its name). Stamina
+-- food's or potion's vital is the one its spell or its boost restores, read from an appraisal (else,
+-- for a food, from its name). A potion (an elixir, a draught, a tincture) is of the misc class, not
+-- the food class: one is looked at when the Consumables name it, or its name names a vital. Stamina
 -- to Health and Mana to Health are weighed against a heal (and the restam or the mana each costs to
 -- get back), as VTank weighs them, and cast when they beat it by StaminaToHealthMultiplier or
 -- ManaToHealthMultiplier. With GoToPeaceModeToUseKits a kit is used in peace mode. After switching to magic stance for a
@@ -117,18 +119,20 @@ local function wand_for(kind, vital)
 end
 R.wand_for = wand_for
 
-local function consumable(name)
-	local list = S.get("Consumables") or ""
-	if not string.find(list, "%S") then
-		return true
-	end
+-- Whether the Consumables setting names `name` itself (an empty one names nothing).
+local function named(name)
 	local want = string.lower(name or "")
-	for part in string.gmatch(list, "[^,]+") do
+	for part in string.gmatch(S.get("Consumables") or "", "[^,]+") do
 		if string.lower(string.match(part, "^%s*(.-)%s*$")) == want then
 			return true
 		end
 	end
 	return false
+end
+
+-- Whether `name` may be used: the Consumables name it, or name nothing.
+local function consumable(name)
+	return not string.find(S.get("Consumables") or "", "%S") or named(name)
 end
 
 R.consumable = consumable
@@ -187,7 +191,12 @@ local function vital_in(text)
 	return nil
 end
 
--- Foods by name: the vital each restores (false: none of the three), from an appraisal.
+-- The int property an appraisal tells a food's or potion's boost by (the vital it raises at once
+-- when eaten or drunk), and the vital each value of it names.
+local BOOSTER = 89
+local BOOSTED = { [2] = "health", [4] = "stamina", [6] = "mana" }
+
+-- Foods and potions by name: the vital each restores (false: none of the three), from an appraisal.
 local food_vitals = {}
 
 local function food_vital(item)
@@ -205,8 +214,12 @@ local function food_vital(item)
 				break
 			end
 		end
+		v = v or BOOSTED[a.ints and a.ints[BOOSTER] or 0]
 	end
-	v = v or vital_in(item.name)
+	-- A potion's name alone is not trusted: only what its appraisal tells.
+	if item.class == "Food" then
+		v = v or vital_in(item.name)
+	end
 	food_vitals[item.name] = v or false
 	return v
 end
@@ -269,10 +282,19 @@ local function kit(vital)
 	return best
 end
 
+-- Whether `it` may be eaten or drunk for a vital: a food, or a potion (of the misc class) the
+-- Consumables name or whose name names a vital.
+local function edible(it)
+	if it.class == "Food" then
+		return true
+	end
+	return it.class == "Misc" and (named(it.name) or vital_in(it.name) ~= nil)
+end
+
 -- The first food or potion that restores `vital`.
 local function food(vital)
 	for _, it in ipairs(game.inventory.items()) do
-		if it.class == "Food" and consumable(it.name) and food_vital(it) == vital then
+		if edible(it) and consumable(it.name) and food_vital(it) == vital then
 			return it
 		end
 	end

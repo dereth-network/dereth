@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Tank: drinks the potions and tinctures you add instead of resting.
 - New Dereth's map shows in the classic interface and fits its window in the modern one.
 - Horizon: shows the date and time.
 - A world can choose the views behind character select.

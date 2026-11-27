@@ -2345,6 +2345,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-tank-drinks-a-stamina-potion-before-resting",
+        says: "A potion (an elixir, a draught, a tincture: of the misc class, its vital told by \
+               its appraisal's boost) the Consumables name, or whose name names a vital, is drunk \
+               for that vital as a food is, before the Tank rests for it; a potion the \
+               Consumables leave out is not.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-POTIONS"),
+        station: "dereth-testkit::cpu::plugins::tank_items::scenario_the_tank_drinks_a_stamina_potion_its_consumables_name_before_resting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-tank-fights-a-monster-in-sight-before-one-behind-a-wall",
         says: "Of two monsters of one priority, the nearer behind a wall that a bolt would hit, \
                the Tank fights the one in a straight line of sight first, as VTank's wall \

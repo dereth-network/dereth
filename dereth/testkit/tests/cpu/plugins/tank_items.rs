@@ -27,6 +27,7 @@ dereth_testkit::scenarios! {
     scenario_the_tank_stacks_partial_stacks_and_crams_its_main_pack_into_its_side_pack => the_tank_stacks_partial_stacks_and_crams_its_main_pack_into_its_side_pack ["plugins.samples.the-tank-stacks-partial-stacks-and-crams-its-main-pack-into-its-side-pack"],
     scenario_the_tank_casts_the_protections_and_banes_its_buff_profiles_name_and_uses_buff_items => the_tank_casts_the_protections_and_banes_its_buff_profiles_name_and_uses_buff_items ["plugins.samples.the-tank-casts-the-protections-and-banes-its-buff-profiles-name-and-uses-buff-items"],
     scenario_the_tank_uses_kits_in_peace_and_keeps_recharging_after_switching => the_tank_uses_kits_in_peace_and_keeps_recharging_after_switching ["plugins.samples.the-tank-uses-kits-in-peace-and-keeps-recharging-after-switching"],
+    scenario_the_tank_drinks_a_stamina_potion_its_consumables_name_before_resting => the_tank_drinks_a_stamina_potion_its_consumables_name_before_resting ["plugins.samples.the-tank-drinks-a-stamina-potion-before-resting"],
 }
 
 /// One rule of a loot profile in VTank's file layout: its name, its action (1 keep, 2 salvage, 3
@@ -884,4 +885,56 @@ fn the_tank_uses_kits_in_peace_and_keeps_recharging_after_switching() {
     note_asserted(
         "plugins.samples.the-tank-uses-kits-in-peace-and-keeps-recharging-after-switching",
     );
+}
+
+/// A stamina potion the player added to the Consumables (a tincture, of the misc class, its vital
+/// told by its appraisal's boost): with stamina low and nothing about, the Tank drinks it rather
+/// than resting; a misc item the Consumables do not name is never drunk.
+fn the_tank_drinks_a_stamina_potion_its_consumables_name_before_resting() {
+    const TINCTURE: u32 = 0x8000_0950;
+    const OTHER: u32 = 0x8000_0951;
+    // The boost an appraisal tells of a potion: the vital it raises (4, stamina), and by how much.
+    let potion = |id: u32, name: &str| ScriptedObject {
+        ints: vec![(89, 4), (90, 60)],
+        stack: Some(5),
+        max_stack: Some(100),
+        ..held(id, name, item_type::MISC)
+    };
+    let mut run = tank_in(
+        PluginRun::new(),
+        &SharedFiles::default(),
+        vec![
+            potion(TINCTURE, "Stamina Tincture"),
+            potion(OTHER, "Stamina Draught"),
+        ],
+    );
+    run.set_vitals((100, 100), (10, 100), (100, 100));
+    for line in [
+        "/tank set EnableNav false",
+        "/tank set EnableBuffing false",
+        "/tank set Consumables Stamina Tincture",
+        "/tank start",
+    ] {
+        run.type_line(line);
+    }
+    run.advance(3.0);
+    assert!(
+        sent_count(&run, &format!("use {TINCTURE:#x}")) >= 1,
+        "the tincture: {:?}: {:#?}",
+        run.sent(),
+        run.console(TANK)
+    );
+    assert_eq!(
+        sent_count(&run, &format!("use {OTHER:#x}")),
+        0,
+        "not what the Consumables leave out: {:?}",
+        run.sent()
+    );
+    assert!(
+        !logged(&run, "resting at"),
+        "drunk, not rested for: {:#?}",
+        run.console(TANK)
+    );
+    no_errors(&run);
+    note_asserted("plugins.samples.the-tank-drinks-a-stamina-potion-before-resting");
 }
