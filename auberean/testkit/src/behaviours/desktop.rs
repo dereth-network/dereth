@@ -1036,6 +1036,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-first-switch-after-a-relog-carries-only-the-session-s-lines",
+        says: "Horizon chosen for the first time after logging out and entering again under the \
+               game's own interface starts from the chat lines of the second session: those \
+               written before the log-off are not carried to it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-RELOG-SWITCH"),
+        station: "auberean-horizon::dat::leaving::horizon_chosen_after_a_relog_is_not_handed_the_first_session_s_lines",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-first-switch-to-the-game-s-own-interface-shows-its-login-s-panels",
         says: "The game's own interface chosen for the first time with the player in the world \
                shows what logging in with it shows: the panels its login shows, the windows the \
@@ -1103,6 +1114,18 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-interface-choice",
         evidence: Evidence::Private("AC2-EVID-HORIZON-RADAR-FILTERS"),
         station: "auberean-horizon::dat::interfaces::a_radar_filter_set_in_the_options_takes_its_objects_off_horizons_minimap",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.a-relog-starts-the-chat-log-empty",
+        says: "Logging out and entering again under Horizon starts the chat log empty, as the game's \
+               own chat windows do: nothing written before the log-off is shown in the second \
+               session, the chat entry opens empty, and it recalls none of the lines typed in the \
+               first.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-RELOG"),
+        station: "auberean-horizon::dat::leaving::a_relog_under_horizon_starts_the_chat_log_empty_and_forgets_the_lines_typed",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1234,6 +1257,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.shown-again-after-a-relog-its-chat-starts-empty",
+        says: "Horizon left for the game's own interface, which logs out and enters again, starts \
+               its chat log from the second session when it is shown again: nothing it showed in \
+               the first, and its chat entry closed with nothing typed in it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-CHAT-RELOG-HIDDEN"),
+        station: "auberean-horizon::dat::leaving::horizon_hidden_through_a_relog_shows_only_the_second_session_s_lines_when_chosen_again",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.shown-again-after-a-relog-its-windows-are-those-of-one-shown-throughout",
+        says: "Horizon left for the game's own interface, which logs out and enters again, opens \
+               the windows a Horizon shown throughout would have open at the second entry (those \
+               it was left with, its settings among them), shown again in that world or on the \
+               character list before it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-WINDOWS-RELOG-HIDDEN"),
+        station: "auberean-horizon::dat::leaving::horizon_hidden_through_a_relog_opens_the_windows_one_shown_throughout_has_open",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.switching-back-keeps-horizon-s-windows-and-the-set-shown",
         says: "Horizon left for the game's own interface and chosen again opens the windows that \
                were open in it again, where they were, and its hotbar shows the set it showed; the \
@@ -1299,6 +1345,18 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-interface-choice",
         evidence: Evidence::Private("AC2-EVID-HORIZON-ELEMENT-POINTERS"),
         station: "auberean-horizon::dat::interfaces::horizon_shows_the_pointers_the_game_s_elements_name_over_their_counterparts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.the-game-s-own-interface-shown-again-after-a-relog-starts-anew",
+        says: "The game's own interface left for Horizon, which logs out and enters again, comes \
+               back with a new play screen when it is shown again: its chat window holds nothing \
+               of the first session, and the old play screen goes without logging the character \
+               off again.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-RETAIL-RELOG-HIDDEN"),
+        station: "auberean-horizon::dat::leaving::the_game_s_own_interface_hidden_through_a_relog_comes_back_with_a_new_play_screen",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1674,6 +1732,16 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-stops-on-the-disconnected-screen",
         evidence: Evidence::Private("AC2-EVID-STOP-SAVE-FAILED"),
         station: "auberean-interface::dat::screens::a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_with_its_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-relog-starts-the-chat-windows-empty",
+        says: "Logging out and entering again starts the chat windows empty: they go with the play \
+               screen when the character leaves the world and are made anew at the next entry, \
+               and the chat entry recalls none of the lines typed before the log-off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-RELOG"),
+        station: "auberean-horizon::dat::leaving::a_relog_in_the_game_s_own_interface_starts_its_chat_windows_empty",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -581,6 +581,9 @@ pub struct Retail {
     errors: Vec<String>,
     /// What the chat panel reads of the client and asks of it.
     chat: chat::ChatClient,
+    /// How many times a session had left the world when the interface was last shown; none
+    /// before it first was.
+    left_seen: Option<u32>,
     /// The session had the player in the world, or was connected (for its end).
     was_in_world: bool,
     was_connected: bool,
@@ -692,6 +695,7 @@ impl Retail {
             refusals: 0,
             errors: Vec::new(),
             chat: chat::ChatClient::default(),
+            left_seen: None,
             was_in_world: false,
             was_connected: false,
             refused: false,
@@ -2201,6 +2205,7 @@ impl Interface for Retail {
     }
 
     fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        self.left_seen = Some(game.left_world);
         self.take_view(game);
         if game.size.0 > 0 && game.size.1 > 0 {
             self.window = game.size;
@@ -2388,11 +2393,26 @@ impl Interface for Retail {
     /// the other interface may have changed, among them); coming up into a world it did not see
     /// entered, it hears what each entry brings, the player's options come again (the panels put
     /// where the options keep them, the bar's set, its numbering, its slots and its height).
+    /// A play screen left up when a session left the world while another interface was shown is
+    /// that session's: it goes, logging nothing off, and in the world a new one comes up as on a
+    /// first showing, its chat windows empty.
+    // D2-01936, D2-01926
     fn enter(&mut self, game: &Game<'_>) {
+        let left = self.left_seen.replace(game.left_world);
+        let ended =
+            left.is_some_and(|n| n != game.left_world) && self.flow.flow.mode() == mode::GAMEPLAY;
+        if ended {
+            if let Some(p) = self.play_mut() {
+                p.session_ended_unseen();
+            }
+        }
         if !matches!(game.phase, Phase::Entering | Phase::World) {
             return;
         }
-        let native = if self.logged_in() {
+        if ended {
+            self.go(mode::GAMEPLAY);
+        }
+        let native = if self.logged_in() && !ended {
             shortcuts::notice::RELOAD_SHORTCUTS
         } else {
             gameplay::notice::RELOAD_OPTIONS

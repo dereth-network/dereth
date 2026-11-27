@@ -1,7 +1,9 @@
 //! The chat lines the player's scripts wrote, kept by the shell so that a switch of interface
 //! carries the log: an interface shown again is handed the lines written while another was shown,
 //! and one shown for the first time the lines written before it (as many as are kept), ahead of
-//! the frame's own. Each interface keeps its own log from what it is handed.
+//! the frame's own. Each interface keeps its own log from what it is handed. When the character
+//! leaves the world the lines written so far are forgotten: the game's chat windows go with the
+//! play screen, and the next entry's start empty, under whichever interface is shown then.
 
 use std::collections::VecDeque;
 
@@ -58,6 +60,15 @@ impl ChatHistory {
         out.extend(fresh);
         out
     }
+
+    /// The character left the world: no interface is handed the lines written so far.
+    // D2-01936, D2-01928
+    pub fn forget(&mut self) {
+        self.lines.clear();
+        for (_, n) in &mut self.handed {
+            *n = self.written;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +119,27 @@ mod tests {
             texts(&h.hand(Choice::Horizon, vec![])),
             ["five"],
             "and back again"
+        );
+    }
+
+    #[test]
+    fn no_interface_is_handed_the_lines_written_before_the_world_was_left() {
+        let mut h = ChatHistory::default();
+        h.hand(Choice::Retail, vec![line("one")]);
+        h.hand(Choice::Horizon, vec![line("two")]);
+        h.forget();
+        assert_eq!(
+            texts(&h.hand(Choice::Retail, vec![line("three")])),
+            ["three"],
+            "shown before"
+        );
+        let mut never = ChatHistory::default();
+        never.hand(Choice::Retail, vec![line("one")]);
+        never.forget();
+        assert_eq!(
+            texts(&never.hand(Choice::Horizon, vec![line("two")])),
+            ["two"],
+            "shown for the first time"
         );
     }
 

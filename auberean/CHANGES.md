@@ -11,6 +11,7 @@ not how it was done.
 - Horizon: new default key maps.
 - Horizon: character options now all do what they say; ones with no use here are hidden.
 - Horizon: floating damage numbers.
+- The chat log and the lines you typed now start empty after a relog.
 
 ## 0.1.13 (2026-11-23)
 - No changes of its own; built with the latest shared code.

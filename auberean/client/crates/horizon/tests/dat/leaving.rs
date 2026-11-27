@@ -1,6 +1,10 @@
 //! Logging out under Horizon on a clock stepped a sixtieth of a second a frame, against a server
 //! that lets the character go as the game's own servers did: frozen in its glow at once, its
-//! leaving played at 15.2 s, into portal space at 18.9 s and out of the world at 19.0 s.
+//! leaving played at 15.2 s, into portal space at 18.9 s and out of the world at 19.0 s. Then
+//! logging out and entering again in the same run, against a server that lets the character go at
+//! once and enters it again on a world server of its own: what each interface's chat log holds in
+//! the second session, the one shown through the relog and the one hidden through it, what the
+//! chat entry holds and recalls of the first, and which windows Horizon has open again.
 
 use auberean_client_sdk::protocol::login::Empty;
 use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
@@ -9,10 +13,14 @@ use auberean_client_sdk::protocol::types::{BehaviorParams, ObjectStamp};
 use auberean_client_sdk::protocol::ServerMessage;
 use auberean_horizon::ui::leaving;
 use auberean_horizon::ui::pregame::Screen;
-use auberean_shell::interface::Phase;
+use auberean_shell::input::{Event, Key};
+use auberean_shell::interface::{Choice, Phase};
 use auberean_testkit::double::script::Event as Step;
 
-use crate::session::{c2s, character_list, s2c, Session, LOGIN, PLAYER, WORLD};
+use crate::session::{
+    c2s, character_list, choose_on_the_page, enter_again, log_off_at_once, s2c, write_line,
+    Session, LOGIN, PLAYER, WORLD,
+};
 
 const HORIZON: &str = "[UI]\r\nInterface=Horizon\r\n";
 
@@ -221,5 +229,489 @@ fn logging_out_shows_the_wait_then_portal_space_long_enough_to_see_then_characte
     assert!(
         select_from >= gone,
         "select at {select_from}, portal gone at {gone}"
+    );
+}
+
+/// When the player logs off, and asks to enter again, seconds on the recording's clock.
+const LOG_OFF: f64 = 10.0;
+const AGAIN: f64 = 12.0;
+
+/// A key pressed and let go, a frame after each.
+fn press(s: &mut Session, key: Key) {
+    for down in [true, false] {
+        s.shell.event(&Event::Key {
+            key,
+            down,
+            repeat: false,
+        });
+        s.step();
+    }
+}
+
+/// The texts of Horizon's log, as the game wrote them and as its window holds them.
+fn horizon_log(s: &Session) -> (Vec<String>, Vec<String>) {
+    let h = s.horizon();
+    let h = h.borrow();
+    let written = h.state().log.iter().map(|l| l.text.clone()).collect();
+    let held = h.ui().chat.lines().iter().map(|l| l.text.clone()).collect();
+    (written, held)
+}
+
+/// In the world and out of portal space.
+fn in_the_world(s: &Session) -> bool {
+    s.shell.phase() == Phase::World && !s.shell.scene.in_portal_space()
+}
+
+/// Horizon's character select up, Enter asks to enter the world as the character selected and
+/// the question's first button says yes.
+fn enter_from_horizons_select(s: &mut Session) {
+    let listed = s.until(30.0, |s| {
+        s.horizon().borrow().screen() == Some(Screen::Select)
+    });
+    assert!(
+        listed,
+        "character select: {:?}",
+        s.horizon().borrow().screen()
+    );
+    press(s, Key::Enter);
+    let yes = s
+        .horizon()
+        .borrow()
+        .ui()
+        .pregame
+        .confirm_buttons
+        .first()
+        .copied()
+        .expect("the question asked");
+    s.click((yes.x + yes.w / 2.0, yes.y + yes.h / 2.0));
+    let entered = s.until(15.0, in_the_world);
+    assert!(entered, "in the world again: {:?}", s.shell.phase());
+}
+
+/// Under Horizon, a relog starts the chat log empty and forgets the lines typed, as the game's
+/// own chat windows and command line go with the session: the lines written and the line typed
+/// before the log-off are gone from the log once the character has left the world, and are not
+/// there in the second session, where a line written shows; the entry left open with half a line
+/// in it is closed, opens again empty, and Up recalls nothing.
+///
+/// Behaviour: desktop.horizon.a-relog-starts-the-chat-log-empty
+#[test]
+fn a_relog_under_horizon_starts_the_chat_log_empty_and_forgets_the_lines_typed() {
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(Some(HORIZON), more);
+    let entered = s.until(20.0, in_the_world);
+    assert!(entered, "in the world: {:?}", s.shell.phase());
+    // A line typed, which the player's command line keeps and answers in the log, and a saying
+    // written.
+    press(&mut s, Key::Enter);
+    s.shell.event(&Event::Text("/emotelist".into()));
+    s.step();
+    let before = horizon_log(&s).0.len();
+    press(&mut s, Key::Enter);
+    assert!(
+        s.until(2.0, |s| horizon_log(s).0.len() > before),
+        "the command's lines are in the log"
+    );
+    write_line(&mut s, "Before the relog");
+    let (written, held) = horizon_log(&s);
+    assert!(
+        written.iter().any(|l| l == "Before the relog")
+            && held.iter().any(|l| l == "Before the relog"),
+        "the saying in the log: {written:?}, {held:?}"
+    );
+    // Half a line typed and not sent, the entry left open.
+    press(&mut s, Key::Enter);
+    s.shell.event(&Event::Text("half a line".into()));
+    s.step();
+    assert_eq!(s.horizon().borrow().ui().chat.text(), "half a line");
+    s.horizon().borrow_mut().log_out();
+    let left = s.until(30.0, |s| s.shell.phase() != Phase::World);
+    assert!(left, "out of the world");
+    s.step();
+    let (written, held) = horizon_log(&s);
+    assert!(
+        written.is_empty() && held.is_empty(),
+        "the log empty once the world is left: {written:?}, {held:?}"
+    );
+    enter_from_horizons_select(&mut s);
+    write_line(&mut s, "After the relog");
+    let (written, held) = horizon_log(&s);
+    for log in [&written, &held] {
+        assert!(
+            !log.iter().any(|l| l == "Before the relog"),
+            "nothing of the first session: {log:?}"
+        );
+        assert!(
+            log.iter().any(|l| l == "After the relog"),
+            "the second session's line: {log:?}"
+        );
+    }
+    // The entry closed, and opened again empty; Up steps back through the lines typed: none in
+    // this session.
+    assert!(!s.horizon().borrow().ui().typing(), "the entry closed");
+    press(&mut s, Key::Enter);
+    assert!(s.horizon().borrow().ui().typing(), "the entry open");
+    assert_eq!(
+        s.horizon().borrow().ui().chat.text(),
+        "",
+        "nothing of the half line"
+    );
+    press(&mut s, Key::ArrowUp);
+    s.step();
+    assert_eq!(
+        s.horizon().borrow().ui().chat.text(),
+        "",
+        "nothing recalled from the first session"
+    );
+    assert_eq!(s.shell.interface(), Choice::Horizon);
+}
+
+/// The middle of one of the game's own elements on the screen, by its name.
+fn middle_of(s: &Session, name: &str) -> (f32, f32) {
+    let r = s.retail.borrow();
+    let ui = r.ui();
+    let h = ui
+        .find(auberean_ui::Token::of(name))
+        .unwrap_or_else(|| panic!("{name} on the screen"));
+    let rect = ui.screen_rect(h).expect("placed");
+    #[allow(clippy::cast_precision_loss)]
+    let m = (
+        (rect.x0 + rect.x1) as f32 / 2.0,
+        (rect.y0 + rect.y1) as f32 / 2.0,
+    );
+    m
+}
+
+/// Frames until the game's own play screen has its panels up, within a few seconds of the host's
+/// clock; then the player's options come, as the player's scripts send them as a character
+/// enters (the server here sends none of its own), and the chat windows take from them what they
+/// show. Whether the panels came.
+fn panels_up(s: &mut Session) -> bool {
+    use auberean_client_sdk::runtime::host::PanelNotice;
+    let up = s.until(5.0, |s| {
+        let r = s.retail.borrow();
+        r.play().is_some_and(|p| !p.children().is_empty()) && r.chat().is_some()
+    });
+    let c = s.shell.client.as_mut().expect("the session");
+    c.notices.push(PanelNotice {
+        native: auberean_ui_game::gameplay::notice::RELOAD_OPTIONS,
+        about: Some(PLAYER),
+        ..PanelNotice::default()
+    });
+    s.step();
+    up
+}
+
+/// The game's own first chat window's lines.
+fn retail_log(s: &Session) -> Vec<String> {
+    s.retail.borrow().chat_lines()
+}
+
+/// What the game's own first chat window's entry holds.
+fn retail_entry(s: &Session) -> String {
+    let r = s.retail.borrow();
+    let entry = r
+        .chat()
+        .and_then(|c| c.windows().first())
+        .and_then(auberean_ui_game::chat::ChatPane::entry);
+    entry.and_then(|h| r.ui().text(h)).unwrap_or_default()
+}
+
+/// Under the game's own interface: in the world, a saying written and shown in its chat window
+/// and a line typed there, a log-off, and the Enter button on its character list to enter again;
+/// the session at the second entry's play screen.
+fn relog_in_the_game_s_own_interface() -> Session {
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(None, more);
+    s.enter_the_world();
+    assert!(panels_up(&mut s), "the play screen's panels");
+    write_line(&mut s, "Before the relog");
+    let shown = s.until(2.0, |s| {
+        retail_log(s).iter().any(|l| l == "Before the relog")
+    });
+    assert!(shown, "the saying in the chat window: {:?}", retail_log(&s));
+    // A line typed in the chat window, which the player's command line keeps.
+    press(&mut s, Key::Enter);
+    s.shell.event(&Event::Text("/emotelist".into()));
+    s.step();
+    press(&mut s, Key::Enter);
+    assert_eq!(retail_entry(&s), "", "the line sent");
+    log_off_and_enter_on_the_game_s_own_screens(&mut s);
+    s
+}
+
+/// Under the game's own interface, in the world: a log-off, and the Enter button on its character
+/// list to enter again; the session at the second entry's play screen.
+fn log_off_and_enter_on_the_game_s_own_screens(s: &mut Session) {
+    // The log-off the play screen's Leave World asks for.
+    s.shell
+        .client
+        .as_mut()
+        .expect("the session")
+        .act(auberean_client_sdk::contract::Action::LogOff);
+    let listed = s.until(30.0, |s| s.retail.borrow().screen() == "select");
+    assert!(listed, "the character list: {}", s.retail.borrow().screen());
+    // The screens before the world are laid out at 1024 by 768, fitted to the window.
+    let [left, top, width, _] = auberean_shell::interface::fitted((1024, 768), s.shell.size);
+    let (x, y) = middle_of(s, "EnterButton");
+    let k = width / 1024.0;
+    s.click((left + x * k, top + y * k));
+    let entered = s.until(15.0, |s| {
+        in_the_world(s) && s.retail.borrow().screen() == "play"
+    });
+    assert!(
+        entered,
+        "in the world again: {:?}, {}",
+        s.shell.phase(),
+        s.retail.borrow().screen()
+    );
+    assert!(panels_up(s), "the second play screen's panels");
+}
+
+/// A relog under the game's own interface starts its chat windows empty: they go with the play
+/// screen when the character leaves the world, and the next entry's are made anew, the player's
+/// command line with them. A saying written before the log-off is not in the second session's
+/// window, where one written shows; Up in its entry recalls nothing of the line typed before.
+///
+/// Behaviour: desktop.interface.a-relog-starts-the-chat-windows-empty
+#[test]
+fn a_relog_in_the_game_s_own_interface_starts_its_chat_windows_empty() {
+    let mut s = relog_in_the_game_s_own_interface();
+    write_line(&mut s, "After the relog");
+    let shown = s.until(2.0, |s| {
+        retail_log(s).iter().any(|l| l == "After the relog")
+    });
+    assert!(shown, "the second session's line: {:?}", retail_log(&s));
+    assert!(
+        !retail_log(&s).iter().any(|l| l == "Before the relog"),
+        "nothing of the first session: {:?}",
+        retail_log(&s)
+    );
+    press(&mut s, Key::Enter);
+    press(&mut s, Key::ArrowUp);
+    s.step();
+    assert_eq!(
+        retail_entry(&s),
+        "",
+        "nothing recalled from the first session"
+    );
+}
+
+/// Horizon chosen for the first time after a relog under the game's own interface starts from the
+/// lines written in the second session: those of the first are no longer carried to it.
+///
+/// Behaviour: desktop.horizon.a-first-switch-after-a-relog-carries-only-the-session-s-lines
+#[test]
+fn horizon_chosen_after_a_relog_is_not_handed_the_first_session_s_lines() {
+    let mut s = relog_in_the_game_s_own_interface();
+    write_line(&mut s, "After the relog");
+    choose_on_the_page(&mut s, Choice::Horizon);
+    assert_eq!(s.shell.interface(), Choice::Horizon);
+    let (written, held) = horizon_log(&s);
+    assert!(
+        written.iter().any(|l| l == "After the relog"),
+        "the second session's line: {written:?}"
+    );
+    for log in [&written, &held] {
+        assert!(
+            !log.iter().any(|l| l == "Before the relog"),
+            "nothing of the first session: {log:?}"
+        );
+    }
+}
+
+/// The number of log-offs the client sent so far.
+fn log_offs(s: &Session) -> usize {
+    s.shell.client.as_ref().map_or(0, |c| {
+        c.sent()
+            .iter()
+            .filter(|m| m.message.message_type() == 0x10027)
+            .count()
+    })
+}
+
+/// Horizon left in the world for the game's own interface, which logs out and enters again:
+/// Horizon shown again in the second session starts its log from that session, nothing of what
+/// it showed in the first kept, and its chat entry closed and empty.
+///
+/// Behaviour: desktop.horizon.shown-again-after-a-relog-its-chat-starts-empty
+#[test]
+fn horizon_hidden_through_a_relog_shows_only_the_second_session_s_lines_when_chosen_again() {
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(Some(HORIZON), more);
+    let entered = s.until(20.0, in_the_world);
+    assert!(entered, "in the world: {:?}", s.shell.phase());
+    write_line(&mut s, "Before the relog");
+    press(&mut s, Key::Enter);
+    s.shell.event(&Event::Text("half a line".into()));
+    s.step();
+    assert!(
+        horizon_log(&s).0.iter().any(|l| l == "Before the relog"),
+        "the saying in Horizon's log"
+    );
+    choose_on_the_page(&mut s, Choice::Retail);
+    assert!(panels_up(&mut s), "the game's own play screen");
+    log_off_and_enter_on_the_game_s_own_screens(&mut s);
+    write_line(&mut s, "After the relog");
+    choose_on_the_page(&mut s, Choice::Horizon);
+    assert_eq!(s.shell.interface(), Choice::Horizon);
+    let (written, held) = horizon_log(&s);
+    assert!(
+        written.iter().any(|l| l == "After the relog"),
+        "the second session's line: {written:?}"
+    );
+    for log in [&written, &held] {
+        assert!(
+            !log.iter().any(|l| l == "Before the relog"),
+            "nothing of the first session: {log:?}"
+        );
+    }
+    let h = s.horizon();
+    let h = h.borrow();
+    assert!(!h.ui().typing(), "the entry closed");
+    assert_eq!(h.ui().chat.told(), "", "nothing of the half line kept");
+}
+
+/// The game's own interface left in the world for Horizon, which logs out and enters again: shown
+/// again in the second session, the game's own play screen is a new one, its chat window holding
+/// nothing of the first session, and the play screen of the first goes without logging the
+/// character off again.
+///
+/// Behaviour: desktop.horizon.the-game-s-own-interface-shown-again-after-a-relog-starts-anew
+#[test]
+fn the_game_s_own_interface_hidden_through_a_relog_comes_back_with_a_new_play_screen() {
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(None, more);
+    s.enter_the_world();
+    assert!(panels_up(&mut s), "the play screen's panels");
+    write_line(&mut s, "Before the relog");
+    let shown = s.until(2.0, |s| {
+        retail_log(s).iter().any(|l| l == "Before the relog")
+    });
+    assert!(shown, "the saying in the chat window: {:?}", retail_log(&s));
+    choose_on_the_page(&mut s, Choice::Horizon);
+    s.horizon().borrow_mut().log_out();
+    let left = s.until(30.0, |s| s.shell.phase() != Phase::World);
+    assert!(left, "out of the world");
+    enter_from_horizons_select(&mut s);
+    choose_on_the_page(&mut s, Choice::Retail);
+    assert_eq!(s.shell.interface(), Choice::Retail);
+    assert!(panels_up(&mut s), "the play screen's panels again");
+    write_line(&mut s, "After the relog");
+    let shown = s.until(2.0, |s| {
+        retail_log(s).iter().any(|l| l == "After the relog")
+    });
+    assert!(shown, "the second session's line: {:?}", retail_log(&s));
+    assert!(
+        !retail_log(&s).iter().any(|l| l == "Before the relog"),
+        "nothing of the first session: {:?}",
+        retail_log(&s)
+    );
+    s.until(1.0, |_| false);
+    assert_eq!(log_offs(&s), 1, "the one log-off");
+    assert_eq!(s.shell.phase(), Phase::World, "still in the world");
+}
+
+/// Which of Horizon's windows are open, by name.
+fn horizon_windows(s: &Session) -> Vec<&'static str> {
+    let h = s.horizon();
+    let h = h.borrow();
+    let ui = h.ui();
+    [
+        ("skills", ui.skills.is_open()),
+        ("examine", ui.examine.is_open()),
+        ("map", ui.map.is_open()),
+        ("journal", ui.journal.is_open()),
+        ("social", ui.social.is_open()),
+        ("inventory", ui.goods.inventory.is_open()),
+        ("crafting", ui.crafting.is_open()),
+        ("settings", ui.settings.is_open()),
+    ]
+    .into_iter()
+    .filter_map(|(name, open)| open.then_some(name))
+    .collect()
+}
+
+/// Horizon's windows opened: the skills, the map, the inventory, the journal, crafting, social,
+/// examine and the settings.
+fn open_windows(s: &mut Session) {
+    let h = s.horizon();
+    let mut h = h.borrow_mut();
+    let ui = h.ui_mut();
+    ui.skills.toggle();
+    ui.map.toggle(false);
+    ui.goods.inventory.toggle();
+    ui.journal.toggle();
+    ui.crafting.toggle();
+    let mut asked = Vec::new();
+    ui.social.toggle(&mut asked);
+    ui.examine.open(&mut asked);
+    ui.settings.toggle();
+}
+
+/// A session where Horizon, in the world with its windows open, is left for the game's own
+/// interface; the session at the game's own play screen.
+fn horizon_left_with_its_windows_open() -> Session {
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(Some(HORIZON), more);
+    let entered = s.until(20.0, in_the_world);
+    assert!(entered, "in the world: {:?}", s.shell.phase());
+    open_windows(&mut s);
+    s.until(0.5, |_| false);
+    choose_on_the_page(&mut s, Choice::Retail);
+    assert!(panels_up(&mut s), "the game's own play screen");
+    s
+}
+
+/// Horizon hidden through a relog opens, once it is shown again, the windows a Horizon shown
+/// throughout the relog has open at the second entry (those it was left with), whether it is
+/// shown again in the second session's world or on the character list before it.
+///
+/// Behaviour: desktop.horizon.shown-again-after-a-relog-its-windows-are-those-of-one-shown-throughout
+#[test]
+fn horizon_hidden_through_a_relog_opens_the_windows_one_shown_throughout_has_open() {
+    // Shown throughout.
+    let mut more = log_off_at_once(LOG_OFF);
+    more.extend(enter_again(AGAIN));
+    let mut s = Session::going_on(Some(HORIZON), more);
+    let entered = s.until(20.0, in_the_world);
+    assert!(entered, "in the world: {:?}", s.shell.phase());
+    open_windows(&mut s);
+    s.until(0.5, |_| false);
+    let opened = horizon_windows(&s);
+    assert_eq!(opened.len(), 8, "every window open: {opened:?}");
+    s.horizon().borrow_mut().log_out();
+    let left = s.until(30.0, |s| s.shell.phase() != Phase::World);
+    assert!(left, "out of the world");
+    enter_from_horizons_select(&mut s);
+    s.until(1.0, |_| false);
+    let throughout = horizon_windows(&s);
+    // Hidden through the relog, shown again in the second session's world.
+    let mut s = horizon_left_with_its_windows_open();
+    log_off_and_enter_on_the_game_s_own_screens(&mut s);
+    choose_on_the_page(&mut s, Choice::Horizon);
+    s.until(1.0, |_| false);
+    assert_eq!(horizon_windows(&s), throughout, "shown again in the world");
+    // Hidden through the log-off, shown again on the character list, entering through its own.
+    let mut s = horizon_left_with_its_windows_open();
+    s.shell
+        .client
+        .as_mut()
+        .expect("the session")
+        .act(auberean_client_sdk::contract::Action::LogOff);
+    let listed = s.until(30.0, |s| s.retail.borrow().screen() == "select");
+    assert!(listed, "the character list: {}", s.retail.borrow().screen());
+    choose_on_the_page(&mut s, Choice::Horizon);
+    enter_from_horizons_select(&mut s);
+    s.until(1.0, |_| false);
+    assert_eq!(
+        horizon_windows(&s),
+        throughout,
+        "shown again on the character list"
     );
 }

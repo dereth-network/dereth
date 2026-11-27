@@ -311,6 +311,9 @@ pub struct Game<'a> {
     pub world_pick: Option<Option<u64>>,
     /// How many times the player's body has come to be placed with its cells loaded.
     pub arrivals: u32,
+    /// How many times a session has left the world since the client started: an interface shown
+    /// again after it changed has things of a session that ended.
+    pub left_world: u32,
     /// The key maps bound and what their actions do.
     pub keys: &'a crate::keys::Keys,
     /// Whether the sound kept across the screens before the world plays; `None` with no sound

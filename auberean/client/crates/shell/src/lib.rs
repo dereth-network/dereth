@@ -112,6 +112,7 @@ macro_rules! game {
             seen: &$s.scene.seen,
             world_pick: $s.world_pick,
             arrivals: $s.scene.arrivals(),
+            left_world: $s.left_world,
             keys: &$s.keys,
             screens_sound: $s
                 .sound
@@ -251,6 +252,10 @@ pub struct Shell<'w, H: Host> {
     shown: Vec<Shown>,
     /// The lines the scripts wrote, kept for an interface shown later.
     chat_history: chat_history::ChatHistory,
+    /// The session was in the world at the last frame.
+    in_world: bool,
+    /// How many times a session has left the world.
+    left_world: u32,
     /// The notices the scripts sent the panels since the last frame.
     notices: Vec<auberean_client_sdk::contract::notice::Notice>,
     /// What the client told since the last frame.
@@ -482,6 +487,8 @@ impl<'w, H: Host> Shell<'w, H> {
             fresh: Vec::new(),
             shown: Vec::new(),
             chat_history: chat_history::ChatHistory::default(),
+            in_world: false,
+            left_world: 0,
             notices: Vec::new(),
             events: Vec::new(),
             files_read: Vec::new(),
@@ -1215,6 +1222,12 @@ impl<'w, H: Host> Shell<'w, H> {
         self.hear();
         let fresh = std::mem::take(&mut self.shown);
         self.shown = self.chat_history.hand(self.interfaces.shown, fresh);
+        // Out of the world, the session's lines are no one's to show again.
+        let in_world = self.phase() == Phase::World;
+        if std::mem::replace(&mut self.in_world, in_world) && !in_world {
+            self.chat_history.forget();
+            self.left_world = self.left_world.wrapping_add(1);
+        }
         self.costs[3] = self.host.now() - began;
         let began = self.host.now();
         // The client's preferences: the display's size follows the window's; what they applied

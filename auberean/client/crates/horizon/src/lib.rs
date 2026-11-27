@@ -200,7 +200,9 @@ pub fn credits(records: &(dyn auberean_ui::Assets + Send + Sync)) -> Vec<String>
 /// Horizon's windows that were open in the world as it was left for another interface. Its
 /// menus (the system menu, the settings, the HUD layout's editor, the chat entry) close as it is
 /// left and stay closed; the windows the game opens itself (a book, a recipe being made, a trade,
-/// a shop, loot) show again as the game has them.
+/// a shop, loot) show again as the game has them. A session that left the world while Horizon was
+/// not shown changes that: Horizon then opens what it would have kept open had it been shown
+/// throughout, its settings among them, as soon as it is in the world again.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Reopen {
     skills: bool,
@@ -210,6 +212,9 @@ struct Reopen {
     social: bool,
     inventory: bool,
     crafting: bool,
+    settings: bool,
+    /// A session left the world since Horizon was left.
+    relogged: bool,
 }
 
 impl Reopen {
@@ -223,6 +228,8 @@ impl Reopen {
             social: ui.social.is_open(),
             inventory: ui.goods.inventory.is_open(),
             crafting: ui.crafting.is_open(),
+            settings: ui.settings.is_open(),
+            relogged: false,
         }
     }
 
@@ -251,6 +258,9 @@ impl Reopen {
         if self.crafting && !ui.crafting.is_open() {
             ui.crafting.toggle();
         }
+        if self.relogged && self.settings && !ui.settings.is_open() {
+            ui.settings.toggle();
+        }
     }
 }
 
@@ -273,6 +283,9 @@ pub struct Horizon {
     making_start: bool,
     /// The player was in the world last frame.
     was_in_world: bool,
+    /// How many times a session had left the world when Horizon was last shown; none before it
+    /// first was.
+    left_seen: Option<u32>,
     /// The windows open in the world as Horizon was left, opened again once it is shown in the
     /// world again.
     reopen: Option<Reopen>,
@@ -479,6 +492,7 @@ impl Horizon {
             started: false,
             making_start: false,
             was_in_world: false,
+            left_seen: None,
             reopen: None,
             logging_out: false,
             credits: None,
@@ -610,6 +624,14 @@ impl Horizon {
         &self.list
     }
 
+    /// The game's chat windows go with its play screen when the character leaves the world, and
+    /// the next entry's are made anew, their entries empty: so do the log and the chat entry.
+    // D2-01936, D2-01928, D2-03105, D2-03117
+    fn clear_chat(&mut self) {
+        self.state.log.clear();
+        self.ui.chat.clear(self.state.said);
+    }
+
     /// A string of the game's own messages, by its name.
     fn string(&self, name: &str) -> String {
         self.records
@@ -650,6 +672,7 @@ impl Horizon {
         if self.was_in_world {
             self.was_in_world = false;
             requests.push(Request::Camera(CameraRequest::Scheme(None)));
+            self.clear_chat();
         }
         if matches!(game.phase, Phase::Characters | Phase::Disconnected) {
             self.logging_out = false;
@@ -1486,6 +1509,19 @@ impl Interface for Horizon {
         self.now = game.now;
         self.read_own(game, requests);
         self.read_layout(game, requests);
+        // A session left the world since Horizon was last shown: what its chat held is of a
+        // session that ended, and goes before this frame's lines are taken; the windows it was
+        // left with open come back at the next world, as if it had been shown throughout.
+        if self
+            .left_seen
+            .replace(game.left_world)
+            .is_some_and(|n| n != game.left_world)
+        {
+            self.clear_chat();
+            if let Some(r) = &mut self.reopen {
+                r.relogged = true;
+            }
+        }
         // The lines for the chat windows and the client's lines are kept whichever screens are
         // shown, so the log has what came before the world too.
         let lines: Vec<(u32, String)> = game
@@ -1534,8 +1570,11 @@ impl Interface for Horizon {
             arrivals: game.arrivals,
         });
         if game.phase != Phase::World {
-            // Out of the world, the windows left open in it stay closed.
-            self.reopen = None;
+            // Out of the world, the windows left open in it stay closed, but for those a Horizon
+            // shown through a relog would still have open.
+            if !self.reopen.is_some_and(|r| r.relogged) {
+                self.reopen = None;
+            }
             let mut let_go = Vec::new();
             self.pad.let_go(&mut let_go);
             requests.extend(let_go.into_iter().map(Request::Act));

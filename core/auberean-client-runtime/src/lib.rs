@@ -1865,13 +1865,16 @@ impl Client {
     }
 
     /// The character has left the world: its connections left, the events waiting for it
-    /// dropped, the scripts started afresh, the body and the objects' lives gone.
+    /// dropped, the scripts started afresh with the player's command line, which forgets the
+    /// lines typed, the body and the objects' lives gone.
     fn left_world(&mut self) {
         self.session.exit_world();
         self.queue.leave_world();
         if let Some(s) = self.scripts.as_mut() {
             s.reset();
         }
+        // D2-07984
+        self.shell = shell::History::default();
         self.body = Body::default();
         self.life.clear();
         self.download.objects_gone();

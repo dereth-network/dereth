@@ -186,6 +186,109 @@ pub fn character_list() -> CharacterList {
     }
 }
 
+/// A log-off asked at `asked` seconds on the recording's clock, the server letting the character
+/// go half a second later and listing the account's characters again: the steps for
+/// [`Session::going_on`].
+#[allow(dead_code)] // the dat tests', not the gpu tests'
+pub fn log_off_at_once(asked: f64) -> Vec<Step> {
+    vec![
+        c2s(asked, 0, 4, 0x10027),
+        s2c(
+            asked + 0.5,
+            0,
+            1,
+            LOGIN | 4,
+            &ServerMessage::CharExitGame(Empty),
+        ),
+        s2c(
+            asked + 0.51,
+            0,
+            1,
+            LOGIN | 5,
+            &ServerMessage::CharacterList(character_list()),
+        ),
+    ]
+}
+
+/// The character entered again, asked at `asked` seconds on the recording's clock (after a
+/// [`log_off_at_once`]): referred to another world server, which places it in the hall as the first did.
+#[allow(dead_code)] // the dat tests', not the gpu tests'
+pub fn enter_again(asked: f64) -> Vec<Step> {
+    let t = asked + 0.05;
+    vec![
+        c2s(asked, 0, 4, 0x1002B),
+        Step::Referral {
+            t,
+            from: 0,
+            to: Some(2),
+        },
+        s2c(
+            t + 0.15,
+            2,
+            1,
+            WORLD | 0x20,
+            &ServerMessage::PlayerObject(PlayerObject {
+                id: PLAYER,
+                region: 1,
+            }),
+        ),
+        s2c(
+            t + 0.16,
+            2,
+            1,
+            WORLD | 0x21,
+            &ServerMessage::CreateObject(player()),
+        ),
+        s2c(t + 0.17, 2, 1, WORLD | 0x22, &player_qualities()),
+        c2s(t + 1.75, 2, 3, 0x100D1),
+    ]
+}
+
+/// A line the player's scripts write for the chat windows, as they hand it the client: a saying's
+/// text.
+#[allow(dead_code)] // the dat tests', not the gpu tests'
+pub fn write_line(s: &mut Session, text: &str) {
+    use auberean_client_sdk::runtime::host::Shown;
+    use auberean_client_sdk::script::native_object::TextInfo;
+    let c = s.shell.client.as_mut().expect("the session");
+    c.shown.push(Shown {
+        about: None,
+        kind: 0x10,
+        text: TextInfo {
+            has_literal: 1,
+            literal: Some(text.encode_utf16().collect()),
+            ..TextInfo::default()
+        },
+        notices_before: 0,
+    });
+    s.step();
+}
+
+/// What the options window's client page sends to choose `choice` and keep it.
+#[allow(dead_code)] // the dat tests', not the gpu tests'
+pub fn choose_on_the_page(s: &mut Session, choice: Choice) {
+    use auberean_options::page::{section, Change, Request as PageRequest};
+    let p = &mut s.shell.preferences;
+    p.handle(&PageRequest::Attach(vec![section::UI]));
+    let mut row = p
+        .listing()
+        .and_then(|l| l.sections.iter().find(|(at, _)| *at == section::UI))
+        .and_then(|(_, prefs)| {
+            prefs.iter().find_map(|c| match c {
+                Change::Choice(c) => Some(c.clone()),
+                _ => None,
+            })
+        })
+        .expect("the interface row");
+    assert!(row.set_value(choice.value()));
+    p.handle(&PageRequest::Change(Change::Choice(row)));
+    p.handle(&PageRequest::Apply(section::UI));
+    p.handle(&PageRequest::Save);
+    p.handle(&PageRequest::Detach(vec![section::UI]));
+    s.step();
+    s.step();
+}
+
 /// A creature that may be selected, in the hall `ahead` meters before where the player stands,
 /// its kind told after it: the steps for [`Session::going_on`] from `t` seconds, its messages
 /// numbered from `n`.
@@ -262,18 +365,9 @@ fn being_ahead(id: u64, ahead: f32, t: f64, n: u64, package: Option<u32>) -> Vec
     ]
 }
 
-/// An account with one character, which enters the world into the hall, and `others` (their ids
-/// and names) beside it, each of the same body.
-fn script(more: Vec<Step>, others: &[(u64, &str)]) -> Script {
-    let mut list = character_list();
-    let first = list.characters[0].clone();
-    list.characters
-        .extend(others.iter().map(|(id, name)| CharacterIdentity {
-            id: *id,
-            name: WideString(name.encode_utf16().collect()),
-            ..first.clone()
-        }));
-    let player = CreateObject {
+/// The player's object as it enters the hall.
+fn player() -> CreateObject {
+    CreateObject {
         id: PLAYER,
         weenie: player_weenie(),
         visual: VisualDesc {
@@ -299,7 +393,29 @@ fn script(more: Vec<Step>, others: &[(u64, &str)]) -> Script {
             },
             ..PhysicsDesc::default()
         },
-    };
+    }
+}
+
+/// The player's qualities as the servers send them at entry: its vitals.
+fn player_qualities() -> ServerMessage {
+    ServerMessage::PlayerQualities(PlayerQualities(Qualities {
+        header: Qualities::INTS,
+        ints: Table::from_inserted(SMALL, [(258, 80), (263, 100), (259, 55), (264, 120)]),
+        ..Qualities::default()
+    }))
+}
+
+/// An account with one character, which enters the world into the hall, and `others` (their ids
+/// and names) beside it, each of the same body.
+fn script(more: Vec<Step>, others: &[(u64, &str)]) -> Script {
+    let mut list = character_list();
+    let first = list.characters[0].clone();
+    list.characters
+        .extend(others.iter().map(|(id, name)| CharacterIdentity {
+            id: *id,
+            name: WideString(name.encode_utf16().collect()),
+            ..first.clone()
+        }));
     let events = vec![
         s2c(
             0.20,
@@ -338,25 +454,30 @@ fn script(more: Vec<Step>, others: &[(u64, &str)]) -> Script {
                 region: 1,
             }),
         ),
-        s2c(6.41, 1, 1, WORLD | 5, &ServerMessage::CreateObject(player)),
         s2c(
-            6.42,
+            6.41,
             1,
             1,
-            WORLD | 6,
-            &ServerMessage::PlayerQualities(PlayerQualities(Qualities {
-                header: Qualities::INTS,
-                ints: Table::from_inserted(SMALL, [(258, 80), (263, 100), (259, 55), (264, 120)]),
-                ..Qualities::default()
-            })),
+            WORLD | 5,
+            &ServerMessage::CreateObject(player()),
         ),
+        s2c(6.42, 1, 1, WORLD | 6, &player_qualities()),
         c2s(8.00, 1, 3, 0x100D1),
     ];
     let mut events = events;
     events.extend(more);
+    let mut conns = vec![conn(0, true, 9000, 0.0), conn(1, false, 9002, 6.3)];
+    // An entry after a log-off is referred to a world server of its own.
+    let again = events.iter().find_map(|e| match e {
+        Step::Referral { t, to: Some(2), .. } => Some(*t),
+        _ => None,
+    });
+    if let Some(t) = again {
+        conns.push(conn(2, false, 9004, t + 0.05));
+    }
     let s = Script {
         meta: Vec::new(),
-        conns: vec![conn(0, true, 9000, 0.0), conn(1, false, 9002, 6.3)],
+        conns,
         events,
     };
     s.check().expect("a well-formed script");

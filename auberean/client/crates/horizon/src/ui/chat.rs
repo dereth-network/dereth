@@ -483,6 +483,15 @@ impl Chat {
         out
     }
 
+    /// The log emptied, every line the game wrote up to `said` gone, and the entry closed with
+    /// nothing typed in it; the windows and their tabs stay as they are.
+    pub fn clear(&mut self, said: u64) {
+        self.heard = said;
+        self.log.take(true, std::iter::empty());
+        self.log.open(String::new());
+        self.log.close();
+    }
+
     /// Whether Horizon's own settings were changed since this was last asked.
     pub fn take_kept(&mut self) -> bool {
         std::mem::take(&mut self.kept)

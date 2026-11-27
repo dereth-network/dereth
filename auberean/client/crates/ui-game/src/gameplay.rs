@@ -700,6 +700,12 @@ impl GamePlay {
         self.ended
     }
 
+    /// The session the play screen was made for ended while it was not shown: closing it logs
+    /// nothing off, the character having left the world already.
+    pub fn session_ended_unseen(&mut self) {
+        self.ended = true;
+    }
+
     /// Show or hide the whole play screen; not while a dialog waits on the player (please wait,
     /// death, a confirmation) or a story plays.
     // D2-01900

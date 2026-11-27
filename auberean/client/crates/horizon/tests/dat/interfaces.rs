@@ -14,30 +14,7 @@ use auberean_options::page::{section, Change, Request as PageRequest};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::{Choice, Phase};
 
-use crate::session::Session;
-
-/// What the options window's client page sends to choose `choice` and keep it.
-fn choose_on_the_page(s: &mut Session, choice: Choice) {
-    let p = &mut s.shell.preferences;
-    p.handle(&PageRequest::Attach(vec![section::UI]));
-    let mut row = p
-        .listing()
-        .and_then(|l| l.sections.iter().find(|(at, _)| *at == section::UI))
-        .and_then(|(_, prefs)| {
-            prefs.iter().find_map(|c| match c {
-                Change::Choice(c) => Some(c.clone()),
-                _ => None,
-            })
-        })
-        .expect("the interface row");
-    assert!(row.set_value(choice.value()));
-    p.handle(&PageRequest::Change(Change::Choice(row)));
-    p.handle(&PageRequest::Apply(section::UI));
-    p.handle(&PageRequest::Save);
-    p.handle(&PageRequest::Detach(vec![section::UI]));
-    s.step();
-    s.step();
-}
+use crate::session::{choose_on_the_page, write_line, Session};
 
 /// A key pressed and let go, a frame after each.
 fn press(s: &mut Session, key: Key) {
@@ -156,25 +133,6 @@ fn switching_to_horizon_and_back_keeps_the_session_and_its_log() {
         "the log kept"
     );
     assert_eq!(logins(&s), 1, "the one session throughout");
-}
-
-/// A line the player's scripts write for the chat windows, as they hand it the client: a saying's
-/// text.
-fn write_line(s: &mut Session, text: &str) {
-    use auberean_client_sdk::runtime::host::Shown;
-    use auberean_client_sdk::script::native_object::TextInfo;
-    let c = s.shell.client.as_mut().expect("the session");
-    c.shown.push(Shown {
-        about: None,
-        kind: 0x10,
-        text: TextInfo {
-            has_literal: 1,
-            literal: Some(text.encode_utf16().collect()),
-            ..TextInfo::default()
-        },
-        notices_before: 0,
-    });
-    s.step();
 }
 
 /// The chat lines written while one interface is shown are in the other's log once it is chosen:
