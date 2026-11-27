@@ -48,6 +48,7 @@ static FILES: &[ScenarioFile] = &[
     plugins::buffbot::SCENARIOS,
     plugins::inventory::SCENARIOS,
     plugins::ubscript::SCENARIOS,
+    plugins::xp_meter::SCENARIOS,
     shell::SCENARIOS,
     social::SCENARIOS,
     ui::SCENARIOS,

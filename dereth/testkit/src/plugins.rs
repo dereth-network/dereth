@@ -950,6 +950,9 @@ pub struct PluginRun {
     /// an Item Enchantment spell cast on an item (an aura on the character), its own category,
     /// level 1.
     item_spells: Vec<(u32, String)>,
+    /// War spells the scripted character knows besides [`SCRIPTED_SPELLS`]: id and name, each cast
+    /// at the selected creature, its own category, level 1.
+    creature_spells: Vec<(u32, String)>,
     /// Other spells of the scripted spell table ([`PluginRun::with_spells`]): id, name, school,
     /// and whether the character knows it.
     extra_spells: Vec<(u32, String, u32, bool)>,
@@ -1256,6 +1259,7 @@ impl PluginRun {
             cast_failures: VecDeque::new(),
             casts_land: false,
             item_spells: Vec::new(),
+            creature_spells: Vec::new(),
             extra_spells: Vec::new(),
             buffs_for_others: Vec::new(),
             categories: Vec::new(),
@@ -1319,6 +1323,17 @@ impl PluginRun {
     #[must_use]
     pub fn with_item_spells(mut self, spells: &[(u32, &str)]) -> Self {
         self.item_spells = spells
+            .iter()
+            .map(|(id, name)| (*id, (*name).to_owned()))
+            .collect();
+        self
+    }
+
+    /// The same run, its character knowing the war spells `spells` too (id and name): each cast at
+    /// the selected creature, as a war bolt is, its own category, level 1.
+    #[must_use]
+    pub fn with_creature_spells(mut self, spells: &[(u32, &str)]) -> Self {
+        self.creature_spells = spells
             .iter()
             .map(|(id, name)| (*id, (*name).to_owned()))
             .collect();
@@ -1978,6 +1993,7 @@ impl PluginRun {
                 .iter()
                 .map(|(id, _)| *id)
                 .chain(self.item_spells.iter().map(|(id, _)| *id))
+                .chain(self.creature_spells.iter().map(|(id, _)| *id))
                 .chain(
                     self.extra_spells
                         .iter()
@@ -2007,7 +2023,8 @@ impl PluginRun {
         self.hud.player = Some(ObjectId(player));
         self.hud.player_body = true;
         let mut table = scripted_spell_table();
-        // The item spells: Strength Self I's row, renamed, Item Enchantment, cast on an item.
+        // The item spells and the war spells: Strength Self I's row, renamed, cast on an item or a
+        // creature.
         if let Some(base) = table.spells.get(&1).cloned() {
             for (id, name) in &self.item_spells {
                 let mut b = base.clone();
@@ -2024,6 +2041,19 @@ impl PluginRun {
                     // an enchantable item.
                     b.raw_comps = [1, 1, 1, 1, 0x39, 0, 0, 0];
                 }
+                b.meta_spell_id = *id;
+                table.spells.insert(*id, b);
+            }
+            for (id, name) in &self.creature_spells {
+                let mut b = base.clone();
+                b.name.clone_from(name);
+                b.description = String::new();
+                b.school = 1;
+                b.category = *id;
+                b.bitfield = 0;
+                // A complete formula, level 1, whose target component (0x31) aims it at a
+                // creature.
+                b.raw_comps = [1, 1, 1, 1, 0x31, 0, 0, 0];
                 b.meta_spell_id = *id;
                 table.spells.insert(*id, b);
             }

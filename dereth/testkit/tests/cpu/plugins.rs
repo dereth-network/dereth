@@ -33,6 +33,9 @@ pub(crate) mod routes;
 /// The samples' windows: what each command changes, in the window too.
 pub(crate) mod windows;
 
+/// The XP Meter sample's monster statistics and session counts.
+pub(crate) mod xp_meter;
+
 /// The Tank sample against VTank's documented behavior.
 pub(crate) mod tank;
 

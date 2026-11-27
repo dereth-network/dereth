@@ -10,7 +10,7 @@ ones before it do not.
 
 | sample | id | shows | names |
 |---|---|---|---|
-| [XP Meter](xp-meter.md) | `network.dereth.xpmeter` | an event, a window, a command, a timer, the character's store, a module of its own | nothing |
+| [XP Meter](xp-meter.md) | `network.dereth.xpmeter` | an event, a window, a command, a timer, the character's store, a module of its own; then the message stream, a second window opened from the first, and statistics learned from play | `messages` |
 | [Trackers](trackers.md) | `network.dereth.trackers` | Mag-Tools' trackers: combat by creature and element, experience and luminance per hour, worn items' mana, consumables, corpses and players; appraisals a few at a time, objects appearing, moving and going, a window of pages and a HUD, optional capabilities | nothing |
 | [Chat Filter](chat-filter.md) | `network.dereth.chatfilter` | rules that hide, highlight and log chat lines, edited in a window; private lines; taking the place of an earlier plugin (`replaces`) | `chat.filter`, `read.chat.private` |
 | [ID Notices](id-notices.md) | `network.dereth.idnotices` | appraisals and their promises, properties by number, the spell table, a settings window with pages and a HUD the player moves, toasts | nothing |

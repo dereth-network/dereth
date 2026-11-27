@@ -50,7 +50,7 @@ source.
 
 | sample | what it does |
 |---|---|
-| [XP Meter](samples/xp-meter.md) | experience this session and per hour, in a window and on `/xp` |
+| [XP Meter](samples/xp-meter.md) | experience, kills, deaths and luminance this session and per hour, and what each monster fought does |
 | [Chat Filter](samples/chat-filter.md) | rules that hide, highlight or log chat lines by their words, channel or sender |
 | [Looter](samples/looter.md) | loots a corpse or chest by a loot profile |
 | [Trackers](samples/trackers.md) | damage dealt and taken, kills, and the corpses around |

@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- XP Meter: kills, deaths and luminance per hour, and statistics for each monster.
 - Fixed plugin buttons just under a list not taking clicks.
 - Navigator: in a dungeon, lists it and its exits first, then what is nearest its entrance.
 - Tank: drinks the potions and tinctures you add instead of resting.

@@ -1,11 +1,14 @@
 id = "network.dereth.xpmeter"
 name = "XP Meter"
-version = "0.1.0"
-api = "0.1"
+version = "0.2.0"
+api = "0.7"
 entry = "main.lua"
-description = "Experience earned this session and per hour, in a small window and on /xp."
+description = "Experience, kills, deaths and luminance this session and per hour, and what each monster you fight does, in two small windows and on /xp."
 authors = ["Dereth"]
 license = "MIT"
 
+[permissions]
+"messages" = "Reads the server's combat notices, to count what each monster you fight does."
+
 [capabilities]
-optional = ["ui.window"]
+optional = ["ui.window", "messages"]

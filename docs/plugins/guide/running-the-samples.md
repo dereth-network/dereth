@@ -70,10 +70,11 @@ plugin network.dereth.idnotices 0.2.0 running
 plugin network.dereth.looter 0.2.0 running
 plugin network.dereth.navigator 0.5.0 running
 plugin network.dereth.trackers 0.3.0 running
-plugin network.dereth.xpmeter 0.1.0 running
+plugin network.dereth.xpmeter 0.2.0 running
 …
 chat 5 [ID] Portal: Central Courtyard
 chat 5 XP this session: 11 in 1 gains, 1,173 per hour. Watched in all: 11.
+chat 5 Kills: 1 (107 / hour), deaths: 0 (0 / hour), luminance: 0 (0 / hour).
 chat 0 Dealt 36, taken 3, 1 kills.
 chat 5 [combat_enemy] Critical hit! Sparring Golem grazes your foot for 3 points of bludgeoning damage!
 chat 5 [combat_self] You stab Sparring Golem for 5 points of piercing damage!
@@ -95,7 +96,18 @@ window network.dereth.xpmeter main open=false
       label text="Unassigned:"
       label #unassigned text="11"
     label #level text="989 to next level"
-    button #reset text="Reset"
+    row
+      label text="Kills:"
+      label #kills text="1 (110 / hour)"
+    row
+      label text="Deaths:"
+      label #deaths text="0 (0 / hour)"
+    row
+      label text="Luminance:"
+      label #luminance text="0 (0 / hour)"
+    row
+      button #reset text="Reset"
+      button #monsters text="Monsters"
 ```
 
 Seven of the nine load. **Follow** and **Tank** require the `nav.moveto` capability, which the
@@ -112,7 +124,7 @@ true`). `plugin console <id>` prints what a plugin printed, and the errors it me
 
 | sample | try | you should see |
 |---|---|---|
-| [XP Meter](samples/xp-meter.md) | kill something; `/xp`; **Reset** | the session's experience and hourly rate in its window, and on `/xp` the total it has ever watched |
+| [XP Meter](samples/xp-meter.md) | kill something; `/xp`; **Monsters**; **Reset** | the session's experience, kills, deaths and luminance with their hourly rates in its window, and on `/xp` the total it has ever watched; the monster in its Monsters window |
 | [Chat Filter](samples/chat-filter.md) | in its window add a rule hiding `golem`, then fight one; a rule logging `tell` | lines containing the word hidden and counted; your tells on its Log page |
 | [Looter](samples/looter.md) | open a corpse, click **Loot**; pick a profile | the items its profile keeps moved to the pack and counted in its window; the profile's rules in plain words |
 | [Trackers](samples/trackers.md) | fight; `/track xp`; `/track mana` | damage dealt and taken by creature and element, crits, evades and kills in its window and its HUD; experience and luminance per hour; each worn item's mana and time left |

@@ -3440,6 +3440,55 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-xp-meter-counts-the-sessions-kills-deaths-and-luminance-and-keeps-the-monsters-for-the-character",
+        says: "The XP Meter sample counts the session's kills, deaths and luminance, each per hour \
+               since the first of them, in its window and on /xp; a reset starts them again, and \
+               the monster statistics stay with the character into its next session until /xp \
+               forget.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-XPMETER-SESSION"),
+        station: "dereth-testkit::cpu::plugins::xp_meter::scenario_the_xp_meter_counts_the_sessions_kills_deaths_and_luminance_and_keeps_the_monsters_for_the_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-xp-meter-forgets-one-monster-and-keeps-the-others-for-the-character",
+        says: "The XP Meter sample's Monsters window forgets the monster picked and shows the row \
+               that took its place, /xp forget with a name forgets that one (its name as its row \
+               shows it, whatever the case), and the others stay with the character into its \
+               next session.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-XPMETER-FORGET"),
+        station: "dereth-testkit::cpu::plugins::xp_meter::scenario_the_xp_meter_forgets_one_monster_and_keeps_the_others_for_the_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-xp-meter-gives-a-kill-the-experience-and-the-corpse-that-follow-it",
+        says: "The XP Meter sample gives a kill the experience that follows its death line within \
+               three seconds and the corpse of its name that appears within thirty, and times the \
+               fight from its first blow or spell to the kill; plain and critical hits are \
+               averaged apart.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-XPMETER-KILL"),
+        station: "dereth-testkit::cpu::plugins::xp_meter::scenario_the_xp_meter_gives_a_kill_the_experience_and_the_corpse_that_follow_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-xp-meter-learns-what-each-monster-does-from-the-servers-combat-notices",
+        says: "The XP Meter sample learns from play, by the monster's name, how often each monster \
+               evades the player and the player it, how often it resists the player's spells and \
+               the player its, the damage each way, kills, experience, seconds and casts a kill \
+               and time to corpse, from the server's combat notices, death lines and spell lines; \
+               a kill told only by its death line is named by the monsters known.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-XPMETER-MONSTERS"),
+        station: "dereth-testkit::cpu::plugins::xp_meter::scenario_the_xp_meter_learns_what_each_monster_does_from_the_servers_combat_notices",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.sandbox.a-plugin-reaches-nothing-but-its-package-and-the-host",
         says: "A plugin has no file, process or code-loading functions, cannot change the \
                libraries or the plugin interface, and can load only code from its own package.",
