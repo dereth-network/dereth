@@ -387,7 +387,7 @@ impl HorizonUi {
             let k = p.scale;
             // The selection's marks lie over the world, under the HUD; the crosshair too.
             marker::draw(&mut p, state, self.time);
-            self.damage.draw(&mut p, state, self.time);
+            self.damage.draw(&mut p, state, &self.layout, self.time);
             if let Some((picture, at)) = self.crosshair {
                 if let Some(s) = p.art.icon(picture) {
                     p.sprite(&s, at, WHITE);

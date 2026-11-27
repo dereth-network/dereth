@@ -2,9 +2,9 @@
 //! each written over its object's box in its color, rising and fading over its life on the
 //! interface's clock (the harness's frames, a sixtieth of a second each), moved off the texts
 //! placed before it, over the selection's marks for the selection, kept on the screen across and
-//! out of the bands along its top and foot, gone when its object leaves the world, and moved with
-//! its object once the world is drawn. Drawn with the art the client
-//! carries.
+//! out of the bands along its top and foot that the HUD's bars fill where its layout shows them,
+//! gone when its object leaves the world, and moved with its object once the world is drawn. Drawn
+//! with the art the client carries.
 //!
 //! Behaviour: none (this client's own interface, not a behaviour of the retail client)
 
@@ -14,8 +14,9 @@ use auberean_client_sdk::contract::notice::{HitText, Notice, Said, WorldNotice};
 use auberean_client_sdk::contract::text::TextRef;
 use auberean_client_sdk::contract::view::{self as v, View};
 use auberean_horizon::draw::Rect;
-use auberean_horizon::state::{Frame, GameState, Target};
-use auberean_horizon::ui::damage::{self, Drawn};
+use auberean_horizon::state::{Frame, GameState, Target, Vital};
+use auberean_horizon::ui::damage::Drawn;
+use auberean_horizon::ui::layout::{element, Edges, Placement};
 use auberean_horizon::ui::marker::{self, Where};
 use dereth_ui_kit::selection::{ARROW_BOB, ARROW_GAP, ARROW_HEIGHT};
 
@@ -168,24 +169,185 @@ fn drawn_over(b: Rect) -> (Drawn, f32) {
     (texts[0].clone(), h.k())
 }
 
-#[test]
-fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_top_stands_at_its_edge() {
-    let (t, k) = drawn_over(Rect::new(900.0, 10.0, 120.0, 240.0));
-    let edge = (damage::TOP_BAND * k).round();
+/// A player in the world with the experience band shown and the drudge's box on the screen.
+fn with_experience() -> GameState {
+    let mut s = struck(Vec::new());
+    s.experience = Vital {
+        current: 400,
+        max: 1000,
+    };
+    s
+}
+
+/// The text over the drudge's box at `b` in `s`, as a frame draws it after one with the HUD the
+/// same and no text, and where element `name` was outlined on it.
+fn drawn_after_hud(h: &mut Harness, mut s: GameState, b: Rect, name: &str) -> (Drawn, Rect) {
+    s.damage.at.insert(DRUDGE, b);
+    h.frame(&s);
+    s.damage.texts = vec![(DRUDGE, hit("12"))];
+    h.frame(&s);
+    let texts = drawn(h);
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    let outline =
+        h.ui.layout
+            .outlines
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{name} shown"));
+    (texts[0].clone(), outline)
+}
+
+/// A box reaching past the screen's top, and one at its foot.
+const HIGH: Rect = Rect {
+    x: 900.0,
+    y: 10.0,
+    w: 120.0,
+    h: 240.0,
+};
+const LOW: Rect = Rect {
+    x: 900.0,
+    y: 1078.0,
+    w: 120.0,
+    h: 240.0,
+};
+
+/// Element `name` moved `(dx, dy)` layout units from its default place.
+fn moved(h: &mut Harness, name: &str, dx: f32, dy: f32) {
+    h.ui.layout.placements.insert(
+        name.to_owned(),
+        Placement {
+            dx,
+            dy,
+            ..Placement::default()
+        },
+    );
+}
+
+/// Element `name` kept to the screen's edges `edges`, `(dx, dy)` layout units from them.
+fn kept_to(h: &mut Harness, name: &str, edges: &str, dx: f32, dy: f32) {
+    h.ui.layout.placements.insert(
+        name.to_owned(),
+        Placement {
+            dx,
+            dy,
+            scale: 1.0,
+            edges: Edges::read(edges),
+        },
+    );
+}
+
+/// Whether the text `t` stands with its top at `edge`, to the pixel.
+fn top_at(t: &Drawn, edge: f32) {
     assert!(
-        (t.rect.y - edge).abs() <= 0.5,
+        (t.rect.y - edge).abs() <= 1.0,
         "its top at the band's edge, {edge}: {t:?}"
     );
 }
 
 #[test]
-fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_foot_stands_at_its_edge() {
-    let (t, k) = drawn_over(Rect::new(900.0, 1060.0, 120.0, 240.0));
-    let edge = 1080.0 - (damage::FOOT_BAND * k).round();
-    assert!(
-        (t.rect.y - edge).abs() <= 0.5,
-        "its top at the band's edge, {edge}: {t:?}"
+fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_top_stands_at_the_experience_band_s_foot(
+) {
+    let mut h = Harness::with_built_in_art();
+    let (t, band) = drawn_after_hud(&mut h, with_experience(), HIGH, element::EXPERIENCE);
+    top_at(&t, band.bottom());
+}
+
+#[test]
+fn a_hit_s_text_that_would_stand_in_the_band_along_the_screen_s_foot_stands_at_the_hotbar_s_top() {
+    let mut h = Harness::with_built_in_art();
+    let (t, bar) = drawn_after_hud(&mut h, struck(Vec::new()), LOW, element::HOTBAR);
+    top_at(&t, bar.y);
+}
+
+#[test]
+fn with_something_selected_a_hit_s_text_that_would_stand_over_the_target_bar_stands_at_its_foot() {
+    let mut h = Harness::with_built_in_art();
+    let mut s = with_experience();
+    s.target = Some(Target {
+        id: MITE,
+        name: "Mite".into(),
+        health: None,
+    });
+    let (t, bar) = drawn_after_hud(&mut h, s.clone(), HIGH, element::TARGET);
+    top_at(&t, bar.bottom());
+    // Selected no more: at once a text is no longer kept under the target bar.
+    s.target = None;
+    s.damage.at.insert(DRUDGE, HIGH);
+    s.damage.texts = vec![(DRUDGE, hit("3"))];
+    h.frame(&s);
+    let free = drawn(&h);
+    let three = free.iter().find(|t| t.text == "3").expect("drawn");
+    assert!(three.rect.y < bar.y, "not kept under the bar: {free:?}");
+    let (_, band) = drawn_after_hud(
+        &mut Harness::with_built_in_art(),
+        with_experience(),
+        HIGH,
+        element::EXPERIENCE,
     );
+    assert!(
+        bar.bottom() > band.bottom() + 20.0,
+        "{bar:?} under {band:?}"
+    );
+}
+
+#[test]
+fn the_band_along_the_screen_s_top_follows_the_experience_band_where_the_hud_layout_moves_it() {
+    let mut h = Harness::with_built_in_art();
+    moved(&mut h, element::EXPERIENCE, 0.0, 60.0);
+    let (t, band) = drawn_after_hud(&mut h, with_experience(), HIGH, element::EXPERIENCE);
+    let k = h.k();
+    assert!(band.bottom() > 70.0 * k, "moved down: {band:?}");
+    top_at(&t, band.bottom());
+}
+
+#[test]
+fn the_band_along_the_screen_s_foot_follows_the_hotbar_and_the_gauges_where_the_hud_layout_moves_them(
+) {
+    let mut h = Harness::with_built_in_art();
+    moved(&mut h, element::HOTBAR, 0.0, -60.0);
+    let (t, bar) = drawn_after_hud(&mut h, struck(Vec::new()), LOW, element::HOTBAR);
+    let k = h.k();
+    assert!(bar.y < 1080.0 - 150.0 * k, "moved up: {bar:?}");
+    top_at(&t, bar.y);
+    let mut h = Harness::with_built_in_art();
+    moved(&mut h, element::PARAMETER, 0.0, -200.0);
+    let (t, gauges) = drawn_after_hud(&mut h, struck(Vec::new()), LOW, element::PARAMETER);
+    assert!(
+        gauges.y < 1080.0 - 200.0 * k,
+        "moved over the hotbar: {gauges:?}"
+    );
+    top_at(&t, gauges.y);
+}
+
+#[test]
+fn a_bar_the_hud_layout_moves_across_the_screen_s_middle_keeps_no_band_and_one_moved_to_the_other_edge_keeps_that_edge_s(
+) {
+    // The hotbar in the screen's middle: the foot keeps only the gauges' band.
+    let mut h = Harness::with_built_in_art();
+    kept_to(&mut h, element::HOTBAR, "cm", 0.0, 0.0);
+    let (t, gauges) = drawn_after_hud(&mut h, struck(Vec::new()), LOW, element::PARAMETER);
+    let bar =
+        h.ui.layout
+            .outlines
+            .iter()
+            .find(|(n, _)| *n == element::HOTBAR);
+    assert!(
+        bar.is_some_and(|(_, r)| r.y < 540.0 && r.bottom() > 540.0),
+        "across the middle: {bar:?}"
+    );
+    top_at(&t, gauges.y);
+    // Nor the top a band down to its foot: with nothing else along the top, none at all.
+    let mut h = Harness::with_built_in_art();
+    kept_to(&mut h, element::HOTBAR, "cm", 0.0, 0.0);
+    let (t, _) = drawn_after_hud(&mut h, struck(Vec::new()), HIGH, element::HOTBAR);
+    top_at(&t, 0.0);
+    // The hotbar along the top: the top's band reaches its foot.
+    let mut h = Harness::with_built_in_art();
+    kept_to(&mut h, element::HOTBAR, "ct", 0.0, 0.0);
+    let (t, bar) = drawn_after_hud(&mut h, struck(Vec::new()), HIGH, element::HOTBAR);
+    assert!(bar.y < 1.0, "along the top: {bar:?}");
+    top_at(&t, bar.bottom());
 }
 
 #[test]

@@ -230,6 +230,9 @@ pub struct HudLayout {
     default: StartingLayout,
     /// Each element's outline this frame, after its placement.
     pub outlines: Vec<(&'static str, Rect)>,
+    /// The outlines of the elements that drew something this frame, and the last frame.
+    shown: Vec<(&'static str, Rect)>,
+    shown_before: Vec<(&'static str, Rect)>,
     /// Where the editor wrote each element's name this frame, while it is open.
     pub labels: Vec<(&'static str, Rect)>,
     /// The element the editor has selected, and where in it the drag took hold.
@@ -422,6 +425,7 @@ impl HudLayout {
     /// A frame begins: the outlines are drawn anew.
     pub fn begin_frame(&mut self) {
         self.outlines.clear();
+        self.shown_before = std::mem::take(&mut self.shown);
         self.labels.clear();
     }
 
@@ -508,6 +512,19 @@ impl HudLayout {
         if drew || self.editing {
             self.outlines.push((open.name, moved(bounds)));
         }
+        if drew {
+            self.shown.push((open.name, moved(bounds)));
+        }
+    }
+
+    /// The box round what element `name` drew the last frame, after its placement: none if it drew
+    /// nothing, the editor open or not.
+    #[must_use]
+    pub fn shown_last_frame(&self, name: &str) -> Option<Rect> {
+        self.shown_before
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, r)| *r)
     }
 
     /// Where a rectangle element `name` drew is shown, after its placement.

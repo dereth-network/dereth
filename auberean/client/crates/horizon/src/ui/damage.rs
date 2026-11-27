@@ -5,8 +5,8 @@
 //! the shortest way it may go, as the game's own damage text is moved; one moved off the screen,
 //! or over an object none of whose box is drawn on the screen, is not shown. Like the game's own,
 //! a text stays on the screen across and out of the bands along the screen's top and foot that
-//! the HUD's bars fill ([`TOP_BAND`], [`FOOT_BAND`]), standing at a band's edge where it would be
-//! in it. A text goes once its life is over or its object leaves the world.
+//! the HUD's bars fill, standing at a band's edge where it would be in it ([`bands`]). A text goes
+//! once its life is over or its object leaves the world.
 //!
 //! The texts are drawn with the rest of the interface, before the world moves on for the frame,
 //! and moved once it has to where their objects are as the world is drawn
@@ -21,16 +21,48 @@ use dereth_ui_kit::paint::{Painter, TextStyle};
 
 use crate::draw::{Argb, Rect};
 use crate::state::GameState;
+use crate::ui::layout::{element, HudLayout};
 use crate::ui::marker::{self, Where};
 
 /// How large the text is written at a scale of 1, in points.
 pub const POINTS: f32 = 16.0;
 
-/// How deep the bands along the screen's top and foot that the texts keep out of are, in layout
-/// units: the experience band along the top, the hotbar and the gauges under it along the
-/// foot. A text that would stand in one stands at its edge.
-pub const TOP_BAND: f32 = 30.0;
-pub const FOOT_BAND: f32 = 104.0;
+/// The HUD's bars the texts keep out of: the experience band and the target bar, the gauges and
+/// the hotbar.
+pub const BARS: [&str; 5] = [
+    element::EXPERIENCE,
+    element::TARGET,
+    element::PARAMETER,
+    element::FOCUS,
+    element::HOTBAR,
+];
+
+/// How deep the bands along the top and foot of a screen `h` pixels tall that the texts keep out
+/// of are, in pixels: down to the lowest foot of the [`BARS`] lying wholly in the screen's top
+/// half, and up to the highest top of those wholly in its bottom half, each where the HUD's
+/// layout showed it the last frame, as the texts are drawn under the bars, before them. A bar
+/// counts only while it draws something: the target bar while there is a selection, the focus
+/// gauge for a hero. One across the screen's middle keeps no band, so a bar moved there does not
+/// fill the screen with one; one moved to the other edge keeps that edge's band.
+#[must_use]
+pub fn bands(layout: &HudLayout, state: &GameState, h: f32) -> (i32, i32) {
+    let middle = h / 2.0;
+    let (mut top, mut foot) = (0.0_f32, 0.0_f32);
+    for name in BARS {
+        if name == element::TARGET && state.target.is_none() {
+            continue;
+        }
+        let Some(r) = layout.shown_last_frame(name) else {
+            continue;
+        };
+        if r.bottom() <= middle {
+            top = top.max(r.bottom());
+        } else if r.y >= middle {
+            foot = foot.max(h - r.y);
+        }
+    }
+    (to_i32(top.ceil()), to_i32(foot.ceil()))
+}
 
 /// The edge round the text's letters.
 const EDGE: Argb = 0xFF00_0000;
@@ -127,19 +159,17 @@ impl DamageTexts {
     }
 
     /// Draw the texts of `state` at `now`, oldest first: one whose life is over goes; the rest
-    /// rise with their age over their object, are moved off the texts placed before them, and are
-    /// written where they land on the screen, fading with their age.
-    pub fn draw(&mut self, p: &mut Painter<'_>, state: &GameState, now: f64) {
+    /// rise with their age over their object, keep out of the bands of the HUD's bars as `layout`
+    /// shows them, are moved off the texts placed before them, and are written where they land on
+    /// the screen, fading with their age.
+    pub fn draw(&mut self, p: &mut Painter<'_>, state: &GameState, layout: &HudLayout, now: f64) {
         self.drawn.clear();
         self.anchored.clear();
         self.up
             .retain(|t| names::damage_age(t.start, t.duration, now) < 1.0);
         let (w, h) = p.screen;
         let screen = Box2D::sized(0, 0, to_i32(w), to_i32(h));
-        let band = (
-            to_i32((TOP_BAND * p.scale).round()),
-            to_i32((FOOT_BAND * p.scale).round()),
-        );
+        let band = bands(layout, state, h);
         let selection = state.target.as_ref().map(|t| t.id);
         let mut placed: Vec<Box2D> = Vec::new();
         for t in &self.up {
