@@ -1850,9 +1850,10 @@ fn a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_ta
     let pet = pet_added(&h, b, from).expect("a pet");
     assert!(over_slope(&h, pet).abs() < 0.01, "on the ground");
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
-    // The beetle on the ground six meters east of it, sure to strike when it may, and standing
-    // there until taunted: whatever walk it was on before is dropped, so it stays within the pet's
-    // reach while the pet's strikes go on until one lands.
+    // The beetle on the ground six meters east of it, standing there until taunted: whatever walk
+    // it was on before is dropped and it sets out on no other, so it stays within the pet's reach
+    // while the pet's strikes go on until one lands (a strike that does not land leaves a creature
+    // at rest as it was).
     if let Some(t) = h.server.things.get_mut(pet) {
         t.max_health = 100_000;
         t.health = 100_000;
@@ -1865,6 +1866,7 @@ fn a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_ta
         if let Some(c) = t.creature.as_mut() {
             c.home = to;
             c.wander_to = None;
+            c.next_wander = f64::INFINITY;
             c.moving_to = None;
             c.closing = None;
         }
