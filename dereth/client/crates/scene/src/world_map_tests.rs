@@ -496,3 +496,63 @@ fn each_data_set_names_the_places_it_has_built() {
         ]
     );
 }
+
+/// **A road narrower than a land cell is drawn unbroken from a finer grid**: on a block cut three
+/// vertex steps a cell side, a road running diagonally between the land cell corners (none of its
+/// vertices a corner) marks the corners nearest it, a chain from one side of the block to the
+/// other with no gap, where the corners' own road bits mark none.
+#[test]
+fn a_road_between_the_corners_of_a_finer_grid_is_drawn_unbroken() {
+    use dereth_assets::world::DenseLand;
+    let steps = 3;
+    let side = 8 * steps + 1;
+    let mut terrain = vec![0u16; side * side];
+    // The road: vertex (i, i + 1), one step off the corners' diagonal.
+    for i in 0..side - 1 {
+        terrain[i * side + i + 1] |= 1;
+    }
+    let dense = DenseLand {
+        steps,
+        terrain: terrain.into_boxed_slice(),
+        height: vec![0u8; side * side].into_boxed_slice(),
+        split: vec![0u8; DenseLand::split_bytes(steps)].into_boxed_slice(),
+        fine: DenseLand::no_fine(steps),
+    };
+    let land = CellLandblock::from_dense(dereth_primitives::DataId(0x0102_FFFF), 0, dense);
+    assert!(
+        (0..9).all(|x| (0..9).all(|y| land.road(x, y) == 0)),
+        "no corner is on the road itself"
+    );
+    let mut grid = world(&["Grassland"]);
+    grid.add_landblock((1, 2), &land);
+    let marked: Vec<(usize, usize)> = (0..9)
+        .flat_map(|x| (0..9).map(move |y| (x, y)))
+        .filter(|&(x, y)| grid.road[(16 + y) * VERTS + 8 + x])
+        .collect();
+    // Every column of corners has one, and one within a corner of one in the next: no gap.
+    for x in 0..8 {
+        let joined = marked.iter().filter(|m| m.0 == x).any(|a| {
+            marked
+                .iter()
+                .any(|b| b.0 == x + 1 && a.1.abs_diff(b.1) <= 1)
+        });
+        assert!(joined, "columns {x} and {}: {marked:?}", x + 1);
+    }
+    // A corner a neighboring block marks stays marked.
+    let plain = CellLandblock::from_dense(
+        dereth_primitives::DataId(0x0202_FFFF),
+        0,
+        DenseLand {
+            steps,
+            terrain: vec![0u16; side * side].into_boxed_slice(),
+            height: vec![0u8; side * side].into_boxed_slice(),
+            split: vec![0u8; DenseLand::split_bytes(steps)].into_boxed_slice(),
+            fine: DenseLand::no_fine(steps),
+        },
+    );
+    grid.add_landblock((2, 2), &plain);
+    assert!(
+        grid.road[(16 + 8) * VERTS + 16],
+        "the shared corner keeps its road"
+    );
+}

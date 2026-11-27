@@ -224,9 +224,123 @@ pub fn on_road_square(
     }
 }
 
+/// A finer grid's vertex height in meters: entry `index` of the height table `table`, moved by
+/// `fine`, a signed share of the step to the next entry (up, `fine` 1 to 127) or the one before
+/// (down, `fine` -1 to -128, read as an `i8`), in 128ths. `fine` 0 is the entry itself, exactly as a
+/// 9 × 9 landblock's vertex reads; the ends of the table have no step beyond them. Worked in
+/// single precision, the same on every machine.
+#[must_use]
+pub fn fine_height(table: &[f32; 256], index: u8, fine: u8) -> f32 {
+    let i = usize::from(index);
+    let h = table[i];
+    // LINT-OK: the byte read as the signed share it stores.
+    #[allow(clippy::cast_possible_wrap)]
+    let f = fine as i8;
+    if f == 0 {
+        return h;
+    }
+    let other = if f > 0 {
+        table[(i + 1).min(255)]
+    } else {
+        table[i.saturating_sub(1)]
+    };
+    h + (other - h) * (f32::from(f.unsigned_abs()) / 128.0)
+}
+
+/// The fine byte that brings entry `index` of `table` nearest `meters` ([`fine_height`]): 0 when the
+/// entry itself is nearest, never more than half a step either way since `index` is the nearest
+/// entry.
+#[must_use]
+pub fn fine_for(table: &[f32; 256], index: u8, meters: f32) -> u8 {
+    let i = usize::from(index);
+    let h = table[i];
+    let (other, sign) = if meters >= h {
+        (table[(i + 1).min(255)], 1i32)
+    } else {
+        (table[i.saturating_sub(1)], -1i32)
+    };
+    let step = (other - h).abs();
+    if step <= 0.0 {
+        return 0;
+    }
+    // LINT-OK: a share of a step, 0 to 128.
+    #[allow(clippy::cast_possible_truncation)]
+    let n = (((meters - h).abs() / step) * 128.0)
+        .round()
+        .clamp(0.0, 127.0) as i32;
+    // LINT-OK: -127 to 127, stored as the byte of the signed share.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let b = (sign * n) as i8 as u8;
+    b
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A table rising a meter an entry, then 2 m an entry from entry 10.
+    fn steps() -> [f32; 256] {
+        let mut t = [0f32; 256];
+        for (i, v) in t.iter_mut().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let i = i as f32;
+            *v = if i <= 10.0 {
+                i
+            } else {
+                10.0 + 2.0 * (i - 10.0)
+            };
+        }
+        t
+    }
+
+    /// A fine byte of 0 is the table entry itself, to the bit; one up or down moves the vertex
+    /// that share of the step to the next entry that way; the table's ends have no step beyond.
+    #[test]
+    fn a_fine_byte_moves_a_vertex_a_share_of_the_step_to_the_next_entry() {
+        let t = steps();
+        for i in [0u8, 5, 10, 11, 255] {
+            assert_eq!(fine_height(&t, i, 0).to_bits(), t[usize::from(i)].to_bits());
+        }
+        assert_eq!(
+            fine_height(&t, 10, 64),
+            11.0,
+            "half the 2 m step up from 10 m"
+        );
+        assert_eq!(
+            fine_height(&t, 10, (-64i8) as u8),
+            9.5,
+            "half the 1 m step down"
+        );
+        assert_eq!(fine_height(&t, 255, 100), t[255], "no entry above the last");
+        assert_eq!(
+            fine_height(&t, 0, (-100i8) as u8),
+            0.0,
+            "none below the first"
+        );
+    }
+
+    /// The fine byte for a height brings the nearest entry within half a 128th of its step of it.
+    #[test]
+    fn the_fine_byte_for_a_height_brings_its_entry_within_a_256th_of_a_step() {
+        let t = steps();
+        for k in 0..400 {
+            #[allow(clippy::cast_precision_loss)]
+            let h = 3.0 + k as f32 * 0.037;
+            // The nearest entry, as a quantizer picks it.
+            let i = (0..256)
+                .min_by(|&a, &b| (t[a] - h).abs().total_cmp(&(t[b] - h).abs()))
+                .unwrap();
+            let idx = u8::try_from(i).unwrap();
+            let step = if t[i] <= h {
+                t[i + 1] - t[i]
+            } else {
+                t[i] - t[i - 1]
+            };
+            let got = fine_height(&t, idx, fine_for(&t, idx, h));
+            assert!((got - h).abs() <= step / 256.0 + 1e-5, "{h}: {got}");
+        }
+        assert_eq!(fine_for(&t, 7, 7.0), 0, "the entry itself");
+    }
 
     #[test]
     fn the_default_grid_is_nine_by_nine_on_24_unit_cells() {

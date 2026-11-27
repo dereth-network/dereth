@@ -116,14 +116,14 @@ pub fn cover(points: &[(Point, (usize, usize))], shift: f64) -> Cover {
 }
 
 /// The heights each raised vertex needs, by its index in a world `side` vertices a side whose
-/// rounded heights are `height` into `table`: each corner of a covered square at least its height
-/// plus what shows, the greatest of every static's asks; but for a corner the table's next height
-/// up would overshoot by more than what shows.
+/// vertices stand at `meters`, rounded into `table`: each corner of a covered square at least its
+/// height plus what shows, the greatest of every static's asks; but for a corner the table's next
+/// height up would overshoot by more than what shows.
 #[must_use]
 pub fn wants(
     covers: &[Cover],
     side: usize,
-    height: &[u8],
+    meters: &dyn Fn(usize) -> f64,
     table: &[f32; table::LEN],
 ) -> BTreeMap<usize, f64> {
     let mut out: BTreeMap<usize, f64> = BTreeMap::new();
@@ -131,7 +131,7 @@ pub fn wants(
         for &((i, j), s) in &c.dry {
             for (a, b) in [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)] {
                 let k = a * side + b;
-                let want = f64::from(table[usize::from(height[k])]) + s;
+                let want = meters(k) + s;
                 if f64::from(table[usize::from(at_least(table, want))]) - want > s {
                     continue;
                 }
@@ -241,12 +241,12 @@ mod tests {
             *v = h;
         }
         // A 3 x 3 world, every vertex at 7 m (index 10).
-        let height = vec![10u8; 9];
+        let height = [10u8; 9];
         let c = Cover {
             dry: vec![((0, 0), 1.0)],
             ..Cover::default()
         };
-        let w = wants(&[c], 3, &height, &t);
+        let w = wants(&[c], 3, &|k| f64::from(t[usize::from(height[k])]), &t);
         assert_eq!(w.len(), 4);
         for (&k, &h) in &w {
             assert!([0, 1, 3, 4].contains(&k), "{k}");
@@ -259,9 +259,15 @@ mod tests {
             dry: vec![((0, 0), 0.3)],
             ..Cover::default()
         };
-        assert!(wants(&[sliver], 3, &height, &t).is_empty());
+        assert!(wants(&[sliver], 3, &|k| f64::from(t[usize::from(height[k])]), &t).is_empty());
         // Nothing asked, nothing raised.
-        assert!(wants(&[Cover::default()], 3, &height, &t).is_empty());
+        assert!(wants(
+            &[Cover::default()],
+            3,
+            &|k| f64::from(t[usize::from(height[k])]),
+            &t
+        )
+        .is_empty());
         // Past the table's top, its last height.
         assert_eq!(at_least(&t, 1.0e6), 255);
     }

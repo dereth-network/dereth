@@ -289,6 +289,7 @@ pub fn height_table(region: &Region) -> [f32; LAND_HEIGHT_TABLE_LEN] {
 pub fn land_vertices(
     grid: &LandGrid,
     height: &[u8],
+    fine: Option<&[u8]>,
     side_cell_count: usize,
     height_table: &[f32; LAND_HEIGHT_TABLE_LEN],
 ) -> Vec<Vec3> {
@@ -303,7 +304,12 @@ pub fn land_vertices(
         for j in 0..svc {
             #[allow(clippy::cast_precision_loss)] // i, j are a few dozen at most
             let (x, y) = (i as f32 * scale, j as f32 * scale);
-            let z = height_table[height[(i * full_side + j) * step] as usize];
+            let k = (i * full_side + j) * step;
+            // A finer grid's fine height; a 9 x 9 block's vertex is its table entry.
+            let z = match fine {
+                Some(f) => dereth_primitives::land_grid::fine_height(height_table, height[k], f[k]),
+                None => height_table[height[k] as usize],
+            };
             vertices.push(Vec3::new(x, y, z));
         }
     }
@@ -360,6 +366,7 @@ pub fn land_geometry(
     land_geometry_cut(
         spec,
         height,
+        None,
         height_table,
         block_x,
         block_y,
@@ -379,6 +386,7 @@ pub fn land_geometry(
 pub fn land_geometry_cut(
     spec: &TerrainSpec,
     height: &[u8],
+    fine: Option<&[u8]>,
     height_table: &[f32; LAND_HEIGHT_TABLE_LEN],
     block_x: i32,
     block_y: i32,
@@ -387,7 +395,7 @@ pub fn land_geometry_cut(
     cut: impl Fn(usize, usize) -> Option<bool>,
 ) -> LandGeometry {
     let grid = &spec.grid;
-    let vertices = land_vertices(grid, height, side_cell_count, height_table);
+    let vertices = land_vertices(grid, height, fine, side_cell_count, height_table);
     let squares = side_cell_count * grid.vertices_per_cell;
     let svc = squares + 1;
     let step = grid.cells_per_side / side_cell_count;
@@ -584,6 +592,7 @@ pub fn generate_landblock_with_table(
     let geometry = land_geometry_cut(
         &spec,
         lb.grid_height(),
+        lb.grid_fine(),
         table,
         block_x,
         block_y,
@@ -633,9 +642,21 @@ pub fn generate_landblock_with_table(
 
     let (cell_water, water_type) = calc_water_on(lb.grid_terrain(), steps, side_cell_count);
 
-    // The land limits, over the full height array regardless of LOD.
+    // The land limits, over the full height array regardless of LOD: a finer grid's over its
+    // vertices' fine heights.
     let max_h = lb.grid_height().iter().copied().max().unwrap_or(0);
     let min_h = lb.grid_height().iter().copied().min().unwrap_or(0);
+    let (top, bottom) =
+        match lb.grid_fine() {
+            Some(fine) => lb.grid_height().iter().zip(fine).fold(
+                (f32::MIN, f32::MAX),
+                |(hi, lo), (&h, &f)| {
+                    let z = dereth_primitives::land_grid::fine_height(table, h, f);
+                    (hi.max(z), lo.min(z))
+                },
+            ),
+            None => (table[max_h as usize], table[min_h as usize]),
+        };
 
     let mut mesh = LandblockMesh {
         // LINT-OK: a landblock id is two bytes, one per axis, each 0..=0xFE.
@@ -652,8 +673,8 @@ pub fn generate_landblock_with_table(
         cell_water,
         water_type,
         colours: Vec::new(),
-        max_zval: table[max_h as usize] + crate::consts::MAX_OBJECT_HEIGHT,
-        min_zval: table[min_h as usize] - 1.0,
+        max_zval: top + crate::consts::MAX_OBJECT_HEIGHT,
+        min_zval: bottom - 1.0,
     };
 
     // The mesh generator calls [`crate::land::stitch::trans_adjust`] here — between vertex
@@ -670,7 +691,7 @@ pub fn generate_landblock_with_table(
     // guard inside it is `generate`'s own, so a full-detail or `InViewerBlock` slot is untouched
     // and this is a no-op for every caller that asks for one — physics included, which never calls
     // this function at all.
-    crate::land::stitch::trans_adjust(&mut mesh, lb.grid_height(), table, dir);
+    crate::land::stitch::trans_adjust(&mut mesh, lb.grid_height(), lb.grid_fine(), table, dir);
     mesh
 }
 
@@ -848,6 +869,32 @@ mod tests {
     }
 
     /// A height table that is not the identity, so a wrong index shows.
+    /// **A finer grid's vertices stand at their fine heights**: each at its table entry moved by its
+    /// fine byte, and with no fine bytes at its entry, as a 9 x 9 block's.
+    #[test]
+    fn a_finer_grids_vertices_stand_at_their_fine_heights() {
+        let grid = LandGrid::with_steps(3, 4.0);
+        let side = grid.vertices_per_side();
+        let table = ramp_table();
+        let height: Vec<u8> = (0..side * side)
+            .map(|k| u8::try_from(k % 200).unwrap())
+            .collect();
+        let fine: Vec<u8> = (0..side * side)
+            .map(|k| u8::try_from(k % 256).unwrap())
+            .collect();
+        let with = land_vertices(&grid, &height, Some(&fine), 8, &table);
+        let without = land_vertices(&grid, &height, None, 8, &table);
+        for k in 0..side * side {
+            let want = dereth_primitives::land_grid::fine_height(&table, height[k], fine[k]);
+            assert_eq!(with[k].z.to_bits(), want.to_bits(), "vertex {k}");
+            assert_eq!(
+                without[k].z.to_bits(),
+                table[usize::from(height[k])].to_bits()
+            );
+        }
+        assert!(with.iter().zip(&without).any(|(a, b)| a.z != b.z));
+    }
+
     fn ramp_table() -> [f32; LAND_HEIGHT_TABLE_LEN] {
         let mut t = [0.0f32; LAND_HEIGHT_TABLE_LEN];
         for (i, v) in t.iter_mut().enumerate() {

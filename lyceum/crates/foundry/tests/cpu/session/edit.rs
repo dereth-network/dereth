@@ -786,3 +786,49 @@ fn the_drop_point_is_where_the_portals_standing_outdoors_send_the_one_most_share
     );
     assert_eq!(drop_point(&[]), None);
 }
+
+/// **Editing an Asheron's Call world's land writes the records it always has**: heights, terrain,
+/// scene and road set over the fixture's 9 × 9 landblocks write landblock records that are 9 × 9
+/// still, and byte for byte what they were before the finer grid's height bytes.
+#[test]
+fn editing_an_ac1_worlds_land_writes_the_records_it_always_has() {
+    let f = Fixture::new("edit-ac1-land-bytes");
+    let world = f.world();
+    let mut s = open(&f, &world);
+    let mut sets = Vec::new();
+    for (gx, gy) in [
+        (9u32, 10u32),
+        (12, 12),
+        (16, 16),
+        (17, 9),
+        (20, 22),
+        (23, 23),
+    ] {
+        for (field, value) in [
+            (Field::Height, 77u16),
+            (Field::Terrain, 9),
+            (Field::Scene, 3),
+            (Field::Road, 1),
+        ] {
+            sets.push(VertexSet {
+                gx,
+                gy,
+                field,
+                value: value + u16::try_from(gx % 3).unwrap(),
+            });
+        }
+    }
+    s.apply(&Op::SetVertices(sets)).unwrap();
+    let cell = &s.compiled().records[&ModernDat::Cell];
+    let (mut digest, mut blocks) = (0xCBF2_9CE4_8422_2325u64, 0usize);
+    for (id, staged) in cell.iter().filter(|(id, _)| *id & 0xFFFF == 0xFFFF) {
+        assert_eq!(staged.bytes.len(), 252, "{id:#010X} is a 9 x 9 record");
+        for b in id.to_le_bytes().iter().chain(staged.bytes.iter()) {
+            digest ^= u64::from(*b);
+            digest = digest.wrapping_mul(0x0100_0000_01B3);
+        }
+        blocks += 1;
+    }
+    eprintln!("ac1 land edit: {blocks} records, digest {digest}");
+    assert_eq!((blocks, digest), (4, 2_377_826_322_810_536_923));
+}

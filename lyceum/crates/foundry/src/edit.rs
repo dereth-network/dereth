@@ -3025,8 +3025,14 @@ impl Session {
         let (lb, x, y) = vertex_owner(&self.compiled.grid, gx, gy);
         let t = self.terrain(lb)?;
         let (height, word) = crate::land::vertex(&t, usize::from(x), usize::from(y))?;
+        let fine = crate::land::fine(&t, usize::from(x), usize::from(y));
         let z = self.region.as_ref().map_or(0.0, |r| {
-            dereth_terrain::land::mesh::height_table(r)[usize::from(height)]
+            let table = dereth_terrain::land::mesh::height_table(r);
+            // A finer grid's fine height; a 9 x 9 block's vertex is its table entry.
+            match fine {
+                Some(f) => dereth_primitives::land_grid::fine_height(&table, height, f),
+                None => table[usize::from(height)],
+            }
         });
         Some(Vertex {
             height,

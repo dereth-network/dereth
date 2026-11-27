@@ -150,7 +150,7 @@ impl Out {
 impl CellLandblock {
     /// The `0xXXYYFFFF` record: the id, `lbi_exists`, 81 terrain words, 81 height indices and one
     /// pad byte, always [`LANDBLOCK_BYTES`]. A block with a full grid writes the grid instead:
-    /// its vertex count, words, heights and split bits, padded to four.
+    /// its vertex count, words, heights, split bits and fine heights, padded to four.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut o = Out(Vec::with_capacity(LANDBLOCK_BYTES));
@@ -163,6 +163,7 @@ impl CellLandblock {
             }
             o.0.extend_from_slice(&d.height);
             o.0.extend_from_slice(&d.split);
+            o.0.extend_from_slice(&d.fine);
             o.align();
             return o.0;
         }
@@ -2017,15 +2018,16 @@ mod tests {
                 terrain,
                 height,
                 split,
+                fine: (0..n).map(|i| u8::try_from(i % 241).unwrap_or(0)).collect(),
             },
         )
     }
 
     #[test]
-    fn a_two_step_landblock_is_912_bytes_and_reads_back() {
+    fn a_two_step_landblock_is_1200_bytes_and_reads_back() {
         let lb = dense_block();
         let b = lb.encode();
-        assert_eq!(b.len(), 912);
+        assert_eq!(b.len(), 1200);
         assert_eq!(u32::from_le_bytes(b[8..12].try_into().unwrap()), 289);
         let back = CellLandblock::decode_payload(lb.id, &b).unwrap();
         assert_eq!(back, lb);

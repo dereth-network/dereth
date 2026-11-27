@@ -132,6 +132,7 @@ pub fn make(
             side,
             table: &w.table,
             height: &w.height,
+            fine: &w.fine,
             cut: &w.cut,
             water: &water,
         };
@@ -155,7 +156,7 @@ pub fn make(
         false,
     )?;
     lap("write-before");
-    let pre = w.height.clone();
+    let pre = (w.height.clone(), w.fine.clone());
     let mut raised = w.raise_to(g, &sw.wants);
     let (left, mut rp) = {
         let water = |k: usize| w.vertex[k].water;
@@ -164,6 +165,7 @@ pub fn make(
             side,
             table: &w.table,
             height: &w.height,
+            fine: &w.fine,
             cut: &w.cut,
             water: &water,
         };
@@ -181,6 +183,7 @@ pub fn make(
             side,
             table: &w.table,
             height: &w.height,
+            fine: &w.fine,
             cut: &w.cut,
             water: &water,
         };
@@ -286,7 +289,7 @@ pub fn make(
             }
             stage[i] = stage[i].max(1);
         }
-        lowered += w.restore(g, &pre, &back);
+        lowered += w.restore(g, (&pre.0, &pre.1), &back);
         // What this round changed: each placement a ramp was left out of (its ramps are one
         // static), and the land put back (a square's corners, and the cuts of the squares round
         // them).
@@ -334,6 +337,7 @@ pub fn make(
         side,
         table: &w.table,
         height: &w.height,
+        fine: &w.fine,
         cut: &w.cut,
         water: &water,
     };
@@ -684,7 +688,7 @@ fn write_check(
     for &(bx, by) in &near {
         #[allow(clippy::cast_possible_truncation)]
         let id = DataId(((bx as u32) << 24) | ((by as u32) << 16) | 0xFFFF);
-        let (words, hs, split) = w.block(bx, by);
+        let (words, hs, split, fine) = w.block(bx, by);
         let rec = CellLandblock::from_dense(
             id,
             1,
@@ -693,6 +697,7 @@ fn write_check(
                 terrain: words.into(),
                 height: hs.into(),
                 split: split.into(),
+                fine: fine.into(),
             },
         );
         cw.put(id, &rec.encode(), version(check.cell, id), cell_it, 0)
@@ -826,6 +831,7 @@ mod tests {
             side: SIDE,
             table: &t,
             height: &height,
+            fine: &[0; SIDE * SIDE],
             cut: &cut,
             water: &dry,
         };

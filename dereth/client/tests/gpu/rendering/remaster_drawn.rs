@@ -440,6 +440,7 @@ impl River {
             &dereth_primitives::land_grid::LandGrid::with_steps(RIVER_STEPS, 4.0),
             river_block(),
             steps.into(),
+            None,
             words.into(),
             |_, _| None,
             false,

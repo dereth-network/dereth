@@ -51,11 +51,12 @@ pub fn should_trans_adjust(side_cell_count: u8, dir: Direction) -> bool {
 /// special ordering.
 ///
 /// `heights` is the raw height-index array from the landblock record (9x9 on the default grid, the
-/// block's whole grid on a finer one); `table` is the land height table. Fix (b) reads them
-/// directly rather than through the LOD-sampled vertices.
+/// block's whole grid on a finer one), `fine` a finer grid's fine height bytes; `table` is the
+/// land height table. Fix (b) reads them directly rather than through the LOD-sampled vertices.
 pub fn trans_adjust(
     m: &mut LandblockMesh,
     heights: &[u8],
+    fine: Option<&[u8]>,
     table: &[f32; LAND_HEIGHT_TABLE_LEN],
     dir: Direction,
 ) {
@@ -65,7 +66,7 @@ pub fn trans_adjust(
     m.trans_dir = dir;
     outward_edge_average(m, dir);
     if m.side_cell_count == 4 && dir.is_cardinal() {
-        inward_crack_guard(m, heights, table, dir);
+        inward_crack_guard(m, heights, fine, table, dir);
     }
     adj_planes(m);
 }
@@ -134,13 +135,20 @@ fn outward_edge_average(m: &mut LandblockMesh, dir: Direction) {
 fn inward_crack_guard(
     m: &mut LandblockMesh,
     heights: &[u8],
+    fine: Option<&[u8]>,
     table: &[f32; LAND_HEIGHT_TABLE_LEN],
     dir: Direction,
 ) {
     // At side_cell_count 4 the block has 4 * steps squares a side; the full grid twice that.
     let sq = m.squares_per_side();
     let full = 2 * sq;
-    let h = |a: usize, b: usize| table[heights[a * (full + 1) + b] as usize];
+    let h = |a: usize, b: usize| {
+        let k = a * (full + 1) + b;
+        match fine {
+            Some(f) => dereth_primitives::land_grid::fine_height(table, heights[k], f[k]),
+            None => table[heights[k] as usize],
+        }
+    };
     let idx = |a: usize, b: usize| a * (sq + 1) + b; // 5 x 5 at side_cell_count 4 on the default grid
     for n in (1..sq).step_by(2) {
         let (vi, along) = match dir {
@@ -289,7 +297,7 @@ mod tests {
         // column: all of them land on the even (height 10) columns.
         let mut m = unstitched(&lb(height), &r, &t, 2);
         let before: Vec<f32> = m.vertices.iter().map(|v| v.z).collect();
-        trans_adjust(&mut m, &height, &t, Direction::North);
+        trans_adjust(&mut m, &height, None, &t, Direction::North);
         // The north edge (j == 4) odd vertices i = 1, 3 become the average of their neighbours.
         for i in [1usize, 3] {
             let expect = (before[(i - 1) * 5 + 4] + before[(i + 1) * 5 + 4]) / 2.0;
@@ -321,7 +329,7 @@ mod tests {
         let t = table();
         let mut m = unstitched(&lb(height), &r, &t, 2);
         let before: Vec<f32> = m.vertices.iter().map(|v| v.z).collect();
-        trans_adjust(&mut m, &height, &t, Direction::North);
+        trans_adjust(&mut m, &height, None, &t, Direction::North);
         for i in [1usize, 3] {
             let v = m.vertices[i * 5].z;
             assert!(
@@ -339,7 +347,7 @@ mod tests {
         // A 2x2 block (lod_div 4) never gets fix (b): only its outward edge changes.
         let mut m2 = unstitched(&lb(height), &r, &t, 4);
         let b2: Vec<f32> = m2.vertices.iter().map(|v| v.z).collect();
-        trans_adjust(&mut m2, &height, &t, Direction::North);
+        trans_adjust(&mut m2, &height, None, &t, Direction::North);
         // side_vertex_count is 3; the south edge (j == 0) is untouched.
         for i in 0..3 {
             assert_eq!(
@@ -368,7 +376,7 @@ mod tests {
         let t = table();
         let mut m = unstitched(&lb(height), &r, &t, 2);
         let before: Vec<f32> = m.vertices.iter().map(|v| v.z).collect();
-        trans_adjust(&mut m, &height, &t, Direction::NorthEast);
+        trans_adjust(&mut m, &height, None, &t, Direction::NorthEast);
         let changed: Vec<usize> = (0..m.vertices.len())
             .filter(|&i| m.vertices[i].z != before[i])
             .collect();
@@ -402,7 +410,7 @@ mod tests {
         // middle one, leaving the straight run grid 0 -> grid 8.
         let mut m = unstitched(&lb(height), &r, &t, 4);
         let mid_before = m.vertices[2 * 3 + 1].z;
-        trans_adjust(&mut m, &height, &t, Direction::East);
+        trans_adjust(&mut m, &height, None, &t, Direction::East);
         let (lo, hi) = (m.vertices[2 * 3].z, m.vertices[2 * 3 + 2].z);
         let mid = m.vertices[2 * 3 + 1].z;
         assert!(
@@ -456,6 +464,7 @@ mod tests {
                 terrain: vec![4u16; n].into(),
                 height: height.into(),
                 split: split.into(),
+                fine: dereth_assets::world::DenseLand::no_fine(3),
             },
         )
     }

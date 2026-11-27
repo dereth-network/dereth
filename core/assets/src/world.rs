@@ -75,7 +75,8 @@ pub struct CellLandblock {
 /// steps: `8 * steps + 1` vertices to a block side, indexed x major as the 9 x 9 grid is.
 ///
 /// The record holds, after the id and `lbi_exists`: the vertex count, the terrain words, the
-/// height indices, one split bit per square, and zero padding to four bytes.
+/// height indices, one split bit per square, a fine height byte per vertex, and zero padding to
+/// four bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseLand {
     /// Vertex steps along a land cell side, `2 ..= MAX_DENSE_STEPS`.
@@ -87,6 +88,10 @@ pub struct DenseLand {
     /// One bit per square, x major (`x * squares + y`), least significant bit first in each byte:
     /// set when the square's shared edge runs south-west to north-east.
     pub split: Box<[u8]>,
+    /// Fine height per vertex, same indexing: a share of the step from its height-table entry to
+    /// the next one up or down ([`dereth_primitives::land_grid::fine_height`]); 0 is the entry
+    /// itself.
+    pub fine: Box<[u8]>,
 }
 
 impl DenseLand {
@@ -100,6 +105,13 @@ impl DenseLand {
     #[must_use]
     pub const fn squares(&self) -> usize {
         8 * self.steps
+    }
+
+    /// The fine height bytes of a grid of `steps` whose every vertex stands at its height-table
+    /// entry.
+    #[must_use]
+    pub fn no_fine(steps: usize) -> Box<[u8]> {
+        vec![0; (8 * steps + 1) * (8 * steps + 1)].into()
     }
 
     /// The bytes of split bits a grid of `steps` carries.
@@ -164,6 +176,13 @@ impl CellLandblock {
     #[must_use]
     pub fn grid_height(&self) -> &[u8] {
         self.dense.as_ref().map_or(&self.height[..], |d| &d.height)
+    }
+
+    /// The fine height byte of every vertex of the block's grid, x major: a finer grid's only; a 9 × 9
+    /// block has none, and its heights are its height-table entries.
+    #[must_use]
+    pub fn grid_fine(&self) -> Option<&[u8]> {
+        self.dense.as_ref().map(|d| &d.fine[..])
     }
 
     /// Whether square `(x, y)` of the block's grid (x major) is cut south-west to north-east, as the
@@ -244,6 +263,7 @@ fn decode_dense(
         .collect::<Result<Box<[u16]>, _>>()?;
     let height = c.bytes(count)?.into();
     let split = c.bytes(DenseLand::split_bytes(steps))?.into();
+    let fine = c.bytes(count)?.into();
     c.align_ptr();
     Ok(CellLandblock::from_dense(
         id,
@@ -253,6 +273,7 @@ fn decode_dense(
             terrain,
             height,
             split,
+            fine,
         },
     ))
 }

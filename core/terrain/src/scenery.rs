@@ -1150,6 +1150,7 @@ mod tests {
                 terrain: terrain.into(),
                 height: vec![10u8; SIDE * SIDE].into(),
                 split: vec![0u8; (24 * 24usize).div_ceil(8)].into(),
+                fine: dereth_assets::world::DenseLand::no_fine(3),
             },
         );
         let mut table = [0.0f32; crate::consts::LAND_HEIGHT_TABLE_LEN];

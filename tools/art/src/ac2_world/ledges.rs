@@ -338,6 +338,8 @@ pub struct Land<'a> {
     pub side: usize,
     pub table: &'a [f32; table::LEN],
     pub height: &'a [u8],
+    /// Each vertex's fine height byte ([`crate::ac2_world::dense::DenseWorld::fine`]).
+    pub fine: &'a [u8],
     pub cut: &'a [bool],
     pub water: &'a (dyn Fn(usize) -> bool + Sync),
 }
@@ -354,8 +356,22 @@ impl Land<'_> {
         (i + 1 < self.side && j + 1 < self.side).then_some(((i, j), u - i as f64, v - j as f64))
     }
 
+    /// Vertex `k`'s height: the entry `over` sets it to, standing at it, else as the land holds it.
     fn corner(&self, k: usize, over: &HashMap<usize, u8>) -> f64 {
-        f64::from(self.table[usize::from(*over.get(&k).unwrap_or(&self.height[k]))])
+        match over.get(&k) {
+            Some(&idx) => f64::from(self.table[usize::from(idx)]),
+            None => self.meters(k),
+        }
+    }
+
+    /// Vertex `k`'s height as the land holds it: its table entry moved by its fine byte.
+    fn meters(&self, k: usize) -> f64 {
+        let fine = self.fine.get(k).copied().unwrap_or(0);
+        f64::from(dereth_primitives::land_grid::fine_height(
+            self.table,
+            self.height[k],
+            fine,
+        ))
     }
 
     fn corners(&self, (i, j): (usize, usize), over: &HashMap<usize, u8>) -> [f64; 4] {
@@ -647,7 +663,7 @@ pub fn swell(
                 (i + 1) * side + j + 1,
                 i * side + j + 1,
             ] {
-                let cur = f64::from(land.table[usize::from(land.height[k])]);
+                let cur = land.meters(k);
                 if cur >= lo {
                     continue;
                 }
@@ -1187,6 +1203,7 @@ mod tests {
     struct Flat {
         table: [f32; table::LEN],
         height: Vec<u8>,
+        fine: Vec<u8>,
         cut: Vec<bool>,
     }
 
@@ -1203,6 +1220,7 @@ mod tests {
         Flat {
             table: t,
             height: vec![idx; SIDE * SIDE],
+            fine: vec![0; SIDE * SIDE],
             cut: vec![true; (SIDE - 1) * (SIDE - 1)],
         }
     }
@@ -1217,6 +1235,7 @@ mod tests {
             side: SIDE,
             table: &f.table,
             height: &f.height,
+            fine: &f.fine,
             cut: &f.cut,
             water: &dry,
         }
@@ -1272,6 +1291,7 @@ mod tests {
         }
         let after = Land {
             height: &raised,
+            fine: &f.fine,
             ..land(&f)
         };
         for x in &found {

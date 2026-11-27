@@ -1186,7 +1186,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
     // The land raised to cover what AC2 sets into its ground and the converted ground leaves
     // showing, on dry squares and within the cap.
     let wants =
-        crate::ac2_world::buried::wants(&statics.covers, w.grid.side(), &w.height, &w.table);
+        crate::ac2_world::buried::wants(&statics.covers, w.grid.side(), &|k| w.meters(k), &w.table);
     let raised = w.raise_to(&g, &wants);
     let past_cap = statics.covers.iter().filter(|c| c.past_cap > 0.0).count();
     let on_water = statics.covers.iter().filter(|c| c.wet > 0.0).count();
@@ -1671,7 +1671,9 @@ pub fn build(args: &Args) -> Result<u32, String> {
                     if w.height[k] != 0 {
                         nonzero += 1;
                     }
-                    top = top.max(chosen[usize::from(w.height[k])]);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let m = w.meters(k) as f32;
+                    top = top.max(m);
                 }
             }
             land_blocks += usize::from(land > 0);
@@ -1701,7 +1703,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
                     );
                 }
             }
-            let (words, hs, split) = w.block(bx, by);
+            let (words, hs, split, fine) = w.block(bx, by);
             let rec = CellLandblock::from_dense(
                 id,
                 lbi_exists,
@@ -1710,10 +1712,11 @@ pub fn build(args: &Args) -> Result<u32, String> {
                     terrain: words.into(),
                     height: hs.into(),
                     split: split.into(),
+                    fine: fine.into(),
                 },
             );
             let bytes = rec.encode();
-            if bytes.len() != 1960 {
+            if bytes.len() != 2584 {
                 return Err(format!("{id:?}: a dense record of {} bytes", bytes.len()));
             }
             let version = cell
@@ -2489,6 +2492,22 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let _ = writeln!(
         stats,
         "rounding error on land vertices, fitted table: {rounding_fitted}"
+    );
+    // The land as written: each vertex's table entry moved by its fine height byte. A vertex a
+    // pass moved (lowered under a floor, raised at a ledge, pinned under a static) is off its
+    // exact height by what the pass moved it.
+    #[allow(clippy::cast_possible_truncation)]
+    let written: Vec<f32> = w
+        .vertex
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.water)
+        .map(|(k, v)| (w.meters(k) - f64::from(v.exact)).abs() as f32)
+        .collect();
+    let _ = writeln!(
+        stats,
+        "land vertices as written, with their fine heights, against their exact heights: {}",
+        summary(written)
     );
     let _ = writeln!(
         stats,
@@ -3318,10 +3337,11 @@ camera = \"0x5A5B [20 30 90] yaw 1 pitch -0.1\"
             let mut out = Vec::new();
             for bx in 0..3 {
                 for by in 0..3 {
-                    let (words, h, cuts) = w.block(bx, by);
+                    let (words, h, cuts, fine) = w.block(bx, by);
                     out.extend(words.iter().flat_map(|w| w.to_le_bytes()));
                     out.extend(h);
                     out.extend(cuts);
+                    out.extend(fine);
                 }
             }
             (out, heights.len())

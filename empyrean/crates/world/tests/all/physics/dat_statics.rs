@@ -1218,6 +1218,7 @@ mod real_content {
                 terrain: terrain.into(),
                 height: height.into(),
                 split: vec![0; DenseLand::split_bytes(STEPS)].into(),
+                fine: DenseLand::no_fine(STEPS),
             },
         );
         assert_eq!(

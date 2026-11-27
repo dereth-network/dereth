@@ -791,6 +791,7 @@ impl AssetSource for DatAssets<'_> {
                     terrain: terrain.words.clone().into(),
                     height: vec![0; terrain.words.len()].into(),
                     split: vec![0; dereth_assets::world::DenseLand::split_bytes(steps)].into(),
+                    fine: dereth_assets::world::DenseLand::no_fine(steps),
                 },
             ),
         };

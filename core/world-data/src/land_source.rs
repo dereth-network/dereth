@@ -583,6 +583,7 @@ pub fn land_collision(
         grid,
         id,
         lb.grid_height().into(),
+        lb.grid_fine(),
         lb.grid_terrain().into(),
         |i, j| lb.cut(i, j),
         lb.lbi_exists != 0,
@@ -682,6 +683,7 @@ mod tests {
                 terrain: vec![0; n].into(),
                 height: vec![0; n].into(),
                 split: vec![0; 32].into(),
+                fine: dereth_assets::DenseLand::no_fine(2),
             },
         );
         let retail = CellLandblock {
@@ -725,6 +727,7 @@ mod tests {
                 terrain: terrain.into(),
                 height: vec![0; n].into(),
                 split: vec![0; dereth_assets::DenseLand::split_bytes(3)].into(),
+                fine: dereth_assets::DenseLand::no_fine(3),
             },
         );
         let b = land_collision(&three, id, &record, &table).expect("the record's land");

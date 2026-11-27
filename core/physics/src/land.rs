@@ -195,6 +195,7 @@ impl LandblockCollision {
             &LandGrid::DEFAULT,
             id,
             height,
+            None,
             terrain,
             |_, _| None,
             has_info,
@@ -204,7 +205,9 @@ impl LandblockCollision {
 
     /// Build the collision geometry for one full-detail landblock of a world laid on `grid`.
     ///
-    /// `height` and `terrain` hold the grid's whole set of vertices, x major. `cut` gives square
+    /// `height` and `terrain` hold the grid's whole set of vertices, x major, and `fine` a finer
+    /// grid's fine height bytes ([`dereth_primitives::land_grid::fine_height`]); without them each
+    /// vertex stands at its height-table entry. `cut` gives square
     /// `(i, j)`'s stored cut, `true` when it runs south-west to north-east; where it gives none,
     /// the square's cut comes from [`split_hash`] over its global square coordinates, as on the
     /// retail grid.
@@ -214,10 +217,12 @@ impl LandblockCollision {
     /// Returns [`PhysicsError::DegenerateLandblock`] for a grid whose cells are not the default
     /// grid's 24 m (the land-coordinate rules are those cells'), and for vertices that are not the
     /// grid's size.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_in(
         grid: &LandGrid,
         id: LandblockId,
         height: Box<[u8]>,
+        fine: Option<&[u8]>,
         terrain: Box<[u16]>,
         cut: impl Fn(usize, usize) -> Option<bool>,
         has_info: bool,
@@ -233,7 +238,10 @@ impl LandblockCollision {
         let side_vertex_count = side_polygon_count + 1;
         let svc = side_vertex_count as usize;
         let spc = side_polygon_count as usize;
-        if height.len() != svc * svc || terrain.len() != svc * svc {
+        if height.len() != svc * svc
+            || terrain.len() != svc * svc
+            || fine.is_some_and(|f| f.len() != svc * svc)
+        {
             return Err(PhysicsError::DegenerateLandblock(id));
         }
 
@@ -245,7 +253,13 @@ impl LandblockCollision {
             for j in 0..svc {
                 #[allow(clippy::cast_precision_loss)]
                 let (x, y) = (i as f32 * scale, j as f32 * scale);
-                let z = height_table[height[i * svc + j] as usize];
+                let k = i * svc + j;
+                let z = match fine {
+                    Some(f) => {
+                        dereth_primitives::land_grid::fine_height(height_table, height[k], f[k])
+                    }
+                    None => height_table[height[k] as usize],
+                };
                 vertices.push(Vec3::new(x, y, z));
             }
         }
@@ -318,8 +332,15 @@ impl LandblockCollision {
         // The landblock's height limits.
         let max_h = height.iter().copied().max().unwrap_or(0);
         let min_h = height.iter().copied().min().unwrap_or(0);
-        let max_zval = height_table[max_h as usize] + MAX_OBJECT_HEIGHT;
-        let min_zval = height_table[min_h as usize] - 1.0;
+        // A finer grid's limits over its vertices' fine heights.
+        let (top, bottom) = match fine {
+            Some(_) => vertices.iter().fold((f32::MIN, f32::MAX), |(hi, lo), v| {
+                (hi.max(v.z), lo.min(v.z))
+            }),
+            None => (height_table[max_h as usize], height_table[min_h as usize]),
+        };
+        let max_zval = top + MAX_OBJECT_HEIGHT;
+        let min_zval = bottom - 1.0;
 
         Ok(Self {
             id,
@@ -602,6 +623,41 @@ mod tests {
     // the vertex and polygon construction, the per-cell water, the block water, the water depth
     // and the terrain lookup,
     // on_road. The retail-data comparison lives in tests/retail_land.rs.
+
+    /// **A finer grid's collision stands at its fine heights**: each vertex its table entry moved by
+    /// its fine byte, and the block's limits over those heights.
+    #[test]
+    fn a_finer_grids_collision_stands_at_its_fine_heights() {
+        let grid = LandGrid::with_steps(3, 4.0);
+        let n = 25 * 25;
+        let mut table = [0f32; LAND_HEIGHT_TABLE_LEN];
+        for (i, v) in table.iter_mut().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                *v = i as f32 * 2.0;
+            }
+        }
+        let height: Box<[u8]> = vec![10u8; n].into();
+        let mut fine = vec![0u8; n];
+        fine[0] = 64; // half a step up: 21 m
+        fine[1] = (-64i8).to_ne_bytes()[0]; // half a step down: 19 m
+        let b = LandblockCollision::build_in(
+            &grid,
+            LandblockId::new(1, 1),
+            height,
+            Some(&fine),
+            vec![0u16; n].into(),
+            |_, _| None,
+            false,
+            &table,
+        )
+        .unwrap();
+        assert_eq!(b.vertices[0].z, 21.0);
+        assert_eq!(b.vertices[1].z, 19.0);
+        assert_eq!(b.vertices[2].z, 20.0);
+        assert_eq!(b.max_zval, 21.0 + MAX_OBJECT_HEIGHT);
+        assert_eq!(b.min_zval, 19.0 - 1.0);
+    }
 
     fn flat_table() -> [f32; LAND_HEIGHT_TABLE_LEN] {
         let mut t = [0.0_f32; LAND_HEIGHT_TABLE_LEN];
@@ -1003,6 +1059,7 @@ mod tests {
             &two(),
             LandblockId::new(0x5B, 0x79),
             height.into(),
+            None,
             terrain.into(),
             cut,
             false,
@@ -1033,6 +1090,7 @@ mod tests {
             &LandGrid::with_steps(1, 9.0),
             LandblockId::new(0xA9, 0xB4),
             Box::new(h),
+            None,
             Box::new(t),
             |_, _| None,
             false,
@@ -1155,6 +1213,7 @@ mod tests {
             &two(),
             LandblockId::new(1, 1),
             vec![0_u8; VERTEX_COUNT].into(),
+            None,
             vec![0_u16; VERTEX_COUNT].into(),
             |_, _| None,
             false,
@@ -1173,6 +1232,7 @@ mod tests {
             &grid,
             LandblockId::new(1, 1),
             vec![0_u8; DENSE].into(),
+            None,
             vec![0_u16; DENSE].into(),
             |_, _| None,
             false,
@@ -1194,6 +1254,7 @@ mod tests {
             &LandGrid::with_steps(3, 4.0),
             LandblockId::new(0x10, 0x20),
             vec![0_u8; n].into(),
+            None,
             t.into(),
             |_, _| None,
             false,
@@ -1234,6 +1295,7 @@ mod tests {
             &LandGrid::with_steps(3, 4.0),
             LandblockId::new(0x10, 0x20),
             vec![0_u8; n].into(),
+            None,
             t.into(),
             |_, _| None,
             false,
@@ -1297,6 +1359,7 @@ mod tests {
                 &LandGrid::with_steps(steps, 4.0),
                 LandblockId::new(0x10, 0x20),
                 vec![0_u8; side * side].into(),
+                None,
                 t.into(),
                 |_, _| None,
                 false,
@@ -1346,6 +1409,7 @@ mod tests {
             &LandGrid::with_steps(3, 4.0),
             LandblockId::new(0x10, 0x20),
             h.into(),
+            None,
             vec![0_u16; n].into(),
             |_, _| None,
             false,

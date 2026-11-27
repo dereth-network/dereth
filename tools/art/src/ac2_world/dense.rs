@@ -221,6 +221,10 @@ pub struct DenseWorld {
     /// The table and each vertex's index into it, once rounded.
     pub table: [f32; table::LEN],
     pub height: Vec<u8>,
+    /// Each vertex's fine height byte: its share of the step to the next entry up or down, which
+    /// brings it to its exact height ([`dereth_primitives::land_grid::fine_height`]). A vertex whose
+    /// index a pass sets stands at that entry, its fine byte 0.
+    pub fine: Vec<u8>,
     /// Per world square, x major over `(side - 1)²`: cut south-west to north-east.
     pub cut: Vec<bool>,
 }
@@ -276,6 +280,7 @@ impl DenseWorld {
             edge_rule,
             table: [0.0; table::LEN],
             height: Vec::new(),
+            fine: Vec::new(),
             cut: Vec::new(),
         }
     }
@@ -288,6 +293,12 @@ impl DenseWorld {
             .iter()
             .map(|v| table::quantize(&table, f64::from(v.exact)))
             .collect();
+        self.fine = self
+            .vertex
+            .iter()
+            .zip(&self.height)
+            .map(|(v, &i)| dereth_primitives::land_grid::fine_for(&table, i, v.exact))
+            .collect();
         let side = self.grid.side();
         let rows = par_map(side - 1, |i| {
             (0..side - 1)
@@ -297,11 +308,45 @@ impl DenseWorld {
         self.cut = rows.into_iter().flatten().collect();
     }
 
+    /// Vertex `k`'s height in meters as the land holds it: its table entry moved by its fine byte.
+    #[must_use]
+    pub fn meters(&self, k: usize) -> f64 {
+        let fine = self.fine.get(k).copied().unwrap_or(0);
+        f64::from(dereth_primitives::land_grid::fine_height(
+            &self.table,
+            self.height[k],
+            fine,
+        ))
+    }
+
+    /// The entry vertex `k` steps down to: its own, standing at it, when its fine byte holds it
+    /// above; else the next entry down; none at the table's foot.
+    #[must_use]
+    pub fn step_down(&self, k: usize) -> Option<u8> {
+        let h = self.height[k];
+        // LINT-OK: the byte read as the signed share it stores.
+        #[allow(clippy::cast_possible_wrap)]
+        let up = (self.fine.get(k).copied().unwrap_or(0) as i8) > 0;
+        if up {
+            Some(h)
+        } else {
+            h.checked_sub(1)
+        }
+    }
+
+    /// Set vertex `k` to table entry `to`, standing at it: its fine byte cleared.
+    pub fn set_index(&mut self, k: usize, to: u8) {
+        self.height[k] = to;
+        if let Some(f) = self.fine.get_mut(k) {
+            *f = 0;
+        }
+    }
+
     /// Square `(i, j)`'s cut against AC2's surface, from its rounded corners.
     fn cut_of(&self, g: &Ac2Ground, i: usize, j: usize) -> bool {
         let side = self.grid.side();
         let step = self.grid.spacing();
-        let q = |i: usize, j: usize| f64::from(self.table[usize::from(self.height[i * side + j])]);
+        let q = |i: usize, j: usize| self.meters(i * side + j);
         let (cx, cy) = ((i as f64 + 0.5) * step, (j as f64 + 0.5) * step);
         let corners = [q(i, j), q(i + 1, j), q(i + 1, j + 1), q(i, j + 1)];
         best_cut(corners, target_at(g, cx, cy), ac2_cut_at(g, cx, cy))
@@ -323,10 +368,10 @@ impl DenseWorld {
                 continue;
             }
             let to = crate::ac2_world::buried::at_least(&self.table, h);
-            if to <= self.height[k] {
+            if f64::from(self.table[usize::from(to)]) <= self.meters(k) {
                 continue;
             }
-            self.height[k] = to;
+            self.set_index(k, to);
             raised += 1;
             let (a, b) = (k / side, k % side);
             for (i, j) in [
@@ -385,22 +430,26 @@ impl DenseWorld {
         let fitted = pinned::fit(
             side,
             &|i, j| self.cut[i * n + j],
-            &|k| f64::from(self.table[usize::from(self.height[k])]),
+            &|k| self.meters(k),
             &samples,
         );
         let (mut moved, mut past_cap) = (0, 0);
         let mut squares = std::collections::BTreeSet::new();
         for (k, h) in fitted {
-            let old = f64::from(self.table[usize::from(self.height[k])]);
+            let old = self.meters(k);
             if (h - old).abs() > pinned::CAP {
                 past_cap += 1;
                 continue;
             }
             let to = table::quantize(&self.table, h);
-            if to == self.height[k] {
+            // LINT-OK: a height of a few hundred meters.
+            #[allow(clippy::cast_possible_truncation)]
+            let fine = dereth_primitives::land_grid::fine_for(&self.table, to, h as f32);
+            if to == self.height[k] && fine == self.fine[k] {
                 continue;
             }
             self.height[k] = to;
+            self.fine[k] = fine;
             moved += 1;
             let (a, b) = (k / side, k % side);
             for (i, j) in [
@@ -420,12 +469,12 @@ impl DenseWorld {
         (moved, past_cap)
     }
 
-    /// Put the corners of `squares` back to the rounded heights `from` holds for them, and choose
-    /// again the cuts of the squares they touch. Returns how many changed.
+    /// Put the corners of `squares` back to the rounded heights and fine bytes `from` holds for
+    /// them, and choose again the cuts of the squares they touch. Returns how many changed.
     pub fn restore(
         &mut self,
         g: &Ac2Ground,
-        from: &[u8],
+        (from, from_fine): (&[u8], &[u8]),
         squares: &std::collections::BTreeSet<(usize, usize)>,
     ) -> usize {
         let side = self.grid.side();
@@ -434,8 +483,9 @@ impl DenseWorld {
         for &(i, j) in squares {
             for (a, b) in [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)] {
                 let k = a * side + b;
-                if k < from.len() && self.height[k] != from[k] {
+                if k < from.len() && (self.height[k], self.fine[k]) != (from[k], from_fine[k]) {
                     self.height[k] = from[k];
+                    self.fine[k] = from_fine[k];
                     changed += 1;
                     for (p, q) in [
                         (a, b),
@@ -472,7 +522,7 @@ impl DenseWorld {
         let h = |a: usize, b: usize| {
             let k = a * side + b;
             if rounded {
-                f64::from(self.table[usize::from(self.height[k])])
+                self.meters(k)
             } else {
                 f64::from(self.vertex[k].exact)
             }
@@ -498,7 +548,7 @@ impl DenseWorld {
         let side = self.grid.side();
         let n = side - 1;
         let step = self.grid.spacing();
-        let was = self.height.clone();
+        let was: Vec<f64> = (0..self.height.len()).map(|k| self.meters(k)).collect();
         let mut lowered = std::collections::BTreeSet::new();
         // Each point's square and where on it.
         type On = Option<((usize, usize), f64, f64)>;
@@ -524,7 +574,7 @@ impl DenseWorld {
                 };
                 let corners =
                     [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)].map(|(a, b)| a * side + b);
-                let rounded = |w: &Self, k: usize| f64::from(w.table[usize::from(w.height[k])]);
+                let rounded = |w: &Self, k: usize| w.meters(k);
                 let point =
                     |w: &Self| on_square(w.cut[i * n + j], corners.map(|k| rounded(w, k)), fu, fv);
                 if point(self) <= p.top {
@@ -532,10 +582,7 @@ impl DenseWorld {
                 }
                 // May corner `k` go down to `to`?
                 let may = |w: &Self, k: usize, to: u8| {
-                    !w.vertex[k].water
-                        && f64::from(w.table[usize::from(was[k])])
-                            - f64::from(w.table[usize::from(to)])
-                            <= cap
+                    !w.vertex[k].water && was[k] - f64::from(w.table[usize::from(to)]) <= cap
                 };
                 // The near corners, down to the point's height.
                 let to = u8::try_from(
@@ -548,8 +595,11 @@ impl DenseWorld {
                     #[allow(clippy::cast_precision_loss)]
                     let (cx, cy) = ((k / side) as f64 * step, (k % side) as f64 * step);
                     let near = (cx - p.at[0]) * p.inward[0] + (cy - p.at[1]) * p.inward[1] >= 0.0;
-                    if near && self.height[k] > to && may(self, k, to) {
-                        self.height[k] = to;
+                    if near
+                        && self.meters(k) > f64::from(self.table[usize::from(to)])
+                        && may(self, k, to)
+                    {
+                        self.set_index(k, to);
                         lowered.insert(k);
                         moved = true;
                     }
@@ -558,24 +608,26 @@ impl DenseWorld {
                 // Then a step at a time, the corner over the point that lowers it most.
                 while point(self) > p.top {
                     let cut = self.cut[i * n + j];
-                    let mut best: Option<(f64, usize)> = None;
+                    let mut best: Option<(f64, usize, u8)> = None;
                     for (c, &k) in corners.iter().enumerate() {
-                        let h = self.height[k];
-                        if h == 0 || rounded(self, k) <= p.top || !may(self, k, h - 1) {
+                        let Some(down) = self.step_down(k) else {
+                            continue;
+                        };
+                        if rounded(self, k) <= p.top || !may(self, k, down) {
                             continue;
                         }
                         let mut unit = [0.0; 4];
                         unit[c] = 1.0;
                         let gain = on_square(cut, unit, fu, fv)
-                            * (rounded(self, k) - f64::from(self.table[usize::from(h - 1)]));
-                        if gain > 1e-9 && best.is_none_or(|(b, _)| gain > b) {
-                            best = Some((gain, k));
+                            * (rounded(self, k) - f64::from(self.table[usize::from(down)]));
+                        if gain > 1e-9 && best.is_none_or(|(b, _, _)| gain > b) {
+                            best = Some((gain, k, down));
                         }
                     }
-                    let Some((_, k)) = best else {
+                    let Some((_, k, down)) = best else {
                         break;
                     };
-                    self.height[k] -= 1;
+                    self.set_index(k, down);
                     lowered.insert(k);
                     moved = true;
                     self.cut_again(g, &[k]);
@@ -612,19 +664,21 @@ impl DenseWorld {
         }
     }
 
-    /// Block `(bx, by)`'s vertices (terrain words, heights) and split bits, as the dense record
-    /// holds them.
+    /// Block `(bx, by)`'s vertices (terrain words, heights), split bits and fine height bytes, as the
+    /// dense record holds them.
     #[must_use]
-    pub fn block(&self, bx: usize, by: usize) -> (Vec<u16>, Vec<u8>, Vec<u8>) {
+    pub fn block(&self, bx: usize, by: usize) -> (Vec<u16>, Vec<u8>, Vec<u8>, Vec<u8>) {
         let side = self.grid.side();
         let s = self.grid.block_squares();
         let mut words = Vec::with_capacity((s + 1) * (s + 1));
         let mut heights = Vec::with_capacity((s + 1) * (s + 1));
+        let mut fine = Vec::with_capacity((s + 1) * (s + 1));
         for i in 0..=s {
             for j in 0..=s {
                 let k = (bx * s + i) * side + by * s + j;
                 words.push(self.vertex[k].word);
                 heights.push(self.height[k]);
+                fine.push(self.fine.get(k).copied().unwrap_or(0));
             }
         }
         let mut cuts = Vec::with_capacity(s * s);
@@ -633,7 +687,7 @@ impl DenseWorld {
                 cuts.push(self.cut[(bx * s + i) * (side - 1) + by * s + j]);
             }
         }
-        (words, heights, pack_split(&cuts))
+        (words, heights, pack_split(&cuts), fine)
     }
 }
 
@@ -814,6 +868,7 @@ mod tests {
             terrain: vec![0; 625].into(),
             height: vec![0; 625].into(),
             split: bits.into(),
+            fine: dereth_assets::world::DenseLand::no_fine(3),
         };
         for x in 0..s {
             for y in 0..s {
@@ -849,8 +904,8 @@ mod tests {
         let t: [f32; table::LEN] = std::array::from_fn(|i| i as f32 * 0.25);
         w.finish(&g, t);
         // The vertex on the edge between blocks (0, 0) and (1, 0) is one value in both.
-        let (_, ha, _) = w.block(0, 0);
-        let (_, hb, _) = w.block(1, 0);
+        let (_, ha, _, _) = w.block(0, 0);
+        let (_, hb, _, _) = w.block(1, 0);
         for j in 0..3 {
             assert_eq!(ha[2 * 3 + j], hb[j]);
         }

@@ -163,13 +163,24 @@ impl MapGrid {
         }
     }
 
-    /// Lay landblock `(bx, by)`'s vertices on the grid.
+    /// Lay landblock `(bx, by)`'s vertices on the grid. On a finer grid a land cell corner is a road's
+    /// when a road vertex lies nearer it than any other corner ([`dense_roads`]), so a road narrower
+    /// than a land cell that passes between corners is drawn unbroken; a corner the next landblock
+    /// shares keeps either block's road.
     pub fn add_landblock(&mut self, (bx, by): (usize, usize), land: &CellLandblock) {
+        let dense = land.dense.as_deref().map(dense_roads);
         for x in 0..9 {
             for y in 0..9 {
                 let kind = u8::try_from(land.terrain_type(x, y)).unwrap_or(u8::MAX);
                 let height = land.height[x * 9 + y];
-                self.set((bx * 8 + x, by * 8 + y), kind, height, land.road(x, y) != 0);
+                let (vx, vy) = (bx * 8 + x, by * 8 + y);
+                let road = match &dense {
+                    Some(roads) => {
+                        roads[x * 9 + y] || (vx <= LAST && vy <= LAST && self.road[vy * VERTS + vx])
+                    }
+                    None => land.road(x, y) != 0,
+                };
+                self.set((vx, vy), kind, height, road);
             }
         }
         self.blocks += 1;
@@ -470,6 +481,27 @@ pub fn land_frame(bounds: Option<[f64; 4]>) -> Square {
         y: hold((north + south - side) / 2.0),
         side,
     }
+}
+
+/// For each land cell corner of a block's finer grid `d`, x major over 9 × 9: whether a road
+/// vertex lies nearer it than any other corner (within half a land cell along each side).
+fn dense_roads(d: &dereth_assets::world::DenseLand) -> [bool; 81] {
+    let (steps, side) = (d.steps, d.side());
+    let reach = steps / 2;
+    let mut out = [false; 81];
+    for (k, word) in d.terrain.iter().enumerate() {
+        if word & 0x0003 == 0 {
+            continue;
+        }
+        let (gx, gy) = (k / side, k % side);
+        // The corners whose half cell holds this vertex.
+        for cx in gx.saturating_sub(reach).div_ceil(steps)..=((gx + reach) / steps).min(8) {
+            for cy in gy.saturating_sub(reach).div_ceil(steps)..=((gy + reach) / steps).min(8) {
+                out[cx * 9 + cy] = true;
+            }
+        }
+    }
+    out
 }
 
 /// The world as the picture is drawn from it: each vertex's terrain, road, distance from the shore

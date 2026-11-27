@@ -192,12 +192,16 @@ fn read_world(store: &RetailDatStore, table: &[f32; 256], grid: LandGrid) -> Wor
             ) else {
                 continue;
             };
-            let (h, t) = (lb.grid_height(), lb.grid_terrain());
+            let (h, t, fine) = (lb.grid_height(), lb.grid_terrain(), lb.grid_fine());
             for i in 0..=squares {
                 for j in 0..=squares {
                     let v = i * (squares + 1) + j;
                     let k = (by * squares + j) * side + bx * squares + i;
-                    heights[k] = table[usize::from(h[v])];
+                    // A finer grid's fine height; a 9 x 9 block's vertex is its table entry.
+                    heights[k] = match fine {
+                        Some(f) => dereth_primitives::land_grid::fine_height(table, h[v], f[v]),
+                        None => table[usize::from(h[v])],
+                    };
                     words[k] = t[v];
                     let cut = (i < squares && j < squares).then(|| lb.cut(i, j));
                     if let Some(Some(cut)) = cut {

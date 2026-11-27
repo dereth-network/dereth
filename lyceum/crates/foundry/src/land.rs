@@ -168,7 +168,16 @@ pub fn grounds<T: Copy>(
     out
 }
 
-/// Set one field of vertex `(x, y)` of landblock `lb`'s grid. A vertex at a land cell corner is set
+/// Vertex `(x, y)`'s fine height byte on landblock `lb`'s finer grid; `None` on a 9 × 9 block, whose
+/// vertices stand at their height-table entries.
+#[must_use]
+pub fn fine(lb: &CellLandblock, x: usize, y: usize) -> Option<u8> {
+    let d = lb.dense.as_ref()?;
+    d.fine.get(x * d.side() + y).copied()
+}
+
+/// Set one field of vertex `(x, y)` of landblock `lb`'s grid. A height set on a finer grid stands
+/// at its table entry: the vertex's fine height is cleared. A vertex at a land cell corner is set
 /// in the corner arrays too, which the readers that work per land cell read.
 pub fn set(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16) {
     let steps = lb.vertex_steps();
@@ -185,6 +194,9 @@ pub fn set(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16)
     if let Some(d) = lb.dense.as_mut() {
         let i = x * side + y;
         apply(&mut d.height[i], &mut d.terrain[i]);
+        if field == Field::Height {
+            d.fine[i] = 0;
+        }
     }
     if x.is_multiple_of(steps) && y.is_multiple_of(steps) {
         let i = (x / steps) * 9 + y / steps;
@@ -299,6 +311,7 @@ pub fn refine(lb: &CellLandblock, table: &[f32], landblock: u16, steps: usize) -
             terrain: terrain.into(),
             height: height.into(),
             split: split.into(),
+            fine: DenseLand::no_fine(steps),
         },
     )
 }
@@ -417,6 +430,26 @@ mod tests {
         assert_eq!(grid_of_steps(3).vertex_spacing(), 8.0);
     }
 
+    /// A height set on a finer grid stands at its table entry: that vertex's fine byte is cleared,
+    /// and no other's; setting its terrain leaves it.
+    #[test]
+    fn a_height_set_on_a_finer_grid_clears_that_vertexs_fine_height() {
+        let mut lb = block();
+        lb.dense = Some(Box::new(DenseLand {
+            steps: 2,
+            terrain: vec![0; 17 * 17].into(),
+            height: vec![0; 17 * 17].into(),
+            split: vec![0; DenseLand::split_bytes(2)].into(),
+            fine: vec![40; 17 * 17].into(),
+        }));
+        set(&mut lb, 3, 5, Field::Terrain, 4);
+        assert_eq!(fine(&lb, 3, 5), Some(40));
+        set(&mut lb, 3, 5, Field::Height, 9);
+        assert_eq!(fine(&lb, 3, 5), Some(0));
+        assert_eq!(fine(&lb, 3, 6), Some(40));
+        assert_eq!(fine(&block(), 3, 5), None, "a 9 x 9 block has none");
+    }
+
     #[test]
     fn a_vertex_is_set_on_the_full_grid_and_at_a_corner_in_the_corner_arrays_too() {
         let mut lb = block();
@@ -425,6 +458,7 @@ mod tests {
             terrain: vec![0; 17 * 17].into(),
             height: vec![0; 17 * 17].into(),
             split: vec![0; DenseLand::split_bytes(2)].into(),
+            fine: DenseLand::no_fine(2),
         }));
         set(&mut lb, 3, 5, Field::Height, 77);
         assert_eq!(vertex(&lb, 3, 5), Some((77, 0)));
