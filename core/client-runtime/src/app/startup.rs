@@ -341,6 +341,9 @@ impl<S: Shell> App<S> {
             pending_scene: None,
             scene_config: None,
             backdrop: None,
+            vista_seed: web_time::SystemTime::now()
+                .duration_since(web_time::SystemTime::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() ^ u64::from(d.subsec_nanos())),
             last_viewer_block: None,
             last_viewer_cell: None,
             last_object_report: None,

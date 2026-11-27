@@ -78,6 +78,8 @@ web-time.workspace = true
 blake3.workspace = true
 # The world's status document, which names what its server publishes.
 serde_json.workspace = true
+# vista.rs -- the view a world names behind its character select, a TOML file in its overlay folder.
+toml.workspace = true
 
 [dev-dependencies]
 dereth-client-runtime = { path = ".", default-features = false, features = ["test-support"] }

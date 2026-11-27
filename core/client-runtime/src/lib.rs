@@ -122,6 +122,8 @@ pub mod pick;
 pub mod pick_geometry;
 /// Per-object selection geometry, client half.
 pub mod selection_geometry;
+/// The view a world names behind its character select, from its overlay folder.
+pub mod vista;
 /// The world's overlay folder: where it is, the blocklist, and laying it over the store.
 pub mod world_overlay;
 

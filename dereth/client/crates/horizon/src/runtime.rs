@@ -82,7 +82,8 @@ pub struct Routed {
 /// The box id the screen-size question is shown under, apart from the game's questions.
 const RESOLUTION_PROMPT: u64 = u64::MAX;
 
-/// The block the screens before the world show behind them: Holtburg.
+/// The block the screens before the world show behind them, unless the world names a view of its
+/// own: Holtburg.
 const BACKDROP_LANDBLOCK: u16 = 0xA9B4;
 /// How far either way the backdrop's camera swings, in radians, and how long a swing there and
 /// back takes, in seconds.
@@ -1027,8 +1028,8 @@ impl HorizonFrontEnd {
         }
     }
 
-    /// Holtburg behind the screens before the world, the camera swinging slowly back and forth
-    /// over the town; released while the player is logging in.
+    /// Holtburg behind the screens before the world, or the view the world names, the camera
+    /// swinging slowly back and forth; released while the player is logging in.
     fn backdrop<S: Shell>(&mut self, cx: &mut Cx<'_, S>, now: LocalTime) {
         use crate::ui::Screen;
         if matches!(self.ui.screen, Screen::Lobby | Screen::Creation) {

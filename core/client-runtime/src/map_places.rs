@@ -191,7 +191,7 @@ pub fn own_places_of(store: &RetailDatStore) -> Option<Vec<Place>> {
 }
 
 /// All of `file` as text; `None` when it is not UTF-8.
-fn read_whole(file: &dyn dereth_dat::DatStorage) -> Option<String> {
+pub(crate) fn read_whole(file: &dyn dereth_dat::DatStorage) -> Option<String> {
     let mut bytes = Vec::new();
     let mut chunk = [0u8; 4096];
     // The storage fills whole buffers only: past the last whole one, a byte at a time.

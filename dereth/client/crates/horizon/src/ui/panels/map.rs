@@ -547,6 +547,127 @@ pub fn tile_key(col: u32, row: u32) -> String {
     format!("map.tile-{col}-{row}")
 }
 
+/// The space between the window's edge and the picture, and between the picture and the rows under
+/// it, in points.
+const MARGIN: f32 = 8.0;
+/// The height of the first row under the picture, the date's and the coordinates', in points.
+const ROW: f32 = 20.0;
+/// The space between the first row and the zoom buttons, in points.
+const ROW_GAP: f32 = 4.0;
+/// The width of the button that zooms the map back out to the whole of it, `Reset`, in points:
+/// room for its word at the buttons' size.
+const RESET_WIDTH: f32 = 66.0;
+/// The zoom buttons' height, and so the second row's, in points.
+const BUTTON_HEIGHT: f32 = 26.0;
+/// The room under the picture: the margin, the two rows and the space between them, and a
+/// little under the buttons, in points.
+const UNDER: f32 = MARGIN + ROW + ROW_GAP + BUTTON_HEIGHT + 2.0;
+
+/// The two rows under the picture `area`, as wide as it: the date and the coordinates, then the
+/// time and the zoom buttons.
+fn rows(area: Rect, k: f32) -> [Rect; 2] {
+    let first = Rect::new(area.x, area.bottom() + MARGIN * k, area.w, ROW * k);
+    let second = Rect::new(
+        area.x,
+        first.bottom() + ROW_GAP * k,
+        area.w,
+        BUTTON_HEIGHT * k,
+    );
+    [first, second]
+}
+
+/// The part of `src` of the picture `tex` that holds ink (any texel not wholly clear), in its
+/// texels: its left, top, right and bottom, the last two just past the ink.
+fn inked(art: &Art, tex: crate::art::TexId, src: Rect) -> Option<(f32, f32, f32, f32)> {
+    let image = art.image(tex)?;
+    let (w, h) = (image.width as usize, image.height as usize);
+    // LINT-OK: a glyph's place in its page, whole texels inside the page.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (x0, y0, x1, y1) = (
+        (src.x.max(0.0) as usize).min(w),
+        (src.y.max(0.0) as usize).min(h),
+        (src.right().max(0.0) as usize).min(w),
+        (src.bottom().max(0.0) as usize).min(h),
+    );
+    let mut ink: Option<(usize, usize, usize, usize)> = None;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            if image.bgra.get((y * w + x) * 4 + 3).is_some_and(|a| *a > 0) {
+                let (l, t, r, b) = ink.unwrap_or((x, y, x + 1, y + 1));
+                ink = Some((l.min(x), t.min(y), r.max(x + 1), b.max(y + 1)));
+            }
+        }
+    }
+    // LINT-OK: texel indices inside a page, far inside f32's exact range.
+    #[allow(clippy::cast_precision_loss)]
+    ink.map(|(l, t, r, b)| (l as f32, t as f32, r as f32, b as f32))
+}
+
+/// The left and right of the ink of the letters drawn since quad `from` (a line of `style`), in
+/// screen pixels: their own pass, not the edge drawn about them.
+fn ink_across(p: &Painter<'_>, style: &TextStyle, from: usize) -> Option<(f32, f32)> {
+    let drawn = &p.list.quads[from.min(p.list.quads.len())..];
+    // A line with an edge is drawn five times, the four edge passes first.
+    let letters = if style.edge.is_some() {
+        &drawn[drawn.len() - drawn.len() / 5..]
+    } else {
+        drawn
+    };
+    letters.iter().fold(None, |span, q| {
+        let (l, _, r, _) = inked(p.art, q.tex?, q.src)?;
+        let k = q.dst.w / q.src.w.max(1.0);
+        let (left, right) = (q.dst.x + (l - q.src.x) * k, q.dst.x + (r - q.src.x) * k);
+        Some(span.map_or((left, right), |(a, b): (f32, f32)| {
+            (a.min(left), b.max(right))
+        }))
+    })
+}
+
+/// `text` in `row`, its ink's left edge on the row's left (`Align::Left`) or its ink's right edge
+/// on the row's right (`Align::Right`), whatever the side bearings of its first and last letters.
+fn text_by_ink(p: &mut Painter<'_>, style: &TextStyle, row: Rect, align: Align, text: &str) {
+    let from = p.list.quads.len();
+    p.text_in(style, row, align, text);
+    let Some((left, right)) = ink_across(p, style, from) else {
+        return;
+    };
+    let dx = match align {
+        Align::Right => row.right() - right,
+        _ => row.x - left,
+    };
+    for q in &mut p.list.quads[from..] {
+        q.dst.x += dx;
+    }
+}
+
+/// Halfway down the ink of the first letter of `text` set in `row` as [`text_by_ink`] sets it:
+/// the middle of the line as the eye reads it.
+fn ink_middle(p: &Painter<'_>, style: &TextStyle, row: Rect, text: &str) -> Option<f32> {
+    let face = p.face(style)?;
+    let g = *face.font.glyph(text.chars().next()?)?;
+    let tex = p.art.font_page(&face, g.page)?;
+    let src = Rect::new(
+        f32::from(g.x),
+        f32::from(g.y),
+        f32::from(g.w),
+        f32::from(g.h),
+    );
+    let (_, top, _, bottom) = inked(p.art, tex, src)?;
+    // LINT-OK: a face's line height, a few dozen pixels.
+    #[allow(clippy::cast_precision_loss)]
+    let k = p.line_height(style) / (face.font.line_height as f32).max(1.0);
+    let line_top = p.text_top(style, row.y, row.h);
+    Some(line_top + (f32::from(g.y_offset) + ((top + bottom) / 2.0 - src.y)) * k)
+}
+
+/// The text under the picture.
+fn map_text(ctx: &Ctx<'_>) -> TextStyle {
+    TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge())
+}
+
+/// The letter the second row's line begins with, `Time: `'s, whose middle the buttons stand on.
+const TIME_LINE_LETTER: &str = dereth_ui_screens::mapradar::map::TIME_PREFIX;
+
 impl Windows {
     /// Let the map's world and tiles go while its window is closed.
     pub(super) fn map_closed(&mut self, p: &Painter<'_>) {
@@ -565,11 +686,19 @@ impl Windows {
     ) {
         let k = p.scale;
         p.fill(body, 0xFF2A_2418);
-        // The picture, as large as the window holds it.
-        let side = (body.w - 24.0 * k).min(body.h - 48.0 * k);
-        let area = Rect::new(body.x + (body.w - side) / 2.0, body.y + 8.0 * k, side, side);
+        // The picture, as large as the window holds it over the two rows under it, on whole
+        // pixels so what lines up with its edges lines up to the pixel.
+        let side = (body.w - 24.0 * k)
+            .min(body.h - (MARGIN + UNDER) * k)
+            .floor();
+        let area = Rect::new(
+            (body.x + (body.w - side) / 2.0).round(),
+            (body.y + MARGIN * k).round(),
+            side,
+            side,
+        );
         self.map_view.settle(area);
-        self.map_zoom_buttons(p, ctx, state, body, area);
+        self.map_zoom_buttons(p, ctx, state, area);
         self.map_pointer(ctx, area);
         self.draw_map(p, ctx, area);
         // The pad's focus starts on the map itself, none of its places chosen.
@@ -598,28 +727,32 @@ impl Windows {
             dereth_plugin_ui::layer::glyphs(p, &glyphs);
             p.list.pop_clip();
         }
+        // Under the picture, two rows: the game's date and time of day on the left, worded as the
+        // game's own map window words them; the coordinates and the zoom buttons on the right.
+        // Each lines up with the picture's edge by its ink.
+        let style = map_text(ctx);
+        let [first, second] = rows(area, k);
+        if let Some((date, time)) = &state.game_time {
+            use dereth_ui_screens::mapradar::map::{DATE_PREFIX, TIME_PREFIX};
+            let date = format!("{DATE_PREFIX}{date}");
+            text_by_ink(p, &style, first, Align::Left, &date);
+            let time = format!("{TIME_PREFIX}{time}");
+            text_by_ink(p, &style, second, Align::Left, &time);
+        }
         if let Some((n, e)) = state.coords {
             self.map_player(p, area, (n, e));
-            let style =
-                TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
-            let label = coords_text(n, e);
-            p.text_in(
-                &style,
-                Rect::new(body.x, area.bottom() + 6.0 * k, body.w, 24.0 * k),
-                Align::Centre,
-                &label,
-            );
+            text_by_ink(p, &style, first, Align::Right, &coords_text(n, e));
         }
     }
 
-    /// The buttons under the picture: closer about the player while they are in view and otherwise
-    /// about the view's middle, further out the same way, and back to the fit.
+    /// The buttons under the picture, on the right of its second row: closer about the player
+    /// while they are in view and otherwise about the view's middle, further out the same way, and
+    /// Reset, back out to the whole map.
     fn map_zoom_buttons(
         &mut self,
         p: &mut Painter<'_>,
         ctx: &mut Ctx<'_>,
         state: &GameState,
-        body: Rect,
         area: Rect,
     ) {
         let k = p.scale;
@@ -631,22 +764,27 @@ impl Windows {
             .filter(|(x, y)| shown.contains(*x, *y))
             .unwrap_or(view.centre);
         let most = view.most_zoom(area);
-        let y = area.bottom() + 4.0 * k;
-        let mut x = body.x + 8.0 * k;
+        // Right-aligned with the picture, centered on the second row's line of text as the eye
+        // reads it.
+        let [_, second] = rows(area, k);
+        let middle = ink_middle(p, &map_text(ctx), second, TIME_LINE_LETTER)
+            .unwrap_or(second.y + second.h / 2.0);
+        let y = middle - BUTTON_HEIGHT * k / 2.0;
+        let mut x = area.right() - (30.0 + 30.0 + RESET_WIDTH + 2.0 * 4.0) * k;
         let mut next = |w: f32| {
-            let r = Rect::new(x, y, w * k, 26.0 * k);
+            let r = Rect::new(x, y, w * k, BUTTON_HEIGHT * k);
             x += (w + 4.0) * k;
             r
         };
-        let (out_at, in_at, fit_at) = (next(30.0), next(30.0), next(44.0));
-        view.buttons = Some([out_at, in_at, fit_at]);
+        let (out_at, in_at, reset_at) = (next(30.0), next(30.0), next(RESET_WIDTH));
+        view.buttons = Some([out_at, in_at, reset_at]);
         if kit::button(p, ctx, out_at, "-", view.zoom > 1.0) {
             view.zoom_about(area, view.zoom / BUTTON_STEP, anchor);
         }
         if kit::button(p, ctx, in_at, "+", view.zoom < most) {
             view.zoom_about(area, view.zoom * BUTTON_STEP, anchor);
         }
-        if kit::button(p, ctx, fit_at, "Fit", view.zoom > 1.0) {
+        if kit::button(p, ctx, reset_at, "Reset", view.zoom > 1.0) {
             view.zoom_about(area, 1.0, anchor);
         }
     }

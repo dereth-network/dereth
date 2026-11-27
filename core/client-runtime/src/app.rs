@@ -932,6 +932,9 @@ pub struct App<S: Shell> {
     /// The world drawn behind the screens before the player is in it, while one is. See
     /// [`App::show_backdrop`].
     backdrop: Option<Backdrop>,
+    /// Which of the views the world names behind character select this run shows
+    /// ([`crate::vista::pick`]): taken once when the client starts, so the run keeps one view.
+    vista_seed: u64,
     /// What the landblock line last printed, so a crossing is logged once rather than
     /// every frame. Not the block alone; see [`ViewerBlockReport`].
     last_viewer_block: Option<ViewerBlockReport>,

@@ -333,12 +333,14 @@ impl<S: Shell> App<S> {
 
     /// Draw the world around `landblock` behind the screens before the player is in it, with
     /// no body in it and the camera turned `yaw` radians from the one the scene starts with and
-    /// tilted `pitch` radians: a backdrop an interface may pan. Built on the first call, with the
-    /// same switches the player's world will be built with, and released when the player's own
-    /// world is built or [`Self::hide_backdrop`] is called. Nothing is drawn where there is no
-    /// landscape to build (`--no-world`), once the player is in the world, or while a world is
-    /// already up. Its weather, sky, water and scenery move as the world's do, on a clock of its
-    /// own that starts when it is built; it takes no input. True while the backdrop is up.
+    /// tilted `pitch` radians: a backdrop an interface may pan. A world that names views of its
+    /// own ([`crate::vista`]) is shown from one of them instead, at its hour, the same one all
+    /// run. Built on the first call, with the same switches the player's world will be built
+    /// with, and released when the player's own world is built or [`Self::hide_backdrop`] is
+    /// called. Nothing is drawn where there is no landscape to build (`--no-world`), once the
+    /// player is in the world, or while a world is already up. Its weather, sky, water and scenery
+    /// move as the world's do, on a clock of its own that starts when it is built; it takes no
+    /// input. True while the backdrop is up.
     pub fn show_backdrop(&mut self, landblock: u16, yaw: f32, pitch: f32) -> bool {
         let Some(armed) = self.pending_scene else {
             return false;
@@ -353,24 +355,33 @@ impl<S: Shell> App<S> {
             if self.world.is_some() {
                 return false;
             }
+            let vista = crate::vista::pick(&crate::vista::of_world(&self.store), self.vista_seed);
+            let shown = vista.map_or(landblock, |v| v.camera.block);
             let mut cfg = crate::scene::SceneConfig {
-                landblock,
+                landblock: shown,
                 start_cell: None,
                 character: false,
                 ..with_stored_options(armed)
             };
-            // A fair day at a pleasant hour, unless the run asked for a time of its own: the
-            // calendar's own start is a rainy day.
+            // A fair day at a pleasant hour (the world's view's own, if it names one), unless the
+            // run asked for a time of its own: the calendar's own start is a rainy day.
             if cfg.game_time.is_none() && cfg.time_of_day.is_none() {
+                let hour = vista.and_then(|v| v.time_of_day).unwrap_or(BACKDROP_HOUR);
                 cfg.game_time = dereth_world_data::landblock::load_region(&self.store)
                     .ok()
                     .and_then(|region| {
-                        crate::game_clock::GameClock::new(&region).clear_day_at(BACKDROP_HOUR)
+                        crate::game_clock::GameClock::new(&region).clear_day_at(hour)
                     });
             }
             if let Err(e) = self.present.load_world(&self.store, cfg, &mut self.world) {
-                tracing::warn!("the backdrop at landblock 0x{landblock:04X} would not load: {e}");
+                tracing::warn!("the backdrop at landblock 0x{shown:04X} would not load: {e}");
                 return false;
+            }
+            // The world's view stands its camera where it says.
+            if let (Some(v), Some(ws)) = (vista, self.world.as_mut()) {
+                if let Some(block) = ws.viewer_block() {
+                    ws.camera = v.camera.to_render(block);
+                }
             }
             let Some(world) = self.present.scene_mut(self.world.as_mut()) else {
                 return false;

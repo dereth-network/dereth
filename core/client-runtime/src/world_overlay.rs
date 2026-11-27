@@ -645,6 +645,46 @@ mod tests {
         w.flush(1).unwrap();
     }
 
+    /// Behaviour: none (the view behind character select is this client's own interface)
+    /// The views a world names behind its character select are read from its overlay folder; a
+    /// world whose folder names none, or one that does not read, has none, and neither have the
+    /// files with no world over them.
+    #[test]
+    fn a_worlds_view_behind_character_select_is_read_from_its_overlay_folder() {
+        let scratch = dereth_dat::testing::ScratchDir::new("overlay-vista").expect("scratch");
+        let store = memory_store();
+        let laid = |dir: &Path| {
+            let (laid, refused) = lay_folder(
+                store.clone(),
+                Some(&OverlayDir::new(dir).unwrap()),
+                &BTreeSet::new(),
+            );
+            assert_eq!(refused, None);
+            laid
+        };
+        let named = scratch.path().join("named");
+        write_world(&store, &named, "Vista", b"v");
+        std::fs::write(
+            named.join(crate::vista::FILE),
+            "version = 1\ncamera = \"0x1D2C [96 40 140] yaw 0.5 pitch -0.2\"\n",
+        )
+        .unwrap();
+        let [vista] = crate::vista::of_world(&laid(&named))[..] else {
+            panic!("the world's one view")
+        };
+        assert_eq!(vista.camera.block, 0x1D2C);
+        assert_eq!((vista.camera.yaw, vista.camera.pitch), (0.5, -0.2));
+
+        let plain = scratch.path().join("plain");
+        write_world(&store, &plain, "Plain", b"p");
+        assert!(crate::vista::of_world(&laid(&plain)).is_empty());
+        let broken = scratch.path().join("broken");
+        write_world(&store, &broken, "Broken", b"b");
+        std::fs::write(broken.join(crate::vista::FILE), "version = 1\n").unwrap();
+        assert!(crate::vista::of_world(&laid(&broken)).is_empty());
+        assert!(crate::vista::of_world(&store).is_empty());
+    }
+
     /// Behaviour: none (tooling: an earlier client's folder for a server is kept as its world's)
     /// A server's folder that holds one world's overlay itself is moved into that world's folder
     /// the first time, the world noted as the one the server served last, and read from there:

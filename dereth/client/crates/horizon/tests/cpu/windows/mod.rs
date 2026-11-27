@@ -8,6 +8,7 @@ mod examine;
 mod frame_art;
 mod info;
 mod map;
+mod map_date_time;
 mod notebook;
 mod plugins;
 mod settings;

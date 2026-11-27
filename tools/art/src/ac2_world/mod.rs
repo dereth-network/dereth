@@ -26,6 +26,9 @@
 //!   area, on dry land by Cragstone and named for the nearest of AC2's towns ([`start`]), or
 //!   near the point a world's own `start.toml` gives (`--start FILE`, a world repository's
 //!   `land/start.toml`);
+//! - with `--vista FILE` (a world repository's `land/vista.toml`), `vista.toml`: the views Dereth
+//!   picks from behind character select, where each camera stands and which way it looks, checked
+//!   to read as Dereth reads them;
 //! - `environments.tsv`: each AC2 cell mesh a building's rooms or a dungeon is drawn with, and the
 //!   environment written for it, with the surfaces its cells name;
 //! - `creatures.tsv`: AC2's creatures, every family a creature table names, made into the portal
@@ -267,6 +270,9 @@ pub struct Args {
     /// Where new characters start (`--start`, a `start.toml`): a world's own, else the tool's
     /// ([`start::START_TOML`]).
     pub start: Option<PathBuf>,
+    /// The views behind character select (`--vista`, a `vista.toml`), copied into the overlay
+    /// folder; none unless given.
+    pub vista: Option<PathBuf>,
     /// Whether AC2's frills (its grass and small plants, drawn only near the viewer in AC2) are
     /// grown with its cover ([`grown`]); on unless asked.
     pub frills: bool,
@@ -312,10 +318,10 @@ pub const WORLD_USAGE: &str =
 const NOT_IN_CONVERTER_ARGS: [&str; 4] = ["--ac1", "--ac2", "--out", "--ledger"];
 
 /// The options whose value is a file, read from the world repository's folder.
-const FILE_OPTIONS: [&str; 3] = ["--vaults", "--placements", "--start"];
+const FILE_OPTIONS: [&str; 4] = ["--vaults", "--placements", "--start", "--vista"];
 
 /// The options a world repository's `converter_args` may give.
-pub const CONVERTER_ARGS: &str = "[--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--start FILE] [--any-install]";
+pub const CONVERTER_ARGS: &str = "[--table fitted|ac2] [--levels 1|2|3] [--names on|off] [--frills on|off] [--sky ac2|ac1] [--sky-day 1-7] [--vaults FILE --placements FILE] [--start FILE] [--vista FILE] [--any-install]";
 
 impl Args {
     /// The arguments after `newdereth-world`: the world repository's `world.toml` (`--world`),
@@ -437,6 +443,7 @@ impl Args {
         let mut vaults = None;
         let mut placements = None;
         let mut start = None;
+        let mut vista = None;
         let mut frills = true;
         let (mut sky, mut sky_day) = (true, None);
         let mut ledger = None;
@@ -470,6 +477,7 @@ impl Args {
                 "--vaults" => vaults = Some(PathBuf::from(v)),
                 "--placements" => placements = Some(PathBuf::from(v)),
                 "--start" => start = Some(PathBuf::from(v)),
+                "--vista" => vista = Some(PathBuf::from(v)),
                 "--ledger" => ledger = Some(PathBuf::from(v)),
                 "--levels" => {
                     levels = v
@@ -493,6 +501,7 @@ impl Args {
             vaults,
             placements,
             start,
+            vista,
             frills,
             sky,
             sky_day,
@@ -809,6 +818,9 @@ pub fn build(args: &Args) -> Result<u32, String> {
     eprintln!("checking the inputs' SHA-256");
     step("inputs");
     let fingerprints = check_inputs(args)?;
+    // The view behind character select, read before the build so a file that does not read
+    // stops it at once.
+    let vista = args.vista.as_ref().map(|p| read_vista(p)).transpose()?;
     eprintln!("reading AC2");
     step("ac2");
     let (mut g, ac2_table, ac2_road, steep) = read_ac2(&args.ac2)?;
@@ -2093,6 +2105,13 @@ pub fn build(args: &Args) -> Result<u32, String> {
     // under its land, so a position is in a dungeon by its cell (Empyrean's V563).
     let rules = args.out.join(WORLD_RULES);
     std::fs::write(&rules, WORLD_RULES_TEXT).map_err(|e| format!("{}: {e}", rules.display()))?;
+    // The view behind character select, which Dereth reads from the overlay folder.
+    let vista_file = args.out.join(VISTA);
+    if let Some(text) = &vista {
+        std::fs::write(&vista_file, text).map_err(|e| format!("{}: {e}", vista_file.display()))?;
+    } else if vista_file.exists() {
+        std::fs::remove_file(&vista_file).map_err(|e| format!("{}: {e}", vista_file.display()))?;
+    }
     // The things the world places itself, which Empyrean reads from the overlay folder (V565).
     let placed = args.out.join(PLACEMENTS);
     if let Some(p) = &args.placements {
@@ -2696,6 +2715,13 @@ pub fn build(args: &Args) -> Result<u32, String> {
         let _ = writeln!(readme, "overlay/placements.tsv: the things the world places itself, from {} (Empyrean's own placements; a portal leads where the portaldestination it links to stands).", p.display());
     }
     let _ = writeln!(readme, "The portal overlay's character-creation table (0x0E000002) offers one starting area: see stats.txt.");
+    if let Some(p) = &args.vista {
+        let _ = writeln!(
+            readme,
+            "overlay/vista.toml: the views Dereth picks from behind character select, from {}.",
+            p.display()
+        );
+    }
     let _ = writeln!(readme, "overlay/places.tsv: AC2's towns and landmarks where AC2's map names them, which Dereth's map shows in place of AC1's notes (on by default; --names off leaves it out).");
     let _ = writeln!(readme, "overlay/dungeon-names.tsv: each AC2 dungeon, the AC1 block it lies under and its name, the name of the portals that lead in from the AC2 install's own strings (on by default; --names off leaves it out).");
     let _ = writeln!(readme, "overlay/environments.tsv: each AC2 cell mesh, whether a building's rooms or the dungeons are drawn with it, the environment made of it and the surfaces its cells name.");
@@ -2887,6 +2913,18 @@ fn par_rows<T: Send, F: Fn(usize) -> T + Sync>(n: usize, f: F) -> Vec<T> {
 const WORLD_RULES: &str = "world.toml";
 /// The file in the overlay folder that names the world's towns and landmarks, as Dereth reads it.
 const PLACES: &str = "places.tsv";
+/// The file in the overlay folder that names the views behind character select, as Dereth reads it.
+const VISTA: &str = dereth_client_runtime::vista::FILE;
+
+/// The views behind character select at `path`, as they are copied into the overlay folder.
+///
+/// # Errors
+/// The file does not read, or does not read as Dereth reads its views.
+fn read_vista(path: &Path) -> Result<String, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    dereth_client_runtime::vista::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(text)
+}
 
 /// The ground under a world point as the statics ask for it ([`statics::Under`]): AC2's, the
 /// converted world's as it stands now, whether the converted square has a water corner, and the
@@ -3027,6 +3065,42 @@ mod tests {
             args(&["--start", "land/start.toml"]).expect("reads").start,
             Some(PathBuf::from("land/start.toml"))
         );
+        // No view behind character select unless a world gives its own file.
+        assert_eq!(plain.vista, None);
+        assert_eq!(
+            args(&["--vista", "land/vista.toml"]).expect("reads").vista,
+            Some(PathBuf::from("land/vista.toml"))
+        );
+    }
+
+    /// A world's view behind character select is taken as written when it reads as Dereth reads
+    /// it, and refused otherwise; a world repository's `converter_args` names it from its folder.
+    #[test]
+    fn a_worlds_view_is_read_from_its_folder_and_refused_when_dereth_would_not_read_it() {
+        let w = world_toml(
+            "land-vista",
+            "converter_args = [\"--vista\", \"land/vista.toml\"]
+ledger = \"land/generations.tsv\"
+",
+        );
+        let folder = w.parent().expect("folder");
+        let a = world_args(&w, &[]).expect("reads");
+        let file = folder.join("land/vista.toml");
+        assert_eq!(a.vista.as_deref(), Some(file.as_path()));
+        std::fs::create_dir_all(folder.join("land")).expect("folder");
+        let good = "version = 1
+camera = \"0x5A5B [20 30 90] yaw 1 pitch -0.1\"
+";
+        std::fs::write(&file, good).expect("writes");
+        assert_eq!(read_vista(&file).as_deref(), Ok(good));
+        std::fs::write(
+            &file,
+            "version = 1
+",
+        )
+        .expect("writes");
+        assert!(read_vista(&file).is_err());
+        let _ = std::fs::remove_dir_all(folder);
     }
     use crate::ac2_world::*;
 

@@ -112,7 +112,7 @@ fn click(h: &mut Harness, state: &GameState, at: (f32, f32)) {
 }
 
 #[test]
-fn a_player_s_wheel_zooms_about_the_pointer_and_the_buttons_step_and_fit() {
+fn a_player_s_wheel_zooms_about_the_pointer_and_the_buttons_step_and_reset() {
     let (state, art) = (player(), Arc::new(Art::empty()));
     let (mut h, area) = opened(&art, &state);
     let at = (area.x + area.w * 0.7, area.y + area.h * 0.3);
@@ -131,12 +131,12 @@ fn a_player_s_wheel_zooms_about_the_pointer_and_the_buttons_step_and_fit() {
     );
 
     let zoom = h.ui.windows.map_view.zoom;
-    let [out, closer, fit] = h.ui.windows.map_view.buttons.expect("the buttons");
+    let [out, closer, reset] = h.ui.windows.map_view.buttons.expect("the buttons");
     click(&mut h, &state, middle(closer));
     assert!(h.ui.windows.map_view.zoom > zoom);
     click(&mut h, &state, middle(out));
     assert!((h.ui.windows.map_view.zoom - zoom).abs() < 0.01);
-    click(&mut h, &state, middle(fit));
+    click(&mut h, &state, middle(reset));
     assert_eq!(h.ui.windows.map_view.zoom, 1.0);
 }
 
