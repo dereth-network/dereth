@@ -308,6 +308,62 @@ fn a_corner_vertex_reaches_all_four_landblocks_and_one_inside_a_rectangle_is_set
 }
 
 #[test]
+fn the_terrain_brush_paints_a_ground_type_and_variant_and_a_plain_type_clears_the_variant() {
+    use lyceum_foundry::brush::{covered, dab, Brush};
+    use lyceum_foundry::land::ground;
+    let f = Fixture::new("edit-vertex-ground");
+    let world = f.world();
+    // 0x0202's vertices (0, 0) to (4, 4), world (16, 16) to (20, 20): type 3, variant 2.
+    let held = ground(3, 2);
+    f.write(
+        "sample/edits/landblocks/0202.toml",
+        &format!("[[vertex]]\nat = [0, 0]\nto = [4, 4]\nterrain = {held}\n"),
+    );
+    let mut s = open(&f, &world);
+    let square: Vec<(u32, u32)> = (16..=20)
+        .flat_map(|x| (16..=20).map(move |y| (x, y)))
+        .collect();
+    assert!(square
+        .iter()
+        .all(|&(x, y)| s.vertex(x, y).unwrap().terrain == held));
+    let scenes: Vec<u16> = square
+        .iter()
+        .map(|&(x, y)| s.vertex(x, y).unwrap().scene)
+        .collect();
+    // A dab at the square's middle vertex, world meters (18 * 24, 18 * 24).
+    let (mx, my, radius) = (18.0 * 24.0, 18.0 * 24.0, 30.0);
+    let painted: Vec<(u32, u32)> = covered(&s.grid(), mx, my, radius);
+    assert!(painted.len() >= 5, "{painted:?}");
+    let count = |s: &Session, terrain: u16| {
+        square
+            .iter()
+            .filter(|&&(x, y)| s.vertex(x, y).unwrap().terrain == terrain)
+            .count()
+    };
+    for chosen in [ground(12, 0), ground(12, 5), ground(3, 0)] {
+        let sets = dab(&s, Brush::Terrain(chosen), mx, my, radius);
+        s.apply(&Op::SetVertices(sets)).unwrap();
+        // Every painted vertex carries exactly the chosen type and variant, the rest of the
+        // square what it held.
+        for &(x, y) in &painted {
+            assert_eq!(s.vertex(x, y).unwrap().terrain, chosen, "({x}, {y})");
+        }
+        assert_eq!(count(&s, chosen), painted.len(), "{chosen}");
+        assert_eq!(count(&s, held), square.len() - painted.len(), "{chosen}");
+    }
+    // Painting the ground changes neither scene nor road.
+    let after: Vec<u16> = square
+        .iter()
+        .map(|&(x, y)| s.vertex(x, y).unwrap().scene)
+        .collect();
+    assert_eq!(after, scenes);
+    // A plain type is written as it is: no variant left in the word.
+    let (_, word) = lyceum_foundry::land::vertex(&s.terrain(0x0202).unwrap(), 2, 2).unwrap();
+    assert_eq!((word >> 2) & 0x1FF, 3);
+    assert_same_as_full(&s);
+}
+
+#[test]
 fn a_spawn_is_one_sql_file_its_instance_numbered_as_a_build_numbers_it() {
     let f = Fixture::new("edit-spawn");
     let world = f.world();

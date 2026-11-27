@@ -397,6 +397,7 @@ pub struct Vertex {
     pub height: u8,
     /// The height in meters, through the region's height table.
     pub z: f32,
+    /// The ground: the type, plus 32 times the variant ([`crate::land::GROUND_BITS`]).
     pub terrain: u16,
     pub scene: u16,
     pub road: u16,
@@ -3003,7 +3004,7 @@ impl Session {
         Some(Vertex {
             height,
             z,
-            terrain: (word & 0x007C) >> 2,
+            terrain: (word & crate::land::GROUND_BITS) >> 2,
             scene: word >> 11,
             road: word & 0x0003,
         })

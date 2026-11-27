@@ -2367,7 +2367,7 @@ impl EditorApp {
                     // a grid point
                     let v = self.session.vertex((gx / g) as u32, (gy / g) as u32);
                     if let Some(v) = v {
-                        self.panels.scene_terrain = v.terrain;
+                        self.panels.scene_terrain = lyceum_foundry::land::ground_type(v.terrain);
                     }
                 }
                 for (gx, gy) in lyceum_foundry::brush::covered(&land, x, y, self.panels.radius) {

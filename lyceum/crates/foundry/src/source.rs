@@ -1574,7 +1574,12 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
             to,
             height: small(&at, r.height, 255, "height")?
                 .map(|h| u8::try_from(h).unwrap_or(u8::MAX)),
-            terrain: small(&at, r.terrain, 31, "terrain")?,
+            terrain: small(
+                &at,
+                r.terrain,
+                i64::from(crate::land::GROUND_MAX),
+                "terrain",
+            )?,
             scene: small(&at, r.scene, 31, "scene")?,
             road: small(&at, r.road, 3, "road")?,
         };

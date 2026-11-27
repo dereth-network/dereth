@@ -66,6 +66,55 @@ pub fn vertex(lb: &CellLandblock, x: usize, y: usize) -> Option<(u8, u16)> {
     Some((*lb.grid_height().get(i)?, *lb.grid_terrain().get(i)?))
 }
 
+/// A terrain word's ground: its type (bits 2-6) and its variant (bits 7-10, which a retail land
+/// leaves clear). A terrain value is the two together, the type plus 32 times the variant, so
+/// setting a type alone clears the variant.
+pub const GROUND_BITS: u16 = 0x07FC;
+
+/// The highest terrain value: type 31, variant 15.
+pub const GROUND_MAX: u16 = 0x1FF;
+
+/// A terrain value's type, without its variant.
+#[must_use]
+pub fn ground_type(terrain: u16) -> u16 {
+    terrain & 0x1F
+}
+
+/// The terrain value of type `ty` with variant `variant`.
+#[must_use]
+pub fn ground(ty: u16, variant: u16) -> u16 {
+    (ty & 0x1F) | ((variant & 0xF) << 5)
+}
+
+/// The grounds a land's region offers, in order, each its terrain value and its picture: each of
+/// its `types` types, then the variants the region gives a picture of their own (its terrain
+/// descriptions, each a type with its variant above bit 8, and a picture), under their type. A
+/// description of no type (the road's) offers none.
+#[must_use]
+pub fn grounds<T: Copy>(
+    types: usize,
+    descs: impl IntoIterator<Item = (u32, T)>,
+) -> Vec<(u16, Option<T>)> {
+    let descs: Vec<(u32, T)> = descs.into_iter().collect();
+    let mut out = Vec::new();
+    for ty in 0..u32::try_from(types.min(32)).unwrap_or(32) {
+        let picture = |variant: u32| {
+            descs
+                .iter()
+                .find(|(t, _)| *t == ty | variant << 8)
+                .map(|(_, p)| *p)
+        };
+        let ty16 = u16::try_from(ty).unwrap_or(0);
+        out.push((ground(ty16, 0), picture(0)));
+        for variant in 1..16u16 {
+            if let Some(p) = picture(u32::from(variant)) {
+                out.push((ground(ty16, variant), Some(p)));
+            }
+        }
+    }
+    out
+}
+
 /// Set one field of vertex `(x, y)` of landblock `lb`'s grid. A vertex at a land cell corner is set
 /// in the corner arrays too, which the readers that work per land cell read.
 pub fn set(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16) {
@@ -77,7 +126,7 @@ pub fn set(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16)
     let apply = |height: &mut u8, word: &mut u16| match field {
         Field::Height => *height = u8::try_from(value).unwrap_or(u8::MAX),
         Field::Road => *word = (*word & !0x0003) | (value & 0x3),
-        Field::Terrain => *word = (*word & !0x007C) | ((value & 0x1F) << 2),
+        Field::Terrain => *word = (*word & !GROUND_BITS) | ((value & GROUND_MAX) << 2),
         Field::Scene => *word = (*word & !0xF800) | ((value & 0x1F) << 11),
     };
     if let Some(d) = lb.dense.as_mut() {
@@ -240,6 +289,49 @@ mod tests {
             }
         }
         lb
+    }
+
+    #[test]
+    fn a_ground_sets_the_type_and_variant_bits_and_a_plain_type_clears_the_variant() {
+        let mut lb = block();
+        // Road 2 and scene 9 under every vertex, to show they stay.
+        for w in &mut lb.terrain {
+            *w |= 2 | (9 << 11);
+        }
+        set(&mut lb, 2, 3, Field::Terrain, ground(12, 5));
+        assert_eq!(lb.terrain[2 * 9 + 3], 2 | (12 << 2) | (5 << 7) | (9 << 11));
+        set(&mut lb, 2, 3, Field::Terrain, 4);
+        assert_eq!(lb.terrain[2 * 9 + 3], 2 | (4 << 2) | (9 << 11));
+        assert_eq!(
+            (ground_type(ground(31, 15)), ground(31, 15)),
+            (31, GROUND_MAX)
+        );
+    }
+
+    #[test]
+    fn a_lands_grounds_are_its_types_each_followed_by_the_variants_it_has_pictures_for() {
+        // Three types; type 1 with variants 2 and 1 (listed out of order), and the road's
+        // description, of no type.
+        let descs = [
+            (0u32, 'a'),
+            (1, 'b'),
+            (1 | 2 << 8, 'd'),
+            (1 | 1 << 8, 'c'),
+            (2, 'e'),
+            (32, 'r'),
+        ];
+        assert_eq!(
+            grounds(3, descs),
+            [
+                (0, Some('a')),
+                (1, Some('b')),
+                (ground(1, 1), Some('c')),
+                (ground(1, 2), Some('d')),
+                (2, Some('e')),
+            ]
+        );
+        // A land without variants: its types alone, one without a picture still offered.
+        assert_eq!(grounds(2, [(0u32, 'a')]), [(0, Some('a')), (1, None)]);
     }
 
     #[test]

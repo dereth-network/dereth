@@ -288,7 +288,8 @@ from = "files"               # optional: the template read from the player's own
 at = [4, 3]                  # 0 to 8 each; on a finer land, 0 to 8 times its steps a cell
 to = [5, 4]
 height = 80                  # the height table's index, 0 to 255
-terrain = 1                  # 0 to 31
+terrain = 1                  # the type, 0 to 31; on a land with variants, plus 32 times
+                             # the variant, 0 to 15 (setting a type alone clears it)
 scene = 0                    # 0 to 31
 road = 0                     # 0 to 3
 ```

@@ -322,7 +322,7 @@ pub fn action(t: &toml::Table, pack: &str) -> Result<Action, String> {
                         .map(|v| u8::try_from(v).unwrap_or(u8::MAX)),
                 ),
                 "smooth" => Brush::Smooth,
-                "terrain" => Brush::Terrain(small(t, "value", 31)?),
+                "terrain" => Brush::Terrain(small(t, "value", i64::from(crate::land::GROUND_MAX))?),
                 "scene" => Brush::Scene(small(t, "value", 31)?),
                 "road" => Brush::Road(small(t, "value", 3)?),
                 other => return Err(format!("{other:?} is not a brush")),

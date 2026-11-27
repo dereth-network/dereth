@@ -1270,7 +1270,7 @@ impl Field {
         },
         dereth_landscape::VertexField {
             name: "terrain",
-            max: 31,
+            max: crate::land::GROUND_MAX,
         },
         dereth_landscape::VertexField {
             name: "scene",

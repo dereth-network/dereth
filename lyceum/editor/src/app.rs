@@ -3360,7 +3360,10 @@ impl EditorApp {
             .ok_or_else(|| self.say("messages.vertex_gone"))?;
         let (now, max) = match field {
             Field::Height => (i32::from(v.height), 255),
-            Field::Terrain => (i32::from(v.terrain), 31),
+            Field::Terrain => (
+                i32::from(v.terrain),
+                i32::from(lyceum_foundry::land::GROUND_MAX),
+            ),
             Field::Scene => (i32::from(v.scene), 31),
             Field::Road => (i32::from(v.road), 3),
         };
@@ -4587,19 +4590,26 @@ impl EditorApp {
             .as_ref()
             .map(|t| t.terrain_desc.as_slice())
             .unwrap_or_default();
-        region
-            .terrain_types
-            .iter()
-            .enumerate()
-            .filter_map(|(i, t)| {
-                let v = u16::try_from(i).ok()?;
-                let tex = descs
-                    .iter()
-                    .find(|d| d.terrain_type == u32::from(v))
-                    .map(|d| d.tex_gid);
-                Some((v, lyceum_foundry::models::words(&t.terrain_name), tex))
-            })
-            .collect()
+        lyceum_foundry::land::grounds(
+            region.terrain_types.len(),
+            descs.iter().map(|d| (d.terrain_type, d.tex_gid)),
+        )
+        .into_iter()
+        .map(|(v, tex)| {
+            let ty = usize::from(lyceum_foundry::land::ground_type(v));
+            let name = lyceum_foundry::models::words(&region.terrain_types[ty].terrain_name);
+            let variant = v >> 5;
+            let name = if variant == 0 {
+                name
+            } else {
+                self.say_with(
+                    "brush.terrain_variant",
+                    &[("terrain", &name), ("n", &variant)],
+                )
+            };
+            (v, name, tex)
+        })
+        .collect()
     }
 
     /// What each scene value grows on terrain `terrain`: the models its scenes place.
@@ -5422,7 +5432,8 @@ fn step_brush(b: Brush, d: i32) -> Brush {
     match b {
         Brush::Raise(a) => Brush::Raise(n(a)),
         Brush::Lower(a) => Brush::Lower(n(a)),
-        Brush::Terrain(x) => Brush::Terrain(v(x, 31)),
+        // A step moves among the types; a variant chosen goes with it.
+        Brush::Terrain(x) => Brush::Terrain(v(lyceum_foundry::land::ground_type(x), 31)),
         Brush::Scene(x) => Brush::Scene(v(x, 31)),
         Brush::Road(x) => Brush::Road(v(x, 3)),
         other => other,
