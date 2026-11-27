@@ -786,7 +786,7 @@ Any other `/vt` command is said not to be answered.
 | `/tank route pause <ms>`, `chat <line>`, `recall <spell id>`, `checkpoint` | the other waypoints, here |
 | `/tank route reverse`, `/tank route points`, `/tank route save <name>` | runs the route the other way; lists its waypoints; saves it as `routes/<name>.nav` |
 | `/tank jump <heading> <true or false> <ms> [direction]` | one jump now, as VTank's `/vt jump` |
-| `/tank hunt <place>` | travels to the place by a journey, then runs the macro there; a place is `42.2N 33.8E`, a cell `0x019E0140`, `portal <name>` (where a known portal sends) or `lifestone` / `marketplace` |
+| `/tank hunt <place>` | travels to the place by a journey, then runs the macro there; a place is `42.2N 33.8E`, a cell `0x019E0140`, a dungeon's or a place's name as the Navigator lists it (`Tusker Abode`: a dungeon of the name over a place outdoors of the same name; a name that could be two places, or none, is said with what it could be), `portal <name>` (where a known portal sends) or `lifestone` / `marketplace` |
 | `/tank go <place>` | stops the macro and travels to the place by a journey |
 | `/tank give <item> to <person>`, `/tank pickup <item>`, `/tank useon <item> on <target>` | the quest steps (above) |
 | `/tank monsters`, `/tank monster <field> <value> <name>` | the monster list; sets a row's priority, attack, ring, streak, damage (a type, or `drain`, `harm`, `fists`, `random`), weapon (`auto` to choose), offhand, extra vulnerability (`exvuln`), pet element (`petdmg`) or a debuff (`remove` drops it) |

@@ -16,6 +16,7 @@ use super::tank::{held, logged, tank, TANK};
 dereth_testkit::scenarios! {
     scenario_the_tank_hands_an_item_over_picks_one_up_and_uses_one_on_something_before_its_route_goes_on => the_tank_hands_an_item_over_picks_one_up_and_uses_one_on_something_before_its_route_goes_on ["plugins.samples.the-tank-hands-an-item-over-picks-one-up-and-uses-one-on-something-before-its-route-goes-on"],
     scenario_the_tank_goes_somewhere_by_a_journey_with_the_macro_stopped => the_tank_goes_somewhere_by_a_journey_with_the_macro_stopped ["plugins.samples.the-tank-goes-somewhere-by-a-journey-with-the-macro-stopped"],
+    scenario_the_tank_hunts_at_a_dungeon_named_as_the_navigator_names_it => the_tank_hunts_at_a_dungeon_named_as_the_navigator_names_it ["plugins.samples.the-tank-hunts-at-a-dungeon-or-place-named-as-the-navigator-names-it"],
     scenario_the_tanks_journey_steps_down_a_ledge_only_a_drop_leads_on_from_when_no_higher_than_a_step_down => the_tanks_journey_steps_down_a_ledge_only_a_drop_leads_on_from_when_no_higher_than_a_step_down ["plugins.samples.the-tanks-journey-steps-down-a-ledge-only-a-drop-leads-on-from-when-no-higher-than-a-step-down"],
     scenario_the_tank_walks_within_reach_of_a_door_before_using_a_key_on_it => the_tank_walks_within_reach_of_a_door_before_using_a_key_on_it ["plugins.samples.the-tank-walks-within-reach-of-what-it-uses-an-item-on"],
     scenario_the_tanks_academy_profile_reads_whole_for_every_starting_town => the_tanks_academy_profile_reads_whole_for_every_starting_town ["plugins.samples.the-tanks-academy-profile-reads-whole-for-every-starting-town"],
@@ -515,4 +516,110 @@ fn store_vendor(run: &mut PluginRun) -> Option<String> {
     run.printed()
         .iter()
         .find_map(|l| l.strip_prefix("[Tank] Vendor = ").map(str::to_owned))
+}
+
+/// `/tank hunt <name>` with a dungeon's name, as the Navigator lists it: two portals are named
+/// "Tusker Abode", the dungeon's own outdoors and one in another dungeon sending to the land beside
+/// it, and the Tank travels through the dungeon's own into it. Two dungeons of one name, and a name
+/// nothing is, are each said with what they could be, and nothing is hunted.
+fn the_tank_hunts_at_a_dungeon_named_as_the_navigator_names_it() {
+    use dereth_testkit::scripted_travel::ScriptedPortal;
+    let outdoors = |ns: f64, ew: f64| {
+        dereth_plugin_host::places::from_coords(ns, ew, 0.0).expect("on the map")
+    };
+    let cell = |cell: u32, x: f64, y: f64| {
+        dereth_plugin_host::places::from_value(
+            &dereth_plugin_api::Value::map()
+                .with("cell", cell)
+                .with("x", x)
+                .with("y", y)
+                .with("z", 0.0),
+        )
+        .expect("a cell place")
+    };
+    let portal = |name: &str, class: u32, at, to| ScriptedPortal {
+        name: name.into(),
+        class,
+        at,
+        to,
+        source: dereth_navigation::EdgeSource::Published,
+        refuses: false,
+    };
+    let mut run = PluginRun::new();
+    run.host().set_world_policy(
+        dereth_plugin_host::policy_doc::parse(
+            "policy_version = 1\n[automation]\ndefault = \"allow\"\n",
+        )
+        .expect("a policy"),
+    );
+    run.load(read_package(&samples().join("tank")));
+    run.scripted_portals(
+        &[
+            portal(
+                "Tusker Abode",
+                22654,
+                outdoors(42.2, 33.85),
+                cell(0x019E_0114, 10.0, -40.0),
+            ),
+            portal(
+                "Tusker Abode",
+                42175,
+                cell(0x01A0_0110, 20.0, -20.0),
+                outdoors(30.0, 30.0),
+            ),
+            portal(
+                "Drudge Hideout",
+                2068,
+                outdoors(42.25, 33.8),
+                cell(0x01A4_0100, 5.0, -5.0),
+            ),
+            portal(
+                "Drudge Hideout Portal",
+                2069,
+                outdoors(10.0, 10.0),
+                cell(0x01A5_0100, 5.0, -5.0),
+            ),
+        ],
+        Vec::new(),
+    );
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    let said = |run: &PluginRun, from: usize| -> Vec<String> {
+        run.printed().into_iter().skip(from).collect()
+    };
+    let from = run.printed().len();
+    run.type_line("/tank hunt Drudge Hideout");
+    run.type_line("/tank hunt Nowhere Keep");
+    let lines = said(&run, from);
+    assert!(
+        lines.iter().any(|l| l.starts_with("[Tank] Drudge Hideout names 2 places: Drudge Hideout (dungeon) at 42.2N 33.8E; Drudge Hideout (dungeon) at 10.0N 10.0E")),
+        "{lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l == "[Tank] No place named Nowhere Keep is known."),
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.starts_with("[Tank] Hunting at")),
+        "{lines:?}"
+    );
+    run.type_line("/tank set EnableBuffing false");
+    run.type_line("/tank hunt tusker abode");
+    run.advance(15.0);
+    let lines = said(&run, from);
+    assert!(
+        lines.iter().any(|l| l == "[Tank] Hunting at tusker abode."),
+        "{lines:?}"
+    );
+    assert!(
+        run.player_place().is_none(),
+        "into the dungeon through its own portal: {:?} {:#?}",
+        run.moves(),
+        run.console(TANK)
+    );
+    note_asserted(
+        "plugins.samples.the-tank-hunts-at-a-dungeon-or-place-named-as-the-navigator-names-it",
+    );
 }

@@ -247,6 +247,58 @@ fn the_marketplace_recall_lands_at_the_marketplace_this_worlds_places_know() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A recall gem whose spell sends to a fixed place is planned with before the character has used
+/// it, landing where the era's places say the spell sends; the server's places say it over the
+/// era's, and what the character learned says it over both.
+///
+/// Behaviour: plugins.nav.a-characters-recalls-are-learned-where-they-land
+#[test]
+fn a_recall_gem_never_used_is_planned_to_land_where_the_places_say_its_spell_sends() {
+    let dir = folder("sending");
+    let mut t = travel_in(&dir);
+    t.character.name = String::from("Tester");
+    t.character.recall_items = vec![(
+        ObjectId(0x8000_0001),
+        5175,
+        String::from("Facility Hub Portal Gem"),
+    )];
+    let gem = |t: &Travel| {
+        t.teleports(
+            crate::travel::TravelAllow::default(),
+            &std::collections::BTreeSet::new(),
+        )
+        .iter()
+        .find(|p| p.recall == Recall::Spell(5175))
+        .map(|p| (p.item, p.to.cell.0))
+    };
+    assert_eq!(gem(&t), None, "nothing says where it lands");
+    // The era's places, as the launcher hands them over.
+    t.take_hints(concat!(
+        "dereth-places-store\t1\n",
+        "world\tDereth\n",
+        "sending\tpublished\t5175\tFacility Hub Recall\t0x8A020212 58.639 -89.923 6.005\n",
+    ))
+    .expect("a place package");
+    assert_eq!(gem(&t), Some((Some(ObjectId(0x8000_0001)), 0x8A02_0212)));
+    // The server's own places say otherwise: theirs is taken.
+    t.set_published_places(concat!(
+        "dereth-places-store\t1\n",
+        "world\tDereth\n",
+        "sending\tpublished\t5175\tFacility Hub Recall\t0x8A020100 10 -10 6\n",
+    ))
+    .expect("the server's places");
+    assert_eq!(gem(&t).map(|g| g.1), Some(0x8A02_0100));
+    // Used, it lands where it was seen to.
+    t.portals.learn_recall(
+        "Tester",
+        Recall::Spell(5175),
+        &at(0x8A02_0213, 60.0, -88.0),
+        1,
+    );
+    assert_eq!(gem(&t).map(|g| g.1), Some(0x8A02_0213));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A house, mansion or hometown recall the character has been seen to use is one it has: a
 /// journey plans with it from then on, and not before.
 ///

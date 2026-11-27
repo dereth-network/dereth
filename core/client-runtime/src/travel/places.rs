@@ -165,6 +165,12 @@ impl Travel {
             .filter(|p| p.source == EdgeSource::Published)
             .cloned()
             .collect();
+        self.published_sendings = table
+            .sendings()
+            .iter()
+            .filter(|x| x.source == EdgeSource::Published)
+            .cloned()
+            .collect();
         self.merge_published_places();
         tracing::info!(
             target: "travel",
@@ -192,6 +198,7 @@ impl Travel {
     pub(super) fn forget_published(&mut self) {
         self.published.clear();
         self.published_places.clear();
+        self.published_sendings.clear();
         self.published_own_places = None;
     }
 
@@ -208,12 +215,15 @@ impl Travel {
         };
         match crate::platform::files::read_to_string(&path) {
             Ok(text) => match PlaceStore::from_text(&text) {
-                Ok(p) => std::sync::Arc::make_mut(&mut self.places.store).merge(
-                    p.places().iter().cloned().map(|mut k| {
-                        k.source = EdgeSource::Hint;
-                        k
-                    }),
-                ),
+                Ok(p) => {
+                    self.package_sendings = super::hints(p.sendings());
+                    std::sync::Arc::make_mut(&mut self.places.store).merge(
+                        p.places().iter().cloned().map(|mut k| {
+                            k.source = EdgeSource::Hint;
+                            k
+                        }),
+                    );
+                }
                 Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
             },
             Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),

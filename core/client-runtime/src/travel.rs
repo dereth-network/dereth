@@ -530,6 +530,18 @@ pub struct StoreFiles {
     pub hints: Option<PathBuf>,
 }
 
+/// `sendings`, each as a hint: a place package's, whatever it says it knows.
+fn hints(sendings: &[dereth_navigation::Sending]) -> Vec<dereth_navigation::Sending> {
+    sendings
+        .iter()
+        .cloned()
+        .map(|mut x| {
+            x.source = EdgeSource::Hint;
+            x
+        })
+        .collect()
+}
+
 /// The portal table of a place package ([`StoreFiles::hints`]).
 pub const HINT_PORTALS: &str = "portals.tsv";
 /// The places of a place package.
@@ -1310,6 +1322,8 @@ pub struct Travel {
     /// portal table, and its places.
     published: Vec<dereth_navigation::PortalEdge>,
     published_places: Vec<dereth_navigation::KnownPlace>,
+    /// The spells its places say send to a fixed place.
+    published_sendings: Vec<dereth_navigation::Sending>,
     /// The towns and landmarks of the places the server publishes, when it says they are the
     /// names the world gives its own places: the maps name them.
     published_own_places: Option<dereth_client_contract::panels::map::WorldPlaces>,
@@ -1317,6 +1331,10 @@ pub struct Travel {
     /// world's era, as hints.
     hinted: Vec<dereth_navigation::PortalEdge>,
     hinted_places: Vec<dereth_navigation::KnownPlace>,
+    /// The spells that send to a fixed place, as the place package says them: taken in as text
+    /// ([`Self::take_hints`]), or read from its folder with its places.
+    hinted_sendings: Vec<dereth_navigation::Sending>,
+    package_sendings: Vec<dereth_navigation::Sending>,
     /// The dat store, as the last frame gave it: what a portal's body is read from.
     dats: Option<Arc<RetailDatStore>>,
     /// The character's body spheres, as the last frame gave them.
@@ -1398,9 +1416,12 @@ impl Travel {
             recall_watch: recalls::RecallWatch::default(),
             published: Vec::new(),
             published_places: Vec::new(),
+            published_sendings: Vec::new(),
             published_own_places: None,
             hinted: Vec::new(),
             hinted_places: Vec::new(),
+            hinted_sendings: Vec::new(),
+            package_sendings: Vec::new(),
             dats: None,
             body: Vec::new(),
             reaches: HashMap::new(),
@@ -1784,6 +1805,7 @@ impl Travel {
         if text.starts_with("dereth-places-store") {
             let table =
                 dereth_navigation::PlaceStore::from_text(text).map_err(|e| e.to_string())?;
+            self.hinted_sendings = hints(table.sendings());
             self.hinted_places = table
                 .places()
                 .iter()
@@ -2127,6 +2149,17 @@ impl Travel {
     }
 
     /// The teleports the character can use now under `allow`, less those that failed on `trip`.
+    /// The spells that send to a fixed place, as the place package and the server's places say
+    /// them: where a recall spell or item the character has never used lands it.
+    fn sendings(&self) -> Vec<dereth_navigation::Sending> {
+        self.package_sendings
+            .iter()
+            .chain(&self.hinted_sendings)
+            .chain(&self.published_sendings)
+            .cloned()
+            .collect()
+    }
+
     fn teleports(&self, allow: TravelAllow, disabled: &BTreeSet<Recall>) -> Vec<Teleport> {
         let mut c = self.character.clone();
         // The house, mansion and hometown recalls a character has been seen to use: it has them.
@@ -2149,7 +2182,7 @@ impl Travel {
         if !allow.commands {
             c.recall_commands.clear();
         }
-        c.teleports(&self.portals)
+        c.teleports(&self.portals, &self.sendings())
             .into_iter()
             .filter(|t| !disabled.contains(&t.recall))
             .collect()

@@ -104,15 +104,18 @@ local function client_places(want, kind, out, limit)
 					end
 					if e.to ~= nil then
 						-- Where it sends: a dungeon when that is indoors, pointed at by its entrance
-						-- and gone into through it; another place outdoors, by where it lands.
+						-- and gone into through it; another place outdoors, by where it lands. A
+						-- journey goes to where this portal sends, not to any portal of its name:
+						-- two portals may share one (the Facility Hub's "Tusker Abode" sends to the
+						-- land beside the dungeon's own).
 						if e.to.ns == nil then
 							if wanted("dungeon", kind) then
 								table.insert(out, { name = destination_name(e.name), type = "dungeon", place = P.plain(e.from),
-									target = { portal = e.name }, inside = e.to, source = e.source })
+									target = P.plain(e.to), inside = e.to, source = e.source })
 							end
 						elseif wanted("destination", kind) then
 							table.insert(out, { name = destination_name(e.name), type = "destination", place = P.plain(e.to),
-								target = { portal = e.name }, source = e.source })
+								source = e.source })
 						end
 					end
 				end

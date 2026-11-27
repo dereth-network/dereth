@@ -27,8 +27,9 @@ use dereth_world_places::Source;
 pub const LAUNCH_FRESH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Which rules a package was built by: raised whenever what goes into a package changes, so one
-/// built before is built again rather than used. 2: destroyed portals are left out.
-pub const BUILT_BY: u32 = 2;
+/// built before is built again rather than used. 2: destroyed portals are left out. 3: the spells
+/// that send to a fixed place are in its places.
+pub const BUILT_BY: u32 = 3;
 
 /// The folder in the launcher's data folder that holds the packages.
 #[must_use]

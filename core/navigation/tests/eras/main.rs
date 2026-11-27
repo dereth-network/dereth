@@ -26,10 +26,10 @@ use dereth_dat::RetailDatStore;
 use dereth_world_data::env_cells::EnvCellLoader;
 
 use dereth_navigation::{
-    land_realm, reach_for, JourneyConfig, Leg, PlaceKind, PlaceStore, PortalStore, Reach, Realm,
-    Refusal, Traveller,
+    land_realm, reach_for, CharacterState, JourneyConfig, Leg, PlaceKind, PlaceStore, PortalStore,
+    Reach, Realm, Refusal, Traveller,
 };
-use dereth_primitives::{EraId, Position};
+use dereth_primitives::{EraId, ObjectId, Position};
 use dereth_world_places::eras::EraDatabase;
 use dereth_world_places::{Source, WorldPlaces};
 
@@ -537,4 +537,89 @@ fn infiltrations_destination_dungeons_are_walked_inside_and_to() {
 #[test]
 fn launchs_destination_dungeons_are_walked_inside_and_to() {
     walks(EraId::Launch);
+}
+
+/// Behaviour: none (acceptance: the Navigator's journeys per era over the era's place package)
+/// Tusker Abode, which the end of retail reaches only by the Facility Hub (its portal there
+/// sends to the land beside the dungeon's own portal), is reached from every town by the Town
+/// Network and the Hub; and a character carrying the Facility Hub's gem, never used, recalls to
+/// the Hub where the era's places say its spell sends, and goes on from there.
+#[test]
+fn tusker_abode_is_reached_through_the_facility_hub_and_by_its_gem_never_used() {
+    let p = package(EraId::Eor);
+    let realms = Realms::of(EraId::Eor);
+    let realm = |at: &Position| realms.realm(at);
+    let inside = |e: &&dereth_navigation::PortalEdge| {
+        e.name == "Tusker Abode" && e.to.is_some_and(|t| t.cell.0 >> 16 == 0x5C45)
+    };
+    let goal = p
+        .portals
+        .portals()
+        .iter()
+        .find(inside)
+        .and_then(|e| e.to)
+        .expect("the portal into Tusker Abode");
+    let mut traveller = Traveller::at_level(Some(60));
+    traveller.quests = Some(std::collections::BTreeSet::new());
+    let config = JourneyConfig::default();
+    let me = CharacterState {
+        name: String::from("Tester"),
+        recall_items: vec![(ObjectId(1), 5175, String::from("Facility Hub Portal Gem"))],
+        ..CharacterState::default()
+    };
+    let gem = me.teleports(&p.portals, p.places.sendings());
+    assert_eq!(gem.len(), 1, "the era's places say where the gem sends");
+    assert_eq!(gem[0].to.cell.0 >> 16, 0x8A02, "{:?}", gem[0].to);
+    // The database's placeholder destination, which some forty unrelated spells name, is no
+    // place a recall takes a character.
+    assert!(
+        p.places
+            .sendings()
+            .iter()
+            .all(|x| x.to.cell.0 != 0x0160_02A5),
+        "a placeholder is left out"
+    );
+    let towns: Vec<(&str, Position)> = p
+        .places
+        .places()
+        .iter()
+        .filter(|k| k.kind == PlaceKind::Town)
+        .map(|k| (k.name.as_str(), k.at))
+        .collect();
+    let names = |j: &dereth_navigation::Journey| -> Vec<String> {
+        j.legs
+            .iter()
+            .filter_map(|l| match l {
+                Leg::Portal { edge } => Some(edge.name.clone()),
+                Leg::Teleport { teleport } => Some(teleport.name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    for (town, from) in &towns {
+        let Reach::Planned(j) =
+            reach_for(from, &goal, &p.portals, &[], &traveller, &realm, &config)
+        else {
+            panic!("{town} to Tusker Abode: no journey");
+        };
+        let way = names(&j);
+        assert!(
+            way.ends_with(&[
+                "Portal to Facility Hub".to_owned(),
+                "Tusker Abode".to_owned(),
+                "Tusker Abode".to_owned()
+            ]),
+            "{town}: {way:?}"
+        );
+        let Reach::Planned(j) =
+            reach_for(from, &goal, &p.portals, &gem, &traveller, &realm, &config)
+        else {
+            panic!("{town} to Tusker Abode with the gem: no journey");
+        };
+        assert_eq!(
+            names(&j),
+            ["Facility Hub Portal Gem", "Tusker Abode", "Tusker Abode"],
+            "{town}"
+        );
+    }
 }

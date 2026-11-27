@@ -9,7 +9,8 @@
 //! * **portals**, from where a portal stands to where it sends, costed by the trip through portal
 //!   space, more for knowledge less trusted;
 //! * **teleports from anywhere**: the character's recall spells and recall items whose destination
-//!   it has learned, costed by the cast and the trip, and only when it can cast them now;
+//!   it has learned, or that the world's places say send to a fixed place, costed by the cast and
+//!   the trip, and only when it can cast them now;
 //! * **hand-backs**, from where a person stands to where they send the character once it hands
 //!   back the token they gave it ([`HandBack`]): one way, like a portal, and only from their part
 //!   of the world.
@@ -20,6 +21,7 @@
 use dereth_primitives::{CellId, ObjectId, Position};
 
 use crate::path::global_distance;
+use crate::places::Sending;
 use crate::portals::{PortalEdge, PortalStore, Recall, Refusal, Traveller};
 
 /// Where a body can walk: the outdoors (with the buildings it opens onto) or a dungeon.
@@ -117,19 +119,35 @@ pub struct CharacterState {
     pub jump_speed: Option<f32>,
 }
 
+/// Where `spell` sends, as the most trusted of `sendings` that names it says.
+fn sent_to(sendings: &[Sending], spell: u32) -> Option<Position> {
+    sendings
+        .iter()
+        .filter(|x| x.spell == spell)
+        .max_by_key(|x| x.source)
+        .map(|x| x.to)
+}
+
 impl CharacterState {
     /// The teleports the character can use now: each known recall spell it has the mana for,
-    /// each recall item and each recall by command, whose destination the store has learned. A recall it has never used has
-    /// no known destination and is not offered.
+    /// each recall item and each recall by command, whose destination the store has learned. A
+    /// recall spell or item the character has never used lands where `sendings` (what the world's
+    /// places say of the spells that send to a fixed place) say it does; any other recall it has
+    /// never used has no known destination and is not offered. What it learned wins.
     #[must_use]
-    pub fn teleports(&self, store: &PortalStore) -> Vec<Teleport> {
+    pub fn teleports(&self, store: &PortalStore, sendings: &[Sending]) -> Vec<Teleport> {
+        let spell_to = |spell: u32| {
+            store
+                .recall_destination(&self.name, Recall::Spell(spell))
+                .or_else(|| sent_to(sendings, spell))
+        };
         let mut out = Vec::new();
         if self.can_cast {
             for (spell, name, mana) in &self.recall_spells {
                 if self.mana.is_some_and(|m| m < *mana) {
                     continue;
                 }
-                if let Some(to) = store.recall_destination(&self.name, Recall::Spell(*spell)) {
+                if let Some(to) = spell_to(*spell) {
                     out.push(Teleport {
                         recall: Recall::Spell(*spell),
                         name: name.clone(),
@@ -141,7 +159,7 @@ impl CharacterState {
             }
         }
         for (item, spell, name) in &self.recall_items {
-            if let Some(to) = store.recall_destination(&self.name, Recall::Spell(*spell)) {
+            if let Some(to) = spell_to(*spell) {
                 out.push(Teleport {
                     recall: Recall::Spell(*spell),
                     name: name.clone(),
@@ -1131,7 +1149,7 @@ mod tests {
         // Ten landblocks away from home: recalling beats a long walk.
         let far = at(0xB3B4_0001, 10.0, 10.0);
         let home = at(0xA9B4_0021, 100.0, 96.0);
-        let t = me.teleports(&store);
+        let t = me.teleports(&store, &[]);
         let j = plan_journey(&far, &home, &[], &t, &realm, &JourneyConfig::default())
             .expect("a journey");
         assert!(matches!(j.legs[0], Leg::Teleport { .. }), "{:?}", j.legs);
@@ -1142,22 +1160,63 @@ mod tests {
         assert!(j.legs.iter().all(|l| matches!(l, Leg::Walk { .. })));
         // Without the mana, or unable to cast, or never having recalled, there is no recall.
         me.mana = Some(10);
-        assert!(me.teleports(&store).is_empty());
+        assert!(me.teleports(&store, &[]).is_empty());
         me.mana = Some(100);
         me.can_cast = false;
-        assert!(me.teleports(&store).is_empty());
+        assert!(me.teleports(&store, &[]).is_empty());
         me.can_cast = true;
-        assert!(me.teleports(&PortalStore::new("w")).is_empty());
+        assert!(me.teleports(&PortalStore::new("w"), &[]).is_empty());
         // An item carries its spell regardless of mana.
         me.mana = Some(0);
         me.recall_items = vec![(ObjectId(77), 1635, String::from("Lifestone Recall Gem"))];
-        assert_eq!(me.teleports(&store)[0].item, Some(ObjectId(77)));
+        assert_eq!(me.teleports(&store, &[])[0].item, Some(ObjectId(77)));
         // A recall by command needs neither mana nor casting, only a destination learned.
         me.recall_items.clear();
         me.can_cast = false;
-        assert!(me.teleports(&store).is_empty());
+        assert!(me.teleports(&store, &[]).is_empty());
         store.learn_recall("me", Recall::Lifestone, &at(0xA9B4_0021, 96.0, 96.0), 2);
-        assert_eq!(me.teleports(&store)[0].recall, Recall::Lifestone);
+        assert_eq!(me.teleports(&store, &[])[0].recall, Recall::Lifestone);
+    }
+
+    #[test]
+    fn a_recall_item_never_used_lands_where_the_worlds_places_say_its_spell_sends() {
+        let hub = at(0x8A02_0212, 58.6, -89.9);
+        let sendings = [
+            Sending {
+                spell: 5175,
+                name: String::from("Facility Hub Recall"),
+                to: at(0x8A02_0100, 10.0, -10.0),
+                source: EdgeSource::Hint,
+            },
+            Sending {
+                spell: 5175,
+                name: String::from("Facility Hub Recall"),
+                to: hub,
+                source: EdgeSource::Published,
+            },
+        ];
+        let mut me = CharacterState {
+            name: String::from("me"),
+            recall_items: vec![(ObjectId(9), 5175, String::from("Facility Hub Portal Gem"))],
+            ..CharacterState::default()
+        };
+        let mut store = PortalStore::new("w");
+        // Never used: where the most trusted of the world's places says.
+        let t = me.teleports(&store, &sendings);
+        assert_eq!(t.len(), 1, "{t:?}");
+        assert_eq!((t[0].item, t[0].to), (Some(ObjectId(9)), hub));
+        // Not a spell the places name: nothing.
+        assert!(me.teleports(&store, &[]).is_empty());
+        // Used, it lands where it was seen to.
+        let landed = at(0x8A02_0213, 60.0, -88.0);
+        store.learn_recall("me", Recall::Spell(5175), &landed, 1);
+        assert_eq!(me.teleports(&store, &sendings)[0].to, landed);
+        // A spell the character knows is offered the same way, when it can be cast.
+        me.recall_items.clear();
+        me.recall_spells = vec![(5175, String::from("Facility Hub Recall"), 0)];
+        assert!(me.teleports(&PortalStore::new("w"), &sendings).is_empty());
+        me.can_cast = true;
+        assert_eq!(me.teleports(&PortalStore::new("w"), &sendings)[0].to, hub);
     }
 
     #[test]

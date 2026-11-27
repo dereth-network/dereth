@@ -806,7 +806,9 @@ pub static ROWS: &[Behaviour] = &[
                destination of the portal tied to, and Lifestone Recall's from the lifestone tied \
                to, once the server says the tie took; the lifestone command's from where the \
                character stood when a lifestone took its spirit; the Marketplace recall's from where this world's places name the \
-               Marketplace. A journey plans with a recall only once its landing is known.",
+               Marketplace. A recall spell or item whose spell sends to a fixed place (a recall \
+               gem's) lands, until it is used, where the world's places say the spell sends. A \
+               journey plans with a recall only once its landing is known.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-RECALLS-LEARNED"),
@@ -2488,6 +2490,18 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-HELP"),
         station: "dereth-testkit::cpu::plugins::tank_fellows::scenario_the_tank_heals_restams_and_gives_mana_to_fellows_within_reach_and_heals_with_a_healers_heart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-tank-hunts-at-a-dungeon-or-place-named-as-the-navigator-names-it",
+        says: "`/tank hunt <name>` (and Go, and the Run page's Hunt) takes the name of a dungeon, a \
+               place a portal sends to, a town or a landmark, as the Navigator lists them, without \
+               case: a dungeon of the name over a place outdoors of the same name; two of the kind \
+               taken, or none, are said with the places they could be, and nothing is hunted.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-HUNT-NAMED"),
+        station: "dereth-testkit::cpu::plugins::tank_quests::scenario_the_tank_hunts_at_a_dungeon_named_as_the_navigator_names_it",
         tier: Tier::Cpu,
     },
     behaviour! {

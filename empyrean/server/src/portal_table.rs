@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use dereth_world_places::{GameEvent, Landmark, Placement, Spawn, Spot, WorldSource};
+use dereth_world_places::{GameEvent, Landmark, Placement, Sending, Spawn, Spot, WorldSource};
 use empyrean_common::era::EraRules;
 use empyrean_content::models::world::{LandblockInstance, Weenie};
 use empyrean_content::WorldDatabase;
@@ -97,6 +97,36 @@ impl WorldSource for ServerContent<'_> {
                 p.map(|p| Landmark {
                     name: p.name.clone(),
                     wcid: p.weenie_class_id,
+                })
+            })
+            .collect()
+    }
+
+    fn sendings(&self) -> Vec<Sending> {
+        self.content
+            .get_all_spell_names()
+            .keys()
+            .filter_map(|&id| {
+                let s = self.content.get_cached_spell(id)?;
+                let cell = s.position_obj_cell_id.filter(|c| *c != 0)?;
+                let f = |v: Option<f32>| v.unwrap_or(0.0);
+                Some(Sending {
+                    spell: id,
+                    name: s.name.clone(),
+                    to: Spot {
+                        cell,
+                        origin: [
+                            f(s.position_origin_x),
+                            f(s.position_origin_y),
+                            f(s.position_origin_z),
+                        ],
+                        rotation: [
+                            s.position_angles_w.unwrap_or(1.0),
+                            f(s.position_angles_x),
+                            f(s.position_angles_y),
+                            f(s.position_angles_z),
+                        ],
+                    },
                 })
             })
             .collect()

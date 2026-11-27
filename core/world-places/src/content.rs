@@ -3,8 +3,8 @@
 //!
 //! A world database is the content a server loads: every kind of object (a weenie, by its class
 //! id), the instances it places in the world (each where it stands, linked to the instances it
-//! spawns or names), the events that switch spawners on and off, and the landmarks its operators
-//! may be sent to by name. A server reads its own; a launcher reads the public one of a world's
+//! spawns or names), the events that switch spawners on and off, the landmarks its operators
+//! may be sent to by name, and the spells that send whoever they are cast on to one fixed place. A server reads its own; a launcher reads the public one of a world's
 //! era ([`crate::sql`]).
 
 use std::collections::HashMap;
@@ -306,6 +306,16 @@ pub struct Landmark {
     pub wcid: u32,
 }
 
+/// A spell that sends whoever it is cast on to one place, the same for everyone: a recall gem's
+/// spell, say, which lands the character at a dungeon's drop point.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sending {
+    pub spell: u32,
+    pub name: String,
+    /// Where it sends.
+    pub to: Spot,
+}
+
 /// A world database, as the places are read from it.
 pub trait WorldSource {
     /// Every instance it places, in guid order.
@@ -316,6 +326,10 @@ pub trait WorldSource {
     fn events(&self) -> Vec<GameEvent>;
     /// Every named landmark.
     fn landmarks(&self) -> Vec<Landmark>;
+    /// Every spell that sends to a fixed place, in any order; none by default.
+    fn sendings(&self) -> Vec<Sending> {
+        Vec::new()
+    }
 }
 
 /// A world database held whole in memory: what [`crate::sql::read`] reads, and a world a test
@@ -327,6 +341,7 @@ pub struct WorldContent {
     pub placements: Vec<Placement>,
     pub events: Vec<GameEvent>,
     pub landmarks: Vec<Landmark>,
+    pub sendings: Vec<Sending>,
 }
 
 impl WorldContent {
@@ -380,6 +395,17 @@ impl WorldContent {
         });
         self
     }
+
+    /// This world with the spell `spell`, named `name`, sending to `to`.
+    #[must_use]
+    pub fn with_sending(mut self, spell: u32, name: &str, to: Spot) -> Self {
+        self.sendings.push(Sending {
+            spell,
+            name: name.to_owned(),
+            to,
+        });
+        self
+    }
 }
 
 impl WorldSource for WorldContent {
@@ -397,5 +423,9 @@ impl WorldSource for WorldContent {
 
     fn landmarks(&self) -> Vec<Landmark> {
         self.landmarks.clone()
+    }
+
+    fn sendings(&self) -> Vec<Sending> {
+        self.sendings.clone()
     }
 }

@@ -149,6 +149,18 @@ impl KnownPlace {
     }
 }
 
+/// A spell that sends whoever it is cast on to one place, the same for everyone (a recall gem's
+/// spell, say), as a world's places say: where a recall the character has never used lands it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sending {
+    pub spell: u32,
+    pub name: String,
+    /// Where it sends.
+    pub to: Position,
+    /// Where this knowledge came from.
+    pub source: EdgeSource,
+}
+
 /// The landblock a place stands in.
 const fn block(at: &Position) -> u32 {
     at.cell.0 >> 16
@@ -165,6 +177,8 @@ pub struct PlaceStore {
     /// name, which the maps do not show.
     pub own_names: bool,
     places: Vec<KnownPlace>,
+    /// The spells that send to a fixed place, as the document read says them.
+    sendings: Vec<Sending>,
     /// Each kind's places by the landblock they stand in, so a place is found among its
     /// neighbours alone: a world's server may publish thousands.
     index: HashMap<(PlaceKind, u32), Vec<usize>>,
@@ -192,6 +206,7 @@ impl PlaceStore {
             world,
             own_names: false,
             places,
+            sendings: Vec::new(),
             index,
             revision,
         }
@@ -224,6 +239,12 @@ impl PlaceStore {
     #[must_use]
     pub fn places(&self) -> &[KnownPlace] {
         &self.places
+    }
+
+    /// The spells that send to a fixed place, every source.
+    #[must_use]
+    pub fn sendings(&self) -> &[Sending] {
+        &self.sendings
     }
 
     /// Goes up by one each time the store changes.
@@ -294,6 +315,12 @@ impl PlaceStore {
     pub fn without(&self, source: EdgeSource) -> Self {
         Self {
             own_names: self.own_names,
+            sendings: self
+                .sendings
+                .iter()
+                .filter(|x| x.source != source)
+                .cloned()
+                .collect(),
             ..Self::of(
                 self.world.clone(),
                 self.places
@@ -313,6 +340,7 @@ impl PlaceStore {
     /// world<TAB><identity>
     /// naming<TAB>own
     /// place<TAB>kind<TAB>source<TAB>wcid<TAB>name<TAB>at<TAB>first seen<TAB>last seen<TAB>owner<TAB>to
+    /// sending<TAB>source<TAB>spell<TAB>name<TAB>to
     /// ```
     ///
     /// The `naming` line is written only for a store whose towns and landmarks are the world's
@@ -341,6 +369,16 @@ impl PlaceStore {
                 p.owner.as_deref().map_or_else(|| String::from("-"), escape),
                 p.to.as_ref()
                     .map_or_else(|| String::from("-"), write_position),
+            );
+        }
+        for x in &self.sendings {
+            let _ = writeln!(
+                out,
+                "sending\t{}\t{}\t{}\t{}",
+                x.source.word(),
+                x.spell,
+                escape(&x.name),
+                write_position(&x.to),
             );
         }
         out
@@ -399,11 +437,20 @@ impl PlaceStore {
                     });
                 }
                 Some("place") => return Err(bad("not a place line")),
+                // A later writer may add fields to a sending; those it has are read.
+                Some("sending") if f.len() >= 5 => store.sendings.push(Sending {
+                    source: EdgeSource::parse(f[1]).ok_or_else(|| bad("source"))?,
+                    spell: f[2].parse().map_err(|_| bad("spell"))?,
+                    name: unescape(f[3]),
+                    to: read_position(f[4]).ok_or_else(|| bad("to"))?,
+                }),
+                Some("sending") => return Err(bad("not a sending line")),
                 _ => {}
             }
         }
         Ok(Self {
             own_names: store.own_names,
+            sendings: store.sendings,
             ..Self::of(store.world, store.places, store.revision)
         })
     }

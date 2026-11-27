@@ -498,3 +498,67 @@ fn a_doors_levers_are_places_naming_the_door_they_work() {
         "the door itself is no place"
     );
 }
+
+#[test]
+fn the_places_end_with_each_spell_that_sends_to_a_fixed_place_by_spell_id() {
+    let hub = Spot::at(0x8A02_0212, [58.639, -89.923, 6.005]);
+    let world = WorldContent::new()
+        .with_weenie(Weenie::new(1001, "lifestone", id::kind::LIFESTONE))
+        .with_placement(1, 1001, Spot::at(0xA9B4_0021, [84.0, 7.5, 94.0]), &[])
+        .with_sending(5175, "Facility Hub Recall", hub)
+        .with_sending(
+            2041,
+            "Aerlinthe Recall",
+            Spot::at(0xBAE8_001D, [84.0, 105.0, 26.0]),
+        );
+    let docs = WorldPlaces::of(&world).documents("Dereth", Source::Hint);
+    let lines: Vec<&str> = docs.places.lines().collect();
+    assert_eq!(
+        &lines[lines.len() - 2..],
+        [
+            "sending\thint\t2041\tAerlinthe Recall\t0xBAE8001D 84.000 105.000 26.000",
+            "sending\thint\t5175\tFacility Hub Recall\t0x8A020212 58.639 -89.923 6.005",
+        ]
+    );
+    assert!(
+        lines[2].starts_with("place\tlifestone\t"),
+        "the places come first: {lines:?}"
+    );
+    // The portal table holds none.
+    assert!(!docs.portals.contains("sending"), "{}", docs.portals);
+}
+
+#[test]
+fn spells_that_send_to_a_placeholder_shared_by_many_unrelated_spells_are_left_out() {
+    let placeholder = Spot::at(0x0160_02A5, [80.0, -160.0, 0.005]);
+    let shared = Spot::at(0xD655_002C, [133.717, 82.224, 47.458]);
+    let mut world = WorldContent::new()
+        .with_weenie(Weenie::new(1001, "lifestone", id::kind::LIFESTONE))
+        .with_placement(1, 1001, Spot::at(0xA9B4_0021, [84.0, 7.5, 94.0]), &[]);
+    // Twelve unrelated spells to one spot: the placeholder.
+    for i in 0..12_u32 {
+        world = world.with_sending(4900 + i, &format!("Stronghold Recall {i}"), placeholder);
+    }
+    // A few to one real place (the same name more than once counts once), and a gem's own.
+    for i in 0..6_u32 {
+        world = world.with_sending(2495 + i, "Send Reinforcements", shared);
+    }
+    world = world
+        .with_sending(2492, "Free Ride to the Shoushi West Outpost", shared)
+        .with_sending(
+            5175,
+            "Facility Hub Recall",
+            Spot::at(0x8A02_0212, [58.639, -89.923, 6.005]),
+        );
+    let places = WorldPlaces::of(&world)
+        .documents("Dereth", Source::Hint)
+        .places;
+    let sent: Vec<&str> = places
+        .lines()
+        .filter(|l| l.starts_with("sending\t"))
+        .map(|l| l.split('\t').nth(2).unwrap_or(""))
+        .collect();
+    assert!(!sent.iter().any(|s| s.starts_with("49")), "{sent:?}");
+    assert_eq!(sent.len(), 8, "{sent:?}");
+    assert!(sent.contains(&"5175") && sent.contains(&"2492"), "{sent:?}");
+}

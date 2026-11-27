@@ -18,7 +18,7 @@ use std::fmt;
 use std::io::BufRead;
 use std::sync::Arc;
 
-use crate::content::{GameEvent, Landmark, Placement, Spawn, Spot, Weenie, WorldContent};
+use crate::content::{GameEvent, Landmark, Placement, Sending, Spawn, Spot, Weenie, WorldContent};
 
 /// Why a dump could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +33,7 @@ impl fmt::Display for SqlError {
 impl std::error::Error for SqlError {}
 
 /// The tables read.
-const TABLES: [&str; 12] = [
+const TABLES: [&str; 13] = [
     "weenie",
     "weenie_properties_d_i_d",
     "weenie_properties_int",
@@ -46,6 +46,7 @@ const TABLES: [&str; 12] = [
     "landblock_instance_link",
     "event",
     "points_of_interest",
+    "spell",
 ];
 
 /// Reads the world database dumped in `input`.
@@ -151,12 +152,18 @@ impl Row<'_> {
     }
 
     fn spot(&self) -> Option<Spot> {
-        let f = |c: &str| self.f32(c).unwrap_or(0.0);
+        self.spot_of("")
+    }
+
+    /// The spot in the columns named with `prefix`: `<prefix>obj_Cell_Id`, `<prefix>origin_X`
+    /// and the rest.
+    fn spot_of(&self, prefix: &str) -> Option<Spot> {
+        let f = |c: &str| self.f32(&format!("{prefix}{c}")).unwrap_or(0.0);
         Some(Spot {
-            cell: self.u32("obj_Cell_Id")?,
+            cell: self.u32(&format!("{prefix}obj_Cell_Id"))?,
             origin: [f("origin_X"), f("origin_Y"), f("origin_Z")],
             rotation: [
-                self.f32("angles_W").unwrap_or(1.0),
+                self.f32(&format!("{prefix}angles_W")).unwrap_or(1.0),
                 f("angles_X"),
                 f("angles_Y"),
                 f("angles_Z"),
@@ -174,6 +181,7 @@ struct Reader {
     links: Vec<(u32, u32)>,
     events: Vec<GameEvent>,
     landmarks: Vec<Landmark>,
+    sendings: Vec<Sending>,
 }
 
 impl Reader {
@@ -355,6 +363,16 @@ impl Reader {
                     self.landmarks.push(Landmark { name, wcid });
                 }
             }
+            // A spell with a position (a cell other than none) sends whoever it is cast on there.
+            "spell" => {
+                if let (Some(spell), Some(to)) = (
+                    row.u32("id"),
+                    row.spot_of("position_").filter(|s| s.cell != 0),
+                ) {
+                    let name = row.get("name").text().unwrap_or_default();
+                    self.sendings.push(Sending { spell, name, to });
+                }
+            }
             _ => {}
         }
     }
@@ -384,6 +402,7 @@ impl Reader {
             placements: self.placements,
             events: self.events,
             landmarks: self.landmarks,
+            sendings: self.sendings,
         })
     }
 }
@@ -801,6 +820,24 @@ INSERT INTO `weenie` VALUES (1,'a,7);\n";
             .unwrap_err()
             .0
             .contains("before its CREATE TABLE"));
+    }
+
+    #[test]
+    fn a_spell_with_a_position_is_read_as_a_sending_to_it_and_one_without_is_not() {
+        let dump = format!(
+            "{DUMP}CREATE TABLE `spell` (`id` int unsigned, `name` text, `link` int, `position_Obj_Cell_ID` int unsigned, `position_Origin_X` float, `position_Origin_Y` float, `position_Origin_Z` float, `position_Angles_W` float, `position_Angles_X` float, `position_Angles_Y` float, `position_Angles_Z` float, `last_Modified` datetime);
+INSERT INTO `spell` VALUES (5175,'Facility Hub Recall',NULL,2315387410,58.6391,-89.9231,6.005,0.995004,0,0,-0.099833,'2021-11-01 00:00:00'),(1,'Strength Other I',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2005-02-09');
+"
+        );
+        let world = read_str(&dump).expect("reads");
+        let s = world.sendings();
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert_eq!(
+            (s[0].spell, s[0].name.as_str(), s[0].to.cell),
+            (5175, "Facility Hub Recall", 0x8A02_0212)
+        );
+        assert_eq!(s[0].to.origin, [58.6391, -89.9231, 6.005]);
+        assert_eq!(s[0].to.rotation, [0.995_004, 0.0, 0.0, -0.099_833]);
     }
 
     #[test]

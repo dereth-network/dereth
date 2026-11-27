@@ -14,6 +14,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Tank: drinks the potions and tinctures you add instead of resting.
+- Navigator and Tank journeys use recall gems you carry, even before you've used them.
+- Navigator: going to a dungeon uses its own portal, not another with the same name.
+- Navigator no longer stops when opened with a world's full set of places.
+- Tank: /tank hunt takes a dungeon's name, like Tusker Abode.
 - New Dereth's map shows in the classic interface and fits its window in the modern one.
 - Horizon: shows the date and time.
 - A world can choose the views behind character select.

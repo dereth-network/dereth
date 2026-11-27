@@ -28,8 +28,9 @@
 -- /tank follow [name]           follow the selected character (or the one named): VTank's FC
 -- /tank jump <heading> <true|false> <ms> [direction]   one jump now
 -- /tank hunt <place>            travel there (walking, portals, recalls), then run the macro; a
---                               place is "42.2N 33.8E", a cell "0x019E0140", "portal <name>" (where
---                               a known portal sends), or "lifestone" / "marketplace"
+--                               place is "42.2N 33.8E", a cell "0x019E0140", a dungeon's or a
+--                               place's name ("Tusker Abode", as the Navigator lists it), "portal
+--                               <name>" (where a known portal sends), or "lifestone" / "marketplace"
 -- /tank go <place>              travel there, the macro stopped (a place as hunt takes it)
 -- /tank give <item> to <person> | pickup <item> | useon <item> on <target>
 --                               quest steps: hand an item to a person, pick one up off the ground,
@@ -335,7 +336,103 @@ on("character.death", function()
 	end
 end)
 
--- A hunting place as typed: map coordinates, a cell, a known portal's destination, a recall's.
+-- A portal's name as its destination's: "Portal to Drudge Hideout" and "Drudge Hideout Portal" both
+-- name "Drudge Hideout", as the Navigator reads them.
+local function destination_name(portal)
+	return string.match(portal, "^[Pp]ortal [Tt]o (.+)$") or string.match(portal, "^(.+) [Pp]ortal$") or portal
+end
+
+-- A place as the chat says it: map coordinates, else its cell.
+local function said_place(p)
+	if p.ns ~= nil then
+		return string.format("%.1f%s %.1f%s", math.abs(p.ns), p.ns < 0 and "S" or "N", math.abs(p.ew),
+			p.ew < 0 and "W" or "E")
+	end
+	return string.format("cell 0x%08X", p.cell or 0)
+end
+
+-- The places the client knows by the name `text` (without case), as the Navigator lists them: the
+-- dungeon each portal leads into (by where it sends), the place outdoors each other portal sends
+-- to, and the towns and landmarks; one each for a spot several portals lead to. And the names the
+-- search found that are not exactly it.
+local function named_places(text)
+	if nav.search == nil or not host.has("nav.journey") then
+		return {}, {}
+	end
+	local want = string.lower(text)
+	local r = nav.search(want, { portals = true, places = true, kind = { "town", "landmark" }, limit = 50 })
+	local out, seen, near = {}, {}, {}
+	local function add(name, kind, place, shown)
+		local key = kind .. "|" .. (place.ns ~= nil and string.format("%.2f,%.2f", place.ns, place.ew)
+			or string.format("%d:%.0f,%.0f", place.cell or 0, place.x or 0, place.y or 0))
+		if string.lower(name) ~= want then
+			near[name] = true
+		elseif not seen[key] then
+			seen[key] = true
+			table.insert(out, { name = name, kind = kind, place = place, shown = shown })
+		end
+	end
+	for _, e in ipairs(r.items or {}) do
+		if e.list == "portal" then
+			if e.retired == nil and e.to ~= nil then
+				local to = e.to.ns ~= nil and { ns = e.to.ns, ew = e.to.ew }
+					or { cell = e.to.cell, x = e.to.x, y = e.to.y, z = e.to.z }
+				if to.ns == nil then
+					-- A dungeon is shown by its entrance.
+					add(destination_name(e.name), "dungeon", to, e.from or to)
+				else
+					add(destination_name(e.name), "destination", to, to)
+				end
+			end
+		elseif e.at ~= nil then
+			local at = e.at.ns ~= nil and { ns = e.at.ns, ew = e.at.ew } or { cell = e.at.cell, x = e.at.x, y = e.at.y, z = e.at.z }
+			add(e.name, e.kind, at, at)
+		end
+	end
+	local others = {}
+	for n in pairs(near) do
+		table.insert(others, n)
+	end
+	table.sort(others)
+	return out, others
+end
+
+-- The place a name names, or nil and what to say. A dungeon of the name is taken over a place
+-- outdoors of the same name (a portal to the land beside a dungeon is often named for it); more than
+-- one of the kind taken, or none at all, is said with the places it could be.
+local function place_named(text)
+	local found, others = named_places(text)
+	if #found == 0 then
+		if #others == 0 then
+			return nil, "no place named " .. text .. " is known"
+		end
+		local some = {}
+		for i = 1, math.min(5, #others) do
+			some[i] = others[i]
+		end
+		return nil, string.format("no place named %s is known; did you mean %s?", text, table.concat(some, ", "))
+	end
+	local dungeons = {}
+	for _, f in ipairs(found) do
+		if f.kind == "dungeon" then
+			table.insert(dungeons, f)
+		end
+	end
+	local pick = #dungeons > 0 and dungeons or found
+	if #pick == 1 then
+		return pick[1].place
+	end
+	local listed = {}
+	for i, f in ipairs(pick) do
+		listed[i] = string.format("%s (%s) at %s", f.name, f.kind, said_place(f.shown))
+	end
+	return nil, string.format("%s names %d places: %s; give its coordinates instead", text, #pick,
+		table.concat(listed, "; "))
+end
+
+-- A hunting place as typed: map coordinates, a cell, a known portal's destination, a recall's, or
+-- the name of a dungeon or a place the client knows (`place_named`). Answers nil and what to say
+-- when it is none of them.
 local function hunting_place(words)
 	local rest = table.concat(words, " ", 2)
 	local ns, nsh, ew, ewh = string.match(rest, "^([%d%.]+)%s*([NnSs])[,%s]*([%d%.]+)%s*([EeWw])$")
@@ -354,6 +451,9 @@ local function hunting_place(words)
 	end
 	if rest == "lifestone" or rest == "marketplace" then
 		return { recall = rest }
+	end
+	if rest ~= "" then
+		return place_named(rest)
 	end
 	return nil
 end
@@ -531,9 +631,9 @@ on("ui.clicked", function(e)
 		E.note("%s", buffbot_go("by you"))
 	elseif e.id == "hunt" or e.id == "go" then
 		local text = win:get("hunt_at").value or ""
-		local place = hunting_place({ "hunt", text })
+		local place, why = hunting_place({ "hunt", text })
 		if place == nil then
-			E.note("%s where? 42.2N 33.8E, 0x019E0140, portal <name>, lifestone or marketplace", e.id)
+			E.note("%s where? %s", e.id, why or "42.2N 33.8E, 0x019E0140, a dungeon's or a place's name, portal <name>, lifestone or marketplace")
 		elseif e.id == "go" then
 			go(place, text)
 		else
@@ -748,9 +848,11 @@ local function tank_command(args, words)
 		start()
 		chat.print("[Tank] Started.")
 	elseif (w == "hunt" or w == "go") and words[2] ~= nil then
-		local place = hunting_place(words)
-		if place == nil then
-			chat.print("[Tank] /tank " .. w .. " 42.2N 33.8E | 0x019E0140 | portal <name> | lifestone | marketplace")
+		local place, why = hunting_place(words)
+		if place == nil and why ~= nil then
+			chat.print("[Tank] " .. string.upper(string.sub(why, 1, 1)) .. string.sub(why, 2) .. ".")
+		elseif place == nil then
+			chat.print("[Tank] /tank " .. w .. " 42.2N 33.8E | 0x019E0140 | <dungeon or place name> | portal <name> | lifestone | marketplace")
 		elseif w == "go" then
 			-- Its notes show in the window; the window is not built again for it.
 			go(place, table.concat(words, " ", 2))

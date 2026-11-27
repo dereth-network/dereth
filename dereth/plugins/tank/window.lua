@@ -635,7 +635,7 @@ local function pages(E)
 				ui.label({ id = "state", text = "Stopped", width = 30 }),
 			}),
 			ui.row({
-				ui.input({ id = "hunt_at", text = "Hunt at", value = E.hunt_name or "", placeholder = "42.2N 33.8E, 0x019E0140, portal <name>, lifestone",
+				ui.input({ id = "hunt_at", text = "Hunt at", value = E.hunt_name or "", placeholder = "42.2N 33.8E, 0x019E0140, Tusker Abode, portal <name>, lifestone",
 					grow = 1 }),
 				ui.button({ id = "hunt", text = "Hunt" }),
 				ui.button({ id = "go", text = "Go", tooltip = "Travel there by a journey, the macro stopped" }),

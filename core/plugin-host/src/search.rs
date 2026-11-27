@@ -10,8 +10,9 @@
 //!   out from where the search is measured from, until the nearest asked for are certain.
 //!
 //! The index is made at the start of a frame, outside any plugin's share of it, once a plugin has
-//! searched; places the client learns as it plays are added to it rather than its being made
-//! again.
+//! searched or one that plans journeys (`nav.journey`) is active, so the first search does not pay
+//! for making it (a whole era's places take longer than an entry's budget); places the client
+//! learns as it plays are added to it rather than its being made again.
 
 use std::collections::HashMap;
 
@@ -176,8 +177,10 @@ impl PlaceIndex {
         self
     }
 
-    /// At the start of a frame: the index brought up to `stores`, when a plugin has searched.
-    pub fn refresh(&mut self, stores: &Stores<'_>) {
+    /// At the start of a frame: the index brought up to `stores`, when a plugin has searched or
+    /// `searching` says one may.
+    pub fn refresh(&mut self, stores: &Stores<'_>, searching: bool) {
+        self.wanted |= searching;
         if self.wanted {
             self.keep_up(stores);
         }
@@ -804,11 +807,14 @@ mod tests {
             owner: None,
             to: None,
         });
-        index.refresh(&Stores {
-            portals: Some(&portals),
-            places: Some(&places),
-            map: None,
-        });
+        index.refresh(
+            &Stores {
+                portals: Some(&portals),
+                places: Some(&places),
+                map: None,
+            },
+            false,
+        );
         assert_eq!(index.added, 2);
         let before = index.touched;
         assert_eq!(found(&mut index, &places), 2);
@@ -817,6 +823,24 @@ mod tests {
             2,
             "a search after it looks at its two matches only"
         );
+    }
+
+    #[test]
+    fn a_plugin_that_may_search_has_the_index_made_at_the_frame_start_not_in_its_first_search() {
+        let portals = PortalStore::new("w");
+        let places = PlaceStore::new("w");
+        let stores = Stores {
+            portals: Some(&portals),
+            places: Some(&places),
+            map: None,
+        };
+        let mut index = PlaceIndex::default();
+        index.refresh(&stores, false);
+        assert_eq!(index.built, 0, "no plugin searches");
+        index.refresh(&stores, true);
+        assert_eq!(index.built, 1, "made at the frame start");
+        index.of(&stores);
+        assert_eq!(index.built, 1, "the search finds it made");
     }
 
     fn index_of(i: usize) -> u32 {

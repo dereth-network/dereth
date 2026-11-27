@@ -37,6 +37,7 @@
 //! dereth-places-store→1
 //! world→<world name>
 //! place→<kind>→<source>→<wcid or ->→<name>→<at>→0→0→-→<to or ->
+//! sending→<source>→<spell>→<name>→<to>
 //! ```
 //!
 //! There is one `place` line per placed instance whose weenie is a lifestone (`lifestone`), a
@@ -49,11 +50,17 @@
 //! or spawned it. Positions and names are written as the portal table writes them. The two zeros
 //! are when the place was first and last seen, which a world database does not know, and the `-`
 //! is a house's owner, which it never names.
+//!
+//! After the places, there is one `sending` line per spell that sends whoever it is cast on to a
+//! fixed place (a recall gem's spell among them), ordered by spell id: its name, written as a
+//! place's is, and where it sends. A spot that spells of more than a few different names send to
+//! is the database's placeholder rather than a place, and its spells are left out. A reader that does not know a line's first field passes it
+//! over, so a client older than these lines still reads the places.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::content::{id, spawn_where, Placement, Spot, Weenie, WorldSource};
+use crate::content::{id, spawn_where, Placement, Sending, Spot, Weenie, WorldSource};
 use crate::requirement::{write_field, Requirement};
 use crate::text::{field, land_cell, position};
 use crate::towns::{self, Town, TownKind};
@@ -258,6 +265,8 @@ pub struct WorldPlaces {
     pub places: Vec<Place>,
     /// The towns and named landmarks, by name.
     pub towns: Vec<Town>,
+    /// The spells that send to a fixed place, by spell id.
+    pub sendings: Vec<Sending>,
 }
 
 /// The weenies of a source, each read once.
@@ -439,10 +448,14 @@ impl WorldPlaces {
                 .then_with(|| position(&a.at).cmp(&position(&b.at)))
                 .then_with(|| a.name.cmp(&b.name))
         });
+        let mut sendings = placed_sendings(content.sendings());
+        sendings.sort_by_key(|s| s.spell);
+        sendings.dedup_by_key(|s| s.spell);
         Self {
             portals,
             places,
             towns,
+            sendings,
         }
     }
 
@@ -489,6 +502,15 @@ impl WorldPlaces {
                 p.to.as_ref().map_or_else(|| "-".to_owned(), position),
             ));
         }
+        for x in &self.sendings {
+            out.push_str(&format!(
+                "sending\t{}\t{}\t{}\t{}\n",
+                source.word(),
+                x.spell,
+                field(&x.name),
+                position(&x.to),
+            ));
+        }
         out
     }
 
@@ -513,6 +535,27 @@ pub fn portal_table(world_name: &str, content: &dyn WorldSource) -> String {
 #[must_use]
 pub fn places(world_name: &str, content: &dyn WorldSource) -> String {
     WorldPlaces::of(content).places_document(world_name, Source::Published)
+}
+
+/// How many spells of different names one spot may be the destination of and still be a place: a
+/// spot more unrelated spells send to is the world database's placeholder for a destination it
+/// does not hold (the end of retail's sends some forty, from a stronghold's recall to a pyramid's
+/// exit, to one spot), not somewhere a recall takes a character.
+const PLACEHOLDER_NAMES: usize = 8;
+
+/// `sendings` less those whose destination is a placeholder ([`PLACEHOLDER_NAMES`]).
+fn placed_sendings(sendings: Vec<Sending>) -> Vec<Sending> {
+    let mut names: HashMap<String, HashSet<String>> = HashMap::new();
+    for x in &sendings {
+        names
+            .entry(position(&x.to))
+            .or_default()
+            .insert(x.name.to_lowercase());
+    }
+    sendings
+        .into_iter()
+        .filter(|x| names.get(&position(&x.to)).map_or(0, HashSet::len) <= PLACEHOLDER_NAMES)
+        .collect()
 }
 
 /// What spawners ask of the world before they make anything.

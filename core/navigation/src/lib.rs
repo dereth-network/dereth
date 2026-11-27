@@ -90,7 +90,7 @@ pub use journey::{
 pub use mesh::SearchWork;
 pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};
-pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, PLACES_VERSION};
+pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, Sending, PLACES_VERSION};
 pub use portals::{
     EdgeSource, PkStatus, PortalEdge, PortalShape, PortalSighting, PortalStore, Recall, RecallEdge,
     Refusal, Requirement, StoreError, TeleportOutcome, TeleportWatch, Traveller, STORE_VERSION,

@@ -28,6 +28,7 @@ dereth_testkit::scenarios! {
     scenario_the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload => the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload ["plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload"],
     scenario_the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys => the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys ["plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys"],
     scenario_the_navigator_lists_a_place_once_and_puts_its_exact_name_first => the_navigator_lists_a_place_once_and_puts_its_exact_name_first ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
+    scenario_a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name => a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight => a_route_walks_round_a_wall_to_a_waypoint_out_of_sight ["plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight"],
 }
 
@@ -1091,6 +1092,63 @@ fn the_navigator_lists_a_place_once_and_puts_its_exact_name_first() {
             .iter()
             .any(|l| l.starts_with("[Nav] Can't go to portal Nowhere: ")),
         "{lines:?}"
+    );
+    note_asserted(
+        "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
+    );
+}
+
+/// Two portals share a name, as the Facility Hub's "Tusker Abode" (in a dungeon, sending to the land
+/// beside the dungeon) shares the dungeon's own: the dungeon found by that name is gone into
+/// through the portal that leads into it, not walked to where the other sends.
+fn a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name() {
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    let elsewhere = dereth_plugin_host::places::from_value(
+        &Value::map()
+            .with("cell", 0x01A0_0110_u32)
+            .with("x", 20.0)
+            .with("y", -20.0)
+            .with("z", 0.0),
+    )
+    .expect("a cell place");
+    run.scripted_portals(
+        &[
+            ScriptedPortal {
+                name: "Tusker Abode".into(),
+                class: 22654,
+                at: outdoors(42.2, 33.85),
+                to: in_the_dungeon(),
+                source: dereth_navigation::EdgeSource::Published,
+                refuses: false,
+            },
+            ScriptedPortal {
+                name: "Tusker Abode".into(),
+                class: 42175,
+                at: elsewhere,
+                to: outdoors(30.0, 30.0),
+                source: dereth_navigation::EdgeSource::Published,
+                refuses: false,
+            },
+        ],
+        Vec::new(),
+    );
+    run.advance(0.5);
+    run.type_line("/nav nearest dungeon");
+    run.type_line("/nav go");
+    run.advance(8.0);
+    assert!(
+        run.player_place().is_none(),
+        "into the dungeon through its own portal: {:?} {:?}",
+        run.moves(),
+        run.printed()
+    );
+    assert!(
+        run.printed()
+            .iter()
+            .any(|l| l == "[Nav] Arrived at Tusker Abode."),
+        "{:?}",
+        run.printed()
     );
     note_asserted(
         "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",

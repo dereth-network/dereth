@@ -251,6 +251,39 @@ fn a_line_of_a_kind_the_reader_does_not_know_is_passed_over_and_the_places_aroun
 }
 
 #[test]
+fn the_spells_that_send_to_a_fixed_place_read_back_as_written_and_go_with_their_source() {
+    let text = "dereth-places-store\t1\nworld\tw\n\
+        place\tlifestone\thint\t509\tLifestone\t0xDA55001D 10 103 20\t0\t0\t-\t-\n\
+        sending\thint\t5175\tFacility Hub Recall\t0x8A020212 58.639 -89.923 6.005\n\
+        sending\tpublished\t2041\tAerlinthe Recall\t0xBAE8001D 84 105 26\ta later field\n";
+    let store = PlaceStore::from_text(text).expect("reads");
+    assert_eq!(store.places().len(), 1);
+    let s = store.sendings();
+    assert_eq!(s.len(), 2, "{s:?}");
+    assert_eq!(
+        (s[0].spell, s[0].name.as_str(), s[0].source, s[0].to.cell),
+        (
+            5175,
+            "Facility Hub Recall",
+            EdgeSource::Hint,
+            CellId(0x8A02_0212)
+        )
+    );
+    assert_eq!((s[1].spell, s[1].source), (2041, EdgeSource::Published));
+    let again = PlaceStore::from_text(&store.to_text()).expect("reads back");
+    assert_eq!(again.sendings(), store.sendings());
+    let published = store.without(EdgeSource::Hint);
+    assert_eq!(published.sendings().len(), 1);
+    assert_eq!(published.sendings()[0].spell, 2041);
+    // A sending that does not read refuses the store, as a place does.
+    let bad = "dereth-places-store\t1\nworld\tw\nsending\thint\tfive\tX\t0x8A020212 1 2 3\n";
+    assert!(matches!(
+        PlaceStore::from_text(bad),
+        Err(StoreError::Line(3, _))
+    ));
+}
+
+#[test]
 fn a_place_line_that_does_not_read_still_refuses_the_store() {
     let head = "dereth-places-store\t1\nworld\tw\nnaming\town\n";
     let short = format!("{head}place\tlifestone\tpublished\t509\tLifestone\n");

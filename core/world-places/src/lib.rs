@@ -23,6 +23,8 @@ pub mod sql;
 pub mod text;
 pub mod towns;
 
-pub use content::{GameEvent, Landmark, Placement, Spawn, Spot, Weenie, WorldContent, WorldSource};
+pub use content::{
+    GameEvent, Landmark, Placement, Sending, Spawn, Spot, Weenie, WorldContent, WorldSource,
+};
 pub use documents::{Documents, Source, WorldPlaces};
 pub use requirement::Requirement;

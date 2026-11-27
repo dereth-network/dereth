@@ -1963,12 +1963,29 @@ impl PluginHost {
             .map_or(0.0, |t| (frame.local_time - t).max(0.0));
         self.frame_spent = web_time::Duration::ZERO;
         // The places a plugin searches, kept up with the client's stores here, outside every
-        // plugin's share of the frame.
-        self.shared.index.refresh(&crate::search::Stores {
-            portals: frame.travel_store,
-            places: frame.world_places,
-            map: frame.map_places,
+        // plugin's share of the frame: from the first frame a plugin that plans journeys is
+        // active, so its first search does not make the index in its own share.
+        let searching = self.plugins.iter().any(|s| {
+            s.state.status == Status::Running
+                && s.state.active
+                && (s
+                    .state
+                    .manifest
+                    .required
+                    .contains(&HostCapability::NavJourney)
+                    || s.state
+                        .manifest
+                        .optional
+                        .contains(&HostCapability::NavJourney))
         });
+        self.shared.index.refresh(
+            &crate::search::Stores {
+                portals: frame.travel_store,
+                places: frame.world_places,
+                map: frame.map_places,
+            },
+            searching,
+        );
         for s in &mut self.plugins {
             s.prints = 0;
             s.state.frame_spent = web_time::Duration::ZERO;
