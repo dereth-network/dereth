@@ -44,7 +44,10 @@ fn normal(pts: &[P]) -> Option<P> {
 }
 
 /// Whether `ring` (indexes into `pos`) is a flat, convex polygon facing `n`: every corner within
-/// [`FLAT`] of the first corner's plane, and every corner turning the same way.
+/// [`FLAT`] of the first corner's plane, and every corner on the inner side of every edge, or
+/// within [`FLAT`] of its line. Turning the same way at each corner is not enough: a ring that
+/// runs out to a corner and straight back turns there by half a circle, which reads as no turn
+/// at all, and leaves corners outside the polygon's own edges.
 fn flat_convex(ring: &[u16], pos: &[P], n: P) -> bool {
     let p: Vec<P> = ring.iter().map(|&i| pos[usize::from(i)]).collect();
     let d = dot(n, p[0]);
@@ -53,8 +56,10 @@ fn flat_convex(ring: &[u16], pos: &[P], n: P) -> bool {
     }
     let k = p.len();
     for i in 0..k {
-        let (a, b, c) = (p[i], p[(i + 1) % k], p[(i + 2) % k]);
-        if dot(cross(sub(b, a), sub(c, b)), n) < -FLAT * FLAT {
+        let (a, b) = (p[i], p[(i + 1) % k]);
+        let edge = sub(b, a);
+        let reach = FLAT * dot(edge, edge).sqrt();
+        if p.iter().any(|q| dot(cross(edge, sub(*q, a)), n) < -reach) {
             return false;
         }
     }
@@ -287,6 +292,66 @@ mod tests {
         };
         let total: f64 = out.iter().map(|(_, r)| area(r)).sum();
         assert!((total - 3.0).abs() < 1e-9, "{total}");
+    }
+
+    /// A face of AC2's collision with a corner standing on another polygon's edge (a signpost's
+    /// side, its x and height, laid flat): joined in its order, a ring would run out to that
+    /// corner and back along the edge, a polygon a body walks through.
+    #[test]
+    fn a_ring_that_runs_out_and_back_along_an_edge_is_not_made() {
+        let pos: Vec<P> = [
+            (0.532_993_7, 3.300_760_5),
+            (-1.996_146_3, 2.523_478),
+            (0.532_993_7, -1.651_556),
+            (-2.467_006_2, 2.378_768_4),
+            (-2.467_006_2, -1.651_556),
+            (-2.223_403_2, 2.898_627_5),
+            (-0.775_475_86, 2.898_627_5),
+            (-2.467_006_2, 3.300_760_5),
+            (-2.467_006_2, 2.898_627_8),
+        ]
+        .iter()
+        .map(|&(x, z)| [x, -z, 0.0])
+        .collect();
+        let polys = [
+            (0u16, vec![5, 1, 6]),
+            (0, vec![8, 3, 1, 5]),
+            (0, vec![0, 1, 2]),
+            (0, vec![3, 4, 2, 1]),
+            (0, vec![0, 7, 5, 6]),
+            (0, vec![7, 8, 5]),
+        ];
+        let n = [0.0, 0.0, -1.0];
+        for (_, r) in &polys {
+            assert!(flat_convex(r, &pos, n), "{r:?}");
+        }
+        let out = join_flat(&polys, &pos);
+        for (_, r) in &out {
+            assert!(flat_convex(r, &pos, n), "{r:?}");
+            // No corner outside any edge: each corner is on the inner side of every edge.
+            let p: Vec<P> = r.iter().map(|&i| pos[usize::from(i)]).collect();
+            for i in 0..p.len() {
+                let (a, b) = (p[i], p[(i + 1) % p.len()]);
+                for q in &p {
+                    assert!(dot(cross(sub(b, a), sub(*q, a)), n) > -1e-3, "{r:?}");
+                }
+            }
+        }
+        // The face's area is all still there.
+        let area = |r: &Vec<u16>| {
+            let p: Vec<P> = r.iter().map(|&i| pos[usize::from(i)]).collect();
+            (0..p.len())
+                .map(|i| {
+                    let (u, v) = (p[i], p[(i + 1) % p.len()]);
+                    u[0] * v[1] - v[0] * u[1]
+                })
+                .sum::<f64>()
+                .abs()
+                / 2.0
+        };
+        let before: f64 = polys.iter().map(|(_, r)| area(r)).sum();
+        let after: f64 = out.iter().map(|(_, r)| area(r)).sum();
+        assert!((before - after).abs() < 1e-9, "{before} {after}");
     }
 
     #[test]

@@ -319,25 +319,28 @@ pub fn make(
                 let world = at.add(turn(r, p));
                 turn(back(shell.frame.rotation), world.sub(shell.frame.origin))
             };
+            let (points, floor) = if ways_out.is_empty() {
+                (Vec::new(), Vec::new())
+            } else {
+                wr.get::<auberean_assets::mesh::CellMesh>(c.mesh.0)
+                    .map(|cm| floor_of(&cm))
+                    .unwrap_or_default()
+            };
+            // The room's origin can stand outside it (a hall whose doorway is its edge): the
+            // middle of its points is inside.
+            #[allow(clippy::cast_precision_loss)]
+            let middle = points
+                .iter()
+                .fold(Vec3::ZERO, |m, p| m.add(*p))
+                .mul(1.0 / points.len().max(1) as f32);
             for &w in &ways_out {
                 let corners = portal_points.get(w).cloned().unwrap_or_default();
                 doorway_shapes.push((
                     corners.into_iter().map(to_shell).collect(),
-                    to_shell(Vec3::ZERO),
+                    to_shell(middle),
                 ));
             }
             if !land_ways.is_empty() {
-                let (points, floor) = wr
-                    .get::<auberean_assets::mesh::CellMesh>(c.mesh.0)
-                    .map(|cm| floor_of(&cm))
-                    .unwrap_or_default();
-                // The room's origin can stand outside it (a hall whose doorway is its edge): the
-                // middle of its points is inside.
-                #[allow(clippy::cast_precision_loss)]
-                let middle = points
-                    .iter()
-                    .fold(Vec3::ZERO, |m, p| m.add(*p))
-                    .mul(1.0 / points.len().max(1) as f32);
                 for &w in &land_ways {
                     let corners = portal_points.get(w).cloned().unwrap_or_default();
                     #[allow(clippy::cast_precision_loss)]
@@ -738,7 +741,7 @@ pub(crate) fn shell_solid(
 }
 
 /// The shell's model with its collision in it, and its doorways (corners in its frame, and the
-/// middle of the room each leads into) as clear polygons facing in, the portal nodes of its
+/// middle of the room each leads into) as clear polygons facing out, the portal nodes of its
 /// drawing tree, through which its rooms are drawn from outside; every point of it moved by
 /// `-at`, for a building standing at `at` in the shell's frame: `None` for a shell of more than
 /// one model.
@@ -821,9 +824,17 @@ fn shell_model(
                 .iter()
                 .fold(Vec3::ZERO, |a, p| a.add(*p))
                 .mul(1.0 / corners.len() as f32);
-            let n = corners[1].sub(corners[0]).cross(corners[2].sub(corners[0]));
+            // It faces out of its room, as retail's doorways do: a building's doorway opens to a
+            // viewer on its front, and its flags put the front outside.
+            let n = (1..corners.len() - 1).fold(Vec3::ZERO, |n, k| {
+                n.add(
+                    corners[k]
+                        .sub(corners[0])
+                        .cross(corners[k + 1].sub(corners[0])),
+                )
+            });
             let mut corners = corners.clone();
-            if n.dot(room.sub(mid)) < 0.0 {
+            if n.dot(room.sub(mid)) > 0.0 {
                 corners.reverse();
             }
             let first = g.vertex_array.vertices.len();
@@ -1113,6 +1124,12 @@ mod tests {
                 "the doorway at the origin"
             );
         }
+        // It faces out of its room, east, as retail's doorways do: its flags open it to a viewer
+        // on its front, so the room is drawn for one standing outside.
+        let c: Vec<Vec3> = door.vertex_ids.iter().map(|&k| p(usize::from(k))).collect();
+        let n = c[1].sub(c[0]).cross(c[2].sub(c[0]));
+        assert!(n.x > 0.0 && n.y.abs() < 1e-6 && n.z.abs() < 1e-6, "{n:?}");
+        assert_eq!((!DOORWAY_FLAGS >> 1) & 1, 0, "the front opens it");
         // Nothing moved for a building standing where its shell does.
         let id = shell_model(&shell, &[], Vec3::ZERO, &mut ids, &mut out)
             .unwrap()

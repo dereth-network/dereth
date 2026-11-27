@@ -2604,6 +2604,11 @@ pub fn build(args: &Args) -> Result<u32, String> {
         "  of them, {} draw nothing but an effect, made AC1 objects that play its particles, and {} draw and play effects too (statics-effects.tsv)",
         statics.effects, statics.mesh_effects
     );
+    let _ = writeln!(
+        stats,
+        "  of them, {} models ({} placements) have no polygons to collide with and collide by AC2's cylinders or spheres",
+        statics.rounded.0, statics.rounded.1
+    );
     let _ = writeln!(stats, "{rooms_line}");
     let _ = writeln!(stats, "{dungeons_line}");
     let _ = writeln!(stats, "{pinned_line}");

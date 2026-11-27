@@ -22,7 +22,9 @@
 //! them colliding with nothing. AC2 tests them where the mesh stores them, in the placed object's
 //! own frame, whatever its part's place, pose or scale, so they stay there while the part is drawn
 //! where it stands; only the object's own scale along each axis (its entity's times its look's,
-//! a negative one turning it over) applies to them, as it does to its parts.
+//! a negative one turning it over) applies to them, as it does to its parts. An object none of
+//! whose parts has any collides as AC2 has it, by its setup's upright cylinders, else its spheres,
+//! scaled by its scale's height: they are its AC1 setup's own.
 //!
 //! **Materials:** each as AC2 makes it ready to draw: its template's own parameters, then its
 //! instance's modifiers, then the changes the part's look makes to it (its appearance's), the last
@@ -58,7 +60,7 @@ use auberean_world::look::PartLook;
 use auberean_world::math::Mat4;
 use auberean_world::place::{parts_of, Part, DRAWN_KINDS};
 use auberean_world::records::WorldRecords;
-use dereth_assets::geometry::{Placement, SetupOrder};
+use dereth_assets::geometry::{CylSphere, Placement, SetupOrder};
 use dereth_assets::world::ObjectEntry;
 use dereth_assets::{GfxObj, Polygon, Setup, Sphere, SwVertex, VertexArray};
 use dereth_primitives::frame::V3;
@@ -130,6 +132,9 @@ pub struct Statics {
     pub effects: usize,
     pub mesh_effects: usize,
     pub effects_tsv: String,
+    /// The placed models that collide by AC2's cylinders or spheres, having no polygons to
+    /// collide with, and their placements.
+    pub rounded: (usize, usize),
     /// The statics asked for as buildings' shells ([`crate::ac2_world::rooms`]), made but not placed.
     pub shells: Vec<Shell>,
     /// Every placement's collision as it stands ([`crate::ac2_world::ledges`]), and each model's collision
@@ -275,6 +280,100 @@ pub(crate) struct Model {
     /// its idle comes back to its start in them (else they end where it comes nearest).
     frames: Option<Vec<Vec<Frame>>>,
     looped: bool,
+    /// What it collides with when none of its parts has physics polygons.
+    rounds: Rounds,
+}
+
+/// What AC2 has an object collide with when none of its parts has physics polygons: its setup's
+/// upright cylinders, else its spheres, in its frame at its own scale's height, as AC2 scales
+/// them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Rounds {
+    cylinders: Vec<CylSphere>,
+    spheres: Vec<Sphere>,
+}
+
+impl Rounds {
+    /// Object `object`'s, from its look's root setup, at `scale` (its entities' and its look's):
+    /// none when one of its parts' meshes, `meshes`, has a physics tree.
+    fn of(
+        wr: &WorldRecords,
+        object: u32,
+        meshes: &[Option<Mesh>],
+        scale: auberean_primitives::Vec3,
+    ) -> Self {
+        use auberean_world::place::PlaceRecords as _;
+        if meshes
+            .iter()
+            .flatten()
+            .any(|m| m.physics_tree.is_some() && !m.physics_polygons.is_empty())
+        {
+            return Self::default();
+        }
+        let mut id = auberean_primitives::DataId(object);
+        for _ in 0..8 {
+            if id.0 >> 24 != 0x47 {
+                break;
+            }
+            id = wr.entity(id).and_then(|e| e.object).map_or(
+                auberean_primitives::DataId::NONE,
+                auberean_primitives::DataId,
+            );
+        }
+        let root = match id.0 >> 24 {
+            0x04 => Some(id),
+            0x1F => auberean_world::look::Look::of_record(wr, id)
+                .ok()
+                .and_then(|look| look.groups.get(look.root?).map(|g| g.setup)),
+            _ => None,
+        };
+        let Some(setup) = root.and_then(|r| wr.get::<auberean_assets::setup::Setup>(r.0)) else {
+            return Self::default();
+        };
+        let k = scale.z.abs();
+        let v = |p: auberean_primitives::Vec3| Vec3::new(p.x * k, p.y * k, p.z * k);
+        Self {
+            cylinders: setup
+                .cylinders
+                .iter()
+                .map(|c| CylSphere {
+                    low_pt: v(c.low),
+                    radius: c.radius * k,
+                    height: c.height * k,
+                })
+                .collect(),
+            spheres: setup
+                .spheres
+                .iter()
+                .map(|s| Sphere {
+                    center: v(s.center),
+                    radius: s.radius * k,
+                })
+                .collect(),
+        }
+    }
+
+    /// At a further scale of `k` (its height), raised `lift` meters.
+    fn placed(&self, k: f32, lift: f32) -> (Vec<CylSphere>, Vec<Sphere>) {
+        let at = |p: Vec3| Vec3::new(p.x * k, p.y * k, p.z * k + lift);
+        (
+            self.cylinders
+                .iter()
+                .map(|c| CylSphere {
+                    low_pt: at(c.low_pt),
+                    radius: c.radius * k,
+                    height: c.height * k,
+                })
+                .collect(),
+            self.spheres
+                .iter()
+                .map(|s| Sphere {
+                    center: at(s.center),
+                    radius: s.radius * k,
+                })
+                .collect(),
+        )
+    }
 }
 
 impl Model {
@@ -375,6 +474,7 @@ pub fn place_statics(
         effects_tsv: String::from(
             "ac2_object\tscale_milli\tac1_setup\tdraws\tsystems\temitters\tlights\tlooks\tnot_carried\tplacements\n",
         ),
+        rounded: (0, 0),
         shells: Vec::new(),
         solids: Vec::new(),
         collisions: BTreeMap::new(),
@@ -645,7 +745,7 @@ pub fn place_statics(
     }
     let _ = writeln!(
         st.tsv,
-        "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tcollision_kept_m\tplacements"
+        "ac2_object\tscale_milli\tac1_setup\tparts\ttriangles\tphysics_polygons\tcollision_kept_m\tcylinders\tspheres\tplacements"
     );
     st.models = models.values().filter(|m| m.is_ok()).count();
     for ((object, s), n) in &effect_placed {
@@ -728,9 +828,18 @@ pub fn place_statics(
         let Some(Ok(m)) = models.get(object) else {
             continue;
         };
+        let rounds = if m.collision.is_none() {
+            (m.rounds.cylinders.len(), m.rounds.spheres.len())
+        } else {
+            (0, 0)
+        };
+        if rounds != (0, 0) {
+            st.rounded.0 += 1;
+            st.rounded.1 += placements;
+        }
         let _ = writeln!(
             st.tsv,
-            "{object:08X}\t{},{},{}\t{:08X}\t{}\t{}\t{}\t{:.2}\t{placements}",
+            "{object:08X}\t{},{},{}\t{:08X}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{placements}",
             s[0],
             s[1],
             s[2],
@@ -739,6 +848,8 @@ pub fn place_statics(
             m.triangles,
             m.physics,
             m.kept,
+            rounds.0,
+            rounds.1,
         );
     }
     Ok((st, Standing { pending, models }))
@@ -1571,6 +1682,7 @@ pub(crate) fn make_model(
     } else {
         stance(wr, &parts, &meshes)
     };
+    let rounds = Rounds::of(wr, object, &meshes, tested_at);
     match stance {
         Stance::Still(carries, made, off) => {
             let inputs = parts
@@ -1616,11 +1728,16 @@ pub(crate) fn make_model(
                 off,
                 frames: None,
                 looped: false,
+                rounds,
             }))
         }
-        Stance::Moving(frames, looped) => make_mover(
+        Stance::Moving(frames, looped) => Ok(make_mover(
             ac2, &parts, meshes, &frames, looped, tested_at, pictures, ids, out, max_levels,
-        ),
+        )?
+        .map(|mut m| {
+            m.rounds = rounds;
+            m
+        })),
     }
 }
 
@@ -1866,6 +1983,7 @@ fn make_mover(
         off: 0.0,
         frames: Some(anim),
         looped,
+        rounds: Rounds::default(),
     }))
 }
 
@@ -2633,6 +2751,13 @@ pub(crate) fn setup_playing(
         .unwrap_or_else(|| {
             vec![Frame::new(Vec3::new(0.0, 0.0, lift), Quat::IDENTITY); parts.len()]
         });
+    // With no polygons to collide with, its cylinders or spheres, scaled by the scale's height as
+    // AC2 scales them.
+    let (cylspheres, spheres) = if collision.is_none() {
+        m.rounds.placed(k.z.abs(), lift)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     let setup_id = ids.next(0x02);
     let setup = Setup {
         id: setup_id,
@@ -2655,8 +2780,8 @@ pub(crate) fn setup_playing(
             },
         )]),
         parts,
-        cylspheres: Vec::new(),
-        spheres: Vec::new(),
+        cylspheres,
+        spheres,
         height: hi.z.max(0.0),
         radius: m.xy * k.x.abs().max(k.y.abs()),
         step_up_height: 0.0,
@@ -2743,6 +2868,131 @@ mod tests {
         assert_within_a_meter(drawn_and_collided(0x4700_3C42));
     }
 
+    /// The made model of AC2 object `object`.
+    fn made(object: u32, ids: &mut Ids, out: &mut Records) -> Model {
+        let dir = auberean_dat::testing::require_target_install();
+        let wr = world_records(&dir).expect("the install");
+        let ac2 = Ac2::open(&dir).expect("the install");
+        make_model(
+            &wr,
+            &ac2,
+            object,
+            false,
+            &mut Pictures::default(),
+            ids,
+            out,
+            1,
+        )
+        .expect("reads")
+        .expect("the model")
+    }
+
+    /// A signpost in Arwic collides by a mesh of its own whose sides have a corner standing on
+    /// another polygon's edge. Every polygon of its collision is convex, each corner on the inner
+    /// side of every edge, so a body walking into a side is stopped by it.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn a_signposts_collision_polygons_are_all_convex() {
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let m = made(0x4700_3D58, &mut ids, &mut out);
+        assert!(m.rounds.cylinders.is_empty() && m.rounds.spheres.is_empty());
+        let g = decoded(&out, m.collision_part.expect("its collision"));
+        assert!(!g.physics_polygons.is_empty());
+        for poly in &g.physics_polygons {
+            let p: Vec<Vec3> = poly
+                .vertex_ids
+                .iter()
+                .map(|&i| g.vertex_array.vertices[usize::from(i)].position)
+                .collect();
+            let n = (1..p.len() - 1).fold(Vec3::ZERO, |n, k| {
+                n.add(p[k].sub(p[0]).cross(p[k + 1].sub(p[0])))
+            });
+            for i in 0..p.len() {
+                let (a, b) = (p[i], p[(i + 1) % p.len()]);
+                for q in &p {
+                    let edge = b.sub(a);
+                    assert!(
+                        edge.cross(q.sub(a)).dot(n)
+                            >= -1e-3 * edge.dot(edge).sqrt() * n.dot(n).sqrt(),
+                        "{p:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A post of AC2's with no physics polygons collides by its setup's upright cylinder, and so
+    /// does its converted static.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn an_object_without_physics_polygons_collides_by_its_setups_cylinder() {
+        use dereth_assets::Decode;
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let m = made(0x4700_3D32, &mut ids, &mut out);
+        assert!(m.collision.is_none());
+        assert_eq!(m.rounds.cylinders.len(), 1);
+        let id = setup_for(&m, [1000, 1000, 1000], 0.0, &mut ids, &mut out).unwrap();
+        let s = Setup::decode_payload(id, &out.0[&id]).expect("a setup");
+        assert_eq!(s.cylspheres, m.rounds.cylinders);
+        assert!(s.cylspheres[0].radius > 0.0 && s.cylspheres[0].height > 0.0);
+        assert!(!s.has_physics_bsp);
+    }
+
+    /// A static with no polygons to collide with keeps its cylinders and spheres, scaled by its
+    /// scale's height and raised with it; one with polygons collides by them alone.
+    #[test]
+    fn a_static_without_polygons_takes_its_cylinders_and_spheres_scaled_by_its_height() {
+        use dereth_assets::Decode;
+        let rounds = Rounds {
+            cylinders: vec![CylSphere {
+                low_pt: Vec3::new(0.5, 0.0, 0.0),
+                radius: 0.25,
+                height: 2.0,
+            }],
+            spheres: vec![Sphere {
+                center: Vec3::new(0.0, 0.0, 1.0),
+                radius: 0.5,
+            }],
+        };
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let m = Model {
+            rounds: rounds.clone(),
+            ..still(Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, 1.0, 2.0))
+        };
+        let id = setup_for(&m, [2000, 3000, 1500], 0.25, &mut ids, &mut out).unwrap();
+        let s = Setup::decode_payload(id, &out.0[&id]).expect("a setup");
+        assert_eq!(
+            s.cylspheres,
+            vec![CylSphere {
+                low_pt: Vec3::new(0.75, 0.0, 0.25),
+                radius: 0.375,
+                height: 3.0,
+            }]
+        );
+        assert_eq!(
+            s.spheres,
+            vec![Sphere {
+                center: Vec3::new(0.0, 0.0, 1.75),
+                radius: 0.75,
+            }]
+        );
+        let mut m = Model {
+            rounds,
+            ..only_collides()
+        };
+        m.collision_part =
+            Some(collision_model(&wall(), Vec3::new(1.0, 1.0, 1.0), &mut ids, &mut out).unwrap());
+        let id = setup_for(&m, [1000, 1000, 1000], 0.0, &mut ids, &mut out).unwrap();
+        let s = Setup::decode_payload(id, &out.0[&id]).expect("a setup");
+        assert!(s.cylspheres.is_empty() && s.spheres.is_empty() && s.has_physics_bsp);
+    }
+
     #[test]
     fn a_world_point_falls_in_the_ac1_block_holding_it() {
         assert_eq!(ac1_place(0.0, 0.0), Some(((0, 0), (0.0, 0.0))));
@@ -2789,6 +3039,7 @@ mod tests {
                 vec![Frame::new(Vec3::new(0.0, 0.0, 3.0), turned)],
             ]),
             looped: true,
+            rounds: Rounds::default(),
         };
         use dereth_assets::Decode;
         let id = setup_for(&m, [2000, 2000, 2000], 0.0, &mut ids, &mut out).unwrap();
@@ -2892,6 +3143,7 @@ mod tests {
             off: 0.0,
             frames: None,
             looped: false,
+            rounds: Rounds::default(),
         };
         let unit = |id: DataId, out: &Records| {
             use dereth_assets::Decode;
@@ -2944,6 +3196,7 @@ mod tests {
             off: 0.0,
             frames: None,
             looped: false,
+            rounds: Rounds::default(),
         }
     }
 

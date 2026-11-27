@@ -19,6 +19,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed the sky hiding far mountains on New Dereth.
 - Horizon: character creation on a New Dereth world offers only its peoples.
 - New Dereth: grass and plants no longer grow on the roads.
+- New Dereth: dungeons you walk into from the land now show their insides from outside.
+- New Dereth: signposts and other objects you could walk through are now solid.
 - Character creation offers only the heritages a world allows, in every interface.
 - Plugins: nav.follow now steers while running and keeps pace with its leader.
 - Plugins: large metas load faster.
