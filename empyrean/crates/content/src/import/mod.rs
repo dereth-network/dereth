@@ -92,6 +92,17 @@ fn grouped<T: Clone>(rows: &[T], key: impl Fn(&T) -> u64) -> BTreeMap<u64, Vec<T
 impl WorldContent {
     /// Lay the content out as a pack in memory. The table layout is [`TableId`]'s documentation.
     pub fn to_pack(&self, dataset_id: [u8; 16]) -> Result<(Vec<u8>, BuildStats), ImportError> {
+        self.to_pack_keyed(dataset_id, None)
+    }
+
+    /// [`Self::to_pack`], carrying the keys the world's newest checkpoint gives its dump's
+    /// placements, `keys`, when it re-keys any. They aren't rows of the world, so they change
+    /// neither its dataset id nor its SQL.
+    pub fn to_pack_keyed(
+        &self,
+        dataset_id: [u8; 16],
+        keys: Option<&empyrean_common::world_keys::WorldKeys>,
+    ) -> Result<(Vec<u8>, BuildStats), ImportError> {
         if self.loot_policies.len() > 1
             || (!self.grouped_treasure.is_empty() && self.loot_policies.len() != 1)
         {
@@ -122,6 +133,9 @@ impl WorldContent {
                 continue;
             }
             if t == TableId::RULES && self.rules.is_none() {
+                continue;
+            }
+            if t == TableId::WORLD_KEYS && keys.is_none() {
                 continue;
             }
             if t != TableId::RECIPE_VITAL || !self.recipe_vital_requirements.is_empty() {
@@ -190,6 +204,10 @@ impl WorldContent {
         if let Some(r) = &self.rules {
             r.check().map_err(|e| ImportError::Refused(vec![e]))?;
             w.add(TableId::RULES, 1, r)?;
+        }
+        if let Some(k) = keys {
+            k.check().map_err(|e| ImportError::Refused(vec![e]))?;
+            w.add(TableId::WORLD_KEYS, 1, k)?;
         }
         w.finish()
     }

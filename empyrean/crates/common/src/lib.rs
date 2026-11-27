@@ -65,5 +65,6 @@ pub mod time;
 pub mod toml_config;
 pub mod vectors;
 pub mod web_socket_settings;
+pub mod world_keys;
 pub mod world_release;
 pub mod world_rules;

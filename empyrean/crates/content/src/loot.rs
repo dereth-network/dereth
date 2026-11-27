@@ -784,6 +784,20 @@ impl Codec for empyrean_common::world_rules::WorldRules {
     }
 }
 
+/// Not ACE: the world's keys are a JSON record, as its rules are.
+impl Codec for empyrean_common::world_keys::WorldKeys {
+    fn put(&self, w: &mut Vec<u8>) {
+        serde_json::to_string(self).expect("keys serialize").put(w);
+    }
+    fn get(c: &mut Cursor<'_>) -> Result<Self, PackError> {
+        let n = c.u32()? as usize;
+        let v: Self = serde_json::from_slice(c.bytes(n)?)
+            .map_err(|e| PackError::InvalidWorldKeys(e.to_string()))?;
+        v.check().map_err(PackError::InvalidWorldKeys)?;
+        Ok(v)
+    }
+}
+
 /// Not ACE: the world's rules as `empyrean.sql` writes them, the JSON in `profile` of row 1 of
 /// `empyrean_rules`.
 impl FromRow for empyrean_common::world_rules::WorldRules {

@@ -52,6 +52,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use empyrean_common::world_keys::WorldKeys;
 use empyrean_content::pack::Pack;
 use empyrean_content::WorldContent;
 use empyrean_world_db::closure::Dats;
@@ -96,13 +97,20 @@ pub fn open(world: &Path, dumps: Option<&Path>, dats: &[PathBuf]) -> Result<Fold
     Ok(f.with_dats(Dats::scan(dats)?))
 }
 
-/// The world's pack, its dataset id from its rows.
+/// The world's pack with no keys.
+#[cfg(test)]
+pub fn pack_of(c: &WorldContent) -> Result<Vec<u8>, String> {
+    pack_keyed(c, None)
+}
+
+/// The world's pack, its dataset id from its rows, carrying `keys`, the keys its newest checkpoint
+/// gives its dump's placements (none when it re-keys none).
 ///
 /// # Errors
 /// Content the pack refuses.
-pub fn pack_of(c: &WorldContent) -> Result<Vec<u8>, String> {
+pub fn pack_keyed(c: &WorldContent, keys: Option<&WorldKeys>) -> Result<Vec<u8>, String> {
     let files = empyrean_world_db::write(c, default_stamp())?;
-    c.to_pack(dataset_of(&files))
+    c.to_pack_keyed(dataset_of(&files), keys)
         .map(|(bytes, _)| bytes)
         .map_err(|e| e.to_string())
 }
@@ -315,7 +323,16 @@ fn run_build(args: &[String]) -> Result<bool, String> {
         return Err(USAGE.into());
     };
     let c = content(&world, layer.as_deref(), dumps.as_deref(), &dats)?;
-    let bytes = pack_of(&c)?;
+    let at = match layer {
+        Some(l) => l,
+        None => open(&world, None, &[])?
+            .ids
+            .last()
+            .cloned()
+            .ok_or_else(|| format!("{}: no layers", world.display()))?,
+    };
+    let keys = cutover::keys_at(&world, &at)?.and_then(|(_, k)| k);
+    let bytes = pack_keyed(&c, keys.as_ref())?;
     std::fs::write(&out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
     let p = Pack::from_bytes(bytes).map_err(|e| e.to_string())?;
     let hash: String = p

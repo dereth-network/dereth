@@ -179,6 +179,7 @@ pub(super) fn hex(bytes: &[u8]) -> String {
 /// world folds otherwise the second time, and files that can't be written.
 pub fn release(
     open: &dyn Fn() -> Result<empyrean_world_db::layers::Folding, String>,
+    keys_at: &dyn Fn(&str) -> Result<Option<empyrean_common::world_keys::WorldKeys>, String>,
     key: &str,
     release: &str,
     previous: Option<&Manifest>,
@@ -247,6 +248,8 @@ pub fn release(
             errors.join("\n")
         ));
     }
+    // One pack serves every layer of its world, so those layers must carry the same keys.
+    let keys = layer_keys(&ids, &datasets, keys_at)?;
     // Each pack, its layer's world folded again on its own.
     for (id, &n) in &to_pack {
         let c = open()?.checked_content_at(n)?;
@@ -258,7 +261,7 @@ pub fn release(
                 hex(&dataset)
             ));
         }
-        let p = pack_layer(&c, dataset, &ids[n], release, out)?;
+        let p = pack_layer(&c, dataset, keys[n].as_ref(), &ids[n], release, out)?;
         packed.insert(id.clone(), p);
     }
     let mut layers = Vec::with_capacity(ids.len());
@@ -288,6 +291,43 @@ pub fn release(
     Ok(manifest)
 }
 
+/// Each layer's world keys (`keys_at`), refused when two layers of one world (a dataset id of
+/// `datasets`, a layer without one having the world below it) carry different keys: their one
+/// pack can carry only one.
+fn layer_keys(
+    ids: &[String],
+    datasets: &[Option<(String, &'static str)>],
+    keys_at: &dyn Fn(&str) -> Result<Option<empyrean_common::world_keys::WorldKeys>, String>,
+) -> Result<Vec<Option<empyrean_common::world_keys::WorldKeys>>, String> {
+    let named = |k: &Option<empyrean_common::world_keys::WorldKeys>| {
+        k.as_ref()
+            .map_or_else(|| "none".to_owned(), |k| format!("{}'s", k.checkpoint))
+    };
+    let mut first: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut below: Option<&str> = None;
+    let mut keys = Vec::with_capacity(ids.len());
+    for (n, id) in ids.iter().enumerate() {
+        let k = keys_at(id)?;
+        let dataset = datasets[n].as_ref().map(|(d, _)| d.as_str()).or(below);
+        if let Some(d) = dataset {
+            let m = *first.entry(d).or_insert(n);
+            let k0: &Option<empyrean_common::world_keys::WorldKeys> =
+                if m == n { &k } else { &keys[m] };
+            if *k0 != k {
+                return Err(format!(
+                    "{} and {id} have one world (dataset {d}) but not the same world keys ({} against {}), so one pack can't serve both; nothing released",
+                    ids[m],
+                    named(k0),
+                    named(&k)
+                ));
+            }
+        }
+        below = dataset;
+        keys.push(k);
+    }
+    Ok(keys)
+}
+
 /// A layer's world numbered by rule, and its dataset id: the hash of its rows as written.
 fn dataset_of_world(
     mut c: empyrean_content::WorldContent,
@@ -301,11 +341,14 @@ fn dataset_of_world(
 fn pack_layer(
     c: &empyrean_content::WorldContent,
     dataset: [u8; 16],
+    keys: Option<&empyrean_common::world_keys::WorldKeys>,
     layer: &str,
     release: &str,
     out: &Path,
 ) -> Result<PackRef, String> {
-    let (bytes, _) = c.to_pack(dataset).map_err(|e| format!("{layer}: {e}"))?;
+    let (bytes, _) = c
+        .to_pack_keyed(dataset, keys)
+        .map_err(|e| format!("{layer}: {e}"))?;
     let asset = format!("{layer}.pack");
     write(out, &asset, &bytes)?;
     let sha256 = hex(&Sha256::digest(&bytes));
@@ -404,7 +447,15 @@ pub(super) fn run(args: &[String]) -> Result<bool, String> {
         .transpose()?;
     let key = key_of(&world)?;
     let open = || super::open(&world, dumps.as_deref(), &dats);
-    let m = release(&open, &key, &format!("v{version}"), previous.as_ref(), &out)?;
+    let keys_at = |layer: &str| Ok(super::cutover::keys_at(&world, layer)?.and_then(|(_, k)| k));
+    let m = release(
+        &open,
+        &keys_at,
+        &key,
+        &format!("v{version}"),
+        previous.as_ref(),
+        &out,
+    )?;
     let new = m
         .layers
         .iter()

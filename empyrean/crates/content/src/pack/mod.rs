@@ -94,4 +94,8 @@ tables! {
     /// The world's own rules (`empyrean_common::world_rules`), singleton key 1; declared only by
     /// a world that has them.
     RULES = 22, "rules";
+    /// The keys the world's newest checkpoint gives its dump's placements
+    /// (`empyrean_common::world_keys`), singleton key 1; declared only by a world whose checkpoint
+    /// re-keys some.
+    WORLD_KEYS = 23, "world_keys";
 }

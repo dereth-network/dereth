@@ -1584,7 +1584,8 @@ fn released(
     out: &Path,
 ) -> Result<super::release::Manifest, String> {
     let open = || super::open(path, None, &[]);
-    super::release::release(&open, "test-world", release, previous, out)
+    let keys_at = |layer: &str| Ok(super::cutover::keys_at(path, layer)?.and_then(|(_, k)| k));
+    super::release::release(&open, &keys_at, "test-world", release, previous, out)
 }
 
 fn file_names(dir: &Path) -> Vec<String> {
@@ -2059,7 +2060,8 @@ fn each_layer_builds_in_the_era_its_last_checkpoint_names() {
     }
     let dir = Scratch::new("eras");
     let open = || Ok(folding.clone());
-    let m = super::release::release(&open, "test-world", "v0.1.0", None, &dir.0).expect("released");
+    let m = super::release::release(&open, &|_| Ok(None), "test-world", "v0.1.0", None, &dir.0)
+        .expect("released");
     assert_eq!(
         m.layers.iter().map(|l| l.era.as_str()).collect::<Vec<_>>(),
         ["launch", "infiltration", "infiltration", "eor"]
@@ -2175,33 +2177,24 @@ fn a_checkpoint_layer_gives_its_dump_and_keys_for_a_parity_check() {
         .contains("no layer"));
 }
 
-/// A shard moves onto a world's layer unless a saved static or a house permission is under a guid
-/// the newest checkpoint up to the layer re-keys: one its keys move (a house) or give to another
-/// placement (a hook's), each listed; one they keep (a slumlord's) is fine. A layer with no
-/// checkpoint below it keeps its source's guids.
-#[test]
-fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_keys() {
+/// A world whose `2005-02-infiltration` checkpoint's keys move placement 0x70009001 to
+/// 0x70009005, with a later patch above it, in `dir`.
+fn keyed_world(dir: &Path) -> PathBuf {
     use empyrean_common::world_release::SIXTEEN_PY;
-    let dir = Scratch::new("cutover");
     let path = world(
-        &dir.0,
+        dir,
         &sample(),
-        &[
-            ("2005-02-infiltration", None),
-            (
-                "2005-03-later",
-                Some("[[weenie]]\nclass = 11\nint = { Value = 5 }\n"),
-            ),
-        ],
+        &[("2005-02-infiltration", None), ("2005-03-later", None)],
     );
-    let layer = dir.0.join("patches").join("2005-02-infiltration");
+    let layer = dir.join("patches").join("2005-02-infiltration");
     std::fs::write(
         layer.join("checkpoint.toml"),
         format!(
             "world = \"16py\"\nsource = \"ACE-World-16PY\"\nrevision = \"v0.8.7\"\nurl = \"{}\"\nsha256 = \"{}\"\ndataset_id = \"{}\"\n",
             SIXTEEN_PY.download_url("v0.8.7"),
             "0".repeat(64),
-            "0".repeat(32),
+            // An empty dump's.
+            "af1349b9f5f9a1a6a0404dea36dcc949",
         ),
     )
     .expect("written");
@@ -2210,6 +2203,17 @@ fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_key
         "format = 1\nmatched = { same = 0, near = 1, new_kept = 0, new_renumbered = 0 }\nkeys = [\n  [0x70009001, 0x70009005],\n]\n",
     )
     .expect("written");
+    path
+}
+
+/// A shard moves onto a world's layer unless a saved static or a house permission is under a guid
+/// the newest checkpoint up to the layer re-keys: one its keys move (a house) or give to another
+/// placement (a hook's), each listed; one they keep (a slumlord's) is fine. A layer with no
+/// checkpoint below it keeps its source's guids.
+#[test]
+fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_keys() {
+    let dir = Scratch::new("cutover");
+    let path = keyed_world(&dir.0);
     let shard = dir.0.join("shard.sqlite");
     let rows = |sql: &str| {
         empyrean_store::SqliteShard::open(&shard)
@@ -2248,6 +2252,141 @@ fn a_cutover_is_refused_when_a_saved_house_is_under_a_guid_the_checkpoint_re_key
     );
     let (checkpoint, _, found) = check("base");
     assert_eq!((checkpoint, found.len()), (None, 0));
+}
+
+/// A release packs one world once for every layer that has it, so it refuses, writing no pack,
+/// when two layers of one world carry different world keys (a layer that changes nothing below a
+/// checkpoint's would); with the same keys, the one pack carries them.
+#[test]
+fn a_release_refuses_one_pack_for_layers_of_one_world_whose_keys_differ() {
+    use empyrean_common::world_keys::WorldKeys;
+    use empyrean_content::pack::TableId;
+    let dir = Scratch::new("release-keys");
+    let path = world(
+        &dir.0,
+        &sample(),
+        &[
+            (
+                "2000-02-shadows",
+                Some("[[weenie]]\nclass = 12\nint = { Value = 9 }\n"),
+            ),
+            ("2000-03-darkness", None),
+        ],
+    );
+    keyed(&path);
+    append(
+        &dir.0
+            .join("patches")
+            .join("2000-02-shadows")
+            .join("patch.toml"),
+        "status = \"written\"\n",
+    );
+    let keys = WorldKeys::of("2000-02-shadows", [(0x7000_9001, 0x7000_9005)]);
+    let open = || super::open(&path, None, &[]);
+    let out = dir.0.join("refused");
+    let only_darkness = |l: &str| Ok(keys.clone().filter(|_| l == "2000-03-darkness"));
+    let e = super::release::release(&open, &only_darkness, "test-world", "v0.1.0", None, &out)
+        .expect_err("refused");
+    assert!(
+        e.starts_with("2000-02-shadows and 2000-03-darkness have one world")
+            && e.contains("(none against 2000-02-shadows's)"),
+        "{e}"
+    );
+    assert!(!file_names(&out).iter().any(|f| f.ends_with(".pack")));
+    let out = dir.0.join("released");
+    let from_shadows = |l: &str| Ok(keys.clone().filter(|_| l != "base"));
+    let m = super::release::release(&open, &from_shadows, "test-world", "v0.1.0", None, &out)
+        .expect("released");
+    let pack = m.layers[1].pack.as_ref().expect("a pack");
+    assert_eq!(m.layers[2].pack.as_ref(), Some(pack));
+    let p = Pack::open(&out.join(&pack.asset)).expect("reads");
+    assert_eq!(
+        p.get::<WorldKeys>(TableId::WORLD_KEYS, 1).expect("reads"),
+        keys
+    );
+}
+
+/// A world's pack built at a layer above a checkpoint that re-keys placements carries the
+/// checkpoint's keys, those it moves; one below any checkpoint carries none, and neither changes
+/// the world's dataset id. A shard a server has marked numbered by the world's keys moves onto it
+/// even with a house under a guid the keys gave.
+#[test]
+fn a_pack_above_a_re_keying_checkpoint_carries_its_keys_and_a_numbered_shard_moves_onto_it() {
+    use empyrean_common::world_keys::WorldKeys;
+    use empyrean_content::pack::TableId;
+    let dir = Scratch::new("keyed-pack");
+    let path = keyed_world(&dir.0);
+    // The checkpoint's pinned dump, empty: the keys are what is checked.
+    let dumps = dir.0.join("dumps");
+    std::fs::create_dir_all(&dumps).expect("folder");
+    std::fs::write(dumps.join("ACE-World-16PY-db-v0.8.7.sql"), "").expect("written");
+    let built = |layer: &str| {
+        let out = dir.0.join(format!("{layer}.pack"));
+        let args: Vec<String> = [
+            "--world",
+            path.to_str().expect("utf-8"),
+            "--layer",
+            layer,
+            "--dumps",
+            dumps.to_str().expect("utf-8"),
+            "--out",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .chain(std::iter::once(out.to_string_lossy().into_owned()))
+        .collect();
+        assert!(super::run_build(&args).expect("builds"));
+        Pack::open(&out).expect("reads")
+    };
+    let later = built("2005-03-later");
+    assert_eq!(
+        later
+            .get::<WorldKeys>(TableId::WORLD_KEYS, 1)
+            .expect("reads"),
+        Some(WorldKeys {
+            checkpoint: "2005-02-infiltration".into(),
+            moved: vec![(0x7000_9001, 0x7000_9005)],
+        })
+    );
+    let base = built("base");
+    assert_eq!(base.count(TableId::WORLD_KEYS), 0);
+    let unkeyed = Pack::from_bytes(
+        pack_of(&content(&path, Some("2005-03-later"), Some(&dumps), &[]).expect("builds"))
+            .expect("packs"),
+    )
+    .expect("reads");
+    assert_eq!(unkeyed.header().dataset_id, later.header().dataset_id);
+    let shard = dir.0.join("shard.sqlite");
+    let db = empyrean_store::SqliteShard::open(&shard).expect("opens");
+    let keys = later
+        .get::<WorldKeys>(TableId::WORLD_KEYS, 1)
+        .expect("reads")
+        .expect("keys");
+    assert!(
+        empyrean_store::saved_placements::take_world_keys(db.connection(), &keys)
+            .expect("checks")
+            .is_empty()
+    );
+    db.connection()
+        .execute_batch(
+            "INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009005, 9621, 53);",
+        )
+        .expect("rows");
+    drop(db);
+    let (checkpoint, saved, found) =
+        super::cutover::check(&path, "2005-03-later", &shard).expect("checks");
+    assert_eq!(
+        (
+            checkpoint.as_deref(),
+            saved.numbered_by.as_deref(),
+            found.len()
+        ),
+        (
+            Some("2005-02-infiltration"),
+            Some("2005-02-infiltration"),
+            0
+        )
+    );
 }
 
 /// A world with rules of its own builds a pack that carries them, and its `world.sql` and

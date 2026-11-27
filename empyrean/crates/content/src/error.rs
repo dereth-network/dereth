@@ -13,6 +13,9 @@ pub enum PackError {
     /// Not ACE: the world's own rules don't read.
     #[error("invalid world rules: {0}")]
     InvalidRules(String),
+    /// Not ACE: the world's keys don't read.
+    #[error("invalid world keys: {0}")]
+    InvalidWorldKeys(String),
     #[error("magic {0:#018x}, expected {expected:#018x}", expected = crate::pack::format::MAGIC)]
     BadMagic(u64),
 

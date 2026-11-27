@@ -370,3 +370,47 @@ pub fn world_era(
 ) -> Result<&'static empyrean_common::era::EraRules, String> {
     era.rules_over(content.get_world_rules().as_deref())
 }
+
+/// Not ACE: the shard at `shard` checked against the keys the world's newest checkpoint gives its
+/// dump's placements, when the world's pack carries them
+/// ([`empyrean_store::saved_placements::take_world_keys`]). A shard with a saved house, hook,
+/// storage or house permission under a guid the keys move or give to another placement was saved
+/// under the dump's own numbering: on this world each would follow its guid onto another placement
+/// or onto none, so the server refuses to start, listing them. A shard that passes is marked
+/// numbered by the world's keys, and its later saves are the world's own guids.
+///
+/// `Ok` carries a line to log; `Err` the message the server aborts with.
+///
+/// # Errors
+/// The rows that refuse the shard, and a shard that doesn't read.
+pub fn shard_against_world_keys(
+    content: &dyn WorldDatabase,
+    shard: &Path,
+) -> Result<Option<String>, String> {
+    let Some(keys) = content.get_world_keys() else {
+        return Ok(None);
+    };
+    let db = empyrean_store::SqliteShard::open(shard)
+        .map_err(|e| format!("The shard database at {}: {e}", shard.display()))?;
+    let refused = empyrean_store::saved_placements::take_world_keys(db.connection(), &keys)
+        .map_err(|e| format!("The shard database at {}: {e}", shard.display()))?;
+    if refused.is_empty() {
+        return Ok(Some(format!(
+            "The shard database is numbered by the world's keys ({}'s keys.toml moves {} placement guid(s))",
+            keys.checkpoint,
+            keys.moved.len()
+        )));
+    }
+    let mut message = format!(
+        "This world numbers some placements otherwise than the world database the shard database at {} was saved with ({}'s keys.toml), and {} of its rows would follow a guid onto another placement or onto none:",
+        shard.display(),
+        keys.checkpoint,
+        refused.len()
+    );
+    for line in &refused {
+        message.push_str("\n  ");
+        message.push_str(line);
+    }
+    message.push_str("\nKeep the server on the world database those rows were saved with; `empyrean-import world cutover` lists the same rows. Empyrean will now abort startup.");
+    Err(message)
+}

@@ -378,6 +378,19 @@ pub fn main(options: &Options) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Not ACE: a world whose checkpoint re-keys placements refuses a shard saved under the numbering
+    // of the dump it re-keys.
+    match world_pack::shard_against_world_keys(
+        &*content,
+        &database_manager::configured_shard_db_path(&config, &paths),
+    ) {
+        Ok(None) => {}
+        Ok(Some(line)) => log::info!("{line}"),
+        Err(message) => {
+            log::error!("{message}");
+            return ExitCode::FAILURE;
+        }
+    }
 
     // The world holds the shared physics world, which is not `Send` (its `Box<dyn MotionSource>`
     // seam has no `Send` bound), so the world is built on its own thread and each start-up step

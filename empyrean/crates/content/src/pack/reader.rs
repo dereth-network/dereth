@@ -233,6 +233,17 @@ impl Pack {
                 "the rules are one record, key 1".into(),
             ));
         }
+        // Not ACE: a world's keys are one record, key 1, that reads.
+        if result.count(TableId::WORLD_KEYS) > 0
+            && (result.count(TableId::WORLD_KEYS) != 1
+                || result
+                    .get::<empyrean_common::world_keys::WorldKeys>(TableId::WORLD_KEYS, 1)?
+                    .is_none())
+        {
+            return Err(PackError::InvalidWorldKeys(
+                "the keys are one record, key 1".into(),
+            ));
+        }
         if policy {
             if result.count(TableId::LOOT_POLICY) != 1
                 || result

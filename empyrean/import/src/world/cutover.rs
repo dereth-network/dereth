@@ -9,61 +9,33 @@
 //! the guid onto another placement or onto none. The check refuses then, and lists each such row.
 //!
 //! A world whose layers up to the target are no checkpoint, or whose checkpoint re-keys nothing,
-//! keeps its source's guids, so any shard moves onto it.
+//! keeps its source's guids, so any shard moves onto it; and a shard a server has already started
+//! on a world keyed by a checkpoint is numbered by the world's own guids, so it moves onto any of
+//! its layers. The pack of such a layer carries the keys, and the server makes the same check when
+//! it starts.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use empyrean_entity::enums::WeenieType;
+use empyrean_common::world_keys::WorldKeys;
 use empyrean_store::saved_placements::{self, SavedPlacements};
-use empyrean_world_db::checkpoint::Keys;
 
-/// Every row of `saved` that would follow its guid elsewhere under `keys` (the keys of checkpoint
-/// `checkpoint`), one line each.
-#[must_use]
-pub fn refusals(saved: &SavedPlacements, keys: &Keys, checkpoint: &str) -> Vec<String> {
-    let moved: BTreeMap<u32, u32> = keys
-        .map
-        .iter()
-        .filter(|(from, to)| from != to)
-        .map(|(&f, &t)| (f, t))
-        .collect();
-    let taken: BTreeMap<u32, u32> = moved.iter().map(|(&f, &t)| (t, f)).collect();
-    let why = |guid: u32| match (moved.get(&guid), taken.get(&guid)) {
-        (Some(to), _) => Some(format!(
-            "{checkpoint}'s keys.toml moves its placement to 0x{to:08X}"
-        )),
-        (None, Some(from)) => Some(format!(
-            "{checkpoint}'s keys.toml gives its guid to the placement that was 0x{from:08X}"
-        )),
-        (None, None) => None,
-    };
-    let mut out = Vec::new();
-    for s in &saved.statics {
-        if let Some(why) = why(s.guid) {
-            let kind = usize::try_from(s.weenie_type)
-                .ok()
-                .and_then(|t| WeenieType::NAMES.get(t))
-                .copied()
-                .unwrap_or("an unknown type");
-            out.push(format!(
-                "saved static 0x{:08X} (weenie {}, {kind}): {why}",
-                s.guid, s.weenie_class_id
-            ));
-        }
-    }
-    for p in &saved.house_permissions {
-        if let Some(why) = why(p.house) {
-            out.push(format!(
-                "house permission of house 0x{:08X} for player 0x{:08X}: {why}",
-                p.house, p.player
-            ));
-        }
-    }
-    out
+/// The keys the newest checkpoint at or below layer `layer` of the world `world` gives its dump's
+/// placements, and that checkpoint: `None` when no layer up to `layer` is a checkpoint, no keys
+/// when it moves no guid.
+///
+/// # Errors
+/// A world that doesn't read, a layer it doesn't have, and a `keys.toml` that doesn't read.
+pub fn keys_at(world: &Path, layer: &str) -> Result<Option<(String, Option<WorldKeys>)>, String> {
+    Ok(
+        empyrean_world_db::world::checkpoint_keys_at(world, layer)?.map(|(checkpoint, keys)| {
+            let keys = keys.and_then(|k| WorldKeys::of(&checkpoint, k.map));
+            (checkpoint, keys)
+        }),
+    )
 }
 
-/// The shard database at `shard` against the world `world` at layer `layer`: what [`refusals`]
+/// The shard database at `shard` against the world `world` at layer `layer`: what
+/// [`saved_placements::refusals`]
 /// finds, and the checkpoint whose keys it checked (`None` when no layer up to `layer` is a
 /// checkpoint).
 ///
@@ -76,11 +48,10 @@ pub fn check(
     shard: &Path,
 ) -> Result<(Option<String>, SavedPlacements, Vec<String>), String> {
     let saved = saved_placements::read(shard).map_err(|e| format!("{}: {e}", shard.display()))?;
-    let Some((checkpoint, keys)) = empyrean_world_db::world::checkpoint_keys_at(world, layer)?
-    else {
+    let Some((checkpoint, keys)) = keys_at(world, layer)? else {
         return Ok((None, saved, Vec::new()));
     };
-    let found = keys.map_or_else(Vec::new, |k| refusals(&saved, &k, &checkpoint));
+    let found = keys.map_or_else(Vec::new, |k| saved_placements::refusals(&saved, &k));
     Ok((Some(checkpoint), saved, found))
 }
 
@@ -116,6 +87,10 @@ pub(super) fn run(args: &[String]) -> Result<bool, String> {
         saved.house_permissions.len()
     );
     match checkpoint {
+        Some(c) if saved.numbered_by.is_some() => println!(
+            "{layer}: {rows}, numbered already by a world's keys ({}), so none follows {c}'s keys elsewhere",
+            saved.numbered_by.as_deref().unwrap_or_default()
+        ),
         None => println!(
             "{layer}: no checkpoint up to it, so it keeps its source's guids; {rows}, none moved"
         ),

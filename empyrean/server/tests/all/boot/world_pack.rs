@@ -2,7 +2,8 @@
 //! Divergence: V388
 //! World.pack path from config else default; a pack on disk is the world DB; start-up corrections
 //! line; missing/corrupt pack boots empty; another release's pack is refused with its rebuild
-//! command; default found beside the exe; overlay opened in front and resolves beside config.
+//! command; default found beside the exe; overlay opened in front and resolves beside config; a
+//! pack keyed by its world's checkpoint refuses a shard saved under the numbering it re-keys.
 //! Fixture: isolated configuration paths and synthetic server state.
 
 use std::path::{Path, PathBuf};
@@ -441,4 +442,78 @@ fn a_relative_overlay_resolves_beside_the_config() {
             .sql,
         PathBuf::new()
     );
+}
+
+/// A pack whose world's checkpoint re-keys placements carries its keys, and a server starting on it
+/// refuses a shard with a saved house or house permission under a guid the keys move, one plain line
+/// each, leaving the shard as it was. A shard with none passes and is marked numbered by the world's
+/// keys, so a house saved since under the guid the keys gave it doesn't refuse the next start. A pack
+/// without keys checks nothing.
+#[test]
+fn a_server_refuses_a_shard_whose_saved_house_its_worlds_checkpoint_re_keys() {
+    use empyrean_common::world_keys::WorldKeys;
+    let keys = WorldKeys::of("2005-02-infiltration", [(0x7000_9001, 0x7000_9005)]).expect("keys");
+    let path = temp_path("keyed.pack");
+    let mem = MemContent::new().quest(quest(1, "F16QuestA"));
+    let (bytes, _) = mem
+        .content()
+        .to_pack_keyed([7; 16], Some(&keys))
+        .expect("pack");
+    std::fs::write(&*path, &bytes).expect("write pack");
+    let (content, status) = world_pack::open_world_database(&path);
+    assert!(
+        matches!(status, WorldPackStatus::Loaded { .. }),
+        "{status:?}"
+    );
+    assert_eq!(content.get_world_keys().as_deref(), Some(&keys));
+    let shard = temp_path("shard.sqlite");
+    let rows = |sql: &str| {
+        empyrean_store::SqliteShard::open(&shard)
+            .expect("opens")
+            .connection()
+            .execute_batch(sql)
+            .expect("rows");
+    };
+    rows(
+        "INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009001, 9621, 53);
+         INSERT INTO house_permission (house_Id, player_Guid, storage) VALUES (0x70009001, 0x50000001, 1);",
+    );
+    let refused = world_pack::shard_against_world_keys(&*content, &shard).expect_err("refused");
+    assert!(refused.contains("2 of its rows"), "{refused}");
+    assert!(
+        refused.contains("\n  saved static 0x70009001 (weenie 9621, House): 2005-02-infiltration's keys.toml moves its placement to 0x70009005"),
+        "{refused}"
+    );
+    assert!(
+        refused.contains("\n  house permission of house 0x70009001 for player 0x50000001: "),
+        "{refused}"
+    );
+    assert!(
+        refused.ends_with("Empyrean will now abort startup."),
+        "{refused}"
+    );
+    // Refused twice: the first refusal marked nothing.
+    assert!(world_pack::shard_against_world_keys(&*content, &shard).is_err());
+    rows("DELETE FROM house_permission; DELETE FROM biota;");
+    let passed = world_pack::shard_against_world_keys(&*content, &shard).expect("passes");
+    assert!(
+        passed.is_some_and(|l| l.contains("numbered by the world's keys (2005-02-infiltration")),
+    );
+    rows("INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009005, 9621, 53);");
+    assert!(world_pack::shard_against_world_keys(&*content, &shard).is_ok());
+    closed(content);
+    // A pack without keys checks nothing, whatever the shard holds.
+    let plain = temp_path("plain.pack");
+    write_pack(&plain);
+    let (content, _) = world_pack::open_world_database(&plain);
+    assert_eq!(content.get_world_keys(), None);
+    rows(
+        "INSERT INTO biota (id, weenie_Class_Id, weenie_Type) VALUES (0x70009001, 9621, 53);
+         INSERT INTO house_permission (house_Id, player_Guid, storage) VALUES (0x70009001, 0x50000001, 1);",
+    );
+    assert_eq!(
+        world_pack::shard_against_world_keys(&*content, &shard),
+        Ok(None)
+    );
+    closed(content);
 }

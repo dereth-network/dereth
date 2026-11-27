@@ -520,6 +520,11 @@ impl WorldDatabaseWithEntityCache {
     pub fn get_world_rules(&self) -> Option<Arc<empyrean_common::world_rules::WorldRules>> {
         self.base.get_world_rules().map(Arc::new)
     }
+    /// Not ACE: the keys the world's newest checkpoint gives its dump's placements, when its pack
+    /// carries them.
+    pub fn get_world_keys(&self) -> Option<Arc<empyrean_common::world_keys::WorldKeys>> {
+        self.base.get_world_keys().map(Arc::new)
+    }
     pub fn get_source_loot_policy(&self) -> Option<Arc<SourceLootPolicy>> {
         let over = self
             .base

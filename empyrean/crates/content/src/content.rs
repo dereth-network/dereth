@@ -317,6 +317,7 @@ world_database_api! {
     fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath>;
     fn get_source_loot_policy(&self) -> Option<Arc<SourceLootPolicy>>;
     fn get_world_rules(&self) -> Option<Arc<empyrean_common::world_rules::WorldRules>>;
+    fn get_world_keys(&self) -> Option<Arc<empyrean_common::world_keys::WorldKeys>>;
     fn get_death_loot_profile(&self, data_id: u32) -> Option<DeathLootProfile>;
     fn cache_all_treasures_death(&self);
     fn get_death_treasure_cache_count(&self) -> i32;

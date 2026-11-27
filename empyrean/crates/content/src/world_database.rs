@@ -529,6 +529,11 @@ impl WorldDatabaseBase {
     pub fn get_world_rules(&self) -> Option<empyrean_common::world_rules::WorldRules> {
         self.get(TableId::RULES, 1)
     }
+    /// Not ACE: the keys the world's newest checkpoint gives its dump's placements, when they move
+    /// any.
+    pub fn get_world_keys(&self) -> Option<empyrean_common::world_keys::WorldKeys> {
+        self.get(TableId::WORLD_KEYS, 1)
+    }
     /// Versioned source policy, read through the overlay.
     pub fn get_source_loot_policy(&self) -> Option<SourceLootPolicy> {
         self.get(TableId::LOOT_POLICY, 1)
