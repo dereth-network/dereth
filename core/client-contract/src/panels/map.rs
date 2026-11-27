@@ -208,13 +208,18 @@ pub enum PageNames {
     Own(WorldPlaces),
 }
 
-/// What the map page names on `view`'s world: its own places where it names them, else the notes
-/// of its [`profile`].
+/// What the map page names on `view`'s world: its own places where it names them, none on a world
+/// that brings its own map picture and names none (the notes name the game's places, which are
+/// not on that picture), else the notes of its [`profile`].
 #[must_use]
 pub fn page_names(view: &dyn crate::GameView) -> PageNames {
-    match view.era().and_then(|era| era.own_places.clone()) {
-        Some(own) => PageNames::Own(own),
-        None => PageNames::Notes(profile(view)),
+    match view.era() {
+        Some(crate::EraView {
+            own_places: Some(own),
+            ..
+        }) => PageNames::Own(own.clone()),
+        Some(era) if era.own_map_picture => PageNames::Own(WorldPlaces(Vec::new().into())),
+        _ => PageNames::Notes(profile(view)),
     }
 }
 
@@ -464,6 +469,32 @@ mod tests {
         let copy = WorldPlaces(own.0.to_vec().into());
         assert_eq!(copy, own);
         assert_ne!(WorldPlaces(own.0[..1].into()), own);
+    }
+
+    /// Behaviour: none (this client's own map pages, for a world that brings its own map picture)
+    #[test]
+    fn a_world_bringing_its_own_map_picture_names_none_of_the_games_places_on_it() {
+        let world = World(crate::EraView {
+            own_map_picture: true,
+            ..Default::default()
+        });
+        assert!(world.0.draws_own_map());
+        assert_eq!(
+            page_names(&world),
+            PageNames::Own(WorldPlaces(Vec::new().into()))
+        );
+        // Its own places, where it names them, are on the picture.
+        let own = WorldPlaces(vec![place(MapPlaceKind::Town, "Kehan", 10.0, 20.0)].into());
+        let named = World(crate::EraView {
+            own_places: Some(own.clone()),
+            own_map_picture: true,
+            ..Default::default()
+        });
+        assert_eq!(page_names(&named), PageNames::Own(own));
+        // A retail world draws the game's picture and names its notes.
+        let retail = World(crate::EraView::default());
+        assert!(!retail.0.draws_own_map());
+        assert_eq!(page_names(&retail), PageNames::Notes(EraId::Eor));
     }
 
     /// Behaviour: none (this client's own map pages, for a world that names its own places)

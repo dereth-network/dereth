@@ -448,8 +448,8 @@ fn map_region(x: i32, y: i32, profile: EraId) -> Option<MapNote> {
         .rev()
         .find(|note| note.contains(x - 22, y - 33))
 }
-/// The map page's picture: this interface's own, of retail's world, unless the world names its
-/// own places, when the picture is the world's.
+/// The map page's picture: this interface's own, of retail's world, unless the world draws its own
+/// map (it names its own places or brings its own picture), when the picture is the world's.
 fn map_picture(names: &shared_map::PageNames) -> &'static str {
     if matches!(names, shared_map::PageNames::Own(_)) {
         "world:0600127D"

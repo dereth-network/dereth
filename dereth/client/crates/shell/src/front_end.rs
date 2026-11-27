@@ -2387,9 +2387,9 @@ impl<H: Host> Shell for ClientShell<H> {
         self.follow_interface(cx);
         cx.set_chat_interface(self.shown_interface());
         self.follow_plugins(cx);
-        // A world that names its own places draws its own map: its pages are framed to its land
-        // as its Horizon map is.
-        let own = cx.hud().era.own_places.is_some();
+        // A world that names its own places, or brings its own map picture, draws its own map:
+        // its pages are framed to its land as its Horizon map is.
+        let own = cx.hud().era.draws_own_map();
         let frame = self.map_frame.keep(cx.store(), own);
         cx.hud_mut().era.map_frame = frame;
         if self.classic.active {

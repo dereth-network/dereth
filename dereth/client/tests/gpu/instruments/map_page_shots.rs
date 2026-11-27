@@ -3,12 +3,12 @@
 //! a socket-free peer: each page as it first opens, before the world's frame is worked out, and
 //! again framed to the world's land.
 //!
-//! The world is the overlay folder named by `DERETH_TEST_MAP_OVERLAY` (its data files and its
-//! `places.tsv`) over the retail dats, with the player at `DERETH_TEST_MAP_CELL` (a cell and a place
-//! in it, `0x5D8D0022 114 38 30`; default the middle of the cell `0x7F7F0001`). Each frame is
-//! written to `DERETH_TEST_MAP_SHOTS` (default: `map-pages/` in cargo's scratch folder for
-//! integration tests) as `classic-whole.png`, `classic-framed.png`, `modern-whole.png` and
-//! `modern-framed.png`. They assert nothing; the claims are the pages' own tests.
+//! The world is the overlay folder named by `DERETH_TEST_MAP_OVERLAY` (its data files, and its
+//! `places.tsv` when it names its places) over the retail dats, with the player at
+//! `DERETH_TEST_MAP_CELL` (a cell and a place in it, `0x5D8D0022 114 38 30`; default the middle of
+//! the cell `0x7F7F0001`). Each frame is written to `DERETH_TEST_MAP_SHOTS` (default: `map-pages/`
+//! in cargo's scratch folder for integration tests) as `classic-whole.png`, `classic-framed.png`,
+//! `modern-whole.png` and `modern-framed.png`. They assert nothing; the claims are the pages' own tests.
 
 #![cfg(gpu)]
 
@@ -249,7 +249,7 @@ fn until_framed(app: &mut App) {
     while app.hud().era.map_frame.is_none() {
         assert!(
             start.elapsed() < std::time::Duration::from_secs(60),
-            "the world's frame was not worked out: is its land its own, and does it name its places?"
+            "the world's frame was not worked out: is its land its own, and does it name its places or bring its own map picture?"
         );
         app.frame();
     }

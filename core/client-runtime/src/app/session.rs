@@ -1942,6 +1942,7 @@ pub(super) fn adopt_store_into(
     holders.objects.set_store(std::sync::Arc::clone(&fresh));
     holders.ddd.set_bases(&fresh);
     holders.era.own_places = crate::hud::tables::own_places(&fresh);
+    holders.era.own_map_picture = crate::hud::tables::own_map_picture(&fresh);
     *holders.store = fresh;
     *holders.generation += 1;
 }

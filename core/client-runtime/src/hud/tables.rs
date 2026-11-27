@@ -172,6 +172,7 @@ impl Hud {
         }
         self.era.world_dats = store.era();
         self.era.own_places = own_places(store);
+        self.era.own_map_picture = own_map_picture(store);
         if !self.era.era_announced {
             self.era.era = dereth_client_contract::EraView::era_of_dats(self.era.world_dats);
         }
@@ -650,6 +651,19 @@ pub(crate) fn skill_values(
     let vitae =
         dereth_presentation::inforegion::vitae_modifier(level, Some(q.enchantments.vitae_value()));
     (level, effective, vitae)
+}
+
+/// The map pages' picture, which a world's data may bring its own of.
+pub(crate) const MAP_PICTURE: dereth_primitives::DataId = dereth_primitives::DataId(0x0600_127D);
+
+/// Whether the world `store` holds brings its own map picture: its overlay holds one in place of
+/// the game's.
+pub(crate) fn own_map_picture(store: &dereth_dat::RetailDatStore) -> bool {
+    [Some(store.portal()), store.highres()]
+        .into_iter()
+        .flatten()
+        .filter_map(dereth_dat::DatFile::layer)
+        .any(|layer| layer.record(MAP_PICTURE).is_some())
 }
 
 /// The towns and landmarks the world `store` holds names itself, for its map pages.

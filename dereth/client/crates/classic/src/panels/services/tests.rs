@@ -2299,6 +2299,88 @@ fn a_world_framed_to_its_land_fills_the_map_page_with_the_frame_its_horizon_map_
     assert_eq!(green_circle(&f), Some(world::map_marker(42.5, 33.5)));
 }
 
+/// A world that brings its own map picture and names none of its places has that picture on the
+/// map page, at the page's size whatever size it was made at, and none of the game's notes over
+/// it; framed to its land, the frame's part fills the world's part of the page. A retail world
+/// keeps this interface's own picture and its notes.
+///
+/// Behaviour: none (this client's own map pages, for a world that brings its own map picture)
+#[test]
+fn a_world_bringing_its_own_map_picture_has_it_on_the_map_page_fitted_to_the_page() {
+    let pictures = |f: &PanelFrame| {
+        f.screen
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Image {
+                    did,
+                    x,
+                    y,
+                    width,
+                    height,
+                    clip,
+                    ..
+                } if did.ends_with("0600127D") => {
+                    let size = |v: u32| i32::try_from(v).unwrap_or(-1);
+                    Some((did.clone(), (*x, *y, size(*width), size(*height)), *clip))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let hover = |panel: &mut dyn Panel, v: &View, (x, y): (i32, i32)| {
+        event(
+            panel,
+            ControlEvent::Pointer {
+                x,
+                y: y + 25,
+                pressed: false,
+            },
+            v,
+        );
+        with_context(v, |c| texts(&panel.frame(c)))
+    };
+    let mut panel = make("map").unwrap();
+    let mut v = View {
+        era: Some(dereth_client_contract::EraView {
+            own_map_picture: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let f = with_context(&v, |c| panel.frame(c));
+    assert_eq!(
+        pictures(&f),
+        [("world:0600127D".to_owned(), (22, 33 + 25, 257, 267), None)]
+    );
+    assert!(!hover(&mut *panel, &v, (78, 46)).contains(&"Fiun Outpost".to_owned()));
+
+    // Framed to its land: the whole picture, then the frame's part over the world's part.
+    let frame = framed_island();
+    if let Some(era) = v.era.as_mut() {
+        era.map_frame = Some(frame);
+    }
+    let f = with_context(&v, |c| panel.frame(c));
+    let drawn = pictures(&f);
+    assert_eq!(drawn.len(), 2, "{drawn:?}");
+    assert!(drawn.iter().all(|(did, ..)| did == "world:0600127D"));
+    let (r, clip) = world::framed_picture(frame);
+    assert_eq!(drawn[1].1, (r.x, r.y + 25, r.w, r.h));
+    assert_eq!(
+        drawn[1].2,
+        Some([clip[0], clip[1] + 25, clip[2], clip[3] + 25])
+    );
+
+    // A retail world: this interface's own picture, and its notes.
+    v.era = Some(dereth_client_contract::EraView::default());
+    let f = with_context(&v, |c| panel.frame(c));
+    assert_eq!(
+        pictures(&f),
+        [("0600127D".to_owned(), (22, 33 + 25, 257, 267), None)]
+    );
+    assert!(hover(&mut *panel, &v, (78, 46)).contains(&"Fiun Outpost".to_owned()));
+}
+
 /// Behaviour: map.coordinates.zero-has-no-hemisphere
 #[test]
 fn map_frame_formats_zero_and_tiny_signed_coordinates() {

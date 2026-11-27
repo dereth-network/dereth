@@ -1121,6 +1121,70 @@ fn a_world_framed_to_its_land_fills_the_map_page_with_the_frame() {
     assert_eq!(note_rows(&ui, &s)[0].1, (x, y, 9, 8));
 }
 
+/// A world that brings its own map picture and names none of its places has the picture drawn at
+/// the image's size, whatever size it was made at, framed to its land once the frame is known, and
+/// none of the game's notes over it. A retail world's picture is drawn as it is, under its 53
+/// notes.
+///
+/// Behaviour: none (this client's own map page, for a world that brings its own map picture)
+#[test]
+fn a_world_bringing_its_own_map_picture_has_it_fitted_to_the_map_page_and_retail_keeps_its_own() {
+    use dereth_client_contract::panels::map::MapFrame;
+    use dereth_ui::region::{SurfaceOp, Zoom};
+    use dereth_ui_screens::mapradar::map::framed_picture;
+    let (mut ui, _flow, store) =
+        crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
+    ui.assets = Some(store);
+    let mut s = GamePlayScreen::default();
+    s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
+        .expect("gameplay layout");
+    pump(&mut ui, &mut s);
+    let image = s.map.map_image.expect("the map image");
+    let op = |ui: &UiSystem| ui.node(image).and_then(|n| n.region.image.as_ref()?.op);
+    let b = ui.node(image).expect("the map image").region.box_;
+    let size = [b.x1 - b.x0 + 1, b.y1 - b.y0 + 1];
+    assert_eq!(size, [257, 267], "the picture's own size");
+
+    // Retail: the picture as it is, and the notes.
+    let mut w = MapWorld {
+        era: EraView::default(),
+        coords: (0.0, 0.0),
+    };
+    s.refresh_map_profile(&mut ui, &w);
+    assert_eq!(op(&ui), None);
+    assert_eq!(note_rows(&ui, &s).len(), 53);
+
+    // The world's own picture: whole at the image's size, with no notes.
+    w.era.own_map_picture = true;
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    assert_eq!(op(&ui), Some(SurfaceOp::Zoom(Zoom::whole(size))));
+    assert!(note_rows(&ui, &s).is_empty());
+    assert!(!s.refresh_map_profile(&mut ui, &w), "unchanged, untouched");
+
+    // Framed to its land: the frame's part over the marker area.
+    let frame = MapFrame {
+        west: -60.0,
+        south: 10.0,
+        side: 40.0,
+    };
+    w.era.map_frame = Some(frame);
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    assert_eq!(
+        op(&ui),
+        Some(SurfaceOp::Zoom(framed_picture(
+            s.map.marker_area,
+            frame,
+            size
+        )))
+    );
+
+    // Back to retail: as it was.
+    w.era = EraView::default();
+    assert!(s.refresh_map_profile(&mut ui, &w));
+    assert_eq!(op(&ui), None);
+    assert_eq!(note_rows(&ui, &s).len(), 53);
+}
+
 /// Behaviour: map.coordinates.zero-has-no-hemisphere
 #[test]
 fn map_coordinate_widget_uses_empty_zero_suffix_and_preserves_tiny_signs() {

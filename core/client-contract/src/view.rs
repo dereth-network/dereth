@@ -1211,6 +1211,9 @@ pub struct EraView {
     /// The towns and landmarks the world names itself, which its map pages name in place of the
     /// game's map's notes; `None` for a world that names none of its own.
     pub own_places: Option<crate::panels::map::WorldPlaces>,
+    /// Whether the world's data brings its own map picture in place of the game's: its map pages
+    /// draw that picture, fitted to the page, and name none of the game's places on it.
+    pub own_map_picture: bool,
     /// The part of the world its maps frame, its land with a margin about it, where that is less
     /// than the whole world; `None` for a world whose land fills it, and until it is worked out.
     pub map_frame: Option<crate::panels::map::MapFrame>,
@@ -1249,6 +1252,13 @@ impl EraView {
     #[must_use]
     pub fn before_throne_of_destiny(&self) -> bool {
         self.world_dats == dereth_primitives::ContainerEra::Classic
+    }
+
+    /// Whether the world draws its own map: it names its own places or brings its own map
+    /// picture. Its map pages then draw the world's picture, framed to its land.
+    #[must_use]
+    pub fn draws_own_map(&self) -> bool {
+        self.own_places.is_some() || self.own_map_picture
     }
 
     /// Whether the world has skill `id`.

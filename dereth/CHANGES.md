@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- New Dereth's map shows in the classic interface and fits its window in the modern one.
 - Horizon: character creation on a New Dereth world offers only its peoples.
 - New Dereth: grass and plants no longer grow on the roads.
 - Character creation offers only the heritages a world allows, in every interface.

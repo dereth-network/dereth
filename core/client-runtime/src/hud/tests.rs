@@ -1100,3 +1100,98 @@ fn a_short_component_table_takes_the_mapper_with_the_most_entries_of_those_it_ov
     );
     assert!(!better((41, 42), Some((74, 164))));
 }
+
+/// A world whose overlay holds its own map picture, here twice the game's size each way, is told
+/// apart from retail's world and from a world whose overlay holds other records alone: its map
+/// pages draw the world's picture and name none of the game's notes on it. Retail's world draws
+/// the game's picture under its notes.
+///
+/// Behaviour: none (this client's own map pages, for a world that brings its own map picture)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_world_whose_overlay_holds_its_own_map_picture_draws_it_and_retail_draws_the_games() {
+    use dereth_assets::Decode as _;
+    use dereth_client_contract::panels::map::{page_names, PageNames, WorldPlaces};
+    use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+    use tables::MAP_PICTURE;
+    let world = dereth_client_model::World::default();
+    let store = dereth_dat::testing::open_store_or_fail();
+    let era_of = |store: &dereth_dat::RetailDatStore| {
+        let mut h = Hud::new();
+        h.load_tables(store, &world);
+        h.era
+    };
+    let names_of = |era: &dereth_client_contract::EraView| {
+        let mut h = Hud::new();
+        h.era = era.clone();
+        page_names(&HudView {
+            hud: &h,
+            world: &world,
+        })
+    };
+    let retail = era_of(&store);
+    assert!(!retail.own_map_picture && !retail.draws_own_map());
+    assert!(matches!(names_of(&retail), PageNames::Notes(_)));
+
+    let scratch = dereth_dat::testing::ScratchDir::new("own-map-picture").expect("scratch");
+    let overlay = |name: &str, id: DataId, record: &[u8]| {
+        let dir = OverlayDir::new(&scratch.path().join(name)).expect("an overlay folder");
+        let base = store.portal().base();
+        let mut w = OverlayWriter::open_or_create(
+            &dir.container(dereth_dat::ModernDat::Portal),
+            &base,
+            "portal.dat",
+            "a world",
+            1,
+        )
+        .expect("the overlay");
+        // A later iteration than the file's own, as a world's records are.
+        let outcome = w
+            .save(&base, id, record, 1, 1_000_000, 1)
+            .expect("the world's record");
+        assert!(
+            !matches!(outcome, dereth_dat::SaveOutcome::RefusedOlderIteration),
+            "{outcome:?}"
+        );
+        w.flush(1).expect("flushed");
+        drop(w);
+        store
+            .clone()
+            .with_overlay(&dir, Some("a world"))
+            .expect("the overlay opens over the portal")
+    };
+    let game = store
+        .read_portal(MAP_PICTURE)
+        .expect("the game's map picture");
+    let rs = dereth_assets::material::RenderSurface::decode_payload(MAP_PICTURE, &game)
+        .expect("a picture");
+    let (w, h) = (rs.width * 2, rs.height * 2);
+    let larger = dereth_assets::material::RenderSurface {
+        width: w,
+        height: h,
+        ..rs
+    }
+    .encode(&vec![0x40; (w * h * 3) as usize]);
+
+    let pictured = overlay("picture", MAP_PICTURE, &larger);
+    assert_eq!(
+        pictured.read_portal(MAP_PICTURE).ok(),
+        Some(larger),
+        "the world reads its own"
+    );
+    let own = era_of(&pictured);
+    assert!(own.own_map_picture && own.draws_own_map());
+    assert_eq!(own.own_places, None, "it names none of its places");
+    assert_eq!(
+        names_of(&own),
+        PageNames::Own(WorldPlaces(Vec::new().into()))
+    );
+
+    // An overlay of other records leaves the game's picture and its notes.
+    let other = era_of(&overlay("other", DataId(0x0600_4D10), &[1, 2, 3]));
+    assert!(!other.own_map_picture && !other.draws_own_map());
+    assert!(matches!(names_of(&other), PageNames::Notes(_)));
+}
