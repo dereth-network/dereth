@@ -1997,34 +1997,28 @@ mod tests {
         ));
     }
 
-    /// A New Dereth world's settings offer to build its world database from New Dereth's world
-    /// fetched for Lyceum, once that is fetched, and the button asks for exactly that.
+    /// A New Dereth world's settings take its world base as any era's does: the published world
+    /// database, with no button to build it from New Dereth's world fetched for Lyceum.
     #[test]
-    fn a_new_dereth_world_can_build_its_database_from_the_fetched_world() {
+    fn a_new_dereth_worlds_settings_offer_only_the_published_world_database() {
         let settings = page_function("settingsPage");
         assert!(
-            settings.contains(r#"s.era === "newdereth""#)
-                && settings.contains("ui.snap.newdereth?.world")
-                && settings.contains(r#"data-srv-build-base="${id}""#)
-                && settings.contains("Build from New Dereth's world"),
+            settings.contains("Get world database")
+                && !settings.contains("data-srv-build-base")
+                && !settings.contains("Build from New Dereth"),
             "{settings}"
         );
-        assert!(include_str!("../ui/app.js").contains(
-            r#"if (d.srvBuildBase) { await act("prepare_host", { id: d.srvBuildBase, source: "checkout" }); return; }"#
-        ));
+        assert!(!include_str!("../ui/app.js").contains("srvBuildBase"));
     }
 
     /// While the launcher does not offer New Dereth the page draws none of it: no New Dereth fold
-    /// in the Library, no Build from New Dereth's world, and its era for no world but one that
-    /// plays it already, which keeps showing it. Offered, all of it is drawn.
+    /// in the Library, and its era for no world but one that plays it already, which keeps showing
+    /// it. Offered, all of it is drawn.
     #[test]
     fn the_page_draws_new_dereth_only_while_the_launcher_offers_it() {
         assert!(page_function("library")
             .contains(r#"(ui.snap.new_dereth && ui.snap.newdereth ? libFold("sets.newdereth""#));
         let settings = page_function("settingsPage");
-        assert!(settings.contains(
-            r#"const buildBase = ui.snap.new_dereth && plays.database === "era" && s.era === "newdereth""#
-        ));
         assert!(settings
             .contains("ui.snap.eras.filter((e) => e.offered || e.name === h.settings.era).map("));
         assert!(page_function("eraOptions")

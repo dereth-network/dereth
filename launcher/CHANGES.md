@@ -18,7 +18,6 @@ section, dated, and opens a new empty one in the same commit as the version.
 - Library: opens on your data sets, with clients and art packs folded.
 - Lyceum: build dungeons from AC2's kits when you have Asheron's Call 2's files.
 - New Dereth worlds play the end-of-retail data files, chosen for you, and only with Dereth.
-- A hosted New Dereth world can build its world database from Lyceum's copy of the world.
 - Lyceum: a new world can start on New Dereth's land.
 
 ## 0.5.10 (2026-11-23)
