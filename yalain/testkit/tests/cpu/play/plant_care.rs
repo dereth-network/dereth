@@ -499,13 +499,25 @@ fn a_plant_with_its_own_lines_shows_its_stage_and_how_it_fares_and_keeps_its_own
         "a new plant badly needs both"
     );
     // Grown into its third stage and past a thought there (one each 10 to 20 s), cared for:
-    // healthy, and its own look all along.
+    // healthy, and its own look all along. It is examined with its next thought at least a second
+    // off: its thoughts are at least 10 s apart, so no need grows between its last care and the
+    // look.
     let from = h.bots[a].inbox.len();
     let t = h.now.0 + 2.0 * plants::STAGE_SECONDS + 21.0;
-    while h.now.0 < t {
+    let next_thought = |h: &Harness| {
+        h.server
+            .timers
+            .iter()
+            .filter(
+                |(_, k)| matches!(k, yalain_world::Timer::PlantThinks { plant: p } if *p == plant),
+            )
+            .map(|(at, _)| at.0)
+            .fold(f64::INFINITY, f64::min)
+    };
+    while h.now.0 < t || next_thought(&h) < h.now.0 + 1.0 {
+        h.step();
         let p = h.server.plants.by_id.get_mut(&plant).expect("standing");
         (p.water, p.fertilizer) = (3, 3);
-        h.step();
     }
     assert_eq!(
         examine(&mut h),

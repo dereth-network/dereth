@@ -248,7 +248,16 @@ fn an_aura_pulses_every_two_minutes_each_pulse_a_record_of_its_own() {
 fn using_a_toggled_skill_again_turns_its_aura_off() {
     let mut h = Harness::new();
     let (b, me) = armed(&mut h, "one", "Elara");
-    turned_on(&mut h, b);
+    let from = turned_on(&mut h, b);
+    // Its first pulse after the one at its turning on comes within one period (124 s); ten
+    // seconds after it, the next is nearly two minutes off.
+    let pulses = |h: &Harness| {
+        calls_of(h, b, from)
+            .iter()
+            .filter(|(f, v)| *f == effect_fn::ADD && record(v).is_some_and(|r| r.2 == PULSE_FLAGS))
+            .count()
+    };
+    assert!(h.run_until(2600, |h| pulses(h) >= 2), "pulsed again");
     h.run(200);
     let records: Vec<u32> = held(&mut h, me).iter().map(|e| e.eid).collect();
     let from = use_skill(&mut h, b, 2, ESPIRIT, 0);
@@ -385,22 +394,34 @@ fn an_auras_pulses_reach_fellows_within_its_range() {
     };
     let from_b = h.bots[b].inbox.len();
     let from_c = h.bots[c].inbox.len();
+    // The first pulse after the one at its turning on comes within one period (124 s).
     for _ in 0..130 {
         h.step_by(1.0);
+        if !pulsed(&h, b, from_b).is_empty() {
+            break;
+        }
     }
     assert!(!pulsed(&h, b, from_b).is_empty(), "the fellow is reached");
-    assert!(pulsed(&h, c, from_c).is_empty(), "a stranger is not");
     let earlier = held(&mut h, idb)
         .into_iter()
         .find(|e| e.state == ESPIRIT_PULSE)
         .expect("the fellow holds a pulse's record");
     assert_eq!(earlier.caster, ida);
-    // The fellow goes 400 m off: the next pulse misses it, and it is told so.
+    // A minute after that pulse reached it, nothing of it still on its way and the next a minute
+    // or more off (121 to 124 s after it), the fellow goes 400 m off: that next pulse, the one
+    // pulse of the 130 s after, misses it, and it is told so.
+    for _ in 0..60 {
+        h.step_by(1.0);
+    }
     player(&mut h, idb).position.origin[0] += 400.0;
     let from = h.bots[b].inbox.len();
     for _ in 0..130 {
         h.step_by(1.0);
     }
+    assert!(
+        pulsed(&h, c, from_c).is_empty(),
+        "a stranger is never reached"
+    );
     assert!(
         pulsed(&h, b, from).is_empty(),
         "beyond the range, not reached"
@@ -466,6 +487,16 @@ fn a_resurrection_leaves_auras_on_and_they_pulse_again_as_it_comes_back() {
     while h.now.0 < t {
         h.step();
     }
+    // The pulses' records it holds as it asks: at least the one its turning on put on it, three
+    // minutes long. The aura's own round goes on meanwhile, and may pulse again before it is back.
+    let pulses: Vec<u32> = h.server.players[&world]
+        .play
+        .effects
+        .iter()
+        .filter(|e| e.flags == PULSE_FLAGS)
+        .map(|e| e.eid)
+        .collect();
+    assert!(!pulses.is_empty(), "a pulse's record held as it asks");
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -486,8 +517,17 @@ fn a_resurrection_leaves_auras_on_and_they_pulse_again_as_it_comes_back() {
             .play
             .effects
             .iter()
-            .all(|e| e.flags != PULSE_FLAGS),
+            .all(|e| !pulses.contains(&e.eid)),
         "its pulses went at the request"
+    );
+    let removed: Vec<Value> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == effect_fn::REMOVE)
+        .flat_map(|(_, v)| v)
+        .collect();
+    assert!(
+        pulses.iter().all(|e| removed.contains(&Value::Int(*e))),
+        "each taken off its client: {removed:?}"
     );
     while h.now.0 < back + 2.9 {
         h.step();

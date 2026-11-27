@@ -572,8 +572,21 @@ fn a_player_under_vitae_comes_back_with_three_quarters_of_the_greatest_its_new_v
         }
         yalain_world::quals::set_float(&mut p.qualities, VITAE, 95.0);
     }
+    // Held at 1 health until the beetle's blow lands: a greatest of 975 regenerates past what its
+    // blows take when its first few swings miss.
     let from = h.bots[b].inbox.len();
-    let _ = run_to_death(&mut h, b, from);
+    let died = (0..4000).any(|_| {
+        for p in h.server.players.values_mut() {
+            if yalain_world::quals::int(&p.qualities, 258) > Some(1) {
+                yalain_world::quals::set_int(&mut p.qualities, 258, 1);
+            }
+        }
+        h.step();
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == DEATH_MESSAGE)
+    });
+    assert!(died, "the creature kills the player");
     wait(&mut h, 11.0);
     h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
     wait(&mut h, 2.0);
@@ -1315,6 +1328,15 @@ fn a_character_alive_at_its_entry_is_not_brought_back() {
 fn a_creatures_killing_blow_is_told_before_the_health_and_the_kill_text() {
     let mut h = Harness::new();
     let (b, me) = about_to_die(&mut h);
+    // A missed swing does not hurt it, so a run of misses would leave it regaining health at peace
+    // and its first blow short of a kill: it regains none, and the first blow to land kills it.
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_float(
+            &mut p.qualities,
+            yalain_world::regen::rate::PEACE_HEALTH,
+            0.0,
+        );
+    }
     let from = h.bots[b].inbox.len();
     let told = |m: &ServerMessage| {
         matches!(m, ServerMessage::DoStory(e) if e.action.hooks.iter().any(|k| k.target == me

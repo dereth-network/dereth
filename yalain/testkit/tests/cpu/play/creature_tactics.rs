@@ -814,12 +814,14 @@ fn a_creature_uses_a_special_more_often_the_more_it_has_at_hand_drawn_by_weight(
         c.stats.sub_class = Some(7);
     }
     let now = h.now.0;
+    // Over 100,000 draws a share's sd is at most 0.0013 (at 0.2213), so each band is over 6 sd
+    // and still sets each apart from the next.
     for (n, want) in [(1, 0.08), (2, 0.1536), (3, 0.2213)] {
-        let used = (0..40_000)
+        let used = (0..100_000)
             .filter(|_| missiles::pick_special(&mut h.server, id, &three[..n], 5.0, now).is_some())
             .count();
         #[allow(clippy::cast_precision_loss)]
-        let got = used as f32 / 40_000.0;
+        let got = used as f32 / 100_000.0;
         assert!((got - want).abs() < 0.008, "{n} at hand: {got}");
     }
     h.server.creature_rows.special_weights.insert(901, 0.05);
@@ -879,6 +881,14 @@ fn a_damage_debuff_takes_from_a_creatures_hits() {
         [61.0, 240.2, -44.6],
     );
     assert_eq!(missiles::effects_add(&h.server, id), 0.0);
+    // Held for as long as the creature takes to land its hits, however many of its blows are
+    // evaded.
+    h.server
+        .effect_table
+        .effects
+        .get_mut(&BLOOD_LOATHER_EFFECT)
+        .expect("the debuff")
+        .duration = Scale(vec![(0.0, 3600.0)]);
     let clock = h.clock();
     effects::apply_on(
         &mut h.server,
@@ -910,9 +920,13 @@ fn a_damage_debuff_takes_from_a_creatures_hits() {
     };
     let before = hits(&h).len();
     hardy(&mut h, me);
-    h.run(200);
+    // Its blows come every few seconds, each landing only some of the time.
+    assert!(
+        h.run_until(20_000, |h| hits(h).len() >= before + 3),
+        "it hits"
+    );
+    assert_eq!(missiles::effects_add(&h.server, id), -40.0, "still held");
     let after: Vec<i32> = hits(&h).into_iter().skip(before).collect();
-    assert!(!after.is_empty(), "it hits");
     assert!(after.iter().all(|d| *d == 60 || *d == 72), "{after:?}");
 }
 

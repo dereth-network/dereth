@@ -17,6 +17,7 @@ use yalain_world::effects::{self, function::ADD as ADD_EFFECT};
 use yalain_world::player::quality;
 use yalain_world::popups::DISPLAY_MESSAGE;
 use yalain_world::quals;
+use yalain_world::regen::rate::PEACE_HEALTH;
 use yalain_world::session::function::SHOW_TEXT;
 
 /// A countdown of the install's shape (30 s at spellcraft 1 to 900 s at 50, kept from its
@@ -403,8 +404,12 @@ fn a_countdowns_hotspot_comes_only_to_a_living_player_within_its_reach() {
 fn a_hotspot_harms_its_player_inside_and_ends_once_it_is_outside() {
     let (mut h, _, _, world) = player();
     sturdy(&mut h, world);
+    // It regains none of its health: at rest its next regeneration step would mend a tick's harm.
+    let p = h.server.players.get_mut(&world).expect("in");
+    quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
     let full = health(&h, world);
     assert!(put_on(&mut h, world, HOTSPOT, 1.0));
+    // Its first tick comes within 5.6 s of its add, and takes 25 a second since.
     wait(&mut h, 8.0);
     let hurt = health(&h, world);
     assert!(hurt < full, "harmed inside: {full} to {hurt}");
@@ -413,9 +418,10 @@ fn a_hotspot_harms_its_player_inside_and_ends_once_it_is_outside() {
     let p = h.server.players.get_mut(&world).expect("in");
     p.position.origin[0] = at.origin[0] + 301.0;
     p.position.cell = at.cell;
+    // Its next tick, within 7.5 s of its last, finds the player outside.
     wait(&mut h, 8.0);
     assert!(records(&h, world).is_empty(), "ended outside");
-    assert!(health(&h, world) >= hurt, "nothing more");
+    assert_eq!(health(&h, world), hurt, "nothing more");
 }
 
 /// A text effect shows its text in its player's chat as its kind, or in a box of its own, naming

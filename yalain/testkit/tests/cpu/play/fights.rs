@@ -1580,6 +1580,13 @@ fn a_weapons_effect_on_a_hit_goes_on_what_it_hits() {
             .stats
             .natural_damage = 0.0;
     }
+    // The beetle's blows still take a point each, and a player of 100 health falls within a few
+    // minutes of them, its run with it. Living through the whole wait, the run lands hundreds of
+    // hits on a chance of one in ten each: none coming on is beyond any dice.
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 263, 1_000_000);
+        yalain_world::quals::set_int(&mut p.qualities, 258, 1_000_000);
+    }
     h.bots[b].send(
         true,
         queue::WEENIE,
@@ -3235,7 +3242,7 @@ fn droppers_with_a_loot_quality_override_draw_their_least_level_by_their_own_wei
     use yalain_content::treasure_tables::ABOVE_BASE;
     use yalain_content::{Prop, Props};
     const SWORD: u32 = 0x4700_7003;
-    const DROPS: u32 = 3000;
+    const DROPS: u32 = 12_000;
     let world = |weights: Option<Vec<f32>>| {
         let mut h = Harness::new();
         h.server.catalog = yalain_testkit::test_catalog();
@@ -3264,11 +3271,16 @@ fn droppers_with_a_loot_quality_override_draw_their_least_level_by_their_own_wei
         }
         n
     };
+    // Each share within 4.5 standard deviations of its weight's, whatever the dice. A standard
+    // deviation is at most 0.0046 here, and 2017's weights and the world's differ by 0.019 to 0.041
+    // a share (0.041 at the base plus 1, nine of them), so neither passes for the other.
     let near = |got: [u32; 4], weights: &[f32]| {
         let sum: f32 = weights.iter().sum();
+        let n = f64::from(DROPS);
         (0..4).all(|i| {
             let want = f64::from(weights.get(i).copied().unwrap_or(0.0) / sum);
-            (f64::from(got[i]) / f64::from(DROPS) - want).abs() < 0.03
+            let sd = (want * (1.0 - want) / n).sqrt();
+            (f64::from(got[i]) / n - want).abs() <= 4.5 * sd
         })
     };
     let ours = vec![148.0, 183.0, 60.0];

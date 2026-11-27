@@ -549,15 +549,27 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
         .get(beetle)
         .and_then(|t| t.at)
         .expect("placed");
+    // It lives through the beetle's blows back for as long as the owner's swings may miss.
     let conn = conn_of(&h, me);
     if let Some(p) = h.server.players.get_mut(&conn) {
         p.position.origin = [at.origin[0] - 1.0, at.origin[1], at.origin[2]];
+        yalain_world::quals::set_int(&mut p.qualities, 263, 1_000_000);
+        yalain_world::quals::set_int(&mut p.qualities, 258, 1_000_000);
     }
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
         queue::WEENIE,
         &server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+    );
+    // The owner's swings may all miss for a while (a dozen in a row is no rare draw); a couple of
+    // hundred seconds of them leave no dice a real chance of no hit.
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me
+                && e.action.hooks.iter().any(|k| k.target == beetle && k.numbers[3] < 0))
+        })),
+        "the owner hurts it"
     );
     let struck = h.run_until(400, |h| {
         h.world_messages(b, from).iter().any(|m| {
@@ -840,8 +852,15 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
         function::MODE,
         &[Arg::Int(0x4000_0006), Arg::LongInt(pet)],
     );
-    let before = h.server.things.get(pet).map_or(0, |t| t.health);
-    while h.server.things.get(pet).is_some_and(|t| t.health == before) {
+    // Until a blow lands on it: a run of misses may leave it unhurt long enough to regain health,
+    // which is no blow.
+    let hurt = h.server.things.get(pet).map_or(0.0, |t| t.last_hurt);
+    while h
+        .server
+        .things
+        .get(pet)
+        .is_some_and(|t| t.last_hurt <= hurt)
+    {
         strike(&mut h);
     }
     assert_eq!(
@@ -948,11 +967,15 @@ fn a_creatures_hit_on_a_pet_takes_off_the_armor_its_kind_has_at_its_level() {
             k.armor = armor;
         }
     };
-    // What each of its landed plain strikes takes.
+    // What each of its landed plain strikes takes. Whole before each, so a run of misses long
+    // enough to regain health puts none back while a blow is on its way.
     let hits = |h: &mut Harness| {
         let mut got = Vec::new();
         for _ in 0..400 {
-            let before = h.server.things.get(pet).map_or(0, |t| t.health);
+            let before = h.server.things.get_mut(pet).map_or(0, |t| {
+                t.health = t.max_health;
+                t.health
+            });
             let clock = h.clock();
             yalain_world::combat::thing_strikes_thing(
                 &mut h.server,
@@ -2122,6 +2145,14 @@ fn pk_hooks(h: &Harness, b: usize, from: usize, pet: u64, other: u64) -> Vec<(i3
 fn a_pet_takes_on_a_player_its_owner_hurts_and_its_hits_are_pk_damage() {
     let (mut h, b, _, pet, c, other) =
         lasher_and_a_stranger(yalain_content::Conflict::KingdomVsKingdom);
+    // A regeneration step with no hurt since the last fills its health and leaves what other
+    // players took as it was, which a run of misses allows: it regains none, so all it lost stays
+    // lost.
+    quals::set_float(
+        &mut player(&mut h, other).qualities,
+        yalain_world::regen::rate::PEACE_HEALTH,
+        0.0,
+    );
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -2200,6 +2231,13 @@ fn a_pets_harm_and_kill_of_a_player_move_kingdom_points_as_its_owners() {
     let before = (
         points_of(&player(&mut h, me).qualities),
         points_of(&player(&mut h, other).qualities),
+    );
+    // A missed swing does not hurt it, so a run of misses would leave it regaining health at peace
+    // and the pet's next hit short of a kill: it regains none, and the first hit to land kills it.
+    quals::set_float(
+        &mut player(&mut h, other).qualities,
+        yalain_world::regen::rate::PEACE_HEALTH,
+        0.0,
     );
     quals::set_int(&mut player(&mut h, other).qualities, quality::HEALTH, 1);
     assert!(

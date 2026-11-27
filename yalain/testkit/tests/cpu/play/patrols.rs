@@ -316,7 +316,10 @@ fn a_camps_movement_settings_stand_over_its_creatures_templates() {
     assert!((stats.movement.perception - 7.5).abs() < 1e-6);
     assert_eq!(stats.movement.wander_range, 25.0, "the scripts' default");
 
-    // A template that does not wander, made to by its camp, wanders.
+    // A template that does not wander, made to by its camp, wanders: by its camp's chance of 1 it
+    // sets out at once, and walks to where it drew. A walk's length is drawn evenly up to the
+    // range, so it may end within arrival of where the beetle stands and need no step; any longer
+    // one moves it.
     let (mut h, _, beetle) = camp_with(
         (OUT_CELL, OUT),
         settings(MovementOverrides {
@@ -335,9 +338,26 @@ fn a_camps_movement_settings_stand_over_its_creatures_templates() {
     {
         c.next_wander = now;
     }
+    let walk = |h: &Harness| {
+        h.server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| c.wander_to)
+    };
     assert!(
-        h.run_until(steps(4.0), |h| flat(&place_of(h, beetle), OUT) > 0.1),
-        "it wanders"
+        h.run_until(steps(1.0), |h| walk(h).is_some()),
+        "it sets out"
+    );
+    let goal = walk(&h).expect("a walk").origin;
+    assert!(
+        h.run_until(steps(60.0), |h| walk(h).is_none()),
+        "its walk ends"
+    );
+    let left = flat(&place_of(&h, beetle), goal);
+    assert!(
+        left <= ai::ARRIVED + 1e-3,
+        "it walks to {goal:?}: {left} m off"
     );
 
     // A wandering template stopped by its camp never does.

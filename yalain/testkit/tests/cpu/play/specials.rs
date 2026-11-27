@@ -109,6 +109,7 @@ fn vigor_sent(h: &Harness, b: usize, from: usize) -> Vec<i32> {
 #[test]
 fn a_specials_hooks_on_one_target_each_roll_apart() {
     use yalain_world::rules::Outcome;
+    const USES: u32 = 1000;
     let (mut h, b, me, beetle) = beside_a_beetle();
     practice_target(&mut h, beetle);
     h.arm(b, me, SWORD);
@@ -149,7 +150,7 @@ fn a_specials_hooks_on_one_target_each_roll_apart() {
     ]
     .map(Outcome::code);
     let mut uses: Vec<Vec<(u32, i32)>> = Vec::new();
-    for use_id in 0..150 {
+    for use_id in 0..USES {
         let from = use_skill(&mut h, b, 1000 + use_id, RIPOSTE, beetle);
         h.run(200);
         let hooks: Vec<(u32, i32)> = h
@@ -182,14 +183,21 @@ fn a_specials_hooks_on_one_target_each_roll_apart() {
         .iter()
         .filter(|u| u.iter().any(|k| landed(k.0)) && u.iter().any(|k| !landed(k.0)))
         .count();
-    assert!(mixed_critical >= 20, "{mixed_critical} of {}", uses.len());
-    assert!(mixed_landing >= 5, "{mixed_landing} of {}", uses.len());
+    // A hook lands half the time here and half of those landed are critical, so 9 in 32 uses mix
+    // a critical with a plain hit (281.25 of 1000, sd 14.2) and three quarters mix a landed hook
+    // with one that did not (750, sd 13.7); each bound is over 4.5 sd below. Hooks rolled together
+    // would mix neither.
+    assert!(mixed_critical >= 215, "{mixed_critical} of {}", uses.len());
+    assert!(mixed_landing >= 685, "{mixed_landing} of {}", uses.len());
     let all: Vec<u32> = uses.iter().flatten().map(|k| k.0).collect();
     let n_landed = all.iter().filter(|r| landed(**r)).count();
     let n_critical = all.iter().filter(|r| **r == critical).count();
+    // Of 1500 landed hooks (sd 27.4), half critical: within 0.06 of a half is 4.6 sd of the
+    // share, and a critical chance cut by two fifths (a share near 0.39) falls over 4 sd outside.
+    assert!(n_landed >= 1375, "{n_landed} landed");
     #[allow(clippy::cast_precision_loss)]
     let share = n_critical as f64 / n_landed as f64;
-    assert!((0.4..0.6).contains(&share), "{n_critical} of {n_landed}");
+    assert!((0.44..0.56).contains(&share), "{n_critical} of {n_landed}");
     let median_hit = |at: usize| -> i32 {
         let mut v: Vec<i32> = uses
             .iter()

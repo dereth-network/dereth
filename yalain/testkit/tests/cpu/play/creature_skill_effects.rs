@@ -343,8 +343,27 @@ fn an_area_missile_puts_its_skills_effect_on_each_player_it_lands_on() {
             c.stats.fights = false;
         }
     }
-    let from = h.bots[b].inbox.len();
-    for _ in 0..8 {
+    // Loosed until it has landed on each, whatever the rolls, by which it lands only some of the
+    // time.
+    let mut landed_on = [false; 2];
+    for _ in 0..100 {
+        // Each arrival starts with no record of the effect on anyone.
+        let worn: Vec<_> = h
+            .server
+            .players
+            .iter()
+            .flat_map(|(c, p)| {
+                p.play
+                    .effects
+                    .iter()
+                    .filter(|e| e.state == WEAKNESS)
+                    .map(|e| (*c, e.eid))
+            })
+            .collect();
+        for (world, eid) in worn {
+            yalain_world::effects::remove(&mut h.server, &mut h.net, world, eid);
+        }
+        let from = h.bots[b].inbox.len();
         let clock = h.clock();
         yalain_world::missiles::arrives(
             &mut h.server,
@@ -364,26 +383,36 @@ fn an_area_missile_puts_its_skills_effect_on_each_player_it_lands_on() {
             clock,
         );
         h.run(10);
+        for (i, who) in [me, near].into_iter().enumerate() {
+            if area_hits(&h, b, from, who) == 0 {
+                continue;
+            }
+            landed_on[i] = true;
+            assert!(
+                held(&h, who, WEAKNESS).iter().any(|e| e.caster == creature),
+                "{who:#x} holds the skill's effect as it lands"
+            );
+        }
+        if landed_on == [true; 2] {
+            break;
+        }
     }
-    let hits = |who: u64| {
-        h.world_messages(b, from)
-            .iter()
-            .filter_map(|m| match m {
-                ServerMessage::DoStory(e) if e.action.skill == WEAKENING_SHOT => {
-                    Some(e.action.hooks.clone())
-                }
-                _ => None,
-            })
-            .flatten()
-            .filter(|k| k.target == who && [0x4000_0008, 0x4000_0009].contains(&k.numbers[0]))
-            .count()
-    };
-    for who in [me, near] {
-        assert!(hits(who) >= 1, "a missile lands on {who:#x}");
-        let e = held(&h, who, WEAKNESS);
-        assert!(
-            e.iter().any(|e| e.caster == creature),
-            "{who:#x} holds the skill's effect"
-        );
+    for (who, landed) in [me, near].into_iter().zip(landed_on) {
+        assert!(landed, "a missile lands on {who:#x}");
     }
+}
+
+/// How many of the hooks of the stories of the area missile told since `from` landed on `who`.
+fn area_hits(h: &Harness, b: usize, from: usize, who: u64) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.skill == WEAKENING_SHOT => {
+                Some(e.action.hooks.clone())
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter(|k| k.target == who && [0x4000_0008, 0x4000_0009].contains(&k.numbers[0]))
+        .count()
 }

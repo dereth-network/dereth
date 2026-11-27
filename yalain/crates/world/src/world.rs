@@ -107,6 +107,8 @@ pub struct Player {
     /// Its time in the air, from the places its client reports ([`crate::airborne`]).
     pub aloft: crate::airborne::Aloft,
     /// How much of the health and of the vigor it has lost other players took ([`crate::pvp`]).
+    /// Regeneration leaves it as it is, so it can be more than the vital now lacks, even at full;
+    /// it is told to clients so, and only a heal or a death takes it down.
     pub pk_lost: [i32; 2],
     /// The harm other players have done it lately, by attacker ([`crate::pk_points`]).
     pub harmed_by: BTreeMap<u64, crate::pk_points::Part>,
