@@ -11,7 +11,8 @@
 --   * the character's recalls, where each has landed it (`nav.recalls`);
 --   * the places the player saved by name, kept for this world in `store.world`.
 -- The client filters and measures its lists itself, nearest first, so a world of thousands of
--- places and portals costs a search no more than the few it shows.
+-- places and portals costs a search no more than the few it shows. In a dungeon it measures from
+-- where the dungeon is in the world (where a portal into it stands), what is in the dungeon first.
 
 local P = require("places")
 
@@ -73,7 +74,8 @@ end
 local NOT_PORTALS = { "town", "landmark", "lifestone", "vendor", "npc", "cottage", "villa", "mansion", "house" }
 
 -- The places of the client's knowledge whose names have words beginning with `want`'s (any when
--- empty), of type `kind`: the nearest `limit` of them, into `out`. Answers how many there are.
+-- empty), of type `kind`: the nearest `limit` of them, into `out`, each with `far` as the client
+-- measured it. Answers how many there are, and where in the world the client measured from.
 -- One search of the client's index (`nav.search`) finds them, however many the world has.
 local function client_places(want, kind, out, limit)
 	local journeys = host.has("nav.journey")
@@ -92,15 +94,16 @@ local function client_places(want, kind, out, limit)
 	else
 		places = false
 	end
-	local total = 0
+	local total, from = 0, nil
 	if portals or places then
 		local r = nav.search(want, { portals = portals, places = places, kind = kinds, limit = limit })
-		total = r.total or 0
+		total, from = r.total or 0, r.from
 		for _, e in ipairs(r.items or {}) do
 			if e.list == "portal" then
 				if e.retired == nil and e.from ~= nil then
 					if wanted("portal", kind) then
-						table.insert(out, { name = e.name, type = "portal", place = P.plain(e.from), source = e.source })
+						table.insert(out, { name = e.name, type = "portal", place = P.plain(e.from), source = e.source,
+							far = e.far })
 					end
 					if e.to ~= nil then
 						-- Where it sends: a dungeon when that is indoors, pointed at by its entrance
@@ -111,7 +114,7 @@ local function client_places(want, kind, out, limit)
 						if e.to.ns == nil then
 							if wanted("dungeon", kind) then
 								table.insert(out, { name = destination_name(e.name), type = "dungeon", place = P.plain(e.from),
-									target = P.plain(e.to), inside = e.to, source = e.source })
+									target = P.plain(e.to), inside = e.to, source = e.source, far = e.far })
 							end
 						elseif wanted("destination", kind) then
 							table.insert(out, { name = destination_name(e.name), type = "destination", place = P.plain(e.to),
@@ -126,7 +129,7 @@ local function client_places(want, kind, out, limit)
 					if t == "house" and e.owner ~= nil then
 						n = e.owner .. "'s " .. string.lower(e.name)
 					end
-					table.insert(out, { name = n, type = t, place = P.plain(e.at), source = e.source })
+					table.insert(out, { name = n, type = t, place = P.plain(e.at), source = e.source, far = e.far })
 				end
 			end
 		end
@@ -142,7 +145,7 @@ local function client_places(want, kind, out, limit)
 			end
 		end
 	end
-	return total
+	return total, from
 end
 
 -- The places the player saved for this world.
@@ -189,15 +192,23 @@ local function coalesce(out)
 	return kept
 end
 
+-- Whether row `l` is in the dungeon the character is in (the dungeon itself, or what stands in it).
+local function in_dungeon(l, here)
+	local p = l.inside or l.place
+	return p ~= nil and p.ns == nil and p.cell ~= nil and P.landblock(p.cell) == P.landblock(here.cell)
+end
+
 -- The locations whose names have words beginning with `text`'s (without case; any when empty)
 -- and of type `kind` ("all" or nil for any): the nearest `limit` (L.MAX when not given) of the
 -- client's, and the saved places, one row for each place; those named exactly as `text` first,
--- then nearest first, then by name; each with `far`, its distance (nil when the character cannot
--- tell from where it stands). And how many there are in all.
+-- then, in a dungeon, the dungeon and what is in it, then nearest first, then by name; each with
+-- `far`, its distance (nil when the character cannot tell from where it stands): in a dungeon,
+-- along it to what is in it and from where it is in the world to the rest. And how many there
+-- are in all.
 function L.find(text, kind, limit)
 	local want = string.lower(text or "")
 	local out = {}
-	local total = 0
+	local total, from = 0, nil
 	if wanted("saved", kind) then
 		for _, l in ipairs(saved_places()) do
 			if want == "" or string.find(string.lower(l.name), want, 1, true) then
@@ -207,16 +218,25 @@ function L.find(text, kind, limit)
 		end
 	end
 	if kind ~= "saved" then
-		total = total + client_places(want, kind, out, limit or L.MAX)
+		local n
+		n, from = client_places(want, kind, out, limit or L.MAX)
+		total = total + n
 	end
 	out = coalesce(out)
+	-- In a dungeon whose place in the world the client knows, it measured from there.
+	local here = P.here()
+	local dungeon = here ~= nil and here.ns == nil and from ~= nil and from.ns ~= nil
 	for _, l in ipairs(out) do
-		l.far = P.reach(l.place)
+		l.far = l.far or P.reach(l.place) or (dungeon and P.reach(l.place, from) or nil)
+		l.here = dungeon and in_dungeon(l, here)
 	end
 	table.sort(out, function(a, b)
 		local ea, eb = string.lower(a.name) == want, string.lower(b.name) == want
 		if ea ~= eb then
 			return ea
+		end
+		if a.here ~= b.here then
+			return a.here
 		end
 		if (a.far ~= nil) ~= (b.far ~= nil) then
 			return a.far ~= nil

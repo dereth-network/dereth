@@ -56,7 +56,9 @@ by type (`town`, `landmark`, `dungeon`, `destination`, `portal`, `lifestone`, `v
   outdoors, by its cell in a dungeon).
 
 The client filters and measures these lists itself, so a world that publishes thousands of places
-and portals costs a search no more than the few it shows.
+and portals costs a search no more than the few it shows. In a dungeon the list starts with the
+dungeon and what is in it (its exits), and the rest are measured from where the dungeon is in the
+world, where its portal on the land stands.
 
 **Coordinates in chat.** Every pair of coordinates anyone writes in chat lands in the list, typed
 `chat`, newest first with who wrote it (the last ten).

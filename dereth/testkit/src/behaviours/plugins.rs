@@ -1977,6 +1977,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-navigator-in-a-dungeon-lists-it-and-what-is-in-it-first-and-measures-from-where-it-is",
+        says: "Inside a dungeon, the Navigator lists the dungeon and what is in it (its exits) \
+               first, then the nearest places measured from where the dungeon is in the world, \
+               where its portal on the land stands, not from the dungeon's own landblock.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-IN-DUNGEON"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_in_a_dungeon_lists_it_and_what_is_in_it_first_and_measures_from_where_it_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload",
         says: "The Navigator sample keeps its destination, the spots picked on the map and the \
                coordinates seen in chat for the world, so a reload puts them back.",

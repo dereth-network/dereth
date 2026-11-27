@@ -416,7 +416,7 @@ Show or hide the host's drawing of this plugin's journey (the arrow, the way on 
 
 ### `nav.search`
 
-The portals and places the client knows whose names have words beginning with each word of `text` (every one when it is empty), nearest first: `{ total, items }`, the nearest `limit` (8 unless given) of the `total` there are, each as `nav.known_portals` or `nav.known_places` gives it with `list` (`portal` or `place`). `opts`: `kind`, a kind or a list of kinds; `portals` and `places` (false leaves that list out); `near` and `within` as `nav.known_portals` takes them. Indexed by the host, so it costs the few it answers, not the world's thousands.
+The portals and places the client knows whose names have words beginning with each word of `text` (every one when it is empty), nearest first: `{ total, items, from }`, the nearest `limit` (8 unless given) of the `total` there are, each as `nav.known_portals` or `nav.known_places` gives it with `list` (`portal` or `place`) and `far`, its distance in meters. `opts`: `kind`, a kind or a list of kinds; `portals` and `places` (false leaves that list out); `near` and `within` as `nav.known_portals` takes them. Measured where each is in the world: what stands in a dungeon is where a portal into it stands, and from inside a dungeon what is in it comes first, measured along it; `from` is the place in the world the rest were measured from. Indexed by the host, so it costs the few it answers, not the world's thousands.
 
 - WIT: `nav-search: func(text: string, opts: option<value>) -> result<value, string>`
 - Lua: `nav.search(text: string, opts: any?) -> any`

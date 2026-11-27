@@ -1806,7 +1806,8 @@ impl HostCalls for Call<'_, '_> {
                 let items: Vec<Value> = found
                     .items
                     .iter()
-                    .filter_map(|src| {
+                    .enumerate()
+                    .filter_map(|(k, src)| {
                         let (entry, list) = match *src {
                             crate::search::Src::Portal(i) => (
                                 Entry::Portal(stores.portals?.portals().get(i as usize)?),
@@ -1822,12 +1823,20 @@ impl HostCalls for Call<'_, '_> {
                                 "place",
                             ),
                         };
-                        Some(entry.value().with("list", list))
+                        let item = entry.value().with("list", list);
+                        Some(match found.far.get(k) {
+                            Some(&far) => item.with("far", f64::from(far)),
+                            None => item,
+                        })
                     })
                     .collect();
-                Ok(Value::map()
+                let answer = Value::map()
                     .with("total", i64::try_from(found.total).unwrap_or(i64::MAX))
-                    .with("items", Value::List(items)))
+                    .with("items", Value::List(items));
+                Ok(match &found.from {
+                    Some(from) => answer.with("from", crate::places::to_value(from)),
+                    None => answer,
+                })
             }
             "nav.knowledge" => {
                 // How many portals and places the client knows of this world, by where each was

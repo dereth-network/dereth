@@ -30,6 +30,7 @@ dereth_testkit::scenarios! {
     scenario_the_navigator_lists_a_place_once_and_puts_its_exact_name_first => the_navigator_lists_a_place_once_and_puts_its_exact_name_first ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name => a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight => a_route_walks_round_a_wall_to_a_waypoint_out_of_sight ["plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight"],
+    scenario_the_navigator_in_a_dungeon_lists_it_and_what_is_in_it_first_and_measures_from_where_it_is => the_navigator_in_a_dungeon_lists_it_and_what_is_in_it_first_and_measures_from_where_it_is ["plugins.samples.the-navigator-in-a-dungeon-lists-it-and-what-is-in-it-first-and-measures-from-where-it-is"],
 }
 
 const ID: &str = "network.dereth.navigator";
@@ -1152,5 +1153,110 @@ fn a_dungeon_found_by_name_is_gone_into_though_another_portal_shares_its_name() 
     );
     note_asserted(
         "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
+    );
+}
+
+/// The end of retail's portals round Tusker Abode, as its places package has them: the dungeon's
+/// portal on the land and its exit, the Facility Hub's portal of the same name sending to the land
+/// beside it, Tusker Quarters' portal nearby, and the portals in the two dungeons whose landblocks
+/// lie beside Tusker Abode's, one of them entered from far off.
+const TUSKER_PORTALS: &str = "dereth-navigation-store\t3\n\
+    world\tDereth\n\
+    portal\thint\t22655\tSurface\t0x5C450150 46.951 -76.496 -11.995\t0xF67B000C 37.096 94.624 -0.095\t0\t0\t0\t-\t-\t-\t-\t0x020001B3 1\n\
+    portal\thint\t35820\tDeeper Catacombs\t0x5E450224 40.000 -160.000 -5.945\t0x0088037B 59.456 -59.518 0.005\t0\t0\t0\t60\t-\t-\tevent ParadoxSwarm off\t0x020005D5 1\n\
+    portal\thint\t24169\tTrial of the Vagabond\t0x5F450119 60.000 -240.000 0.005\t0x5F450139 150.000 -180.000 0.000\t0\t0\t0\t-\t-\t-\tevent EventPortalOswaldF off\t0x020001B3 1\n\
+    portal\thint\t24167\tTrial of the Vagabond\t0x5F45011A 60.000 -250.000 0.005\t0x5F450135 90.000 -180.000 0.000\t0\t0\t0\t-\t-\t-\tevent EventPortalOswaldD off\t0x020001B3 1\n\
+    portal\thint\t24162\tEagle's Sight\t0x5F45011F 70.006 -83.118 0.005\t0x5F45011E 69.904 -32.790 0.005\t0\t0\t0\t-\t-\t-\t-\t0x020001B3 1\n\
+    portal\thint\t24164\tTrial of the Vagabond\t0x5F450131 80.000 -230.000 0.005\t0x5F45010E 0.000 -180.000 0.000\t0\t0\t0\t-\t-\t-\tevent EventPortalOswaldA on\t0x020001B3 1\n\
+    portal\thint\t42175\tTusker Abode\t0x8A020123 88.309 -48.327 -12.050\t0xF67B000C 26.259 84.692 -0.095\t0\t0\t0\t20\t-\t-\t-\t0x020001B3 0.8\n\
+    portal\thint\t1118\tBlack Death Catacombs Portal\t0xD8CA001B 87.474 67.401 287.873\t0x5E450377 40.000 -160.000 72.000\t0\t0\t0\t20\t-\t-\t-\t0x020005D3 1\n\
+    portal\thint\t22654\tTusker Abode\t0xF67B000C 27.720 93.305 -0.095\t0x5C450384 325.980 -99.593 0.005\t0\t0\t0\t20\t-\t-\t-\t0x020005D3 1\n\
+    portal\thint\t22692\tTusker Quarters\t0xF67C003D 179.658 116.600 19.878\t0x5B4A0210 148.551 -1.840 0.005\t0\t0\t0\t30\t-\t-\t-\t0x020005D6 1\n\
+    portal\thint\t1091\tSurface\t0x5E450372 43.094 -163.314 42.000\t0xD8CA0014 58.339 92.125 275.100\t0\t0\t0\t-\t-\t-\t-\t0x020001B3 1\n";
+
+/// The end of retail's places in those two dungeons, and the nearest town to Tusker Abode's portal
+/// with two of its people.
+const TUSKER_PLACES: &str = "dereth-places-store\t1\n\
+    world\tDereth\n\
+    place\tnpc\thint\t36780\tQuiddity Seed\t0x5E450229 42.289 -170.739 -6.000\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24159\tPuzzle Box\t0x5F45010E 0.000 -180.000 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24159\tPuzzle Box\t0x5F45010F 30.000 -180.000 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24139\tInvisible Assailant\t0x5F450110 59.936 -4.359 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24154\tA Rolling Ball\t0x5F450114 57.511 -85.525 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24154\tA Rolling Ball\t0x5F450117 55.580 -118.487 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24159\tPuzzle Box\t0x5F450118 60.000 -180.000 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t24154\tA Rolling Ball\t0x5F450120 70.000 -94.366 0.005\t0\t0\t-\t-\n\
+    place\tnpc\thint\t22643\tTown Crier\t0xF6810017 66.194 160.562 51.591\t0\t0\t-\t-\n\
+    place\tvendor\thint\t22725\tHealer\t0xF6810040 174.363 174.604 63.876\t0\t0\t-\t-\n\
+    place\ttown\thint\t-\tRefuge\t0xF6820033 145.700 49.855 58.005\t0\t0\t-\t-\n";
+
+/// Inside Tusker Abode, the Navigator's list starts with the dungeon itself and its exit, then
+/// what is nearest where the dungeon is in the world (its portal on the land, and where the exit
+/// sends beside it), measured from there: not the dungeons whose landblocks lie beside its own.
+fn the_navigator_in_a_dungeon_lists_it_and_what_is_in_it_first_and_measures_from_where_it_is() {
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.era_package(TUSKER_PORTALS, TUSKER_PLACES);
+    // Where Tusker Abode's portal sends.
+    run.place_player_at(
+        dereth_plugin_host::places::from_value(
+            &Value::map()
+                .with("cell", 0x5C45_0384_u32)
+                .with("x", 325.98)
+                .with("y", -99.593)
+                .with("z", 0.005),
+        )
+        .expect("a cell place"),
+    );
+    run.advance(0.5);
+    let from = run.printed().len();
+    run.type_line("/nav find");
+    let lines = printed_since(&run, from);
+    let rows: Vec<&str> = lines
+        .iter()
+        .filter_map(|l| l.strip_prefix("[Nav] "))
+        .filter_map(|l| l.split_once(')').map(|(row, _)| row))
+        .collect();
+    assert_eq!(
+        rows[..4],
+        [
+            "Tusker Abode (dungeon",
+            "Surface (portal",
+            "Tusker Abode (portal",
+            "Surface (destination",
+        ],
+        "{lines:?}"
+    );
+    assert!(
+        lines[0].ends_with(", 0 m") && lines[2].ends_with(", 0 m"),
+        "the dungeon is where its portal is: {lines:?}"
+    );
+    assert!(
+        lines[1].starts_with("[Nav] Surface (portal) cell 0x5C450150 "),
+        "its exit, measured along it: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("[Nav] Town Crier (npc) ") && l.ends_with(", 1.2 km")),
+        "the town nearest its portal, measured from there: {lines:?}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|l| l.contains("Rolling Ball") || l.contains("Puzzle Box")),
+        "nothing of the dungeons beside its landblock: {lines:?}"
+    );
+    // The window's list, the same.
+    run.type_line("/nav");
+    let dump = run.ui_dump();
+    let list = node_line(&dump, "results");
+    let first = list.find("Tusker Abode").expect("listed");
+    assert!(
+        list[first..].starts_with("Tusker Abode") && !list[..first].contains("Rolling Ball"),
+        "{list}"
+    );
+    note_asserted(
+        "plugins.samples.the-navigator-in-a-dungeon-lists-it-and-what-is-in-it-first-and-measures-from-where-it-is",
     );
 }

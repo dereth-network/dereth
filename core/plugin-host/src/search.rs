@@ -8,13 +8,16 @@
 //!   looks only at what the last one found.
 //! - **Nearest first, with no name.** The places by the landblock they stand in: read ring by ring
 //!   out from where the search is measured from, until the nearest asked for are certain.
+//! - **Where in the world.** A dungeon's landblock is no place on the land, so what stands in a
+//!   dungeon is measured where the dungeon is: where a portal into it stands. From inside one, what
+//!   is in it comes first, measured along it, and then the rest, from where it is.
 //!
 //! The index is made at the start of a frame, outside any plugin's share of it, once a plugin has
 //! searched or one that plans journeys (`nav.journey`) is active, so the first search does not pay
 //! for making it (a whole era's places take longer than an entry's budget); places the client
 //! learns as it plays are added to it rather than its being made again.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use dereth_client_contract::panels::map::MapPlace;
 use dereth_navigation::{PlaceStore, PortalStore};
@@ -83,7 +86,109 @@ struct Indexed {
     written: Box<str>,
     kind: &'static str,
     at: Position,
+    /// Where it is in the world: where it stands, or where its dungeon is.
+    world: Position,
     src: Src,
+}
+
+/// The landblock a place is in.
+fn block(p: &Position) -> u16 {
+    u16::try_from(p.cell.0 >> 16).unwrap_or(u16::MAX)
+}
+
+/// Whether a place is indoors: in a dungeon or a building.
+fn inside(p: &Position) -> bool {
+    !crate::places::outdoors(p.cell)
+}
+
+/// Where each dungeon is in the world, by its landblock: where a portal into it from elsewhere
+/// stands, one on the land before one in another dungeon (whose own place is taken in turn). A
+/// landblock with a portal standing outdoors in it is land, whose buildings are where they stand.
+#[derive(Debug, Default)]
+struct Dungeons(HashMap<u16, Position>);
+
+impl Dungeons {
+    /// How many dungeons entered from another dungeon are followed out to the land.
+    const DEPTH: usize = 4;
+
+    fn of(portals: Option<&PortalStore>) -> Self {
+        let Some(portals) = portals else {
+            return Self::default();
+        };
+        let edges = || portals.portals().iter().filter(|e| e.retired.is_none());
+        let land: HashSet<u16> = edges()
+            .filter(|e| !inside(&e.from))
+            .map(|e| block(&e.from))
+            .collect();
+        let mut ways: HashMap<u16, Position> = HashMap::new();
+        for e in edges() {
+            let Some(to) = e.to.filter(inside) else {
+                continue;
+            };
+            let b = block(&to);
+            if land.contains(&b) || block(&e.from) == b {
+                continue;
+            }
+            let way = ways.entry(b).or_insert(e.from);
+            if inside(way) && !inside(&e.from) {
+                *way = e.from;
+            }
+        }
+        let world = ways
+            .keys()
+            .map(|&b| {
+                let mut at = ways[&b];
+                for _ in 0..Self::DEPTH {
+                    match ways.get(&block(&at)) {
+                        Some(out) if inside(&at) => at = *out,
+                        _ => break,
+                    }
+                }
+                (b, at)
+            })
+            .collect();
+        Self(world)
+    }
+
+    /// Where `p` is in the world: where it stands, or in a dungeon where the dungeon is.
+    fn world(&self, p: &Position) -> Position {
+        if inside(p) {
+            if let Some(at) = self.0.get(&block(p)) {
+                return *at;
+            }
+        }
+        *p
+    }
+
+    /// The landblock of the dungeon `p` is in, when it is in one whose place is known.
+    fn of_place(&self, p: &Position) -> Option<u16> {
+        (inside(p) && self.0.contains_key(&block(p))).then(|| block(p))
+    }
+}
+
+/// Where a search measures from: the place, where it is in the world, and the dungeon it is in.
+struct Measure {
+    at: Position,
+    world: Position,
+    dungeon: Option<u16>,
+}
+
+impl Measure {
+    /// How far entry `e` is: along the dungeon when both are in it, else between where each is in
+    /// the world; and whether it is outside the dungeon measured from (what is in it comes first).
+    fn far(&self, e: &Indexed) -> (bool, f32) {
+        if self
+            .dungeon
+            .is_some_and(|d| inside(&e.at) && block(&e.at) == d)
+        {
+            (false, dereth_navigation::global_distance(&self.at, &e.at))
+        } else {
+            (
+                self.dungeon.is_some(),
+                dereth_navigation::global_distance(&self.world, &e.world),
+            )
+        }
+    }
 }
 
 /// The last search by name, for one that goes on from it.
@@ -113,11 +218,14 @@ pub(crate) struct Query {
     pub limit: usize,
 }
 
-/// What a search found: the nearest it was asked for, and how many there are in all.
+/// What a search found: the nearest it was asked for, and how many there are in all; when it was
+/// measured, each one's distance and where in the world it was measured from.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Found {
     pub items: Vec<Src>,
     pub total: usize,
+    pub far: Vec<f32>,
+    pub from: Option<Position>,
 }
 
 /// The index of a frame's stores.
@@ -127,8 +235,10 @@ pub(crate) struct PlaceIndex {
     entries: Vec<Indexed>,
     /// Every word of every name, lower case, with its entry; in order.
     words: Vec<(Box<str>, u32)>,
-    /// The entries by the square they stand in.
+    /// The entries by the square they are in, in the world.
     squares: HashMap<(i32, i32), Vec<u32>>,
+    /// Where the dungeons are in the world.
+    dungeons: Dungeons,
     /// How many entries there are of each kind, portals and places apart.
     counts: HashMap<(bool, &'static str), usize>,
     last: Option<Last>,
@@ -218,7 +328,8 @@ impl PlaceIndex {
                 return false;
             }
             if self.entries[i].at != p.at {
-                let (from, to) = (square_of(&self.entries[i].at), square_of(&p.at));
+                let world = self.dungeons.world(&p.at);
+                let (from, to) = (square_of(&self.entries[i].world), square_of(&world));
                 if from != to {
                     let id = index(i);
                     if let Some(v) = self.squares.get_mut(&from) {
@@ -227,6 +338,7 @@ impl PlaceIndex {
                     self.squares.entry(to).or_default().push(id);
                 }
                 self.entries[i].at = p.at;
+                self.entries[i].world = world;
             }
         }
         for (k, p) in places.iter().enumerate().skip(self.places_len) {
@@ -236,6 +348,7 @@ impl PlaceIndex {
                 written: p.name.as_str().into(),
                 kind: p.kind.word(),
                 at: p.at,
+                world: self.dungeons.world(&p.at),
                 src: Src::Place(index(k)),
             });
             let e = &self.entries[id as usize];
@@ -244,7 +357,10 @@ impl PlaceIndex {
                 let at = self.words.partition_point(|x| (&x.0, x.1) < (&w, id));
                 self.words.insert(at, (w, id));
             }
-            self.squares.entry(square_of(&e.at)).or_default().push(id);
+            self.squares
+                .entry(square_of(&e.world))
+                .or_default()
+                .push(id);
             *self.counts.entry((false, e.kind)).or_default() += 1;
             self.added += 1;
         }
@@ -260,12 +376,15 @@ impl PlaceIndex {
         self.squares.clear();
         self.counts.clear();
         self.last = None;
+        self.dungeons = Dungeons::of(stores.portals);
+        let dungeons = &self.dungeons;
         let add = |entries: &mut Vec<Indexed>, name: &str, kind, at: Position, src| {
             entries.push(Indexed {
                 name: name.to_lowercase().into_boxed_str(),
                 written: name.into(),
                 kind,
                 at,
+                world: dungeons.world(&at),
                 src,
             });
         };
@@ -315,7 +434,7 @@ impl PlaceIndex {
             for w in words(&e.name) {
                 self.words.push((w.into(), i));
             }
-            self.squares.entry(square_of(&e.at)).or_default().push(i);
+            self.squares.entry(square_of(&e.world)).or_default().push(i);
             *self.counts.entry((e.src.portal(), e.kind)).or_default() += 1;
         }
         self.words.sort_unstable();
@@ -356,6 +475,33 @@ impl PlaceIndex {
         out
     }
 
+    /// Where `q` measures from, when it is measured.
+    fn measure(&self, q: &Query) -> Option<Measure> {
+        q.near.map(|at| Measure {
+            at,
+            world: self.dungeons.world(&at),
+            dungeon: self.dungeons.of_place(&at),
+        })
+    }
+
+    /// What `kept` holds (each whether it is outside the dungeon measured from, its distance and
+    /// its entry), as found.
+    fn found(&self, kept: Vec<(bool, f32, u32)>, total: usize, from: Option<&Measure>) -> Found {
+        Found {
+            far: if from.is_some() {
+                kept.iter().map(|k| k.1).collect()
+            } else {
+                Vec::new()
+            },
+            items: kept
+                .into_iter()
+                .map(|(_, _, i)| self.entries[i as usize].src)
+                .collect(),
+            total,
+            from: from.map(|f| f.world),
+        }
+    }
+
     /// The nearest `q` asks for, and how many there are.
     pub fn search(&mut self, q: &Query) -> Found {
         if q.words.is_empty() {
@@ -392,36 +538,33 @@ impl PlaceIndex {
     }
 
     /// The nearest of `ids` (all of what `q` asks for), and how many of them are within reach:
-    /// those named exactly as searched for first, however far, then the rest.
+    /// those named exactly as searched for first, however far, then what is in the dungeon
+    /// measured from, then the rest.
     fn nearest(&self, ids: &[u32], q: &Query) -> Found {
-        let mut kept: Vec<(bool, f32, u32)> = ids
+        let from = self.measure(q);
+        let mut kept: Vec<(bool, bool, f32, u32)> = ids
             .iter()
             .filter_map(|&i| {
                 let e = &self.entries[i as usize];
-                let d = q
-                    .near
-                    .as_ref()
-                    .map_or(0.0, |n| dereth_navigation::global_distance(n, &e.at));
+                let (away, d) = from.as_ref().map_or((false, 0.0), |f| f.far(e));
                 let exact =
                     !q.words.is_empty() && words(&e.name).eq(q.words.iter().map(String::as_str));
-                q.within.is_none_or(|w| d <= w).then_some((!exact, d, i))
+                q.within
+                    .is_none_or(|w| d <= w)
+                    .then_some((!exact, away, d, i))
             })
             .collect();
         let total = kept.len();
-        let order =
-            |a: &(bool, f32, u32), b: &(bool, f32, u32)| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1));
+        let order = |a: &(bool, bool, f32, u32), b: &(bool, bool, f32, u32)| {
+            a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.total_cmp(&b.2))
+        };
         if q.limit > 0 && q.limit < kept.len() {
             kept.select_nth_unstable_by(q.limit - 1, order);
             kept.truncate(q.limit);
         }
         kept.sort_by(order);
-        Found {
-            items: kept
-                .into_iter()
-                .map(|(_, _, i)| self.entries[i as usize].src)
-                .collect(),
-            total,
-        }
+        let kept = kept.into_iter().map(|(_, a, d, i)| (a, d, i)).collect();
+        self.found(kept, total, from.as_ref())
     }
 
     /// With no name: the nearest of the kinds asked for, the squares read ring by ring out from
@@ -433,36 +576,34 @@ impl PlaceIndex {
             .filter(|((portal, kind), _)| Self::counted(*portal, kind, q))
             .map(|(_, n)| n)
             .sum();
-        let Some(near) = q.near else {
-            let ids: Vec<u32> = (0..index(self.entries.len()))
+        let Some(from) = self.measure(q) else {
+            let kept: Vec<(bool, f32, u32)> = (0..index(self.entries.len()))
                 .filter(|&i| Self::of_kind(&self.entries[i as usize], q))
                 .take(q.limit.max(1))
+                .map(|i| (false, 0.0, i))
                 .collect();
             self.touched += self.entries.len();
-            return Found {
-                items: ids
-                    .into_iter()
-                    .map(|i| self.entries[i as usize].src)
-                    .collect(),
-                total,
-            };
+            return self.found(kept, total, None);
         };
-        let (cx, cy) = square_of(&near);
+        // What is in the dungeon measured from is where the dungeon is: all in the first square.
+        let (cx, cy) = square_of(&from.world);
         let rings = self
             .squares
             .keys()
             .map(|&(x, y)| (x - cx).abs().max((y - cy).abs()))
             .max()
             .unwrap_or(0);
-        let mut kept: Vec<(f32, u32)> = Vec::new();
+        let order =
+            |a: &(bool, f32, u32), b: &(bool, f32, u32)| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1));
+        let mut kept: Vec<(bool, f32, u32)> = Vec::new();
         for ring in 0..=rings {
             // What this ring holds is at least this far: a square less than its distance out.
             #[allow(clippy::cast_precision_loss)]
             let beyond = (ring - 1).max(0) as f32 * SQUARE;
             if kept.len() >= q.limit.max(1) {
-                kept.sort_by(|a, b| a.0.total_cmp(&b.0));
+                kept.sort_by(order);
                 kept.truncate(q.limit.max(1));
-                if kept.last().is_some_and(|k| k.0 <= beyond) {
+                if kept.last().is_some_and(|k| !k.0 || k.1 <= beyond) {
                     break;
                 }
             }
@@ -480,23 +621,17 @@ impl PlaceIndex {
                         if !Self::of_kind(e, q) {
                             continue;
                         }
-                        let d = dereth_navigation::global_distance(&near, &e.at);
+                        let (away, d) = from.far(e);
                         if q.within.is_none_or(|w| d <= w) {
-                            kept.push((d, i));
+                            kept.push((away, d, i));
                         }
                     }
                 }
             }
         }
-        kept.sort_by(|a, b| a.0.total_cmp(&b.0));
+        kept.sort_by(order);
         kept.truncate(q.limit.max(1));
-        Found {
-            items: kept
-                .into_iter()
-                .map(|(_, i)| self.entries[i as usize].src)
-                .collect(),
-            total,
-        }
+        self.found(kept, total, Some(&from))
     }
 }
 
@@ -841,6 +976,160 @@ mod tests {
         assert_eq!(index.built, 1, "made at the frame start");
         index.of(&stores);
         assert_eq!(index.built, 1, "the search finds it made");
+    }
+
+    /// A place indoors, in cell `cell` of landblock `(x, y)`, at `(ox, oy)` in its frame.
+    fn indoors(x: u32, y: u32, cell: u32, (ox, oy): (f32, f32)) -> Position {
+        Position::new(
+            CellId((((x << 8) | y) << 16) | cell),
+            Frame::new(Vec3::new(ox, oy, 0.0), Quat::IDENTITY),
+        )
+    }
+
+    fn portal(name: &str, from: Position, to: Position) -> PortalEdge {
+        PortalEdge {
+            source: EdgeSource::Hint,
+            wcid: None,
+            name: name.to_owned(),
+            from,
+            to: Some(to),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+            shape: None,
+        }
+    }
+
+    fn person(name: &str, at: Position) -> KnownPlace {
+        KnownPlace {
+            kind: PlaceKind::Npc,
+            source: EdgeSource::Hint,
+            wcid: None,
+            name: name.to_owned(),
+            at,
+            first_seen: 0,
+            last_seen: 0,
+            owner: None,
+            to: None,
+        }
+    }
+
+    /// From inside a dungeon, what is in it comes first, measured along it, then the rest, from
+    /// where the dungeon is in the world: its portal's place on the land. The dungeons in the
+    /// landblocks beside its own are as far as their own portals; and a building, in land where
+    /// portals stand, is where it stands.
+    #[test]
+    fn from_inside_a_dungeon_the_search_measures_from_where_the_dungeon_is_in_the_world() {
+        // The dungeon in landblock 0x5C45, its portal on the land at 0x1010 and its exit; the one
+        // beside it, 0x5D45, entered far away at 0xC0C0 by way of another dungeon, 0x7070.
+        let door = at(0x10, 0x10);
+        let start = indoors(0x5C, 0x45, 0x100, (10.0, -10.0));
+        let mut portals = PortalStore::new("W");
+        portals.merge([
+            portal("Tusker Abode", door, start),
+            portal(
+                "Surface",
+                indoors(0x5C, 0x45, 0x120, (50.0, -10.0)),
+                at(0x10, 0x11),
+            ),
+            portal(
+                "Hall",
+                at(0xC0, 0xC0),
+                indoors(0x70, 0x70, 0x100, (0.0, 0.0)),
+            ),
+            portal(
+                "Deeper Catacombs",
+                indoors(0x70, 0x70, 0x110, (5.0, 5.0)),
+                indoors(0x5D, 0x45, 0x100, (5.0, 5.0)),
+            ),
+            // A town's portal, and one that sends into a shop of the town.
+            portal("Town Portal", at(0x20, 0x20), at(0x30, 0x30)),
+            portal(
+                "Shop Portal",
+                at(0x40, 0x40),
+                indoors(0x20, 0x20, 0x105, (30.0, 30.0)),
+            ),
+        ]);
+        let mut places = PlaceStore::new("W");
+        places.merge([
+            person("Rolling Ball", indoors(0x5D, 0x45, 0x101, (6.0, 6.0))),
+            person("Tusker Guard", indoors(0x5C, 0x45, 0x101, (20.0, -10.0))),
+            person("Healer", at(0x11, 0x10)),
+            person("Grocer", indoors(0x20, 0x20, 0x106, (30.0, 30.0))),
+        ]);
+        let stores = Stores {
+            portals: Some(&portals),
+            places: Some(&places),
+            map: None,
+        };
+        let mut index = PlaceIndex::default();
+        let names = |found: &Found| -> Vec<String> {
+            found
+                .items
+                .iter()
+                .map(|s| match *s {
+                    Src::Portal(i) => portals.portals()[i as usize].name.clone(),
+                    Src::Place(i) => places.places()[i as usize].name.clone(),
+                    Src::Map(_) => String::new(),
+                })
+                .collect()
+        };
+        let from_start = |text: &str, limit| Query {
+            near: Some(start),
+            ..query(text, limit)
+        };
+        let found = index.of(&stores).search(&from_start("", 5));
+        assert_eq!(
+            names(&found),
+            [
+                "Tusker Guard",
+                "Surface",
+                "Tusker Abode",
+                "Healer",
+                "Town Portal"
+            ],
+            "{found:?}"
+        );
+        assert_eq!(found.from, Some(door), "measured from the dungeon's portal");
+        let along =
+            dereth_navigation::global_distance(&start, &indoors(0x5C, 0x45, 0x101, (20.0, -10.0)));
+        assert_eq!(found.far[0], along, "along the dungeon");
+        assert_eq!(found.far[2], 0.0, "its own portal is where it is");
+        assert_eq!(
+            found.far[3],
+            dereth_navigation::global_distance(&door, &at(0x11, 0x10))
+        );
+        // By name, the same: the guard first, then from the dungeon's portal.
+        let found = index.of(&stores).search(&from_start("tusker", 8));
+        assert_eq!(names(&found), ["Tusker Guard", "Tusker Abode"]);
+        // The dungeon beside is where its way in is, past the other dungeon: farther than the town.
+        let far = index.of(&stores).search(&from_start("", 20));
+        let rolling = names(&far).iter().position(|n| n == "Rolling Ball");
+        let town = names(&far).iter().position(|n| n == "Town Portal");
+        assert!(rolling.is_some() && rolling > town, "{:?}", names(&far));
+        assert_eq!(
+            index
+                .dungeons
+                .world(&indoors(0x5D, 0x45, 0x101, (6.0, 6.0))),
+            at(0xC0, 0xC0)
+        );
+        // In the town's shop, the grocer is where he stands: the town is land.
+        assert_eq!(
+            index
+                .dungeons
+                .world(&indoors(0x20, 0x20, 0x106, (30.0, 30.0))),
+            indoors(0x20, 0x20, 0x106, (30.0, 30.0))
+        );
+        // Outdoors nothing changes: the nearest from where the character stands.
+        let outside = index.of(&stores).search(&Query {
+            near: Some(at(0x11, 0x10)),
+            ..query("", 1)
+        });
+        assert_eq!(names(&outside), ["Healer"]);
+        assert_eq!(outside.from, Some(at(0x11, 0x10)));
     }
 
     fn index_of(i: usize) -> u32 {

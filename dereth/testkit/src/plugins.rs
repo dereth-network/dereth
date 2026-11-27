@@ -1445,6 +1445,18 @@ impl PluginRun {
             .collect();
     }
 
+    /// The world's portals and places as an era's package has them, in the stores' own text
+    /// forms: what the client knows of the world before the character has seen any of it.
+    ///
+    /// # Panics
+    /// When either text does not read as its store.
+    pub fn era_package(&mut self, portals: &str, places: &str) {
+        self.travel.store =
+            dereth_navigation::PortalStore::from_text(portals).expect("the portal table reads");
+        self.world_places =
+            dereth_navigation::PlaceStore::from_text(places).expect("the places read");
+    }
+
     /// The scripted world's portals and recalls, for journeys.
     pub fn scripted_portals(
         &mut self,
@@ -1717,6 +1729,12 @@ impl PluginRun {
         let p = self.places.player.as_ref()?;
         let (ns, ew) = dereth_plugin_host::places::coords(p)?;
         Some((ns, ew, dereth_plugin_host::places::heading(p)))
+    }
+
+    /// Move the scripted character to `at`, indoors or out, as a teleport would.
+    pub fn place_player_at(&mut self, at: dereth_primitives::Position) {
+        self.places.player = Some(at);
+        self.frame();
     }
 
     /// Move the scripted character to map coordinates `(ns, ew)`, as a teleport would.
