@@ -4706,6 +4706,12 @@ pub trait SceneReads: sealed::SceneHalves {
         draw.view_params(world, width, height)
     }
 
+    /// [`SceneDraw::sky_view_params`] on the scene, under its own view.
+    fn sky_view_params(&self, width: u32, height: u32) -> ViewParams {
+        let (world, draw) = self.halves();
+        draw.sky_view_params(&draw.view_params(world, width, height))
+    }
+
     /// [`SceneDraw::effective_viewport`] on the scene.
     fn effective_viewport(&self, width: u32, height: u32) -> dereth_render::camera::Viewport {
         let (world, draw) = self.halves();

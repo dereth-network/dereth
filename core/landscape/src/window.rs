@@ -207,6 +207,24 @@ impl<M> LandblockWindow<M> {
         }
     }
 
+    /// How far from `eye` the farthest land this window holds can lie, its ground anywhere
+    /// between the heights `low` and `high`: the distance to the farthest corner of the box the
+    /// window's blocks fill. `eye` is in the window's own space, the viewer's block's south-west
+    /// corner at the origin ([`Self::block_frame_origin`]).
+    #[must_use]
+    pub fn reach(&self, eye: [f32; 3], low: f32, high: f32) -> f32 {
+        // LINT-OK: a radius of a few dozen blocks, exact as a float.
+        #[allow(clippy::cast_precision_loss)]
+        let r = self.mid_radius as f32;
+        let l = self.spec.block_length;
+        let (west, east) = (-r * l, (r + 1.0) * l);
+        let span = |at: f32, lo: f32, hi: f32| (at - lo).abs().max((hi - at).abs());
+        let x = span(eye[0], west, east);
+        let y = span(eye[1], west, east);
+        let z = span(eye[2], low, high);
+        (x * x + y * y + z * z).sqrt()
+    }
+
     /// The landscape's block update.
     ///
     /// Returns one [`SlotAction`] per window slot in `mid_width * xi + yi` order, so a caller can
@@ -393,6 +411,54 @@ impl<M> LandblockWindow<M> {
 mod tests {
     use super::*;
     use crate::block_orient;
+
+    /// The reach is the distance to the farthest point of the land the window holds: no corner of
+    /// any of its blocks, at the lowest or the highest ground, lies farther, and one lies exactly
+    /// that far. Checked for small and long windows and for eyes inside, beside and high above
+    /// the viewer's block.
+    #[test]
+    fn the_reach_is_the_farthest_corner_of_every_block_the_window_holds() {
+        let (low, high) = (-10.0f32, 1_500.0f32);
+        for radius in [0u32, 2, 8, 25] {
+            let win = LandblockWindow::<()>::new(radius);
+            for eye in [
+                [96.0f32, 96.0, 120.0],
+                [0.0, 191.0, 40.0],
+                [-150.0, 300.0, 900.0],
+                [96.0, 96.0, 6_000.0],
+            ] {
+                let reach = win.reach(eye, low, high);
+                let mut farthest = 0.0f32;
+                for xi in 0..win.mid_width() {
+                    for yi in 0..win.mid_width() {
+                        let (x0, y0) = win.block_frame_origin(xi, yi);
+                        for (x, y) in [
+                            (x0, y0),
+                            (x0 + BLOCK_LENGTH, y0),
+                            (x0, y0 + BLOCK_LENGTH),
+                            (x0 + BLOCK_LENGTH, y0 + BLOCK_LENGTH),
+                        ] {
+                            for z in [low, high] {
+                                let d = ((x - eye[0]).powi(2)
+                                    + (y - eye[1]).powi(2)
+                                    + (z - eye[2]).powi(2))
+                                .sqrt();
+                                assert!(
+                                    d <= reach + 1e-2,
+                                    "radius {radius}, eye {eye:?}: a corner lies {d} m out,                                      past the reach {reach}"
+                                );
+                                farthest = farthest.max(d);
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    (reach - farthest).abs() < 1e-2,
+                    "radius {radius}, eye {eye:?}: the reach {reach} is not the farthest corner                      {farthest}"
+                );
+            }
+        }
+    }
 
     /// Oracle: the LOD-ring table and the five
     /// presets. The ring assignment is a pure function of the Chebyshev distance, checked for every

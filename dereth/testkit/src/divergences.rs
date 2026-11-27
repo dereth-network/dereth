@@ -508,6 +508,17 @@ pub static DIVERGENCES: &[Divergence] = &[
               did can have them.",
     },
     Divergence {
+        id: "CD-land-reaches-its-draw-distance",
+        title: "Land is drawn out to the draw distance",
+        change: "The far plane is moved out to the farthest land the landscape draws, so at a long \
+                 draw distance, or from high above the land, far mountains are drawn whole. The \
+                 final client's far plane stayed at 4,000 meters and cut away land past it, \
+                 showing the sky in its place, at the Very High and Extreme draw distances. \
+                 The sky is drawn as before.",
+        why: "A long draw distance exists to show far land; mountains cut flat or missing where \
+              they should stand looked broken, most of all on a world of high, dense land.",
+    },
+    Divergence {
         id: "CD-larger-receive-buffer",
         title: "A larger network receive buffer",
         change: "The client asks for a 4 MiB receive buffer, where the final client asked for \

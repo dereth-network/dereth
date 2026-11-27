@@ -38,14 +38,9 @@ impl SceneDraw {
         let aspect =
             dereth_render::camera::compute_aspect_for_viewport(vw, vh, display_aspect, false);
         let eye = self.drawn_eye(ws);
-        // While the presentation draws the drawn ground, the camera sees to its horizon.
-        #[allow(unused_mut)]
-        let mut zfar = dereth_render::camera::ZFAR;
-        // And while the remaster draws its ground out to the horizon.
-        #[cfg(feature = "remaster")]
-        if let Some(h) = self.remaster_ground.horizon() {
-            zfar = zfar.max(h * 1.1);
-        }
+        // The far plane reaches the farthest land the landscape holds, so a draw distance past
+        // the usual far plane never cuts the far land away and shows the sky in its place.
+        let zfar = self.sky_base_far().max(self.land_reach(ws, &eye));
         ViewParams {
             view: dereth_render::camera::view_from_frame(&eye),
             // The game field of view, which default-FOV setup
@@ -71,6 +66,43 @@ impl SceneDraw {
             zfar,
             ..ViewParams::default()
         }
+    }
+
+    /// The far plane the world is drawn with before the land's reach is added: the usual one, or
+    /// the remaster's horizon while it draws its ground out to it. The sky's far plane is this
+    /// one's multiple, so how far the land reaches never changes how the sky is drawn.
+    fn sky_base_far(&self) -> f32 {
+        #[allow(unused_mut)]
+        let mut zfar = dereth_render::camera::ZFAR;
+        // While the remaster draws its ground, the camera sees to its horizon.
+        #[cfg(feature = "remaster")]
+        if let Some(h) = self.remaster_ground.horizon() {
+            zfar = zfar.max(h * 1.1);
+        }
+        zfar
+    }
+
+    /// The [`ViewParams`] the sky is drawn with under the world's `view`: the sky's multiple of
+    /// the far plane before the land's reach, so the sky is drawn as it is at every draw distance.
+    #[must_use]
+    pub fn sky_view_params(&self, view: &ViewParams) -> ViewParams {
+        crate::sky::SkyScene::view_params(&ViewParams {
+            zfar: self.sky_base_far(),
+            ..*view
+        })
+    }
+
+    /// How far from `eye` the farthest land the landscape window holds can lie, meters: the
+    /// window's blocks, their ground anywhere between the lowest and highest heights the
+    /// region's height table gives.
+    fn land_reach(&self, ws: &WorldState, eye: &Frame) -> f32 {
+        let (low, high) = self
+            .land
+            .table
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), &h| (lo.min(h), hi.max(h)));
+        let o = eye.origin;
+        ws.streamer.window.reach([o.x, o.y, o.z], low, high)
     }
 
     /// Where the frame is drawn from for the camera in `ws`: the camera itself, except that while
@@ -488,7 +520,7 @@ impl SceneDraw {
         // Sky drawing rebuilds the projection with `zfar * 4` for the duration of both
         // passes and puts it back afterwards, so the sky gets its own `PerFrame` block and the
         // world keeps the one above.
-        let sky_view = crate::sky::SkyScene::view_params(&view);
+        let sky_view = self.sky_view_params(&view);
         let sky_per_frame = per_frame_constants(&sky_view);
         let outside = ws.viewer_cell().is_none();
 

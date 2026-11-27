@@ -1,7 +1,8 @@
 //! The landscape draw distance: the `Render.LandscapeDrawDistance` preference (registered default
 //! 8 = `Medium`, choices `[3, 5, 8, 11, 15, 25]`) sets the landscape window, the client's default
-//! is 8, a window that reaches the far terrain paints the distant mountains, and a ridge beyond a
-//! short window no longer hides an object behind it once the window reaches it.
+//! is 8, a window that reaches the far terrain paints the distant mountains, a ridge beyond a
+//! short window no longer hides an object behind it once the window reaches it, and land past the
+//! usual far plane is drawn rather than cut away for the sky.
 //!
 //! Fixture: the retail dats and a station recorded in retail at Holtburg, `/loc`
 //! `0xA9B4002A [130.097656 24.053997 94.005005]` facing north, with an `ObjectStream` fed by hand
@@ -726,5 +727,131 @@ fn an_object_behind_a_ridge_beyond_the_window_draws_through_it() {
         "the client's own landscape draw distance ({configured}) does not occlude this object the \
          way retail's {RETAIL_DEFAULT_MID_RADIUS} does: {} pixels against {}",
         painted[2], painted[1]
+    );
+}
+
+/// The land under a camera parked straight above the viewer's block, `height` meters over the
+/// ground's zero, and the frame it draws.
+fn straight_down(
+    store: &std::sync::Arc<RetailDatStore>,
+    gpu: &mut Gpu,
+    scene: &mut WorldScene,
+    height: f32,
+) -> Vec<u8> {
+    scene.camera.position = Vec3::new(BLOCK / 2.0, BLOCK / 2.0, height);
+    scene.camera.yaw = 0.0;
+    // A hair off straight down, so the camera's up is still defined.
+    scene.camera.pitch = 0.01 - std::f32::consts::FRAC_PI_2;
+    let mut objects = ObjectStream::new();
+    scene
+        .sync_objects(store, gpu, &mut objects)
+        .expect("sync_objects");
+    scene.update(
+        dereth_client_runtime::camera::CameraInput::default(),
+        CharacterInput::default(),
+        LocalTime(1.0),
+        1.0 / 30.0,
+    );
+    scene.stream(store, gpu).expect("stream");
+    scene.reserve_upload_arena(gpu).expect("reserve the arena");
+    gpu.begin_frame().expect("begin");
+    scene.draw(gpu).expect("draw");
+    gpu.end_frame().expect("end");
+    gpu.capture().expect("capture").to_rgba()
+}
+
+/// The mean color of the `side`-pixel square at the frame's center.
+fn center_mean(f: &[u8], side: u32) -> [f64; 3] {
+    let mut sum = [0.0f64; 3];
+    for y in (H - side) / 2..(H + side) / 2 {
+        for x in (W - side) / 2..(W + side) / 2 {
+            let at = ((y * W + x) * 4) as usize;
+            for (s, c) in sum.iter_mut().zip(&f[at..at + 3]) {
+                *s += f64::from(*c);
+            }
+        }
+    }
+    sum.map(|s| s / f64::from(side * side))
+}
+
+/// Behaviour: rendering.landscape.the-far-plane-reaches-the-farthest-land
+/// **Land past the usual far plane is drawn, and the sky is not moved.** A camera parked 4,700
+/// meters over Holtburg, looking straight down, has every point of the land under it past the
+/// usual 4,000-meter far plane. The world's far plane reaches past the farthest corner of every
+/// block the window holds, so the land fills the middle of the frame as it does from 3,400 meters,
+/// inside the usual far plane (from either height it is the fog's color); cut away, the middle of
+/// the frame is the sky instead. The sky's own far plane stays four times the usual one.
+#[test]
+fn land_past_the_usual_far_plane_is_drawn_and_the_sky_is_not_moved() {
+    let store = store();
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
+    let table = &region.land_defs.land_height_table;
+    let (low, high) = table
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &h| (lo.min(h), hi.max(h)));
+    let mut gpu = crate::common::test_gpu(W, H);
+    let cfg = SceneConfig {
+        landblock: HOLTBURG,
+        land_radius: 2,
+        scenery_radius: 0,
+        character: false,
+        time_of_day: Some(0.5),
+        particles: false,
+        ..SceneConfig::default()
+    };
+    let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
+
+    eprintln!("far plane: the region's ground lies between {low} m and {high} m");
+    let inside = straight_down(&store, &mut gpu, &mut scene, 3_400.0);
+    let past = straight_down(&store, &mut gpu, &mut scene, 4_700.0);
+
+    // By pixels: the middle of the frame is the land seen from either height.
+    let (a, b) = (center_mean(&inside, 40), center_mean(&past, 40));
+    let apart = a
+        .iter()
+        .zip(&b)
+        .map(|(p, q)| (p - q).abs())
+        .fold(0.0, f64::max);
+    eprintln!("far plane: the frame's middle from 3,400 m {a:.1?}, from 4,700 m {b:.1?}");
+    assert!(
+        apart < 12.0,
+        "the middle of the frame from 4,700 m ({b:.1?}) is not the land seen from 3,400 m \
+         ({a:.1?}): the land past the usual far plane was cut away"
+    );
+
+    // By depth: every corner of the land the window holds is nearer than the far plane.
+    let view = scene.view_params(W, H);
+    let usual = dereth_render::camera::ZFAR;
+    assert!(
+        view.zfar > usual,
+        "the far plane stayed at {} with the land at least {:.0} m below",
+        view.zfar,
+        4_700.0 - high
+    );
+    let eye = scene.camera.position;
+    let forward = scene.camera.forward();
+    // LINT-OK: a window radius of two blocks, exact as a float.
+    #[allow(clippy::cast_precision_loss)]
+    let r = scene.mid_radius() as f32;
+    for x in [-r * BLOCK, (r + 1.0) * BLOCK] {
+        for y in [-r * BLOCK, (r + 1.0) * BLOCK] {
+            for z in [low, high] {
+                let p = Vec3::new(x - eye.x, y - eye.y, z - eye.z);
+                let depth = p.dot(forward);
+                assert!(
+                    depth < view.zfar,
+                    "the land's corner ({x}, {y}, {z}) lies {depth:.0} m out, past the far plane \
+                     at {:.0} m",
+                    view.zfar
+                );
+            }
+        }
+    }
+    // The sky is drawn under its own far plane, the usual one's multiple, whatever the land's.
+    let sky = scene.sky_view_params(W, H);
+    assert!(
+        (sky.zfar - usual * dereth_world_render::sky::SKY_ZFAR_MULTIPLIER).abs() < 1e-3,
+        "the sky's far plane, {}, followed the land's",
+        sky.zfar
     );
 }

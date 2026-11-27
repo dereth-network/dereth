@@ -478,6 +478,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.landscape.the-far-plane-reaches-the-farthest-land",
+        says: "Land is drawn as far as the draw distance reaches, however far that is: the far \
+               plane is moved out to the farthest land the landscape holds, so the sky never shows \
+               where far land should be, and the sky itself is drawn as it always is.",
+        since: THIS_CLIENT,
+        divergence: "CD-land-reaches-its-draw-distance",
+        evidence: Evidence::Private("AC-EVID-FAR-LAND"),
+        station: "dereth-client::gpu::rendering::landscape_draw_distance::land_past_the_usual_far_plane_is_drawn_and_the_sky_is_not_moved",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.landscape.the-landscape-detail-preference-draws-a-fading-detail-texture",
         says: "With Landscape Detail Textures turned on in the player's profile, a fine \
                repeating detail texture is drawn over the ground near the player, strongest \
