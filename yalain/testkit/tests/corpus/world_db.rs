@@ -34066,13 +34066,13 @@ fn press_seal(w: &mut Walled, t: &Tables, n: usize) {
     w.h.run(5);
 }
 
-/// The beast's health a while after it is set well below its greatest: how much it rose (or fell,
-/// below 0), hurt `harm` a second by the walker meanwhile.
-fn beast_rise(w: &mut Walled, id: u64, seconds: u32, harm: i32) -> i32 {
-    let from = {
+/// The beast's health a while after it is set well below its greatest, hurt `harm` a second by the
+/// walker meanwhile: how much it rose (or fell, below 0), and over how many seconds.
+fn beast_rise(w: &mut Walled, id: u64, seconds: u32, harm: i32) -> (i32, f64) {
+    let (from, since) = {
         let x = w.h.server.things.get_mut(id).expect("the beast");
         x.health = x.max_health - 200_000;
-        x.health
+        (x.health, w.h.now.0)
     };
     for _ in 0..seconds {
         if harm > 0 {
@@ -34082,7 +34082,27 @@ fn beast_rise(w: &mut Walled, id: u64, seconds: u32, harm: i32) -> i32 {
         }
         w.wait(1.0);
     }
-    w.h.server.things.get(id).map_or(0, |x| x.health) - from
+    let rise = w.h.server.things.get(id).map_or(0, |x| x.health) - from;
+    (rise, w.h.now.0 - since)
+}
+
+/// What the beast's rise over `watched` seconds can be with `heals` of its heals of 200 a second
+/// on it, hurt `hurt` in all meanwhile, whatever the dice draw. Each heal ticks its rate times the
+/// seconds since its last tick, the first within 10.4 s of its cast and each next 5.6 to 11.3 s
+/// on, run at the first step its time has come by. So it adds, over the watch, the time from its
+/// last tick before the watch to its last within it: the watch's length, give or take less than
+/// its longest gap. Each tick's amount is rounded down, a point at most lost.
+fn heals_rise(heals: i32, watched: f64, hurt: i32) -> std::ops::RangeInclusive<i32> {
+    use yalain_world::effects::{CREATURE_TICK_LEAST, CREATURE_TICK_MOST};
+    const RATE: f64 = 200.0;
+    let gap = CREATURE_TICK_MOST + yalain_testkit::STEP;
+    let ticks = (watched / CREATURE_TICK_LEAST).ceil() + 1.0;
+    let heals = f64::from(heals);
+    let least = heals * (RATE * (watched - gap) - ticks) - f64::from(hurt);
+    let most = heals * RATE * (watched + gap) - f64::from(hurt);
+    #[allow(clippy::cast_possible_truncation)]
+    let (least, most) = (least.floor() as i32, most.ceil() as i32);
+    least..=most
 }
 
 /// The lair walled with what the seals need, the walker in it and the beast made by its camp: the
@@ -34137,17 +34157,23 @@ fn an_unsealed_beast_out_heals_a_modest_harm_and_a_sealed_one_does_not() {
             .all(|h| h.skill != HEALS_AGAIN),
         "never cast on itself"
     );
-    let unsealed = beast_rise(&mut w, id, 60, 500);
-    assert!(unsealed > 20_000, "it out-heals the harm: {unsealed}");
+    let (unsealed, watched) = beast_rise(&mut w, id, 60, 500);
+    let five = heals_rise(5, watched, 500 * 60);
+    assert!(
+        *five.start() > 0 && five.contains(&unsealed),
+        "it out-heals the harm: {unsealed}, {five:?}"
+    );
     for n in 0..CACOPHOS_SEALS.len() {
         press_seal(&mut w, t, n);
     }
     assert_eq!(beast_holds(&w, id).len(), 5, "five bars, no heal");
-    let sealed = beast_rise(&mut w, id, 60, 500);
+    let (sealed, _) = beast_rise(&mut w, id, 60, 500);
     assert!(sealed < -20_000, "the harm tells: {sealed}");
+    // The same harm in each watch: what the first rose by more is the five heals' worth.
+    let heals = heals_rise(5, watched, 0);
     assert!(
-        unsealed - sealed > 55_000,
-        "the heals were a thousand a second: {unsealed} against {sealed}"
+        unsealed - sealed >= *heals.start(),
+        "the heals were a thousand a second: {unsealed} against {sealed}, {heals:?}"
     );
 }
 
@@ -34179,10 +34205,17 @@ fn the_same_seal_pressed_twice_takes_no_more_off_the_beast() {
     let once = beast_holds(&w, id);
     assert_eq!(once.len(), 5, "four heals and the bar");
     assert!(!once.contains(&heal) && once.contains(&bar));
-    let after_one = beast_rise(&mut w, id, 30, 100);
+    // Watched long enough that four heals' rise, whatever the dice draw, is neither three heals'
+    // nor five heals'.
+    let (after_one, watched) = beast_rise(&mut w, id, 120, 100);
+    let four = heals_rise(4, watched, 100 * 120);
     assert!(
-        (18_000..24_000).contains(&after_one),
-        "four heals of 200 a second against 100: {after_one}"
+        heals_rise(3, watched, 100 * 120).end() < four.start()
+            && four.end() < heals_rise(5, watched, 100 * 120).start()
+    );
+    assert!(
+        four.contains(&after_one),
+        "four heals of 200 a second against 100: {after_one}, {four:?}"
     );
     press_seal(&mut w, t, 0);
     assert_eq!(
@@ -34200,10 +34233,11 @@ fn the_same_seal_pressed_twice_takes_no_more_off_the_beast() {
         "{twice:08X?}"
     );
     assert_eq!(twice.len(), 5, "still four heals and one bar");
-    let after_two = beast_rise(&mut w, id, 30, 100);
+    let (after_two, watched) = beast_rise(&mut w, id, 120, 100);
+    let four = heals_rise(4, watched, 100 * 120);
     assert!(
-        (after_one - after_two).abs() < 3_000,
-        "heals as fast: {after_one} and {after_two}"
+        four.contains(&after_two),
+        "heals as fast: {after_one} and {after_two}, {four:?}"
     );
 }
 
