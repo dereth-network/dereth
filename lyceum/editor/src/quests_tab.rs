@@ -168,14 +168,14 @@ impl QuestsTab {
 
 /// The quests answering `filter` (lower case): those whose name holds it; with `packs_only`,
 /// only those the pack being edited registers (its own, or its change of the server's) and those
-/// nothing registers.
+/// nothing registers that a pack's weenie names. One only the world database's weenies name is
+/// the world database's, registered or not.
 #[must_use]
 pub fn shown<'a>(all: &'a [WorldQuest], filter: &str, packs_only: bool) -> Vec<&'a WorldQuest> {
-    let mine = |q: &WorldQuest| {
-        matches!(
-            q.whose,
-            Whose::Pack { mine: true } | Whose::Changed { mine: true } | Whose::Nobody
-        )
+    let mine = |q: &WorldQuest| match q.whose {
+        Whose::Pack { mine: true } | Whose::Changed { mine: true } => true,
+        Whose::Nobody => q.uses.iter().any(|u| u.file.is_some()),
+        _ => false,
     };
     all.iter()
         .filter(|q| !packs_only || mine(q))
@@ -905,6 +905,18 @@ mod tests {
         assert_eq!(solves_typed("-1", any), "-1");
     }
 
+    /// A weenie's naming of a quest, in pack file `file` or (`None`) the world database.
+    fn named_in(file: Option<&str>) -> QuestUser {
+        QuestUser {
+            by: Weenie::Class(7),
+            how: QuestUse::Action {
+                category: 7,
+                action: 22,
+            },
+            file: file.map(Into::into),
+        }
+    }
+
     fn quest(name: &str, whose: Whose, uses: Vec<QuestUser>) -> WorldQuest {
         WorldQuest {
             name: name.into(),
@@ -943,7 +955,8 @@ mod tests {
             quest("Kept", Whose::Changed { mine: true }, Vec::new()),
             quest("Lent", Whose::Pack { mine: false }, Vec::new()),
             quest("Other", Whose::Changed { mine: false }, Vec::new()),
-            quest("Stray", Whose::Nobody, Vec::new()),
+            quest("Stray", Whose::Nobody, vec![named_in(Some("a.sql"))]),
+            quest("CarpWing", Whose::Nobody, vec![named_in(None)]),
         ];
         let names = |f: &str| -> Vec<&str> {
             shown(&all, f, true)
@@ -951,9 +964,10 @@ mod tests {
                 .map(|q| q.name.as_str())
                 .collect()
         };
+        // Unregistered: a pack's weenie's quest stays, one only the database names goes.
         assert_eq!(names(""), ["Gate", "Kept", "Stray"]);
         assert_eq!(names("st"), ["Stray"], "searched as well");
-        assert_eq!(shown(&all, "", false).len(), 6, "off: every one");
+        assert_eq!(shown(&all, "", false).len(), 7, "off: every one");
     }
 
     #[test]

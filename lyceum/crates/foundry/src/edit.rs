@@ -1722,6 +1722,26 @@ impl Session {
         crate::models::scenery_of(&self.base, &read, region, terrain)
     }
 
+    /// Where a world on a land of its own starts: the first place of the first starting area of
+    /// the character-creation table its land brings, as landblock and landblock meters. `None` for
+    /// a world with no import, which starts where the files' world does.
+    #[must_use]
+    pub fn land_start(&self) -> Option<(u16, dereth_primitives::Vec3)> {
+        if self.world.imports.is_empty() {
+            return None;
+        }
+        let id = DataId(crate::tables::CHARGEN);
+        let bytes =
+            compile::read_compiled(&self.compiled, &self.base, ModernDat::Portal, id.raw())?;
+        let cg = self
+            .base
+            .decode::<dereth_assets::tables::CharGen>(id, &bytes)
+            .ok()?;
+        let at = cg.starter_areas.first()?.locations.first()?;
+        let lb = u16::try_from(at.cell.0 >> 16).ok()?;
+        Some((lb, at.frame.origin))
+    }
+
     /// The region record: the height table and the terrain types.
     #[must_use]
     pub fn region(&self) -> Option<&Region> {
@@ -1746,10 +1766,17 @@ impl Session {
     }
 
     /// Learn what the server's own world holds, read already: its weenies, its instances and
-    /// its generators' links.
+    /// its generators' links. A world whose land places its own things (`own_placements`) takes
+    /// none of the server's instances, as a server running it places none.
     pub fn learn_server(&mut self, content: sql_ids::ServerContent) {
         self.retail.extend(content.weenies);
-        for i in content.instances {
+        let own = compile::imports_own_placements(&self.world);
+        let (instances, links) = if own {
+            (Vec::new(), Vec::new())
+        } else {
+            (content.instances, content.links)
+        };
+        for i in instances {
             if let Ok(lb) = u16::try_from(i.cell >> 16) {
                 let list = self.retail_instances.entry(lb).or_default();
                 let at = (lb, list.len());
@@ -1760,7 +1787,7 @@ impl Session {
                 list.push(i);
             }
         }
-        for (parent, child) in content.links {
+        for (parent, child) in links {
             self.retail_links.entry(parent).or_default().push(child);
         }
         self.link_table = std::cell::OnceCell::new();

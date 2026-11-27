@@ -313,3 +313,42 @@ fn play_over_a_world_that_places_its_own_things_hosts_the_packs_spawns_as_its_ow
     let own = played(&s, "play-1");
     assert!(own.contains("0x70202001\t1\t0x02020001\t20\t22\t"), "{own}");
 }
+
+/// **A world on a land that places its own things shows none of the server's spawns**: a
+/// server running it places none of the world database's, so the session learns the database's
+/// weenies but not its instances; over a land that doesn't say so, it learns them.
+#[test]
+fn a_world_over_a_land_that_places_its_own_things_learns_none_of_the_servers_spawns() {
+    use lyceum_foundry::edit::Session;
+    let f = Fixture::new("pack-import-no-server-spawns");
+    let (base, world) = base_and_world(&f);
+    import::import(
+        &base,
+        &world,
+        &f.path().join("imported"),
+        "x",
+        Iterations::Revision,
+        false,
+    )
+    .unwrap();
+    f.world();
+    let world_file = f.write(
+        "world.toml",
+        "key = \"test-world\"\npacks = [\"sample\"]\nimports = [\"imported\"]\nout = \"build\"\n",
+    );
+    let server = "INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, \
+         `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, \
+         `is_Link_Child`, `last_Modified`) VALUES (0x70202001, 1, 0x02020001, 10.0, 12.0, 0.0, \
+         1.0, 0.0, 0.0, 0.0, False, '2026-11-25 00:00:00');\n";
+    let learned = |rules: &str| {
+        f.write("imported/world.toml", rules);
+        let mut s = Session::open(&world_file, &base, None).unwrap();
+        s.learn_weenies(server);
+        s.server_instances(0x0202)
+    };
+    assert_eq!(learned("dungeons_by_cells = true\n"), 1);
+    assert_eq!(
+        learned("dungeons_by_cells = true\nown_placements = true\n"),
+        0
+    );
+}

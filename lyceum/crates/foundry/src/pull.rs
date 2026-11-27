@@ -695,7 +695,12 @@ pub fn prepare(
     // The source's cells of the dungeon: its world's, or the player's own files'.
     let source = match r.source {
         Some(path) => Session::open(path, dats, None)?,
-        None => Session::open_world(files_world(), dats, None, None)?,
+        None => {
+            let (world, dir) = files_world()?;
+            let opened = Session::open_world(world, dats, None, None);
+            let _ = std::fs::remove_dir_all(&dir);
+            opened?
+        }
     };
     let from = r
         .source
@@ -940,14 +945,25 @@ pub fn prepare(
     })
 }
 
-/// The player's own files as a world: no pack and no import over them, the end of retail's.
-fn files_world() -> crate::world::World {
+/// The player's own files as a world: no import over them, the end of retail's, and an empty pack,
+/// as every world a session opens has one; with the folder to remove once it is open.
+fn files_world() -> Result<(crate::world::World, PathBuf), crate::error::Error> {
     let dir = std::env::temp_dir().join(format!("lyceum-pull-files-{}", std::process::id()));
-    crate::world::World {
+    // A session edits a pack: an empty one, read as it opens, then gone with the folder.
+    let pack = dir.join("files");
+    std::fs::create_dir_all(&pack)
+        .and_then(|()| {
+            std::fs::write(
+                pack.join("pack.toml"),
+                "name = \"files\"\nversion = \"0.0.0\"\n",
+            )
+        })
+        .map_err(|e| crate::error::Error::Refused(format!("{}: {e}", pack.display())))?;
+    let world = crate::world::World {
         path: dir.join("world.toml"),
         key: "files".into(),
         era: crate::world::EraId::Eor,
-        packs: Vec::new(),
+        packs: vec![pack],
         imports: Vec::new(),
         out: dir.join("build"),
         ids: BTreeMap::new(),
@@ -956,7 +972,8 @@ fn files_world() -> crate::world::World {
         lineage: Vec::new(),
         land_steps: None,
         starts_at: None,
-    }
+    };
+    Ok((world, dir))
 }
 
 /// Row `row`'s guid and the guids it links, renumbered as `guids` has them.

@@ -2428,7 +2428,6 @@ impl EditorApp {
             UiAction::Redo => self.edit(&Edit::Redo).map(|_| ()),
             UiAction::Piece(i) => self.choose_piece(i),
             UiAction::DungeonGame(lb, game) => self.choose_dungeon_game(lb, game),
-            UiAction::LayAc2Room(east, north) => self.lay_ac2_room(east, north),
             UiAction::ChooseCell(lb, n) => self.choose_cell(lb, n),
             UiAction::PlaceOnSquare(sq) => self.place_on_square(sq),
             UiAction::Target(t) => {
@@ -5293,8 +5292,6 @@ enum UiAction {
     MapZoom(f32),
     /// The dungeon kit's piece chosen (its place in the kit).
     Piece(usize),
-    /// An AC2 room of tiles laid, so many squares east and north.
-    LayAc2Room(u8, u8),
     /// The chosen piece set down on a square of the grid; where to build chosen (or let go) for
     /// the palette to offer what fits there, and one of those put in; the ghost turned (or the
     /// next placement at its square).

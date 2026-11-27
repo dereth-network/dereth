@@ -368,7 +368,7 @@ fn a_quest_named_in_the_weenie_forms_quests_fold_opens_in_the_quests_tab_brought
 }
 
 #[test]
-fn this_packs_only_lists_the_packs_own_quests_its_changes_and_those_nothing_registers() {
+fn this_packs_only_lists_the_packs_own_quests_and_its_changes_and_none_only_the_server_names() {
     let _gpu = gpu_lock();
     let (_dir, mut ed) = editor_on_quests("quests-filter");
     stamp_gribble(&mut ed);
@@ -382,14 +382,9 @@ fn this_packs_only_lists_the_packs_own_quests_its_changes_and_those_nothing_regi
     let rows: Vec<&str> = ed.quests.rows.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(
         rows,
-        [
-            "CowTipCounter",
-            "GribbleGreeted",
-            "LetterTsaya2Given",
-            "OnCowTipQuest",
-            "PortalRegicideWitshirePermissionGiven",
-        ],
-        "not the server's HoltburgGreetingGiven"
+        ["CowTipCounter", "GribbleGreeted"],
+        "not the server's HoltburgGreetingGiven, nor those only its weenies name and nothing \
+         registers (LetterTsaya2Given, OnCowTipQuest, PortalRegicideWitshirePermissionGiven)"
     );
     keep(&mut ed, "quests", "08-this-packs-only.png");
     press(&mut ed, "this_pack_only");

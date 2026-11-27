@@ -92,7 +92,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     lyceum_editor::programs::fill_empyrean(&mut args.empyrean);
     // Where the world was left, when the command line names no landblock to start at; a world
     // repository left nowhere yet starts where its characters do.
-    let start_at = args
+    let named = args
         .landblock
         .or_else(|| lyceum_editor::place::read(&args.world).and_then(|l| l.landblock()))
         .or_else(|| {
@@ -100,8 +100,8 @@ fn run(argv: &[String]) -> Result<(), String> {
                 .then(|| lyceum_foundry::repo::Repo::open(&args.world).ok())
                 .flatten()
                 .and_then(|r| lyceum_foundry::repo_world::start_landblock(&r))
-        })
-        .unwrap_or(0xA9B4);
+        });
+    let start_at = named.unwrap_or(0xA9B4);
     let mut runtime = args.runtime_argv(start_at);
     if !args.headless {
         runtime.push("--log-file".to_owned());
@@ -111,6 +111,12 @@ fn run(argv: &[String]) -> Result<(), String> {
         start::remember(&args.world, &cfg.dat_dir);
     }
     let mut editor = lyceum_editor::app::EditorApp::open(&args, cfg)?;
+    // A world on a land of its own, left nowhere yet, starts where its characters do.
+    if named.is_none() {
+        if let Some((lb, at)) = editor.session.land_start() {
+            editor.go_to(lb, at, None, 60.0);
+        }
+    }
     if args.headless {
         let pack = editor.session.packs()[editor.session.target()].name.clone();
         let steps = match &args.script {

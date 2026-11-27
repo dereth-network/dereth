@@ -4280,6 +4280,42 @@ mod pull {
     /// a repository whose world holds other cells in its landblock, it is copied under the nearest
     /// that holds none, every row renumbered there, as the world's build numbers it; with its cells
     /// alone, nothing is placed. A landblock with no dungeon is refused.
+    /// **A dungeon is pulled from the player's own files** with no world named: their end of
+    /// retail's cells, as a world over them names none, and the server's rows round it.
+    #[test]
+    fn a_retail_dungeon_is_pulled_from_the_players_own_files() {
+        let (dir, _world) = sample("pull-dungeon-files");
+        let dats = dereth_dat::testing::dat_dir();
+        let database = dir.path().join("ACE-World-Database-v0.9.296.sql");
+        std::fs::write(&database, DATABASE).unwrap();
+        let vocabulary = schema();
+        let target = repository(&dir.path().join("repo"), None);
+        let done = pull(
+            &Request {
+                source: None,
+                database: &database,
+                landblock: DUNGEON,
+                target: &target,
+                schema: &vocabulary,
+                land: None,
+                pack: None,
+                entrance: None,
+                portal: None,
+                alongside: false,
+                dry_run: false,
+                library: true,
+                cells_only: false,
+            },
+            &dats,
+        )
+        .unwrap();
+        assert_eq!(
+            done.copied, None,
+            "the repository's world holds the files' cells alike"
+        );
+        assert_eq!(done.plan.rows.len(), 3, "the dungeon's own rows");
+    }
+
     #[test]
     fn a_retail_dungeon_is_pulled_into_a_repository_as_its_rows() {
         let (dir, world) = sample("pull-dungeon");

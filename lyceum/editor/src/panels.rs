@@ -381,8 +381,10 @@ impl EditorApp {
                     }
                     self.settings_menu(ui, out);
                     ui.separator();
-                    self.world_data_menu(ui, out);
-                    ui.separator();
+                    if SHOW_WORLD_DATA {
+                        self.world_data_menu(ui, out);
+                        ui.separator();
+                    }
                     let save = tip(
                         tool_button(ui, Icon::Save, false, self.session.unsaved()),
                         t.get("top.save"),
@@ -426,7 +428,7 @@ impl EditorApp {
     }
 
     /// The world's data, each in its tab: a world repository's rows and rules, and any world's
-    /// starting areas and tables.
+    /// starting areas and tables. Hidden while [`SHOW_WORLD_DATA`] is off.
     fn world_data_menu(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         use egui::containers::menu::MenuButton;
         let t = self.text.table();
@@ -2613,6 +2615,10 @@ enum Icon {
 }
 
 /// The size of a button of the bar of tools.
+/// Whether the top bar offers the World data menu (rows, rules, starting areas, tables): off
+/// until those editors are ready to ship.
+const SHOW_WORLD_DATA: bool = false;
+
 const BUTTON: egui::Vec2 = egui::vec2(30.0, 28.0);
 
 /// The width of a menu's arrow beside the button it belongs to.

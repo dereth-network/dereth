@@ -600,7 +600,7 @@ fn check_vertices(packs: &[Pack], grid: &LandGrid) -> Result<(), Error> {
 
 /// Whether an import of `world` says its world places its own things (`own_placements` in its
 /// `world.toml`), so a server running the world places nothing of the world database's.
-fn imports_own_placements(world: &World) -> bool {
+pub(crate) fn imports_own_placements(world: &World) -> bool {
     world.imports.iter().any(|i| {
         std::fs::read_to_string(i.join("world.toml"))
             .ok()
