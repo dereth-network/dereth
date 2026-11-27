@@ -2618,6 +2618,11 @@ pub fn build(args: &Args) -> Result<u32, String> {
         "  of them, {} models ({} placements) have no polygons to collide with and collide by AC2's cylinders or spheres",
         statics.rounded.0, statics.rounded.1
     );
+    let _ = writeln!(
+        stats,
+        "  of them, {} models ({} placements) are walked through in AC2, their entities' ethereal properties say, and collide with nothing",
+        statics.passed.0, statics.passed.1
+    );
     let _ = writeln!(stats, "{rooms_line}");
     let _ = writeln!(stats, "{dungeons_line}");
     let _ = writeln!(stats, "{pinned_line}");

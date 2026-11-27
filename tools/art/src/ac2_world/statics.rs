@@ -24,7 +24,9 @@
 //! where it stands; only the object's own scale along each axis (its entity's times its look's,
 //! a negative one turning it over) applies to them, as it does to its parts. An object none of
 //! whose parts has any collides as AC2 has it, by its setup's upright cylinders, else its spheres,
-//! scaled by its scale's height: they are its AC1 setup's own.
+//! scaled by its scale's height: they are its AC1 setup's own. An object AC2's player walks
+//! through has none of these: its entities' ethereal properties make it of a physics type the
+//! player passes ([`players_pass`]).
 //!
 //! **Materials:** each as AC2 makes it ready to draw: its template's own parameters, then its
 //! instance's modifiers, then the changes the part's look makes to it (its appearance's), the last
@@ -135,6 +137,9 @@ pub struct Statics {
     /// The placed models that collide by AC2's cylinders or spheres, having no polygons to
     /// collide with, and their placements.
     pub rounded: (usize, usize),
+    /// The placed models AC2's player walks through, made without the collision they have, and
+    /// their placements.
+    pub passed: (usize, usize),
     /// The statics asked for as buildings' shells ([`crate::ac2_world::rooms`]), made but not placed.
     pub shells: Vec<Shell>,
     /// Every placement's collision as it stands ([`crate::ac2_world::ledges`]), and each model's collision
@@ -282,6 +287,81 @@ pub(crate) struct Model {
     looped: bool,
     /// What it collides with when none of its parts has physics polygons.
     rounds: Rounds,
+    /// AC2's player walks through it ([`players_pass`]), so it was made without the polygons,
+    /// cylinders or spheres it has.
+    passed: bool,
+}
+
+/// The physics types AC2's player passes through as it moves: its template's movement
+/// ethereality (its qualities record's), a player in no kingdom.
+const PLAYER_PASSES: u64 = 0x0620_0010;
+
+/// The property group whose truth values set or clear an object's physics types.
+const ETHEREAL_GROUP: u32 = 0x4000_0003;
+
+/// The value type of a flag property: the only kind with a bit in a physics-type mask, the number
+/// its descriptor carries.
+const FLAG_KIND: u32 = 0x4000_0001;
+
+/// Whether AC2's player walks through an object made from `object` (an entity, a look or a setup)
+/// and placed with properties of its own, `own`. AC2 gives a placed object the physics types its
+/// entities' ethereal properties set: those of the entities it is made from first, the farthest
+/// first, then its own, each truth value setting or clearing its bit. (Outside, it is of the
+/// outdoor scenery's type besides, which the player does not pass.) The player passes an object of
+/// a type its movement passes through.
+pub(crate) fn players_pass(
+    wr: &WorldRecords,
+    object: u32,
+    own: Option<&auberean_assets::property::PropertyCollection>,
+) -> bool {
+    use auberean_world::place::PlaceRecords as _;
+    let Some(list) = wr.context().properties() else {
+        return false;
+    };
+    let mut chain = Vec::new();
+    let mut id = object;
+    for _ in 0..auberean_assets::entity::CHAIN_LIMIT {
+        if id >> 24 != 0x47 {
+            break;
+        }
+        let Some(e) = wr.entity(auberean_primitives::DataId(id)) else {
+            break;
+        };
+        id = e.object.unwrap_or(0);
+        chain.push(e);
+    }
+    let mut types = 0u64;
+    let collections = chain
+        .iter()
+        .rev()
+        .filter_map(|e| e.properties.as_ref())
+        .chain(own);
+    for g in collections.flat_map(|c| c.groups.iter()) {
+        if g.group != ETHEREAL_GROUP {
+            continue;
+        }
+        for p in &g.properties {
+            let auberean_assets::property::PropertyValue::Bool(on) = p.value else {
+                continue;
+            };
+            let Some(d) = list.descriptor(p.id).filter(|d| d.value_kind == FLAG_KIND) else {
+                continue;
+            };
+            if d.data >= 64 {
+                continue;
+            }
+            // The bit as AC2 builds it: a 32-bit shift (its count taken modulo 32) widened with its
+            // sign.
+            #[allow(clippy::cast_sign_loss)]
+            let bit = i64::from(1i32.wrapping_shl(d.data)) as u64;
+            if on {
+                types |= bit;
+            } else {
+                types &= !bit;
+            }
+        }
+    }
+    types & PLAYER_PASSES != 0
 }
 
 /// What AC2 has an object collide with when none of its parts has physics polygons: its setup's
@@ -567,6 +647,7 @@ pub fn place_statics(
             "ac2_object\tscale_milli\tac1_setup\tdraws\tsystems\temitters\tlights\tlooks\tnot_carried\tplacements\n",
         ),
         rounded: (0, 0),
+        passed: (0, 0),
         shells: Vec::new(),
         solids: Vec::new(),
         collisions: BTreeMap::new(),
@@ -893,6 +974,10 @@ pub fn place_statics(
         let e = st.made.entry(m.made).or_default();
         e.0 += 1;
         e.1 += placements;
+        if m.passed {
+            st.passed.0 += 1;
+            st.passed.1 += placements;
+        }
         if m.made != MADE_STILL {
             let _ = writeln!(
                 st.made_tsv,
@@ -1774,7 +1859,10 @@ pub(crate) fn make_model(
     } else {
         stance(wr, &parts, &meshes)
     };
+    let passes = players_pass(wr, object, None);
     let rounds = Rounds::of(wr, object, &meshes, tested_at);
+    let rounded = rounds != Rounds::default();
+    let rounds = if passes { Rounds::default() } else { rounds };
     match stance {
         Stance::Still(carries, made, off) => {
             let inputs = parts
@@ -1799,7 +1887,8 @@ pub(crate) fn make_model(
             let (lo, hi) = box_of(&b.corners, &b.collision.points);
             let mut verts = b.corners;
             verts.extend(b.collision.points.iter().copied());
-            let collision = (!b.collision.rings.is_empty()).then_some(b.collision);
+            let passed = passes && (rounded || !b.collision.rings.is_empty());
+            let collision = (!passes && !b.collision.rings.is_empty()).then_some(b.collision);
             let collision_part = collision
                 .as_ref()
                 .map(|c| collision_model(c, Vec3::new(1.0, 1.0, 1.0), ids, out))
@@ -1821,13 +1910,15 @@ pub(crate) fn make_model(
                 frames: None,
                 looped: false,
                 rounds,
+                passed,
             }))
         }
         Stance::Moving(frames, looped) => Ok(make_mover(
-            ac2, &parts, meshes, &frames, looped, tested_at, pictures, ids, out, max_levels,
+            ac2, &parts, meshes, &frames, looped, tested_at, passes, pictures, ids, out, max_levels,
         )?
         .map(|mut m| {
             m.rounds = rounds;
+            m.passed |= passes && rounded;
             m
         })),
     }
@@ -1873,7 +1964,8 @@ fn object_scale(wr: &WorldRecords, object: u32) -> auberean_primitives::Vec3 {
 
 /// A moving object as AC1 parts, one for each mesh carried whole by a bone and one for each bone
 /// of a mesh whose every vertex is wholly on one bone, each placed by its own frame at every
-/// frame of the idle; a part that does not move keeps its collision, one that moves has none.
+/// frame of the idle; a part that does not move keeps its collision, one that moves has none, and
+/// none does when AC2's player `passes` through it.
 #[allow(clippy::too_many_arguments)]
 fn make_mover(
     ac2: &Ac2,
@@ -1882,6 +1974,7 @@ fn make_mover(
     frames: &[Vec<Carry>],
     looped: bool,
     tested_at: auberean_primitives::Vec3,
+    passes: bool,
     pictures: &mut Pictures,
     ids: &mut Ids,
     out: &mut Records,
@@ -2054,7 +2147,8 @@ fn make_mover(
     }
     let (lo, hi) = bounds(corners.iter().copied());
     verts.extend(collision.points.iter().copied());
-    let collision = (!collision.rings.is_empty()).then_some(collision);
+    let passed = passes && !collision.rings.is_empty();
+    let collision = (!passes && !collision.rings.is_empty()).then_some(collision);
     let collision_part = collision
         .as_ref()
         .map(|c| collision_model(c, Vec3::new(1.0, 1.0, 1.0), ids, out))
@@ -2076,6 +2170,7 @@ fn make_mover(
         frames: Some(anim),
         looped,
         rounds: Rounds::default(),
+        passed,
     }))
 }
 
@@ -3221,6 +3316,7 @@ mod tests {
             ]),
             looped: true,
             rounds: Rounds::default(),
+            passed: false,
         };
         use dereth_assets::Decode;
         let id = setup_for(&m, [2000, 2000, 2000], 0.0, &mut ids, &mut out).unwrap();
@@ -3325,6 +3421,7 @@ mod tests {
             frames: None,
             looped: false,
             rounds: Rounds::default(),
+            passed: false,
         };
         let unit = |id: DataId, out: &Records| {
             use dereth_assets::Decode;
@@ -3378,6 +3475,7 @@ mod tests {
             frames: None,
             looped: false,
             rounds: Rounds::default(),
+            passed: false,
         }
     }
 
@@ -3654,5 +3752,68 @@ mod tests {
         let whole = Carry::Whole(Mat4::translation(v(0.0, 5.0, 0.0)));
         assert!(whole.differs(&carry).is_infinite());
         assert!(whole.differs(&whole) == 0.0);
+    }
+
+    /// Every placed entity of AC2's landblocks AC2's player walks through, by its entities'
+    /// ethereal properties, and none whose own placement's properties change that: so whether a
+    /// converted static collides is the model's alone.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn the_player_walks_through_323_placed_entities_and_no_placement_changes_that() {
+        let dir = auberean_dat::testing::require_target_install();
+        let wr = world_records(&dir).expect("the install");
+        let (mut passed, mut changed) = (0, 0);
+        let mut objects = std::collections::BTreeSet::new();
+        for bx in 0..255 {
+            for by in 0..255 {
+                let Some(info) = wr.landblock_info(bx, by) else {
+                    continue;
+                };
+                for e in &info.entities.entities {
+                    let Some(object) = e
+                        .object
+                        .filter(|_| e.kind.is_some_and(|k| DRAWN_KINDS.contains(&k)))
+                    else {
+                        continue;
+                    };
+                    let by_model = players_pass(&wr, object, None);
+                    let by_placement = players_pass(&wr, object, e.properties.as_ref());
+                    changed += usize::from(by_model != by_placement);
+                    if by_placement {
+                        passed += 1;
+                        objects.insert(object);
+                    }
+                }
+            }
+        }
+        assert_eq!((passed, objects.len(), changed), (323, 31, 0));
+    }
+
+    /// An object whose polygons AC2's player walks through is made with none of them, and its
+    /// converted static collides with nothing: no physics polygons, cylinders or spheres.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn an_object_the_player_walks_through_in_ac2_collides_with_nothing() {
+        use dereth_assets::Decode;
+        let dir = auberean_dat::testing::require_target_install();
+        let wr = world_records(&dir).expect("the install");
+        assert!(players_pass(&wr, 0x4700_164E, None));
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let m = made(0x4700_164E, &mut ids, &mut out);
+        assert!(m.passed && m.physics > 0);
+        assert!(m.collision.is_none() && m.collision_part.is_none());
+        assert_eq!(m.rounds, Rounds::default());
+        let id = setup_for(&m, [1000, 1000, 1000], 0.0, &mut ids, &mut out).unwrap();
+        let s = Setup::decode_payload(id, &out.0[&id]).expect("a setup");
+        assert!(!s.has_physics_bsp && s.cylspheres.is_empty() && s.spheres.is_empty());
+        assert_eq!(s.parts, m.parts);
+        // A signpost the player does not walk through keeps its own.
+        assert!(!players_pass(&wr, 0x4700_3D58, None));
     }
 }

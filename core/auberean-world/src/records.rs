@@ -205,6 +205,12 @@ impl WorldRecords {
         self.portal.read(id).ok()
     }
 
+    /// The install's decoding context, its property list among it.
+    #[must_use]
+    pub const fn context(&self) -> &Context {
+        &self.ctx
+    }
+
     /// Whether the data holds portal record `id`, read from the files' directories alone.
     #[must_use]
     pub fn holds(&self, id: u32) -> bool {
