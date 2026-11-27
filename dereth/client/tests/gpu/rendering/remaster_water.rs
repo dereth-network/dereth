@@ -86,6 +86,17 @@ fn run_on(
     water: RemasterWater,
     ground: Option<RemasterTerrain>,
 ) -> RemasterCapture {
+    run_tracing(store, at, water, ground).0
+}
+
+/// [`run_on`], and whether the device traced rays: a device without ray queries (Metal's)
+/// reflects what the screen shows where tracing is asked for.
+fn run_tracing(
+    store: &Arc<RetailDatStore>,
+    at: &At<'_>,
+    water: RemasterWater,
+    ground: Option<RemasterTerrain>,
+) -> (RemasterCapture, bool) {
     let mut gpu = device();
     let mut shot = match at {
         At::Station(st) => {
@@ -126,6 +137,7 @@ fn run_on(
         .draw
         .remaster_capture(&mut gpu)
         .expect("the remaster drew");
+    let traces_rays = shot.scene.draw.remaster_traces_rays(&mut gpu);
     shot.scene
         .draw
         .set_remaster(false, store, &mut gpu)
@@ -134,7 +146,7 @@ fn run_on(
     drop(gpu);
     let errors = dereth_render::vulkan::take_validation_errors();
     assert!(errors.is_empty(), "the validation layer: {errors:#?}");
-    capture
+    (capture, traces_rays)
 }
 
 fn water() -> RemasterWater {
@@ -231,7 +243,8 @@ fn same_water(a: &RemasterCapture, b: &RemasterCapture) -> (f64, usize) {
 /// same: within two levels traced through the scene or drawn mirrored in the water, and within
 /// four found on screen alone, where only what the camera sees of the trees and the houses can
 /// stand in for them. A reflection is of what stands along the reflected ray, and the sky is
-/// the sky all round the eye, not the part of it the camera happens to see.
+/// the sky all round the eye, not the part of it the camera happens to see. A device that
+/// traces no rays reflects what the screen shows where tracing is asked for, and is held to that.
 #[test]
 fn turning_the_camera_down_leaves_what_the_water_reflects() {
     let _gpu = crate::common::gpu_lock();
@@ -249,10 +262,15 @@ fn turning_the_camera_down_leaves_what_the_water_reflects() {
             planar,
             ..water()
         };
-        let level = run_on(&store, &At::Report(LAKE, 0.0), still, ground);
+        let (level, traces_rays) = run_tracing(&store, &At::Report(LAKE, 0.0), still, ground);
         let down = run_on(&store, &At::Report(LAKE, 0.45), still, ground);
         let sky = down.class.iter().filter(|c| **c == 0).count();
         let (mean, n) = same_water(&down, &level);
+        let (how, most) = if traced && !traces_rays {
+            ("traced, by the screen (the device traces no rays)", 4.0)
+        } else {
+            (how, most)
+        };
         eprintln!("lake, {how}: turned down ({sky} sky pixels), {n} points of the water, mean difference {mean:.2}");
         out.push((how, sky, n, mean, most));
     }

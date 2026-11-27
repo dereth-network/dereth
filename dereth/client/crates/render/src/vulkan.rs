@@ -438,7 +438,24 @@ unsafe extern "system" fn debug_callback(
             CStr::from_ptr(d.p_message).to_string_lossy().into_owned()
         }
     };
-    if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
+    // SAFETY: as above; the id's name, when there is one, is NUL-terminated for the call.
+    let id = unsafe {
+        let d = &*data;
+        if d.p_message_id_name.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(d.p_message_id_name)
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    let warning = told_as_warning(
+        &id,
+        LAYOUT_SUPPORT_UNDER_REPORTED.load(std::sync::atomic::Ordering::Relaxed),
+    );
+    if warning {
+        tracing::warn!("vulkan validation: {text}");
+    } else if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
         tracing::error!("vulkan validation: {text}");
         #[cfg(feature = "test-support")]
         if let Ok(mut e) = VALIDATION_ERRORS.lock() {
@@ -458,6 +475,30 @@ unsafe extern "system" fn debug_callback(
         }
     }
     vk::FALSE
+}
+
+/// The validation layer's report of a descriptor set layout the implementation said it cannot
+/// make.
+const LAYOUT_SUPPORT_VUID: &str = "VUID-vkCreateDescriptorSetLayout-support-09582";
+
+/// Whether the remaster's layer found the implementation under-reporting its support for the
+/// layer's descriptor table on this renderer's device: one within the implementation's own
+/// update-after-bind limits, which MoltenVK refuses by their sum against `maxPerSetDescriptors`
+/// though it makes and reads it.
+static LAYOUT_SUPPORT_UNDER_REPORTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The implementation under-reported its support for a descriptor table made on this renderer's
+/// device ([`LAYOUT_SUPPORT_UNDER_REPORTED`]): the layout's validation report is told as a warning
+/// from now on, as the layer that made the table tells it.
+pub fn layout_support_under_reported() {
+    LAYOUT_SUPPORT_UNDER_REPORTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the validation layer's error `id` is told as a warning: the layout's report alone, and
+/// only once an implementation has `under_reported` its support for a table.
+fn told_as_warning(id: &str, under_reported: bool) -> bool {
+    under_reported && id == LAYOUT_SUPPORT_VUID
 }
 
 /// The MoltenVK library's file name, in a bundle and in an install alike.

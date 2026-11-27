@@ -59,7 +59,10 @@ mod upload;
 
 pub use ash::vk;
 pub use bindless::SAMPLERS;
-pub use device::{take_validation_errors, Caps, DeviceDesc, FrameClock, Native, Ticket, REQUIRED};
+pub use device::{
+    take_validation_errors, when_layout_support_under_reported, Caps, DeviceDesc, FrameClock,
+    Native, Ticket, REQUIRED,
+};
 pub use front::{Device, Draw, Recorder};
 pub use graph::{State, Use};
 pub use pipeline::PUSH_BYTES;

@@ -34,6 +34,18 @@ fn a_bundled_moltenvk_is_looked_for_in_the_bundle_then_beside_the_executable() {
     );
 }
 
+/// The layout's report is told as a warning only once a table's support has been under-reported
+/// on the device, and no other report ever is.
+#[test]
+fn only_the_layouts_report_is_a_warning_and_only_once_its_support_was_under_reported() {
+    let vuid = "VUID-vkCreateDescriptorSetLayout-support-09582";
+    assert!(!told_as_warning(vuid, false));
+    assert!(told_as_warning(vuid, true));
+    for other in ["VUID-vkCmdDraw-None-08600", ""] {
+        assert!(!told_as_warning(other, true), "{other}");
+    }
+}
+
 /// Create a test device, or return `None` when Vulkan is unavailable.
 /// Every test here skips rather than fails in that case: the pure-logic half of each unit is
 /// tested elsewhere and does not need a device.

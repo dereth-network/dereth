@@ -53,6 +53,11 @@ impl Remaster {
                 device.depth_format
             ))
         })?;
+        // The renderer's validation messenger hears the table's layout reported where the device
+        // under-reports its support (MoltenVK), so it is told as the layer tells it.
+        dereth_gfx::when_layout_support_under_reported(
+            dereth_render::vulkan::layout_support_under_reported,
+        );
         // SAFETY: the handles are the ordinary renderer's live device, which it made with every
         // feature the layer needs (it hands them out only then). The hook, which holds the layer,
         // is dropped by the device before it destroys itself, and it is only driven from the

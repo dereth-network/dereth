@@ -378,6 +378,21 @@ pub(crate) fn layout_support_under_reported() {
          limits; it is made as sized"
     );
     LAYOUT_SUPPORT_UNDER_REPORTED.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(tell) = UNDER_REPORT_TOLD.get() {
+        tell();
+    }
+}
+
+/// Who else is told of the under-report, before the table's layout is made: on a device another
+/// renderer made and the layer adopts, that renderer's validation messenger is the one the
+/// layout's report reaches.
+static UNDER_REPORT_TOLD: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Have `tell` called whenever an implementation under-reports its support for the bindless table
+/// ([`crate::bindless`]), before the table's layout is made, so a validation messenger this layer
+/// does not own can tell the layout's report as a warning too. The first one given stays.
+pub fn when_layout_support_under_reported(tell: fn()) {
+    let _ = UNDER_REPORT_TOLD.set(tell);
 }
 
 /// The validation layer's errors since they were last taken, for the tests.
