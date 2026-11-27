@@ -538,7 +538,7 @@ fn beetle(h: &Harness) -> u64 {
         .expect("a beetle")
 }
 
-/// Put a creature beside a player, slow to die and not fighting.
+/// Put a creature beside a player, slow to die, not fighting and never wandering off.
 fn beside(h: &mut Harness, id: u64, me: u64) {
     let at = player(h, me).position;
     if let Some(t) = h.server.things.get_mut(id) {
@@ -552,7 +552,7 @@ fn beside(h: &mut Harness, id: u64, me: u64) {
             c.stats.attacks_first = false;
             c.stats.max_health = 100_000;
             c.wander_to = None;
-            c.stats.movement.wander_chance = 0.0;
+            c.stats.movement.wanders = false;
         }
     }
 }
@@ -1277,7 +1277,7 @@ fn trap_skill() -> Usage {
     }
 }
 
-/// Stand a thing this far east of a spot.
+/// Stand a thing this far east of a spot, never wandering off.
 fn put_by(h: &mut Harness, id: u64, by: yalain_store::StoredPosition, east: f32) {
     let mut to = by;
     to.origin[0] += east;
@@ -1286,7 +1286,7 @@ fn put_by(h: &mut Harness, id: u64, by: yalain_store::StoredPosition, east: f32)
         if let Some(c) = t.creature.as_mut() {
             c.home = to;
             c.wander_to = None;
-            c.stats.movement.wander_chance = 0.0;
+            c.stats.movement.wanders = false;
         }
     }
 }

@@ -3051,7 +3051,7 @@ fn the_massive_destrucflux_burns_creatures_within_its_reach_and_is_gone() {
         if let Some(t) = h.server.things.get_mut(id) {
             if let Some(c) = t.creature.as_mut() {
                 c.stats.movement.perception = 0.0;
-                c.stats.movement.wander_chance = 0.0;
+                c.stats.movement.wanders = false;
                 c.wander_to = None;
             }
             let mut place = at;

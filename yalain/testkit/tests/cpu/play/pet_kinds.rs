@@ -244,7 +244,8 @@ fn beetles(h: &Harness) -> Vec<u64> {
     v
 }
 
-/// Put a thing `dx`, `dy` meters from a player, out of its fights.
+/// Put a thing `dx`, `dy` meters from a player, out of its fights, and keep it from wandering off
+/// at rest: whatever walk it was on is dropped and it sets out on no other.
 fn put_near(h: &mut Harness, id: u64, me: u64, dx: f32, dy: f32) {
     let at = h
         .server
@@ -263,7 +264,7 @@ fn put_near(h: &mut Harness, id: u64, me: u64, dx: f32, dy: f32) {
             c.stats.attacks_first = false;
             c.stats.max_health = 100_000;
             c.wander_to = None;
-            c.stats.movement.wander_chance = 0.0;
+            c.stats.movement.wanders = false;
         }
         t.max_health = 100_000;
         t.health = 100_000;
@@ -1570,7 +1571,6 @@ fn put_by_pet(h: &mut Harness, id: u64, pet: u64, dx: f32) {
             c.stats.attacks_first = false;
             c.stats.fights = false;
             c.stats.movement.kind = yalain_content::movement::MovementType::Stationary;
-            c.stats.movement.wander_chance = 0.0;
             c.wander_to = None;
             c.stats.max_health = 1_000_000;
         }
@@ -1655,10 +1655,12 @@ fn attacks_of(
 #[test]
 fn a_pet_draws_its_attack_evenly_among_those_that_reach_its_target() {
     let mut h = Harness::new();
-    let near = attacks_used(&mut h, &[], 1.5, 90);
+    let near = attacks_used(&mut h, &[], 1.5, 900);
+    // 300 of each expected (sd 14.1), so the band holds whatever the dice; one drawn twice as
+    // often as another would give 450 and 225.
     for skill in [MELEE, MELEE_TWO, MISSILE] {
-        let n = near[..90].iter().filter(|k| **k == skill).count();
-        assert!((18..=42).contains(&n), "{skill}: {n} of 90");
+        let n = near[..900].iter().filter(|k| **k == skill).count();
+        assert!((240..=360).contains(&n), "{skill}: {n} of 900");
     }
     let mut h = Harness::new();
     let far = attacks_used(&mut h, &[], 12.0, 20);
