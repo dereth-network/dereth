@@ -14342,8 +14342,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.pets.supports-its-owner",
         says: "A supporting pet takes on what its owner hurts, from its owner's first hit, and \
-               strikes it; the creature it strikes fights the pet; one fighting another turns to \
-               its owner's new target about two times in three.",
+               strikes it; the creature it strikes fights the pet, whether the strike lands or is \
+               evaded; one fighting another turns to its owner's new target about two times in \
+               three.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ASSIST"),
         station: "yalain-testkit::cpu::play::pets::a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet",

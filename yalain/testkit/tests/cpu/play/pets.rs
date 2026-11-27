@@ -596,6 +596,49 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
     );
 }
 
+/// A creature at rest that evades a pet's strikes fights the pet all the same, as one a strike lands
+/// on: with every strike evaded and none taking health, it takes on the pet.
+/// Behaviour: server.pets.supports-its-owner
+#[test]
+fn a_creature_at_rest_that_evades_a_pets_strike_fights_the_pet() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    // None of the pet's strikes land, whatever the dice.
+    for k in h.server.pets.kinds.values_mut() {
+        k.lands = 0.0;
+    }
+    let whole = h.server.things.get(beetle).map_or(0, |t| t.health);
+    assert_eq!(target_of(&h, beetle), None, "at rest");
+    let from = h.bots[b].inbox.len();
+    pet_strike_seen(&mut h, b, pet, beetle);
+    assert!(
+        h.run_until(400, |h| target_of(h, beetle) == Some(pet)),
+        "the beetle fights the pet"
+    );
+    let results: Vec<i32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e.action.hooks.clone()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|k| k.target == beetle && k.bits & 0x80 != 0)
+        .map(|k| k.numbers[0])
+        .collect();
+    assert!(!results.is_empty(), "the pet's strikes came out");
+    assert!(
+        results.iter().all(|r| *r == 0x4000_000B),
+        "every one evaded: {results:x?}"
+    );
+    assert_eq!(
+        h.server.things.get(beetle).map_or(0, |t| t.health),
+        whole,
+        "none took health"
+    );
+}
+
 /// A creature's strike at a pet comes when it is due, not at the world's next step: each gap is the
 /// strike's own, within the harness's step.
 /// Behaviour: server.creatures.attacks-when-due

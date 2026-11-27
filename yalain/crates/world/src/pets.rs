@@ -2908,6 +2908,8 @@ fn strike<S: Store>(
                     harm,
                 },
             );
+        } else if outcome == Outcome::Evade {
+            evaded_by(s, net, target, id, clock);
         }
     }
     lands
@@ -3067,6 +3069,7 @@ pub fn lands<S: Store>(
     }
     let mut hooks = Vec::new();
     let mut landed = Vec::new();
+    let mut evaded = Vec::new();
     for t in hit {
         let (outcome, damage) = if blocked {
             (Outcome::Miss, 0)
@@ -3088,6 +3091,8 @@ pub fn lands<S: Store>(
         );
         if outcome.landed() {
             landed.push((t, harm));
+        } else if outcome == Outcome::Evade {
+            evaded.push(t);
         }
     }
     let told = ServerMessage::DoStory(auberean_protocol::physics::ObjectEvent {
@@ -3104,6 +3109,9 @@ pub fn lands<S: Store>(
     for (t, harm) in landed {
         struck_by_pet(s, net, t, (pet, skill.skill), harm.left, clock);
         crate::effects::harm_back(s, net, pet, t, harm.back, clock);
+    }
+    for t in evaded {
+        evaded_by(s, net, t, pet, clock);
     }
 }
 
@@ -3383,6 +3391,8 @@ fn blast<S: Store>(
                     harm,
                 },
             );
+        } else if outcome == Outcome::Evade {
+            evaded_by(s, net, target, id, clock);
         }
     }
     s.after(
@@ -3526,6 +3536,16 @@ fn struck_by_pet<S: Store>(
     crate::combat::hurt_creature_by_skill(s, net, target, (owner, by, skill), damage, clock);
     leaves(s, net, by, target, skill, clock);
     turn_on_pet(s, net, target, by, clock);
+}
+
+/// A creature evaded a pet's strike: it fights the pet as it would one that landed (2017: of
+/// creatures at rest whose first strike from a pet was evaded, 6 of 28 went for the pet before any
+/// strike of the pet's landed; 36 of 152 after a first strike that landed, before the pet's next
+/// landed).
+fn evaded_by<S: Store>(s: &mut Server<S>, net: &mut ServerNet, target: u64, by: u64, clock: Clock) {
+    if !s.pets.is_pet(target) {
+        turn_on_pet(s, net, target, by, clock);
+    }
 }
 
 /// What a pet's strike leaves on the creature it reached: each of its skill's target effects, cast by
