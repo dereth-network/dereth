@@ -96,6 +96,7 @@ mod cleared;
 mod clearing;
 mod climb;
 mod creatures;
+mod cutout;
 mod dense;
 mod dungeon_names;
 mod effects;
@@ -1854,6 +1855,13 @@ pub fn build(args: &Args) -> Result<u32, String> {
     } else {
         None
     };
+    // Every cut-out picture made, its texels wholly there or clear and black, as AC1's are.
+    let cut_out = cutout::cut_out_pictures(&mut art_records, &mut ids)?;
+    let cut_out_line = format!(
+        "cut-out pictures made as AC1's: {} in place, {} copied for the cut-outs among their surfaces",
+        cut_out.made, cut_out.copied
+    );
+    eprintln!("{cut_out_line}");
     // AC2's creatures, each family in ids of its own, for a world's weenies to name.
     eprintln!("making AC2's creatures");
     let mut creatures_made = creatures::make(&ac2_art, &mut art_records)?;
@@ -2564,6 +2572,7 @@ pub fn build(args: &Args) -> Result<u32, String> {
         road_maps.len()
     );
     let _ = writeln!(stats, "{cover_line} (cover-kinds.tsv, cover-setups.tsv)");
+    let _ = writeln!(stats, "{cut_out_line}");
     let _ = writeln!(
         stats,
         "overlay records added or written over for them: {}",

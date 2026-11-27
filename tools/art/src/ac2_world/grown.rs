@@ -45,6 +45,102 @@ const LIFT_STEP: f64 = 0.02;
 const LIFT_RANGE: f64 = 4.0;
 const LIFT_BINS: usize = 401;
 
+/// How far a frill's edge may stand off the ground beside it before it is given bands of slope,
+/// meters ([`bands`]).
+pub const GROUND_FIT: f32 = 0.1;
+/// The steepest fall, meters a meter, on which a frill stands upright at AC2's heading.
+pub const UPRIGHT_FALL: f64 = 0.05;
+/// How much more each steeper band falls than the one before, meters a meter.
+pub const BAND_FALL: f64 = 0.1;
+/// The most bands of slope a frill is given.
+pub const MOST_BANDS: usize = 8;
+/// The fall of the steepest ground a frill that grows on ground of any slope is given bands for.
+const STEEPEST_FALL: f64 = 1.0;
+
+/// One band of the slopes a frill grows on: the ground's normal heights it takes (as AC1's
+/// scenes give them, least and most), whether it is turned to face down the slope, and how far it
+/// leans there, meters of height a meter forward.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Band {
+    pub min_slope: f32,
+    pub max_slope: f32,
+    pub aligned: bool,
+    pub fall: f32,
+}
+
+impl Band {
+    /// Upright on every slope down to `least`, at AC2's heading.
+    #[must_use]
+    pub const fn upright(least: f32) -> Self {
+        Self {
+            min_slope: least,
+            max_slope: 90.0,
+            aligned: false,
+            fall: 0.0,
+        }
+    }
+}
+
+/// The ground's normal height where it falls `fall` meters a meter.
+fn normal_of(fall: f64) -> f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    let n = (1.0 / (1.0 + fall * fall).sqrt()) as f32;
+    n
+}
+
+/// AC1 stands every object upright, where AC2 leans a frill (a mat of grass, a fern) onto the
+/// slope it grows on: a frill reaching `reach` meters from its middle stands that far times the
+/// slope off the ground at its downhill edge. So a frill that would stand more than
+/// [`GROUND_FIT`] off the ground on the steepest slope it grows on (down to normal height `least`)
+/// is grown as several objects, one for each band of those slopes, only one of which grows at any
+/// place. On ground falling at most [`UPRIGHT_FALL`] it stands upright at AC2's heading; each
+/// steeper band, [`BAND_FALL`] wide, faces down the slope and leans along it by the fall in its
+/// middle, the last of [`MOST_BANDS`] taking every steeper slope. The bands are the same for every
+/// frill, so each frill is made leaning only a few ways.
+#[must_use]
+pub fn bands(reach: f32, least: f32) -> Vec<Band> {
+    let steepest = if least > 0.0 {
+        let l = f64::from(least);
+        (1.0 / (l * l) - 1.0).sqrt()
+    } else {
+        STEEPEST_FALL
+    };
+    if f64::from(reach) * steepest <= f64::from(GROUND_FIT) || steepest <= UPRIGHT_FALL {
+        return vec![Band::upright(least)];
+    }
+    let mut v = vec![Band {
+        min_slope: normal_of(UPRIGHT_FALL),
+        ..Band::upright(least)
+    }];
+    for k in 0..MOST_BANDS - 1 {
+        #[allow(clippy::cast_precision_loss)]
+        let lo = UPRIGHT_FALL + BAND_FALL * k as f64;
+        let hi = lo + BAND_FALL;
+        let last = hi >= steepest || k + 2 == MOST_BANDS;
+        // A slope on the line between two bands is the gentler one's.
+        let max_slope = f32::from_bits(normal_of(lo).to_bits() - 1);
+        #[allow(clippy::cast_possible_truncation)]
+        v.push(Band {
+            min_slope: if last { least } else { normal_of(hi) },
+            max_slope,
+            aligned: true,
+            fall: ((lo + hi) / 2.0) as f32,
+        });
+        if last {
+            break;
+        }
+    }
+    v
+}
+
+/// A fall as a whole number of thousandths, to key what is made for it by.
+fn band_key(fall: f32) -> i32 {
+    // LINT-OK: a fall of a few meters a meter at most, in thousandths.
+    #[allow(clippy::cast_possible_truncation)]
+    let k = (f64::from(fall) * 1000.0).round() as i32;
+    k
+}
+
 /// What AC2 places of one object, world-wide.
 #[derive(Clone, Debug)]
 pub struct ObjectStats {
@@ -576,7 +672,10 @@ pub fn make_scenes(
         BTreeMap::new();
     // By object, frill and shape: the setup, its lift and least slope, and the objects it draws.
     type Made1 = (dereth_primitives::DataId, f32, f32, usize);
-    let mut setups: BTreeMap<(u32, bool, [i32; 3]), Made1> = BTreeMap::new();
+    let mut setups: BTreeMap<(u32, bool, [i32; 3], i32), Made1> = BTreeMap::new();
+    // By object, frill and how far it leans: the model leaning so, or `None` where it cannot.
+    type Leaning = Option<crate::ac2_world::statics::Model>;
+    let mut sheared: BTreeMap<(u32, bool, i32), Leaning> = BTreeMap::new();
     let mut left_of: BTreeMap<(u32, bool, &'static str), usize> = BTreeMap::new();
     for (key, list) in tiles {
         let mut ids_of = Vec::with_capacity(list.len());
@@ -626,33 +725,74 @@ pub fn make_scenes(
                     continue;
                 }
                 let stats = census.objects.get(&t.object).cloned().unwrap_or_default();
-                let sk = (t.object, t.frill, shape);
-                let entry = match setups.get_mut(&sk) {
-                    Some(e) => e,
-                    None => {
-                        let (lift, slope) = (stats.lift(), stats.min_slope());
-                        let id =
-                            crate::ac2_world::statics::setup_for(model, shape, lift, ids, out)?;
-                        setups.entry(sk).or_insert((id, lift, slope, 0))
-                    }
+                let (lift, least) = (stats.lift(), stats.min_slope());
+                // A frill lies along the ground where AC2 leans it onto its slope: a band of
+                // slopes each, the steeper ones leaning down the slope ([`bands`]).
+                #[allow(clippy::cast_precision_loss)]
+                let wide = |k: i32| k as f32 / 1000.0;
+                let reach = model.reach() * s.z * wide(shape[0]).max(wide(shape[1]));
+                // A model with coarser levels, or one that cannot lean, stands upright.
+                let kept = if t.frill && model.leans() && levels <= 1 {
+                    bands(reach, least)
+                } else {
+                    vec![Band::upright(least)]
                 };
-                entry.3 += 1;
+                for band in &kept {
+                    let fall_milli = band_key(band.fall);
+                    let sk = (t.object, t.frill, shape, fall_milli);
+                    let entry = match setups.get_mut(&sk) {
+                        Some(e) => e,
+                        None => {
+                            let leaning = if band.fall > 0.0 {
+                                let mk = (t.object, t.frill, band_key(band.fall * wide(shape[1])));
+                                if let std::collections::btree_map::Entry::Vacant(slot) =
+                                    sheared.entry(mk)
+                                {
+                                    slot.insert(model.sheared(
+                                        band.fall * wide(shape[1]),
+                                        ids,
+                                        out,
+                                    )?);
+                                }
+                                sheared[&mk].as_ref()
+                            } else {
+                                None
+                            };
+                            let id = crate::ac2_world::statics::setup_for(
+                                leaning.unwrap_or(model),
+                                shape,
+                                lift,
+                                ids,
+                                out,
+                            )?;
+                            setups.entry(sk).or_insert((id, lift, least, 0))
+                        }
+                    };
+                    entry.3 += 1;
+                    objects.push(dereth_assets::world::ObjectDesc {
+                        obj_id: entry.0,
+                        base_loc: Frame::new(
+                            Vec3::new(t.dx, t.dy, 0.0),
+                            if band.aligned {
+                                dereth_primitives::Quat::IDENTITY
+                            } else {
+                                heading_of(t.rotation)
+                            },
+                        ),
+                        freq: 1.0,
+                        displace_x: 0.0,
+                        displace_y: 0.0,
+                        min_scale: s.z,
+                        max_scale: s.z,
+                        max_rot: 0.0,
+                        min_slope: band.min_slope,
+                        max_slope: band.max_slope,
+                        align: i32::from(band.aligned),
+                        orient: 0,
+                        weenie_obj: 0,
+                    });
+                }
                 made.objects[usize::from(t.frill)] += 1;
-                objects.push(dereth_assets::world::ObjectDesc {
-                    obj_id: entry.0,
-                    base_loc: Frame::new(Vec3::new(t.dx, t.dy, 0.0), heading_of(t.rotation)),
-                    freq: 1.0,
-                    displace_x: 0.0,
-                    displace_y: 0.0,
-                    min_scale: s.z,
-                    max_scale: s.z,
-                    max_rot: 0.0,
-                    min_slope: entry.2,
-                    max_slope: 90.0,
-                    align: 0,
-                    orient: 0,
-                    weenie_obj: 0,
-                });
             }
             let id = ids.next(0x12);
             out.add(id, crate::ac2_world::scenes::encode_scene(id, &objects));
@@ -672,9 +812,9 @@ pub fn make_scenes(
     made.setups = setups.len();
     let _ = writeln!(
         made.tsv,
-        "ac2_object\tfrill\tshape_milli\tac1_setup\tlift_m\tleast_slope\tcollides\tsample_objects\tac2_placed"
+        "ac2_object\tfrill\tshape_milli\tfall_milli\tac1_setup\tlift_m\tleast_slope\tcollides\tsample_objects\tac2_placed"
     );
-    for ((object, frill, shape), (id, lift, slope, n)) in &setups {
+    for ((object, frill, shape, fall), (id, lift, slope, n)) in &setups {
         let collides = models.get(&(*object, *frill)).is_some_and(|m| {
             m.as_ref()
                 .is_ok_and(crate::ac2_world::statics::Model::collides)
@@ -682,7 +822,7 @@ pub fn make_scenes(
         let placed = census.objects.get(object).map_or(0, |o| o.placed);
         let _ = writeln!(
             made.tsv,
-            "{object:08X}\t{frill}\t{},{},{}\t{:08X}\t{lift:.2}\t{slope:.2}\t{collides}\t{n}\t{placed}",
+            "{object:08X}\t{frill}\t{},{},{}\t{fall}\t{:08X}\t{lift:.2}\t{slope:.2}\t{collides}\t{n}\t{placed}",
             shape[0],
             shape[1],
             shape[2],
@@ -692,7 +832,7 @@ pub fn make_scenes(
     for ((object, frill, why), n) in &left_of {
         let _ = writeln!(
             made.tsv,
-            "{object:08X}\t{frill}\tleft out: {why}\t\t\t\t\t{n}\t"
+            "{object:08X}\t{frill}\tleft out: {why}\t\t\t\t\t\t{n}\t"
         );
     }
     Ok(made)
@@ -767,6 +907,68 @@ pub fn kinds_tsv(census: &Census, tiles: &Samples) -> String {
 mod tests {
     //! Behaviour: none (tooling: the AC2 world's grown cover)
     use super::*;
+
+    /// The bands of `bands` that take ground of normal height `nz`, by AC1's scenes' own test.
+    fn taking(bands: &[Band], nz: f32) -> Vec<Band> {
+        bands
+            .iter()
+            .filter(|b| {
+                let mut o = dereth_terrain::scenery::default_object_desc(
+                    dereth_primitives::DataId(0x0200_0001),
+                );
+                o.min_slope = b.min_slope;
+                o.max_slope = b.max_slope;
+                dereth_terrain::scenery::check_slope(&o, nz)
+            })
+            .copied()
+            .collect()
+    }
+
+    #[test]
+    fn a_wide_frill_lies_within_a_band_of_the_ground_on_every_slope_it_grows_on() {
+        // A grass mat reaching 2 m, grown by AC2 down to a normal height of 0.75 (41 degrees).
+        let (reach, least) = (2.0f32, 0.75f32);
+        let bands = bands(reach, least);
+        assert!(bands.len() > 1 && bands.len() <= MOST_BANDS, "{bands:?}");
+        let steepest = (1.0 / f64::from(least).powi(2) - 1.0).sqrt();
+        let mut worst = 0.0f64;
+        for step in 0..=1000 {
+            let fall = steepest * f64::from(step) / 1000.0;
+            let nz = normal_of(fall);
+            let took = taking(&bands, nz);
+            assert_eq!(
+                took.len(),
+                1,
+                "one band grows at a fall of {fall}: {took:?}"
+            );
+            let b = took[0];
+            assert_eq!(
+                b.aligned,
+                b.fall > 0.0,
+                "a leaning band faces down the slope"
+            );
+            // Its downhill edge, `reach` ahead of its middle, against the ground there.
+            let off = f64::from(reach) * (fall - f64::from(b.fall)).abs();
+            if fall <= UPRIGHT_FALL + BAND_FALL * (MOST_BANDS - 1) as f64 {
+                worst = worst.max(off);
+            }
+        }
+        assert!(
+            worst <= f64::from(GROUND_FIT) + 1e-6,
+            "{worst} m off the ground"
+        );
+        // Ground steeper than it grows on takes none.
+        assert!(taking(&bands, least - 0.01).is_empty());
+        // Every slope's band is the same for every frill.
+        assert_eq!(bands, super::bands(3.0, least));
+    }
+
+    #[test]
+    fn a_small_frill_stands_upright_at_its_own_heading_on_every_slope() {
+        // Reaching 10 cm, it stands at most 9 cm off the ground at 41 degrees.
+        assert_eq!(bands(0.1, 0.75), vec![Band::upright(0.75)]);
+        assert_eq!(bands(2.0, 1.0), vec![Band::upright(1.0)]);
+    }
 
     #[test]
     fn an_objects_least_slope_leaves_out_its_steepest_hundredth() {

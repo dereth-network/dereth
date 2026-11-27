@@ -391,6 +391,98 @@ impl Model {
     pub(crate) fn parts(&self) -> &[DataId] {
         &self.parts
     }
+
+    /// The farthest any vertex stands from the upright through its origin, at scale 1.
+    pub(crate) const fn reach(&self) -> f32 {
+        self.xy
+    }
+
+    /// Whether it can lean ([`Self::sheared`]): it neither collides, by polygons or by cylinders
+    /// and spheres, nor moves.
+    pub(crate) fn leans(&self) -> bool {
+        self.collision.is_none()
+            && self.frames.is_none()
+            && self.rounds.cylinders.is_empty()
+            && self.rounds.spheres.is_empty()
+    }
+
+    /// The model leaning along its own y axis: each vertex raised `fall` meters for every meter it
+    /// stands along that axis from the origin, so that turned as AC1 turns an object it aligns to
+    /// the slope (its y axis drawn pointing up the slope), on a slope that rises as much, it lies
+    /// along the slope and still stands upright. `None` for a model that
+    /// collides, moves or has coarser levels: those stand as built.
+    ///
+    /// # Errors
+    /// A part of `out`'s that will not read or write.
+    pub(crate) fn sheared(
+        &self,
+        fall: f32,
+        ids: &mut Ids,
+        out: &mut Records,
+    ) -> Result<Option<Self>, String> {
+        use dereth_assets::Decode as _;
+        if !self.leans() {
+            return Ok(None);
+        }
+        let lean = |p: Vec3| Vec3::new(p.x, p.y, p.z + fall * p.y);
+        let mut parts = Vec::with_capacity(self.parts.len());
+        for part in &self.parts {
+            let bytes = out
+                .0
+                .get(part)
+                .ok_or_else(|| format!("{part:?}: not made here"))?;
+            let g = GfxObj::decode_payload(*part, bytes).map_err(|e| format!("{part:?}: {e}"))?;
+            if g.did_degrade.is_some() || !g.physics_polygons.is_empty() {
+                return Ok(None);
+            }
+            let va = VertexArray {
+                vertex_type: g.vertex_array.vertex_type,
+                vertices: g
+                    .vertex_array
+                    .vertices
+                    .iter()
+                    .map(|v| SwVertex {
+                        position: lean(v.position),
+                        ..v.clone()
+                    })
+                    .collect(),
+            };
+            let drawing = dereth_builder::bsp::drawing(&va, &g.polygons);
+            let sort_center = drawing
+                .nodes
+                .first()
+                .and_then(|n| n.sphere)
+                .map_or(Vec3::ZERO, |s| s.center);
+            let id = ids.next(0x01);
+            let made = GfxObj {
+                id,
+                vertex_array: va,
+                sort_center,
+                drawing_bsp: Some(drawing),
+                ..g
+            };
+            out.add(
+                id,
+                made.encode_for(EraId::Eor)
+                    .map_err(|e| format!("{id:?}: {e}"))?,
+            );
+            parts.push(id);
+        }
+        let verts: Vec<Vec3> = self.verts.iter().map(|&p| lean(p)).collect();
+        let (lo, hi) = bounds(verts.iter().copied());
+        Ok(Some(Self {
+            parts,
+            lo,
+            hi,
+            verts,
+            shown: self.shown.clone(),
+            frames: None,
+            collision: None,
+            collision_part: None,
+            rounds: Rounds::default(),
+            ..*self
+        }))
+    }
 }
 
 /// The AC2 install's world records, for the placements and their parts.
@@ -2991,6 +3083,95 @@ mod tests {
         let id = setup_for(&m, [1000, 1000, 1000], 0.0, &mut ids, &mut out).unwrap();
         let s = Setup::decode_payload(id, &out.0[&id]).expect("a setup");
         assert!(s.cylspheres.is_empty() && s.spheres.is_empty() && s.has_physics_bsp);
+    }
+
+    /// A static that collides by cylinders or spheres does not lean: cylinders stand upright, so
+    /// it keeps them and stands upright too.
+    #[test]
+    fn a_static_with_cylinders_or_spheres_does_not_lean() {
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let cylinder = Rounds {
+            cylinders: vec![CylSphere {
+                low_pt: Vec3::ZERO,
+                radius: 0.25,
+                height: 1.0,
+            }],
+            spheres: Vec::new(),
+        };
+        let sphere = Rounds {
+            cylinders: Vec::new(),
+            spheres: vec![Sphere {
+                center: Vec3::new(0.0, 0.0, 0.5),
+                radius: 0.5,
+            }],
+        };
+        let plain = still(Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, 1.0, 1.0));
+        assert!(plain.leans());
+        for rounds in [cylinder, sphere] {
+            let m = Model {
+                rounds,
+                ..still(Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, 1.0, 1.0))
+            };
+            assert!(!m.leans());
+            assert!(m
+                .sheared(0.3, &mut ids, &mut out)
+                .expect("no error")
+                .is_none());
+        }
+    }
+
+    /// A grass mat AC2 grows as a frill (the commonest), leaning along its own y axis: each
+    /// vertex of every part is raised by the fall times how far along that axis it stands, and nothing
+    /// else of it moves.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the AC2 install: --features retail-dats"
+    )]
+    fn a_leaning_frill_rises_along_its_y_axis_and_keeps_its_shape_across() {
+        use dereth_assets::Decode as _;
+        let dir = auberean_dat::testing::require_target_install();
+        let wr = world_records(&dir).expect("the install");
+        let ac2 = Ac2::open(&dir).expect("the install");
+        let (mut ids, mut out) = (Ids::default(), Records::default());
+        let mut pictures = Pictures::default();
+        let m = make_model(
+            &wr,
+            &ac2,
+            0x4700_0006,
+            true,
+            &mut pictures,
+            &mut ids,
+            &mut out,
+            1,
+        )
+        .expect("reads")
+        .expect("the model");
+        assert!(m.reach() > 1.0, "a mat wider than a meter: {}", m.reach());
+        let fall = 0.3;
+        let leaning = m
+            .sheared(fall, &mut ids, &mut out)
+            .expect("made")
+            .expect("a still frill leans");
+        assert_eq!(leaning.parts.len(), m.parts.len());
+        let part = |id: DataId| GfxObj::decode_payload(id, &out.0[&id]).expect("reads");
+        let mut moved = 0;
+        for (a, b) in m.parts.iter().zip(&leaning.parts) {
+            let (a, b) = (part(*a), part(*b));
+            assert_eq!(a.polygons, b.polygons);
+            for (u, v) in a.vertex_array.vertices.iter().zip(&b.vertex_array.vertices) {
+                let (p, q) = (u.position, v.position);
+                assert_eq!((p.x, p.y), (q.x, q.y));
+                assert!((q.z - (p.z + fall * p.y)).abs() < 1e-5, "{p:?} to {q:?}");
+                moved += usize::from(p.y.abs() > 0.5);
+            }
+        }
+        assert!(moved > 0, "some of it stands well forward or back");
+        assert!(
+            leaning.lo.z < m.lo.z,
+            "the end behind its origin falls below where it stood"
+        );
+        assert!((leaning.reach() - m.reach()).abs() < 1e-6);
     }
 
     #[test]

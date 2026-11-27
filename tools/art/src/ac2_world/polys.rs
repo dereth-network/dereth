@@ -150,9 +150,14 @@ pub fn join_flat<K: Ord + Copy>(polys: &[(K, Vec<u16>)], pos: &[P]) -> Vec<(K, V
     out
 }
 
-/// Where a model would draw one place twice, drawn once: polygons over the same corners (to the
-/// millimeter) are found, a copy with the same surface and the same winding is left out, and two
-/// facing opposite ways are each drawn from their own side only. AC2's meshes give a leaf its
+/// How far apart, in meters, two corners may stand and still count as one place: AC2 lays a
+/// leaf's own back a hair off its front, under a millimeter, so the two need not round to the
+/// same millimeter.
+const ONE_PLACE: f64 = 2.5e-3;
+
+/// Where a model would draw one place twice, drawn once: polygons over the same corners (within
+/// [`ONE_PLACE`]) are found, a copy with the same surface and the same winding is left out, and
+/// two facing opposite ways are each drawn from their own side only. AC2's meshes give a leaf its
 /// back as a face of its own, and a cut-out material drawn from both sides would then lay the leaf
 /// twice at one depth from either side, the two fighting as the eye moves.
 ///
@@ -160,39 +165,48 @@ pub fn join_flat<K: Ord + Copy>(polys: &[(K, Vec<u16>)], pos: &[P]) -> Vec<(K, V
 /// `pos`. Returns each polygon's sides, or `None` where it is left out.
 #[must_use]
 pub fn unfought(polys: &[(u16, i32, &[u16])], pos: &[P]) -> Vec<Option<i32>> {
-    #[allow(clippy::cast_possible_truncation)] // millimeters of a model a few hundred meters across
-    let mm = |i: u16| -> [i64; 3] {
-        let q = pos[usize::from(i)];
-        [
-            (q[0] * 1000.0).round() as i64,
-            (q[1] * 1000.0).round() as i64,
-            (q[2] * 1000.0).round() as i64,
-        ]
-    };
+    let near = |a: P, b: P| (0..3).all(|i| (a[i] - b[i]).abs() <= ONE_PLACE);
+    let rings: Vec<Vec<P>> = polys
+        .iter()
+        .map(|p| p.2.iter().map(|&i| pos[usize::from(i)]).collect())
+        .collect();
+    #[allow(clippy::cast_precision_loss)] // a polygon's few corners
+    let centres: Vec<P> = rings
+        .iter()
+        .map(|r| {
+            let n = r.len().max(1) as f64;
+            let sum = r
+                .iter()
+                .fold([0.0; 3], |a, p| [a[0] + p[0], a[1] + p[1], a[2] + p[2]]);
+            [sum[0] / n, sum[1] / n, sum[2] / n]
+        })
+        .collect();
+    // Polygons over one place have their middles within `ONE_PLACE` of each other: only those
+    // near along x are compared.
+    let mut order: Vec<usize> = (0..polys.len()).collect();
+    order.sort_by(|&a, &b| centres[a][0].total_cmp(&centres[b][0]).then(a.cmp(&b)));
     let mut out: Vec<Option<i32>> = polys.iter().map(|p| Some(p.1)).collect();
-    let mut by_corners: BTreeMap<Vec<[i64; 3]>, Vec<usize>> = BTreeMap::new();
-    for (k, p) in polys.iter().enumerate() {
-        let mut key: Vec<[i64; 3]> = p.2.iter().map(|&i| mm(i)).collect();
-        key.sort_unstable();
-        by_corners.entry(key).or_default().push(k);
-    }
-    for group in by_corners.values().filter(|g| g.len() > 1) {
-        for (n, &a) in group.iter().enumerate() {
-            for &b in &group[n + 1..] {
-                if out[a].is_none() || out[b].is_none() {
-                    continue;
-                }
-                let ra: Vec<[i64; 3]> = polys[a].2.iter().map(|&i| mm(i)).collect();
-                let rb: Vec<[i64; 3]> = polys[b].2.iter().map(|&i| mm(i)).collect();
-                let k = ra.len();
-                let same = (0..k).any(|s| (0..k).all(|i| ra[i] == rb[(i + s) % k]));
-                let opposite = (0..k).any(|s| (0..k).all(|i| ra[i] == rb[(k + s - i) % k]));
-                if same && polys[a].0 == polys[b].0 {
-                    out[b] = None;
-                } else if opposite {
-                    out[a] = Some(0);
-                    out[b] = Some(0);
-                }
+    for (n, &a) in order.iter().enumerate() {
+        for &b in &order[n + 1..] {
+            if centres[b][0] - centres[a][0] > ONE_PLACE {
+                break;
+            }
+            let (ra, rb) = (&rings[a], &rings[b]);
+            if out[a].is_none()
+                || out[b].is_none()
+                || ra.len() != rb.len()
+                || !near(centres[a], centres[b])
+            {
+                continue;
+            }
+            let k = ra.len();
+            let same = (0..k).any(|s| (0..k).all(|i| near(ra[i], rb[(i + s) % k])));
+            let opposite = (0..k).any(|s| (0..k).all(|i| near(ra[i], rb[(k + s - i) % k])));
+            if same && polys[a].0 == polys[b].0 {
+                out[a.max(b)] = None;
+            } else if opposite {
+                out[a] = Some(0);
+                out[b] = Some(0);
             }
         }
     }
@@ -377,5 +391,31 @@ mod tests {
         // A one-sided leaf and its one-sided back stay as they are.
         let polys = [(7u16, 0, &front[..]), (7, 0, &back[..])];
         assert_eq!(unfought(&polys, &pos), vec![Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn a_leaf_whose_own_back_lies_a_hair_off_it_is_drawn_from_each_side_once() {
+        // The back laid under a millimeter off the front, across a millimeter's rounding.
+        let pos = [
+            [0.0, 0.0, 0.0004],
+            [1.0, 0.0, 0.0004],
+            [0.0, 1.0, 0.0004],
+            [0.0, 0.0, 0.0006],
+            [1.0, 0.0, 0.0006],
+            [0.0, 1.0, 0.0006],
+            [0.0, 0.0, 0.01],
+            [1.0, 0.0, 0.01],
+            [0.0, 1.0, 0.01],
+        ];
+        let (front, back, apart) = ([0u16, 1, 2], [3u16, 5, 4], [6u16, 8, 7]);
+        let polys = [(7u16, 1, &front[..]), (7, 1, &back[..])];
+        assert_eq!(unfought(&polys, &pos), vec![Some(0), Some(0)]);
+        // A copy laid as near, the same way round: left out.
+        let copy = [4u16, 5, 3];
+        let polys = [(7u16, 1, &front[..]), (7, 1, &copy[..])];
+        assert_eq!(unfought(&polys, &pos), vec![Some(1), None]);
+        // A face a centimeter off is another face.
+        let polys = [(7u16, 1, &front[..]), (7, 1, &apart[..])];
+        assert_eq!(unfought(&polys, &pos), vec![Some(1), Some(1)]);
     }
 }
