@@ -247,11 +247,14 @@ impl InputFrame {
         }
     }
 
-    /// Whether the pointer is in `r`, and not over a window drawn over it.
+    /// Whether the pointer is in `r`, inside the clip `r` is drawn under (a list's rows scrolled
+    /// out of sight take no pointer), and not over a window drawn over it.
     #[must_use]
     pub fn hover(&self, r: &crate::draw::Rect) -> bool {
         let (x, y) = self.mouse;
-        r.contains(x, y) && !self.occluders.iter().any(|o| o.contains(x, y))
+        r.contains(x, y)
+            && crate::draw::current_clip().is_none_or(|c| c.contains(x, y))
+            && !self.occluders.iter().any(|o| o.contains(x, y))
     }
 }
 
@@ -278,6 +281,25 @@ mod tests {
             input.clicked(&under),
             "with nothing over it the press is its"
         );
+    }
+
+    #[test]
+    fn a_press_outside_the_clip_a_control_is_drawn_under_is_not_its() {
+        // A row of a list, half scrolled out of the list's sight.
+        let row = Rect::new(0.0, 80.0, 100.0, 40.0);
+        let mut list = crate::draw::DrawList::default();
+        list.push_clip(Rect::new(0.0, 0.0, 100.0, 100.0));
+        let mut input = InputFrame {
+            mouse: (50.0, 110.0),
+            pressed: [true, false, false],
+            ..InputFrame::default()
+        };
+        assert!(!input.clicked(&row), "below the list's edge");
+        input.mouse = (50.0, 90.0);
+        assert!(input.clicked(&row), "in sight, the press is its");
+        list.pop_clip();
+        input.mouse = (50.0, 110.0);
+        assert!(input.hover(&row), "with no clip, all of it");
     }
 
     #[test]

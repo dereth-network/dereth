@@ -997,3 +997,101 @@ fn a_plugin_button_in_horizon_s_art_keeps_room_past_its_caps_at_both_ends() {
         );
     }
 }
+
+/// A window shaped as a place finder's: a long list of places, a line, then a row of buttons
+/// close under the list (the last spread to the window's right edge by a growing label).
+fn finder() -> UiNode {
+    let rows: Vec<Value> = (0..40)
+        .map(|i| {
+            Value::from(vec![
+                Value::from(format!("Place {i}")),
+                Value::from("portal"),
+                Value::from("in 0x5C45"),
+            ])
+        })
+        .collect();
+    let column = |title: &str, width: i64| Value::map().with("title", title).with("width", width);
+    UiNode::window_from_value(
+        &node("window")
+            .with("id", "main")
+            .with("title", "Finder")
+            .with("width", 72_i64)
+            .with("height", 17_i64)
+            .with(
+                "children",
+                vec![
+                    node("list")
+                        .with("id", "results")
+                        .with(
+                            "columns",
+                            vec![
+                                Value::map().with("title", "Name").with("grow", 1_i64),
+                                column("Type", 12),
+                                column("Where", 11),
+                            ],
+                        )
+                        .with("rows", rows)
+                        .with("height", 7_i64)
+                        .with("grow", 1_i64),
+                    node("label").with("id", "to").with("text", "Destination"),
+                    node("row").with(
+                        "children",
+                        vec![
+                            node("button").with("id", "go").with("text", "Go"),
+                            node("button").with("id", "clear").with("text", "Clear"),
+                            node("label").with("text", "").with("grow", 1_i64),
+                            node("button")
+                                .with("id", "dungeon")
+                                .with("text", "Dungeon Map"),
+                        ],
+                    ),
+                ],
+            ),
+    )
+    .expect("a valid window")
+}
+
+/// At 1920x1080 in Horizon's own art, a click on each of a row of buttons just under a long list
+/// is the button's: the list's rows past its bottom edge, kept for the pad's focus to step on to,
+/// take no pointer.
+#[test]
+fn a_plugin_button_just_under_a_long_list_takes_the_click() {
+    let state = in_world();
+    let mut h = Harness::with_built_in_art();
+    let mut frame = plugin(true);
+    frame.views[0].tree = Arc::new(finder());
+    h.ui.windows.plugins.frame = frame;
+    h.frame(&state);
+    h.frame(&state);
+    let layer = plugin_layer(&h);
+    let targets: Vec<Rect> = h
+        .input
+        .nav
+        .last
+        .targets
+        .iter()
+        .filter(|t| t.layer == layer)
+        .map(|t| t.rect)
+        .collect();
+    // The buttons, left to right: the controls narrower than a quarter of the window (the rows
+    // are as wide as the list).
+    let window = plugin_rect(&h);
+    let mut buttons: Vec<Rect> = targets
+        .iter()
+        .copied()
+        .filter(|r| r.w < window.w / 4.0 && r.h > 10.0)
+        .collect();
+    buttons.sort_by(|a, b| a.x.total_cmp(&b.x));
+    assert_eq!(buttons.len(), 3, "{targets:?}");
+    for (node, r) in ["go", "clear", "dungeon"].into_iter().zip(buttons) {
+        assert_eq!(
+            press_at(&mut h, &state, r),
+            vec![Input::Click {
+                plugin: "test.looter".into(),
+                window: "main".into(),
+                node: node.into(),
+            }],
+            "a click on {node} at {r:?}"
+        );
+    }
+}

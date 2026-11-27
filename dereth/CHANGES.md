@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed plugin buttons just under a list not taking clicks.
 - Tank: drinks the potions and tinctures you add instead of resting.
 - Navigator and Tank journeys use recall gems you carry, even before you've used them.
 - Navigator: going to a dungeon uses its own portal, not another with the same name.
