@@ -23,6 +23,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - New players download a world's custom land much faster.
 - Launch: the death message names a lost item with its material, such as "Gold Gorget".
 - Outdoor creatures spawn only where retail spawned them, never doubled at block edges.
+- New Dereth's map names its towns for players patched by the server.
 
 ## 0.3.18 (2026-11-23)
 - Launch: drudge casters move their arms when they cast, with ac1999's data patches.

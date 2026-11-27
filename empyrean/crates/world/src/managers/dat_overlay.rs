@@ -98,6 +98,34 @@ pub fn read_own_placements_in(
     Ok(())
 }
 
+/// The file in a world's overlay folder naming the world's own towns and landmarks: a places
+/// document, which a client names them by on its maps in place of the game's map's notes.
+pub const WORLD_PLACES_FILE: &str = "places.tsv";
+
+/// Not ACE (V578): the world's own places document ([`WORLD_PLACES_FILE`]) in the folder of the
+/// data overlay over `dats`, read now; `None` for files with no overlay, a folder without the
+/// file, or a file that cannot be read as text (logged).
+#[must_use]
+pub fn world_places(dats: &DatManager) -> Option<String> {
+    let dir = DATABASES.into_iter().find_map(|db| {
+        database(dats, db)
+            .and_then(DatDatabase::overlay)
+            .and_then(|l| l.path().parent().map(Path::to_path_buf))
+    })?;
+    let file = dir.join(WORLD_PLACES_FILE);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            log::warn!(
+                "The world's own places are not sent: {}: {e}",
+                file.display()
+            );
+            None
+        }
+    }
+}
+
 /// Not ACE (V452): landblock `landblock` built again from the files and the world database as
 /// they are now, as `reload-landblock` builds the player's own: its objects destroyed (players
 /// stay), its instances read again, its physics built again, and its objects made again. Answers

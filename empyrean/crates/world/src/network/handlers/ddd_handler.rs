@@ -182,15 +182,15 @@ pub fn ddd_interrogation_response_with(
                 r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_OVERLAY != 0
             })
     };
-    // DIVERGE (V566): a client that asks what its items make is told the server answers it.
-    let recipes_asked = {
+    // The flags a Dereth client sets after the lists (0 from any other, which sets none).
+    let asked = {
         let mut body = client_language.to_le_bytes().to_vec();
         body.extend_from_slice(&rest);
         dereth_protocol::read_body::<dereth_protocol::admin::DddInterrogationResponse>(&body)
-            .is_ok_and(|r| {
-                r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_RECIPES != 0
-            })
+            .map_or(0, |r| r.flags)
     };
+    // DIVERGE (V566): a client that asks what its items make is told the server answers it.
+    let recipes_asked = asked & dereth_protocol::admin::DddInterrogationResponse::FLAG_RECIPES != 0;
     if recipes_asked {
         enqueue_send(
             w,
@@ -288,6 +288,23 @@ pub fn ddd_interrogation_response_with(
             let again = game_message_ddd_interrogation(w);
             enqueue_send(w, session, again);
             return Ok(());
+        }
+    }
+    // DIVERGE (V578): a client that names a world's towns and landmarks by the world's own places
+    // document is sent the one this world's overlay folder holds, when it holds one: a client the
+    // world patches gets its data files, never that document. Sent with the answer the patch
+    // goes ahead on, after any asking again above.
+    if asked & dereth_protocol::admin::DddInterrogationResponse::FLAG_PLACES != 0 {
+        if let Some(document) = dat_overlay::world_places(&dats) {
+            enqueue_send(
+                w,
+                session,
+                GameMessage::from_proto(
+                    GameMessageOpcode::WorldPlaces,
+                    GameMessageGroup::DatabaseQueue,
+                    &dereth_protocol::admin::WorldPlaces { document },
+                ),
+            );
         }
     }
     // DIVERGE: on the dat set from before Throne of Destiny there is no language file (the

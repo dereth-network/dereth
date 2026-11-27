@@ -137,8 +137,9 @@ impl Travel {
     }
 
     /// The towns and landmarks the server publishes as the names the world gives its own places
-    /// ([`PlaceStore::own_names`]), which the maps name in place of the game's map's notes; `None`
-    /// until it publishes such places, and for a world whose places it does not say are its own.
+    /// ([`PlaceStore::own_names`]), or sends as the world's own places document
+    /// ([`Self::take_world_places`]), which the maps name in place of the game's map's notes;
+    /// `None` until it does, and for a world whose places it does not say are its own.
     #[must_use]
     pub fn published_own_places(
         &self,
@@ -171,6 +172,27 @@ impl Travel {
             self.published_places.len()
         );
         Ok(self.published_places.len())
+    }
+
+    /// Take in the world's own places document as the server that patched the client sends it
+    /// (the places document of the world's overlay folder, which the client's copy of the world's
+    /// data does not hold): its towns and landmarks name the maps, as the server's published own
+    /// names do ([`Self::published_own_places`]). How many it names; `None`, and nothing changed,
+    /// for text that is not a places document.
+    pub fn take_world_places(&mut self, document: &str) -> Option<usize> {
+        let own = crate::map_places::own_places(document)?;
+        let n = own.len();
+        self.published_own_places =
+            Some(dereth_client_contract::panels::map::WorldPlaces(own.into()));
+        Some(n)
+    }
+
+    /// Forget what the server published: its portal table, its places and the names it gives the
+    /// world's own, none of which are another world's.
+    pub(super) fn forget_published(&mut self) {
+        self.published.clear();
+        self.published_places.clear();
+        self.published_own_places = None;
     }
 
     /// The places of the world's era's package ([`super::StoreFiles::hints`]), as hints: under

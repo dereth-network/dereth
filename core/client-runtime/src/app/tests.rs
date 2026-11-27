@@ -1605,3 +1605,206 @@ place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\
     ));
     assert_eq!(app.hud.era.own_places, None);
 }
+
+/// Behaviour: none (this client's own map names, not a behaviour of the retail client).
+/// A client the server patched has the world's data files but not its own places document: the
+/// document the server sends names the world's towns and landmarks on both maps, as the overlay
+/// folder's would. One that does not read as a places document changes nothing. The names are
+/// that world's alone: a second world that sends none has the game's notes again, and one that
+/// sends its own in the same frame as its name has those.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_maps_name_the_towns_of_the_places_document_the_server_sends_a_client_it_patched() {
+    use dereth_client_net::client_session::{DddEvent, SessionEvent};
+    use dereth_protocol::admin::WorldPlaces;
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let net = crate::net::ClientNetwork::new("127.0.0.1", 9000, "builder", "password", 1)
+        .expect("an endpoint");
+    assert!(app.attach_replay_network(net).is_ok());
+    let place_doc = |document: &str| {
+        SessionEvent::Ddd(DddEvent::WorldPlaces(Box::new(WorldPlaces {
+            document: document.to_owned(),
+        })))
+    };
+    let places = |document: &str| vec![place_doc(document)];
+    let world = |name: &str| SessionEvent::WorldInfo {
+        connections: 1,
+        max_connections: 100,
+        name: name.to_owned(),
+    };
+    app.process_logon_event_queue(&mut NullShell, vec![world("New Dereth")]);
+    app.process_logon_event_queue(&mut NullShell, places("not a places document"));
+    app.name_own_places();
+    assert_eq!(app.hud.era.own_places, None, "nothing named");
+
+    // The world's own document, as its overlay folder holds it: no naming line of its own.
+    let own = "dereth-places-store\t1\nworld\tNew Dereth\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t-\tLife Stone\t0x76970012 60.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\t0\t0\t-\t-\n";
+    app.process_logon_event_queue(&mut NullShell, places(own));
+    app.name_own_places();
+    let page: Vec<String> = app
+        .hud
+        .era
+        .own_places
+        .as_ref()
+        .expect("the world's own names")
+        .0
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    assert_eq!(page, ["Kehan", "Drudge Windmill"]);
+    assert_eq!(
+        app.travel.published_own_places(),
+        app.hud.era.own_places.as_ref(),
+        "the maps' names are the server's"
+    );
+
+    // The same world named again keeps them.
+    app.process_logon_event_queue(&mut NullShell, vec![world("New Dereth")]);
+    app.name_own_places();
+    assert!(app.hud.era.own_places.is_some(), "still that world's");
+
+    // A retail world after it sends none: its maps name the game's notes again.
+    app.process_logon_event_queue(&mut NullShell, vec![world("Retail")]);
+    app.name_own_places();
+    assert_eq!(app.travel.published_own_places(), None);
+    assert_eq!(app.hud.era.own_places, None, "the notes again");
+
+    // A world naming itself and sending its places in one frame keeps its own.
+    let theirs = own.replace("Kehan", "Holtburg");
+    app.process_logon_event_queue(&mut NullShell, vec![world("Another"), place_doc(&theirs)]);
+    app.name_own_places();
+    let page: Vec<String> = app
+        .hud
+        .era
+        .own_places
+        .as_ref()
+        .expect("that world's own names")
+        .0
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    assert_eq!(page, ["Holtburg", "Drudge Windmill"]);
+}
+
+/// A world whose files name more creature types than retail's (New Dereth's creature families are
+/// types of their own) names them in the creature pane once the client reads through its files,
+/// though the client started on retail's.
+///
+/// Behaviour: none (this client's own world overlays: a world's reopened files name its creatures)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_creature_type_a_worlds_files_add_is_named_once_the_client_reads_through_them() {
+    use dereth_assets::Decode as _;
+    use dereth_client_contract::GameView as _;
+    use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+    use dereth_primitives::ObjectId;
+    use dereth_protocol::{archive::PackedHash, types::appraisal::AppraisalProfile};
+    let store = dereth_dat::testing::open_store_or_fail();
+    let types = crate::hud::CREATURE_TYPE_ENUM_MAPPER;
+    let mut table = dereth_assets::tables::EnumMapper::decode_payload(
+        types,
+        &store.read_portal(types).expect("retail's creature types"),
+    )
+    .expect("a names table");
+    let family = table
+        .id_to_string
+        .iter()
+        .map(|(k, _)| *k)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    table.id_to_string.push((family, "Gigurath".into()));
+
+    let scratch = dereth_dat::testing::ScratchDir::new("creature-type-names").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("world")).expect("an overlay folder");
+    let base = store.portal().base();
+    let mut w = OverlayWriter::open_or_create(
+        &dir.container(dereth_dat::ModernDat::Portal),
+        &base,
+        "portal.dat",
+        "a world",
+        1,
+    )
+    .expect("the overlay");
+    w.save(&base, types, &table.encode(), 1, 1_000_000, 1)
+        .expect("the world's creature types");
+    w.flush(1).expect("flushed");
+    drop(w);
+    let world_files = store
+        .clone()
+        .with_overlay(&dir, Some("a world"))
+        .expect("the overlay opens over the portal");
+
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(std::sync::Arc::new(store)),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let id = ObjectId(0x8000_0001);
+    app.objects
+        .world
+        .tables
+        .weenies
+        .insert(id, dereth_client_model::Weenie::new(id));
+    let mut profile = AppraisalProfile {
+        creature_profile: Some(Default::default()),
+        ..AppraisalProfile::default()
+    };
+    profile.tables.ints = Some(PackedHash {
+        table_size: 8,
+        entries: vec![(2, i32::try_from(family).expect("a type"))],
+    });
+    app.objects.world.appraisal.set(id, profile);
+    let named = |app: &App<NullShell>| {
+        crate::hud::HudView {
+            hud: &app.hud,
+            world: &app.objects.world,
+        }
+        .appraisal(id)
+        .expect("an appraisal")
+        .creature_display_name
+    };
+    assert_eq!(named(&app), None, "retail's files have no such type");
+
+    app.adopt_store(std::sync::Arc::new(world_files));
+    assert_eq!(named(&app).as_deref(), Some("Gigurath"));
+}

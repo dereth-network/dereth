@@ -417,6 +417,56 @@ fn a_server_saying_its_places_are_the_worlds_own_names_gives_the_maps_its_towns_
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The world's own places document, as the server that patched the client sends it, gives the
+/// maps its towns and landmarks though it says nothing of naming; text that is not a places
+/// document changes nothing, and the places the server publishes are not touched.
+#[test]
+fn the_worlds_own_places_document_from_its_server_gives_the_maps_its_towns_and_landmarks() {
+    let mut t = Travel::new(StoreFiles::default());
+    let document = "dereth-places-store\t1\nworld\tNew Dereth\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t-\tLife Stone\t0x76970012 60.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\t0\t0\t-\t-\n";
+    assert_eq!(t.take_world_places("not a places document"), None);
+    assert_eq!(t.published_own_places(), None);
+    assert_eq!(t.take_world_places(document), Some(2));
+    let names: Vec<&str> = t
+        .published_own_places()
+        .expect("the world's own names")
+        .0
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(names, ["Kehan", "Drudge Windmill"]);
+    assert_eq!(t.take_world_places("not a places document"), None);
+    assert!(t.published_own_places().is_some(), "kept");
+    assert!(t.published_places.is_empty(), "nothing published");
+}
+
+/// What a server publishes is its own world's: taken before any world is noted, it is the first
+/// world's; the same world noted again keeps it; another world after it has none of it, neither
+/// the names for the maps nor the places.
+#[test]
+fn what_a_server_published_is_forgotten_when_another_world_is_noted() {
+    let mut t = Travel::new(StoreFiles::default());
+    assert_eq!(t.take_published(OWN_NAMES), Ok(3));
+    t.note_world("New Dereth@10.0.0.1:9000");
+    assert!(t.published_own_places().is_some(), "the first world's");
+    assert_eq!(t.places().places().len(), 3);
+    t.note_world("New Dereth@10.0.0.1:9000");
+    assert!(t.published_own_places().is_some(), "kept");
+    t.note_world("Retail@10.0.0.2:9000");
+    assert_eq!(t.published_own_places(), None, "another world's maps");
+    assert!(t.places().places().is_empty(), "and its places");
+    assert_eq!(t.take_world_places(OWN_NAMES), Some(2));
+    t.note_world("New Dereth@10.0.0.1:9000");
+    assert_eq!(
+        t.published_own_places(),
+        None,
+        "a world sent after is that world's"
+    );
+}
+
 /// The place package of a world's era: its portals and places are taken in as hints, under what
 /// the character learned there, and never written into the world's own files.
 #[test]

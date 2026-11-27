@@ -184,6 +184,45 @@ impl Hud {
         }
         // Four more of the same shape, for the header's heritage line. A miss leaves
         // that one field empty and is reported, exactly as the four above.
+        self.load_names(store);
+        // The salvage report's material names. A miss leaves every material
+        // reading "Unknown", which is the material-name lookup returning `false` --
+        // retail's own answer, and reported here as the other four are.
+        if self.material_names.is_none() {
+            match store
+                .read(MATERIAL_TYPE_NAMES)
+                .map_err(|e| e.to_string())
+                .and_then(|b| {
+                    dereth_assets::DidMapper::decode_payload(MATERIAL_TYPE_NAMES, &b)
+                        .map_err(|e| e.to_string())
+                }) {
+                Ok(t) => self.material_names = Some(t),
+                Err(e) => {
+                    tracing::warn!("material names {MATERIAL_TYPE_NAMES:?}: {e}");
+                }
+            }
+        }
+        if self.title_strings.is_none() {
+            match store
+                .read(TITLE_STRING_TABLE)
+                .map_err(|e| e.to_string())
+                .and_then(|b| {
+                    dereth_assets::ui::StringTable::decode_payload(TITLE_STRING_TABLE, &b)
+                        .map_err(|e| e.to_string())
+                }) {
+                Ok(t) => self.title_strings = Some(t),
+                Err(e) => tracing::warn!("title StringTable {TITLE_STRING_TABLE:?}: {e}"),
+            }
+        }
+        self.rebuild_panel_tables(world);
+    }
+
+    /// The names tables the header's heritage line and the creature pane read (gender,
+    /// heritage, title and creature type), each read from `store` when not read yet. A miss
+    /// leaves that one empty and is reported.
+    fn load_names(&mut self, store: &dereth_dat::RetailDatStore) {
+        use dereth_assets::Decode;
+        use dereth_primitives::AssetSource as _;
         for (slot, id, what) in [
             (
                 &mut self.gender_names,
@@ -216,36 +255,16 @@ impl Hud {
                 Err(e) => tracing::warn!("{what} {id:?}: {e}"),
             }
         }
-        // The salvage report's material names. A miss leaves every material
-        // reading "Unknown", which is the material-name lookup returning `false` --
-        // retail's own answer, and reported here as the other four are.
-        if self.material_names.is_none() {
-            match store
-                .read(MATERIAL_TYPE_NAMES)
-                .map_err(|e| e.to_string())
-                .and_then(|b| {
-                    dereth_assets::DidMapper::decode_payload(MATERIAL_TYPE_NAMES, &b)
-                        .map_err(|e| e.to_string())
-                }) {
-                Ok(t) => self.material_names = Some(t),
-                Err(e) => {
-                    tracing::warn!("material names {MATERIAL_TYPE_NAMES:?}: {e}");
-                }
-            }
-        }
-        if self.title_strings.is_none() {
-            match store
-                .read(TITLE_STRING_TABLE)
-                .map_err(|e| e.to_string())
-                .and_then(|b| {
-                    dereth_assets::ui::StringTable::decode_payload(TITLE_STRING_TABLE, &b)
-                        .map_err(|e| e.to_string())
-                }) {
-                Ok(t) => self.title_strings = Some(t),
-                Err(e) => tracing::warn!("title StringTable {TITLE_STRING_TABLE:?}: {e}"),
-            }
-        }
-        self.rebuild_panel_tables(world);
+    }
+
+    /// The names tables of [`Self::load_names`] read again from a reopened `store`: a world's own
+    /// files may name more (New Dereth's creature families are creature types of their own).
+    pub fn reload_names(&mut self, store: &dereth_dat::RetailDatStore) {
+        self.gender_names = None;
+        self.heritage_names = None;
+        self.title_tokens = None;
+        self.creature_type_names = None;
+        self.load_names(store);
     }
 
     /// The qualities from the local player description, which exists for the player's

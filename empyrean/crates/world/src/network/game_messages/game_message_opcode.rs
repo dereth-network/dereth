@@ -102,4 +102,6 @@ impl GameMessageOpcode {
     pub const ExtensionOffer: Self = Self(0xF7EF);
     /// Not ACE (V566): the answer to a client's recipe query.
     pub const RecipeAnswer: Self = Self(0xF7F1);
+    /// Not ACE (V578): the world's own places document.
+    pub const WorldPlaces: Self = Self(0xF7F2);
 }

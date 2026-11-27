@@ -178,6 +178,23 @@ succeed."). The client holds a question about a combine its plugins sent for tha
 (`0x0275`), and answers No itself after 10 seconds, well inside the server's own 30; a question
 about the player's own combine is shown as retail shows it.
 
+### 5.4 The world's own places (this client and Empyrean only)
+
+A world may name its own towns and landmarks, which its maps show in place of the game's map
+notes: a places document in its overlay folder (`places.tsv`, the form a server publishes its places
+in). A client the server patches gets the world's data files but not that document, so the server
+sends it:
+
+- **The capability.** Bit 5 of the `0xF7E6` flag word says the client names its maps by a world's
+  own places document; the client sets it whenever it keeps the world's records in an overlay.
+- **`0xF7F2`** (server to client, queue 5, once, after the interrogation, ahead of the patch): a
+  dword byte count, then the document as that many bytes of UTF-8, padded to four bytes. A world
+  without such a document sends nothing, and a server that knows nothing of the bit reads the word as
+  before.
+
+The client names its maps by the document's `town` and `landmark` lines, as it would its own copy
+of the overlay folder's.
+
 ## 6. Where reimplementations differ
 
 | topic | the client | common reimplementations |

@@ -8,9 +8,10 @@
 //! folder ([`WORLD_PLACES_FILE`]), in the form a server publishes its places in, whose `town` and
 //! `landmark` lines name them in place of the game's map's notes. Online, the places the world's
 //! server publishes name them instead, when it says they are the world's own
-//! ([`published_own_places`]): a client the server patched has the world's data but not that
-//! folder's document. A world whose land lies on a finer grid than retail's and names none has
-//! none: the notes name retail's places, which are not where the notes put them there.
+//! ([`published_own_places`]), and so does the folder's document when the server that patched the
+//! client sends it: a client the server patched has the world's data but not that document. A
+//! world whose land lies on a finer grid than retail's and names none has none: the notes name
+//! retail's places, which are not where the notes put them there.
 
 use std::sync::Arc;
 
@@ -207,7 +208,7 @@ pub(crate) fn read_whole(file: &dyn dereth_dat::DatStorage) -> Option<String> {
 
 /// The towns and landmarks a places document names, in its order, at map coordinates; `None` for
 /// text that is not a places document.
-fn own_places(document: &str) -> Option<Vec<Place>> {
+pub(crate) fn own_places(document: &str) -> Option<Vec<Place>> {
     let store = dereth_navigation::PlaceStore::from_text(document).ok()?;
     Some(towns_and_landmarks(&store))
 }

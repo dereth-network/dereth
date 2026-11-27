@@ -1496,7 +1496,9 @@ impl Travel {
     }
 
     /// Keep `world`'s portal and recall knowledge loaded (read when the world changes), for a
-    /// frame with nothing else to do.
+    /// frame with nothing else to do. What a server published (its portal table, its places and
+    /// the names it gives the world's own) belongs to the world noted while it came, or to the
+    /// first world noted after: a change to another world forgets it.
     pub fn note_world(&mut self, world: &str) {
         self.load_store(world);
     }
@@ -1699,6 +1701,10 @@ impl Travel {
     fn load_store(&mut self, world: &str) {
         if self.portals.world == world {
             return;
+        }
+        // What a server published is its own world's: another world, after one, starts with none.
+        if !self.portals.world.is_empty() {
+            self.forget_published();
         }
         self.load_places(world);
         self.portals = PortalStore::new(world);
@@ -4747,7 +4753,7 @@ mod tests {
     }
 
     #[test]
-    fn a_published_table_is_the_servers_knowledge_in_every_world_store_and_never_saved() {
+    fn a_published_table_is_the_servers_knowledge_in_its_worlds_store_and_never_saved() {
         let mut t = Travel::new(StoreFiles::default());
         let text = "dereth-navigation-store\t1\nworld\tW\n\
             portal\tpublished\t2068\tDrudge Hideout\t0xA9B30002 5.4 29.5 94.0\t0x019E0114 10.0 -40.0 0.0\t0\t0\t0\t-\t-\t-\n\

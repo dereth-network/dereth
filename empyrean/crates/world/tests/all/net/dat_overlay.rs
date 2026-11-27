@@ -1,4 +1,4 @@
-//! Divergence: V437, V438, V520
+//! Divergence: V437, V438, V520, V578
 //! A world served as base data files with a data overlay over them: a client that keeps overlays
 //! (the overlay flag and its bases in `DDD_InterrogationResponseMessage`, `0xF7E6`) is sent the
 //! overlay manifest (`0xF7EC`), then a `DDD_BeginDDDMessage` (`0xF7E7`) whose revisions download
@@ -14,7 +14,10 @@
 //! data and going back to one sends nothing. A Launch world on the October 31, 1999 portal file
 //! patches a client on the retail CD's portal file up to its own first, so clients on either end
 //! with the same data; with no overlay, it builds what that takes only when the first such client
-//! asks. A client a Launch world does not patch is told the files the world plays.
+//! asks. A client a Launch world does not patch is told the files the world plays. A world whose
+//! overlay folder holds its own places document sends it whole to a client that names its maps by
+//! it, so a client the world patches names the world's towns and landmarks; a world without one,
+//! and a client that does not ask, are sent none.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`), the February 2005 dats
 //! (`DERETH_TEST_PRETOD_DAT_DIR`), the 1999 captures (`DERETH_TEST_DAT_CAPTURES_DIR`) and an
 //! overlay written in a scratch folder.
@@ -568,6 +571,117 @@ fn a_client_that_keeps_overlays_is_sent_its_records_at_the_overlays_rate() {
 /// A Dereth client's interrogation response over `store` (its files with its overlay over them).
 fn dereth_answer(store: &RetailDatStore) -> DddInterrogationResponse {
     dereth_client_runtime::app::ddd_interrogation_response(store, 0, true, None)
+}
+
+/// A world's own places document, as its overlay folder holds it: two towns, a landmark and a
+/// lifestone, one named in letters beyond the game's code page.
+const PLACES: &str = "dereth-places-store\t1\nworld\tNew Dereth\n\
+place\ttown\tpublished\t-\tKehan\t0x76970012 54.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlifestone\tpublished\t-\tLife Stone\t0x76970012 60.000 38.000 58.350\t0\t0\t-\t-\n\
+place\tlandmark\tpublished\t-\tDrudge Windmill\t0x769C001A 94.000 38.000 74.925\t0\t0\t-\t-\n\
+place\ttown\tpublished\t-\tAyan Baqur \u{2014} the Oasis\t0x74A20036 158.000 126.000 11.550\t0\t0\t-\t-\n";
+
+/// A world over the retail files with [`make_overlay`]'s overlay in `dir`, and the base files.
+fn overlay_world(dir: &OverlayDir) -> (Arc<DatManager>, RetailDatStore) {
+    let base_dir = dereth_dat::testing::dat_dir();
+    let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
+    make_overlay(&base, dir, "client_portal.dat", "client_cell_1.dat");
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
+    (dats, base)
+}
+
+/// The towns and landmarks a client's maps name after taking in what the server sent `id` as the
+/// client's own session reads it; `None` when it named none.
+fn names_on_the_maps(ts: &TestServer, id: ClientId) -> Option<Vec<String>> {
+    use dereth_client_net::client_session::dispatch::database::{dispatch, DddState};
+    use dereth_client_net::client_session::{DddEvent, SessionEvent};
+    let mut travel = dereth_client_runtime::travel::Travel::new(
+        dereth_client_runtime::travel::StoreFiles::default(),
+    );
+    let mut state = DddState::InterrogationReceved;
+    for m in ts.received_raw(id) {
+        if let SessionEvent::Ddd(DddEvent::WorldPlaces(p)) = dispatch(&mut state, m).event {
+            travel.take_world_places(&p.document);
+        }
+    }
+    travel
+        .published_own_places()
+        .map(|own| own.0.iter().map(|p| p.name.clone()).collect())
+}
+
+#[test]
+fn a_world_naming_its_own_places_sends_them_to_a_client_it_patches_whose_maps_name_its_towns() {
+    use dereth_protocol::admin::WorldPlaces;
+    let scratch = dereth_dat::testing::ScratchDir::new("server-overlay-places").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let (dats, base) = overlay_world(&dir);
+    std::fs::write(
+        dir.path()
+            .join(empyrean_world::managers::dat_overlay::WORLD_PLACES_FILE),
+        PLACES,
+    )
+    .expect("the world's places");
+
+    let answer = dereth_answer(&base);
+    assert_ne!(answer.flags & DddInterrogationResponse::FLAG_PLACES, 0);
+    let (ts, id) = exchange(&dats, &answer);
+    assert_eq!(
+        ts.received::<WorldPlaces>(id),
+        vec![WorldPlaces {
+            document: PLACES.to_owned()
+        }],
+        "the document whole, once"
+    );
+    assert!(
+        !ts.received::<DddBeginDdd>(id).is_empty(),
+        "and the client is patched"
+    );
+    assert_eq!(
+        names_on_the_maps(&ts, id),
+        Some(vec![
+            "Kehan".to_owned(),
+            "Drudge Windmill".to_owned(),
+            "Ayan Baqur \u{2014} the Oasis".to_owned()
+        ]),
+        "its towns and landmarks, in the document's order"
+    );
+
+    // A client that does not name its maps by a world's places is sent none.
+    let (ts, id) = exchange(&dats, &response(&base, true));
+    assert!(ts.received::<WorldPlaces>(id).is_empty());
+    assert_eq!(names_on_the_maps(&ts, id), None);
+}
+
+#[test]
+fn a_world_without_a_places_document_sends_a_client_none() {
+    use dereth_protocol::admin::WorldPlaces;
+    let scratch =
+        dereth_dat::testing::ScratchDir::new("server-overlay-no-places").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let (dats, base) = overlay_world(&dir);
+    let (ts, id) = exchange(&dats, &dereth_answer(&base));
+    assert!(
+        !ts.received::<DddBeginDdd>(id).is_empty(),
+        "the client is patched"
+    );
+    assert!(ts.received::<WorldPlaces>(id).is_empty());
+    assert_eq!(names_on_the_maps(&ts, id), None);
+
+    // Nor does a world with no overlay.
+    let plain = DatManager::initialize(Arc::new(
+        RealDats::open_era(
+            &dereth_dat::testing::dat_dir(),
+            dereth_primitives::ContainerEra::Modern,
+        )
+        .expect("the base"),
+    ))
+    .expect("the world's dats");
+    let (ts, id) = exchange(&plain, &dereth_answer(&base));
+    assert!(ts.received::<WorldPlaces>(id).is_empty());
 }
 
 /// One login of a Dereth client keeping its overlay in `client` over the files `base`: the server

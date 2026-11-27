@@ -669,6 +669,10 @@ impl<S: Shell> App<S> {
                     }
                     // The restore response flows through the character-generation response notice
                     // and updates the character row that the UI then reads back.
+                    // Noted at once, ahead of anything the world sends after its name: what
+                    // another world published before is forgotten here, not after this world's
+                    // own has come.
+                    self.travel.note_world(&self.cfg.travel_world(&name));
                     self.host_state.world_name = Some(name);
                 }
                 SessionEvent::CharacterScreenMessage(text) => {
@@ -858,7 +862,7 @@ impl<S: Shell> App<S> {
                                             objects: &mut self.objects,
                                             ddd: &mut self.ddd,
                                             generation: &mut self.store_generation,
-                                            era: &mut self.hud.era,
+                                            hud: &mut self.hud,
                                         },
                                         std::sync::Arc::new(fresh),
                                     ),
@@ -880,6 +884,16 @@ impl<S: Shell> App<S> {
                         // frame's other messages.
                         dereth_client_net::client_session::DddEvent::ExtensionOffer(_)
                         | dereth_client_net::client_session::DddEvent::RecipeAnswer(_) => None,
+                        // The world's own places document, which a client the server patched
+                        // does not have beside the world's data: its towns and landmarks name
+                        // the maps, as the folder's would.
+                        dereth_client_net::client_session::DddEvent::WorldPlaces(p) => {
+                            match self.travel.take_world_places(&p.document) {
+                                Some(n) => tracing::info!("the world names {n} of its own places"),
+                                None => tracing::warn!("the world's places document does not read"),
+                            }
+                            None
+                        }
                         dereth_client_net::client_session::DddEvent::BulkOffer(offer) => {
                             on_bulk_offer(
                                 #[cfg(not(target_arch = "wasm32"))]
@@ -1267,7 +1281,7 @@ impl<S: Shell> App<S> {
                 objects: &mut self.objects,
                 ddd: &mut self.ddd,
                 generation: &mut self.store_generation,
-                era: &mut self.hud.era,
+                hud: &mut self.hud,
             },
             fresh,
         );
@@ -1896,8 +1910,12 @@ pub fn ddd_interrogation_response(
             }
         }
     }
+    // A client that keeps the world's records takes the world's own places document too, which
+    // names the world's towns and landmarks on its maps and is not among its records.
     let mut flags = if keeps_overlay {
-        DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_RECORDS
+        DddInterrogationResponse::FLAG_OVERLAY
+            | DddInterrogationResponse::FLAG_RECORDS
+            | DddInterrogationResponse::FLAG_PLACES
     } else {
         0
     };
@@ -1928,7 +1946,7 @@ pub(super) struct StoreHolders<'a> {
     pub objects: &'a mut crate::objects::ObjectStream,
     pub ddd: &'a mut crate::ddd::DddPatcher,
     pub generation: &'a mut u64,
-    pub era: &'a mut dereth_client_contract::EraView,
+    pub hud: &'a mut crate::hud::Hud,
 }
 
 /// [`App::adopt_store`] on its holders, for a caller that holds the link at the same time.
@@ -1941,8 +1959,9 @@ pub(super) fn adopt_store_into(
     ));
     holders.objects.set_store(std::sync::Arc::clone(&fresh));
     holders.ddd.set_bases(&fresh);
-    holders.era.own_places = crate::hud::tables::own_places(&fresh);
-    holders.era.own_map_picture = crate::hud::tables::own_map_picture(&fresh);
+    holders.hud.era.own_places = crate::hud::tables::own_places(&fresh);
+    holders.hud.era.own_map_picture = crate::hud::tables::own_map_picture(&fresh);
+    holders.hud.reload_names(&fresh);
     *holders.store = fresh;
     *holders.generation += 1;
 }

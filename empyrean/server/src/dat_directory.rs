@@ -176,7 +176,7 @@ pub fn world_weenies(
 /// The file in a world's overlay folder naming its own towns and landmarks: a places document,
 /// whose places the world publishes in place of the world database's
 /// ([`crate::portal_table::with_own_places`]).
-pub const WORLD_PLACES_FILE: &str = "places.tsv";
+pub const WORLD_PLACES_FILE: &str = empyrean_world::managers::dat_overlay::WORLD_PLACES_FILE;
 
 /// The world's own places document, from [`WORLD_PLACES_FILE`] in its overlay folder; `None` for
 /// a world with no overlay, or none of the file.

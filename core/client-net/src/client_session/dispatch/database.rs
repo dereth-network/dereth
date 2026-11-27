@@ -2,8 +2,8 @@
 //!
 //! Six retail opcodes are handled: `0xF7E2`, `0xF7E4`, `0xF7E5`, `0xF7E7`, `0xF7EA` and `0xF7EB`,
 //! and the extensions' own, which only a server that knows them sends: `0xF7EC` (the overlay
-//! manifest), `0xF7ED` (the patch offered as a stream), `0xF7EF` (the extensions the server serves)
-//! and `0xF7F1` (a recipe answer). Anything else is dropped.
+//! manifest), `0xF7ED` (the patch offered as a stream), `0xF7EF` (the extensions the server serves),
+//! `0xF7F1` (a recipe answer) and `0xF7F2` (the world's own places). Anything else is dropped.
 //!
 //! **The end message is `0xF7EA` in both directions** and `0xF7EB` is a received-only "patching
 //! pending, wait". The community catalogue has this backwards; the verified direction is recorded
@@ -17,7 +17,7 @@ use crate::client_session::{DropReason, SessionEvent};
 use dereth_primitives::IncomingMessage;
 use dereth_protocol::admin::{
     DddBeginDdd, DddBulkOffer, DddData, DddError, DddInterrogation, DddInterrogationResponse,
-    DddOverlayManifest, ExtensionOffer, RecipeAnswer,
+    DddOverlayManifest, ExtensionOffer, RecipeAnswer, WorldPlaces,
 };
 use dereth_protocol::{read_body, Message, Opcode};
 
@@ -59,6 +59,8 @@ pub enum DddEvent {
     ExtensionOffer(ExtensionOffer),
     /// `0xF7F1` — the answer to a recipe query the client sent.
     RecipeAnswer(Box<RecipeAnswer>),
+    /// `0xF7F2` — the world's own places document, whose towns and landmarks name its maps.
+    WorldPlaces(Box<WorldPlaces>),
 }
 
 /// The queue-5 dispatcher's decision: an event for the caller, and optionally a reply to send.
@@ -129,6 +131,9 @@ pub fn dispatch(state: &mut DddState, m: &IncomingMessage) -> DddDispatch {
         }
         o if o == RecipeAnswer::OPCODE => decoded(decode!(RecipeAnswer, |v| {
             DddEvent::RecipeAnswer(Box::new(v))
+        })),
+        o if o == WorldPlaces::OPCODE => decoded(decode!(WorldPlaces, |v| {
+            DddEvent::WorldPlaces(Box::new(v))
         })),
         _ => DddDispatch {
             event: SessionEvent::Dropped {
@@ -246,6 +251,27 @@ mod tests {
         };
         let d = dispatch(&mut state, &msg(0xF7E2, write_body(&data).unwrap()));
         assert_eq!(d.event, SessionEvent::Ddd(DddEvent::Data(Box::new(data))));
+    }
+
+    /// The world's own places reach the caller whole, in whatever state the exchange is.
+    ///
+    /// Behaviour: none (the world places extension, not a retail message)
+    #[test]
+    fn the_worlds_own_places_are_handed_to_the_caller() {
+        let mut state = DddState::InterrogationReceved;
+        let places = WorldPlaces {
+            document: "dereth-places-store	1
+world	New Dereth
+"
+            .to_owned(),
+        };
+        let d = dispatch(&mut state, &msg(0xF7F2, write_body(&places).unwrap()));
+        assert!(!d.send_end);
+        assert_eq!(state, DddState::InterrogationReceved);
+        assert_eq!(
+            d.event,
+            SessionEvent::Ddd(DddEvent::WorldPlaces(Box::new(places)))
+        );
     }
 
     /// An opcode with no arm on this queue is dropped, not misrouted.

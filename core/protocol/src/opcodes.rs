@@ -824,6 +824,8 @@ op! {
         RECIPE_QUERY = 0xF7F0;
         /// `0xF7F1` RecipeAnswer: not a retail message ([`crate::admin::RecipeAnswer`]).
         RECIPE_ANSWER = 0xF7F1;
+        /// `0xF7F2` WorldPlaces: not a retail message ([`crate::admin::WorldPlaces`]).
+        WORLD_PLACES = 0xF7F2;
     }
 }
 

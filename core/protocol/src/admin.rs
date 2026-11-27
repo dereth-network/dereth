@@ -651,6 +651,9 @@ impl DddInterrogationResponse {
     /// The client asks what the character's items make together ([`RecipeQuery`]); a server
     /// that answers such questions says so with [`ExtensionOffer`].
     pub const FLAG_RECIPES: u32 = 0x0000_0010;
+    /// The client names a world's towns and landmarks on its maps by the world's own places
+    /// document ([`WorldPlaces`]); a server whose world has one sends it.
+    pub const FLAG_PLACES: u32 = 0x0000_0020;
 
     /// The world the iteration lists are of, by [`OverlayBase::world`]'s hash, when the client
     /// names one.
@@ -1184,6 +1187,51 @@ impl Message for ExtensionOffer {
     }
 }
 
+/// `0xF7F2 WorldPlaces` (S2C, queue 5): not a retail message. The world's own places document,
+/// the text its overlay folder holds beside the data files, whose towns and landmarks the maps
+/// name in place of the game's map's notes. Sent once after the interrogation, by a world that
+/// has such a document, to a client that set [`DddInterrogationResponse::FLAG_PLACES`]: a client
+/// the server patches has the world's data files but not that document.
+///
+/// The document is a dword byte count, then that many bytes of UTF-8, padded to four bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorldPlaces {
+    pub document: String,
+}
+
+impl Message for WorldPlaces {
+    const OPCODE: Opcode = Opcode::WORLD_PLACES;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        let len = r.u32()? as usize;
+        if len > r.remaining() {
+            return Err(MessageError::LengthOverrun {
+                field: "places document",
+                len,
+                available: r.remaining(),
+            });
+        }
+        let document =
+            String::from_utf8(r.bytes(len)?.to_vec()).map_err(|e| MessageError::InvalidValue {
+                field: "places document",
+                value: e.utf8_error().valid_up_to() as u64,
+            })?;
+        r.align4()?;
+        Ok(Self { document })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        let len = u32::try_from(self.document.len()).map_err(|_| MessageError::Unencodable {
+            field: "places document",
+            reason: "document longer than 4 GiB",
+        })?;
+        w.u32(len);
+        w.bytes(self.document.as_bytes());
+        w.align4();
+        Ok(())
+    }
+}
+
 /// `0xF7F0 RecipeQuery` (C2S, queue 5): not a retail message. What `items` (objects the character
 /// holds, at most [`Self::MOST`]) make used on one another; the server answers with a
 /// [`RecipeAnswer`] of the same `request`.
@@ -1656,6 +1704,35 @@ mod tests {
         for op in [0xF7EF, 0xF7F0, 0xF7F1] {
             assert!(Opcode(op).info().is_none(), "{op:#x} is no retail message");
         }
+    }
+
+    /// The world's places document reads back as written, whatever its letters, at an opcode no
+    /// retail message uses; a count past the message's end, or bytes that are not UTF-8, do not
+    /// read.
+    ///
+    /// Behaviour: none (the world places message's own round trip)
+    #[test]
+    fn the_world_places_document_round_trips() {
+        for document in [
+            "",
+            "dereth-places-store\t1\nworld\tNew Dereth\n",
+            "Kehan \u{2014} Ayan Baqur",
+        ] {
+            let m = WorldPlaces {
+                document: document.to_owned(),
+            };
+            let body = write_body(&m).unwrap();
+            assert_eq!(body.len() % 4, 0, "padded");
+            assert_eq!(round_trip::<WorldPlaces>(&body), m);
+        }
+        assert_eq!(WorldPlaces::OPCODE.0, 0xF7F2);
+        assert!(Opcode(0xF7F2).info().is_none(), "no retail message");
+        let mut long = 8u32.to_le_bytes().to_vec();
+        long.extend_from_slice(b"abcd");
+        assert!(crate::read_body::<WorldPlaces>(&long).is_err());
+        let mut bad = 2u32.to_le_bytes().to_vec();
+        bad.extend_from_slice(&[0xFF, 0xFE, 0, 0]);
+        assert!(crate::read_body::<WorldPlaces>(&bad).is_err());
     }
 
     #[test]

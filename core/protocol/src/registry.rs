@@ -46,6 +46,7 @@ macro_rules! for_each_message {
                 admin::ExtensionOffer, $crate::admin::ExtensionOffer, auto, 0, skip;
                 admin::RecipeQuery, $crate::admin::RecipeQuery, auto, skip, skip;
                 admin::RecipeAnswer, $crate::admin::RecipeAnswer, auto, 0, skip;
+                admin::WorldPlaces, $crate::admin::WorldPlaces, auto, 0, skip;
                 admin::CharacterRemoveFromPlayerConsentList, $crate::admin::CharacterRemoveFromPlayerConsentList, auto, skip, skip;
                 admin::CharacterAddPlayerPermission, $crate::admin::CharacterAddPlayerPermission, auto, skip, skip;
                 admin::CharacterRemovePlayerPermission, $crate::admin::CharacterRemovePlayerPermission, auto, skip, skip;
