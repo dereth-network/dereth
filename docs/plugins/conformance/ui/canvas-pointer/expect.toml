@@ -1,0 +1,20 @@
+says = "A canvas declared with pointer = true tells its plugin, as ui.canvas, the wheel turned over it and a drag across it, with the pointer, the notches and the drag in the canvas's own pixels."
+[[step]]
+after = 0
+canvas = "map.c"
+x = 50
+y = 40
+wheel = -2
+[[step]]
+after = 0
+canvas = "map.c"
+x = 60
+y = 35
+dx = 10
+dy = -5
+[scenario]
+world = "scripted"
+seconds = 1
+[expect]
+status = "running"
+console = ["map\tc\t50\t40\t-2\t0\t0", "map\tc\t60\t35\t0\t10\t-5"]

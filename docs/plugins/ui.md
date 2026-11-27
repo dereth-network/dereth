@@ -82,7 +82,7 @@ it was.
 | `tabs` | `selected` (a page from 1) | only `group`s: each a page, its `title` on its tab |
 | `number` | `text`, `value`, `min`, `max`, `step` (numbers), `enabled` | no |
 | `choice` | `text`, `options` (strings), `value` (one of them), `enabled` | no |
-| `canvas` | `width`, `height` (pixels), `background` (a colour), `draw` (draw commands, below), `fit` | no |
+| `canvas` | `width`, `height` (pixels), `background` (a colour), `draw` (draw commands, below), `fit`, `pointer` | no |
 | `input` | `text` (its label), `value` (the text), `placeholder`, `enabled`, `width` | no |
 | `textbox` | `value` (the text, lines split at `\n`), `editable` (boolean), `height` (lines), `width` | no |
 | `slider` | `text`, `value`, `min`, `max`, `step` (numbers), `enabled`, `width` | no |
@@ -204,7 +204,10 @@ window has left (it grows by 1 unless it says its own `grow`, and stretches acro
 draws its pixels scaled the same both ways to the largest that fits that room, in its middle, over
 its background filling the room: its places and sizes are scaled, its lines' widths and its text are
 not, so it stays as readable at any size. In a window the player sizes, a map made larger is drawn
-larger. A `chart` draws each series as a line through
+larger. A canvas with `pointer = true` takes the pointer: each turn of the wheel over it, and each
+move of a drag begun on it with the left button (followed outside it until the button comes up),
+is a `ui.canvas` event with the pointer, the notches and the drag in the canvas's own pixels, so a
+map can zoom and pan; the wheel over it no longer scrolls the window's body. A `chart` draws each series as a line through
 its values (or as bars side by side), between `min` and `max` (the values' own when left out),
 with each series' label along its top. Both are drawn in the interface's text; a host with no
 display keeps them in the tree.
@@ -375,6 +378,7 @@ it last said.
 | `ui.closed` `{ window }` | the player closed the window, from its close box or the plugin bar |
 | `ui.opened` `{ window }` | the player opened the window from the plugin bar |
 | `ui.resized` `{ window, width, height }` | the player resized a resizable window (cells and lines) |
+| `ui.canvas` `{ window, id, x, y, wheel, dx, dy }` | the wheel turned over a canvas that takes the pointer (`wheel` notches, up positive), or the pointer dragged across it (`dx`, `dy` this move); `x`, `y` where the pointer is; all in the canvas's own pixels |
 
 A click is a player gesture (see [permissions.md](permissions.md)).
 

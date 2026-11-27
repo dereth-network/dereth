@@ -109,6 +109,11 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("ui.opened", "window"),
     ("ui.resized", "window, width, height"),
     (
+        "ui.canvas",
+        "window, id, x, y (the pointer, in the canvas's own pixels), wheel (notches, up \
+         positive), dx, dy (the drag this move, in its pixels)",
+    ),
+    (
         "map.clicked",
         "position ({ ns, ew }: the place under the pointer), button (left, right or middle), \
          modifiers ({ ctrl, shift, alt })",

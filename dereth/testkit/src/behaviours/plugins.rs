@@ -2032,6 +2032,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.samples.the-navigator-names-and-marks-the-dungeon-map-which-zooms-and-pans",
+        says: "The Navigator's Dungeon Map names the dungeon as the portals the client knows into it \
+               name it (the landblock only when none does), marks where they set a character down \
+               and each portal inside it by its name, shows a Building... bar while the dungeon is \
+               read and none once it is, zooms about the pointer under the wheel, moves under a \
+               drag, and comes back to the character on Reset.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP-MARKS"),
+        station: "dereth-testkit::dat::plugins::scenario_the_dungeon_map_names_the_dungeon_marks_its_portals_and_zooms_and_pans",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.samples.the-navigator-points-at-a-place-and-walks-there",
         says: "The Navigator sample makes coordinates typed to it the destination, with a world \
                marker and a map marker and no arrow, names it on its window, and walks there when \
@@ -3609,6 +3622,19 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-CANVAS-FIT"),
         station: "dereth-testkit::cpu::plugins::scenario_a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.ui.a-canvas-that-takes-the-pointer-hears-the-wheel-and-a-drag",
+        says: "A canvas declared `pointer = true` tells its plugin, as `ui.canvas`, each turn of \
+               the wheel over it and each move of a drag begun on it with the left button (followed \
+               outside it until the button comes up), with the pointer, the notches and the drag \
+               in the canvas's own pixels; a canvas without it takes neither, and the window's body \
+               scrolls under the wheel as before.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-CANVAS-POINTER"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_canvas_that_takes_the_pointer_hears_the_wheel_and_a_drag",
         tier: Tier::Cpu,
     },
     behaviour! {

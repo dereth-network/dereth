@@ -894,3 +894,130 @@ fn an_icon_toggle_shows_its_state_and_turns_and_an_icon_button_is_clicked() {
         }]
     );
 }
+
+/// A canvas that takes the pointer hands back the wheel over it and a drag across it begun on it,
+/// in its own pixels (half the screen's where it is drawn at twice its size), and goes on
+/// following the drag outside it until the button comes up; one that does not take the pointer
+/// hands back neither.
+#[test]
+fn a_canvas_that_takes_the_pointer_reports_the_wheel_and_a_drag_in_its_own_pixels() {
+    let canvas = |pointer: bool| {
+        view(
+            window(
+                "map",
+                vec![node("canvas")
+                    .with("id", "cv")
+                    .with("width", 100_i64)
+                    .with("height", 100_i64)
+                    .with("fit", true)
+                    .with("pointer", pointer)
+                    .with(
+                        "draw",
+                        vec![Value::map()
+                            .with("op", "rect")
+                            .with("x", 0_i64)
+                            .with("y", 0_i64)
+                            .with("w", 100_i64)
+                            .with("h", 100_i64)
+                            .with("color", 0x00FF_0000_i64)
+                            .with("fill", true)],
+                    )],
+            ),
+            1,
+        )
+    };
+    let red = |h: &Harness| {
+        let quads: Vec<Rect> = h.drawn().windows[0]
+            .2
+            .quads
+            .iter()
+            .filter(|q| q.tex.is_none() && q.colour == 0xFFFF_0000)
+            .map(|q| q.dst)
+            .collect();
+        let x0 = quads.iter().map(|r| r.x).fold(f32::MAX, f32::min);
+        let y0 = quads.iter().map(|r| r.y).fold(f32::MAX, f32::min);
+        let x1 = quads.iter().map(Rect::right).fold(f32::MIN, f32::max);
+        Rect::new(x0, y0, x1 - x0, x1 - x0)
+    };
+    let events = |out: Vec<Input>| -> Vec<(f64, f64, f64, f64, f64)> {
+        out.into_iter()
+            .filter_map(|i| match i {
+                Input::Canvas {
+                    node,
+                    x,
+                    y,
+                    wheel,
+                    dx,
+                    dy,
+                    ..
+                } if node == "cv" => Some((x, y, wheel, dx, dy)),
+                _ => None,
+            })
+            .collect()
+    };
+    for pointer in [true, false] {
+        let views = [canvas(pointer)];
+        let mut h = Harness::new();
+        h.frame(&[]);
+        h.layer.ui.place_hint("test.kit", "map", 10.0, 10.0);
+        h.layer.ui.size_hint("test.kit", "map", 260.0, 300.0);
+        h.frame(&views);
+        h.frame(&views);
+        let sq = red(&h);
+        let per = f64::from(sq.w) / 100.0;
+        assert!(per > 1.5, "drawn larger than its own size: {sq:?}");
+        // The wheel a notch up over its middle.
+        h.input.mouse = (sq.x + sq.w / 2.0, sq.y + sq.w / 2.0);
+        h.input.wheel = 1.0;
+        let wheel = events(h.frame(&views));
+        // Pressed at its middle, dragged 20 screen pixels right and 10 down, then on outside it.
+        h.input.down[0] = true;
+        h.input.pressed[0] = true;
+        let pressed = events(h.frame(&views));
+        h.input.mouse.0 += 20.0;
+        h.input.mouse.1 += 10.0;
+        let dragged = events(h.frame(&views));
+        h.input.mouse.0 += 400.0;
+        let outside = events(h.frame(&views));
+        h.input.down[0] = false;
+        h.input.mouse.0 += 30.0;
+        let released = events(h.frame(&views));
+        h.input.mouse.0 += 30.0;
+        let after = events(h.frame(&views));
+        if !pointer {
+            assert!(
+                [&wheel, &pressed, &dragged, &outside, &released, &after]
+                    .iter()
+                    .all(|e| e.is_empty()),
+                "a canvas that does not take the pointer reports nothing"
+            );
+            continue;
+        }
+        assert_eq!(wheel.len(), 1, "{wheel:?}");
+        let (x, y, n, dx, dy) = wheel[0];
+        assert!(
+            (x - 50.0).abs() < 1.0 && (y - 50.0).abs() < 1.0,
+            "{wheel:?}"
+        );
+        assert!(
+            (n - 1.0).abs() < 1e-6 && dx == 0.0 && dy == 0.0,
+            "{wheel:?}"
+        );
+        assert!(
+            pressed.is_empty(),
+            "a press alone moves nothing: {pressed:?}"
+        );
+        assert_eq!(dragged.len(), 1, "{dragged:?}");
+        let (_, _, n, dx, dy) = dragged[0];
+        assert!(n == 0.0, "{dragged:?}");
+        assert!(
+            (dx - 20.0 / per).abs() < 0.01 && (dy - 10.0 / per).abs() < 0.01,
+            "{dragged:?} at {per} screen pixels to one of its own"
+        );
+        assert_eq!(outside.len(), 1, "followed outside it: {outside:?}");
+        assert!(
+            released.is_empty() && after.is_empty(),
+            "{released:?} {after:?}"
+        );
+    }
+}

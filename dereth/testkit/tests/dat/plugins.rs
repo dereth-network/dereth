@@ -12,6 +12,7 @@ use dereth_testkit::plugins::PluginRun;
 dereth_testkit::scenarios! {
     scenario_a_plugin_reads_a_landblock_and_a_dungeon_cell_of_the_game_data => a_plugin_reads_a_landblock_and_a_dungeon_cell_of_the_game_data ["plugins.data.a-plugin-reads-a-landblock-and-a-dungeon-cell-of-the-game-data"],
     scenario_the_navigator_maps_the_dungeon_floor_around_the_character => the_navigator_maps_the_dungeon_floor_around_the_character ["plugins.samples.the-navigator-maps-the-dungeon-floor-around-the-character"],
+    scenario_the_dungeon_map_names_the_dungeon_marks_its_portals_and_zooms_and_pans => the_dungeon_map_names_the_dungeon_marks_its_portals_and_zooms_and_pans ["plugins.samples.the-navigator-names-and-marks-the-dungeon-map-which-zooms-and-pans"],
 }
 
 /// The retail data files, as the plugin host reads them.
@@ -280,20 +281,130 @@ fn the_navigator_maps_the_dungeon_floor_around_the_character() {
         pointed.matches("\"line\"").count() >= expected + 2,
         "the outlines, the heading and the way to the monster:\n{pointed}"
     );
-    let note = dump
-        .lines()
-        .find(|l| l.contains("label #map_note"))
-        .expect("the map's note");
-    let read = note
-        .split('"')
-        .nth(1)
-        .and_then(|t| t.split(' ').next())
-        .and_then(|n| n.parse::<u32>().ok());
-    let all = note
-        .split(" of ")
-        .nth(1)
-        .and_then(|t| t.split(' ').next())
-        .and_then(|n| n.parse::<u32>().ok());
-    assert!(read.is_some() && read == all, "every room read: {note}");
+    // Every room read: no bar of how much is built, and the dungeon named by the portal into it.
+    assert!(
+        !canvas.contains("Building...") && canvas.contains("\"text\":\"Mite Hole\""),
+        "built, and named:\n{canvas}"
+    );
     note_asserted("plugins.samples.the-navigator-maps-the-dungeon-floor-around-the-character");
+}
+
+/// The map's canvas line in a dump of the plugin windows.
+fn map_canvas(dump: &str) -> String {
+    dump.lines()
+        .find(|l| l.trim_start().starts_with("canvas #map"))
+        .expect("the map's canvas")
+        .to_owned()
+}
+
+/// The Navigator's dungeon map in Tusker Abode (`0x5C45`), gone into by the portal the world's
+/// places name "Tusker Abode" (the Facility Hub's portal of the same name sends outdoors, and names
+/// nothing): while the dungeon is read a bar says how much is built; once built the map is named
+/// "Tusker Abode", the drop point is marked where the character stands, and the dungeon's way out
+/// ("Surface", some 280 meters west) is out of view until the wheel zooms the map out and a drag
+/// moves it there; Reset brings the view back to the character.
+fn the_dungeon_map_names_the_dungeon_marks_its_portals_and_zooms_and_pans() {
+    const ID: &str = "network.dereth.navigator";
+    let at = |cell: u32, x: f64, y: f64, z: f64| {
+        dereth_plugin_host::places::from_value(
+            &dereth_plugin_api::Value::map()
+                .with("cell", cell)
+                .with("x", x)
+                .with("y", y)
+                .with("z", z),
+        )
+        .expect("a place")
+    };
+    let portal =
+        |name: &str, class: u32, from, to| dereth_testkit::scripted_travel::ScriptedPortal {
+            name: name.into(),
+            class,
+            at: from,
+            to,
+            source: dereth_navigation::EdgeSource::Published,
+            refuses: false,
+        };
+    let mut run = PluginRun::new().with_game_data(Box::new(Store(retail_store())));
+    run.load(dereth_testkit::plugins::read_package(
+        &dereth_testkit::conformance::workspace_root().join("dereth/plugins/navigator"),
+    ));
+    run.scripted_world("Tester", Vec::new());
+    run.scripted_portals(
+        &[
+            portal(
+                "Tusker Abode",
+                22654,
+                dereth_plugin_host::places::from_coords(42.2, 33.85, 0.0).expect("on the map"),
+                at(0x5C45_0384, 325.98, -99.593, 0.005),
+            ),
+            portal(
+                "Surface",
+                22655,
+                at(0x5C45_0150, 46.951, -76.496, -11.995),
+                at(0xF67B_000C, 37.096, 94.624, -0.095),
+            ),
+            portal(
+                "Tusker Abode",
+                42175,
+                at(0x8A02_0123, 88.309, -48.327, -12.05),
+                at(0xF67B_000C, 26.259, 84.692, -0.095),
+            ),
+        ],
+        Vec::new(),
+    );
+    run.advance(0.5);
+    // Into it by the dungeon found by its name.
+    run.type_line("/nav nearest dungeon");
+    run.type_line("/nav go");
+    run.advance(8.0);
+    assert!(
+        run.printed()
+            .iter()
+            .any(|l| l == "[Nav] Arrived at Tusker Abode."),
+        "{:?}",
+        run.printed()
+    );
+    run.type_line("/nav");
+    run.advance(0.5);
+    run.click(ID, "main.dungeon");
+    run.advance(1.0);
+    let building = map_canvas(&run.ui_dump());
+    assert!(
+        building.contains("\"text\":\"Building...\"") && building.contains("\"op\":\"rect\""),
+        "the bar while the dungeon is read:\n{building}"
+    );
+    run.advance(60.0);
+    let built = map_canvas(&run.ui_dump());
+    assert!(!built.contains("Building..."), "built:\n{built}");
+    assert!(
+        built.contains("\"text\":\"Tusker Abode\"") && !built.contains("0x5C45"),
+        "named by the portal into it:\n{built}"
+    );
+    assert!(
+        built.contains("\"text\":\"Drop point\"") && !built.contains("Surface"),
+        "the drop point in view, the way out not:\n{built}"
+    );
+    let dump = run.ui_dump();
+    assert!(
+        dump.lines()
+            .any(|l| l.contains("button #map_reset") && l.contains("text=\"Reset\"")),
+        "{dump}"
+    );
+    // Zoomed out as far as it goes, then dragged right: the way out comes into view.
+    run.canvas(ID, "dungeon.map", [160.0, 160.0, -12.0, 0.0, 0.0]);
+    run.advance(0.5);
+    run.canvas(ID, "dungeon.map", [160.0, 160.0, 0.0, 150.0, 0.0]);
+    run.advance(0.5);
+    let moved = map_canvas(&run.ui_dump());
+    assert!(
+        moved.contains("\"text\":\"Surface\""),
+        "the way out, zoomed out and moved to:\n{moved}"
+    );
+    run.click(ID, "dungeon.map_reset");
+    run.advance(0.5);
+    let reset = map_canvas(&run.ui_dump());
+    assert_eq!(reset, built, "Reset brings the view back");
+    note_asserted(
+        "plugins.samples.the-navigator-names-and-marks-the-dungeon-map-which-zooms-and-pans",
+    );
 }

@@ -1,0 +1,4 @@
+id = "conformance.canvas-pointer"
+name = "Conformance: canvas pointer"
+version = "0.1.0"
+api = "0.6"

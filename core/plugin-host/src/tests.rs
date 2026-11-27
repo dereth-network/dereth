@@ -692,6 +692,53 @@ fn a_window_click_is_delivered_at_the_next_frame_and_a_toggle_keeps_its_new_valu
     assert_eq!(h.console("test.ui"), ["auto is\ttrue"]);
 }
 
+/// The wheel over a canvas that takes the pointer, and a drag across it, reach its plugin at the
+/// next frame as `ui.canvas`, in the canvas's own pixels; a canvas that does not take the pointer
+/// is told nothing.
+#[test]
+fn the_wheel_and_a_drag_on_a_canvas_that_takes_the_pointer_reach_its_plugin() {
+    let mut h = Harness::new(vec![package(
+        "test.ui",
+        r#"
+        ui.window{ id = "main", title = "Test",
+            ui.canvas{ id = "map", width = 100, height = 100, pointer = true },
+            ui.canvas{ id = "plain", width = 100, height = 100 },
+        }
+        on("ui.canvas", function(e)
+            print(e.id, e.x, e.y, e.wheel, e.dx, e.dy)
+        end)
+        "#,
+        "",
+    )]);
+    h.frame();
+    let canvas = |node: &str, wheel: f64, dx: f64| UiInput::Canvas {
+        node: node.into(),
+        x: 12.345,
+        y: 40.0,
+        wheel,
+        dx,
+        dy: -2.5,
+    };
+    h.host
+        .ui_input("test.ui", "main", canvas("map", 1.0, 0.0))
+        .expect("the wheel");
+    h.host
+        .ui_input("test.ui", "main", canvas("map", 0.0, 3.0))
+        .expect("a drag");
+    assert!(
+        h.host
+            .ui_input("test.ui", "main", canvas("plain", 1.0, 0.0))
+            .is_err(),
+        "a canvas that does not take the pointer"
+    );
+    assert!(h.console("test.ui").is_empty(), "not before the next frame");
+    h.frame();
+    assert_eq!(
+        h.console("test.ui"),
+        ["map\t12.35\t40\t1\t0\t-2.5", "map\t12.35\t40\t0\t3\t-2.5"]
+    );
+}
+
 /// A press on the game's map reaches, at the next frame, every plugin here that listens, with the
 /// place under the pointer to a thousandth, the button and the modifiers held, and it is no
 /// gesture. A press off the world (the map's margin) is told to no one, and a host that tells no

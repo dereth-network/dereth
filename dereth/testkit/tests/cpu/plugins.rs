@@ -101,6 +101,7 @@ dereth_testkit::scenarios! {
     scenario_growing_nodes_share_the_room_left_in_proportion_within_their_bounds => growing_nodes_share_the_room_left_in_proportion_within_their_bounds ["plugins.ui.growing-nodes-share-the-room-left-in-proportion-within-their-bounds"],
     scenario_where_nothing_says_the_last_list_or_text_box_grows => where_nothing_says_the_last_list_or_text_box_grows ["plugins.ui.where-nothing-says-the-last-list-or-text-box-grows"],
     scenario_a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits => a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits ["plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits"],
+    scenario_a_canvas_that_takes_the_pointer_hears_the_wheel_and_a_drag => a_canvas_that_takes_the_pointer_hears_the_wheel_and_a_drag ["plugins.ui.a-canvas-that-takes-the-pointer-hears-the-wheel-and-a-drag"],
     scenario_a_lists_columns_are_fixed_or_share_its_width => a_lists_columns_are_fixed_or_share_its_width ["plugins.ui.a-lists-columns-are-fixed-or-share-its-width"],
     scenario_a_window_shorter_than_its_nodes_scrolls_through_them => a_window_shorter_than_its_nodes_scrolls_through_them ["plugins.ui.a-window-shorter-than-its-nodes-scrolls-through-them"],
     scenario_with_tabs_only_the_pages_content_scrolls => with_tabs_only_the_pages_content_scrolls ["plugins.ui.with-tabs-only-the-pages-content-scrolls"],
@@ -740,6 +741,11 @@ fn a_button_or_toggle_shows_a_game_icon_and_a_toggle_its_state() {
 fn a_canvas_that_fits_takes_the_room_left_and_draws_as_large_as_fits() {
     assert_case("ui", "canvas-fit");
     note_asserted("plugins.ui.a-canvas-that-fits-takes-the-room-left-and-draws-as-large-as-fits");
+}
+
+fn a_canvas_that_takes_the_pointer_hears_the_wheel_and_a_drag() {
+    assert_case("ui", "canvas-pointer");
+    note_asserted("plugins.ui.a-canvas-that-takes-the-pointer-hears-the-wheel-and-a-drag");
 }
 
 fn where_nothing_says_the_last_list_or_text_box_grows() {

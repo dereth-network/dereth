@@ -88,6 +88,7 @@ are not changes.
 | `ui.closed` | `window`: the player closed it, from its close box or the plugin bar |
 | `ui.opened` | `window`: the player opened it from the plugin bar |
 | `ui.resized` | `window`, `width`, `height`: the player let go of a resizable window's edge, corner or grip at this size, in character cells and lines, within the bounds the window declares |
+| `ui.canvas` | `window`, `id`, `x`, `y` (the pointer), `wheel` (notches, up positive), `dx`, `dy` (the drag this move), all in the canvas's own pixels: the wheel turned over a canvas declared `pointer = true`, or the pointer dragged across it ([ui.md](ui.md)) |
 | `map.clicked` | `position` (`{ ns, ew }`: the place under the pointer, to a thousandth), `button` (`left`, `right` or `middle`), `modifiers` (`{ ctrl, shift, alt }`, each true while held): the player pressed the game's world map ([below](#clicks-on-the-map)) |
 | `action.completed` | `id`, `action` (its name, `items.move`), `value` (an appraisal's table; nil for most) |
 | `service.call` | `id`, `from` (the calling plugin), `service`, `args`, `gesture`: a call to a service this plugin offers ([services.md](services.md)); the Lua interface answers it with the offered function |

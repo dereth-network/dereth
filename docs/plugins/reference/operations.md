@@ -430,7 +430,7 @@ How many portals and places the client knows of this world, by where each was le
 
 ### `nav.known_portals`
 
-The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
+The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, standing in `landblock` (a landblock id; a portal leading into it too), within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
 
 - WIT: `nav-known-portals: func(filter: option<value>) -> result<value, string>`
 - Lua: `nav.known_portals(filter: any?) -> any`

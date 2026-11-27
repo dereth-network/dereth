@@ -261,6 +261,27 @@ pub(super) fn deliver(host: &mut PluginHost, input: dereth_plugin_ui::Input) {
             },
         ),
         Input::Close { plugin, window } => (plugin, window, UiInput::Close),
+        Input::Canvas {
+            plugin,
+            window,
+            node,
+            x,
+            y,
+            wheel,
+            dx,
+            dy,
+        } => (
+            plugin,
+            window,
+            UiInput::Canvas {
+                node,
+                x,
+                y,
+                wheel,
+                dx,
+                dy,
+            },
+        ),
         Input::Set {
             plugin,
             window,

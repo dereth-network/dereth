@@ -335,8 +335,9 @@ draws the way itself: the host's wisp steps aside while it has one.
 source, uses, failures, min_level, max_level, verified, retired }`.
 
 Both lists take a filter, which the client applies itself, so a world of thousands of places costs
-a plugin no more than the few it asks for: `{ name, kind, near, within, limit }` keeps those whose
-name holds `name` (without case), of `kind` (`nav.known_places` only: one kind or a list), within
+a plugin no more than the few it asks for: `{ name, kind, landblock, near, within, limit }` keeps
+those whose name holds `name` (without case), of `kind` (`nav.known_places` only: one kind or a
+list), standing in `landblock` (a landblock id; a portal leading into it too: a dungeon's own), within
 `within` meters of `near` (a place; the character when `within` or `limit` is given without it),
 nearest first when measured, at most `limit` of them. `nav.known_places{ kind = "town", limit = 5 }`
 is the five towns nearest the character.

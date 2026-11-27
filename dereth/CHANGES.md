@@ -20,6 +20,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Navigator: going to a dungeon uses its own portal, not another with the same name.
 - Navigator no longer stops when opened with a world's full set of places.
 - Tank: /tank hunt takes a dungeon's name, like Tusker Abode.
+- Navigator: the dungeon map zooms and pans, names the dungeon and marks its portals.
+- Plugins: a canvas can take the mouse wheel and drags.
 - New Dereth's map shows in the classic interface and fits its window in the modern one.
 - Horizon: shows the date and time.
 - A world can choose the views behind character select.

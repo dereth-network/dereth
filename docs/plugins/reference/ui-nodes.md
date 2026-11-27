@@ -23,7 +23,7 @@ Every node may also have an `id`, a string unique within its window; a node that
 | [`tabs`](#tabs) | yes | `selected`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`number`](#number) | no | `text`, `value`, `min`, `max`, `step`, `enabled`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`choice`](#choice) | no | `text`, `options`, `value`, `enabled`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
-| [`canvas`](#canvas) | no | `width`, `height`, `background`, `draw`, `fit`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
+| [`canvas`](#canvas) | no | `width`, `height`, `background`, `draw`, `fit`, `pointer`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`chart`](#chart) | no | `width`, `height`, `series`, `min`, `max`, `style`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`input`](#input) | no | `text`, `value`, `placeholder`, `enabled`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
 | [`textbox`](#textbox) | no | `value`, `editable`, `height`, `width`, `tooltip`, `grow`, `min_width`, `max_width`, `min_height`, `max_height` |
@@ -275,7 +275,7 @@ One of `options`, picked by the player from the list of them; a pick is a `ui.ch
 
 ## canvas
 
-A free drawing `width` by `height` pixels: its `draw` commands (`line`, `rect`, `circle`, `text`) in its own pixels from its top left, over its `background`. With `fit = true` it takes the room its window has left and draws its pixels scaled to the largest that fits it, in its middle.
+A free drawing `width` by `height` pixels: its `draw` commands (`line`, `rect`, `circle`, `text`) in its own pixels from its top left, over its `background`. With `fit = true` it takes the room its window has left and draws its pixels scaled to the largest that fits it, in its middle. With `pointer = true` the wheel over it and a drag across it are `ui.canvas` events.
 
 | property | takes |
 |---|---|
@@ -284,6 +284,7 @@ A free drawing `width` by `height` pixels: its `draw` commands (`line`, `rect`, 
 | `background` | a colour, "#RRGGBB" or a number 0xRRGGBB |
 | `draw` | a list of draw commands (`line`, `rect`, `circle`, `text`) |
 | `fit` | a boolean |
+| `pointer` | a boolean |
 | `grow` | a number from 0 to 1000 |
 | `min_width` | a whole number from 0 to 10000 |
 | `max_width` | a whole number from 0 to 10000 |

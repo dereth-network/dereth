@@ -2991,6 +2991,27 @@ impl PluginRun {
         self.frame();
     }
 
+    /// The player turns the wheel over the canvas `at` (`window.node`) of `plugin`, or drags
+    /// across it: `[x, y, wheel, dx, dy]` in the canvas's own pixels; then a frame runs.
+    pub fn canvas(&mut self, plugin: &str, at: &str, v: [f64; 5]) {
+        let (window, node) = at.split_once('.').expect("window.node");
+        if let Err(e) = self.host.ui_input(
+            plugin,
+            window,
+            dereth_plugin_host::UiInput::Canvas {
+                node: node.to_owned(),
+                x: v[0],
+                y: v[1],
+                wheel: v[2],
+                dx: v[3],
+                dy: v[4],
+            },
+        ) {
+            panic!("the canvas input went nowhere: {e}");
+        }
+        self.frame();
+    }
+
     /// A plugin's status word, or `absent`.
     #[must_use]
     pub fn status(&self, plugin: &str) -> String {

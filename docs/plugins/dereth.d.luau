@@ -52,7 +52,7 @@ declare nav: {
 	search: (text: string, opts: any?) -> any,
 	-- How many portals and places the client knows of this world, by where each was learned: `{ portals = { learned, published, hint }, places = { data, learned, published, hint } }`, a source left out when none is known from it. `hint` is the era's package; `data`, the places the game's data names.
 	knowledge: () -> any,
-	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
+	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, standing in `landblock` (a landblock id; a portal leading into it too), within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
 	known_portals: (filter: any?) -> any,
 	-- The places the client knows of this world: the towns, landmarks and houses the game's data names, and each lifestone, portal, vendor, person and house it was shown or the server publishes, where it stands, how it is known, when it was seen, and a house's owner. A `filter` as `nav.known_portals` takes, and `kind`, a kind or a list of kinds.
 	known_places: (filter: any?) -> any,

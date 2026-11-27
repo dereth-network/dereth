@@ -182,6 +182,19 @@ pub enum Input {
         width: i64,
         height: i64,
     },
+    /// The wheel turned over a canvas that takes the pointer (`wheel` notches, up positive), or
+    /// the pointer dragged across it with its left button held (`dx`, `dy` this frame); `x`, `y`
+    /// where the pointer is. All in the canvas's own pixels.
+    Canvas {
+        plugin: String,
+        window: String,
+        node: String,
+        x: f64,
+        y: f64,
+        wheel: f64,
+        dx: f64,
+        dy: f64,
+    },
     /// A plugin's button on the bar clicked.
     Bar {
         plugin: String,
@@ -206,7 +219,8 @@ impl Input {
             | Self::Select { plugin, window, .. }
             | Self::Close { plugin, window }
             | Self::Set { plugin, window, .. }
-            | Self::Resize { plugin, window, .. } => Some((plugin, window)),
+            | Self::Resize { plugin, window, .. }
+            | Self::Canvas { plugin, window, .. } => Some((plugin, window)),
             Self::Bar { .. } | Self::Command { .. } | Self::Map(_) => None,
         }
     }

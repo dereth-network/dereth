@@ -178,6 +178,9 @@ type Drawing = (
     Vec<dereth_plugin_api::draw::Placed>,
 );
 
+/// A canvas, by its plugin, its window and its node's id.
+type CanvasKey = (String, String, String);
+
 /// Where a window stands: `((plugin, window), (x, y))`, in screen pixels.
 pub type Place = ((String, String), (f32, f32));
 
@@ -212,6 +215,9 @@ pub struct PluginUi {
     made_picture: bool,
     /// The HUD the player is moving, and where on it the press took hold.
     hud_drag: Option<((String, String), (f32, f32))>,
+    /// The canvas the player is dragging across, `(plugin, window, node)`, and where the pointer
+    /// was at the last frame, in screen pixels.
+    canvas_drag: Option<(CanvasKey, (f32, f32))>,
     /// How many canvas and chart drawings have been made, for the tests.
     #[cfg(test)]
     pub(crate) drawings_made: usize,
@@ -1286,6 +1292,11 @@ impl PluginUi {
                 self.tip(ctx, n, id, r);
             }
             NodeKind::Canvas | NodeKind::Chart => {
+                if n.kind == NodeKind::Canvas
+                    && n.props.get("pointer").and_then(Value::as_bool) == Some(true)
+                {
+                    self.canvas_pointer(p, ctx, n, r, (plugin, window, node_name));
+                }
                 self.drawing(p, view, n, id, r);
             }
             NodeKind::Image => {
@@ -1863,6 +1874,59 @@ impl PluginUi {
                 p.text(&dim, room.x, room.y, &shown);
                 p.list.pop_clip();
             }
+        }
+    }
+
+    /// A canvas that takes the pointer: the wheel over it, and a drag across it begun there with
+    /// the left button (followed wherever the pointer goes until the button comes up), handed to
+    /// its plugin in the canvas's own pixels.
+    fn canvas_pointer(
+        &mut self,
+        p: &Painter<'_>,
+        ctx: &mut Ctx<'_>,
+        n: &UiNode,
+        r: Rect,
+        key: CanvasKey,
+    ) {
+        let k = p.scale;
+        let (fit, (ox, oy)) = n.canvas_fit(r.w / k.max(0.01), r.h / k.max(0.01));
+        // Screen pixels to one of the canvas's own.
+        let per = (k * fit).max(0.01);
+        let (left, top) = (r.x + ox * k, r.y + oy * k);
+        let (mx, my) = ctx.input.mouse;
+        let at = (f64::from((mx - left) / per), f64::from((my - top) / per));
+        let input = |key: &CanvasKey, wheel: f32, d: (f32, f32)| Input::Canvas {
+            plugin: key.0.clone(),
+            window: key.1.clone(),
+            node: key.2.clone(),
+            x: at.0,
+            y: at.1,
+            wheel: f64::from(wheel),
+            dx: f64::from(d.0 / per),
+            dy: f64::from(d.1 / per),
+        };
+        if ctx.input.wheel != 0.0 && ctx.input.hover(&r) {
+            let wheel = ctx.input.wheel;
+            ctx.input.wheel = 0.0;
+            self.inputs.push(input(&key, wheel, (0.0, 0.0)));
+        }
+        if ctx.input.clicked(&r) {
+            self.canvas_drag = Some((key.clone(), (mx, my)));
+            return;
+        }
+        let Some((held, (lx, ly))) = self.canvas_drag.clone() else {
+            return;
+        };
+        if held != key {
+            return;
+        }
+        if !ctx.input.down[0] {
+            self.canvas_drag = None;
+            return;
+        }
+        if (mx, my) != (lx, ly) {
+            self.inputs.push(input(&key, 0.0, (mx - lx, my - ly)));
+            self.canvas_drag = Some((key, (mx, my)));
         }
     }
 

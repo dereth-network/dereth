@@ -262,6 +262,17 @@ pub enum UiInput {
         width: i64,
         height: i64,
     },
+    /// The wheel turned over a canvas that takes the pointer (`wheel` notches, up positive), or
+    /// the pointer dragged across it with its left button held (`dx`, `dy` this move); `x`, `y`
+    /// where the pointer is. All in the canvas's own pixels.
+    Canvas {
+        node: String,
+        x: f64,
+        y: f64,
+        wheel: f64,
+        dx: f64,
+        dy: f64,
+    },
 }
 
 /// One hotkey a plugin declared (a `hotkey` node in one of its windows): the command it runs and
@@ -1510,6 +1521,32 @@ impl PluginHost {
                     .insert(key, Value::map().with("width", w).with("height", h));
                 self.shared.layout_dirty = true;
                 Event::new("ui.resized", base.with("width", w).with("height", h))
+            }
+            UiInput::Canvas {
+                node,
+                x,
+                y,
+                wheel,
+                dx,
+                dy,
+            } => {
+                let takes = win.tree.find(&node).is_some_and(|n| {
+                    n.kind == dereth_plugin_api::NodeKind::Canvas
+                        && n.props.get("pointer").and_then(Value::as_bool) == Some(true)
+                });
+                if !takes {
+                    return Err(format!("no canvas {node:?} that takes the pointer"));
+                }
+                let round = |v: f64| (v * 100.0).round() / 100.0;
+                Event::new(
+                    "ui.canvas",
+                    base.with("id", node)
+                        .with("x", round(x))
+                        .with("y", round(y))
+                        .with("wheel", round(wheel))
+                        .with("dx", round(dx))
+                        .with("dy", round(dy)),
+                )
             }
         };
         self.ui_inbox.push_back((Some(plugin.to_owned()), event));

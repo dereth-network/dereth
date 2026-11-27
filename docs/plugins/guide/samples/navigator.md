@@ -82,8 +82,13 @@ of the map, the way it lies, when it is farther), the way there as the client pl
 creatures in sight. A room is on the character's level when the character stands within its height
 or its floor is within 2 meters of the character's feet, so a ramp and the rooms it joins are drawn
 together. It reads the dungeon's rooms a few at a time while the window is
-up, so no one step of the plugin costs much, and draws the map again as the character moves or
-turns.
+up, so no one step of the plugin costs much, with a Building... bar across the map's foot until
+every room is read, and draws the map again as the character moves or turns. The map is named as
+the portals the client knows into the dungeon name it ("Tusker Abode Portal" and "Portal to Tusker
+Abode" both name "Tusker Abode"; the landblock, `0x5C45`, only when none does); where those portals
+set a character down is marked "Drop point", and each portal inside the dungeon (its way out, and
+any to elsewhere) by its own name. The wheel over the map zooms it about the pointer, a drag moves
+it, and **Reset** brings it back to the character.
 
 The commands are shortcuts to the window:
 
@@ -216,8 +221,14 @@ which tell each leg as it begins.
 `game.data.cell(id)` gives each one's floor as polygons in the landblock's frame. The map reads six
 rooms a step, keeps them, and for the character's level (and, dim, the levels within 8 meters
 above and below) draws the floors' edges that no other floor of the level shares: the outline of the rooms and
-corridors, without the seams between them. A canvas holds at most 1,000 commands, so the edges
-out of view are left out and no more than 900 drawn.
+corridors, without the seams between them. Each command a canvas is handed costs the plugin time,
+so the edges out of view are left out and no more than 500 drawn (zoomed out, an edge under a pixel
+and a half too), and while the dungeon is read the outlines are worked out again only every two
+seconds. The canvas is declared `pointer = true`, so the wheel and a drag on it arrive as
+`ui.canvas` events, which zoom and move the view; the dungeon's
+name and marks come from `nav.known_portals{ landblock = ... }` (the portals standing in the dungeon
+and those leading into it, chosen by the client, so a whole era's portals cost the plugin no more
+than the dungeon's own), read again every 30 seconds while the map is up.
 
 ## How it is tested
 
@@ -274,4 +285,8 @@ arrives. With the game's data,
 `dereth/testkit/tests/dat/plugins.rs :: the_navigator_maps_the_dungeon_floor_around_the_character`
 carries the character into a dungeon of 433 rooms, opens the Dungeon Map by its button, and
 requires it to draw exactly the outline the dungeon's floors give at its level around it, worked
-out again by the test, with the character's dot, once every room is read.
+out again by the test, with the character's dot, once every room is read;
+`the_dungeon_map_names_the_dungeon_marks_its_portals_and_zooms_and_pans` goes into Tusker Abode
+by its portal and requires the Building... bar while it is read, the name "Tusker Abode" and the
+drop point once built, the way out ("Surface") in view only once the map is zoomed out and moved,
+and Reset to bring the view back.

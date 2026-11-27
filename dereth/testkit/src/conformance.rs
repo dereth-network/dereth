@@ -63,6 +63,8 @@
 //!                            # server_takes_control = true, or unload = "plugin.id", or
 //!                            # bar = "plugin.id" (its button on the plugin bar clicked), or
 //!                            # resize = "window" with width = …, height = … (cells, lines),
+//!                            # or canvas = "window.node" with x, y, wheel, dx, dy (the wheel
+//!                            # over a canvas that takes the pointer, or a drag across it),
 //!                            # or map_click = { ns, ew, button, ctrl, shift, alt } (a press
 //!                            # on the game's map; button "left" and no modifier when absent),
 //!                            # or select = 0x80000050 (an object selected, as a click on it)
@@ -138,6 +140,9 @@ pub enum Action {
     Bar(String),
     /// The player resizes a window to cells and lines.
     Resize(String, i64, i64),
+    /// The player turns the wheel over a canvas, or drags across it: `window.node`, and the
+    /// pointer, the wheel and the drag in its own pixels.
+    Canvas(String, [f64; 5]),
     /// A scripted object walks to map coordinates (north-south, east-west).
     MoveObject(u32, f64, f64),
     /// The player presses a plugin's hotkey, by its node's id.
@@ -424,6 +429,12 @@ pub fn read_case(dir: &Path) -> Case {
                     u32::try_from(id).unwrap_or(0),
                     m.get("ns").as_f64().unwrap_or_default(),
                     m.get("ew").as_f64().unwrap_or_default(),
+                )
+            } else if let Some(at) = s.get("canvas").as_str() {
+                let n = |k: &str| s.get(k).as_f64().unwrap_or_default();
+                Action::Canvas(
+                    at.to_owned(),
+                    [n("x"), n("y"), n("wheel"), n("dx"), n("dy")],
                 )
             } else if let Some(w) = s.get("resize").as_str() {
                 Action::Resize(
@@ -864,6 +875,7 @@ pub fn run(case: &Case) -> Outcome {
             Action::Unload(id) => run.unload(id),
             Action::Bar(id) => run.bar_click(id),
             Action::Resize(w, width, height) => run.resize(&id, w, *width, *height),
+            Action::Canvas(at, v) => run.canvas(&id, at, *v),
             Action::MoveObject(object, ns, ew) => run.move_object(*object, *ns, *ew),
             Action::Hotkey(node) => run.press_hotkey(&id, node),
             Action::MapClick(click) => run.map_click(click),

@@ -845,12 +845,17 @@ impl Call<'_, '_> {
                 .flatten(),
             n => Some(crate::places::from_value(n)?),
         };
+        let landblock = match v.get("landblock").as_i64() {
+            Some(n) => Some(u16::try_from(n).map_err(|_| bad("a landblock is 0 to 0xFFFF"))?),
+            None => None,
+        };
         Ok(ListFilter {
             name,
             kinds,
             near,
             within,
             limit,
+            landblock,
         })
     }
 
@@ -2559,8 +2564,9 @@ const SEARCH_LIMIT: usize = 8;
 
 /// What a plugin asked a list of places to keep (`nav.known_places{ ... }`,
 /// `nav.known_portals{ ... }`): those whose name holds `name` (without case), of `kind` (one word
-/// or a list), within `within` meters of `near` (a place; the character when left out), nearest
-/// first when measured from somewhere, at most `limit` of them.
+/// or a list), standing in `landblock` (a portal leading into it too), within `within` meters of
+/// `near` (a place; the character when left out), nearest first when measured from somewhere, at
+/// most `limit` of them.
 #[derive(Default)]
 struct ListFilter {
     name: Option<String>,
@@ -2568,6 +2574,12 @@ struct ListFilter {
     near: Option<Position>,
     within: Option<f32>,
     limit: Option<usize>,
+    landblock: Option<u16>,
+}
+
+/// Whether `p` stands in landblock `lb`.
+fn in_landblock(p: &Position, lb: u16) -> bool {
+    p.cell.0 >> 16 == u32::from(lb)
 }
 
 impl ListFilter {
@@ -2580,6 +2592,11 @@ impl ListFilter {
                         .kinds
                         .as_ref()
                         .is_none_or(|k| k.iter().any(|k| k == l.kind))
+                    && self.landblock.is_none_or(|lb| {
+                        l.at.is_some_and(|at| in_landblock(&at, lb))
+                            || matches!(l.of, Entry::Portal(e)
+                                if e.to.is_some_and(|to| in_landblock(&to, lb)))
+                    })
             })
             .filter_map(|l| {
                 let d = match (&self.near, &l.at) {
@@ -2817,6 +2834,7 @@ mod list_tests {
             near: Some(at(0, 0)),
             within: None,
             limit: Some(200),
+            landblock: None,
         };
         // A name searched for: what holds it, nearest first, up to the limit.
         let before = made();
@@ -2840,6 +2858,40 @@ mod list_tests {
             nearest[0].get("from").get("cell").as_i64(),
             Some(i64::from(at(0, 0).cell.0)),
             "the nearest first"
+        );
+        // One landblock's: the portals standing in it and those leading into it, and the places
+        // standing in it, each value made only for those kept.
+        let before = made();
+        let mut list = portals_value(&portals);
+        list.extend(places_value(&places));
+        let here = ListFilter {
+            landblock: Some(0x0A00),
+            ..ListFilter::default()
+        }
+        .apply(list);
+        let here = here.as_list().expect("a list");
+        assert_eq!(
+            made() - before,
+            here.len(),
+            "values made only for those kept"
+        );
+        let lb = |v: &Value, k: &str| {
+            v.get(k)
+                .get("cell")
+                .as_i64()
+                .map(|c| c >> 24 << 8 | (c >> 16 & 0xFF))
+        };
+        assert!(!here.is_empty());
+        assert!(
+            here.iter().all(|v| lb(v, "from") == Some(0x0A00)
+                || lb(v, "to") == Some(0x0A00)
+                || lb(v, "at") == Some(0x0A00)),
+            "{here:?}"
+        );
+        assert!(
+            here.iter()
+                .any(|v| lb(v, "to") == Some(0x0A00) && lb(v, "from") != Some(0x0A00)),
+            "a portal elsewhere that leads in"
         );
         // A name's case does not matter, nor where it falls in the name.
         assert!(holds("Portal to Drudge Hideout", "drudge hideout"));

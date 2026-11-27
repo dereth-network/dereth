@@ -5,7 +5,9 @@
 -- the spots picked on the game's map, a Filter choosing which. The place picked is the
 -- destination; Go travels there (through portals and by recalls where the client knows a
 -- journey, else on foot round what stands in the way), Stop stops, Clear forgets it. Dungeon Map
--- opens a map of the dungeon the character is in, with the way and the creatures on it.
+-- opens a map of the dungeon the character is in, named as the portals into it name it, with the
+-- way, the creatures, where portals set a character down and the portals inside it on it; the
+-- wheel zooms it, a drag moves it, and Reset brings it back to the character.
 --
 -- Every place is one the client learned in this world or the player saved: the plugin brings none
 -- of its own. The destination, the map's spots and the coordinates seen in chat are kept for the
@@ -109,9 +111,13 @@ if M.available() then
 	map_win = ui.window({
 		id = "dungeon",
 		title = "Dungeon Map",
-		-- Drawn as large as the window the player gives it.
-		ui.canvas({ id = "map", width = M.SIZE, height = M.SIZE, fit = true, background = "#101010", draw = {} }),
-		ui.label({ id = "map_note", text = "" }),
+		-- Drawn as large as the window the player gives it; zoomed by the wheel and moved by a drag.
+		ui.canvas({ id = "map", width = M.SIZE, height = M.SIZE, fit = true, pointer = true, background = "#101010",
+			draw = {} }),
+		ui.row({
+			ui.button({ id = "map_reset", text = "Reset" }),
+			ui.label({ id = "map_note", text = "" }),
+		}),
 	})
 	map_win:close()
 end
@@ -630,8 +636,56 @@ local function refresh_way()
 	end)
 end
 
+-- The dungeon the map last named and marked: its landblock, its name (nil when no portal names it)
+-- and its marks: where each portal into it sets a character down, and each portal inside it.
+local marked = { lb = nil, name = nil, marks = {}, at = 0 }
+-- How often the marks are read again while the map is up, seconds: the client learns portals.
+local MARKS_EVERY = 30
+
+-- Name and mark the dungeon in landblock `lb` from the portals the client knows: those that lead
+-- into it name it (as "Portal to Drudge Hideout" and "Drudge Hideout Portal" both name "Drudge
+-- Hideout"; the name most of them give), and set a character down where they lead; those that
+-- stand in it are marked where they stand, by their own names.
+local function mark_dungeon(lb)
+	if lb ~= marked.lb then
+		M.reset()
+	end
+	marked = { lb = lb, name = nil, marks = {}, at = os.clock() }
+	if nav.known_portals == nil then
+		return
+	end
+	local function block(p)
+		return p ~= nil and p.ns == nil and p.cell ~= nil and math.floor(p.cell / 65536) == lb
+			and p.cell % 65536 >= 0x0100
+	end
+	local names, drops = {}, {}
+	for _, e in ipairs(nav.known_portals({ landblock = lb })) do
+		if e.retired == nil then
+			if block(e.to) and not block(e.from) then
+				local n = L.destination_name(e.name)
+				names[n] = (names[n] or 0) + 1
+				-- One mark where several lead to the same spot.
+				local key = string.format("%.0f,%.0f", e.to.x, e.to.y)
+				if drops[key] == nil then
+					drops[key] = true
+					table.insert(marked.marks, { kind = "drop", name = "Drop point", at = e.to })
+				end
+			end
+			if block(e.from) then
+				table.insert(marked.marks, { kind = "portal", name = e.name, at = e.from })
+			end
+		end
+	end
+	local best = 0
+	for n, c in pairs(names) do
+		if c > best or (c == best and marked.name ~= nil and n < marked.name) then
+			marked.name, best = n, c
+		end
+	end
+end
+
 -- The dungeon map, while its window is open: a few cells read a step, drawn again as the
--- character moves or turns, or the way or the creatures change.
+-- character moves or turns, the view is zoomed or moved, or the way or the creatures change.
 local drawn_at = nil
 if map_win ~= nil then
 	task.every(100, function()
@@ -642,6 +696,10 @@ if map_win ~= nil then
 		local me = game.player.position
 		if me == nil then
 			return
+		end
+		local lb = M.inside(me)
+		if lb ~= nil and (lb ~= marked.lb or os.clock() - marked.at > MARKS_EVERY) then
+			mark_dungeon(lb)
 		end
 		refresh_way()
 		local creatures = {}
@@ -654,18 +712,18 @@ if map_win ~= nil then
 				end
 			end
 		end
-		local key = string.format("%s %.1f %.1f %.1f %d %s %s %s %s", tostring(me.cell), me.x or 0, me.y or 0,
-			me.z or 0, math.floor((me.heading or 0) / 5), tostring(done), tostring(way),
-			tostring(target), table.concat(ckey, ";"))
+		local read = M.progress()
+		local key = string.format("%s %.1f %.1f %.1f %d %s %d %s %d %s %s %s", tostring(me.cell), me.x or 0, me.y or 0,
+			me.z or 0, math.floor((me.heading or 0) / 5), tostring(done), read, M.view_key(), #marked.marks,
+			tostring(way), tostring(target), table.concat(ckey, ";"))
 		if key == drawn_at then
 			return
 		end
 		drawn_at = key
-		local cmds = M.draw({ target = target_place(), route = way and way.points, creatures = creatures })
+		local cmds = M.draw({ target = target_place(), route = way and way.points, creatures = creatures,
+			marks = marked.marks, name = marked.name })
 		map_win:get("map").draw = cmds or {}
-		local read, all = M.progress()
-		map_win:get("map_note").text = cmds == nil and "Outdoors: no dungeon to map."
-			or string.format("%d of %d rooms read.", read, all)
+		map_win:get("map_note").text = cmds == nil and "Outdoors: no dungeon to map." or ""
 	end)
 end
 
@@ -781,7 +839,24 @@ on("ui.selected", function(e)
 	end
 end)
 
+-- The wheel over the dungeon map zooms it about the pointer, and a drag moves it.
+on("ui.canvas", function(e)
+	if e.window ~= "dungeon" or e.id ~= "map" then
+		return
+	end
+	if e.wheel ~= 0 then
+		M.zoom_at(e.wheel, e.x, e.y)
+	end
+	if e.dx ~= 0 or e.dy ~= 0 then
+		M.pan(e.dx, e.dy)
+	end
+end)
+
 on("ui.clicked", function(e)
+	if e.window == "dungeon" and e.id == "map_reset" then
+		M.reset()
+		return
+	end
 	if e.window ~= "main" then
 		return
 	end
