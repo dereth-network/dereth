@@ -286,6 +286,127 @@ fn a_teaching_stone_of_a_class_of_its_own_is_shown_when_used() {
     );
 }
 
+/// A teaching stone whose template a quest step is triggered by shows its page as any stone does,
+/// then runs the step: the use is answered first, then the quest's update; one no step names
+/// moves nothing.
+/// Behaviour: server.places.teaching-stone-runs-its-steps
+#[test]
+fn a_teaching_stone_shows_its_page_then_runs_the_step_its_template_triggers() {
+    use yalain_content::quests::{QuestDef, QuestTable, Step, Trigger, Update};
+    use yalain_content::Words;
+    const QUEST: u32 = 0x4000_00C3;
+    const NAMED: u32 = 0x4700_2E13;
+    const OTHER: u32 = 0x4700_2E09;
+    const QUEST_UPDATE: u32 = 0x8213_0024;
+    let mut h = Harness::new();
+    let mut named = object(STONE, NAMED, [60.0, 241.0, -44.6], None);
+    named.description.package = yalain_world::places::TEACHING_STONE;
+    let mut other = object(PORTAL, OTHER, [61.0, 241.0, -44.6], None);
+    other.description.package = yalain_world::places::TEACHING_STONE;
+    h.server.content = ContentPack {
+        objects: vec![named, other],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            duration_by_calendar: false,
+            id: QUEST,
+            name: Words::Ref(0xA860_7CEC, 0x2500_17EA),
+            description: (0x6C45_9364, 0x2500_17EA),
+            icon: 0x4100_034B,
+            play_fx: true,
+            journals: vec![(0x2E5C_1E52, 0x2500_17EA)],
+            challenge: 0,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            ranges: Vec::new(),
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+            cancel_wait: None,
+        }],
+        steps: vec![Step {
+            out_of_turn: false,
+            skills: Vec::new(),
+            key: "stone".into(),
+            quest: QUEST,
+            needs: 0,
+            trigger: Trigger::Use(NAMED),
+            tell: None,
+            update: Update::Bestow,
+            xp: 0,
+            gives: Vec::new(),
+            counts: Vec::new(),
+            effects: Vec::new(),
+            text: None,
+            recipes: Vec::new(),
+            placed: "authored for a test".into(),
+            requires: Vec::new(),
+            takes: Vec::new(),
+            races: Vec::new(),
+            effects_last: false,
+            told_refused: false,
+            effects_quiet: false,
+            wants: None,
+            fellows: false,
+            levels: None,
+            xp_share: 0.0,
+            to: None,
+            transforms: None,
+            chance: None,
+            to_fellows: false,
+        }],
+        ..QuestTable::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let holds = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .next()
+            .is_some_and(|p| yalain_world::quests::phase_of(&p.play.quests, QUEST) > 0)
+    };
+    let used = |h: &mut Harness, id: u64| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::USE, &[use_of(id, ida)]),
+        );
+        h.run(10);
+        calls(h, a, from)
+    };
+    assert_eq!(
+        used(&mut h, PORTAL),
+        [yalain_world::places::FORCE_EXAMINE, trip::USE_DONE],
+        "a stone no step names shows its page alone"
+    );
+    assert!(!holds(&h));
+    let seen = used(&mut h, STONE);
+    let at = |f: u32| seen.iter().position(|x| *x == f);
+    assert!(
+        at(yalain_world::places::FORCE_EXAMINE) < at(trip::USE_DONE)
+            && at(trip::USE_DONE).is_some()
+            && at(trip::USE_DONE) < at(QUEST_UPDATE),
+        "the page, the use answered, then the update: {seen:08X?}"
+    );
+    assert!(holds(&h), "the step ran");
+}
+
 /// Using a lifestone binds the player where it stands: the lifestone and the player play their
 /// binding and the use is answered. The lifestone recall (a weapon in hand) then powers up for its
 /// time, tells its story, and takes the player through portal space to the place and heading it

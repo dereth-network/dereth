@@ -1023,8 +1023,10 @@ pub fn use_object<S: Store>(
     if is_teaching_stone(s, o.description.package) {
         // A teaching stone shows its page: the client is told to examine it, and the use is
         // answered, wherever the player stands (2017: 14 of 15 uses, no walk; the Arwic vault's
-        // stone, of a class of its own, 1 of 1).
+        // stone, of a class of its own, 1 of 1). The steps its template triggers run after, as
+        // a person's use runs its own.
         let me = p_id(s, world);
+        let (template, name) = (o.template, o.description.name);
         let examine = call(FORCE_EXAMINE, &[Arg::LongInt(u.item)]);
         send(net, world, BlobKind::PRIVATE, &examine);
         let done = use_done(
@@ -1035,6 +1037,8 @@ pub fn use_object<S: Store>(
             reach(&u.from, o.cell, o.origin).unwrap_or(0.0),
         );
         send(net, world, BlobKind::PRIVATE, &done);
+        let who = Some((u.item, name));
+        crate::quests::triggered(s, net, world, Trigger::Use(template), who, clock);
         return;
     }
     if crate::usable::levers::is_lever(s, u.item) {

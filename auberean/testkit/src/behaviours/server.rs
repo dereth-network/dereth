@@ -15656,6 +15656,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.teaching-stone-runs-its-steps",
+        says: "A teaching stone whose template a quest step is triggered by shows its page, the use \
+               answered, then runs the step, as a person's use runs its own; a stone no step names \
+               shows its page alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TEACHING-STONE-STEPS"),
+        station: "yalain-testkit::cpu::entry::places::a_teaching_stone_shows_its_page_then_runs_the_step_its_template_triggers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.template-hero-only",
         says: "A placed object whose template is for heroes alone keeps anyone else out as a row's \
                hero flag does, whether or not it leads anywhere: 10049 with flags 820 and no trip; a \
