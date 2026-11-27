@@ -68,6 +68,9 @@ pub struct Table {
     pub paced_at: Option<f64>,
     /// The largest side of its pictures, texels.
     pub picture: u32,
+    /// The icon its weenies show: a picture of the client's (`0x06…`). Until the family's own is
+    /// drawn, the icon of the Asheron's Call creature type nearest it.
+    pub icon: Option<u32>,
     /// How much farther than AC2 each coarser level of detail starts
     /// ([`DETAIL_DISTANCE_SCALE`](super::make::DETAIL_DISTANCE_SCALE) when left out).
     pub detail_distance_scale: Option<f64>,

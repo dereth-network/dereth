@@ -8,6 +8,8 @@ entity = 0x470001C2
 # The idle's first keys.
 bind = 0x0500015C
 picture = 512
+# Its icon, until its own is drawn: the Phyntos Wasp's.
+icon = 0x0600103A
 
 [[motion]]
 command = "Ready"

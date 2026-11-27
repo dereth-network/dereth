@@ -8,6 +8,8 @@ entity = 0x470000C9
 # The idle's first keys.
 bind = 0x05000171
 picture = 512
+# Its icon, until its own is drawn: the Undead's.
+icon = 0x06001226
 
 [[motion]]
 command = "Ready"

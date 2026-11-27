@@ -20,6 +20,7 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - New `lyceum layer-from`: write a patch from a newer copy of the world.
 - The terrain brush paints a land's own ground variants, such as New Dereth's.
 - Fixed importing Dereth dungeons, the quests filter, and where a new New Dereth world opens.
+- The terrain brush paints a land's own grounds by name, such as New Dereth's.
 - New Rules tab: a world repository's rules, each beside its era's.
 - New Starting Areas tab: set where new characters start from the camera.
 - New Tables tab: change skills, heritages, the experience curve and creature types.

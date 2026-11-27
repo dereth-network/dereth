@@ -8,6 +8,8 @@ entity = 0x47000239
 # The idle's first keys.
 bind = 0x0500053B
 picture = 512
+# Its icon, until its own is drawn: the Golem's.
+icon = 0x06001224
 
 [[motion]]
 command = "Ready"

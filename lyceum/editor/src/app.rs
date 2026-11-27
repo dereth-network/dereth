@@ -725,6 +725,8 @@ pub struct EditorApp {
     pub settings_open: bool,
     /// The World data menu's button, as laid out last.
     pub world_data_button: Option<egui::Rect>,
+    /// The names the world's land gives its grounds, read once ([`lyceum_foundry::land::ground_names`]).
+    ground_names: std::cell::OnceCell<BTreeMap<u16, String>>,
     /// The history's place and the clock when the world was last saved.
     pub saved: Option<(usize, f64)>,
     /// Every message the status bar has shown, the newest last, and the last one logged.
@@ -1232,6 +1234,7 @@ impl EditorApp {
             play_menu_button: None,
             settings_open: false,
             world_data_button: None,
+            ground_names: std::cell::OnceCell::new(),
             saved: None,
             log: Vec::new(),
             log_last: String::new(),
@@ -4595,6 +4598,10 @@ impl EditorApp {
         )
         .into_iter()
         .map(|(v, tex)| {
+            // The land's own name for it, else the type's (and its variant's number).
+            if let Some(name) = self.land_ground_names().get(&v) {
+                return (v, name.clone(), tex);
+            }
             let ty = usize::from(lyceum_foundry::land::ground_type(v));
             let name = lyceum_foundry::models::words(&region.terrain_types[ty].terrain_name);
             let variant = v >> 5;
@@ -4609,6 +4616,17 @@ impl EditorApp {
             (v, name, tex)
         })
         .collect()
+    }
+
+    /// The names the world's land gives its grounds, by terrain value: empty for a land that names
+    /// none.
+    fn land_ground_names(&self) -> &BTreeMap<u16, String> {
+        self.ground_names.get_or_init(|| {
+            lyceum_foundry::land::ground_names(&self.session.world().imports).unwrap_or_else(|e| {
+                tracing::warn!("the grounds go unnamed by the land: {e}");
+                BTreeMap::new()
+            })
+        })
     }
 
     /// What each scene value grows on terrain `terrain`: the models its scenes place.

@@ -8,6 +8,8 @@ entity = 0x47000397
 # The idle's first keys.
 bind = 0x050008E7
 picture = 512
+# Its icon, until its own is drawn: the Shadow's.
+icon = 0x06001BBE
 
 [[motion]]
 command = "Ready"

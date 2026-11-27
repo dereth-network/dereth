@@ -86,6 +86,59 @@ pub fn ground(ty: u16, variant: u16) -> u16 {
     (ty & 0x1F) | ((variant & 0xF) << 5)
 }
 
+/// The table a converted land names its grounds in, beside its overlay: `type variant name`, a
+/// line each after a header.
+pub const GROUND_NAMES: &str = "ground-names.tsv";
+
+/// The names in a [`GROUND_NAMES`] table, by terrain value ([`ground`]).
+///
+/// # Errors
+/// A line that is not a type, a variant and a name.
+pub fn parse_ground_names(text: &str) -> Result<std::collections::BTreeMap<u16, String>, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (k, line) in text.lines().enumerate().skip(1) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        let (Some(ty), Some(variant), Some(name)) = (
+            cols.first()
+                .and_then(|c| c.parse::<u16>().ok())
+                .filter(|t| *t < 32),
+            cols.get(1)
+                .and_then(|c| c.parse::<u16>().ok())
+                .filter(|v| *v < 16),
+            cols.get(2).map(|n| n.trim()).filter(|n| !n.is_empty()),
+        ) else {
+            return Err(format!("line {}: not a type, a variant and a name", k + 1));
+        };
+        out.insert(ground(ty, variant), name.to_owned());
+    }
+    Ok(out)
+}
+
+/// The names the world's land gives its grounds ([`GROUND_NAMES`]): the last of `imports`
+/// (overlay folders) that holds the table. Empty when none does, as for a land not converted from
+/// AC2.
+///
+/// # Errors
+/// A table that will not read or parse.
+pub fn ground_names(
+    imports: &[std::path::PathBuf],
+) -> Result<std::collections::BTreeMap<u16, String>, String> {
+    for dir in imports.iter().rev() {
+        let path = dir.join(GROUND_NAMES);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                return parse_ground_names(&text).map_err(|e| format!("{}: {e}", path.display()))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
+    Ok(std::collections::BTreeMap::new())
+}
+
 /// The grounds a land's region offers, in order, each its terrain value and its picture: each of
 /// its `types` types, then the variants the region gives a picture of their own (its terrain
 /// descriptions, each a type with its variant above bit 8, and a picture), under their type. A
@@ -332,6 +385,29 @@ mod tests {
         );
         // A land without variants: its types alone, one without a picture still offered.
         assert_eq!(grounds(2, [(0u32, 'a')]), [(0, Some('a')), (1, None)]);
+    }
+
+    /// A converted land's ground names are read by terrain value; a line that is not a type, a
+    /// variant and a name is refused, and a land without the table names none.
+    #[test]
+    fn a_lands_ground_names_are_read_by_terrain_value() {
+        let names = parse_ground_names(
+            "type\tvariant\tname\n1\t0\tGrass land\n3\t1\tTropic bamboo\n3\t14\tTropic bamboo, steeper\n",
+        )
+        .unwrap();
+        assert_eq!(names.len(), 3);
+        assert_eq!(names[&1], "Grass land");
+        assert_eq!(names[&ground(3, 1)], "Tropic bamboo");
+        assert_eq!(names[&ground(3, 14)], "Tropic bamboo, steeper");
+        for bad in [
+            "type\tvariant\tname\n40\t0\tX\n",
+            "type\tvariant\tname\n1\t0\n",
+        ] {
+            assert!(parse_ground_names(bad).is_err(), "{bad:?}");
+        }
+        assert!(ground_names(&[std::path::PathBuf::from("no such land")])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

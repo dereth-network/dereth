@@ -29,7 +29,10 @@
 //! - `environments.tsv`: each AC2 cell mesh a building's rooms or a dungeon is drawn with, and the
 //!   environment written for it, with the surfaces its cells name;
 //! - `creatures.tsv`: AC2's creatures, every family a creature table names, made into the portal
-//!   overlay in ids of their own, and the ids each look's weenie names ([`creatures`]);
+//!   overlay in ids of their own, each family a creature type of its own, and the ids and creature
+//!   type each look's weenie names ([`creatures`]);
+//! - `ground-names.tsv`: each of the land's grounds (a terrain type and its variant) by its AC2
+//!   name in words, for a world builder's terrain brush ([`art::GROUND_NAMES`]);
 //! - `world.toml`: the world's own rules for Empyrean (`dungeons_by_cells`, since AC2's dungeons
 //!   lie under its land; `own_placements`, since the world is built from AC2's content, not a
 //!   world database's);
@@ -1838,9 +1841,37 @@ pub fn build(args: &Args) -> Result<u32, String> {
     };
     // AC2's creatures, each family in ids of its own, for a world's weenies to name.
     eprintln!("making AC2's creatures");
-    let creatures_made = creatures::make(&ac2_art, &mut art_records)?;
+    let mut creatures_made = creatures::make(&ac2_art, &mut art_records)?;
     // Every new record's id is free: the converted world names none of AC1's scenery records.
     check_free(&portal, art_records.0.keys().copied())?;
+    // Each family's icon a picture: its own drawn one, or one AC1's files hold.
+    for f in &creatures_made {
+        if let Some(icon) = f.table.icon {
+            let held =
+                art_records.0.contains_key(&DataId(icon)) || portal.read(DataId(icon)).is_ok();
+            if icon >> 24 != 0x06 || !held {
+                return Err(format!(
+                    "creature {}: its icon {icon:08X} is no picture",
+                    f.table.name
+                ));
+            }
+        }
+    }
+    // Each family a creature type of its own, in AC1's table of their names.
+    let ac1_types = portal
+        .read(DataId(creatures::TYPES_ID))
+        .map_err(|e| format!("AC1 creature types: {e}"))?;
+    let ac1_types_read =
+        dereth_assets::tables::EnumMapper::decode_payload(DataId(creatures::TYPES_ID), &ac1_types)
+            .map_err(|e| format!("AC1 creature types: {e:?}"))?;
+    if ac1_types_read.encode() != ac1_types {
+        return Err("AC1's creature types do not encode back to their own bytes".into());
+    }
+    let ac1_types = ac1_types_read;
+    art_records.add(
+        DataId(creatures::TYPES_ID),
+        creatures::number_types(&ac1_types, &mut creatures_made).encode(),
+    );
     let tm = ac1_region
         .land_surf
         .tex_merge
@@ -2117,6 +2148,10 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let creature_table = args.out.join(creatures::TABLE);
     std::fs::write(&creature_table, creatures::table(&creatures_made))
         .map_err(|e| format!("{}: {e}", creature_table.display()))?;
+    // The land's grounds by name, for a world builder's terrain brush.
+    let ground_names = args.out.join(art::GROUND_NAMES);
+    std::fs::write(&ground_names, art::ground_names_table(&ground.names))
+        .map_err(|e| format!("{}: {e}", ground_names.display()))?;
 
     // Read it all back through the overlay over AC1's own files.
     eprintln!("verifying");
@@ -2664,7 +2699,8 @@ pub fn build(args: &Args) -> Result<u32, String> {
     let _ = writeln!(readme, "overlay/places.tsv: AC2's towns and landmarks where AC2's map names them, which Dereth's map shows in place of AC1's notes (on by default; --names off leaves it out).");
     let _ = writeln!(readme, "overlay/dungeon-names.tsv: each AC2 dungeon, the AC1 block it lies under and its name, the name of the portals that lead in from the AC2 install's own strings (on by default; --names off leaves it out).");
     let _ = writeln!(readme, "overlay/environments.tsv: each AC2 cell mesh, whether a building's rooms or the dungeons are drawn with it, the environment made of it and the surfaces its cells name.");
-    let _ = writeln!(readme, "overlay/creatures.tsv: AC2's creatures, every look of each family, and the setup, motion table, combat table and texture swaps a world's weenie names for each.");
+    let _ = writeln!(readme, "overlay/creatures.tsv: AC2's creatures, every look of each family, and the setup, motion table, combat table, texture swaps and creature type a world's weenie names for each.");
+    let _ = writeln!(readme, "overlay/ground-names.tsv: each of the land's grounds, its terrain type and variant, and its AC2 name in words, for a world builder's terrain brush.");
     let _ = writeln!(readme, "The converted blocks hold none of AC1's buildings, its cells (its dungeons' among them), its statics or its house restrictions (ac1-removed.tsv).");
     let _ = writeln!(readme, "Beside it: stats.txt, dungeons.tsv (AC1's dungeon blocks, their cells taken off), dungeons-ac2.tsv (each AC2 dungeon and the AC1 block it lies under), dungeon-cells.tsv (each AC2 dungeon cell's AC1 cell), dungeons-left.tsv (AC2's cells left out, and why), buildings-ac2.tsv (each AC2 building with rooms: where it stands, its rooms, those beyond its block, its first doorway), doorways-ac2.tsv (each doorway out to the land: where it stands, its floor, and how far its ground stood over the floor before and after it was lowered), ac1-removed.tsv, worst-loss.tsv, kinds.tsv, map-picture.png (the map window's picture 0x0600127D, also in the portal overlay), ground.tsv (each terrain slot's AC2 ground picture), road-maps.tsv (each road alpha map's AC2 mask), cover-kinds.tsv (each of AC2's cover kinds: what AC2 grows on it, and its samples), cover-setups.tsv (each AC1 setup the cover's scenes place: its AC2 object, lift and least slope).");
     for (name, body) in [

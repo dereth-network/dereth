@@ -8,6 +8,8 @@ entity = 0x470001C7
 # The idle's first keys.
 bind = 0x050002E4
 picture = 512
+# Its icon, until its own is drawn: the Banderling's.
+icon = 0x0600103D
 
 [[motion]]
 command = "Ready"

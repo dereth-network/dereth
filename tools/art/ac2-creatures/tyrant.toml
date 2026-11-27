@@ -16,6 +16,8 @@ bind = 0x050002A1
 # Worlds draw it at 0.45 of AC2's size (the weenie's scale); its walk is paced for that.
 paced_at = 0.45
 picture = 512
+# Its icon, until its own is drawn: the Reedshark's.
+icon = 0x06001223
 
 [[motion]]
 command = "Ready"

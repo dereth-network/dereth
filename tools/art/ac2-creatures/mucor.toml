@@ -8,6 +8,8 @@ entity = 0x4700245C
 # The idle's first keys.
 bind = 0x0500111D
 picture = 512
+# Its icon, until its own is drawn: the Mite's.
+icon = 0x06001038
 
 [[motion]]
 command = "Ready"

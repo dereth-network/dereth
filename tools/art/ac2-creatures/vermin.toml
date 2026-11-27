@@ -8,6 +8,8 @@ entity = 0x4700026D
 # The idle's first keys.
 bind = 0x05000353
 picture = 512
+# Its icon, until its own is drawn: the Rat's.
+icon = 0x0600103B
 
 [[motion]]
 command = "Ready"

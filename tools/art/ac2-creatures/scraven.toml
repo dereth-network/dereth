@@ -8,6 +8,8 @@ entity = 0x4700026C
 # The idle's first keys.
 bind = 0x0500016D
 picture = 512
+# Its icon, until its own is drawn: the Zefir's.
+icon = 0x060016C3
 
 [[motion]]
 command = "Ready"

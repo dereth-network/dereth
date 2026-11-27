@@ -26,6 +26,56 @@ pub struct Ground {
     /// An entry for each variant on the land that is not its slot's own kind, after AC1's.
     pub extra: Vec<TerrainDesc>,
     pub tsv: String,
+    /// Each terrain type drawn with an AC2 ground (a slot, its variant above bit 8), and the
+    /// ground's name in words ([`ground_name`]).
+    pub names: Vec<(u32, String)>,
+}
+
+/// The file in the overlay folder naming the land's grounds: `type variant name`, a line each
+/// after a header, for a world builder's terrain brush.
+pub const GROUND_NAMES: &str = "ground-names.tsv";
+
+/// An AC2 ground kind's name (`TropicBamboo`, `highland-Ice`, `Silent_tum_shoreline`) in words, as
+/// a player reads it (`Tropic bamboo`, `Highland ice`, `Silent tum shoreline`).
+#[must_use]
+pub fn ground_name(kind: &str) -> String {
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut last_lower = false;
+    for c in kind.chars() {
+        if c == '_' || c == '-' || c == ' ' {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+            last_lower = false;
+            continue;
+        }
+        if c.is_ascii_uppercase() && last_lower {
+            words.push(std::mem::take(&mut word));
+        }
+        last_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        word.push(c);
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    let mut out = words.join(" ").to_lowercase();
+    if let Some(first) = out.get(0..1) {
+        out = first.to_uppercase() + &out[1..];
+    }
+    out
+}
+
+/// [`Ground::names`] as [`GROUND_NAMES`] writes them, in type order.
+#[must_use]
+pub fn ground_names_table(names: &[(u32, String)]) -> String {
+    let mut sorted: Vec<&(u32, String)> = names.iter().collect();
+    sorted.sort();
+    let mut s = String::from("type\tvariant\tname\n");
+    for (ty, name) in sorted {
+        let _ = writeln!(s, "{}\t{}\t{name}", ty & 0xFF, ty >> 8);
+    }
+    s
 }
 
 /// Each land slot drawn with AC2's ground, and each of its variants: the slot its own kind
@@ -54,6 +104,8 @@ pub fn ground_textures(
     let own = textures::slot_kinds(counts);
     // (terrain type, what it is, the picture list and its tile).
     let mut picks: Vec<(u32, String, u32, f32)> = Vec::new();
+    // (terrain type, the ground's name in words).
+    let mut names: Vec<(u32, String)> = Vec::new();
     let kinds = own
         .iter()
         .map(|(&slot, &(_, kind))| (u32::from(slot), kind))
@@ -82,6 +134,7 @@ pub fn ground_textures(
             continue;
         };
         picks.push((slot, format!("{kind} {}", k.name), list, base.tile_width));
+        names.push((slot, ground_name(&k.name)));
     }
     // Each steep variant on the land: its group's picture.
     for v in steep {
@@ -97,6 +150,21 @@ pub fn ground_textures(
             continue;
         }
         let kinds: Vec<String> = v.from.iter().map(|(k, gi)| format!("{k}/{gi}")).collect();
+        // Named for the first kind it is the steep ground of, and how steep: that kind's first
+        // group of slopes steep, any after it steeper.
+        if let Some(((_, group), k)) = v.from.first().and_then(|f| {
+            reg.terrain
+                .terrains
+                .iter()
+                .find(|t| t.index == f.0)
+                .map(|k| (f, k))
+        }) {
+            let how = if *group >= 2 { "steeper" } else { "steep" };
+            names.push((
+                textures::variant_type(v.slot, v.variant),
+                format!("{}, {how}", ground_name(&k.name)),
+            ));
+        }
         picks.push((
             textures::variant_type(v.slot, v.variant),
             format!("steep {:08X} (kind/group {})", v.material, kinds.join(" ")),
@@ -128,6 +196,7 @@ pub fn ground_textures(
         tsv: String::from(
             "ac1_type\tac2_kind\tpicture_list\tpicture\ttile_m\ttiling\tsurface_texture\n",
         ),
+        names,
     };
     for (ty, what, list, tile) in picks {
         // A variant's entry is its slot's, and a road's the road's, with its own picture.
@@ -300,4 +369,39 @@ pub fn road_maps(
         );
     }
     Ok((made, tsv))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the AC2 world's ground names)
+    use super::*;
+
+    /// An AC2 ground kind's name reads as words: its humps, underscores and dashes split, the
+    /// first letter capital and the rest small.
+    #[test]
+    fn a_ground_kinds_name_reads_as_words() {
+        for (kind, words) in [
+            ("TropicBamboo", "Tropic bamboo"),
+            ("highland-Ice", "Highland ice"),
+            ("Silent_tum_shoreline", "Silent tum shoreline"),
+            ("Water-Deep", "Water deep"),
+            ("GrassLand", "Grass land"),
+        ] {
+            assert_eq!(ground_name(kind), words, "{kind}");
+        }
+    }
+
+    /// The table names each ground by its slot and variant, in the order of its terrain type.
+    #[test]
+    fn the_ground_names_table_gives_slot_variant_and_name_in_type_order() {
+        let names = [
+            (3 | 1 << 8, "Tropic bamboo".to_owned()),
+            (1, "Grass land".to_owned()),
+            (10 | 13 << 8, "Highland rock, steep".to_owned()),
+        ];
+        assert_eq!(
+            ground_names_table(&names),
+            "type\tvariant\tname\n1\t0\tGrass land\n3\t1\tTropic bamboo\n10\t13\tHighland rock, steep\n"
+        );
+    }
 }
