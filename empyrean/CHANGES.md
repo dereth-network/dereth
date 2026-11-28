@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.19 (2026-11-28)
 - New era: New Dereth, on AC2's land from Leafcull 1, 498 P.Y.
 - A world can carry its own rules in its pack; your [era] settings still win.
 - World checks now catch chests and creatures whose loot type is missing.
