@@ -14762,6 +14762,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.allegiance-halls-recorded-walk-through",
+        says: "The Hakata, Millstone and Linvak Tukal allegiance halls are each entered by the town portal named \
+               for it; the hall's binding stone is reached on foot from the landing, and its way out leads back \
+               beside that portal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-2005-HALLS"),
+        station: "yalain-testkit::corpus::world_db::the_three_recorded_allegiance_halls_are_walked_from_their_town_portals_to_the_stone_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.places.allegiance-recall-unbound",
         says: "Allegiance Recall with no hall its allegiance is bound to plays it all and says the \
                allegiance is not bound; the player stays where it is.",
@@ -15093,6 +15103,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.filinuvekta-nexus-ways",
+        says: "The Filinuvekta final and tertiary defense nexus dungeons are each entered by a portal on \
+               the pad below its camp, which leads to the landing a 2005 trip recorded; every way out of \
+               the dungeon leads back up beside that portal, and each dungeon keeps its own boss.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-2005-NEXUS"),
+        station: "yalain-testkit::corpus::world_db::the_filinuvekta_nexus_portals_lead_to_their_recorded_landings_and_every_way_out_back_beside_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.places.glyph-opens-its-vault",
         says: "A glyph used on its vault plays its use; the vault flashes and the player goes through \
                portal space to the vault's destination, where the glyph is used up and the use \
@@ -15276,6 +15296,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-VAULT-LIFESTONES"),
         station: "yalain-testkit::corpus::world_db::the_maps_lifestones_no_recording_reached_stand_on_open_land_reached_and_bound_on_foot",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.places.market-rooms-recorded-walk-through",
+        says: "Each market room a recording shows is entered by its street door; every storekeeper in it is \
+               reached on foot from the landing, and its way back leads out beside the door.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-2005-MARKET-ROOMS"),
+        station: "yalain-testkit::corpus::world_db::the_recorded_market_rooms_are_walked_from_their_doors_to_every_storekeeper_and_out",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -15550,6 +15579,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-PORTAL"),
         station: "yalain-testkit::cpu::entry::places::a_portal_takes_the_player_through_portal_space_to_its_destination",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.portals-recorded-2005",
+        says: "The Heroes' Shrine guild door leads into its room and its way back out before the door; the Cavendo \
+               hall's town portal leads into the hall; the Ulkas mine's second portal leads up to its recorded \
+               landing without its toll.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-2005-PORTALS"),
+        station: "yalain-testkit::corpus::world_db::portals_a_2005_recording_shows_used_lead_where_it_landed_and_on_foot_beyond",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.places.recall-in-portal-space",
@@ -17764,6 +17803,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.hall-glyph-to-its-own-shard-room",
+        says: "The training hall quest's glyph, used on the hall's last portal, takes a player into its \
+               own race's hall's shard room: a Tumerok to the Tumerok hall's, where 2017's Tumerok landed, a \
+               Lugian to the Lugian hall's, where 2005's landed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-START-HALLS-2005"),
+        station: "yalain-testkit::corpus::world_db::a_tumeroks_and_a_lugians_glyph_takes_each_into_its_own_halls_shard_room",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.hidden-never-listed",
         says: "A hidden quest a character holds is never in the journal it enters the world with; \
                the shown ones are.",
@@ -18214,9 +18263,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.mine-ways-down",
-        says: "Each Ulkas mine's way down leads to its base, open to anyone, and each second way in \
-               leads where the first does, asking for the same toll. The portals' names say so; only \
-               the emerald mine's and the sapphire mine's ways down were recorded.",
+        says: "Each Ulkas mine's way down leads to its base, open to anyone. One second way in leads \
+               where the way in beside it does and asks for the same toll; the other goes up where a \
+               2005 recording landed and asks for none. Only the emerald mine's and the sapphire mine's \
+               ways down were recorded.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-MINE-WAYS-DOWN"),
         station: "yalain-testkit::corpus::world_db::every_ulkas_mine_portal_leads_somewhere",
@@ -22358,19 +22408,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.olthoi-hive-bottom-portals",
+        says: "The hives' portals at the bottom of their mounds are their level-35 recall points, and no portal stands on either mound's land: in each hive's mound the portal into the hive is named, from level 35, recalled to and summoned; a player under level 35 who runs to it from where the hive's way back lands is refused and stays in the mound, and one of level 35 is taken to the hive's landing; nothing on either mound's land leads into the mound.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-BOTTOM-PORTALS"),
+        station: "yalain-testkit::corpus::world_db::the_hives_bottom_portals_are_their_level_35_recall_points_with_none_on_the_land",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.olthoi-hive-northeast-walk-through",
         says: "The northeast hive in the Olthoi Wastes walks through: from the land outside its mound the walker runs in and down to the portal at the mound's bottom, which leads to the hive's landing, its way out beside it; every spot of its camps of Harvester, Gardener and Drone Grubs and Harvester and Gardener Nymphs stands in its own chamber clear of the nymph's spots and the portals to the warren, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads into the mound by the portal, from which the walker runs up to the land again.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-NE-CAMPS"),
         station: "yalain-testkit::corpus::world_db::the_northeast_olthoi_hive_is_walked_from_the_land_down_its_mound_to_every_camp_and_out",
-        tier: Tier::Corpus,
-    },
-    behaviour! {
-        id: "server.world.olthoi-hive-western-land-portal-walk-through",
-        says: "The western hive's portal on the land leads to the top of its mound, as the northeast hive's does: it is named as the northeast one is, from level 35, recalled to and summoned; a player under level 35 can't use it, and one at it is brought to the mound's top, its way out beside it; from there the walker runs down through the mound to the portal at its bottom, which leads to the hive's landing; and the way out of the mound's top leads back to the land beside the portal.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-WEST-PORTAL"),
-        station: "yalain-testkit::corpus::world_db::the_western_hives_portal_on_the_land_leads_to_the_top_of_its_mound_as_the_northeast_ones_does",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -22534,6 +22584,19 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-START"),
         station: "yalain-testkit::corpus::content::new_humans_start_in_a_copy_of_the_training_hall_with_their_races_skills",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.start-halls-rows",
+        says: "A new character of each race the install gives a training hall starts in the copy the \
+               world fills; its quick exit refuses it until it has read the stone beside it and then used \
+               the skull, and then it leaves by it to where it leads; the Lugian \
+               runs to its hall's guard and lieutenant, who move its quest to its second phase, and its \
+               shard room's shard leads where its exit does; the Empyrean runs to its hall's portal and \
+               goes up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-START-HALLS"),
+        station: "yalain-testkit::corpus::world_db::a_new_character_of_each_race_with_a_hall_starts_there_and_runs_out_by_its_quick_exit",
         tier: Tier::Corpus,
     },
     behaviour! {

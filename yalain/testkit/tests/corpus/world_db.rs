@@ -758,12 +758,12 @@ fn the_start_area_s_quests_and_the_people_they_name_come_from_the_database() {
         .quests
         .steps
         .iter()
-        .filter(|s| s.quest == 0x4000_0088)
+        .filter(|s| s.quest == 0x4000_0088 && for_race(s, 1))
         .collect();
     assert_eq!(
         hall.len(),
         9,
-        "the hall quest's steps, bestowal to completion"
+        "the hall quest's steps a human takes, bestowal to completion"
     );
     let vault = hall
         .iter()
@@ -1005,7 +1005,11 @@ fn the_hall_s_glyph_used_on_its_last_portal_takes_the_player_to_the_chamber() {
         .quests
         .steps
         .iter()
-        .find(|s| s.quest == 0x4000_0088 && s.trigger == Trigger::UseOn(0x4700_1AED, 0x4700_1CE8))
+        .find(|s| {
+            s.quest == 0x4000_0088
+                && s.trigger == Trigger::UseOn(0x4700_1AED, 0x4700_1CE8)
+                && for_race(s, 1)
+        })
         .expect("the glyph's step")
         .clone();
     let (mut h, b, me) = served(t);
@@ -1102,6 +1106,317 @@ fn the_hall_s_glyph_used_on_its_last_portal_takes_the_player_to_the_chamber() {
     assert!(
         yalain_world::quests::phase_of(&p.play.quests, 0x4000_0088) > step.needs,
         "the quest moved on"
+    );
+}
+
+/// Is a step one a player of this race takes: one for every race, or one naming it?
+fn for_race(s: &yalain_content::quests::Step, race: u32) -> bool {
+    s.races.is_empty() || s.races.contains(&race)
+}
+
+/// The compiled world on a harness whose new characters start where the install's character data
+/// puts their race, its objects described by the install.
+fn served_by_race(t: &Tables, portal: &yalain_testkit::authored::Portal) -> Harness {
+    let mut h = Harness::new();
+    h.server.content = t.content.clone();
+    h.server.stores = t.stores.clone();
+    h.server.quests = t.quests.clone();
+    h.server.talk = t.talk.clone();
+    start_by_race(&mut h, portal);
+    h.server.catalog = portal.catalog(t);
+    h
+}
+
+/// New characters start where the install's character data puts their race.
+fn start_by_race(h: &mut Harness, portal: &yalain_testkit::authored::Portal) {
+    let rules = portal.start_rules();
+    h.server.start.areas = rules.areas;
+    h.server.start.by_race = rules.by_race;
+}
+
+/// A new character of a race, made on the creation screens with its race's first start area and
+/// in the world: its client and its id.
+fn new_of_race(h: &mut Harness, race: u32) -> (usize, u64) {
+    use auberean_protocol::login::{CharacterCreated, CreateCharacter};
+    use auberean_protocol::table::{Table, SMALL};
+    use auberean_protocol::text::{NarrowString, WideString};
+    use auberean_protocol::ClientMessage;
+    let account = format!("race{race}");
+    let area = h.server.start.by_race[&race][0];
+    let b = h.at_character_list(&account);
+    let before = h.bots[b].inbox.len();
+    let m = ClientMessage::CreateCharacter(CreateCharacter {
+        account: NarrowString::from(account.as_str()),
+        name: WideString::from("Newcomer"),
+        entity_did: 0x4700_110F,
+        start_area: area,
+        race,
+        sex: yalain_world::chargen::MALE,
+        class: 2,
+        implement: 1,
+        physique: Table::from_inserted(SMALL, [(1, 1.0), (2, 1.0)]),
+    });
+    h.bots[b].send(false, queue::LOGON, &m);
+    assert!(h.run_until(1000, |h| h.bots[b].inbox.len() > before));
+    let Some(ServerMessage::CharacterCreated(CharacterCreated { identity, .. })) =
+        h.bots[b].inbox[before].message()
+    else {
+        panic!("race {race} is not answered with a character");
+    };
+    let me = identity.id;
+    h.enter_world(b, &account, me);
+    (b, me)
+}
+
+/// The one placed object of a template in a landblock.
+fn hall_object(t: &Tables, template: u32, landblock: u16) -> usize {
+    t.content
+        .objects
+        .iter()
+        .position(|o| o.template == template && o.landblock() == landblock)
+        .unwrap_or_else(|| panic!("{template:08X} in {landblock:04X}"))
+}
+
+/// A new character of each race the install gives a training hall starts in the hall's copy the
+/// world fills and runs to its quick exit, which refuses it until it has read the stone beside it
+/// and then used the skull (the skull first does nothing); then it leaves through it to where the
+/// exit leads. The Lugian
+/// runs to its hall's Shelter Guard, who gives the hall's quest, and on to the Lieutenant, who
+/// moves it on; the room its glyph leads into holds the shard, which leads where the exit does.
+/// The Empyrean runs to its hall's portal and goes up through it.
+/// Behaviour: server.world.start-halls-rows
+#[test]
+fn a_new_character_of_each_race_with_a_hall_starts_there_and_runs_out_by_its_quick_exit() {
+    use yalain_content::quests::Trigger;
+    let t = &compiled().tables;
+    let destination = |i: usize| {
+        t.content.objects[i]
+            .destination
+            .expect("it leads somewhere")
+    };
+    for (race, hall) in [(1, 0x0298), (4, 0x03FB), (2, 0x04F3), (16, 0x03D8)] {
+        let mut w = walled_as(t, &[u32::from(hall)], Some(race));
+        assert_eq!(
+            w.at().cell >> 16,
+            u32::from(hall),
+            "race {race} starts in its hall's filled copy"
+        );
+        let exit = hall_object(t, 0x4700_1154, hall);
+        let to = destination(exit).cell;
+        assert_ne!(to >> 16, u32::from(hall), "race {race}: out of the hall");
+        if race == 2 {
+            for (template, after) in [(0x4700_2DFD, 1), (0x4700_2DFF, 2)] {
+                let i = hall_object(t, template, hall);
+                assert!(
+                    w.run_to(t.content.objects[i].origin, 2.0),
+                    "the Lugian runs to {template:08X}"
+                );
+                w.use_placed(t, i);
+                let phase = yalain_world::quests::phase_of(
+                    &w.h.server.players[&w.world].play.quests,
+                    0x4000_0088,
+                );
+                assert_eq!(phase, after, "the Lugian after {template:08X}");
+            }
+            let glyph = t
+                .quests
+                .steps
+                .iter()
+                .find(|s| {
+                    s.quest == 0x4000_0088
+                        && s.trigger == Trigger::UseOn(0x4700_1AED, 0x4700_1CE8)
+                        && for_race(s, 2)
+                })
+                .expect("a Lugian's glyph step");
+            let room = glyph.to.expect("the glyph leads into a room");
+            assert_eq!(room.cell >> 16, u32::from(hall), "the Lugian's own hall");
+            let shard = hall_object(t, 0x4700_1BFF, hall);
+            let mut v = walled_as(t, &[u32::from(hall)], Some(race));
+            v.put(spot(room.cell, room.origin));
+            assert!(
+                v.run_to(t.content.objects[shard].origin, 3.0),
+                "from where the glyph leads to the shard"
+            );
+            v.use_placed(t, shard);
+            v.wait(10.0);
+            assert_eq!(v.at().cell, to, "the shard leads where the exit does");
+        }
+        if race == 16 {
+            let up = t
+                .content
+                .objects
+                .iter()
+                .position(|o| {
+                    o.landblock() == hall
+                        && o.template == 0x4700_1154
+                        && o.destination
+                            .is_some_and(|d| d.cell >> 16 == u32::from(hall))
+                })
+                .expect("the Empyrean hall's portal up");
+            let mut v = walled_as(t, &[u32::from(hall)], Some(race));
+            assert!(
+                v.run_to(t.content.objects[up].origin, 1.5),
+                "the Empyrean runs to its hall's portal"
+            );
+            v.use_placed(t, up);
+            v.wait(10.0);
+            assert_eq!(v.at().cell, destination(up).cell, "up the Empyrean hall");
+        }
+        // The exit is shut until the stone beside it is read and then its skull used.
+        let gate = |w: &Walled| {
+            w.h.server.players[&w.world]
+                .play
+                .quests
+                .iter()
+                .find(|q| q.quest == EXIT_QUEST)
+                .map(|q| q.status)
+        };
+        let stone = hall_object(t, 0x4700_2E13, hall);
+        let skull = hall_object(t, 0x4700_2E07, hall);
+        let try_exit = |w: &mut Walled| {
+            assert!(
+                w.run_to(t.content.objects[exit].origin, 1.5),
+                "race {race} runs to its exit"
+            );
+            w.use_placed(t, exit);
+            w.wait(10.0);
+            w.at().cell
+        };
+        assert_eq!(
+            try_exit(&mut w) >> 16,
+            u32::from(hall),
+            "race {race}: shut at first"
+        );
+        for (i, what) in [(skull, "the skull"), (stone, "the stone")] {
+            assert!(
+                w.run_to(t.content.objects[i].origin, 2.5),
+                "race {race} runs to {what}"
+            );
+            w.use_placed(t, i);
+        }
+        assert_eq!(
+            gate(&w),
+            Some(yalain_world::quests::status::UNDERWAY),
+            "race {race}: the skull before the stone does nothing, the stone gives the exit's quest"
+        );
+        assert_eq!(
+            try_exit(&mut w) >> 16,
+            u32::from(hall),
+            "race {race}: shut with the stone alone"
+        );
+        assert!(
+            w.run_to(t.content.objects[skull].origin, 2.5),
+            "race {race} back to the skull"
+        );
+        w.use_placed(t, skull);
+        assert_eq!(
+            gate(&w),
+            Some(yalain_world::quests::status::COMPLETED),
+            "race {race}: the skull after the stone"
+        );
+        assert_eq!(try_exit(&mut w), to, "race {race} leaves by its exit");
+    }
+}
+
+/// The install's quest a training hall's quick exit is opened by.
+const EXIT_QUEST: u32 = 0x4000_00C3;
+
+/// A new character of a race at the hall quest's glyph step, holding the glyph, uses it on its
+/// hall's last portal: the cell it is in once the trip is over, and whether the quest moved on.
+fn glyph_through_the_last_portal(t: &Tables, race: u32, hall: u16) -> (u32, bool) {
+    use yalain_content::quests::Trigger;
+    let portal_dat = yalain_testkit::authored::Portal::open();
+    let mut h = served_by_race(t, &portal_dat);
+    let (b, me) = new_of_race(&mut h, race);
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| {
+            s.quest == 0x4000_0088
+                && s.trigger == Trigger::UseOn(0x4700_1AED, 0x4700_1CE8)
+                && for_race(s, race)
+        })
+        .expect("the race's glyph step")
+        .clone();
+    let world = *h.server.players.keys().next().expect("in");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: 0x4000_0088,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: step.needs,
+            started: 0,
+            updated: 0,
+        });
+    h.server.catalog.insert(portal_dat.template(0x4700_1AED));
+    h.server.catalog.insert(portal_dat.template(0x4700_1CE8));
+    let targets: Vec<(u32, u32)> = h
+        .server
+        .catalog
+        .templates
+        .values()
+        .map(|x| (x.id, x.description.package))
+        .collect();
+    let templates: Vec<u32> = h.server.catalog.templates.keys().copied().collect();
+    h.server.interactions = portal_dat.interactions(&templates, &targets);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, 0x4700_1AED, 1);
+    h.run(3);
+    let glyph = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == 0x4700_1AED)
+        .expect("the glyph held")
+        .id;
+    let i = hall_object(t, 0x4700_1CE8, hall);
+    let o = &t.content.objects[i];
+    let target = yalain_world::presence::content_id(&t.content.objects, i);
+    let (cell, at) = (o.cell, [o.origin[0] + 1.0, o.origin[1], o.origin[2]]);
+    for p in h.server.players.values_mut() {
+        p.position.cell = cell;
+        p.position.origin = at;
+        p.heading_motion = yalain_world::world::IDLE_MOTION;
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(glyph, me, target)]),
+    );
+    h.run(3);
+    let clock = h.clock();
+    yalain_world::places::arrived(&mut h.server, &mut h.net, world, clock);
+    let until = h.now.0 + 10.0;
+    while h.now.0 < until {
+        h.step();
+    }
+    let p = &h.server.players[&world];
+    (
+        p.position.cell,
+        yalain_world::quests::phase_of(&p.play.quests, 0x4000_0088) > step.needs,
+    )
+}
+
+/// The hall quest's glyph, used on the hall's last portal, takes a Tumerok into its own hall's
+/// shard room, where 2017's Tumerok landed, not the human hall's; a Lugian into its own, where
+/// 2005's Lugian landed.
+/// Behaviour: server.quests.hall-glyph-to-its-own-shard-room
+#[test]
+fn a_tumeroks_and_a_lugians_glyph_takes_each_into_its_own_halls_shard_room() {
+    let t = &compiled().tables;
+    assert_eq!(
+        glyph_through_the_last_portal(t, 4, 0x03FB),
+        (0x03FB_0154, true),
+        "a Tumerok in its own hall's shard room, the quest moved on"
+    );
+    assert_eq!(
+        glyph_through_the_last_portal(t, 2, 0x04F3),
+        (0x04F3_0146, true),
+        "a Lugian in its own hall's shard room, the quest moved on"
     );
 }
 
@@ -4384,8 +4699,9 @@ fn aua_gives_her_quest_and_the_alembic_makes_the_infusion() {
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
 
-/// **The Ulkas mines' other portals**: each way down leads to the mine's base, each second way in
-/// where the first does, asking for the same toll.
+/// **The Ulkas mines' other portals**: each way down leads to the mine's base; one second way in leads
+/// where the way in beside it does and asks for the same toll, and the other goes up where a 2005
+/// recording landed and asks for none.
 /// Behaviour: server.quests.mine-ways-down
 #[test]
 fn every_ulkas_mine_portal_leads_somewhere() {
@@ -4409,21 +4725,31 @@ fn every_ulkas_mine_portal_leads_somewhere() {
         of(0x4057_6000_0000_0001).destination,
         of(0x4056_5E00_0000_0010).destination
     );
-    for (second, first) in [
-        (0x4079_9400_0000_0004_u64, 0x4079_9400_0000_0003_u64),
-        (0x4056_6000_0000_0003, 0x4056_6000_0000_0004),
-    ] {
-        assert_eq!(
-            of(second).destination,
-            of(first).destination,
-            "{second:016X}"
-        );
-        assert_eq!(
-            of(second).gate.map(|g| g.quest),
-            of(first).gate.map(|g| g.quest),
-            "{second:016X}"
-        );
-    }
+    assert_eq!(
+        of(0x4056_6000_0000_0003).destination,
+        of(0x4056_6000_0000_0004).destination
+    );
+    assert_eq!(
+        of(0x4079_9400_0000_0004)
+            .destination
+            .as_ref()
+            .map(|d| d.cell),
+        Some(0x7996_0004),
+        "up where it landed in 2005"
+    );
+    assert_eq!(
+        of(0x4056_6000_0000_0003).gate.map(|g| g.quest),
+        of(0x4056_6000_0000_0004).gate.map(|g| g.quest),
+        "the second way in beside the way in it follows"
+    );
+    assert!(
+        of(0x4079_9400_0000_0003).gate.is_some(),
+        "the way in's toll"
+    );
+    assert!(
+        of(0x4079_9400_0000_0004).gate.is_none(),
+        "the second way in that goes up asks for no toll"
+    );
 }
 
 /// **The Rouge mirra** goes as the others: cleansed at the font, charged at Exelaris, handed to the
@@ -5668,7 +5994,7 @@ fn the_crones_laboratories_lead_to_their_mistress_whose_death_moves_both_her_que
         ground_distance(
             &spot(way_out.cell, way_out.origin),
             &spot(landing.cell, landing.origin)
-        ) < 4.0,
+        ) < WAY_OUT_BY,
         "the way out beside the landing"
     );
     let back = way_out.destination.as_ref().expect("where it leads");
@@ -6925,8 +7251,8 @@ fn the_pinned_release_packaged_from_its_layout_alone_is_the_pins_archive() {
 
 /// **The ways into the mapped dungeons go both ways**: each of the eleven portals the players' maps
 /// and the list of destinations place leads into its dungeon, a way out stands within 4 m of its
-/// landing and leads back near the portal, and every creature spot those maps give stands in one of
-/// its dungeon's own cells, where each kind its camp makes moves at its own size.
+/// landing (the roosts' 30 m, where a 2005 recording shows it) and leads back near the portal, and
+/// every creature spot those maps give stands in one of its dungeon's own cells, where each kind its camp makes moves at its own size.
 /// Behaviour: server.world.mapped-dungeon-ways-in
 #[test]
 fn the_mapped_dungeons_ways_in_and_out_lead_both_ways() {
@@ -6987,7 +7313,9 @@ fn the_mapped_dungeons_ways_in_and_out_lead_both_ways() {
             &at(out.cell, out.origin, out.rotation),
             &at(landing.cell, landing.origin, landing.rotation),
         );
-        assert!(near_landing < 4.0, "{block:04X}: {near_landing}");
+        // The roosts' way out stands where a 2005 recording shows it, 30 m from the landing.
+        let out_within = if block == 0x09FD { 31.0 } else { 4.0 };
+        assert!(near_landing < out_within, "{block:04X}: {near_landing}");
         let back = out.destination.as_ref().expect("its destination");
         assert_eq!(back.cell >> 16, way_in.cell >> 16, "{block:04X}");
         let near_portal = ground_distance(
@@ -14236,7 +14564,8 @@ fn the_master_vaults_gem_opens_the_way_to_the_archon_whose_first_hurt_and_fall_o
 }
 
 /// **The scholars' vault has a way in and out**: its portal on the land leads to its landing, and
-/// a way out beside the landing leads back beside that portal.
+/// a way out within 6 m of the landing (where a 2005 recording shows it) leads back beside that
+/// portal.
 /// Behaviour: server.places.arcanum-vault-ways
 #[test]
 fn the_scholars_vaults_portal_leads_in_and_its_way_out_beside_the_landing_back() {
@@ -14265,7 +14594,7 @@ fn the_scholars_vaults_portal_leads_in_and_its_way_out_beside_the_landing_back()
         .expect("a way out of the vault");
     let out = &t.content.objects[j];
     let beside = yalain_world::usable::maps::ground_distance(&landing, &spot(out.cell, out.origin));
-    assert!(beside < 4.0, "the way out {beside} m from the landing");
+    assert!(beside < 6.0, "the way out {beside} m from the landing");
     use_person(&mut h, b, me, t, j);
     h.run(40);
     let back = h.server.players[&world].position;
@@ -14275,6 +14604,324 @@ fn the_scholars_vaults_portal_leads_in_and_its_way_out_beside_the_landing_back()
         &spot(outside, t.content.objects[i].origin),
     );
     assert!(near < 8.0, "{near} m from the vault's portal");
+}
+
+/// The world's placed objects in one block that lead out of it, by their places in the world's list.
+fn ways_out_of_block(t: &Tables, block: u32) -> Vec<usize> {
+    let objects = &t.content.objects;
+    (0..objects.len())
+        .filter(|&i| {
+            objects[i].cell >> 16 == block
+                && objects[i]
+                    .destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 != block)
+        })
+        .collect()
+}
+
+/// The world's placed objects outside a block that lead into it, by their places in the world's list.
+fn ways_into_block(t: &Tables, block: u32) -> Vec<usize> {
+    let objects = &t.content.objects;
+    (0..objects.len())
+        .filter(|&i| {
+            objects[i].cell >> 16 != block
+                && objects[i]
+                    .destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 == block)
+        })
+        .collect()
+}
+
+/// **The recorded market rooms walk through**: each of the nine market rooms whose rows stand where
+/// a 2005 recording shows them is entered by its street door; from the landing every storekeeper
+/// in it is reached on foot (to within a person's reach), and its way back, reached on foot, leads out
+/// within 5 m of the door.
+/// Behaviour: server.places.market-rooms-recorded-walk-through
+#[test]
+fn the_recorded_market_rooms_are_walked_from_their_doors_to_every_storekeeper_and_out() {
+    use yalain_world::usable::maps::ground_distance;
+    const ROOMS: [u32; 9] = [
+        0xF9FC, 0xF9FD, 0xFCFA, 0xFCFB, 0xFCFC, 0xFCFD, 0xFCFE, 0xFDFC, 0xFEFC,
+    ];
+    // To within the reach a person's use is carried out at.
+    let reach = yalain_world::places::PERSON_REACH;
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let mut blocks = ROOMS.to_vec();
+    let doors: Vec<usize> = ROOMS
+        .iter()
+        .map(|&room| {
+            let ways = ways_into_block(t, room);
+            assert_eq!(ways.len(), 1, "{room:04X}: one street door");
+            ways[0]
+        })
+        .collect();
+    blocks.extend(doors.iter().map(|&i| objects[i].cell >> 16));
+    let mut w = walled(t, &blocks);
+    for (&room, &door) in ROOMS.iter().zip(&doors) {
+        let landing = through(&mut w, t, door);
+        assert_eq!(landing.cell >> 16, room, "{room:04X}: in by its door");
+        let back = ways_out_of_block(t, room);
+        assert_eq!(back.len(), 1, "{room:04X}: one way back");
+        let keepers: Vec<usize> = (0..objects.len())
+            .filter(|&i| objects[i].cell >> 16 == room && objects[i].destination.is_none())
+            .collect();
+        assert!(keepers.len() >= 2, "{room:04X}: its storekeepers");
+        let mut missed = Vec::new();
+        for &k in &keepers {
+            w.put(landing);
+            if !w.run_to(objects[k].origin, reach) {
+                missed.push(objects[k].template);
+            }
+        }
+        assert!(
+            missed.is_empty(),
+            "{room:04X}: storekeepers not reached on foot from {:?}: {missed:08X?}",
+            landing.origin
+        );
+        w.put(landing);
+        let out = run_through(&mut w, t, back[0]);
+        let by = ground_distance(&out, &place_of(t, door));
+        assert_eq!(
+            out.cell >> 16,
+            objects[door].cell >> 16,
+            "{room:04X}: back out"
+        );
+        assert!(by < 5.0, "{room:04X}: out {by} m from the door");
+    }
+}
+
+/// **The allegiance halls a 2005 recording shows walk through**: the Hakata, Millstone and Linvak
+/// Tukal halls are each entered by the town portal named for it; from the landing the hall's
+/// binding stone, which its row makes a hall's stone, is reached on foot, and the hall's way out,
+/// reached on foot, leads back within 8 m of that portal.
+/// Behaviour: server.places.allegiance-halls-recorded-walk-through
+#[test]
+fn the_three_recorded_allegiance_halls_are_walked_from_their_town_portals_to_the_stone_and_out() {
+    use yalain_world::usable::maps::ground_distance;
+    const HALLS: [u32; 3] = [0x0BF7, 0x0CFB, 0x0DFB];
+    // To within the reach a person's use is carried out at, less a meter, as the halls' walk.
+    let reach = yalain_world::places::PERSON_REACH - 1.0;
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let ways: Vec<usize> = HALLS
+        .iter()
+        .map(|&hall| {
+            let ways = ways_into_block(t, hall);
+            assert_eq!(ways.len(), 1, "{hall:04X}: one town portal");
+            ways[0]
+        })
+        .collect();
+    let mut blocks = HALLS.to_vec();
+    blocks.extend(ways.iter().map(|&i| objects[i].cell >> 16));
+    let mut w = walled(t, &blocks);
+    for (&hall, &way_in) in HALLS.iter().zip(&ways) {
+        let row = t
+            .content
+            .halls
+            .rows
+            .iter()
+            .find(|h| objects[h.stone].cell >> 16 == hall)
+            .unwrap_or_else(|| panic!("{hall:04X}: a hall's stone"));
+        assert_eq!(row.cost, 20_000, "{hall:04X}: the signs' cost");
+        assert_eq!(row.place.cell >> 16, hall, "{hall:04X}: its recall in it");
+        let landing = through(&mut w, t, way_in);
+        assert_eq!(landing.cell >> 16, hall, "{hall:04X}: in by its portal");
+        assert!(
+            w.run_to(objects[row.stone].origin, reach),
+            "{hall:04X}: the stone reached on foot"
+        );
+        let out = ways_out_of_block(t, hall);
+        assert_eq!(out.len(), 1, "{hall:04X}: one way out");
+        w.put(landing);
+        let back = run_through(&mut w, t, out[0]);
+        assert_eq!(
+            back.cell >> 16,
+            objects[way_in].cell >> 16,
+            "{hall:04X}: back to the town"
+        );
+        let by = ground_distance(&back, &place_of(t, way_in));
+        assert!(by < 8.0, "{hall:04X}: back {by} m from its portal");
+    }
+}
+
+/// **Portals a 2005 recording shows used lead where it landed**: the guild door by the Heroes'
+/// Shrine leads into its room, whose way back, reached on foot, leads out before the door; the
+/// Cavendo hall's town portal leads to the hall, whose stone is reached on foot; and the Ulkas mine's
+/// second portal, run to from the first, leads up to its recorded landing with no toll held.
+/// Behaviour: server.places.portals-recorded-2005
+#[test]
+fn portals_a_2005_recording_shows_used_lead_where_it_landed_and_on_foot_beyond() {
+    use yalain_world::usable::maps::ground_distance;
+    const GUILD_DOOR: u64 = 0x405E_B000_0000_0008;
+    const GUILD_BACK: u64 = 0x405E_B000_0000_0009;
+    const HALL_PORTAL: u64 = 0x40A4_9400_0000_0003;
+    const MINE_FIRST: u64 = 0x4079_9400_0000_0003;
+    const MINE_SECOND: u64 = 0x4079_9400_0000_0004;
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let by_id = |id: u64| {
+        objects
+            .iter()
+            .position(|o| o.object == Some(id))
+            .unwrap_or_else(|| panic!("{id:016X}"))
+    };
+    let mut w = walled(t, &[0x5EB0, 0xA494, 0x0CF7, 0x7994, 0x7996]);
+
+    let door = by_id(GUILD_DOOR);
+    let room = through(&mut w, t, door);
+    assert_eq!(room.cell, 0x5EB0_0100, "into the guild room");
+    let out = run_through(&mut w, t, by_id(GUILD_BACK));
+    assert_eq!(out.cell >> 16, 0x5EB0, "back out");
+    let by = ground_distance(&out, &place_of(t, door));
+    assert!(by < 5.0, "out {by} m from the guild door");
+
+    let hall = through(&mut w, t, by_id(HALL_PORTAL));
+    assert_eq!(hall.cell, 0x0CF7_0100, "into the hall");
+    let row = t
+        .content
+        .halls
+        .rows
+        .iter()
+        .find(|h| objects[h.stone].cell >> 16 == 0x0CF7)
+        .expect("the hall's stone");
+    assert!(
+        w.run_to(
+            objects[row.stone].origin,
+            yalain_world::places::PERSON_REACH - 1.0
+        ),
+        "the stone reached on foot"
+    );
+
+    w.put(place_of(t, by_id(MINE_FIRST)));
+    let second = by_id(MINE_SECOND);
+    let up = run_through(&mut w, t, second);
+    assert_eq!(up.cell >> 16, 0x7996, "up to the recorded landing's block");
+    let landing = objects[second].destination.expect("a landing");
+    assert!(
+        ground_distance(&up, &spot(landing.cell, landing.origin)) < 2.0,
+        "at its landing"
+    );
+}
+
+/// **The two Filinuvekta defense nexus dungeons are entered by their portals and left beside
+/// them**: each nexus portal stands on the portal pad below its camp, named for its nexus; run to
+/// from where a 2005 player stood to use it, it leads to the landing that player's trip recorded.
+/// Every way out of its dungeon (the one nearest the landing, within 15 m, reached on foot from it)
+/// leads back up to the ground within 8 m of that portal and clear of its body, where the player
+/// stays; and each dungeon's boss is its own nexus's, not the other's.
+/// Behaviour: server.places.filinuvekta-nexus-ways
+#[test]
+fn the_filinuvekta_nexus_portals_lead_to_their_recorded_landings_and_every_way_out_back_beside_them(
+) {
+    use yalain_world::usable::maps::ground_distance;
+    struct Nexus {
+        dungeon: u32,
+        portal_cell: u32,
+        name: u32,
+        stood: (u32, [f32; 3]),
+        landing: (u32, [f32; 3]),
+        boss: u32,
+        ways_out: usize,
+    }
+    const NAMES: u32 = 0x2500_1B44;
+    const NEXI: [Nexus; 2] = [
+        Nexus {
+            dungeon: 0x05F5,
+            portal_cell: 0x73C2_000B,
+            name: 0x99FA_63E6,
+            stood: (0x73C2_000B, [35.97, 44.39, 212.51]),
+            landing: (0x05F5_014E, [-80.0, -280.0, 121.886]),
+            boss: 0x4700_2D08,
+            ways_out: 3,
+        },
+        Nexus {
+            dungeon: 0x05F6,
+            portal_cell: 0x71C4_0033,
+            name: 0x19FA_63E7,
+            stood: (0x71C4_002B, [117.98, 47.65, 124.51]),
+            landing: (0x05F6_014C, [78.0, -217.0, 122.002]),
+            boss: 0x4700_2D0A,
+            ways_out: 4,
+        },
+    ];
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let mut blocks = Vec::new();
+    for n in &NEXI {
+        blocks.extend([n.dungeon, n.portal_cell >> 16]);
+    }
+    let mut w = walled(t, &blocks);
+    for (k, n) in NEXI.iter().enumerate() {
+        let d = n.dungeon;
+        let portal = placed_in(t, 0x4700_1154, n.portal_cell);
+        assert_eq!(
+            objects[portal].description.name,
+            Some((n.name, NAMES)),
+            "{d:04X}: the portal named for its nexus"
+        );
+        w.put(spot(n.stood.0, n.stood.1));
+        let landing = run_through(&mut w, t, portal);
+        assert_eq!(
+            landing.cell, n.landing.0,
+            "{d:04X}: in at its landing's cell"
+        );
+        let off = ground_distance(&landing, &spot(n.landing.0, n.landing.1));
+        assert!(off < 2.0, "{d:04X}: {off} m from the recorded landing");
+        hold_doors_open(&mut w, t, d);
+        let outs = ways_out_of_block(t, d);
+        assert_eq!(outs.len(), n.ways_out, "{d:04X}: its ways out");
+        let nearest = *outs
+            .iter()
+            .min_by(|&&a, &&b| {
+                let by = |i: usize| ground_distance(&landing, &place_of(t, i));
+                by(a).total_cmp(&by(b))
+            })
+            .expect("a way out");
+        let near = ground_distance(&landing, &place_of(t, nearest));
+        assert!(near < 15.0, "{d:04X}: a way out {near} m from the landing");
+        for &out in &outs {
+            let back = if out == nearest {
+                w.put(landing);
+                run_through(&mut w, t, out)
+            } else {
+                through(&mut w, t, out)
+            };
+            assert_eq!(
+                back.cell >> 16,
+                n.portal_cell >> 16,
+                "{d:04X}: way {out} back up to the portal's block"
+            );
+            let by = ground_distance(&back, &place_of(t, portal));
+            assert!(
+                (3.0..8.0).contains(&by),
+                "{d:04X}: way {out} back {by} m from the portal"
+            );
+            w.h.run(40);
+            assert_eq!(w.at().cell, back.cell, "{d:04X}: way {out}: stays out");
+        }
+        let camps: Vec<_> = t
+            .spawns
+            .camps
+            .iter()
+            .filter(|c| c.cell >> 16 == d)
+            .collect();
+        let other = NEXI[1 - k].boss;
+        assert!(
+            camps
+                .iter()
+                .any(|c| c.templates.iter().any(|&(tp, _)| tp == n.boss)),
+            "{d:04X}: its own boss"
+        );
+        assert!(
+            !camps
+                .iter()
+                .any(|c| c.templates.iter().any(|&(tp, _)| tp == other)),
+            "{d:04X}: not the other nexus's boss"
+        );
+    }
 }
 
 /// The world's portals, people and objects placed in one cell, by template: the one, else a panic.
@@ -15016,7 +15663,7 @@ fn dungeon_bosses_stand_in_their_dungeons_and_their_starters_deaths_send_players
                     && yalain_world::usable::maps::ground_distance(
                         &landing,
                         &spot(o.cell, o.origin),
-                    ) < 4.0
+                    ) < WAY_OUT_BY
             })
             .unwrap_or_else(|| panic!("a way out of {dungeon:04X} beside its landing"));
         use_person(&mut h, b, me, t, j);
@@ -17495,8 +18142,9 @@ fn osteths_dungeon_bosses_stand_in_their_dungeons_and_the_drudge_city_has_its_wa
         "a way out beside the landing and one at the far end"
     );
     assert!(
-        outs.iter()
-            .any(|j| ground_distance(&landing, &spot(objects[*j].cell, objects[*j].origin)) < 4.0),
+        outs.iter().any(
+            |j| ground_distance(&landing, &spot(objects[*j].cell, objects[*j].origin)) < WAY_OUT_BY
+        ),
         "a way out beside the landing"
     );
     for j in outs {
@@ -19883,6 +20531,22 @@ fn open_doors_of(w: &mut Walled, t: &Tables, block: u32) {
         }
     }
     w.put(back);
+}
+
+/// Every door of a block opened and held open until a use closes it, as a lever holds its doors.
+fn hold_doors_open(w: &mut Walled, t: &Tables, block: u32) {
+    for i in doors_of(w, block) {
+        let id = yalain_world::presence::content_id(&t.content.objects, i);
+        let clock = w.h.clock();
+        yalain_world::usable::doors::held_open(
+            &mut w.h.server,
+            &mut w.h.net,
+            id,
+            yalain_world::usable::doors::Held::UntilClosed,
+            clock,
+        );
+    }
+    w.h.run(12);
 }
 
 /// The walker uses a door beside it: whether it opens.
@@ -26820,6 +27484,12 @@ struct Walled {
 }
 
 fn walled(t: &Tables, blocks: &[u32]) -> Walled {
+    walled_as(t, blocks, None)
+}
+
+/// As [`walled`], the character a new one of a race (`None`: the test world's human), started
+/// where the install's character data puts its race.
+fn walled_as(t: &Tables, blocks: &[u32], race: Option<u32>) -> Walled {
     use yalain_world::usable::doors;
     let portal = yalain_testkit::authored::Portal::open();
     let lib = portal.library();
@@ -26853,7 +27523,13 @@ fn walled(t: &Tables, blocks: &[u32]) -> Walled {
     walls.walkers.insert(0, human);
     h.server.walls = Some(walls);
     h.server.stand_placed();
-    let (b, me) = h.player_in_world("walker", "Rowan");
+    let (b, me) = match race {
+        Some(race) => {
+            start_by_race(&mut h, &portal);
+            new_of_race(&mut h, race)
+        }
+        None => h.player_in_world("walker", "Rowan"),
+    };
     let world = player_world(&h);
     h.bots[b].send(
         true,
@@ -29275,15 +29951,20 @@ fn the_drudges_cave_is_walked_in_from_the_land_to_every_camp_and_out() {
 }
 
 /// Every spot of some camps of a block at least `m` meters from every spot of the block's other
-/// camps (its boss, a quest's guards) and from every object placed in it (its landing's ways, a
-/// quest's chest).
+/// camps (its boss, a quest's guards) and from every object placed in it but its doors (its
+/// landing's ways, a quest's chest).
 fn camps_clear_of_the_rest(c: &Compiled, camps: &[usize], block: u32, m: f32) {
     let t = &c.tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
+    let door = lib
+        .package_id(yalain_world::usable::doors::PACKAGE)
+        .expect("the doors' package");
     let mut others: Vec<(String, [f32; 3])> = t
         .content
         .objects
         .iter()
-        .filter(|o| o.cell >> 16 == block)
+        .filter(|o| o.cell >> 16 == block && !lib.derives_from(o.description.package, door))
         .map(|o| (format!("object {:08X}", o.template), o.origin))
         .collect();
     for (i, camp) in t.spawns.camps.iter().enumerate() {
@@ -29305,10 +29986,14 @@ fn camps_clear_of_the_rest(c: &Compiled, camps: &[usize], block: u32, m: f32) {
     }
 }
 
+/// How far a dungeon's way out may stand from its landing and still be beside it: the ways out a
+/// 2005 recording shows stand 5 to 6 m from their landings.
+const WAY_OUT_BY: f32 = 6.5;
+
 /// A dungeon entered from another block whose way out stands beside its landing, walked: the way in
 /// to the landing; the way out the portal of the landing's block nearest it, leading back, within
-/// 4 m; every spot of the pack's camps there clear of the dungeon's other camps and objects by 8 m
-/// and reached on foot (steps of 1.5 m), of the given kinds alone and all of them, the farthest run
+/// [`WAY_OUT_BY`]; its doors held open, as a walker opens each it comes to; every spot of the pack's camps there clear of the dungeon's other
+/// camps and objects by 8 m and reached on foot (steps of 1.5 m), of the given kinds alone and all of them, the farthest run
 /// to and back; and the way out to the block it came from, within `back_by` m of the way in (where
 /// a list of the game's destinations puts its way out). Returns the camps' creatures.
 fn landing_dungeon_walk(pack: &str, from: u32, landing: u32, kinds: &[u32], back_by: f32) -> u32 {
@@ -29318,6 +30003,7 @@ fn landing_dungeon_walk(pack: &str, from: u32, landing: u32, kinds: &[u32], back
     let mut w = walled(t, &[from, landing >> 16]);
     let at = through(&mut w, t, way_in);
     assert_eq!(at.cell, landing, "the way in to its landing");
+    hold_doors_open(&mut w, t, landing >> 16);
     let (out, by) = t
         .content
         .objects
@@ -29336,7 +30022,7 @@ fn landing_dungeon_walk(pack: &str, from: u32, landing: u32, kinds: &[u32], back
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .expect("a way out");
-    assert!(by < 4.0, "its way out beside its landing: {by}");
+    assert!(by < WAY_OUT_BY, "its way out beside its landing: {by}");
     let camps = pack_camps(c, pack, landing >> 16);
     camps_clear_of_the_rest(c, &camps, landing >> 16, 8.0);
     let creatures = camps_reached_on_foot(c, &mut w, &camps, kinds, 1.5);
@@ -29804,112 +30490,57 @@ fn the_warren_under_the_northeast_hive_is_walked_from_both_its_portals_to_every_
     assert!(by < 4.0, "beside the portal that led in: {by}");
 }
 
-/// The portal on the land of a hive's mound: the one portal standing outdoors in the mound's block
-/// that leads inside it.
-fn mound_land_portal(t: &Tables, mound: u32) -> usize {
-    let ways: Vec<usize> = (0..t.content.objects.len())
-        .filter(|&i| {
-            let o = &t.content.objects[i];
-            o.template == 0x4700_1154
-                && o.cell >> 16 == mound
-                && o.cell & 0xFFFF < 0x100
-                && o.destination
-                    .as_ref()
-                    .is_some_and(|d| d.cell >> 16 == mound && d.cell & 0xFFFF >= 0x100)
-        })
-        .collect();
-    assert_eq!(
-        ways.len(),
-        1,
-        "one portal on {mound:04X}'s land into the mound"
-    );
-    ways[0]
-}
-
-/// **The western hive's portal on the land leads to the top of its mound, as the northeast
-/// hive's does**: it is named as the northeast one is, from level 35, recalled to and summoned;
-/// a player under level 35 can't use it, and one at it is brought to the mound's top, its way
-/// out beside it; from there the walker runs down through the mound to the portal at its bottom,
-/// which leads to the hive's landing; and the way out of the mound's top leads back to the land
-/// beside the portal.
-/// Behaviour: server.world.olthoi-hive-western-land-portal-walk-through
+/// **The hives' portals at the bottom of their mounds are their level-35 recall points, and no
+/// portal stands on either mound's land**: in each hive's mound the portal into the hive is named,
+/// from level 35, recalled to and summoned; a player under level 35 who runs to it from where the
+/// hive's way back lands is refused and stays in the mound, and one of level 35 is taken to the
+/// hive's landing; nothing on either mound's land leads into the mound.
+/// Behaviour: server.world.olthoi-hive-bottom-portals
 #[test]
-fn the_western_hives_portal_on_the_land_leads_to_the_top_of_its_mound_as_the_northeast_ones_does() {
+fn the_hives_bottom_portals_are_their_level_35_recall_points_with_none_on_the_land() {
     use yalain_content::portal::{RECALL, SUMMON};
-    use yalain_world::usable::maps::ground_distance;
-    const MOUND: u32 = 0xDEA8;
-    const HIVE_LANDING: u32 = 0x06F4_0101;
     let c = compiled();
     let t = &c.tables;
     let objects = &t.content.objects;
-    let west = mound_land_portal(t, MOUND);
-    let northeast = mound_land_portal(t, 0xE1A8);
-    for i in [west, northeast] {
-        let f = &objects[i].facts;
+    for (mound, landing) in [(0xE1A8_u32, 0x06F5_0162_u32), (0xDEA8, 0x06F4_0101)] {
+        let on_the_land = (0..objects.len())
+            .filter(|&i| {
+                let o = &objects[i];
+                o.cell >> 16 == mound
+                    && o.cell & 0xFFFF < 0x100
+                    && o.destination
+                        .as_ref()
+                        .is_some_and(|d| d.cell >> 16 == mound)
+            })
+            .count();
         assert_eq!(
-            f.min_level,
-            Some(35),
-            "{:08X} from level 35",
-            objects[i].cell
+            on_the_land, 0,
+            "no portal on {mound:04X}'s land into the mound"
         );
+        let bottom = way_into(t, mound, landing);
+        let o = &objects[bottom];
+        assert!(o.description.name.is_some(), "{:08X} named", o.cell);
+        assert_eq!(o.facts.min_level, Some(35), "{:08X} from level 35", o.cell);
         assert_eq!(
-            f.portal & (RECALL | SUMMON),
+            o.facts.portal & (RECALL | SUMMON),
             RECALL | SUMMON,
-            "recalled and summoned"
+            "{:08X} recalled to and summoned",
+            o.cell
         );
+        let back = objects
+            .iter()
+            .filter(|x| x.cell >> 16 == landing >> 16)
+            .find_map(|x| x.destination.as_ref().filter(|d| d.cell >> 16 == mound))
+            .expect("the hive's way back into the mound");
+        let mut w = walled(t, &[mound, landing >> 16]);
+        w.put(spot(back.cell, back.origin));
+        set_level(&mut w.h, 34);
+        let refused = run_through(&mut w, t, bottom).cell;
+        assert_eq!(refused >> 16, mound, "not under level 35: {refused:08X}");
+        set_level(&mut w.h, 35);
+        w.use_placed(t, bottom);
+        assert_eq!(w.at().cell, landing, "to {mound:04X}'s hive at level 35");
     }
-    assert_eq!(
-        objects[west].description.name, objects[northeast].description.name,
-        "named as the northeast one"
-    );
-    let mut w = walled(t, &[MOUND, HIVE_LANDING >> 16]);
-    let land = place_of(t, west);
-    w.put(spot(
-        land.cell,
-        [land.origin[0] - 4.0, land.origin[1], land.origin[2]],
-    ));
-    set_level(&mut w.h, 34);
-    let refused = run_through(&mut w, t, west).cell;
-    assert!(
-        refused >> 16 == MOUND && refused & 0xFFFF < 0x100,
-        "not under level 35: {refused:08X}"
-    );
-    set_level(&mut w.h, 35);
-    w.use_placed(t, west);
-    let top = w.at();
-    assert!(
-        top.cell >> 16 == MOUND && top.cell & 0xFFFF >= 0x100,
-        "into the mound: {:08X}",
-        top.cell
-    );
-    let bottom = way_into(t, MOUND, HIVE_LANDING);
-    let deep = place_of(t, bottom).origin[2];
-    assert!(top.origin[2] > deep + 60.0, "the mound's top: {top:?}");
-    let (out, by) = (0..objects.len())
-        .filter(|&i| {
-            objects[i].cell >> 16 == MOUND
-                && objects[i].cell & 0xFFFF >= 0x100
-                && objects[i]
-                    .destination
-                    .as_ref()
-                    .is_some_and(|d| d.cell >> 16 == MOUND && d.cell & 0xFFFF < 0x100)
-        })
-        .map(|i| (i, ground_distance(&top, &place_of(t, i))))
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .expect("a way out of the mound's top");
-    assert!(by < 4.0, "its way out beside where it lands: {by}");
-    on_foot_to(
-        &mut w,
-        place_of(t, bottom),
-        "the portal at the mound's bottom",
-    );
-    w.use_placed(t, bottom);
-    assert_eq!(w.at().cell, HIVE_LANDING, "to the hive's landing");
-    w.put(top);
-    let back = run_through(&mut w, t, out);
-    assert!(back.cell & 0xFFFF < 0x100, "out to the land");
-    let by = ground_distance(&back, &land);
-    assert!(by < 8.0, "beside the portal: {by}");
 }
 
 /// **The western hive's nymph is kept at the eight spawns its map marks, one at a time**: the
@@ -36329,7 +36960,7 @@ fn a_monarch_reads_a_halls_sign_binds_at_its_stone_and_the_allegiance_recalls_to
     const SWORD: u32 = 0x4700_051C;
     let t = &compiled().tables;
     let halls = &t.content.halls.rows;
-    assert_eq!(halls.len(), 6, "every hall 2017 saw a stone in");
+    assert_eq!(halls.len(), 9, "every hall a recording saw a stone in");
     for h in halls {
         let stone = &t.content.objects[h.stone];
         assert!(
