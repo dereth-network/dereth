@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.12 (2026-11-28)
 - Quest steps that give a quest can now say their line when the giving is refused.
 - Behavior table rows can now list attacks their creatures never use.
 - Rows from a world snapshot now show an S badge for where they came from.
