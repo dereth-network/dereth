@@ -9,6 +9,8 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+
+## 0.5.11 (2026-11-28)
 - Worlds you host show their era while they're stopped.
 - New Dereth can now be chosen as a world's era.
 - Lyceum opens a New Dereth world, asking once for the folder of its land.
