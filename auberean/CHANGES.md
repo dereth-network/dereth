@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.14 (2026-11-28)
 - Headless: the snapshot's inventory no longer lists the selected object.
 - Key map and options files can now include other files.
 - Horizon: new default key maps.
