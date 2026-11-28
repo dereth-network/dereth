@@ -45,6 +45,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Tank: crafting now uses heads and shafts picked up after it starts.
 - Navigator: routes now go around the barriers of houses you can't enter.
 - Large data patches apply much faster, and show their progress.
+- dereth-art can build the AC2-in-AC1 world from your own installs.
 
 ## 0.4.23 (2026-11-23)
 - Horizon: fixed plugin windows over a moved party list not taking clicks or drags.
@@ -78,7 +79,6 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - The maps name a world's own towns and landmarks.
 - Fixed a world entered during its data patch being built from the old files.
 - A world can color its sky by the hour.
-- dereth-art can build the AC2-in-AC1 world from your own installs.
 
 ## 0.4.21 (2026-11-21)
 - Fixed the game freezing while a world's large data patch downloads; it now shows progress.
