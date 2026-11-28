@@ -11,6 +11,8 @@ release's own section, dated, and opens a new empty one in the same commit as th
 refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.2.9 (2026-11-28)
 - New worlds can have finer land, down to 8 m between vertices, and every vertex can be edited.
 - New worlds can start from another tool's world, such as the AC2-in-AC1 world.
 - Build dungeons from AC2's dungeon kits, in AC2's looks, from your own AC2 install.
