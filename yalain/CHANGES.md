@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.9.0 (2026-11-28)
 - Creatures now fight a pet whose attack they dodge, as in retail.
 - Quest countdowns now run out on time, and quest effect messages now show.
 - Stopping an attack mid-special now waits for the special to finish, as in retail.
